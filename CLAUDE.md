@@ -2,7 +2,7 @@
 
 Online multiplayer Risk with bots and an MCP server for AI agents. npm-workspaces monorepo:
 `packages/engine` (pure rules, tested), `packages/server` (Express + ws, persistence, bots),
-`packages/client` (React + Vite), `packages/mcp` (stdio MCP server).
+`packages/client` (React + Vite), `packages/mcp` (MCP tools; stdio CLI, and embedded in the server at `/mcp`).
 
 ## Commands
 
@@ -10,7 +10,8 @@ Online multiplayer Risk with bots and an MCP server for AI agents. npm-workspace
 - `npm run build` — builds every package; writes `packages/server/dist/build-info.json`.
 - `npm test` — the deploy gate: builds the engine (`pretest`), then typecheck + engine + server tests.
   Works on a fresh clone right after `npm ci`. No fixed ports, no browser.
-- `npm start` — `node packages/server/dist/index.js` (reads `PORT`, binds `0.0.0.0`).
+- `npm start` — `node packages/server/dist/index.js` (reads `PORT`, binds `0.0.0.0`). Serves the web
+  client, `/api`, `/ws`, `/healthz` and the remote MCP endpoint `/mcp` (Streamable HTTP).
 - `npm run dev` — server on :8080 with the Vite client on :5173.
 
 ## Hosting / ops rules
@@ -29,10 +30,13 @@ Online multiplayer Risk with bots and an MCP server for AI agents. npm-workspace
   - One process, in-memory rooms; no external services, no hard-coded hostnames (relative URLs,
     `ws`/`wss` derived from `location`).
   - Tests bind `127.0.0.1` on port 0 only.
+  - `/mcp` must keep working for claude.ai connectors: Streamable HTTP, no auth, SSE not buffered.
 
 ## Conventions
 
 - Rules live in the engine only; the server and MCP never re-implement game logic.
+- MCP tools are defined once in `packages/mcp/src/tools.ts` over the `RiskApi` interface; the stdio CLI
+  uses `HttpRiskApi`, the embedded `/mcp` endpoint uses the server's `LocalRiskApi`.
 - Every state change goes through `GameRoom.commit` so WebSocket clients, long-poll waiters,
   bots and persistence all see it.
 - Add an engine test for every rules change and a server test for every API change.

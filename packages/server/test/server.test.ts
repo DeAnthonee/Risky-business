@@ -193,3 +193,39 @@ describe('static client caching', () => {
     }
   });
 });
+
+describe('MCP over HTTP (/mcp)', () => {
+  it('serves the Risk tools to a Streamable HTTP MCP client and keeps a seat per session', async () => {
+    const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+    const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
+    const client = new Client({ name: 'test-agent', version: '0' });
+    await client.connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`)));
+    try {
+      const tools = (await client.listTools()).tools.map((t) => t.name);
+      expect(tools).toEqual(expect.arrayContaining(['rules', 'create_game', 'join_game', 'wait_for_turn', 'act', 'resume_game']));
+      const call = async (name: string, args: Record<string, unknown> = {}) => {
+        const r = (await client.callTool({ name, arguments: args })) as { content: { text: string }[]; isError?: boolean };
+        return { text: r.content.map((c) => c.text).join('\n'), isError: !!r.isError };
+      };
+      const created = await call('create_game', { playerName: 'Remote', options: { setupBatch: 40 } });
+      expect(created.isError).toBe(false);
+      const gameId = created.text.match(/Created game (\w+)/)![1];
+      expect((await call('add_bot', { gameId })).isError).toBe(false);
+      const started = await call('start_game', { gameId });
+      expect(started.isError).toBe(false);
+      expect(started.text).toContain('phase: setup');
+      const state = await call('get_state', { gameId });
+      expect(state.text).toContain('YOUR LEGAL MOVES');
+      expect(risk.health().mcpSessions).toBe(1);
+      // A second, independent session has no seat in that game.
+      const other = new Client({ name: 'other', version: '0' });
+      await other.connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`)));
+      const denied = (await other.callTool({ name: 'act', arguments: { gameId, action: { type: 'end_turn' } } })) as { isError?: boolean; content: { text: string }[] };
+      expect(denied.isError).toBe(true);
+      expect(denied.content[0].text).toMatch(/Not in this game/);
+      await other.close();
+    } finally {
+      await client.close();
+    }
+  });
+});

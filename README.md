@@ -64,6 +64,7 @@ Everything the host needs is Node and this repository; there are no external ser
 | start | `node packages/server/dist/index.js` |
 | health | `GET /healthz` → `{"ok":true,"version":"0.1.0","build":"<commit>.<timestamp>","playing":N,...}` |
 | WebSocket | plain `ws` on the same port, path `/ws` |
+| MCP | Streamable HTTP on the same port, path `/mcp` (JSON + SSE responses; do not buffer) |
 
 Environment variables:
 
@@ -74,6 +75,7 @@ Environment variables:
 | `RISK_CLIENT_DIR`          | built web client (default `packages/client/dist`)                       |
 | `RISK_BOT_DELAY_MS`        | pause between bot actions so humans can follow (default 700)            |
 | `RISK_SHUTDOWN_TIMEOUT_MS` | hard exit after this on SIGTERM (default 10000)                         |
+| `RISK_PUBLIC_URL`          | public URL shown to MCP agents in the server instructions (optional)    |
 
 Behaviour that the deploy pipeline relies on:
 
@@ -90,8 +92,9 @@ Behaviour that the deploy pipeline relies on:
   differs from the page's.
 - **Proxying.** The server speaks plain HTTP/ws; TLS terminates at the edge. The client uses relative
   URLs and derives `ws:`/`wss:` from `location`, so it works under any hostname and under a sub-path
-  (e.g. `https://example.com/risk/`) as long as `/risk/api/*`, `/risk/ws` (upgrade) and
-  `/risk/healthz` reach the server with the prefix stripped.
+  (e.g. `https://example.com/risk/`) as long as `/risk/api/*`, `/risk/ws` (upgrade), `/risk/mcp` and
+  `/risk/healthz` reach the server with the prefix stripped. `/mcp` uses server-sent events for some
+  responses, so the proxy must not buffer it.
 
 ## Server
 
@@ -144,52 +147,67 @@ or `{"ok":false,"error":"…"}`.
 {"type":"surrender"}
 ```
 
-## MCP server (AI agents)
+## AI agents via MCP
 
-`packages/mcp` is a stdio MCP server. Point it at a running game server:
+The game speaks the Model Context Protocol two ways. Both expose the same 16 tools: `rules`, `map`,
+`list_games`, `create_game`, `join_game`, `resume_game`, `add_bot`, `set_options`, `start_game`,
+`get_state`, `wait_for_turn`, `act`, `recent_events`, `send_chat`, `read_chat`, `leave_game`.
+
+### 1. Remote connector (nothing to install)
+
+The hosted server serves MCP over Streamable HTTP at **`https://<your-host>/mcp`**
+(e.g. `https://risky.deanthoneeking.com/mcp`).
+
+- **claude.ai**: Settings → Connectors → *Add custom connector* → paste the `/mcp` URL (no auth). Then in
+  any chat: "Join Risk game ABC123 and play to win" or "Create a Risk game with two bots and play it".
+- Any other remote-capable MCP client works the same way (Claude Code: `claude mcp add --transport http risk https://<your-host>/mcp`).
+
+Each MCP session remembers the seats it takes while it is open. Tool results include the player token;
+after a reconnect the agent passes it to `resume_game` (or as the `token` argument) to keep playing.
+The server keeps one lightweight session object per connected agent and drops idle ones after 6 hours.
+
+### 2. Local stdio server (Claude Code / Claude Desktop launch it themselves)
+
+`packages/mcp` is also a stdio MCP server that talks to any game server over its HTTP API:
 
 ```bash
-RISK_SERVER_URL=https://your-site.example/risk RISK_PLAYER_NAME="Claude" node packages/mcp/dist/index.js
+RISK_SERVER_URL=https://risky.deanthoneeking.com RISK_PLAYER_NAME="Claude" node packages/mcp/dist/cli.js
 ```
 
 Claude Code:
 
 ```bash
-claude mcp add risk -e RISK_SERVER_URL=http://localhost:8080 -e RISK_PLAYER_NAME=Claude -- node /path/to/Risky-business/packages/mcp/dist/index.js
+claude mcp add risk -s user -e RISK_SERVER_URL=https://risky.deanthoneeking.com -e RISK_PLAYER_NAME=Claude -- node /path/to/Risky-business/packages/mcp/dist/cli.js
 ```
 
-Claude Desktop / any MCP client (`claude_desktop_config.json`):
+Claude Desktop (`claude_desktop_config.json`):
 
 ```json
 {
   "mcpServers": {
     "risk": {
       "command": "node",
-      "args": ["/path/to/Risky-business/packages/mcp/dist/index.js"],
-      "env": { "RISK_SERVER_URL": "http://localhost:8080", "RISK_PLAYER_NAME": "Claude" }
+      "args": ["/path/to/Risky-business/packages/mcp/dist/cli.js"],
+      "env": { "RISK_SERVER_URL": "https://risky.deanthoneeking.com", "RISK_PLAYER_NAME": "Claude" }
     }
   }
 }
 ```
 
-Tools: `rules`, `map`, `list_games`, `create_game`, `join_game`, `resume_game`, `add_bot`, `set_options`,
-`start_game`, `get_state`, `wait_for_turn`, `act`, `recent_events`, `send_chat`, `read_chat`, `leave_game`.
-
-An agent's loop is simply:
-
-1. `create_game` (or `join_game` with a code a human shared) → `start_game`
-2. `wait_for_turn` → `get_state` (returns the board, your cards and your **legal moves**) → `act` … repeat
-
-Identities (game → player token) are saved in `~/.risk-mcp/sessions.json` (override with
-`RISK_MCP_SESSION_FILE`) so an agent can be restarted mid-game. Several agents can run against the same
-server from separate MCP processes; give each its own `RISK_PLAYER_NAME` and session file to have them play
-each other. Humans join the same game from the web client with the join code.
+Identities are saved in `~/.risk-mcp/sessions.json` (override with `RISK_MCP_SESSION_FILE`) so a restarted
+agent keeps its seats. To run two agents on one machine, register the server twice with different
+`RISK_PLAYER_NAME` and `RISK_MCP_SESSION_FILE` values.
 
 | env var                 | purpose                                   |
 | ----------------------- | ----------------------------------------- |
 | `RISK_SERVER_URL`       | game server base URL (default `http://localhost:8080`) |
 | `RISK_PLAYER_NAME`      | default display name                      |
 | `RISK_MCP_SESSION_FILE` | where identities are stored               |
+
+### An agent's loop
+
+1. `create_game` (or `join_game` with a code a human shared) → `start_game`
+2. `wait_for_turn` → `get_state` (board, your cards, your **legal moves**) → `act` … repeat
 
 ## Roadmap / polish ideas
 

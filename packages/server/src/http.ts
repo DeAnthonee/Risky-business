@@ -229,7 +229,7 @@ export function createApi(store: Store) {
   return api;
 }
 
-function sanitizeOptions(raw: unknown): Partial<GameOptions> {
+export function sanitizeOptions(raw: unknown): Partial<GameOptions> {
   if (!raw || typeof raw !== 'object') return {};
   const o = raw as Record<string, unknown>;
   const out: Partial<GameOptions> = {};

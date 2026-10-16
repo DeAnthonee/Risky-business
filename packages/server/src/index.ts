@@ -19,13 +19,14 @@ const CLIENT_DIR = resolve(process.env.RISK_CLIENT_DIR ?? join(__dirname, '../..
 const SHUTDOWN_TIMEOUT_MS = Number(process.env.RISK_SHUTDOWN_TIMEOUT_MS ?? 10_000);
 
 const store = new Store(DATA_DIR ? join(DATA_DIR, 'games.json') : null);
-const risk = createRiskServer(store, { clientDir: CLIENT_DIR });
+const risk = createRiskServer(store, { clientDir: CLIENT_DIR, mcpLabel: process.env.RISK_PUBLIC_URL ?? 'Risky Business' });
 
 risk.server.listen(PORT, HOST, () => {
   const info = buildInfo();
   console.log(`Risky Business ${info.version} (${info.build}) listening on http://${HOST}:${PORT}`);
   console.log(`  health:    http://localhost:${PORT}/healthz`);
   console.log(`  websocket: ws://localhost:${PORT}/ws`);
+  console.log(`  mcp:       http://localhost:${PORT}/mcp (Streamable HTTP)`);
   console.log(`  data dir:  ${DATA_DIR ?? '(persistence disabled)'}`);
   console.log(`  client:    ${CLIENT_DIR}`);
 });

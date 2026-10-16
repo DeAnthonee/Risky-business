@@ -8,10 +8,13 @@ import { Store } from './store.js';
 import { createApi } from './http.js';
 import { attachWebSocket } from './ws.js';
 import { buildInfo } from './build-info.js';
+import { createMcpRouter } from './mcp.js';
 
 export interface AppOptions {
   /** Directory holding the built web client (served if it exists). */
   clientDir?: string | null;
+  /** Public label for the MCP endpoint's instructions (e.g. the site URL). */
+  mcpLabel?: string;
 }
 
 export interface RiskServer {
@@ -40,6 +43,7 @@ export interface HealthReport {
   finished: number;
   games: number;
   connections: number;
+  mcpSessions: number;
   persistence: string;
   shuttingDown: boolean;
 }
@@ -59,6 +63,10 @@ export function createRiskServer(store: Store, opts: AppOptions = {}): RiskServe
     next();
   });
   app.use('/api', createApi(store));
+
+  // Remote MCP endpoint for AI agents (claude.ai connectors, any Streamable HTTP MCP client).
+  const mcp = createMcpRouter(store, opts.mcpLabel ?? 'Risky Business');
+  app.use('/mcp', mcp.router);
 
   const health = (): HealthReport => {
     const info = buildInfo();
@@ -83,6 +91,7 @@ export function createRiskServer(store: Store, opts: AppOptions = {}): RiskServe
       finished,
       games: store.rooms.size,
       connections: wss.clients.size,
+      mcpSessions: mcp.sessions.size,
       persistence: store.describePersistence(),
       shuttingDown,
     };
@@ -109,7 +118,7 @@ export function createRiskServer(store: Store, opts: AppOptions = {}): RiskServe
       }),
     );
     // SPA entry + history fallback: always revalidated so a new deploy is picked up on next load.
-    app.get(/^(?!\/api|\/ws|\/healthz).*/, (_req, res) => {
+    app.get(/^(?!\/api|\/ws|\/healthz|\/mcp).*/, (_req, res) => {
       noCache(res);
       res.sendFile(indexHtml);
     });
@@ -142,8 +151,9 @@ export function createRiskServer(store: Store, opts: AppOptions = {}): RiskServe
           /* ignore */
         }
       }
-      // Release long-poll waiters so in-flight HTTP requests finish quickly.
+      // Release long-poll waiters so in-flight HTTP requests finish quickly, and end MCP streams.
       store.releaseWaiters();
+      await mcp.closeAll();
       await new Promise<void>((resolve) => {
         server.close(() => resolve());
         server.closeAllConnections?.();

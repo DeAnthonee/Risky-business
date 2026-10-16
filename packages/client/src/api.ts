@@ -80,6 +80,8 @@ export interface StateMessage {
   host: string;
   name: string;
   you: string | null;
+  /** Git commit the server was built from; differs from the client's after a deploy. */
+  commit?: string;
 }
 
 type Listener = {

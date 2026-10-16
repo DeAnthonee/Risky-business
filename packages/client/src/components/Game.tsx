@@ -239,6 +239,14 @@ export function Game({ conn, gameId, session, onLeave }: { conn: GameConnection;
           </div>
         )}
         {toast && <div className="toast">{toast}</div>}
+        {conn.updateAvailable && (
+          <div className="update-banner">
+            A new version of the game is available.{' '}
+            <button className="small primary" onClick={() => window.location.reload()}>
+              Reload
+            </button>
+          </div>
+        )}
 
         {/* ---------- action bar ---------- */}
         <div className="action-bar">

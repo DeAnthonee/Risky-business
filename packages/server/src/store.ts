@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { randomBytes } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, existsSync, renameSync } from 'node:fs';
 import { dirname } from 'node:path';
 import {
   RuleError,
@@ -94,6 +94,7 @@ export class GameRoom extends EventEmitter {
   history: HistoryEntry[] = [];
   updatedAt = Date.now();
   private botTimer: NodeJS.Timeout | null = null;
+  private waiters = new Set<() => void>();
 
   constructor(snapshot: RoomSnapshot) {
     super();
@@ -240,12 +241,30 @@ export class GameRoom extends EventEmitter {
         cleanup();
         resolve('timeout');
       }, timeoutMs);
+      const release = () => {
+        cleanup();
+        resolve('timeout');
+      };
       const cleanup = () => {
         clearTimeout(timer);
         this.off('change', onChange);
+        this.waiters.delete(release);
       };
+      this.waiters.add(release);
       this.on('change', onChange);
     });
+  }
+
+  /** Resolve every pending long-poll immediately (used on shutdown). */
+  releaseWaiters() {
+    for (const w of [...this.waiters]) w();
+  }
+
+  stopBot() {
+    if (this.botTimer) {
+      clearTimeout(this.botTimer);
+      this.botTimer = null;
+    }
   }
 
   // ---- bots ----
@@ -353,6 +372,22 @@ export class Store {
     this.scheduleSave();
   }
 
+  describePersistence(): string {
+    return this.file ?? 'disabled';
+  }
+
+  releaseWaiters() {
+    for (const room of this.rooms.values()) room.releaseWaiters();
+  }
+
+  stopTimers() {
+    if (this.saveTimer) {
+      clearTimeout(this.saveTimer);
+      this.saveTimer = null;
+    }
+    for (const room of this.rooms.values()) room.stopBot();
+  }
+
   /** Drop finished games older than a day and empty lobbies older than 2 hours. */
   sweep() {
     const now = Date.now();
@@ -372,12 +407,19 @@ export class Store {
     }, 500);
   }
 
+  /** Atomic snapshot: write to a temp file then rename, so a crash mid-write never corrupts the store. */
   save() {
     if (!this.file) return;
+    if (this.saveTimer) {
+      clearTimeout(this.saveTimer);
+      this.saveTimer = null;
+    }
     try {
       mkdirSync(dirname(this.file), { recursive: true });
       const data = [...this.rooms.values()].map((r) => r.snapshot());
-      writeFileSync(this.file, JSON.stringify(data));
+      const tmp = `${this.file}.${process.pid}.tmp`;
+      writeFileSync(tmp, JSON.stringify(data));
+      renameSync(tmp, this.file);
     } catch (err) {
       console.error('Failed to save games:', err);
     }

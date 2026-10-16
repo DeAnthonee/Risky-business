@@ -51,22 +51,53 @@ Host-selectable options:
 | `fortifyMode` | `connected` \| `adjacent`     | `connected` |
 | `randomDeal`  | `true` (deal) \| `false` (claim one by one) | `true` |
 
+## Hosting (production)
+
+Everything the host needs is Node and this repository; there are no external services, databases or CDNs.
+
+| item | value |
+| --- | --- |
+| Node | `>=22` (tested on 22; Node 26 supported) |
+| package manager | npm (lockfile `package-lock.json` committed) — `npm ci` |
+| build | `npm run build` (needs devDependencies; nothing prebuilt is committed) |
+| test gate | `npm test` (typecheck + unit tests; random loopback ports only) |
+| start | `node packages/server/dist/index.js` |
+| health | `GET /healthz` → `{"ok":true,"version":"0.1.0","build":"<commit>.<timestamp>","playing":N,...}` |
+| WebSocket | plain `ws` on the same port, path `/ws` |
+
+Environment variables:
+
+| env var                    | purpose                                                                 |
+| -------------------------- | ----------------------------------------------------------------------- |
+| `PORT`                     | listen port (default 8080). Binds `0.0.0.0` unless `HOST` is set        |
+| `RISK_DATA_DIR`            | directory for persistent state, outside the repo (default `~/.risky-business`; `none` disables) |
+| `RISK_CLIENT_DIR`          | built web client (default `packages/client/dist`)                       |
+| `RISK_BOT_DELAY_MS`        | pause between bot actions so humans can follow (default 700)            |
+| `RISK_SHUTDOWN_TIMEOUT_MS` | hard exit after this on SIGTERM (default 10000)                         |
+
+Behaviour that the deploy pipeline relies on:
+
+- **Persistence / restarts.** Every state change is snapshotted (debounced, atomic rename) to
+  `$RISK_DATA_DIR/games.json`, and again synchronously on SIGTERM. On start the file is loaded, so
+  games, player tokens, chat and bots resume where they were. Browsers reconnect automatically
+  (WebSocket close 1012, exponential backoff) and MCP agents simply call `wait_for_turn` again.
+  Updates therefore do not need to wait for `playing == 0`.
+- **Graceful shutdown.** SIGTERM/SIGINT: save, close WebSocket clients, release long-polls, close the
+  HTTP server, exit 0 — typically well under a second, hard limit `RISK_SHUTDOWN_TIMEOUT_MS`.
+- **Caching.** `index.html` and the SPA fallback are `Cache-Control: no-cache`; Vite's hashed
+  `/assets/*` are `public, max-age=31536000, immutable`; `/api/*` and `/healthz` are `no-store`.
+  The client also shows a "new version available — reload" prompt when the server's build commit
+  differs from the page's.
+- **Proxying.** The server speaks plain HTTP/ws; TLS terminates at the edge. The client uses relative
+  URLs and derives `ws:`/`wss:` from `location`, so it works under any hostname and under a sub-path
+  (e.g. `https://example.com/risk/`) as long as `/risk/api/*`, `/risk/ws` (upgrade) and
+  `/risk/healthz` reach the server with the prefix stripped.
+
 ## Server
 
 ```bash
-PORT=8080 HOST=0.0.0.0 node packages/server/dist/index.js
+PORT=8080 node packages/server/dist/index.js
 ```
-
-| env var              | purpose                                                             |
-| -------------------- | ------------------------------------------------------------------- |
-| `PORT`, `HOST`       | listen address (default 8080 / 0.0.0.0)                             |
-| `RISK_DATA_FILE`     | JSON file games are persisted to (default `data/games.json`, `none` to disable) |
-| `RISK_CLIENT_DIR`    | directory of the built web client (default `packages/client/dist`)  |
-| `RISK_BOT_DELAY_MS`  | pause between bot actions so humans can follow (default 700)        |
-
-The client is built with relative asset paths, so the whole thing can live under a sub-path of your site
-(e.g. `https://example.com/risk/`) as long as the reverse proxy forwards `/risk/api/*` and `/risk/ws`
-(WebSocket upgrade) to the server with the prefix stripped.
 
 ### HTTP API
 

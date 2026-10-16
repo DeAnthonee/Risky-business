@@ -20,7 +20,7 @@ interface ClientMsg {
  *  client -> {type:'action', reqId, action}  server -> {type:'ack', reqId, ok, error?}
  *  client -> {type:'chat', message}
  */
-export function attachWebSocket(server: Server, store: Store) {
+export function attachWebSocket(server: Server, store: Store, commit: () => string = () => 'unknown') {
   const wss = new WebSocketServer({ server, path: '/ws' });
 
   wss.on('connection', (ws: WebSocket) => {
@@ -61,11 +61,11 @@ export function attachWebSocket(server: Server, store: Store) {
             if (!r) return send({ type: 'error', error: 'Game not found', reqId: msg.reqId });
             room = r;
             playerId = r.playerForToken(msg.token);
-            onChange = (m) => send({ type: 'state', state: r.view(playerId), events: m.events, version: m.version, host: r.hostId, name: r.name, you: playerId });
+            onChange = (m) => send({ type: 'state', state: r.view(playerId), events: m.events, version: m.version, host: r.hostId, name: r.name, you: playerId, commit: commit() });
             onChat = (m) => send({ type: 'chat', message: m });
             r.on('change', onChange);
             r.on('chat', onChat);
-            send({ type: 'state', state: r.view(playerId), events: [], version: r.state.version, host: r.hostId, name: r.name, you: playerId, reqId: msg.reqId });
+            send({ type: 'state', state: r.view(playerId), events: [], version: r.state.version, host: r.hostId, name: r.name, you: playerId, commit: commit(), reqId: msg.reqId });
             send({ type: 'chat_history', messages: r.chat.slice(-100) });
             return;
           }

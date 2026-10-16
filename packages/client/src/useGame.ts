@@ -20,6 +20,8 @@ export interface GameConnection {
   sendChat: (msg: string) => Promise<void>;
   error: string | null;
   clearError: () => void;
+  /** True when the server is running a newer build than this page. */
+  updateAvailable: boolean;
 }
 
 export function useGame(gameId: string | null, token: string | undefined): GameConnection {
@@ -31,6 +33,7 @@ export function useGame(gameId: string | null, token: string | undefined): GameC
   const [batches, setBatches] = useState<EventBatch[]>([]);
   const [chat, setChat] = useState<ChatMessage[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [updateAvailable, setUpdateAvailable] = useState(false);
   const sockRef = useRef<GameSocket | null>(null);
   const seq = useRef(0);
 
@@ -42,6 +45,7 @@ export function useGame(gameId: string | null, token: string | undefined): GameC
         setHost(m.host);
         setName(m.name);
         setYou(m.you);
+        if (m.commit && m.commit !== 'unknown' && __COMMIT__ !== 'unknown' && m.commit !== __COMMIT__) setUpdateAvailable(true);
         if (m.events.length) setBatches((b) => [...b.slice(-200), { id: ++seq.current, version: m.version, events: m.events }]);
       },
       onChat: (m) => setChat((c) => [...c.slice(-200), m]),
@@ -69,5 +73,5 @@ export function useGame(gameId: string | null, token: string | undefined): GameC
     await sockRef.current?.chat(msg);
   }, []);
 
-  return { view, host, name, you, connected, batches, chat, act, sendChat, error, clearError: () => setError(null) };
+  return { view, host, name, you, connected, batches, chat, act, sendChat, error, clearError: () => setError(null), updateAvailable };
 }

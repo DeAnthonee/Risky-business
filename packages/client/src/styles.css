@@ -779,3 +779,18 @@ footer {
   text-align: center;
   padding: 0 4px;
 }
+
+.update-banner {
+  position: absolute;
+  top: 48px;
+  right: 14px;
+  background: var(--panel);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 0.9em;
+  z-index: 8;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}

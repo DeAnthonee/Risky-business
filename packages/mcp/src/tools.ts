@@ -20,7 +20,8 @@ const tokenSchema = z.string().optional().describe('Player token, if you were gi
 
 const optionsSchema = z
   .object({
-    maxPlayers: z.number().int().min(2).max(6).optional().describe('Seats in the game (2-6)'),
+    map: z.enum(['classic', 'world']).optional().describe('Board: classic (42 territories, 2-6 players) or world (74 territories, 14 regions, 2-10 players)'),
+    maxPlayers: z.number().int().min(2).max(10).optional().describe('Seats in the game (2-6 classic, 2-10 world)'),
     setupBatch: z.number().int().min(1).max(40).optional().describe('Armies each player may place per setup turn (1 = classic, 40 = all at once)'),
     fortifyMode: z.enum(['adjacent', 'connected']).optional().describe('Fortify rule: adjacent (classic) or any connected path'),
     randomDeal: z.boolean().optional().describe('true = territories dealt randomly (default); false = players claim them one by one'),
@@ -95,9 +96,15 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
     }
   });
 
-  server.registerTool('map', { description: 'Return the static map: territories, continents with bonuses, and adjacency (which territories border which).', inputSchema: {} }, async () => {
+  server.registerTool(
+    'map',
+    {
+      description: 'Return a static map: territories, continents with bonuses, and adjacency (which territories border which). Pass the map a game uses (get_state shows options.map).',
+      inputSchema: { map: z.enum(['classic', 'world']).optional().describe('Default classic') },
+    },
+    async ({ map }) => {
     try {
-      return text(JSON.stringify(await api.map(), null, 1));
+      return text(JSON.stringify(await api.map(map), null, 1));
     } catch (e) {
       return errorText(e);
     }

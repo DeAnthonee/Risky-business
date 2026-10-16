@@ -1,13 +1,14 @@
-import { ADJACENCY, CONTINENTS, TERRITORY_BY_ID, type GameEvent, type GameView } from '@risk/engine';
+import { getMap, type GameEvent, type GameView } from '@risk/engine';
 
 /** A compact, LLM-friendly text rendering of the game as seen by one player. */
 export function formatState(view: GameView, gameName?: string): string {
   const name = (id: string | null | undefined) => view.players.find((p) => p.id === id)?.name ?? id ?? 'none';
   const me = view.players.find((p) => p.id === view.you);
+  const map = getMap(view.options.map);
   const lines: string[] = [];
 
   lines.push(
-    `Game ${view.id}${gameName ? ` "${gameName}"` : ''} · phase: ${view.phase} · turn ${view.turnNumber} (round ${view.round}) · version ${view.version}`,
+    `Game ${view.id}${gameName ? ` "${gameName}"` : ''} · map: ${map.name} · phase: ${view.phase} · turn ${view.turnNumber} (round ${view.round}) · version ${view.version}`,
   );
   if (view.phase === 'lobby') {
     lines.push(`Players (${view.players.length}/${view.options.maxPlayers}): ${view.players.map((p) => `${p.name}${p.isBot ? ' [bot]' : ''}`).join(', ')}`);
@@ -39,12 +40,12 @@ export function formatState(view: GameView, gameName?: string): string {
 
   lines.push('');
   lines.push('Territories (owner armies) with neighbours:');
-  for (const c of CONTINENTS) {
+  for (const c of map.continents) {
     const owner = view.continentOwners[c.id];
     lines.push(`${c.name.toUpperCase()} (+${c.bonus})${owner ? ` — controlled by ${name(owner)}` : ''}`);
     for (const t of c.territories) {
       const ts = view.territories[t];
-      const nbrs = ADJACENCY[t].map((n) => {
+      const nbrs = map.adjacency[t].map((n) => {
         const ns = view.territories[n];
         const mark = ns.owner === ts.owner ? '' : '*';
         return `${n}${mark}(${short(name(ns.owner))} ${ns.armies})`;
@@ -100,7 +101,8 @@ function short(n: string): string {
 
 export function formatEvents(events: GameEvent[], view: GameView): string {
   const name = (id: string | null) => view.players.find((p) => p.id === id)?.name ?? id ?? '?';
-  const t = (id: string) => TERRITORY_BY_ID[id]?.name ?? id;
+  const byId = getMap(view.options.map).territoryById;
+  const t = (id: string) => byId[id]?.name ?? id;
   const out: string[] = [];
   for (const e of events) {
     switch (e.type) {

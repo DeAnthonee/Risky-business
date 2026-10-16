@@ -1,6 +1,5 @@
 import { useMemo } from 'react';
-import { CONTINENTS, EDGE_LIST, TERRITORIES, TERRITORY_BY_ID, type ContinentId, type GameView } from '@risk/engine';
-import { convexHull } from '../hull';
+import { getMap, type GameView, type MapDef } from '@risk/engine';
 
 export type Highlight = 'source' | 'target' | 'place' | 'selected' | 'pending-target';
 
@@ -31,62 +30,50 @@ export interface MapProps {
   dimOthers: boolean;
 }
 
-export const CONTINENT_COLORS: Record<ContinentId, string> = {
-  north_america: '#e8b84a',
-  south_america: '#e06377',
-  europe: '#5b9dff',
-  africa: '#f58e4f',
-  asia: '#36c9b5',
-  australia: '#b48cf2',
-};
+/** Region colours (used for unowned land, region outlines and labels). */
+const CONTINENT_PALETTE = ['#e8b84a', '#e06377', '#5b9dff', '#f58e4f', '#36c9b5', '#b48cf2', '#8fd14f', '#ff9f1c', '#4cc9f0', '#f72585', '#a3b18a', '#ffd166', '#06d6a0', '#c77dff'];
 
-const CONTINENT_LABELS: Record<ContinentId, { x: number; y: number; anchor: 'start' | 'middle' | 'end' }> = {
-  north_america: { x: 20, y: 345, anchor: 'start' },
-  south_america: { x: 345, y: 520, anchor: 'start' },
-  europe: { x: 596, y: 44, anchor: 'start' },
-  africa: { x: 640, y: 440, anchor: 'start' },
-  asia: { x: 985, y: 285, anchor: 'end' },
-  australia: { x: 985, y: 548, anchor: 'end' },
-};
+export function continentColor(map: MapDef, continentId: string): string {
+  const i = map.continents.findIndex((c) => c.id === continentId);
+  return CONTINENT_PALETTE[(i < 0 ? 0 : i) % CONTINENT_PALETTE.length];
+}
 
-const SHORT_NAMES: Record<string, string> = {
-  northwest_territory: 'NW Territory',
-  western_united_states: 'Western US',
-  eastern_united_states: 'Eastern US',
-  central_america: 'C. America',
-  great_britain: 'Britain',
-  northern_europe: 'N. Europe',
-  western_europe: 'W. Europe',
-  southern_europe: 'S. Europe',
-  north_africa: 'N. Africa',
-  east_africa: 'E. Africa',
-  south_africa: 'S. Africa',
-  middle_east: 'Mid. East',
-  western_australia: 'W. Australia',
-  eastern_australia: 'E. Australia',
-};
+export function territoryName(map: MapDef, id: string): string {
+  return map.territoryById[id]?.name ?? id;
+}
 
-export function shortName(id: string): string {
-  return SHORT_NAMES[id] ?? TERRITORY_BY_ID[id]?.name ?? id;
+/** Short label for the badge: drop filler words so long names fit. */
+function shortLabel(name: string): string {
+  return name
+    .replace('United States', 'US')
+    .replace('Northwest Territory', 'NW Territory')
+    .replace(' & ', ' & ')
+    .replace('Territory', 'Terr.');
 }
 
 export function GameMap(props: MapProps) {
   const { view, highlights, pendingPlacements, attackArrow, flashes, moves, floats, onTerritoryClick, dimOthers } = props;
-  const colorOf = (pid: string | null) => view.players.find((p) => p.id === pid)?.color ?? '#555';
+  const map = getMap(view.options.map);
+  const [W, H] = map.viewBox;
+  const colorOf = (pid: string | null) => view.players.find((p) => p.id === pid)?.color ?? null;
+  const anchor = (id: string) => map.territoryById[id];
+  const now = Date.now();
+  const dense = map.territories.length > 50;
 
-  const hulls = useMemo(
+  const continentLabels = useMemo(
     () =>
-      CONTINENTS.map((c) => {
-        const pts = c.territories.map((t) => ({ x: TERRITORY_BY_ID[t].x, y: TERRITORY_BY_ID[t].y }));
-        return { id: c.id, name: c.name, bonus: c.bonus, points: convexHull(pts).map((p) => `${p.x},${p.y}`).join(' ') };
+      map.continents.map((c) => {
+        if (c.labelX !== undefined && c.labelY !== undefined) return { id: c.id, name: c.name, bonus: c.bonus, x: c.labelX, y: c.labelY };
+        const pts = c.territories.map((t) => map.territoryById[t]);
+        const x = pts.reduce((s, p) => s + p.x, 0) / pts.length;
+        const y = Math.min(...pts.map((p) => p.y)) - 22;
+        return { id: c.id, name: c.name, bonus: c.bonus, x, y: Math.max(12, y) };
       }),
-    [],
+    [map],
   );
 
-  const now = Date.now();
-
   return (
-    <svg className="map" viewBox="0 0 1000 560" preserveAspectRatio="xMidYMid meet">
+    <svg className={`map ${dense ? 'dense' : ''}`} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid meet">
       <defs>
         <marker id="arrowhead" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
           <path d="M0,0 L8,4 L0,8 z" fill="#ff5a5a" />
@@ -98,97 +85,123 @@ export function GameMap(props: MapProps) {
             <feMergeNode in="SourceGraphic" />
           </feMerge>
         </filter>
+        <filter id="land-shadow" x="-5%" y="-5%" width="110%" height="110%">
+          <feDropShadow dx="0" dy="2" stdDeviation="2.5" floodColor="#000" floodOpacity="0.45" />
+        </filter>
+        <pattern id="ocean-grid" width="40" height="40" patternUnits="userSpaceOnUse">
+          <path d="M40 0H0V40" fill="none" stroke="rgba(255,255,255,0.045)" strokeWidth="1" />
+        </pattern>
       </defs>
 
-      {/* Continent regions */}
-      {hulls.map((h) => {
-        const owner = view.continentOwners[h.id];
-        const color = CONTINENT_COLORS[h.id];
-        const label = CONTINENT_LABELS[h.id];
-        return (
-          <g key={h.id} className="continent">
-            <polygon
-              points={h.points}
-              fill={owner ? colorOf(owner) : color}
-              fillOpacity={owner ? 0.22 : 0.13}
-              stroke={owner ? colorOf(owner) : color}
-              strokeOpacity={owner ? 0.3 : 0.16}
-              strokeWidth={70}
-              strokeLinejoin="round"
-              style={{ transition: 'fill .6s, stroke .6s' }}
-            />
-            <text x={label.x} y={label.y} textAnchor={label.anchor} className="continent-label" fill={color}>
-              {h.name.toUpperCase()} +{h.bonus}
-            </text>
-          </g>
-        );
-      })}
+      {/* Ocean */}
+      <rect width={W} height={H} className="ocean" />
+      <rect width={W} height={H} fill="url(#ocean-grid)" />
 
-      {/* Edges */}
-      <g className="edges">
-        {EDGE_LIST.map(([a, b]) => {
-          if ((a === 'alaska' && b === 'kamchatka') || (a === 'kamchatka' && b === 'alaska')) return null;
-          const A = TERRITORY_BY_ID[a];
-          const B = TERRITORY_BY_ID[b];
-          return <line key={`${a}-${b}`} x1={A.x} y1={A.y} x2={B.x} y2={B.y} />;
+      {/* Continent outlines give the board its regions */}
+      <g className="continents" filter="url(#land-shadow)">
+        {map.continents.map((c) => {
+          const owner = view.continentOwners[c.id];
+          const col = owner ? colorOf(owner) ?? continentColor(map, c.id) : continentColor(map, c.id);
+          return <path key={c.id} d={c.outline} className={`continent-outline ${owner ? 'owned' : ''}`} stroke={col} />;
         })}
-        {/* Alaska <-> Kamchatka wraps around the map */}
-        <line x1={TERRITORY_BY_ID.alaska.x} y1={TERRITORY_BY_ID.alaska.y} x2={0} y2={TERRITORY_BY_ID.alaska.y} strokeDasharray="6 5" />
-        <line x1={TERRITORY_BY_ID.kamchatka.x} y1={TERRITORY_BY_ID.kamchatka.y} x2={1000} y2={TERRITORY_BY_ID.kamchatka.y} strokeDasharray="6 5" />
       </g>
+
+      {/* Sea links between adjacent territories that do not touch */}
+      <g className="sea-links">
+        {map.seaLinks.map((l) => {
+          const A = anchor(l.a);
+          const B = anchor(l.b);
+          if (l.wrap) {
+            const left = A.x < B.x ? A : B;
+            const right = A.x < B.x ? B : A;
+            return (
+              <g key={`${l.a}-${l.b}`}>
+                <line x1={left.x} y1={left.y} x2={0} y2={left.y} />
+                <line x1={right.x} y1={right.y} x2={W} y2={right.y} />
+              </g>
+            );
+          }
+          return <line key={`${l.a}-${l.b}`} x1={A.x} y1={A.y} x2={B.x} y2={B.y} />;
+        })}
+      </g>
+
+      {/* Territories */}
+      <g className="territories">
+        {map.territories.map((t) => {
+          const ts = view.territories[t.id];
+          const hl = highlights[t.id];
+          const owner = colorOf(ts?.owner ?? null);
+          const flashing = flashes[t.id] && now - flashes[t.id] < 1200;
+          const dim = dimOthers && !hl;
+          const cls = ['territory', hl ? `hl-${hl}` : '', flashing ? 'flash' : '', dim ? 'dim' : '', hl ? 'clickable' : '', owner ? '' : 'unowned'].filter(Boolean).join(' ');
+          return (
+            <path
+              key={t.id}
+              d={t.path}
+              className={cls}
+              fill={owner ?? continentColor(map, t.continent)}
+              onClick={(e) => onTerritoryClick(t.id, e.shiftKey)}
+            >
+              <title>
+                {t.name} — {view.players.find((p) => p.id === ts?.owner)?.name ?? 'unowned'}, {ts?.armies ?? 0} armies
+              </title>
+            </path>
+          );
+        })}
+      </g>
+
+      {/* Continent labels */}
+      {continentLabels.map((c) => (
+        <text key={c.id} x={c.x} y={c.y} textAnchor="middle" className="continent-label" fill={continentColor(map, c.id)}>
+          {c.name.toUpperCase()} +{c.bonus}
+        </text>
+      ))}
 
       {/* Attack arrow */}
       {attackArrow && (
         <line
           className="attack-arrow"
-          x1={TERRITORY_BY_ID[attackArrow.from].x}
-          y1={TERRITORY_BY_ID[attackArrow.from].y}
-          x2={TERRITORY_BY_ID[attackArrow.to].x}
-          y2={TERRITORY_BY_ID[attackArrow.to].y}
+          x1={anchor(attackArrow.from).x}
+          y1={anchor(attackArrow.from).y}
+          x2={anchor(attackArrow.to).x}
+          y2={anchor(attackArrow.to).y}
           markerEnd="url(#arrowhead)"
         />
       )}
 
-      {/* Territories */}
-      {TERRITORIES.map((t) => {
-        const ts = view.territories[t.id];
-        const hl = highlights[t.id];
-        const pending = pendingPlacements[t.id] ?? 0;
-        const flashing = flashes[t.id] && now - flashes[t.id] < 1200;
-        const dim = dimOthers && !hl;
-        const cls = ['territory', hl ? `hl-${hl}` : '', flashing ? 'flash' : '', dim ? 'dim' : '', hl ? 'clickable' : ''].filter(Boolean).join(' ');
-        return (
-          <g
-            key={t.id}
-            className={cls}
-            transform={`translate(${t.x},${t.y})`}
-            onClick={(e) => onTerritoryClick(t.id, e.shiftKey)}
-            role="button"
-          >
-            <title>
-              {t.name} — {view.players.find((p) => p.id === ts.owner)?.name ?? 'unowned'}, {ts.armies} armies
-            </title>
-            <circle className="ring" r={27} />
-            <circle className="body" r={21} fill={colorOf(ts.owner)} />
-            <text key={ts.armies + pending} className="armies" textAnchor="middle" dominantBaseline="central">
-              {ts.armies + pending}
-            </text>
-            {pending > 0 && (
-              <text className="pending" x={22} y={-16} textAnchor="middle">
-                +{pending}
+      {/* Army badges + names (drawn above the shapes so they are always legible) */}
+      <g className="badges">
+        {map.territories.map((t) => {
+          const ts = view.territories[t.id];
+          const hl = highlights[t.id];
+          const pending = pendingPlacements[t.id] ?? 0;
+          const owner = colorOf(ts?.owner ?? null) ?? '#555';
+          const dim = dimOthers && !hl;
+          const cls = ['badge', hl ? `hl-${hl}` : '', dim ? 'dim' : '', hl ? 'clickable' : ''].filter(Boolean).join(' ');
+          return (
+            <g key={t.id} className={cls} transform={`translate(${t.x},${t.y})`} onClick={(e) => onTerritoryClick(t.id, e.shiftKey)}>
+              <circle className="ring" r={dense ? 15 : 19} />
+              <circle className="body" r={dense ? 11 : 14} fill={owner} />
+              <text key={(ts?.armies ?? 0) + pending} className="armies" textAnchor="middle" dominantBaseline="central">
+                {(ts?.armies ?? 0) + pending}
               </text>
-            )}
-            <text className="label" y={36} textAnchor="middle">
-              {shortName(t.id)}
-            </text>
-          </g>
-        );
-      })}
+              {pending > 0 && (
+                <text className="pending" x={dense ? 14 : 18} y={-10} textAnchor="middle">
+                  +{pending}
+                </text>
+              )}
+              <text className="label" y={dense ? 22 : 26} textAnchor="middle">
+                {shortLabel(t.name)}
+              </text>
+            </g>
+          );
+        })}
+      </g>
 
       {/* Troop movement tokens */}
       {moves.map((m) => {
-        const A = TERRITORY_BY_ID[m.from];
-        const B = TERRITORY_BY_ID[m.to];
+        const A = anchor(m.from);
+        const B = anchor(m.to);
         return (
           <g key={m.id} className="move-token">
             <circle r={9} fill={m.color} stroke="#fff" strokeWidth={2}>
@@ -202,11 +215,11 @@ export function GameMap(props: MapProps) {
         );
       })}
 
-      {/* Floating labels (+3, -1 ...) */}
+      {/* Floating labels (+3 ...) */}
       {floats.map((f) => {
-        const T = TERRITORY_BY_ID[f.territory];
+        const T = anchor(f.territory);
         return (
-          <text key={f.id} className="float" x={T.x} y={T.y - 26} textAnchor="middle" fill={f.color}>
+          <text key={f.id} className="float" x={T.x} y={T.y - 22} textAnchor="middle" fill={f.color}>
             {f.text}
           </text>
         );

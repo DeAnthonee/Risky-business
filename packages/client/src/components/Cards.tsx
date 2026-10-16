@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { isValidSet, tradeBonus, type Card } from '@risk/engine';
-import { shortName } from './Map';
+import { getMap } from '@risk/engine';
+import { territoryName } from './Map';
 
 const ICON: Record<Card['kind'], string> = { infantry: '🪖', cavalry: '🐎', artillery: '💣', wild: '🃏' };
 
@@ -11,7 +12,9 @@ export function CardsPanel({
   mustTrade,
   onTrade,
   onClose,
+  mapId,
 }: {
+  mapId: string;
   cards: Card[];
   tradeCount: number;
   canTrade: boolean;
@@ -20,6 +23,8 @@ export function CardsPanel({
   onClose: () => void;
 }) {
   const [sel, setSel] = useState<number[]>([]);
+  const map = getMap(mapId);
+  const shortName = (id: string) => territoryName(map, id);
   const chosen = cards.filter((c) => sel.includes(c.id));
   const valid = chosen.length === 3 && isValidSet(chosen);
   const toggle = (id: number) =>

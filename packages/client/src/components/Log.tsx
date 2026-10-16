@@ -1,10 +1,13 @@
 import { useEffect, useRef } from 'react';
 import type { GameEvent, GameView } from '@risk/engine';
 import type { EventBatch } from '../useGame';
-import { shortName } from './Map';
+import { getMap } from '@risk/engine';
+import { territoryName } from './Map';
 
 export function describe(e: GameEvent, view: GameView): string | null {
   const name = (id: string | null) => view.players.find((p) => p.id === id)?.name ?? id ?? '?';
+  const map = getMap(view.options.map);
+  const shortName = (id: string) => territoryName(map, id);
   switch (e.type) {
     case 'game_started':
       return `Game started. Turn order: ${e.turnOrder.map(name).join(' → ')}`;

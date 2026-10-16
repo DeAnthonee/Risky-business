@@ -1,13 +1,17 @@
 import express, { type Request, type Response, type NextFunction } from 'express';
-import {
-  ADJACENCY,
-  CONTINENTS,
-  RULES_TEXT,
-  RuleError,
-  TERRITORIES,
-  type Action,
-  type GameOptions,
-} from '@risk/engine';
+import { MAP_IDS, RULES_TEXT, RuleError, getMap, type Action, type GameOptions, type MapDef } from '@risk/engine';
+
+/** Static map description for agents: no SVG paths, which are only useful to the web client. */
+export function mapInfo(m: MapDef) {
+  return {
+    id: m.id,
+    name: m.name,
+    maxPlayers: m.maxPlayers,
+    territories: m.territories.map(({ id, name, continent }) => ({ id, name, continent })),
+    continents: m.continents.map(({ id, name, bonus, territories }) => ({ id, name, bonus, territories })),
+    adjacency: m.adjacency,
+  };
+}
 import type { GameRoom, Store } from './store.js';
 
 type Req = Request & { room?: GameRoom; playerId?: string | null };
@@ -48,13 +52,11 @@ export function createApi(store: Store) {
 
   // ---- static info ----
   api.get('/rules', (_req, res) => res.json({ rules: RULES_TEXT }));
-  api.get('/map', (_req, res) =>
-    res.json({
-      territories: TERRITORIES,
-      continents: CONTINENTS,
-      adjacency: ADJACENCY,
-    }),
-  );
+  api.get('/map', (req, res) => {
+    const m = getMap(typeof req.query.map === 'string' ? req.query.map : 'classic');
+    res.json(mapInfo(m));
+  });
+  api.get('/maps', (_req, res) => res.json({ maps: MAP_IDS.map((id) => ({ id, name: getMap(id).name, territories: getMap(id).territoryIds.length, maxPlayers: getMap(id).maxPlayers })) }));
 
   // ---- games ----
   api.get('/games', (_req, res) => res.json({ games: store.list() }));
@@ -237,5 +239,6 @@ export function sanitizeOptions(raw: unknown): Partial<GameOptions> {
   if (o.fortifyMode !== undefined) out.fortifyMode = o.fortifyMode as GameOptions['fortifyMode'];
   if (o.randomDeal !== undefined) out.randomDeal = o.randomDeal === true || o.randomDeal === 'true';
   if (o.maxPlayers !== undefined) out.maxPlayers = Number(o.maxPlayers);
+  if (o.map !== undefined) out.map = o.map as GameOptions['map'];
   return out;
 }

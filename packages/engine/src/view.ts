@@ -1,4 +1,4 @@
-import { CONTINENTS, TERRITORY_IDS } from './map.js';
+import { getMap } from './maps.js';
 import { armiesOf, continentsOf, legalMoves, territoriesOf, type LegalMoves } from './engine.js';
 import type { Card, GameState, Player, PlayerId } from './types.js';
 
@@ -31,7 +31,7 @@ export function viewFor(state: GameState, viewer: PlayerId | null): GameView {
     continents: continentsOf(state, p.id).map((c) => c.id),
   }));
   const continentOwners: Record<string, PlayerId | null> = {};
-  for (const c of CONTINENTS) {
+  for (const c of getMap(state.options.map).continents) {
     const owner = state.territories[c.territories[0]].owner;
     continentOwners[c.id] = owner && c.territories.every((t) => state.territories[t].owner === owner) ? owner : null;
   }
@@ -47,4 +47,3 @@ export function viewFor(state: GameState, viewer: PlayerId | null): GameView {
   };
 }
 
-export { TERRITORY_IDS };

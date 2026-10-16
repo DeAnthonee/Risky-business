@@ -17,11 +17,18 @@
     "test": "npm run typecheck && npm run test -w @risk/engine && npm run test -w @risk/server",
     "test:unit": "npm run test -w @risk/engine && npm run test -w @risk/server",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "mcp": "node packages/mcp/dist/cli.js"
+    "mcp": "node packages/mcp/dist/cli.js",
+    "build:map": "node scripts/build-map.mjs"
   },
   "devDependencies": {
     "concurrently": "^9.2.1",
-    "typescript": "^5.9.3"
+    "d3-geo": "^3.1.1",
+    "d3-geo-projection": "^4.0.0",
+    "polygon-clipping": "^0.15.7",
+    "polylabel": "^2.1.0",
+    "topojson-client": "^3.1.0",
+    "typescript": "^5.9.3",
+    "world-atlas": "^2.0.2"
   },
   "engines": {
     "node": ">=22"

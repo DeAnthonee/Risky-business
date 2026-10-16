@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { GameOptions } from '@risk/engine';
+import { MAPS, MAP_IDS, type GameOptions } from '@risk/engine';
 import { api, type GameSummary } from '../api';
 import type { Session } from '../session';
 
@@ -19,7 +19,7 @@ export function Home({
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [gameName, setGameName] = useState('');
-  const [options, setOptions] = useState<Partial<GameOptions>>({ maxPlayers: 6, setupBatch: 1, fortifyMode: 'connected', randomDeal: true });
+  const [options, setOptions] = useState<Partial<GameOptions>>({ map: 'classic', maxPlayers: 6, setupBatch: 1, fortifyMode: 'connected', randomDeal: true });
 
   useEffect(() => {
     let alive = true;
@@ -114,7 +114,7 @@ export function Home({
                         {p.isBot ? ' 🤖' : ''}{' '}
                       </span>
                     ))}
-                    ({g.players.length}/{g.maxPlayers})
+                    ({g.players.length}/{g.maxPlayers}) · {MAPS[g.options.map]?.name ?? g.options.map}
                   </div>
                 </div>
                 <div className="row">
@@ -147,12 +147,32 @@ export function OptionsForm({
   onChange: (o: Partial<GameOptions>) => void;
   disabled?: boolean;
 }) {
+  const map = MAPS[options.map ?? 'classic'];
+  const maxSeats = map.maxPlayers;
   return (
     <div className="options">
       <label>
+        Map
+        <select
+          disabled={disabled}
+          value={options.map ?? 'classic'}
+          onChange={(e) => {
+            const id = e.target.value as GameOptions['map'];
+            const limit = MAPS[id].maxPlayers;
+            onChange({ map: id, maxPlayers: Math.min(options.maxPlayers ?? limit, limit) });
+          }}
+        >
+          {MAP_IDS.map((id) => (
+            <option key={id} value={id}>
+              {MAPS[id].name} · up to {MAPS[id].maxPlayers} players
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
         Max players
-        <select disabled={disabled} value={options.maxPlayers ?? 6} onChange={(e) => onChange({ maxPlayers: Number(e.target.value) })}>
-          {[2, 3, 4, 5, 6].map((n) => (
+        <select disabled={disabled} value={Math.min(options.maxPlayers ?? maxSeats, maxSeats)} onChange={(e) => onChange({ maxPlayers: Number(e.target.value) })}>
+          {Array.from({ length: maxSeats - 1 }, (_, i) => i + 2).map((n) => (
             <option key={n} value={n}>
               {n}
             </option>

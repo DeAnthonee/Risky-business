@@ -1,7 +1,7 @@
-import { ADJACENCY, CONTINENTS, RULES_TEXT, RuleError, TERRITORIES, type Action, type GameOptions } from '@risk/engine';
+import { RULES_TEXT, RuleError, getMap, type Action, type GameOptions } from '@risk/engine';
 import type { RiskApi } from '@risk/mcp';
 import { RiskHttpError } from '@risk/mcp';
-import { sanitizeOptions } from './http.js';
+import { mapInfo, sanitizeOptions } from './http.js';
 import type { GameRoom, Store } from './store.js';
 
 /** RiskApi implemented directly over the in-memory store (for the embedded /mcp endpoint). */
@@ -27,8 +27,8 @@ export class LocalRiskApi implements RiskApi {
   async rules() {
     return { rules: RULES_TEXT };
   }
-  async map() {
-    return { territories: TERRITORIES, continents: CONTINENTS, adjacency: ADJACENCY };
+  async map(mapId?: string) {
+    return mapInfo(getMap(mapId ?? 'classic'));
   }
   async listGames() {
     return { games: this.store.list() };

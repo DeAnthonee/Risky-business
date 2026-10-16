@@ -214,8 +214,12 @@ describe('MCP over HTTP (/mcp)', () => {
       const started = await call('start_game', { gameId });
       expect(started.isError).toBe(false);
       expect(started.text).toContain('phase: setup');
+      // Turn order is random; wait until it is our turn before expecting legal moves.
+      const waited = await call('wait_for_turn', { gameId, timeoutSeconds: 15 });
+      expect(waited.text).toMatch(/^It is your turn/);
       const state = await call('get_state', { gameId });
       expect(state.text).toContain('YOUR LEGAL MOVES');
+      expect(state.text).toContain('map: Classic World (42)');
       expect(risk.health().mcpSessions).toBe(1);
       // A second, independent session has no seat in that game.
       const other = new Client({ name: 'other', version: '0' });

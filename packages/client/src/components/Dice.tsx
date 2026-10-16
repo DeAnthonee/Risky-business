@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { GameEvent } from '@risk/engine';
-import { shortName } from './Map';
+import { getMap } from '@risk/engine';
+import { territoryName } from './Map';
 
 export type BattleEvent = Extract<GameEvent, { type: 'battle' }>;
 
@@ -64,13 +65,17 @@ export function DicePanel({
   attackerColor,
   defenderColor,
   names,
+  mapId,
 }: {
   battle: BattleEvent;
   rolling: boolean;
   attackerColor: string;
   defenderColor: string;
   names: Record<string, string>;
+  mapId: string;
 }) {
+  const map = getMap(mapId);
+  const shortName = (id: string) => territoryName(map, id);
   const n = Math.min(battle.attackerDice.length, battle.defenderDice.length);
   const aLost = (i: number) => i < n && battle.attackerDice[i] <= battle.defenderDice[i];
   const dLost = (i: number) => i < n && battle.attackerDice[i] > battle.defenderDice[i];

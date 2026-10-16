@@ -1,5 +1,3 @@
-import type { ContinentId } from './map.js';
-
 export type PlayerId = string;
 export type TerritoryId = string;
 
@@ -44,8 +42,10 @@ export interface GameOptions {
   fortifyMode: 'adjacent' | 'connected';
   /** Randomly deal territories (true) or let players claim them one by one (false). */
   randomDeal: boolean;
-  /** Maximum players allowed in this game (2-6). */
+  /** Maximum players allowed in this game (2 up to the map's limit). */
   maxPlayers: number;
+  /** Which board to play on: 'classic' (42 territories, 2-6 players) or 'world' (74 territories, 2-10). */
+  map: 'classic' | 'world';
 }
 
 export const DEFAULT_OPTIONS: GameOptions = {
@@ -53,6 +53,7 @@ export const DEFAULT_OPTIONS: GameOptions = {
   fortifyMode: 'connected',
   randomDeal: true,
   maxPlayers: 6,
+  map: 'classic',
 };
 
 export interface PendingConquest {
@@ -161,7 +162,7 @@ export type ActionType = Action['type'];
 export interface ReinforcementBreakdown {
   territories: number;
   fromTerritories: number;
-  continents: { id: ContinentId; bonus: number }[];
+  continents: { id: string; bonus: number }[];
   total: number;
 }
 

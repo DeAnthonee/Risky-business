@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { GameEvent, GameView } from '@risk/engine';
+import { getMap, type GameEvent, type GameView } from '@risk/engine';
 import { api } from '../api';
 import type { Session } from '../session';
 import type { EventBatch, GameConnection } from '../useGame';
@@ -7,7 +7,7 @@ import { CardsPanel } from './Cards';
 import { Chat } from './Chat';
 import { DicePanel, type BattleEvent } from './Dice';
 import { Log } from './Log';
-import { GameMap, shortName, type FloatAnim, type Highlight, type MoveAnim } from './Map';
+import { GameMap, territoryName, type FloatAnim, type Highlight, type MoveAnim } from './Map';
 
 type Mode = 'idle' | 'place' | 'attack' | 'fortify';
 
@@ -23,6 +23,8 @@ export function Game({ conn, gameId, session, onLeave }: { conn: GameConnection;
   const myTurn = !!legal?.yourTurn;
   const current = view.players.find((p) => p.id === view.currentPlayer) ?? null;
   const names = useMemo(() => Object.fromEntries(view.players.map((p) => [p.id, p.name])), [view.players]);
+  const map = getMap(view.options.map);
+  const shortName = (id: string) => territoryName(map, id);
   const colorOf = useCallback((pid: string | null | undefined) => view.players.find((p) => p.id === pid)?.color ?? '#888', [view.players]);
 
   // ---------- local interaction state ----------
@@ -230,7 +232,7 @@ export function Game({ conn, gameId, session, onLeave }: { conn: GameConnection;
         />
 
         {anim.battle && (
-          <DicePanel battle={anim.battle.ev} rolling={anim.battle.rolling} attackerColor={colorOf(anim.battle.ev.attacker)} defenderColor={colorOf(anim.battle.ev.defender)} names={names} />
+          <DicePanel battle={anim.battle.ev} rolling={anim.battle.rolling} attackerColor={colorOf(anim.battle.ev.attacker)} defenderColor={colorOf(anim.battle.ev.defender)} names={names} mapId={view.options.map} />
         )}
 
         {banner && (
@@ -423,6 +425,7 @@ export function Game({ conn, gameId, session, onLeave }: { conn: GameConnection;
 
       {showCards && me && (
         <CardsPanel
+          mapId={view.options.map}
           cards={me.cards ?? []}
           tradeCount={view.tradeCount}
           canTrade={myTurn && (view.phase === 'reinforce' || !!legal?.mustTrade)}
@@ -438,9 +441,9 @@ export function Game({ conn, gameId, session, onLeave }: { conn: GameConnection;
 function reinforcementPreview(view: GameView, pid: string): number {
   const p = view.players.find((x) => x.id === pid);
   if (!p) return 0;
+  const map = getMap(view.options.map);
   const base = Math.max(3, Math.floor(p.territoryCount / 3));
-  const bonus = { north_america: 5, south_america: 2, europe: 5, africa: 3, asia: 7, australia: 2 } as Record<string, number>;
-  return base + p.continents.reduce((n, c) => n + (bonus[c] ?? 0), 0);
+  return base + p.continents.reduce((n, c) => n + (map.continentById[c]?.bonus ?? 0), 0);
 }
 
 function PhaseSteps({ phase }: { phase: GameView['phase'] }) {

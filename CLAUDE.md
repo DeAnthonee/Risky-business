@@ -8,6 +8,8 @@ Online multiplayer Risk with bots and an MCP server for AI agents. npm-workspace
 
 - `npm ci` — install (devDependencies are required to build).
 - `npm run build` — builds every package; writes `packages/server/dist/build-info.json`.
+- `npm run build:map` — regenerates `packages/engine/src/generated/{classic,world}.json` (territory shapes,
+  anchors, adjacency, sea links) from `scripts/maps/*.mjs` + Natural Earth data. Commit the output.
 - `npm test` — the deploy gate: builds the engine (`pretest`), then typecheck + engine + server tests.
   Works on a fresh clone right after `npm ci`. No fixed ports, no browser.
 - `npm start` — `node packages/server/dist/index.js` (reads `PORT`, binds `0.0.0.0`). Serves the web
@@ -35,6 +37,9 @@ Online multiplayer Risk with bots and an MCP server for AI agents. npm-workspace
 ## Conventions
 
 - Rules live in the engine only; the server and MCP never re-implement game logic.
+- Maps are data: edit `scripts/maps/<id>.mjs` (country groupings, lon/lat boxes, edges, anchors), run
+  `npm run build:map`, and read its warnings: every adjacency that does not touch on the map becomes a
+  drawn sea link, and it lists shapes that touch without being adjacent. Never edit the generated JSON.
 - MCP tools are defined once in `packages/mcp/src/tools.ts` over the `RiskApi` interface; the stdio CLI
   uses `HttpRiskApi`, the embedded `/mcp` endpoint uses the server's `LocalRiskApi`.
 - Every state change goes through `GameRoom.commit` so WebSocket clients, long-poll waiters,

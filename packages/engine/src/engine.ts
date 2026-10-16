@@ -1,4 +1,4 @@
-import { ADJACENCY, CONTINENTS, TERRITORY_IDS, isAdjacent, isTerritory } from './map.js';
+import { getMap, isMapId, type MapDef } from './maps.js';
 import { buildDeck, findSets, isValidSet, tradeBonus } from './cards.js';
 import { createRng, nextInt, rollDie, shuffle, type Rng } from './rng.js';
 import {
@@ -20,26 +20,17 @@ import {
   type TradeAction,
 } from './types.js';
 
-export const PLAYER_COLORS = ['#e63946', '#2a9d8f', '#457bd9', '#f4a261', '#9b5de5', '#f9c74f'];
+export const PLAYER_COLORS = ['#e63946', '#2a9d8f', '#457bd9', '#f4a261', '#9b5de5', '#f9c74f', '#06d6a0', '#ff70a6', '#b5651d', '#00b4d8'];
 export const NEUTRAL_COLOR = '#8d8d8d';
 export const NEUTRAL_ID = 'neutral';
 
-/** Starting armies per player by player count (classic). */
-export function startingArmies(playerCount: number): number {
-  switch (playerCount) {
-    case 2:
-      return 40;
-    case 3:
-      return 35;
-    case 4:
-      return 30;
-    case 5:
-      return 25;
-    case 6:
-      return 20;
-    default:
-      throw new RuleError('Risk supports 2-6 players');
-  }
+/** Starting armies per player for a player count on a map (classic table for the classic map). */
+export function startingArmies(playerCount: number, mapId: string = 'classic'): number {
+  return getMap(mapId).startingArmies(playerCount);
+}
+
+function mapOf(state: GameState): MapDef {
+  return getMap(state.options.map);
 }
 
 // ------------------------------------------------------------------
@@ -49,6 +40,7 @@ export function startingArmies(playerCount: number): number {
 export function createGame(id: string, options: Partial<GameOptions> = {}, seed?: number): GameState {
   const opts: GameOptions = { ...DEFAULT_OPTIONS, ...options };
   validateOptions(opts);
+  const map = getMap(opts.map);
   const s = seed ?? ((Math.random() * 0xffffffff) >>> 0);
   return {
     id,
@@ -60,7 +52,7 @@ export function createGame(id: string, options: Partial<GameOptions> = {}, seed?
     currentPlayer: null,
     turnNumber: 0,
     round: 0,
-    territories: Object.fromEntries(TERRITORY_IDS.map((t) => [t, { owner: null, armies: 0 }])),
+    territories: Object.fromEntries(map.territoryIds.map((t) => [t, { owner: null, armies: 0 }])),
     deck: [],
     discard: [],
     tradeCount: 0,
@@ -80,16 +72,25 @@ export function validateOptions(o: GameOptions): void {
     throw new RuleError('setupBatch must be an integer between 1 and 40');
   if (o.fortifyMode !== 'adjacent' && o.fortifyMode !== 'connected')
     throw new RuleError("fortifyMode must be 'adjacent' or 'connected'");
-  if (!Number.isInteger(o.maxPlayers) || o.maxPlayers < 2 || o.maxPlayers > 6)
-    throw new RuleError('maxPlayers must be between 2 and 6');
+  if (!isMapId(o.map)) throw new RuleError(`Unknown map "${String(o.map)}"`);
+  const map = getMap(o.map);
+  if (!Number.isInteger(o.maxPlayers) || o.maxPlayers < 2 || o.maxPlayers > map.maxPlayers)
+    throw new RuleError(`maxPlayers must be between 2 and ${map.maxPlayers} on the ${map.name} map`);
 }
 
 export function setOptions(state: GameState, options: Partial<GameOptions>): GameState {
   if (state.phase !== 'lobby') throw new RuleError('Options can only be changed in the lobby');
   const next = clone(state);
   next.options = { ...next.options, ...options };
+  // Switching maps: clamp maxPlayers to the new map's limit rather than rejecting.
+  if (options.map && options.map !== state.options.map && options.maxPlayers === undefined) {
+    next.options.maxPlayers = Math.min(next.options.maxPlayers, getMap(options.map).maxPlayers);
+  }
   validateOptions(next.options);
   if (next.players.length > next.options.maxPlayers) throw new RuleError('maxPlayers is below the current player count');
+  if (options.map && options.map !== state.options.map) {
+    next.territories = Object.fromEntries(getMap(next.options.map).territoryIds.map((t) => [t, { owner: null, armies: 0 }]));
+  }
   next.version++;
   return next;
 }
@@ -134,13 +135,14 @@ export function removePlayer(state: GameState, id: PlayerId): GameState {
 export function startGame(state: GameState): ActionResult {
   if (state.phase !== 'lobby') throw new RuleError('Game already started');
   const humansAndBots = state.players.filter((p) => !p.isNeutral);
+  const map = mapOf(state);
   if (humansAndBots.length < 2) throw new RuleError('Need at least 2 players');
-  if (humansAndBots.length > 6) throw new RuleError('At most 6 players');
+  if (humansAndBots.length > map.maxPlayers) throw new RuleError(`At most ${map.maxPlayers} players on this map`);
 
   const next = clone(state);
   const rng = rngOf(next);
   const events: GameEvent[] = [];
-  const armies = startingArmies(humansAndBots.length);
+  const armies = map.startingArmies(humansAndBots.length);
 
   // Two-player games use a neutral third army (classic rules).
   if (humansAndBots.length === 2) {
@@ -171,13 +173,13 @@ export function startGame(state: GameState): ActionResult {
     p.alive = true;
   });
 
-  next.deck = shuffle(rng, buildDeck());
+  next.deck = shuffle(rng, buildDeck(map));
   next.discard = [];
 
   // Deal territories round-robin in turn order (neutral included for 2p).
   const dealOrder = [...order, ...next.players.filter((p) => p.isNeutral).map((p) => p.id)];
   if (next.options.randomDeal) {
-    const shuffledTerritories = shuffle(rng, TERRITORY_IDS);
+    const shuffledTerritories = shuffle(rng, map.territoryIds);
     shuffledTerritories.forEach((t, i) => {
       const owner = dealOrder[i % dealOrder.length];
       next.territories[t] = { owner, armies: 1 };
@@ -185,7 +187,7 @@ export function startGame(state: GameState): ActionResult {
     });
   } else {
     // Claiming phase: nobody owns anything yet; players claim one per setup turn.
-    for (const t of TERRITORY_IDS) next.territories[t] = { owner: null, armies: 0 };
+    for (const t of map.territoryIds) next.territories[t] = { owner: null, armies: 0 };
   }
 
   // Neutral player: auto-distribute all remaining armies evenly.
@@ -208,7 +210,7 @@ export function startGame(state: GameState): ActionResult {
 }
 
 function distributeEvenly(state: GameState, player: Player, rng: Rng): void {
-  const owned = TERRITORY_IDS.filter((t) => state.territories[t].owner === player.id);
+  const owned = mapOf(state).territoryIds.filter((t) => state.territories[t].owner === player.id);
   if (owned.length === 0) {
     player.armiesToPlace = 0;
     return;
@@ -291,7 +293,7 @@ export function playerOf(state: GameState, id: PlayerId): Player {
 }
 
 export function territoriesOf(state: GameState, id: PlayerId): TerritoryId[] {
-  return TERRITORY_IDS.filter((t) => state.territories[t].owner === id);
+  return mapOf(state).territoryIds.filter((t) => state.territories[t].owner === id);
 }
 
 export function armiesOf(state: GameState, id: PlayerId): number {
@@ -299,7 +301,7 @@ export function armiesOf(state: GameState, id: PlayerId): number {
 }
 
 export function continentsOf(state: GameState, id: PlayerId) {
-  return CONTINENTS.filter((c) => c.territories.every((t) => state.territories[t].owner === id));
+  return mapOf(state).continents.filter((c) => c.territories.every((t) => state.territories[t].owner === id));
 }
 
 export function reinforcementsFor(state: GameState, id: PlayerId): ReinforcementBreakdown {
@@ -318,17 +320,18 @@ export function mustTrade(state: GameState, id: PlayerId): boolean {
   return false;
 }
 
-function requireTerritory(id: string): void {
-  if (!isTerritory(id)) throw new RuleError(`Unknown territory ${id}`);
+function requireTerritory(state: GameState, id: string): void {
+  if (!mapOf(state).isTerritory(id)) throw new RuleError(`Unknown territory ${id}`);
 }
 
 /** Territories reachable from `from` through territories owned by `owner` (excluding from). */
 export function connectedTerritories(state: GameState, owner: PlayerId, from: TerritoryId): Set<TerritoryId> {
+  const adjacency = mapOf(state).adjacency;
   const seen = new Set<TerritoryId>([from]);
   const stack = [from];
   while (stack.length) {
     const cur = stack.pop()!;
-    for (const n of ADJACENCY[cur]) {
+    for (const n of adjacency[cur]) {
       if (!seen.has(n) && state.territories[n].owner === owner) {
         seen.add(n);
         stack.push(n);
@@ -356,14 +359,14 @@ function doPlace(state: GameState, playerId: PlayerId, action: PlaceAction, even
   if (entries.length === 0) throw new RuleError('No placements given');
   let total = 0;
   for (const [t, n] of entries) {
-    requireTerritory(t);
+    requireTerritory(state, t);
     if (!Number.isInteger(n) || n <= 0) throw new RuleError(`Invalid army count for ${t}`);
     total += n;
   }
 
   if (state.phase === 'setup') {
     const limit = Math.min(player.armiesToPlace, state.options.setupBatch);
-    const unclaimed = TERRITORY_IDS.filter((t) => state.territories[t].owner === null);
+    const unclaimed = mapOf(state).territoryIds.filter((t) => state.territories[t].owner === null);
     if (unclaimed.length > 0) {
       // Claiming phase: exactly one army on one unclaimed territory.
       if (entries.length !== 1 || total !== 1) throw new RuleError('Claim exactly one unclaimed territory with one army');
@@ -402,7 +405,7 @@ function advanceSetup(state: GameState, events: GameEvent[]): void {
   const order = state.turnOrder;
   // Neutral armies for claim mode: once all territories are claimed, drop neutral's leftover armies evenly.
   const neutral = state.players.find((p) => p.isNeutral);
-  if (neutral && neutral.armiesToPlace > 0 && TERRITORY_IDS.every((t) => state.territories[t].owner !== null)) {
+  if (neutral && neutral.armiesToPlace > 0 && mapOf(state).territoryIds.every((t) => state.territories[t].owner !== null)) {
     const rng = rngOf(state);
     distributeEvenly(state, neutral, rng);
     saveRng(state, rng);
@@ -510,13 +513,13 @@ function doAttack(state: GameState, playerId: PlayerId, action: AttackAction, ev
   if (state.pendingConquest) throw new RuleError('You must occupy the conquered territory first');
   if (mustTrade(state, playerId)) throw new RuleError('You hold 6 or more cards and must trade before attacking');
   if (player.armiesToPlace > 0) throw new RuleError(`Place your ${player.armiesToPlace} armies before attacking`);
-  requireTerritory(action.from);
-  requireTerritory(action.to);
+  requireTerritory(state, action.from);
+  requireTerritory(state, action.to);
   const from = state.territories[action.from];
   const to = state.territories[action.to];
   if (from.owner !== playerId) throw new RuleError(`You do not own ${action.from}`);
   if (to.owner === playerId) throw new RuleError(`You already own ${action.to}`);
-  if (!isAdjacent(action.from, action.to)) throw new RuleError(`${action.from} is not adjacent to ${action.to}`);
+  if (!mapOf(state).isAdjacent(action.from, action.to)) throw new RuleError(`${action.from} is not adjacent to ${action.to}`);
   if (from.armies < 2) throw new RuleError('You need at least 2 armies to attack');
   if (action.dice !== undefined && (!Number.isInteger(action.dice) || action.dice < 1 || action.dice > 3))
     throw new RuleError('dice must be 1, 2 or 3');
@@ -637,8 +640,8 @@ function doFortify(state: GameState, playerId: PlayerId, action: FortifyAction, 
   if (state.phase !== 'fortify' && state.phase !== 'attack') throw new RuleError('Cannot fortify now');
   if (state.phase === 'attack') doEndAttack(state, playerId, events);
   if (state.fortifiedThisTurn) throw new RuleError('You may only fortify once per turn');
-  requireTerritory(action.from);
-  requireTerritory(action.to);
+  requireTerritory(state, action.from);
+  requireTerritory(state, action.to);
   if (action.from === action.to) throw new RuleError('Choose two different territories');
   const from = state.territories[action.from];
   const to = state.territories[action.to];
@@ -647,7 +650,7 @@ function doFortify(state: GameState, playerId: PlayerId, action: FortifyAction, 
   if (!Number.isInteger(action.armies) || action.armies < 1) throw new RuleError('Move at least 1 army');
   if (action.armies > from.armies - 1) throw new RuleError(`At least one army must stay in ${action.from}`);
   if (state.options.fortifyMode === 'adjacent') {
-    if (!isAdjacent(action.from, action.to)) throw new RuleError('Territories must be adjacent to fortify');
+    if (!mapOf(state).isAdjacent(action.from, action.to)) throw new RuleError('Territories must be adjacent to fortify');
   } else if (!connectedTerritories(state, playerId, action.from).has(action.to)) {
     throw new RuleError('Territories must be connected through your own territories');
   }
@@ -778,7 +781,7 @@ export function legalMoves(state: GameState, playerId: PlayerId): LegalMoves {
   }
 
   if (state.phase === 'setup') {
-    const unclaimed = TERRITORY_IDS.filter((t) => state.territories[t].owner === null);
+    const unclaimed = mapOf(state).territoryIds.filter((t) => state.territories[t].owner === null);
     if (unclaimed.length > 0) {
       lm.canPlaceOn = unclaimed;
       lm.placeLimit = 1;
@@ -804,10 +807,11 @@ export function legalMoves(state: GameState, playerId: PlayerId): LegalMoves {
       lm.placeLimit = player.armiesToPlace;
       return lm;
     }
+    const adjacency = mapOf(state).adjacency;
     for (const t of owned) {
       const armies = state.territories[t].armies;
       if (armies < 2) continue;
-      for (const n of ADJACENCY[t]) {
+      for (const n of adjacency[t]) {
         if (state.territories[n].owner !== playerId) lm.attacks.push({ from: t, to: n, maxDice: Math.min(3, armies - 1) });
       }
     }
@@ -828,12 +832,13 @@ export function legalMoves(state: GameState, playerId: PlayerId): LegalMoves {
 function fortifyOptions(state: GameState, playerId: PlayerId, owned: TerritoryId[]) {
   const out: { from: TerritoryId; to: TerritoryId; maxArmies: number }[] = [];
   if (state.fortifiedThisTurn) return out;
+  const adjacency = mapOf(state).adjacency;
   for (const t of owned) {
     const armies = state.territories[t].armies;
     if (armies < 2) continue;
     const targets =
       state.options.fortifyMode === 'adjacent'
-        ? ADJACENCY[t].filter((n) => state.territories[n].owner === playerId)
+        ? adjacency[t].filter((n) => state.territories[n].owner === playerId)
         : [...connectedTerritories(state, playerId, t)];
     for (const n of targets) out.push({ from: t, to: n, maxArmies: armies - 1 });
   }

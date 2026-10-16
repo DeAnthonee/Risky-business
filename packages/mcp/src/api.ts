@@ -48,7 +48,7 @@ export interface ChatResult {
  */
 export interface RiskApi {
   rules(): Promise<{ rules: string }>;
-  map(): Promise<unknown>;
+  map(mapId?: string): Promise<unknown>;
   listGames(): Promise<{ games: unknown[] }>;
   createGame(playerName: string, gameName: string | undefined, options: Partial<GameOptions> | undefined): Promise<JoinResult>;
   joinGame(gameId: string, playerName: string): Promise<JoinResult>;
@@ -166,8 +166,8 @@ export class HttpRiskApi implements RiskApi {
   rules() {
     return this.request<{ rules: string }>('/rules');
   }
-  map() {
-    return this.request<unknown>('/map');
+  map(mapId?: string) {
+    return this.request<unknown>(`/map${mapId ? `?map=${encodeURIComponent(mapId)}` : ''}`);
   }
   listGames() {
     return this.request<{ games: unknown[] }>('/games');

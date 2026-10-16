@@ -1,5 +1,5 @@
 export * from './types.js';
-export * from './map.js';
+export * from './maps.js';
 export * from './cards.js';
 export * from './rng.js';
 export * from './engine.js';

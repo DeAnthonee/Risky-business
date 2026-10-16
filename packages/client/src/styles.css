@@ -264,7 +264,7 @@ footer {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  background: radial-gradient(ellipse at center, #10263c 0%, var(--map-bg) 70%);
+  background: var(--map-bg);
 }
 .topbar {
   display: flex;
@@ -316,63 +316,133 @@ footer {
 }
 
 /* ---------- Map ---------- */
-.continent-label {
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 2px;
-  opacity: 0.7;
+.ocean {
+  fill: #0b1b2b;
 }
-.edges line {
-  stroke: rgba(255, 255, 255, 0.22);
-  stroke-width: 2;
+.continent-outline {
+  fill: rgba(255, 255, 255, 0.05);
+  stroke-width: 7;
+  stroke-opacity: 0.55;
+  stroke-linejoin: round;
+  transition: stroke 0.6s;
+}
+.continent-outline.owned {
+  stroke-opacity: 0.9;
+}
+.continent-label {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  opacity: 0.8;
+  pointer-events: none;
+  paint-order: stroke;
+  stroke: rgba(0, 0, 0, 0.7);
+  stroke-width: 3px;
+}
+.map.dense .continent-label {
+  font-size: 10px;
+  letter-spacing: 1.5px;
+}
+.sea-links line {
+  stroke: rgba(255, 255, 255, 0.35);
+  stroke-width: 1.5;
+  stroke-dasharray: 5 4;
 }
 .territory {
+  stroke: rgba(10, 16, 28, 0.9);
+  stroke-width: 1;
+  stroke-linejoin: round;
+  transition: fill 0.5s, opacity 0.25s, filter 0.2s;
   cursor: default;
-  transition: opacity 0.25s;
+  fill-opacity: 0.92;
 }
-.territory.clickable {
+.territory.unowned {
+  fill-opacity: 0.35;
+}
+.territory.clickable,
+.badge.clickable {
   cursor: pointer;
 }
-.territory.dim {
+.territory:hover {
+  filter: brightness(1.2);
+}
+.territory.dim,
+.badge.dim {
   opacity: 0.35;
 }
-.territory .body {
-  stroke: rgba(255, 255, 255, 0.75);
-  stroke-width: 2;
-  transition: fill 0.5s, stroke 0.2s, r 0.2s;
+.territory.hl-place,
+.territory.hl-source {
+  filter: brightness(1.15);
 }
-.territory:hover .body {
+.territory.hl-selected {
   stroke: #fff;
-  stroke-width: 3;
+  stroke-width: 2.5;
+  filter: brightness(1.25);
 }
-.territory .ring {
+.territory.hl-target,
+.territory.hl-pending-target {
+  stroke: #ff5a5a;
+  stroke-width: 2.5;
+  animation: target-pulse 1s ease-in-out infinite;
+}
+.territory.hl-pending-target {
+  stroke: #ffd166;
+}
+.territory.flash {
+  animation: flash 0.9s ease-out;
+}
+@keyframes target-pulse {
+  0%,
+  100% {
+    stroke-opacity: 1;
+  }
+  50% {
+    stroke-opacity: 0.35;
+  }
+}
+@keyframes flash {
+  0% {
+    filter: brightness(2.2);
+  }
+  100% {
+    filter: brightness(1);
+  }
+}
+.badge .body {
+  stroke: rgba(255, 255, 255, 0.85);
+  stroke-width: 1.5;
+  transition: fill 0.5s;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.6));
+}
+.badge:hover .body {
+  stroke: #fff;
+  stroke-width: 2.5;
+}
+.badge .ring {
   fill: none;
   stroke: transparent;
-  stroke-width: 3;
+  stroke-width: 2.5;
 }
-.territory.hl-place .ring,
-.territory.hl-source .ring {
+.badge.hl-place .ring,
+.badge.hl-source .ring {
   stroke: #fff;
-  stroke-opacity: 0.7;
+  stroke-opacity: 0.8;
   stroke-dasharray: 4 4;
   animation: spin-ring 6s linear infinite;
 }
-.territory.hl-selected .ring {
+.badge.hl-selected .ring {
   stroke: #fff;
-  stroke-width: 4;
+  stroke-width: 3;
   animation: pulse-ring 1s ease-in-out infinite;
 }
-.territory.hl-target .ring {
+.badge.hl-target .ring {
   stroke: #ff5a5a;
   stroke-width: 3;
   animation: pulse-ring 1s ease-in-out infinite;
 }
-.territory.hl-pending-target .ring {
+.badge.hl-pending-target .ring {
   stroke: #ffd166;
-  stroke-width: 5;
-}
-.territory.flash .body {
-  animation: flash 0.9s ease-out;
+  stroke-width: 4;
 }
 @keyframes spin-ring {
   to {
@@ -382,34 +452,24 @@ footer {
 @keyframes pulse-ring {
   0%,
   100% {
-    r: 27;
     stroke-opacity: 1;
   }
   50% {
-    r: 31;
-    stroke-opacity: 0.5;
+    stroke-opacity: 0.4;
   }
 }
-@keyframes flash {
-  0% {
-    stroke: #fff;
-    stroke-width: 8;
-    filter: brightness(2);
-  }
-  100% {
-    stroke-width: 2;
-    filter: brightness(1);
-  }
-}
-.territory .armies {
+.badge .armies {
   fill: #fff;
   font-weight: 800;
-  font-size: 16px;
+  font-size: 13px;
   pointer-events: none;
   paint-order: stroke;
-  stroke: rgba(0, 0, 0, 0.45);
+  stroke: rgba(0, 0, 0, 0.5);
   stroke-width: 3px;
   animation: pop 0.35s ease-out;
+}
+.map.dense .badge .armies {
+  font-size: 11px;
 }
 @keyframes pop {
   0% {
@@ -419,19 +479,23 @@ footer {
     transform: scale(1);
   }
 }
-.territory .pending {
+.badge .pending {
   fill: #ffd166;
   font-weight: 800;
-  font-size: 13px;
+  font-size: 11px;
   pointer-events: none;
 }
-.territory .label {
-  fill: rgba(255, 255, 255, 0.78);
-  font-size: 10.5px;
+.badge .label {
+  fill: rgba(255, 255, 255, 0.9);
+  font-size: 9.5px;
+  font-weight: 600;
   pointer-events: none;
   paint-order: stroke;
-  stroke: rgba(0, 0, 0, 0.6);
+  stroke: rgba(0, 0, 0, 0.75);
   stroke-width: 2.5px;
+}
+.map.dense .badge .label {
+  font-size: 7.5px;
 }
 .attack-arrow {
   stroke: #ff5a5a;
@@ -439,6 +503,7 @@ footer {
   stroke-dasharray: 10 7;
   animation: dash 0.5s linear infinite;
   filter: url(#glow);
+  pointer-events: none;
 }
 @keyframes dash {
   to {

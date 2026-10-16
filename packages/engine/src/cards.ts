@@ -1,16 +1,18 @@
-import { TERRITORY_IDS } from './map.js';
+import type { MapDef } from './maps.js';
+import { CLASSIC } from './maps.js';
 import type { Card, CardKind } from './types.js';
 
-/** 42 territory cards (14 infantry, 14 cavalry, 14 artillery) + 2 wilds. */
-export function buildDeck(): Card[] {
+/** One card per territory (infantry/cavalry/artillery in rotation) + 2 wilds. */
+export function buildDeck(map: MapDef = CLASSIC): Card[] {
   const kinds: CardKind[] = ['infantry', 'cavalry', 'artillery'];
-  const cards: Card[] = TERRITORY_IDS.map((territory, i) => ({
+  const n = map.territoryIds.length;
+  const cards: Card[] = map.territoryIds.map((territory, i) => ({
     id: i,
     kind: kinds[i % 3],
     territory,
   }));
-  cards.push({ id: 42, kind: 'wild', territory: null });
-  cards.push({ id: 43, kind: 'wild', territory: null });
+  cards.push({ id: n, kind: 'wild', territory: null });
+  cards.push({ id: n + 1, kind: 'wild', territory: null });
   return cards;
 }
 

@@ -12,6 +12,7 @@ import {
   findSets,
   isValidSet,
   legalMoves,
+  setOptions,
   startGame,
   territoriesOf,
   tradeBonus,
@@ -269,5 +270,76 @@ describe('turn flow', () => {
     const b = finishSetup(setup(4, {}, 7).state);
     expect(a.territories).toEqual(b.territories);
     expect(a.turnOrder).toEqual(b.turnOrder);
+  });
+});
+
+describe('maps', () => {
+  it('classic and world maps are well formed', async () => {
+    const { MAPS, MAP_IDS } = await import('../src/index.js');
+    expect(MAP_IDS).toEqual(['classic', 'world']);
+    for (const id of MAP_IDS) {
+      const m = MAPS[id];
+      expect(m.territories.length).toBe(id === 'classic' ? 42 : 74);
+      // every territory has a shape and an anchor inside the viewBox
+      for (const t of m.territories) {
+        expect(t.path.length).toBeGreaterThan(10);
+        expect(t.x).toBeGreaterThanOrEqual(0);
+        expect(t.x).toBeLessThanOrEqual(m.viewBox[0]);
+        expect(t.y).toBeGreaterThanOrEqual(0);
+        expect(t.y).toBeLessThanOrEqual(m.viewBox[1]);
+        expect(m.continentById[t.continent]).toBeDefined();
+      }
+      // continents partition the territories
+      const all = m.continents.flatMap((c) => c.territories).sort();
+      expect(all).toEqual([...m.territoryIds].sort());
+      // adjacency symmetric, no self loops, graph connected
+      for (const t of m.territoryIds) {
+        expect(m.adjacency[t].length).toBeGreaterThan(0);
+        for (const n of m.adjacency[t]) {
+          expect(n).not.toBe(t);
+          expect(m.adjacency[n]).toContain(t);
+        }
+      }
+      const seen = new Set<string>([m.territoryIds[0]]);
+      const stack = [m.territoryIds[0]];
+      while (stack.length) for (const n of m.adjacency[stack.pop()!]) if (!seen.has(n)) (seen.add(n), stack.push(n));
+      expect(seen.size).toBe(m.territoryIds.length);
+      for (const l of m.seaLinks) expect(m.isAdjacent(l.a, l.b)).toBe(true);
+      expect(m.seaLinks.some((l) => l.wrap)).toBe(true);
+    }
+    expect(MAPS.world.maxPlayers).toBe(10);
+    expect(MAPS.world.startingArmies(10)).toBe(22);
+    expect(MAPS.world.startingArmies(2)).toBe(60);
+    expect(() => MAPS.classic.startingArmies(7)).toThrow(RuleError);
+  });
+
+  it('plays a 10 player game on the world map', () => {
+    let s = createGame('w', { map: 'world', maxPlayers: 10, setupBatch: 40 }, 3);
+    for (let i = 0; i < 10; i++) s = addPlayer(s, `p${i}`, `P${i}`);
+    expect(() => addPlayer(s, 'extra', 'X')).toThrow(/full/);
+    let state = startGame(s).state;
+    expect(state.players).toHaveLength(10);
+    expect(Object.keys(state.territories)).toHaveLength(74);
+    const counts = state.players.map((p) => territoriesOf(state, p.id).length);
+    expect(Math.max(...counts) - Math.min(...counts)).toBeLessThanOrEqual(1);
+    expect(state.deck.length).toBe(76);
+    state = finishSetup(state);
+    expect(state.phase).toBe('reinforce');
+    const me = state.currentPlayer!;
+    const lm = legalMoves(state, me);
+    expect(lm.canPlaceOn.length).toBeGreaterThan(0);
+    for (const t of lm.canPlaceOn) expect(t in state.territories).toBe(true);
+  });
+
+  it('rejects more players than the map allows and unknown maps', () => {
+    expect(() => createGame('x', { maxPlayers: 10 })).toThrow(/maxPlayers/);
+    expect(() => createGame('x', { map: 'moon' as any })).toThrow(/Unknown map/);
+    let s = createGame('x', { maxPlayers: 6 });
+    s = setOptions(s, { map: 'world' });
+    expect(s.options.map).toBe('world');
+    expect(Object.keys(s.territories)).toHaveLength(74);
+    s = setOptions(s, { maxPlayers: 10 });
+    s = setOptions(s, { map: 'classic' });
+    expect(s.options.maxPlayers).toBe(6);
   });
 });

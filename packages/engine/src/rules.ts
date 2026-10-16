@@ -4,12 +4,16 @@ RISK — World Domination (classic rules)
 OBJECTIVE
 Conquer the world by eliminating every other player. The last player holding territories wins.
 
-THE MAP
-42 territories in 6 continents. Continent bonuses: North America 5, South America 2, Europe 5, Africa 3, Asia 7, Australia 2.
-Alaska and Kamchatka are adjacent (the map wraps).
+THE MAPS
+Classic: 42 territories in 6 continents (2-6 players). Continent bonuses: North America 5, South America 2,
+Europe 5, Africa 3, Asia 7, Australia 2.
+World: 74 territories in 14 regions (2-10 players), bonuses 2-7 per region. Use the "map" tool for the exact
+territories, regions and adjacency of the map a game is using. On both maps Alaska and Kamchatka are adjacent
+(the map wraps) and some adjacencies cross water.
 
 PLAYERS & STARTING ARMIES
-2 players: 40 each (plus a 40-army Neutral that never attacks). 3: 35. 4: 30. 5: 25. 6: 20.
+Classic: 2 players: 40 each (plus a 40-army Neutral that never attacks). 3: 35. 4: 30. 5: 25. 6: 20.
+World: about three armies per territory shared out, between 20 and 60 per player (2 players: 60, 5: 44, 10: 22).
 
 SETUP
 Territories are dealt randomly (default) and get 1 army each. Then, in turn order, each player places armies on their

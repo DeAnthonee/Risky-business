@@ -60,7 +60,7 @@ Everything the host needs is Node and this repository; there are no external ser
 | Node | `>=22` (tested on 22; Node 26 supported) |
 | package manager | npm (lockfile `package-lock.json` committed) — `npm ci` |
 | build | `npm run build` (needs devDependencies; nothing prebuilt is committed) |
-| test gate | `npm test` (typecheck + unit tests; random loopback ports only) |
+| test gate | `npm test` (builds the engine, then typecheck + unit tests; works on a fresh clone; random loopback ports only) |
 | start | `node packages/server/dist/index.js` |
 | health | `GET /healthz` → `{"ok":true,"version":"0.1.0","build":"<commit>.<timestamp>","playing":N,...}` |
 | WebSocket | plain `ws` on the same port, path `/ws` |

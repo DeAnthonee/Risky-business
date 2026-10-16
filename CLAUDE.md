@@ -8,7 +8,8 @@ Online multiplayer Risk with bots and an MCP server for AI agents. npm-workspace
 
 - `npm ci` — install (devDependencies are required to build).
 - `npm run build` — builds every package; writes `packages/server/dist/build-info.json`.
-- `npm test` — the deploy gate: typecheck + engine + server tests. No fixed ports, no browser.
+- `npm test` — the deploy gate: builds the engine (`pretest`), then typecheck + engine + server tests.
+  Works on a fresh clone right after `npm ci`. No fixed ports, no browser.
 - `npm start` — `node packages/server/dist/index.js` (reads `PORT`, binds `0.0.0.0`).
 - `npm run dev` — server on :8080 with the Vite client on :5173.
 

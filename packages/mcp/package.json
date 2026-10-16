@@ -1,0 +1,23 @@
+{
+  "name": "@risk/mcp",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "MCP server that lets AI agents play Risk on a Risky Business game server",
+  "bin": { "risk-mcp": "dist/index.js" },
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.20.0",
+    "@risk/engine": "0.1.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.0",
+    "tsx": "^4.20.5"
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "name": "risky-business",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Risk - online multiplayer world domination with an MCP server so AI agents can play too",
+  "workspaces": [
+    "packages/engine",
+    "packages/server",
+    "packages/client",
+    "packages/mcp"
+  ],
+  "scripts": {
+    "build": "npm run build -w @risk/engine && npm run build -w @risk/server && npm run build -w @risk/client && npm run build -w @risk/mcp",
+    "dev": "npm run build -w @risk/engine && concurrently -n server,client -c blue,magenta \"npm run dev -w @risk/server\" \"npm run dev -w @risk/client\"",
+    "start": "node packages/server/dist/index.js",
+    "test": "npm run test -w @risk/engine",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "mcp": "node packages/mcp/dist/index.js"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

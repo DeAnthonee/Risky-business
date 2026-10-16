@@ -1,0 +1,25 @@
+{
+  "name": "@risk/server",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@risk/engine": "0.1.0",
+    "cors": "^2.8.5",
+    "express": "^5.1.0",
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.3",
+    "@types/node": "^22.18.0",
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.20.5"
+  }
+}

@@ -234,7 +234,8 @@ export type GameEvent =
   | { type: 'phase'; phase: Phase; player: PlayerId | null }
   | { type: 'turn_started'; player: PlayerId; turnNumber: number; round: number; reinforcements: ReinforcementBreakdown }
   | { type: 'placed'; player: PlayerId; territory: TerritoryId; armies: number }
-  | { type: 'traded'; player: PlayerId; cardIds: number[]; cards: Card[]; armies: number; bonusTerritory: TerritoryId | null }
+  /** auto: the game traded this set itself because the player held 5 or more cards. */
+  | { type: 'traded'; player: PlayerId; cardIds: number[]; cards: Card[]; armies: number; bonusTerritory: TerritoryId | null; auto?: boolean }
   | {
       type: 'battle';
       attacker: PlayerId;

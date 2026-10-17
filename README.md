@@ -88,9 +88,9 @@ Its land adjacency comes from shared borders, plus the `seaLanes` it lists.
 ## Rules implemented
 
 Classic Hasbro world-domination rules on the classic board: 42 territories / 6 continents, 2–6 players (2-player games get the
-40-army Neutral), random territory deal, escalating card sets (4, 6, 8, 10, 12, 15, +5…), forced trade at 5+
+40-army Neutral), random territory deal, escalating card sets (4, 6, 8, 10, 12, 15, +5…), automatic trade at 5+
 cards, +2 bonus for a traded card showing a territory you own, 3v2 dice with ties to the defender, minimum
-move-in equal to dice rolled, card capture on elimination (forced trade at 5+, right away), one card per turn for a
+move-in equal to dice rolled, card capture on elimination (automatic trade at 5+, right away), one card per turn for a
 conquest, one fortify per turn. The complete text is served at `GET /api/rules` and by the MCP `rules` tool.
 
 Host-selectable options:

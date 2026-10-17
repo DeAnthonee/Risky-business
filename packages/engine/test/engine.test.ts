@@ -10,6 +10,7 @@ import {
   TERRITORY_IDS,
   addPlayer,
   applyAction,
+  bestSet,
   capitalsHeldBy,
   createGame,
   findSets,
@@ -279,24 +280,59 @@ describe('turn flow', () => {
     }
   });
 
-  it('forces a trade with 5+ cards in reinforce and awards escalating bonuses', () => {
+  it('trades a set in automatically when a turn starts with 5+ cards', () => {
+    let state = finishSetup(setup(3, { setupBatch: 40 }).state);
+    const me = state.currentPlayer!;
+    const next = state.turnOrder[(state.turnOrder.indexOf(me) + 1) % state.turnOrder.length];
+    const nextP = state.players.find((x) => x.id === next)!;
+    nextP.cards = state.deck.splice(0, 5);
+    expect(legalMoves(state, next).mustTrade).toBe(false); // not their turn yet
+    state = applyAction(state, me, { type: 'place', placements: { [territoriesOf(state, me)[0]]: state.players.find((x) => x.id === me)!.armiesToPlace } }).state;
+    const res = applyAction(state, me, { type: 'end_turn' });
+    expect(res.state.currentPlayer).toBe(next);
+    const traded = res.events.filter((e) => e.type === 'traded') as Extract<GameEvent, { type: 'traded' }>[];
+    expect(traded).toHaveLength(1);
+    expect(traded[0].auto).toBe(true);
+    expect(traded[0].player).toBe(next);
+    expect(traded[0].armies).toBe(4);
+    const after = res.state.players.find((x) => x.id === next)!;
+    expect(after.cards).toHaveLength(2);
+    const started = res.events.find((e) => e.type === 'turn_started') as Extract<GameEvent, { type: 'turn_started' }>;
+    expect(after.armiesToPlace).toBe(started.reinforcements.total + 4);
+    expect(res.state.tradeCount).toBe(1);
+    expect(legalMoves(res.state, next).mustTrade).toBe(false);
+    expect(legalMoves(res.state, next).canPlaceOn.length).toBeGreaterThan(0);
+  });
+
+  it('lets you trade a set by choice in reinforce and awards escalating bonuses', () => {
     let state = finishSetup(setup(3, { setupBatch: 40 }).state);
     const me = state.currentPlayer!;
     const p = state.players.find((x) => x.id === me)!;
-    p.cards = state.deck.splice(0, 5);
+    const pick = (kind: string) => state.deck.splice(state.deck.findIndex((c) => c.kind === kind), 1)[0];
+    p.cards = [pick('infantry'), pick('infantry'), pick('infantry'), pick('cavalry')];
     const lm = legalMoves(state, me);
-    expect(lm.mustTrade).toBe(true);
-    expect(lm.canPlaceOn).toHaveLength(0);
-    expect(() => applyAction(state, me, { type: 'place', placements: { [territoriesOf(state, me)[0]]: 1 } })).toThrow(/trade/);
+    expect(lm.mustTrade).toBe(false);
     const set = lm.tradeableSets[0];
     expect(set).toBeDefined();
     const before = p.armiesToPlace;
     const res = applyAction(state, me, { type: 'trade', cardIds: set });
     const traded = res.events.find((e) => e.type === 'traded') as Extract<GameEvent, { type: 'traded' }>;
     expect(traded.armies).toBe(4);
+    expect(traded.auto).toBeUndefined();
     expect(res.state.players.find((x) => x.id === me)!.armiesToPlace).toBe(before + 4);
     expect(res.state.tradeCount).toBe(1);
-    expect(res.state.players.find((x) => x.id === me)!.cards).toHaveLength(2);
+    expect(res.state.players.find((x) => x.id === me)!.cards).toHaveLength(1);
+  });
+
+  it('the automatic trade picks the most armies and keeps wilds', () => {
+    let state = finishSetup(setup(3, { setupBatch: 40, cardValues: 'fixed' }).state);
+    const me = state.currentPlayer!;
+    const p = state.players.find((x) => x.id === me)!;
+    const pick = (kind: string) => state.deck.splice(state.deck.findIndex((c) => c.kind === kind), 1)[0];
+    // Sets on offer: 3 infantry (4), infantry+cavalry+artillery (10), and several with the wild.
+    p.cards = [pick('infantry'), pick('infantry'), pick('infantry'), pick('cavalry'), pick('artillery'), pick('wild')];
+    const set = bestSet(state, me)!;
+    expect(set.map((c) => c.kind).sort()).toEqual(['artillery', 'cavalry', 'infantry']);
   });
 
   it('dice ties go to the defender', () => {
@@ -512,7 +548,7 @@ describe('turn flow', () => {
     expect(res.state.winner).toBe(me);
   });
 
-  it('a kill that leaves you with 5 cards forces a trade before you can keep attacking', () => {
+  it('a kill that leaves you with 5 cards trades a set in automatically, then you keep attacking', () => {
     let state = finishSetup(setup(3, { setupBatch: 40 }).state);
     const me = state.currentPlayer!;
     const victim = state.turnOrder.find((id) => id !== me)!;
@@ -532,25 +568,20 @@ describe('turn flow', () => {
     state = applyAction(state, me, { type: 'place', placements: { [from]: meP.armiesToPlace } }).state;
     expect(legalMoves(state, me).mustTrade).toBe(false); // 3 cards: no forced trade yet
 
-    state = applyAction(state, me, { type: 'attack', from, to: last, blitz: true, occupy: 'min' }).state;
+    const res = applyAction(state, me, { type: 'attack', from, to: last, blitz: true, occupy: 'min' });
+    state = res.state;
+    const traded = res.events.find((e) => e.type === 'traded') as Extract<GameEvent, { type: 'traded' }>;
+    expect(traded?.auto).toBe(true);
+    // The trade comes after the cards are taken.
+    expect(res.events.findIndex((e) => e.type === 'traded')).toBeGreaterThan(res.events.findIndex((e) => e.type === 'cards_taken'));
     const after = state.players.find((x) => x.id === me)!;
-    expect(after.cards).toHaveLength(5);
-    const lm = legalMoves(state, me);
-    expect(lm.mustTrade).toBe(true);
-    expect(lm.tradeableSets.length).toBeGreaterThan(0);
-    expect(lm.attacks).toHaveLength(0);
-    const target = ADJACENCY[from].find((t) => state.territories[t].owner !== me && !isBlizzardTest(state, t));
-    if (target) expect(() => applyAction(state, me, { type: 'attack', from, to: target })).toThrow(/must trade/);
-    expect(() => applyAction(state, me, { type: 'end_turn' })).toThrow(/must trade/);
-
-    // Trade, place the armies, and the attack phase carries on.
-    state = applyAction(state, me, { type: 'trade', cardIds: lm.tradeableSets[0] }).state;
-    const traded = state.players.find((x) => x.id === me)!;
-    expect(traded.cards.length).toBeLessThan(5);
-    expect(traded.armiesToPlace).toBeGreaterThan(0);
+    expect(after.cards).toHaveLength(2);
+    expect(after.armiesToPlace).toBeGreaterThan(0);
     expect(state.phase).toBe('attack');
-    state = applyAction(state, me, { type: 'place', placements: { [from]: traded.armiesToPlace } }).state;
     expect(legalMoves(state, me).mustTrade).toBe(false);
+
+    // Place the armies, and the attack phase carries on.
+    state = applyAction(state, me, { type: 'place', placements: { [from]: after.armiesToPlace } }).state;
     expect(legalMoves(state, me).canEndTurn).toBe(true);
   });
 

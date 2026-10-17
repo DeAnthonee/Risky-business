@@ -642,6 +642,7 @@ function beginTurn(state: GameState, playerId: PlayerId, events: GameEvent[]): v
   player.armiesToPlace = reinforcements.total;
   events.push({ type: 'turn_started', player: playerId, turnNumber: state.turnNumber, round: state.round, reinforcements });
   events.push({ type: 'phase', phase: 'reinforce', player: playerId });
+  autoTrade(state, playerId, events);
 }
 
 // ------------------------------------------------------------------
@@ -664,7 +665,12 @@ function doTrade(state: GameState, playerId: PlayerId, action: TradeAction, even
     cards.push(c);
   }
   if (!isValidSet(cards)) throw new RuleError('Those cards do not form a set (3 of a kind, 1 of each, or with a wild)');
+  tradeSet(state, playerId, cards, events, false);
+}
 
+/** Trade three cards (already checked to be a valid set the player holds) for armies. */
+function tradeSet(state: GameState, playerId: PlayerId, cards: Card[], events: GameEvent[], auto: boolean): void {
+  const player = playerOf(state, playerId);
   const armies = setValue(cards, state.options.cardValues ?? 'progressive', state.tradeCount);
   state.tradeCount += 1;
   player.cards = player.cards.filter((c) => !cards.includes(c));
@@ -683,7 +689,40 @@ function doTrade(state: GameState, playerId: PlayerId, action: TradeAction, even
     state.territories[bonusTerritory].armies += 2;
     events.push({ type: 'placed', player: playerId, territory: bonusTerritory, armies: 2 });
   }
-  events.push({ type: 'traded', player: playerId, cardIds: ids, cards: cards.map((c) => ({ ...c })), armies, bonusTerritory });
+  const ids = cards.map((c) => c.id);
+  events.push({ type: 'traded', player: playerId, cardIds: ids, cards: cards.map((c) => ({ ...c })), armies, bonusTerritory, ...(auto ? { auto: true } : {}) });
+}
+
+/**
+ * The set the game trades for a player automatically: the most armies first, then one that shows a
+ * territory they own (+2 there), then the one that spends the fewest wilds (so they keep their flexibility).
+ */
+export function bestSet(state: GameState, playerId: PlayerId): Card[] | null {
+  const player = playerOf(state, playerId);
+  let best: { cards: Card[]; score: number[] } | null = null;
+  for (const ids of findSets(player.cards)) {
+    const cards = ids.map((id) => player.cards.find((c) => c.id === id)!);
+    const value = setValue(cards, state.options.cardValues ?? 'progressive', state.tradeCount);
+    const bonus = cards.some((c) => c.territory && state.territories[c.territory].owner === playerId) ? 1 : 0;
+    const wilds = cards.filter((c) => c.kind === 'wild').length;
+    const score = [value, bonus, -wilds];
+    const diff = best ? score.findIndex((v, i) => v !== best!.score[i]) : 0;
+    if (!best || (diff >= 0 && score[diff] > best.score[diff])) best = { cards, score };
+  }
+  return best?.cards ?? null;
+}
+
+/**
+ * Holding 5 or more cards (at the start of a turn, or after taking an eliminated player's hand) trades
+ * sets in automatically until the player is back under the limit. The armies join armiesToPlace.
+ */
+function autoTrade(state: GameState, playerId: PlayerId, events: GameEvent[]): void {
+  const player = playerOf(state, playerId);
+  while (player.cards.length >= FORCED_TRADE_CARDS) {
+    const set = bestSet(state, playerId);
+    if (!set) break; // cannot happen with 5+ cards, but never loop forever
+    tradeSet(state, playerId, set, events, true);
+  }
 }
 
 function drawCard(state: GameState, player: Player, events: GameEvent[]): void {
@@ -789,6 +828,7 @@ function doAttack(state: GameState, playerId: PlayerId, action: AttackAction, ev
         events.push({ type: 'cards_taken', player: playerId, from: defenderId, count: defender.cards.length });
         player.cards.push(...defender.cards);
         defender.cards = [];
+        autoTrade(state, playerId, events);
       }
     }
 

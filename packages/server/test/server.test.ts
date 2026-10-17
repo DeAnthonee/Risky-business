@@ -806,6 +806,49 @@ describe('MCP act replies', () => {
   });
 });
 
+describe('MCP conquest under fog of war', () => {
+  it('reveals what a conquest uncovers, tags capitals, before the occupy decision', async () => {
+    const { createGame, addPlayer, startGame, applyAction, viewFor, getMap } = await import('@risk/engine');
+    const { formatActResult, formatState } = await import('@risk/mcp');
+    let s = createGame('FOGCAP', { fogOfWar: true, capitals: true, autoSetup: true, maxPlayers: 3 }, 7);
+    s = addPlayer(s, 'a', 'Alice');
+    s = addPlayer(s, 'b', 'Bob');
+    s = addPlayer(s, 'c', 'Carl');
+    s = startGame(s).state;
+    // Rig the board: Alice attacks Northwest Territory from Alaska; Bob's capital Greenland (2 armies)
+    // is only visible once Northwest Territory falls.
+    for (const t of getMap('classic').territoryIds) s.territories[t] = { owner: 'c', armies: 3 };
+    s.territories.alaska = { owner: 'a', armies: 20 };
+    s.territories.kamchatka = { owner: 'a', armies: 1 };
+    s.territories.northwest_territory = { owner: 'b', armies: 1 };
+    s.territories.greenland = { owner: 'b', armies: 2 };
+    s.capitals = { a: 'kamchatka', b: 'greenland', c: 'brazil' };
+    s.currentPlayer = 'a';
+    s.phase = 'attack';
+    s.players.find((p) => p.id === 'a')!.armiesToPlace = 0;
+    expect(viewFor(s, 'a').territories.greenland.hidden).toBe(true);
+    // Under fog the attack advice no longer tells agents to occupy blind.
+    const before = formatState(viewFor(s, 'a'));
+    expect(before).toContain('Fog of war is ON, so leave out "occupy"');
+    expect(before).not.toContain('"blitz":true,"occupy":"max"');
+
+    const r = applyAction(s, 'a', { type: 'attack', from: 'alaska', to: 'northwest_territory', blitz: true });
+    expect(r.state.pendingConquest?.to).toBe('northwest_territory');
+    const view = viewFor(r.state, 'a');
+    // The fog has already cleared while the occupy decision is pending.
+    expect(view.territories.greenland.hidden).toBeFalsy();
+    expect(view.capitals.b).toBe('greenland');
+    const text = formatActResult(r.events, view);
+    expect(text).toContain('Revealed by your conquest (was fogged): ');
+    expect(text).toMatch(/Revealed by your conquest[^\n]*greenland\*\(Bob 2, CAPITAL of Bob\)/);
+    expect(text).toMatch(/northwest_territory: Alice 0 — [^\n]*greenland\*\(Bob 2, CAPITAL of Bob\)/);
+    // Alberta was already visible from Alaska, so it is not "revealed".
+    expect(text).not.toMatch(/Revealed by your conquest[^\n]*alberta/);
+    expect(text).toContain('You MUST occupy');
+    expect(text.indexOf('Revealed by your conquest')).toBeLessThan(text.indexOf('You MUST occupy'));
+  });
+});
+
 describe('new boards over HTTP', () => {
   it('lists every board', async () => {
     const r = await api('/maps');

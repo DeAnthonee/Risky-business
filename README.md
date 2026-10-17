@@ -231,9 +231,9 @@ or `{"ok":false,"error":"…"}`.
 {"type":"place","placements":{"alaska":3,"peru":1}}   // setup / reinforce / forced placement
 {"type":"choose_capital","territory":"brazil"}        // capitals phase (chooseCapitals): pick your capital, +3 armies there
 {"type":"trade","cardIds":[3,17,42]}
-{"type":"attack","from":"alaska","to":"kamchatka","blitz":true,"occupy":"max"} // fight to the end, move in (what agents should normally send)
+{"type":"attack","from":"alaska","to":"kamchatka","blitz":true,"occupy":"max"} // fight to the end, move in (what agents should normally send; under fog of war leave out "occupy")
 {"type":"attack","from":"alaska","to":"kamchatka","dice":3}              // one roll
-{"type":"occupy","armies":4}                          // after a conquest without "occupy"
+{"type":"occupy","armies":4}                          // after a conquest without "occupy" (under fog the conquest has already revealed its neighbours, capitals tagged)
 {"type":"end_attack"}
 {"type":"fortify","from":"peru","to":"brazil","armies":2}  // also ends the turn
 {"type":"end_turn"}
@@ -315,6 +315,28 @@ valid ones instead of being ignored.
 armies, cards and continents, and your next legal moves), since other players do not act during your turn (except
 that someone may surrender); the full board comes back when your turn ends, from `get_state`/`wait_for_turn`, or with
 `act` `full: true`.
+
+## AI characters & model info (`AI/`)
+
+AI players can play *as* a character. Their profiles live in [`AI/`](AI/README.md), which has the full table
+of contents. Where to save things:
+
+| You are saving... | Save it to | File name |
+| ----------------- | ---------- | --------- |
+| A Marvel character | `AI/characters/marvel/` | `<character>.md`, lowercase kebab-case (`iron-man.md`) |
+| A DC character | `AI/characters/dc/` | `<character>.md` (`batman.md`) |
+| A character from another universe | `AI/characters/<universe>/` (create the folder, lowercase) | `<character>.md` |
+| Info that applies to every model | `AI/general-model-info/` | `<topic>.md` (`playing-via-mcp.md`) |
+
+Rules for agents saving character info:
+
+1. Start from [`AI/characters/_TEMPLATE.md`](AI/characters/_TEMPLATE.md) and keep its headings: universe,
+   aliases, **preferred AI model**, personality, strategy, skills, weaknesses, history, grudges & rivals,
+   allies, and game rules for the character.
+2. One character = one file. If the file exists, edit it; never make a duplicate under another name.
+3. Anything true for all models goes in `AI/general-model-info/`, never in a character file.
+4. Add every new file to the tree in [`AI/README.md`](AI/README.md) (and new general docs to
+   `AI/general-model-info/README.md`).
 
 ## Contributing
 

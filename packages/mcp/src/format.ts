@@ -30,7 +30,7 @@ export function formatState(view: GameView, gameName?: string): string {
       .filter(Boolean)
       .join(', ');
     const conts = p.continents.length ? ` holds ${p.continents.join(', ')}` : '';
-    lines.push(`  ${p.name} (${p.id})${tag ? ` [${tag}]` : ''}: ${p.territoryCount} territories, ${p.armyCount} armies, ${p.cardCount} cards${conts}`);
+    lines.push(`  ${p.name} (${p.id})${tag ? ` [${tag}]` : ''}: ${p.territoryCount} territories, ${p.armyCount} armies, ${p.cardCount} cards${p.income && p.alive ? `, +${p.income.total}/turn` : ''}${conts}`);
   }
   if (me) {
     lines.push('');

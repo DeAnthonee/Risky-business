@@ -45,7 +45,20 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
   const fogOn = !!view.options.fogOfWar;
   const [fogPin, setFogPin] = useState<string | null>(null);
   const [followTurn, setFollowTurn] = useState(true);
-  const fogAs = spectator && fogOn ? (followTurn ? view.currentPlayer : fogPin) : null;
+  // "Hide fog" reveals the whole map at a glance without forgetting which fog view was chosen.
+  const [fogRevealed, setFogRevealed] = useState(false);
+  const fogAs = spectator && fogOn && !fogRevealed ? (followTurn ? view.currentPlayer : fogPin) : null;
+  useEffect(() => {
+    if (!spectator || !fogOn) return;
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (e.ctrlKey || e.metaKey || e.altKey) return; // leave Ctrl/Cmd+F (find in page) alone
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable)) return;
+      if (e.key === 'f' || e.key === 'F') setFogRevealed((r) => !r);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [spectator, fogOn]);
   const fogHidden = useMemo(() => {
     if (!fogAs) return undefined;
     const vis = visibleTerritories(view.territories, fogAs, map);
@@ -53,6 +66,7 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
   }, [fogAs, view.territories, map]);
   const pickFog = (pid: string) => {
     if (!spectator || !fogOn) return;
+    setFogRevealed(false);
     if (fogAs === pid) {
       setFollowTurn(false);
       setFogPin(null);
@@ -318,11 +332,16 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
                   ) : (
                     <strong>whole map</strong>
                   )}
-                  <button className={`small ${followTurn ? 'primary' : ''}`} onClick={() => { setFollowTurn(true); setFogPin(null); }}>
+                  <button className={`small ${followTurn && !fogRevealed ? 'primary' : ''}`} onClick={() => { setFogRevealed(false); setFollowTurn(true); setFogPin(null); }}>
                     Follow turn
                   </button>
-                  <button className="small" onClick={() => { setFollowTurn(false); setFogPin(null); }}>
-                    Whole map
+                  <button
+                    className={`small fog-toggle ${fogRevealed ? 'primary' : ''}`}
+                    aria-pressed={fogRevealed}
+                    title="Show the whole map, then switch back to the fog view you had (shortcut: F)"
+                    onClick={() => setFogRevealed((r) => !r)}
+                  >
+                    {fogRevealed ? '🌫 Show fog' : '👁 Hide fog'} <kbd>F</kbd>
                   </button>
                 </span>
               )}
@@ -478,7 +497,7 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
       {/* ---------- sidebar ---------- */}
       <aside className="sidebar">
         <div className="players-panel">
-          {view.players.map((p) => (
+          {[...view.players].sort((a, b) => a.order - b.order).map((p) => (
             <div
               key={p.id}
               className={`player-row ${p.id === view.currentPlayer ? 'active' : ''} ${!p.alive ? 'dead' : ''} ${fogAs === p.id ? 'fog-as' : ''} ${spectator && fogOn && !p.isNeutral ? 'clickable' : ''}`}
@@ -495,6 +514,14 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
               <span className="pstats" title="territories · armies · cards">
                 {p.territoryCount}t · {p.armyCount}a · {p.cardCount}c
                 {view.options.capitals && ` · ${Object.values(view.capitals ?? {}).filter((t) => view.territories[t]?.owner === p.id).length}★`}
+                {p.income && p.alive && view.phase !== 'lobby' && (
+                  <>
+                    {' · '}
+                    <span className="income" title={incomeTitle(p.income, getMap(view.options.map))}>
+                      +{p.income.total}/turn
+                    </span>
+                  </>
+                )}
               </span>
               {spectator && p.cards && p.cards.length > 0 && <HandSummary cards={p.cards} shortName={shortName} />}
             </div>
@@ -546,9 +573,18 @@ function HandSummary({ cards, shortName }: { cards: Card[]; shortName: (id: stri
   );
 }
 
+/** Hover text explaining a player's income: territories, each continent bonus, capitals. */
+function incomeTitle(income: NonNullable<GameView['players'][number]['income']>, map: ReturnType<typeof getMap>): string {
+  const parts = [`${income.fromTerritories} from ${income.territories} territories${income.fromTerritories === 3 && income.territories < 9 ? ' (minimum 3)' : ''}`];
+  for (const c of income.continents) parts.push(`${c.bonus} for ${map.continentById[c.id]?.name ?? c.id}`);
+  if (income.fromCapitals) parts.push(`${income.fromCapitals} for ${income.capitals} capital${income.capitals === 1 ? '' : 's'}`);
+  return `Income next turn, before cards: ${income.total}\n${parts.join('\n')}`;
+}
+
 function reinforcementPreview(view: GameView, pid: string): number {
   const p = view.players.find((x) => x.id === pid);
   if (!p) return 0;
+  if (p.income) return p.income.total;
   const map = getMap(view.options.map);
   const base = Math.max(3, Math.floor(p.territoryCount / 3));
   const caps = view.options.capitals ? Object.values(view.capitals ?? {}).filter((t) => view.territories[t]?.owner === pid).length * 2 : 0;

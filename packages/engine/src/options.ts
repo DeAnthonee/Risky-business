@@ -41,16 +41,23 @@ export const OPTION_SPECS: { [K in OptionKey]: OptionSpec } = {
   map: {
     kind: 'enum',
     label: 'Map',
-    values: ['classic', 'world'],
-    valueLabels: { classic: 'Classic World: 42 territories, 6 continents, 2-6 players', world: 'World: 74 territories, 14 regions, 2-10 players' },
-    description: 'Which board to play on. Changing it clamps maxPlayers, neutrals and blizzards to the new map.',
+    values: MAP_IDS,
+    // Derived from the map data so a new map only needs registering in maps.ts.
+    valueLabels: Object.fromEntries(
+      MAP_IDS.map((id) => {
+        const m = getMap(id);
+        return [id, `${m.name.replace(/ \(\d+\)$/, '')}: ${m.territoryIds.length} territories, ${m.continents.length} ${id === 'classic' ? 'continents' : 'regions'}, 2-${m.maxPlayers} players`];
+      }),
+    ),
+    description:
+      'Which board to play on: classic (the Hasbro board), world (finer world), world_large (Grand World, the biggest board, made for 8-10 players), europe, usa (US states) or asia. Changing it clamps maxPlayers, neutrals and blizzards to the new map.',
   },
   maxPlayers: {
     kind: 'int',
     label: 'Seats',
     min: 2,
     max: (m) => m.maxPlayers,
-    description: 'Number of seats, counting bots and agents (classic up to 6, world up to 10).',
+    description: 'Number of seats, counting bots and agents (classic up to 6, europe and asia up to 8, world, world_large and usa up to 10).',
   },
   autoSetup: {
     kind: 'boolean',

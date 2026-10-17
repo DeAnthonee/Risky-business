@@ -515,12 +515,32 @@ describe('turn flow', () => {
 });
 
 describe('maps', () => {
-  it('classic and world maps are well formed', async () => {
+  const EXPECTED: Record<string, { territories: number; regions: number; maxPlayers: number }> = {
+    classic: { territories: 42, regions: 6, maxPlayers: 6 },
+    world: { territories: 74, regions: 14, maxPlayers: 10 },
+    world_large: { territories: 104, regions: 20, maxPlayers: 10 },
+    europe: { territories: 44, regions: 8, maxPlayers: 8 },
+    usa: { territories: 45, regions: 8, maxPlayers: 10 },
+    asia: { territories: 49, regions: 7, maxPlayers: 8 },
+  };
+
+  it('every map is well formed', async () => {
     const { MAPS, MAP_IDS } = await import('../src/index.js');
-    expect(MAP_IDS).toEqual(['classic', 'world']);
+    expect(MAP_IDS).toEqual(['classic', 'world', 'world_large', 'europe', 'usa', 'asia']);
     for (const id of MAP_IDS) {
       const m = MAPS[id];
-      expect(m.territories.length).toBe(id === 'classic' ? 42 : 74);
+      expect(m.territories.length).toBe(EXPECTED[id].territories);
+      expect(m.continents.length).toBe(EXPECTED[id].regions);
+      expect(m.maxPlayers).toBe(EXPECTED[id].maxPlayers);
+      expect(new Set(m.territoryIds).size).toBe(m.territoryIds.length);
+      // every territory sits in exactly one region, and every region has a positive bonus
+      for (const t of m.territoryIds) expect(m.continents.filter((c) => c.territories.includes(t))).toHaveLength(1);
+      for (const c of m.continents) {
+        expect(c.territories.length).toBeGreaterThan(0);
+        expect(c.bonus).toBeGreaterThanOrEqual(1);
+      }
+      // no duplicate edges
+      expect(new Set(m.edges.map(([a, b]) => [a, b].sort().join('|'))).size).toBe(m.edges.length);
       // every territory has a shape and an anchor inside the viewBox
       for (const t of m.territories) {
         expect(t.path.length).toBeGreaterThan(10);
@@ -546,7 +566,19 @@ describe('maps', () => {
       while (stack.length) for (const n of m.adjacency[stack.pop()!]) if (!seen.has(n)) (seen.add(n), stack.push(n));
       expect(seen.size).toBe(m.territoryIds.length);
       for (const l of m.seaLinks) expect(m.isAdjacent(l.a, l.b)).toBe(true);
-      expect(m.seaLinks.some((l) => l.wrap)).toBe(true);
+      if (id === 'classic' || id === 'world' || id === 'world_large') expect(m.seaLinks.some((l) => l.wrap)).toBe(true);
+      // starting armies: defined for every legal player count, enough to give each owned territory
+      // an army (two-player games deal a third of the map to the Neutral), never more for more players
+      let previous = Infinity;
+      for (let n = 2; n <= m.maxPlayers; n++) {
+        const armies = m.startingArmies(n);
+        expect(Number.isInteger(armies)).toBe(true);
+        expect(armies).toBeGreaterThanOrEqual(Math.ceil(m.territoryIds.length / n));
+        expect(armies).toBeLessThanOrEqual(previous);
+        previous = armies;
+      }
+      expect(() => m.startingArmies(1)).toThrow(RuleError);
+      expect(() => m.startingArmies(m.maxPlayers + 1)).toThrow(RuleError);
     }
     expect(MAPS.world.maxPlayers).toBe(10);
     expect(MAPS.world.startingArmies(10)).toBe(22);
@@ -570,6 +602,57 @@ describe('maps', () => {
     const lm = legalMoves(state, me);
     expect(lm.canPlaceOn.length).toBeGreaterThan(0);
     for (const t of lm.canPlaceOn) expect(t in state.territories).toBe(true);
+  });
+
+  it('scales starting armies on the new maps like the World map', async () => {
+    const { MAPS } = await import('../src/index.js');
+    const table = (id: keyof typeof MAPS) => Array.from({ length: MAPS[id].maxPlayers - 1 }, (_, i) => MAPS[id].startingArmies(i + 2));
+    expect(table('world_large')).toEqual([60, 60, 60, 60, 52, 45, 39, 35, 31]);
+    expect(table('europe')).toEqual([60, 44, 33, 26, 22, 20, 20]);
+    expect(table('usa')).toEqual([60, 45, 34, 27, 23, 20, 20, 20, 20]);
+    expect(table('asia')).toEqual([60, 49, 37, 29, 25, 21, 20]);
+  });
+
+  for (const id of ['world_large', 'europe', 'usa', 'asia'] as const) {
+    it(`deals and plays the first turn of a full ${id} game`, async () => {
+      const { MAPS } = await import('../src/index.js');
+      const m = MAPS[id];
+      let s = createGame(id, { map: id, maxPlayers: m.maxPlayers, setupBatch: 40 }, 11);
+      for (let i = 0; i < m.maxPlayers; i++) s = addPlayer(s, `p${i}`, `P${i}`);
+      expect(() => addPlayer(s, 'extra', 'X')).toThrow(/full/);
+      let state = startGame(s).state;
+      expect(Object.keys(state.territories)).toHaveLength(m.territoryIds.length);
+      expect(state.deck.length).toBe(m.territoryIds.length + 2);
+      const counts = state.players.map((p) => territoriesOf(state, p.id).length);
+      expect(Math.max(...counts) - Math.min(...counts)).toBeLessThanOrEqual(1);
+      for (const p of state.players) expect(p.armiesToPlace).toBe(m.startingArmies(m.maxPlayers) - territoriesOf(state, p.id).length);
+      state = finishSetup(state);
+      expect(state.phase).toBe('reinforce');
+      for (const t of m.territoryIds) expect(state.territories[t].owner).not.toBeNull();
+      const lm = legalMoves(state, state.currentPlayer!);
+      expect(lm.canPlaceOn.length).toBeGreaterThan(0);
+      // two-player game with the classic Neutral
+      let two = createGame(`${id}2`, { map: id, maxPlayers: 2 }, 5);
+      two = addPlayer(addPlayer(two, 'a', 'A'), 'b', 'B');
+      const started = startGame(two).state;
+      expect(started.players.find((p) => p.id === NEUTRAL_ID)).toBeDefined();
+      for (const p of started.players) expect(p.armiesToPlace).toBeGreaterThanOrEqual(0);
+    });
+  }
+
+  it('runs blizzards and neutrals at their limits on a new map', async () => {
+    const { MAPS, maxBlizzards, optionLimits } = await import('../src/index.js');
+    const m = MAPS.world_large;
+    const limits = optionLimits('world_large');
+    expect(limits.blizzards.max).toBe(maxBlizzards(m));
+    expect(limits.neutrals.max).toBe(Math.floor(104 / 3));
+    let s = createGame('wl', { map: 'world_large', maxPlayers: 10, autoSetup: true, blizzards: limits.blizzards.max, neutrals: 10, neutralArmies: 2 }, 9);
+    for (let i = 0; i < 10; i++) s = addPlayer(s, `p${i}`, `P${i}`);
+    const state = startGame(s).state;
+    expect(state.phase).toBe('reinforce');
+    expect(state.blizzards).toHaveLength(limits.blizzards.max);
+    for (const t of state.blizzards) expect(state.territories[t].owner).toBeNull();
+    expect(m.territoryIds.filter((t) => state.territories[t].owner === NEUTRAL_ID)).toHaveLength(10);
   });
 
   it('renames players in the lobby only', () => {
@@ -619,5 +702,47 @@ describe('game settings catalogue', () => {
     expect(lines.join('\n')).toMatch(/Blizzards: 2 frozen/);
     expect(lines.join('\n')).toMatch(/Setup: skipped/);
     expect(optionCatalogue().options.map((o) => o.key).sort()).toEqual([...OPTION_KEYS].sort());
+  });
+});
+
+describe('player income in views', () => {
+  it('reports each player\'s next-turn reinforcements with a breakdown; none for the Neutral', () => {
+    const state = finishSetup(setup(2, { setupBatch: 40 }).state);
+    const v = viewFor(state, null);
+    for (const p of v.players) {
+      if (p.isNeutral) {
+        expect(p.income).toBeNull();
+        continue;
+      }
+      expect(p.income).toEqual(reinforcementsForTest(state, p.id));
+      expect(p.income!.total).toBeGreaterThanOrEqual(3);
+    }
+  });
+});
+
+function reinforcementsForTest(state: GameState, id: string) {
+  const owned = territoriesOf(state, id).length;
+  const continents = CONTINENTS.filter((c) => c.territories.every((t) => state.territories[t].owner === id)).map((c) => ({ id: c.id, bonus: c.bonus }));
+  const fromTerritories = Math.max(3, Math.floor(owned / 3));
+  return { territories: owned, fromTerritories, continents, capitals: 0, fromCapitals: 0, total: fromTerritories + continents.reduce((n, c) => n + c.bonus, 0) };
+}
+
+describe('blizzards never trap territories or split the map', () => {
+  it('on every map, at the maximum count, every open territory can reach every other', async () => {
+    const { MAPS, MAP_IDS, pickBlizzards, maxBlizzards, createRng } = await import('../src/index.js');
+    for (const id of MAP_IDS) {
+      const map = MAPS[id];
+      for (let seed = 1; seed <= 400; seed++) {
+        const blocked = new Set(pickBlizzards(map, maxBlizzards(map), createRng(seed)));
+        const open = map.territoryIds.filter((t) => !blocked.has(t));
+        // No open territory is walled in by blizzards...
+        for (const t of open) expect(map.adjacency[t].some((n) => !blocked.has(n)), `${id} seed ${seed}: ${t} is walled in`).toBe(true);
+        // ...and the open territories form one network (no side of the map cut off from the other).
+        const seen = new Set([open[0]]);
+        const queue = [open[0]];
+        while (queue.length) for (const n of map.adjacency[queue.pop()!]) if (!blocked.has(n) && !seen.has(n)) (seen.add(n), queue.push(n));
+        expect(seen.size, `${id} seed ${seed}: map split by blizzards`).toBe(open.length);
+      }
+    }
   });
 });

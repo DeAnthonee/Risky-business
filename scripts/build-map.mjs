@@ -2,32 +2,76 @@
 /**
  * Generates packages/engine/src/generated/<map>.json from real-world geography.
  *
- * Territories are unions of Natural Earth (110m) countries, optionally clipped to lon/lat boxes,
- * projected with Natural Earth I and emitted as SVG path data plus a label anchor. The script
- * also derives which adjacencies are sea links (shapes that do not touch) and warns about
- * shapes that touch without being adjacent, which catches mistakes in the edge lists.
+ * Territories are unions of features from a geodata source, optionally clipped to lon/lat boxes,
+ * projected (Natural Earth I by default) and emitted as SVG path data plus a label anchor. The
+ * script also derives which adjacencies are sea links (shapes that do not touch) and warns about
+ * shapes that touch without being adjacent, which catches mistakes in the edge lists. It also warns
+ * about army badges that would overlap and explicit anchors that fall outside their territory.
+ *
+ * Map definition fields (scripts/maps/<id>.mjs):
+ *   source      'countries-110m' (default) | 'countries-50m' (Natural Earth, world-atlas) |
+ *               'us-states' (US states, us-atlas). Parts name a feature by id or by name.
+ *   projection  { type: 'naturalEarth1' | 'conicEqualArea', rotate, parallels } (default
+ *               Natural Earth I rotated [-10, 0])
+ *   minArea     drop islets smaller than this many deg² (default 0.6)
+ *   simplify    simplify the source topology first: drop points whose triangle is under this many
+ *               deg² (keeps the generated JSON small for detailed sources)
+ *   densify     add box-cut vertices every this many degrees so long cuts follow parallels and
+ *               neighbouring cuts line up (recommended on zoomed-in maps: 1)
+ * Part fields: c (feature id or name), box / boxes (clip to lon/lat boxes), pick (keep only the
+ * polygons whose centre lies in a lon/lat box, without cutting any), mainland, islands.
+ * Territory fields: inset { from: [lon, lat], to: [lon, lat], scale: k | [kx, ky] } moves a far-away
+ * territory (Alaska, Hawaii) next to the rest of the map; its anchor is moved with it.
  *
  *   node scripts/build-map.mjs            # all maps
  *   node scripts/build-map.mjs world      # one map
  */
 import { createRequire } from 'node:module';
-import { writeFileSync, mkdirSync } from 'node:fs';
+import { writeFileSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { feature } from 'topojson-client';
-import { geoPath, geoArea, geoNaturalEarth1 } from 'd3-geo';
+import { presimplify, simplify } from 'topojson-simplify';
+import { geoPath, geoArea, geoContains, geoNaturalEarth1, geoConicEqualArea } from 'd3-geo';
 import pc from 'polygon-clipping';
 import polylabel from 'polylabel';
 
 const require = createRequire(import.meta.url);
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const topo = require('world-atlas/countries-110m.json');
-const countries = feature(topo, topo.objects.countries).features;
-const byKey = new Map();
-for (const f of countries) byKey.set(f.id ?? f.properties.name, f);
+
+/** Geodata sources: devDependencies only, read at build time; the output JSON is committed. */
+const SOURCES = {
+  'countries-110m': { file: 'world-atlas/countries-110m.json', object: 'countries' },
+  'countries-50m': { file: 'world-atlas/countries-50m.json', object: 'countries' },
+  'us-states': { file: 'us-atlas/states-10m.json', object: 'states' },
+};
+const sourceCache = new Map();
+/**
+ * `minWeight` (deg², optional) simplifies the topology before use (Visvalingam, planar triangle
+ * area). It runs on shared arcs, so neighbouring shapes keep identical borders.
+ */
+function loadSource(name, minWeight = 0) {
+  const cacheKey = `${name}@${minWeight}`;
+  if (sourceCache.has(cacheKey)) return sourceCache.get(cacheKey);
+  const src = SOURCES[name];
+  if (!src) throw new Error(`Unknown source ${name}`);
+  let topo = JSON.parse(readFileSync(require.resolve(src.file), 'utf8'));
+  if (minWeight > 0) topo = simplify(presimplify(topo), minWeight);
+  const byKey = new Map();
+  for (const f of feature(topo, topo.objects[src.object]).features) {
+    // Features are addressed by id (ISO numeric / FIPS) or, when they have none, by name; names
+    // always work as aliases so definitions stay readable.
+    byKey.set(f.id ?? f.properties.name, f);
+    if (f.properties?.name && !byKey.has(f.properties.name)) byKey.set(f.properties.name, f);
+  }
+  sourceCache.set(cacheKey, byKey);
+  return byKey;
+}
+let byKey = loadSource('countries-110m');
+let sourceName = 'countries-110m';
 
 const WIDTH = 1000;
-const MIN_AREA_DEG2 = 0.6; // drop islets smaller than this unless they are all a territory has
+let MIN_AREA_DEG2 = 0.6; // drop islets smaller than this unless they are all a territory has
 
 function polygonsOf(geom) {
   if (geom.type === 'Polygon') return [geom.coordinates];
@@ -39,13 +83,64 @@ function boxPoly([lonMin, lonMax, latMin, latMax]) {
   return [[[lonMin, latMin], [lonMax, latMin], [lonMax, latMax], [lonMin, latMax], [lonMin, latMin]]];
 }
 
+let DENSIFY = 0;
+/**
+ * Projections draw edges as great-circle arcs, so a long box cut along a parallel bulges and
+ * neighbours cut by boxes with different corners leave slivers. Re-insert vertices on a
+ * whole-degree grid along axis-aligned segments (polygon-clipping drops collinear points) so cuts
+ * follow parallels and neighbouring cuts line up.
+ */
+function densify(multi) {
+  if (!DENSIFY) return multi;
+  const grid = (a, b) => {
+    const lo = Math.min(a, b), hi = Math.max(a, b);
+    const out = [];
+    for (let v = Math.floor(lo / DENSIFY + 1) * DENSIFY; v < hi - 1e-9; v += DENSIFY) out.push(v);
+    return a <= b ? out : out.reverse();
+  };
+  return multi.map((poly) =>
+    poly.map((ring) => {
+      const out = [];
+      for (let i = 0; i < ring.length - 1; i++) {
+        const [x0, y0] = ring[i], [x1, y1] = ring[i + 1];
+        out.push(ring[i]);
+        if (Math.abs(y0 - y1) < 1e-9 && Math.abs(x1 - x0) > DENSIFY) for (const x of grid(x0, x1)) out.push([x, y0]);
+        else if (Math.abs(x0 - x1) < 1e-9 && Math.abs(y1 - y0) > DENSIFY) for (const y of grid(y0, y1)) out.push([x0, y]);
+      }
+      out.push(ring[ring.length - 1]);
+      return out;
+    }),
+  );
+}
+
+/** Rings that cross the antimeridian (Natural Earth 1:50m Russia) jump from +180 to -180; move the far side past +180 so planar clipping sees one piece. */
+function unwrap(multi) {
+  return multi.map((poly) =>
+    poly.map((ring) => {
+      let jumps = false;
+      for (let i = 0; i < ring.length - 1 && !jumps; i++) if (Math.abs(ring[i + 1][0] - ring[i][0]) > 180) jumps = true;
+      return jumps ? ring.map(([x, y]) => [x < 0 ? x + 360 : x, y]) : ring;
+    }),
+  );
+}
+
 function partGeometry(part) {
   const spec = typeof part === 'string' ? { c: part } : part;
   const f = byKey.get(spec.c);
-  if (!f) throw new Error(`Unknown country ${spec.c}`);
-  let multi = polygonsOf(f.geometry);
+  if (!f) throw new Error(`Unknown feature ${spec.c} in ${sourceName}`);
+  let multi = unwrap(polygonsOf(f.geometry));
   // Natural Earth splits Russia/Alaska at the antimeridian; drop the far side so nothing wraps.
-  if (spec.c === '643') multi = multi.filter((poly) => poly[0][0][0] > 0);
+  if (spec.c === '643' && sourceName.startsWith('countries')) multi = multi.filter((poly) => poly[0][0][0] > 0);
+  // `pick` keeps whole polygons (islands) whose centre lies in a box, without cutting any.
+  if (spec.pick) {
+    const [lonMin, lonMax, latMin, latMax] = spec.pick;
+    multi = multi.filter((poly) => {
+      const ring = poly[0];
+      const cx = ring.reduce((s, p) => s + p[0], 0) / ring.length;
+      const cy = ring.reduce((s, p) => s + p[1], 0) / ring.length;
+      return cx >= lonMin && cx <= lonMax && cy >= latMin && cy <= latMax;
+    });
+  }
   // `mainland` keeps only the country's largest polygon; `islands` keeps everything else.
   if (spec.mainland || spec.islands) {
     const ranked = multi.map((poly) => ({ poly, area: ringArea(poly[0]) })).sort((a, b) => b.area - a.area);
@@ -80,10 +175,24 @@ function ringArea(ring) {
 function territoryGeometry(t) {
   const parts = t.parts.map(partGeometry).filter((m) => m.length);
   if (!parts.length) throw new Error(`${t.id}: no geometry`);
-  let multi = pc.union(...parts);
+  let multi = densify(pc.union(...parts));
+  if (t.inset) multi = multi.map((poly) => poly.map((ring) => ring.map((pt) => insetPoint(t.inset, pt))));
   const big = multi.filter((poly) => ringArea(poly[0]) >= MIN_AREA_DEG2);
   if (big.length) multi = big;
   return { type: 'MultiPolygon', coordinates: rewind(multi) };
+}
+
+/** Moves a point of an inset territory: scale around `from`, then place `from` at `to`. */
+function insetPoint({ from, to, scale }, [lon, lat]) {
+  const [kx, ky] = Array.isArray(scale) ? scale : [scale ?? 1, scale ?? 1];
+  return [to[0] + (lon - from[0]) * kx, to[1] + (lat - from[1]) * ky];
+}
+
+function makeProjection(spec = {}) {
+  const type = spec.type ?? 'naturalEarth1';
+  if (type === 'naturalEarth1') return geoNaturalEarth1().rotate(spec.rotate ?? [-10, 0]);
+  if (type === 'conicEqualArea') return geoConicEqualArea().rotate(spec.rotate ?? [0, 0]).parallels(spec.parallels ?? [30, 60]);
+  throw new Error(`Unknown projection ${type}`);
 }
 
 function key(pt) {
@@ -168,12 +277,16 @@ function memoTouch(geoms) {
 }
 
 function build(def) {
+  sourceName = def.source ?? 'countries-110m';
+  byKey = loadSource(sourceName, def.simplify ?? 0);
+  MIN_AREA_DEG2 = def.minArea ?? 0.6;
+  DENSIFY = def.densify ?? 0;
   const geoms = new Map();
   for (const t of def.territories) geoms.set(t.id, territoryGeometry(t));
 
   const fc = { type: 'FeatureCollection', features: def.territories.map((t) => ({ type: 'Feature', id: t.id, geometry: geoms.get(t.id) })) };
   const PAD = 14;
-  const projection = geoNaturalEarth1().rotate([-10, 0]).fitWidth(WIDTH - 2 * PAD, fc);
+  const projection = makeProjection(def.projection).fitWidth(WIDTH - 2 * PAD, fc);
   const [[, y0], [, y1]] = geoPath(projection).bounds(fc);
   const height = Math.ceil(y1 - y0 + 2 * PAD);
   const [tx, ty] = projection.translate();
@@ -193,13 +306,16 @@ function build(def) {
   const seaLinks = def.edges.filter(([a, b]) => !touches(a, b)).map(([a, b]) => ({ a, b, wrap: wrap.has([a, b].sort().join('|')) }));
   const suspicious = touches.pairs().filter((k) => !edgeKeys.has(k));
 
+  const anchorWarnings = [];
   const territories = def.territories.map((t) => {
     const g = geoms.get(t.id);
     // Label anchor: pole of inaccessibility of the largest polygon, in projected space.
     const largest = g.coordinates.map((poly) => ({ poly, area: geoArea({ type: 'Polygon', coordinates: poly }) })).sort((p, q) => q.area - p.area)[0].poly;
     const projected = largest.map((ring) => ring.map((pt) => projection(pt)).filter(Boolean));
     // Explicit anchor (lon/lat) wins; otherwise the pole of inaccessibility.
-    const [x, y] = t.anchor ? projection(t.anchor) : polylabel(projected, 0.5);
+    const lonlat = t.anchor && t.inset ? insetPoint(t.inset, t.anchor) : t.anchor;
+    if (lonlat && !geoContains(g, lonlat)) anchorWarnings.push(`${t.id}: anchor [${t.anchor}] is outside its shape`);
+    const [x, y] = lonlat ? projection(lonlat) : polylabel(projected, 0.5);
     const [[bx0, by0], [bx1, by1]] = path.bounds(g);
     const r = (v) => Math.round(v * 10) / 10;
     return {
@@ -245,11 +361,39 @@ function build(def) {
   console.log(`${def.id}: ${territories.length} territories, ${def.edges.length} edges, ${seaLinks.length} sea links, ${WIDTH}x${height}, ${(JSON.stringify(out).length / 1024).toFixed(0)} KB -> ${file}`);
   console.log(`  sea links: ${seaLinks.map((s) => `${s.a}~${s.b}${s.wrap ? '(wrap)' : ''}`).join(', ')}`);
   if (suspicious.length) console.log(`  WARNING touching but not adjacent:\n    ${suspicious.join('\n    ')}`);
+  // Army badges: the client draws a ring of radius 15 (maps with more than 50 territories) or 19
+  // around each anchor; anchors much closer than a ring diameter make badges overlap.
+  const minGap = territories.length > 50 ? 24 : 32;
+  for (let i = 0; i < territories.length; i++)
+    for (let j = i + 1; j < territories.length; j++) {
+      const a = territories[i], b = territories[j];
+      const d = Math.hypot(a.x - b.x, a.y - b.y);
+      if (d < minGap) anchorWarnings.push(`badges ${a.id} and ${b.id} are ${d.toFixed(1)} apart (want >= ${minGap})`);
+    }
+  // On maps with 50 or fewer territories the name is always drawn under the badge (9.5px, about
+  // 5.3 units per character, baseline 26 below the anchor); warn when it runs into another badge.
+  if (territories.length <= 50) {
+    const labelBox = (t) => {
+      const w = t.name.length * 5.3;
+      return [t.x - w / 2, t.y + 18, t.x + w / 2, t.y + 28];
+    };
+    for (const a of territories) {
+      const [x0, y0, x1, y1] = labelBox(a);
+      for (const b of territories) {
+        if (a === b) continue;
+        const cx = Math.max(x0, Math.min(b.x, x1));
+        const cy = Math.max(y0, Math.min(b.y, y1));
+        if (Math.hypot(cx - b.x, cy - b.y) < 15) anchorWarnings.push(`label of ${a.id} runs into the badge of ${b.id}`);
+      }
+    }
+  }
+  if (anchorWarnings.length) console.log(`  WARNING anchors:\n    ${anchorWarnings.join('\n    ')}`);
   return out;
 }
 
+const MAP_NAMES = ['classic', 'world', 'world_large', 'europe', 'usa', 'asia'];
 const wanted = process.argv.slice(2);
-for (const name of ['classic', 'world']) {
+for (const name of MAP_NAMES) {
   if (wanted.length && !wanted.includes(name)) continue;
   const def = (await import(`./maps/${name}.mjs`)).default;
   build(def);

@@ -457,10 +457,11 @@ describe('turn flow', () => {
   });
 
   it('blizzards: option is validated per map and clamped when switching maps', () => {
-    expect(() => createGame('x', { blizzards: 8 })).toThrow(RuleError);
+    expect(() => createGame('x', { blizzards: 9 })).toThrow(RuleError);
+    expect(createGame('x', { blizzards: 8 }).options.blizzards).toBe(8);
     expect(() => createGame('x', { blizzards: -1 })).toThrow(RuleError);
     const world = createGame('x', { map: 'world', blizzards: 12 });
-    expect(setOptions(world, { map: 'classic' }).options.blizzards).toBe(7);
+    expect(setOptions(world, { map: 'classic' }).options.blizzards).toBe(8);
   });
 
   it('capital conquest: a capital defends with up to 3 dice, other territories with 2', () => {
@@ -1008,7 +1009,7 @@ describe('round-1 late-turn bonus', () => {
 });
 
 describe('chosen capitals', () => {
-  it('players pick their capitals in turn order before turn 1, each getting +2 armies there', () => {
+  it('players pick their capitals in turn order before turn 1, each getting +3 armies there', () => {
     let state = setup(3, { capitals: true, chooseCapitals: true, autoSetup: true }).state;
     expect(state.phase).toBe('capitals');
     expect(state.capitals).toEqual({});
@@ -1024,8 +1025,8 @@ describe('chosen capitals', () => {
       const pick = [...lm.capitalChoices].sort((a, b) => state.territories[a].armies - state.territories[b].armies)[0];
       const before = state.territories[pick].armies;
       const res = applyAction(state, pid, { type: 'choose_capital', territory: pick });
-      expect(res.state.territories[pick].armies).toBe(before + 2);
-      expect(res.events).toContainEqual({ type: 'capital_chosen', player: pid, territory: pick, armies: 2 });
+      expect(res.state.territories[pick].armies).toBe(before + 3);
+      expect(res.events).toContainEqual({ type: 'capital_chosen', player: pid, territory: pick, armies: 3 });
       expect(res.state.capitals[pid]).toBe(pick);
       state = res.state;
     }
@@ -1074,6 +1075,31 @@ describe('chosen capitals', () => {
     expect(battle.type === 'battle' && battle.attackerDice).toHaveLength(3);
     expect(battle.type === 'battle' && battle.defenderDice).toHaveLength(2);
     expect(legalMoves(state, me).attacks.filter((a) => a.from === myCap).every((a) => a.maxDice <= 3)).toBe(true);
+  });
+});
+
+describe('capital placement bonus and 8 blizzards', () => {
+  it('auto-assigned capitals also get 3 extra armies', () => {
+    const before = setup(3, { capitals: true, setupBatch: 40 }).state;
+    const after = finishSetup(before);
+    for (const [pid, t] of Object.entries(after.capitals)) {
+      const total = territoriesOf(after, pid).reduce((n, x) => n + after.territories[x].armies, 0);
+      expect(total).toBe(35 + 3);
+      expect(after.territories[t].armies).toBeGreaterThanOrEqual(4);
+    }
+  });
+
+  it('the classic map can hold 8 blizzards without trapping anyone', async () => {
+    const { MAPS, pickBlizzards, createRng } = await import('../src/index.js');
+    for (let seed = 1; seed <= 300; seed++) {
+      const b = new Set(pickBlizzards(MAPS.classic, 8, createRng(seed)));
+      expect(b.size).toBe(8);
+      const open = TERRITORY_IDS.filter((t) => !b.has(t));
+      const seen = new Set([open[0]]);
+      const q = [open[0]];
+      while (q.length) for (const n of ADJACENCY[q.pop()!]) if (!b.has(n) && !seen.has(n)) (seen.add(n), q.push(n));
+      expect(seen.size).toBe(open.length);
+    }
   });
 });
 

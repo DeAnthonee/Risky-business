@@ -66,9 +66,12 @@ export function DicePanel({
   defenderColor,
   names,
   mapId,
+  streak = 1,
 }: {
   battle: BattleEvent;
   rolling: boolean;
+  /** Rolls in a row on this attack; above 1 the panel shows a blitz counter. */
+  streak?: number;
   attackerColor: string;
   defenderColor: string;
   names: Record<string, string>;
@@ -92,7 +95,10 @@ export function DicePanel({
         </div>
         <div className={`dice-loss ${!rolling && battle.attackerLosses ? 'show' : ''}`}>−{battle.attackerLosses}</div>
       </div>
-      <div className="dice-vs">⚔️</div>
+      <div className="dice-vs">
+        ⚔️
+        {streak > 1 && <div className="dice-blitz">BLITZ ×{streak}</div>}
+      </div>
       <div className="dice-side">
         <div className="dice-name" style={{ color: defenderColor }}>
           {names[battle.defender] ?? battle.defender} · {shortName(battle.to)}

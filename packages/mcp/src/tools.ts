@@ -16,7 +16,11 @@ export interface RiskMcpOptions {
 }
 
 const gameIdSchema = z.string().min(4).max(12).describe('Game code, e.g. "ABC123"');
-const tokenSchema = z.string().optional().describe('Player token, if you were given one and this connection does not remember your seat');
+const tokenSchema = z
+  .string()
+  .optional()
+  .describe('Your player token for this game (returned by create_game/join_game). Always pass it: it identifies your seat even after a reconnect or when this connection holds several seats.');
+const asSchema = z.string().optional().describe('Alternative to token: the player name of the seat to act as, when this connection holds several seats in the game');
 
 const optionsSchema = z
   .object({
@@ -59,8 +63,8 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
         'You can play the board game Risk (classic world domination rules) against humans, bots and other agents.',
         'Typical flow: rules -> create_game (or join_game with a code a human shared) -> optionally add_bot -> start_game -> loop { wait_for_turn -> get_state -> act }.',
         'get_state returns your legal moves; act takes one JSON action. Attacking with blitz:true and occupy:"max" resolves a whole battle in one call.',
-        opts.identityNote ??
-          'Your seat (player token) is remembered for each game you create or join; use resume_game with a token if you need to recover it.',
+        'IMPORTANT: create_game and join_game return a player token. Remember it and pass it as the "token" argument on every later call for that game: it is what identifies YOUR seat (several chats or agents can sit at the same table, each with its own token).',
+        opts.identityNote ?? 'Seats are also remembered by this connection while it lasts; my_seats lists them and resume_game recovers one from a token.',
         `Server: ${label}`,
       ].join(' '),
     },
@@ -77,12 +81,30 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
     return { content: [{ type: 'text' as const, text: `Error: ${msg}${hint}` }], isError: true };
   };
 
-  const tokenFor = (gameId: string, override?: string): string | undefined => override ?? identities.get(gameId)?.token;
-  const requireToken = (gameId: string, override?: string): string => {
-    const t = tokenFor(gameId, override);
+  /** Resolve which seat to act as: explicit token > player name > the only seat held > error. */
+  const tokenFor = (gameId: string, override?: string, as?: string): string | undefined => {
+    if (override) return override;
+    const seats = identities.seats(gameId);
+    if (as) {
+      const seat = identities.find(gameId, as);
+      if (!seat) throw new RiskHttpError(`No seat named "${as}" in game ${gameId.toUpperCase()} on this connection (seats: ${seats.map((s) => s.name).join(', ') || 'none'})`, 401);
+      return seat.token;
+    }
+    if (seats.length === 1) return seats[0].token;
+    if (seats.length > 1)
+      throw new RiskHttpError(
+        `This connection holds ${seats.length} seats in game ${gameId.toUpperCase()} (${seats.map((s) => s.name).join(', ')}); pass "token" or "as" to say which player you are`,
+        401,
+      );
+    return undefined;
+  };
+  const requireToken = (gameId: string, override?: string, as?: string): string => {
+    const t = tokenFor(gameId, override, as);
     if (!t) throw new RiskHttpError('Not in this game', 401);
     return t;
   };
+  const seatLine = (id: { name: string; playerId: string; token: string; gameId: string }) =>
+    `Your seat: ${id.name} (${id.playerId}) in game ${id.gameId}. TOKEN: ${id.token}  <- pass this as "token" on every later call for this game.`;
   const stateText = async (gameId: string, token: string | undefined) => {
     const g = await api.getGame(gameId, token);
     return formatState(g.state, g.name);
@@ -113,7 +135,8 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
   server.registerTool('list_games', { description: 'List games on the server: ids, names, phase, players and whether they can be joined.', inputSchema: {} }, async () => {
     try {
       const { games } = await api.listGames();
-      return text(JSON.stringify({ games, gamesYouAreIn: identities.gameIds() }, null, 1));
+      const seats = identities.all().map((s) => ({ gameId: s.gameId, playerName: s.name, playerId: s.playerId }));
+      return text(JSON.stringify({ games, yourSeats: seats }, null, 1));
     } catch (e) {
       return errorText(e);
     }
@@ -133,10 +156,11 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
       try {
         const name = playerName ?? DEFAULT_NAME;
         const r = await api.createGame(name, gameName, options);
-        identities.set({ gameId: r.gameId, playerId: r.playerId, token: r.token, name });
+        const seat = { gameId: r.gameId, playerId: r.playerId, token: r.token, name };
+        identities.set(seat);
         return text(
-          `Created game ${r.gameId}. You are ${name} (${r.playerId}) and the host. Your token: ${r.token}\n` +
-            `Share the code ${r.gameId} so others can join (humans use the website), add bots with add_bot, then start_game.\n\n${formatState(r.state)}`,
+          `Created game ${r.gameId}. You are the host.\n${seatLine(seat)}\n` +
+            `Share the code ${r.gameId} so others can join (humans use the website, other chats/agents use join_game), add bots with add_bot, then start_game.\n\n${formatState(r.state)}`,
         );
       } catch (e) {
         return errorText(e);
@@ -146,19 +170,26 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
 
   server.registerTool(
     'join_game',
-    { description: 'Join an existing game by code (the game must still be in its lobby).', inputSchema: { gameId: gameIdSchema, playerName: z.string().max(24).optional() } },
+    {
+      description:
+        'Join an existing game by code as a NEW player (the game must still be in its lobby). Each call with a new playerName takes a new seat, so several chats or agents can join the same game. Returns your player token: pass it on every later call.',
+      inputSchema: { gameId: gameIdSchema, playerName: z.string().max(24).optional().describe(`Your display name (default "${DEFAULT_NAME}"). Use a distinct name per player.`) },
+    },
     async ({ gameId, playerName }) => {
       try {
         const id = gameId.toUpperCase();
-        const existing = identities.get(id);
+        const name = playerName ?? DEFAULT_NAME;
+        // Same name on this connection: that is a repeat call, not a second player.
+        const existing = identities.find(id, name);
         if (existing) {
           const g = await api.getGame(id, existing.token);
-          if (g.playerId === existing.playerId) return text(`You are already in game ${id} as ${existing.name} (${existing.playerId}).\n\n${formatState(g.state, g.name)}`);
+          if (g.playerId === existing.playerId) return text(`You already hold this seat.\n${seatLine(existing)}\n\n${formatState(g.state, g.name)}`);
+          identities.forget(id, existing.token);
         }
-        const name = playerName ?? DEFAULT_NAME;
         const r = await api.joinGame(id, name);
-        identities.set({ gameId: r.gameId, playerId: r.playerId, token: r.token, name });
-        return text(`Joined game ${r.gameId} as ${name} (${r.playerId}). Your token: ${r.token}\n\n${formatState(r.state)}`);
+        const seat = { gameId: r.gameId, playerId: r.playerId, token: r.token, name };
+        identities.set(seat);
+        return text(`Joined game ${r.gameId}.\n${seatLine(seat)}\n\n${formatState(r.state)}`);
       } catch (e) {
         return errorText(e);
       }
@@ -177,8 +208,9 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
         const g = await api.getGame(id, token);
         if (!g.playerId) return errorText(new Error('That token is not valid for this game'));
         const name = playerName ?? g.state.players.find((p) => p.id === g.playerId)?.name ?? DEFAULT_NAME;
-        identities.set({ gameId: id, playerId: g.playerId, token, name });
-        return text(`Resumed game ${id} as ${name} (${g.playerId}).\n\n${formatState(g.state, g.name)}`);
+        const seat = { gameId: id, playerId: g.playerId, token, name };
+        identities.set(seat);
+        return text(`Resumed game ${id}.\n${seatLine(seat)}\n\n${formatState(g.state, g.name)}`);
       } catch (e) {
         return errorText(e);
       }
@@ -187,11 +219,11 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
 
   server.registerTool(
     'add_bot',
-    { description: 'Add a built-in computer player to a game you host (lobby only).', inputSchema: { gameId: gameIdSchema, name: z.string().max(24).optional(), token: tokenSchema } },
-    async ({ gameId, name, token }) => {
+    { description: 'Add a built-in computer player to a game you host (lobby only).', inputSchema: { gameId: gameIdSchema, name: z.string().max(24).optional(), token: tokenSchema, as: asSchema } },
+    async ({ gameId, name, token, as }) => {
       try {
         const id = gameId.toUpperCase();
-        const t = requireToken(id, token);
+        const t = requireToken(id, token, as);
         const r = await api.addBot(id, t, name);
         return text(`Added bot ${r.playerId}.\n\n${await stateText(id, t)}`);
       } catch (e) {
@@ -202,11 +234,11 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
 
   server.registerTool(
     'set_options',
-    { description: 'Change game options (host only, lobby only).', inputSchema: { gameId: gameIdSchema, options: optionsSchema, token: tokenSchema } },
-    async ({ gameId, options, token }) => {
+    { description: 'Change game options (host only, lobby only).', inputSchema: { gameId: gameIdSchema, options: optionsSchema, token: tokenSchema, as: asSchema } },
+    async ({ gameId, options, token, as }) => {
       try {
         const id = gameId.toUpperCase();
-        const r = await api.setOptions(id, requireToken(id, token), options ?? {});
+        const r = await api.setOptions(id, requireToken(id, token, as), options ?? {});
         return text(formatState(r.state));
       } catch (e) {
         return errorText(e);
@@ -214,10 +246,10 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
     },
   );
 
-  server.registerTool('start_game', { description: 'Start a game you host (needs at least 2 players, bots included).', inputSchema: { gameId: gameIdSchema, token: tokenSchema } }, async ({ gameId, token }) => {
+  server.registerTool('start_game', { description: 'Start a game you host (needs at least 2 players, bots included).', inputSchema: { gameId: gameIdSchema, token: tokenSchema, as: asSchema } }, async ({ gameId, token, as }) => {
     try {
       const id = gameId.toUpperCase();
-      const r = await api.start(id, requireToken(id, token));
+      const r = await api.start(id, requireToken(id, token, as));
       return text(`Game started.\n\n${formatState(r.state)}`);
     } catch (e) {
       return errorText(e);
@@ -228,12 +260,12 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
     'get_state',
     {
       description: 'Get the current game state from your point of view, including your cards and the list of legal moves if it is your turn.',
-      inputSchema: { gameId: gameIdSchema, format: z.enum(['text', 'json']).optional().describe('text (default, compact and readable) or json (raw state view)'), token: tokenSchema },
+      inputSchema: { gameId: gameIdSchema, format: z.enum(['text', 'json']).optional().describe('text (default, compact and readable) or json (raw state view)'), token: tokenSchema, as: asSchema },
     },
-    async ({ gameId, format, token }) => {
+    async ({ gameId, format, token, as }) => {
       try {
         const id = gameId.toUpperCase();
-        const g = await api.getGame(id, tokenFor(id, token));
+        const g = await api.getGame(id, tokenFor(id, token, as));
         return text(format === 'json' ? JSON.stringify(g.state) : formatState(g.state, g.name));
       } catch (e) {
         return errorText(e);
@@ -251,12 +283,13 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
         timeoutSeconds: z.number().min(1).max(110).optional().describe('Default 60'),
         sinceVersion: z.number().int().optional().describe('If given, also return when the state version passes this number, and include the events since then'),
         token: tokenSchema,
+        as: asSchema,
       },
     },
-    async ({ gameId, timeoutSeconds, sinceVersion, token }) => {
+    async ({ gameId, timeoutSeconds, sinceVersion, token, as }) => {
       try {
         const id = gameId.toUpperCase();
-        const r = await api.wait(id, tokenFor(id, token), sinceVersion, (timeoutSeconds ?? 60) * 1000);
+        const r = await api.wait(id, tokenFor(id, token, as), sinceVersion, (timeoutSeconds ?? 60) * 1000);
         const header =
           r.reason === 'turn'
             ? 'It is your turn.'
@@ -279,12 +312,12 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
       description:
         'Perform one game action on your turn. Returns the resulting events (dice rolls, conquests...) and the new state with your next legal moves. ' +
         'Examples: {"type":"place","placements":{"alaska":3}} · {"type":"attack","from":"alaska","to":"kamchatka","blitz":true,"occupy":"max"} · {"type":"end_attack"} · {"type":"fortify","from":"peru","to":"brazil","armies":2} · {"type":"end_turn"}',
-      inputSchema: { gameId: gameIdSchema, action: actionSchema, token: tokenSchema },
+      inputSchema: { gameId: gameIdSchema, action: actionSchema, token: tokenSchema, as: asSchema },
     },
-    async ({ gameId, action, token }) => {
+    async ({ gameId, action, token, as }) => {
       try {
         const id = gameId.toUpperCase();
-        const r = await api.act(id, requireToken(id, token), action as Action);
+        const r = await api.act(id, requireToken(id, token, as), action as Action);
         const ev = formatEvents(r.events, r.state);
         return text(`OK.${ev ? `\nEvents:\n${ev}` : ''}\n\n${formatState(r.state)}`);
       } catch (e) {
@@ -299,7 +332,7 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
     async ({ gameId, sinceVersion }) => {
       try {
         const id = gameId.toUpperCase();
-        const g = await api.getGame(id, tokenFor(id));
+        const g = await api.getGame(id, identities.seats(id)[0]?.token);
         const r = await api.events(id, sinceVersion ?? 0);
         const entries = sinceVersion === undefined ? r.entries.slice(-30) : r.entries;
         return text(entries.map((e) => `v${e.version}: ${formatEvents(e.events, g.state as GameView) || JSON.stringify(e.events)}`).join('\n') || 'No events yet.');
@@ -309,10 +342,10 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
     },
   );
 
-  server.registerTool('send_chat', { description: 'Send a chat message to everyone in the game (table talk, alliances, trash talk).', inputSchema: { gameId: gameIdSchema, message: z.string().min(1).max(500), token: tokenSchema } }, async ({ gameId, message, token }) => {
+  server.registerTool('send_chat', { description: 'Send a chat message to everyone in the game (table talk, alliances, trash talk).', inputSchema: { gameId: gameIdSchema, message: z.string().min(1).max(500), token: tokenSchema, as: asSchema } }, async ({ gameId, message, token, as }) => {
     try {
       const id = gameId.toUpperCase();
-      await api.sendChat(id, requireToken(id, token), message);
+      await api.sendChat(id, requireToken(id, token, as), message);
       return text('Sent.');
     } catch (e) {
       return errorText(e);
@@ -328,15 +361,22 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
     }
   });
 
-  server.registerTool('leave_game', { description: 'Leave a game: in the lobby you simply leave; in a running game this surrenders.', inputSchema: { gameId: gameIdSchema, token: tokenSchema } }, async ({ gameId, token }) => {
+  server.registerTool('leave_game', { description: 'Leave a game: in the lobby you simply leave; in a running game this surrenders.', inputSchema: { gameId: gameIdSchema, token: tokenSchema, as: asSchema } }, async ({ gameId, token, as }) => {
     try {
       const id = gameId.toUpperCase();
-      await api.leave(id, requireToken(id, token));
-      identities.forget(id);
+      const t = requireToken(id, token, as);
+      await api.leave(id, t);
+      identities.forget(id, t);
       return text(`Left game ${id}.`);
     } catch (e) {
       return errorText(e);
     }
+  });
+
+  server.registerTool('my_seats', { description: 'List the seats (game, player name, token) this connection currently holds, so you can pick which player to act as or recover a token.', inputSchema: {} }, async () => {
+    const seats = identities.all();
+    if (!seats.length) return text('No seats on this connection. Use create_game, join_game, or resume_game with a token.');
+    return text(seats.map(seatLine).join('\n'));
   });
 
   return server;

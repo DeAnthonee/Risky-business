@@ -58,7 +58,7 @@ export function createMcpRouter(store: Store, label: string) {
         defaultName: 'Agent',
         serverLabel: label,
         identityNote:
-          'This connection remembers the seats you take (create_game/join_game) while it stays open. Note your player token from those results: if the connection is re-established, pass it to resume_game (or as the token argument) to keep playing.',
+          'This connection remembers the seats you take only while it stays open and connections are often re-established between turns, so ALWAYS pass your token. If a call says you are not in the game, use resume_game with your token.',
       });
       await server.connect(transport);
       await transport.handleRequest(req, res, req.body);

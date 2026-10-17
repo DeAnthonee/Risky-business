@@ -64,11 +64,16 @@ export interface RiskApi {
   leave(gameId: string, token: string): Promise<unknown>;
 }
 
+/** Seats held by one agent connection. Several seats per game are allowed (one chat can run two players). */
 export interface IdentityStore {
-  get(gameId: string): Identity | undefined;
+  /** All seats in a game. */
+  seats(gameId: string): Identity[];
+  /** A seat in a game by player name (case-insensitive) or by token. */
+  find(gameId: string, nameOrToken: string): Identity | undefined;
   set(id: Identity): void;
-  forget(gameId: string): void;
+  forget(gameId: string, token?: string): void;
   gameIds(): string[];
+  all(): Identity[];
 }
 
 export class RiskHttpError extends Error {
@@ -83,18 +88,35 @@ export class RiskHttpError extends Error {
 
 /** Identities kept in memory only (one MCP session over HTTP). */
 export class MemoryIdentityStore implements IdentityStore {
-  private identities = new Map<string, Identity>();
-  get(gameId: string) {
-    return this.identities.get(gameId.toUpperCase());
+  private byGame = new Map<string, Identity[]>();
+  seats(gameId: string) {
+    return this.byGame.get(gameId.toUpperCase()) ?? [];
+  }
+  find(gameId: string, nameOrToken: string) {
+    const key = nameOrToken.trim().toLowerCase();
+    return this.seats(gameId).find((s) => s.token === nameOrToken || s.name.toLowerCase() === key || s.playerId === nameOrToken);
   }
   set(id: Identity) {
-    this.identities.set(id.gameId.toUpperCase(), id);
+    const g = id.gameId.toUpperCase();
+    const list = (this.byGame.get(g) ?? []).filter((s) => s.token !== id.token && s.playerId !== id.playerId);
+    list.push({ ...id, gameId: g });
+    this.byGame.set(g, list);
   }
-  forget(gameId: string) {
-    this.identities.delete(gameId.toUpperCase());
+  forget(gameId: string, token?: string) {
+    const g = gameId.toUpperCase();
+    if (!token) {
+      this.byGame.delete(g);
+      return;
+    }
+    const left = this.seats(g).filter((s) => s.token !== token);
+    if (left.length) this.byGame.set(g, left);
+    else this.byGame.delete(g);
   }
   gameIds() {
-    return [...this.identities.keys()];
+    return [...this.byGame.keys()];
+  }
+  all() {
+    return [...this.byGame.values()].flat();
   }
 }
 
@@ -110,8 +132,10 @@ export class FileIdentityStore extends MemoryIdentityStore {
   private load() {
     if (!this.file || !existsSync(this.file)) return;
     try {
-      const data = JSON.parse(readFileSync(this.file, 'utf8')) as Record<string, Record<string, Identity>>;
-      for (const id of Object.values(data[this.scope] ?? {})) super.set(id);
+      const data = JSON.parse(readFileSync(this.file, 'utf8')) as Record<string, Identity[] | Record<string, Identity>>;
+      const mine = data[this.scope];
+      const list = Array.isArray(mine) ? mine : Object.values(mine ?? {});
+      for (const id of list) super.set(id);
     } catch {
       /* ignore corrupt file */
     }
@@ -119,9 +143,9 @@ export class FileIdentityStore extends MemoryIdentityStore {
   private save() {
     if (!this.file) return;
     try {
-      let data: Record<string, Record<string, Identity>> = {};
+      let data: Record<string, unknown> = {};
       if (existsSync(this.file)) data = JSON.parse(readFileSync(this.file, 'utf8'));
-      data[this.scope] = Object.fromEntries(this.gameIds().map((g) => [g, this.get(g)!]));
+      data[this.scope] = this.all();
       mkdirSync(dirname(this.file), { recursive: true });
       writeFileSync(this.file, JSON.stringify(data, null, 2));
     } catch {
@@ -132,8 +156,8 @@ export class FileIdentityStore extends MemoryIdentityStore {
     super.set(id);
     this.save();
   }
-  override forget(gameId: string) {
-    super.forget(gameId);
+  override forget(gameId: string, token?: string) {
+    super.forget(gameId, token);
     this.save();
   }
 }

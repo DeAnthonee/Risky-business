@@ -194,6 +194,51 @@ describe('static client caching', () => {
   });
 });
 
+describe('MCP seats', () => {
+  it('lets one connection hold several players in a game and resolves them by name or token', async () => {
+    const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+    const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
+    const host = new Client({ name: 'host', version: '0' });
+    await host.connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`)));
+    const call = async (c: InstanceType<typeof Client>, name: string, args: Record<string, unknown> = {}) => {
+      const r = (await c.callTool({ name, arguments: args })) as { content: { text: string }[]; isError?: boolean };
+      return { text: r.content.map((x) => x.text).join('\n'), isError: !!r.isError };
+    };
+    try {
+      const created = await call(host, 'create_game', { playerName: 'Alpha', options: { maxPlayers: 4 } });
+      const gameId = created.text.match(/Created game (\w+)/)![1];
+      // Two more seats from the same connection (e.g. two chats sharing one MCP session).
+      const b = await call(host, 'join_game', { gameId, playerName: 'Bravo' });
+      expect(b.isError).toBe(false);
+      const c = await call(host, 'join_game', { gameId, playerName: 'Charlie' });
+      expect(c.isError).toBe(false);
+      // Joining again with the same name is a repeat, not a fourth player.
+      const again = await call(host, 'join_game', { gameId, playerName: 'Bravo' });
+      expect(again.text).toContain('already hold');
+      const seats = await call(host, 'my_seats');
+      expect(seats.text.match(/TOKEN:/g)).toHaveLength(3);
+      // Ambiguous calls must say so; naming the seat works.
+      const amb = await call(host, 'get_state', { gameId });
+      expect(amb.isError).toBe(true);
+      expect(amb.text).toMatch(/holds 3 seats/);
+      const asBravo = await call(host, 'get_state', { gameId, as: 'bravo' });
+      expect(asBravo.isError).toBe(false);
+      expect(asBravo.text).toMatch(/Bravo \(p_[\w-]+\) \[YOU\]/);
+      const started = await call(host, 'start_game', { gameId, as: 'Alpha' });
+      expect(started.isError).toBe(false);
+      expect(started.text).toContain('phase: setup');
+      // Only the host may start; Bravo cannot.
+      const g2 = await call(host, 'create_game', { playerName: 'Alpha' });
+      const gid2 = g2.text.match(/Created game (\w+)/)![1];
+      await call(host, 'join_game', { gameId: gid2, playerName: 'Bravo' });
+      const notHost = await call(host, 'start_game', { gameId: gid2, as: 'Bravo' });
+      expect(notHost.isError).toBe(true);
+    } finally {
+      await host.close();
+    }
+  });
+});
+
 describe('MCP over HTTP (/mcp)', () => {
   it('serves the Risk tools to a Streamable HTTP MCP client and keeps a seat per session', async () => {
     const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
@@ -220,13 +265,18 @@ describe('MCP over HTTP (/mcp)', () => {
       const state = await call('get_state', { gameId });
       expect(state.text).toContain('YOUR LEGAL MOVES');
       expect(state.text).toContain('map: Classic World (42)');
-      expect(risk.health().mcpSessions).toBe(1);
-      // A second, independent session has no seat in that game.
+      expect(risk.health().mcpSessions).toBeGreaterThanOrEqual(1);
+      // A second, independent session has no seat in that game...
       const other = new Client({ name: 'other', version: '0' });
       await other.connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`)));
       const denied = (await other.callTool({ name: 'act', arguments: { gameId, action: { type: 'end_turn' } } })) as { isError?: boolean; content: { text: string }[] };
       expect(denied.isError).toBe(true);
       expect(denied.content[0].text).toMatch(/Not in this game/);
+      // ...but can act with the first session's token (reconnect scenario).
+      const token = created.text.match(/TOKEN: (\S+)/)![1];
+      const viaToken = (await other.callTool({ name: 'get_state', arguments: { gameId, token } })) as { isError?: boolean; content: { text: string }[] };
+      expect(viaToken.isError).toBe(false);
+      expect(viaToken.content[0].text).toContain('[YOU');
       await other.close();
     } finally {
       await client.close();

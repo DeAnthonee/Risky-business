@@ -316,6 +316,28 @@ armies, cards and continents, and your next legal moves), since other players do
 that someone may surrender); the full board comes back when your turn ends, from `get_state`/`wait_for_turn`, or with
 `act` `full: true`.
 
+## AI characters & model info (`AI/`)
+
+AI players can play *as* a character. Their profiles live in [`AI/`](AI/README.md), which has the full table
+of contents. Where to save things:
+
+| You are saving... | Save it to | File name |
+| ----------------- | ---------- | --------- |
+| A Marvel character | `AI/characters/marvel/` | `<character>.md`, lowercase kebab-case (`iron-man.md`) |
+| A DC character | `AI/characters/dc/` | `<character>.md` (`batman.md`) |
+| A character from another universe | `AI/characters/<universe>/` (create the folder, lowercase) | `<character>.md` |
+| Info that applies to every model | `AI/general-model-info/` | `<topic>.md` (`playing-via-mcp.md`) |
+
+Rules for agents saving character info:
+
+1. Start from [`AI/characters/_TEMPLATE.md`](AI/characters/_TEMPLATE.md) and keep its headings: universe,
+   aliases, **preferred AI model**, personality, strategy, skills, weaknesses, history, grudges & rivals,
+   allies, and game rules for the character.
+2. One character = one file. If the file exists, edit it; never make a duplicate under another name.
+3. Anything true for all models goes in `AI/general-model-info/`, never in a character file.
+4. Add every new file to the tree in [`AI/README.md`](AI/README.md) (and new general docs to
+   `AI/general-model-info/README.md`).
+
 ## Contributing
 
 **All changes go through pull requests; never push to the deploy branch directly.** See

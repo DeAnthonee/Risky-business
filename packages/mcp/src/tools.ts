@@ -52,7 +52,8 @@ const optionsSchema = buildOptionsSchema();
 
 const actionSchema = z
   .object({
-    type: z.enum(['place', 'trade', 'attack', 'occupy', 'end_attack', 'fortify', 'end_turn', 'surrender']),
+    type: z.enum(['place', 'choose_capital', 'trade', 'attack', 'occupy', 'end_attack', 'fortify', 'end_turn', 'surrender']),
+    territory: z.string().optional().describe('choose_capital: the territory id to make your capital'),
     placements: z.record(z.number().int().positive()).optional().describe('place: {territoryId: armies}'),
     cardIds: z.array(z.number().int()).optional().describe('trade: exactly 3 card ids'),
     from: z.string().optional().describe('attack/fortify: source territory id'),

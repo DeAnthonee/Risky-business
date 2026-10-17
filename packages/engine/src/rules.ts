@@ -83,4 +83,7 @@ instead of 2 (all three pairs are compared). A captured capital becomes
 yours like any territory (with its +2 and its 3-dice defence); losing your capital does not knock you out, you
 keep playing with what you hold. The game ends as soon as one player holds every capital, including the capitals
 of eliminated players. Eliminating everyone else still wins too.
+With "chooseCapitals" on, there is a short capitals phase after setup (whatever the deal and placement settings):
+each player in turn order picks one of their own territories with {"type":"choose_capital","territory":"<id>"}.
+The chosen capital gets 2 extra armies on the spot (1 army becomes 3). Picks are public. Then turn 1 begins.
 `.trim();

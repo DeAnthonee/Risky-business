@@ -10,7 +10,7 @@ import { DicePanel, type BattleEvent } from './Dice';
 import { Log } from './Log';
 import { GameMap, territoryName, type FloatAnim, type Highlight, type MoveAnim, type SweepAnim } from './Map';
 
-type Mode = 'idle' | 'place' | 'attack' | 'fortify';
+type Mode = 'idle' | 'capital' | 'place' | 'attack' | 'fortify';
 
 const BATTLE_ROLL_MS = 420;
 const BATTLE_SHOW_MS = 650;
@@ -90,6 +90,8 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
     ? 'idle'
     : legal!.pendingConquest
       ? 'idle'
+      : legal!.capitalChoices?.length
+        ? 'capital'
       : legal!.canPlaceOn.length > 0
         ? 'place'
         : view.phase === 'attack'
@@ -153,6 +155,10 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
   const onTerritoryClick = (id: string, shift: boolean) => {
     if (!myTurn || busy) return;
     const ts = view.territories[id];
+    if (mode === 'capital') {
+      if (legal!.capitalChoices.includes(id)) run(() => conn.act({ type: 'choose_capital', territory: id }));
+      return;
+    }
     if (mode === 'place') {
       if (!legal!.canPlaceOn.includes(id)) return;
       const limit = legal!.placeLimit;
@@ -220,7 +226,9 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
   const highlights = useMemo(() => {
     const h: Record<string, Highlight> = {};
     if (!myTurn || !legal) return h;
-    if (mode === 'place') {
+    if (mode === 'capital') {
+      for (const t of legal.capitalChoices) h[t] = 'place';
+    } else if (mode === 'place') {
       for (const t of legal.canPlaceOn) h[t] = 'place';
     } else if (mode === 'attack') {
       if (selected) {
@@ -400,6 +408,11 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
               <button className="primary" onClick={() => setShowCards(true)}>
                 Open cards
               </button>
+            </div>
+          ) : mode === 'capital' ? (
+            <div className="action-group">
+              <strong>★ Choose your capital</strong>
+              <span className="muted small">click one of your territories · it gets +2 armies, defends with 3 dice and pays +2 a turn</span>
             </div>
           ) : mode === 'place' ? (
             <div className="action-group">
@@ -594,6 +607,7 @@ function reinforcementPreview(view: GameView, pid: string): number {
 function PhaseSteps({ phase }: { phase: GameView['phase'] }) {
   const steps: GameView['phase'][] = ['reinforce', 'attack', 'fortify'];
   if (phase === 'setup') return <div className="phase-steps">Setup</div>;
+  if (phase === 'capitals') return <div className="phase-steps">Choosing capitals</div>;
   if (phase === 'finished') return <div className="phase-steps">Game over</div>;
   return (
     <div className="phase-steps">
@@ -704,6 +718,10 @@ function useAnimations(
             break;
           case 'moved':
             moves.push({ id: ++ids.current, from: e.from, to: e.to, armies: e.armies, color: colorOf(e.player) });
+            break;
+          case 'capital_chosen':
+            floats.push({ id: ++ids.current, territory: e.territory, text: `★ +${e.armies}`, color: colorOf(e.player) });
+            flashes[e.territory] = Date.now();
             break;
           case 'placed':
             floats.push({ id: ++ids.current, territory: e.territory, text: `+${e.armies}`, color: colorOf(e.player) });

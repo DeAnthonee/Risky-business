@@ -46,7 +46,33 @@ export interface RoomSnapshot {
   chat: ChatMessage[];
   history: HistoryEntry[];
   updatedAt: number;
+  /** Last time a person or agent did something here (bot moves do not count). */
+  lastActivity?: number;
 }
+
+/** How long an idle room is kept, by phase. All values in milliseconds. */
+export interface RetentionPolicy {
+  /** Lobby with nobody connected. */
+  lobby: number;
+  /** Game in progress with at least one non-bot player alive and nobody connected. */
+  playing: number;
+  /** Game in progress where only built-in bots are left, with nobody watching. */
+  botsOnly: number;
+  /** Finished game with nobody connected. */
+  finished: number;
+  /** Hard cap on idle time, even while someone is connected. */
+  max: number;
+}
+
+export const DEFAULT_RETENTION: RetentionPolicy = {
+  lobby: 60 * 60_000,
+  playing: 12 * 3600_000,
+  botsOnly: 30 * 60_000,
+  finished: 2 * 3600_000,
+  max: 7 * 24 * 3600_000,
+};
+
+export type CloseReason = 'host' | 'admin' | 'idle' | 'empty';
 
 export interface GameSummary {
   id: string;
@@ -73,6 +99,11 @@ const BOT_DELAY_MS = Number(process.env.RISK_BOT_DELAY_MS ?? 700);
 const MAX_HISTORY = 2000;
 const MAX_CHAT = 500;
 
+function fmt(ms: number): string {
+  const m = Math.round(ms / 60_000);
+  return m < 120 ? `${m}m` : `${Math.round(m / 60)}h`;
+}
+
 function newId(bytes: number): string {
   return randomBytes(bytes).toString('base64url');
 }
@@ -94,6 +125,10 @@ export class GameRoom extends EventEmitter {
   chat: ChatMessage[] = [];
   history: HistoryEntry[] = [];
   updatedAt = Date.now();
+  lastActivity = Date.now();
+  /** WebSocket clients currently subscribed (players and spectators). */
+  connections = 0;
+  closed = false;
   private botTimer: NodeJS.Timeout | null = null;
   private waiters = new Set<() => void>();
 
@@ -108,6 +143,7 @@ export class GameRoom extends EventEmitter {
     this.chat = snapshot.chat;
     this.history = snapshot.history;
     this.updatedAt = snapshot.updatedAt;
+    this.lastActivity = snapshot.lastActivity ?? snapshot.updatedAt;
   }
 
   snapshot(): RoomSnapshot {
@@ -120,7 +156,37 @@ export class GameRoom extends EventEmitter {
       chat: this.chat,
       history: this.history,
       updatedAt: this.updatedAt,
+      lastActivity: this.lastActivity,
     };
+  }
+
+  /** Mark human/agent activity (keeps the room from being swept). */
+  touch() {
+    this.lastActivity = Date.now();
+  }
+
+  /** Is anyone attached right now: a WebSocket client or a long-poll waiter (agents)? */
+  isWatched(): boolean {
+    return this.connections > 0 || this.waiters.size > 0;
+  }
+
+  /** True when every living non-neutral player is a built-in bot. */
+  botsOnly(): boolean {
+    const alive = this.state.players.filter((p) => p.alive && !p.isNeutral);
+    return alive.length > 0 && alive.every((p) => p.isBot);
+  }
+
+  hasHumans(): boolean {
+    return this.state.players.some((p) => !p.isBot && !p.isNeutral);
+  }
+
+  /** Close the room: tell everyone attached, release waiters, stop bots. The store forgets it. */
+  close(reason: CloseReason) {
+    if (this.closed) return;
+    this.closed = true;
+    this.stopBot();
+    this.emit('closed', reason);
+    this.releaseWaiters();
   }
 
   summary(): GameSummary {
@@ -166,6 +232,7 @@ export class GameRoom extends EventEmitter {
     const next = addPlayer(this.state, playerId, name, isBot);
     const token = newId(24);
     this.tokens.set(token, playerId);
+    if (!isBot) this.touch();
     this.commit(next, [], playerId, { type: 'system', note: `${name} joined` });
     return { playerId, token };
   }
@@ -177,21 +244,25 @@ export class GameRoom extends EventEmitter {
       const nextHost = next.players.find((p) => !p.isBot);
       if (nextHost) this.hostId = nextHost.id;
     }
+    this.touch();
     this.commit(next, [], playerId, { type: 'system', note: `${playerId} left` });
   }
 
   rename(playerId: PlayerId, name: string) {
     const next = renamePlayer(this.state, playerId, name);
+    this.touch();
     this.commit(next, [], playerId, { type: 'system', note: `${playerId} renamed to ${name}` });
   }
 
   setOptions(options: Partial<GameOptions>) {
     const next = setOptions(this.state, options);
+    this.touch();
     this.commit(next, [], null, { type: 'system', note: 'options changed' });
   }
 
   start() {
     const { state, events } = startGame(this.state);
+    this.touch();
     this.commit(state, events, null, { type: 'start' });
   }
 
@@ -199,6 +270,7 @@ export class GameRoom extends EventEmitter {
 
   act(playerId: PlayerId, action: Action): { state: GameState; events: GameEvent[] } {
     const { state, events } = applyAction(this.state, playerId, action);
+    if (!this.state.players.find((p) => p.id === playerId)?.isBot) this.touch();
     this.commit(state, events, playerId, action);
     return { state, events };
   }
@@ -214,6 +286,7 @@ export class GameRoom extends EventEmitter {
     this.chat.push(msg);
     if (this.chat.length > MAX_CHAT) this.chat.splice(0, this.chat.length - MAX_CHAT);
     this.updatedAt = Date.now();
+    if (playerId && !this.state.players.find((p) => p.id === playerId)?.isBot) this.touch();
     this.emit('chat', msg);
     return msg;
   }
@@ -227,6 +300,7 @@ export class GameRoom extends EventEmitter {
    * state version advances past `since`, or after `timeoutMs`.
    */
   waitFor(playerId: PlayerId | null, since: number | undefined, timeoutMs: number): Promise<'turn' | 'change' | 'timeout' | 'finished'> {
+    if (playerId) this.touch();
     const check = (): 'turn' | 'change' | 'finished' | null => {
       if (this.state.phase === 'finished') return 'finished';
       if (since !== undefined && this.state.version > since) return 'change';
@@ -276,7 +350,7 @@ export class GameRoom extends EventEmitter {
   // ---- bots ----
 
   scheduleBot() {
-    if (this.botTimer) return;
+    if (this.botTimer || this.closed) return;
     const cur = this.state.currentPlayer;
     if (!cur || this.state.phase === 'finished' || this.state.phase === 'lobby') return;
     const p = this.state.players.find((x) => x.id === cur);
@@ -320,7 +394,14 @@ export class Store {
   rooms = new Map<string, GameRoom>();
   private saveTimer: NodeJS.Timeout | null = null;
 
-  constructor(private file: string | null) {
+  retention: RetentionPolicy;
+  private sweepTimer: NodeJS.Timeout | null = null;
+
+  constructor(
+    private file: string | null,
+    retention: Partial<RetentionPolicy> = {},
+  ) {
+    this.retention = { ...DEFAULT_RETENTION, ...retention };
     if (file && existsSync(file)) {
       try {
         const data = JSON.parse(readFileSync(file, 'utf8')) as RoomSnapshot[];
@@ -375,9 +456,15 @@ export class Store {
       .sort((a, b) => b.updatedAt - a.updatedAt);
   }
 
-  delete(id: string) {
-    this.rooms.delete(id);
+  /** Close and forget a room. Attached clients are told why. */
+  delete(id: string, reason: CloseReason = 'admin') {
+    const room = this.rooms.get(id.toUpperCase());
+    if (!room) return false;
+    room.close(reason);
+    room.removeAllListeners('change');
+    this.rooms.delete(room.id);
     this.scheduleSave();
+    return true;
   }
 
   describePersistence(): string {
@@ -393,18 +480,49 @@ export class Store {
       clearTimeout(this.saveTimer);
       this.saveTimer = null;
     }
+    if (this.sweepTimer) {
+      clearInterval(this.sweepTimer);
+      this.sweepTimer = null;
+    }
     for (const room of this.rooms.values()) room.stopBot();
   }
 
-  /** Drop finished games older than a day and empty lobbies older than 2 hours. */
-  sweep() {
-    const now = Date.now();
-    for (const room of this.rooms.values()) {
-      const age = now - room.updatedAt;
-      if (room.state.phase === 'finished' && age > 24 * 3600_000) this.rooms.delete(room.id);
-      else if (room.state.phase === 'lobby' && age > 2 * 3600_000) this.rooms.delete(room.id);
-      else if (age > 7 * 24 * 3600_000) this.rooms.delete(room.id);
+  /** Why a room would be swept right now, or null to keep it. */
+  staleReason(room: GameRoom, now = Date.now()): string | null {
+    const idle = now - room.lastActivity;
+    const r = this.retention;
+    if (idle > r.max) return `idle ${fmt(idle)} (hard limit)`;
+    if (room.isWatched()) return null;
+    const phase = room.state.phase;
+    if (!room.hasHumans()) return 'no people or agents in the room';
+    if (phase === 'lobby' && idle > r.lobby) return `lobby idle ${fmt(idle)}`;
+    if (phase === 'finished' && idle > r.finished) return `finished, idle ${fmt(idle)}`;
+    if (phase !== 'lobby' && phase !== 'finished') {
+      if (room.botsOnly() && idle > r.botsOnly) return `only bots left, idle ${fmt(idle)}`;
+      if (idle > r.playing) return `game idle ${fmt(idle)}`;
     }
+    return null;
+  }
+
+  /** Delete stale rooms. Returns what was removed and why. */
+  sweep(now = Date.now()): { id: string; name: string; reason: string }[] {
+    const removed: { id: string; name: string; reason: string }[] = [];
+    for (const room of [...this.rooms.values()]) {
+      const reason = this.staleReason(room, now);
+      if (!reason) continue;
+      removed.push({ id: room.id, name: room.name, reason });
+      this.delete(room.id, 'idle');
+    }
+    if (removed.length) console.log(`[sweep] removed ${removed.length} room(s): ${removed.map((r) => `${r.id} (${r.reason})`).join(', ')}`);
+    return removed;
+  }
+
+  /** Run sweep() on an interval (unref'd so it never keeps the process alive). */
+  startSweeper(intervalMs = 5 * 60_000) {
+    if (this.sweepTimer) return;
+    this.sweep();
+    this.sweepTimer = setInterval(() => this.sweep(), intervalMs);
+    this.sweepTimer.unref();
   }
 
   private scheduleSave() {

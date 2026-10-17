@@ -74,6 +74,26 @@ function Connected({
   onJoin?: () => void;
 }) {
   const conn = useGame(gameId, spectating ? undefined : session?.token);
+  if (conn.closedReason) {
+    const why: Record<string, string> = {
+      host: 'The host closed this room.',
+      admin: 'This room was removed by the site admin.',
+      idle: 'This room was cleaned up after being idle.',
+      empty: 'Everyone left this room.',
+      gone: 'This room no longer exists.',
+    };
+    return (
+      <div className="center">
+        <div className="card">
+          <h2>Room {gameId} is closed</h2>
+          <p className="muted">{why[conn.closedReason] ?? 'This room is no longer available.'}</p>
+          <button className="primary" onClick={onLeave}>
+            Back to games
+          </button>
+        </div>
+      </div>
+    );
+  }
   if (!conn.view) {
     return (
       <div className="center">

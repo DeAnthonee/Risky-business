@@ -936,7 +936,7 @@ function useAnimations(
             break;
           }
           case 'traded':
-            newCards.push({ id: ++ids.current, kind: 'trade', player: e.player, color: colorOf(e.player), cards: e.cards, armies: e.armies, bonusTerritory: e.bonusTerritory });
+            newCards.push({ id: ++ids.current, kind: 'trade', player: e.player, color: colorOf(e.player), cards: e.cards, armies: e.armies, bonusTerritory: e.bonusTerritory, auto: !!e.auto });
             break;
           case 'cards_taken':
             if (e.count > 0) newCards.push({ id: ++ids.current, kind: 'taken', player: e.player, from: e.from, color: colorOf(e.player), fromColor: colorOf(e.from), count: e.count });

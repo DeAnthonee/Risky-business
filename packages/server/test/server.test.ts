@@ -770,7 +770,7 @@ describe('MCP act replies', () => {
       };
       const created = await call('create_game', { playerName: 'Foggy', options: { autoSetup: true, fogOfWar: true } });
       const gameId = created.text.match(/Created game (\w+)/)![1];
-      await call('add_bot', { gameId });
+      // One bot: with two, both bot turns (700 ms per action) could run before ours and outlast the wait.
       await call('add_bot', { gameId });
       await call('start_game', { gameId });
       expect((await call('wait_for_turn', { gameId, timeoutSeconds: 15 })).text).toMatch(/^It is your turn/);

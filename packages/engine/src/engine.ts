@@ -4,7 +4,7 @@ import { createRng, nextInt, rollDie, shuffle, type Rng } from './rng.js';
 import {
   CAPITAL_BONUS,
   CAPITAL_DEFENSE_DICE,
-  CHOSEN_CAPITAL_ARMIES,
+  CAPITAL_PLACEMENT_ARMIES,
   DEFAULT_OPTIONS,
   RuleError,
   type Action,
@@ -389,9 +389,9 @@ function unclaimedTerritories(state: GameState): TerritoryId[] {
   return mapOf(state).territoryIds.filter((t) => state.territories[t].owner === null && !isBlizzard(state, t));
 }
 
-/** Most blizzards a map allows: a sixth of its territories (7 on classic). */
+/** Most blizzards a map allows: 8, or a sixth of its territories on bigger maps. */
 export function maxBlizzards(map: MapDef): number {
-  return Math.floor(map.territoryIds.length / 6);
+  return Math.max(8, Math.floor(map.territoryIds.length / 6));
 }
 
 /**
@@ -593,8 +593,8 @@ function doChooseCapital(state: GameState, playerId: PlayerId, territory: Territ
   if (state.territories[territory].owner !== playerId) throw new RuleError(`You do not own ${territory}`);
   if (Object.values(state.capitals).includes(territory)) throw new RuleError(`${territory} is already a capital`);
   state.capitals[playerId] = territory;
-  state.territories[territory].armies += CHOSEN_CAPITAL_ARMIES;
-  events.push({ type: 'capital_chosen', player: playerId, territory, armies: CHOSEN_CAPITAL_ARMIES });
+  state.territories[territory].armies += CAPITAL_PLACEMENT_ARMIES;
+  events.push({ type: 'capital_chosen', player: playerId, territory, armies: CAPITAL_PLACEMENT_ARMIES });
   const next = nextCapitalPicker(state);
   if (next) {
     state.currentPlayer = next;
@@ -614,6 +614,8 @@ function assignCapitals(state: GameState, events: GameEvent[]): void {
     let best = owned[0];
     for (const t of owned) if (state.territories[t].armies > state.territories[best].armies) best = t;
     state.capitals[p.id] = best;
+    state.territories[best].armies += CAPITAL_PLACEMENT_ARMIES;
+    events.push({ type: 'capital_chosen', player: p.id, territory: best, armies: CAPITAL_PLACEMENT_ARMIES, auto: true });
   }
   events.push({ type: 'capitals_assigned', capitals: { ...state.capitals } });
 }

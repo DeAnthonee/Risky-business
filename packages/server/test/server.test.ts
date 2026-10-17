@@ -849,6 +849,46 @@ describe('MCP conquest under fog of war', () => {
   });
 });
 
+describe('MCP blitz with stopAt', () => {
+  it('shows each attack\'s win chance and accepts stopAt in one call', async () => {
+    const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+    const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
+    const { getMap } = await import('@risk/engine');
+    const client = new Client({ name: 'stopat-agent', version: '0' });
+    await client.connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`)));
+    try {
+      const call = async (name: string, args: Record<string, unknown> = {}) => {
+        const r = (await client.callTool({ name, arguments: args })) as { content: { text: string }[]; isError?: boolean };
+        return { text: r.content.map((c) => c.text).join('\n'), isError: !!r.isError };
+      };
+      const created = await call('create_game', { playerName: 'Careful', options: { autoSetup: true } });
+      const gameId = created.text.match(/Created game (\w+)/)![1];
+      await call('add_bot', { gameId });
+      await call('start_game', { gameId });
+      expect((await call('wait_for_turn', { gameId, timeoutSeconds: 15 })).text).toMatch(/^It is your turn/);
+      const room = risk.store.get(gameId)!;
+      const me = room.state.players.find((p) => p.name === 'Careful')!;
+      const adj = getMap(room.state.options.map).adjacency;
+      const from = Object.keys(room.state.territories).find((t) => room.state.territories[t].owner === me.id && adj[t].some((n) => room.state.territories[n].owner !== me.id))!;
+      const to = adj[from].find((n) => room.state.territories[n].owner !== me.id)!;
+      const toPlace = me.armiesToPlace;
+      await call('act', { gameId, action: { type: 'place', placements: { [from]: toPlace } } });
+      room.state.territories[from].armies = 25;
+      room.state.territories[to].armies = 40;
+      const board = await call('get_state', { gameId });
+      expect(board.text).toContain('chance an all-in blitz takes it');
+      expect(board.text).toMatch(new RegExp(`${from}->${to} \\(3, \\d+%\\)`));
+      expect(board.text).toContain('"stopAt":N');
+      const r = await call('act', { gameId, action: { type: 'attack', from, to, stopAt: 15 } });
+      expect(r.isError).toBe(false);
+      expect(room.state.territories[from].armies).toBeGreaterThanOrEqual(15);
+      expect(room.state.territories[to].owner).not.toBe(me.id);
+    } finally {
+      await client.close();
+    }
+  });
+});
+
 describe('new boards over HTTP', () => {
   it('lists every board', async () => {
     const r = await api('/maps');

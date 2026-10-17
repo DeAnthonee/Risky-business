@@ -1661,3 +1661,43 @@ label.check input {
 .dice-vs { display: flex; flex-direction: column; align-items: center; gap: 2px; }
 .dice-blitz { font-size: 10px; font-weight: 800; letter-spacing: 1px; color: #ffd166; white-space: nowrap; }
 .dice-balanced { font-size: 10px; font-weight: 700; letter-spacing: 0.5px; color: #9ad1ff; white-space: nowrap; text-transform: uppercase; }
+
+/* Blitz planner: commit slider, live odds (random and balanced), armies needed for common win chances. */
+.blitz-planner {
+  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+}
+.blitz-planner input[type='range'] {
+  width: 160px;
+}
+.blitz-odds {
+  display: inline-flex;
+  gap: 12px;
+  align-items: baseline;
+}
+.blitz-odds .active b {
+  color: var(--accent);
+  font-size: 1.1em;
+}
+.blitz-odds .muted b {
+  font-weight: 600;
+}
+.blitz-needs {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+.blitz-needs .need {
+  padding: 1px 7px;
+  font-size: 0.85em;
+}
+.blitz-needs .need.on {
+  outline: 1px solid var(--accent);
+}
+.blitz-needs .need.none {
+  opacity: 0.6;
+}

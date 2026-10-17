@@ -60,6 +60,7 @@ const actionSchema = z
     to: z.string().optional().describe('attack/fortify: destination territory id'),
     dice: z.number().int().min(1).max(3).optional().describe('attack: dice to roll (default max)'),
     blitz: z.boolean().optional().describe('attack: keep rolling until the territory falls or you cannot continue'),
+    stopAt: z.number().int().min(1).optional().describe('attack: blitz (implied) but stop once the attacking stack is down to this many armies; that many always stay home. Use instead of single rolls when you want a safety margin'),
     occupy: z.union([z.number().int(), z.literal('min'), z.literal('max')]).optional().describe('attack: if conquered, move this many armies in automatically. Under fog of war leave it out, so you see what the conquest reveals before deciding'),
     armies: z.number().int().optional().describe('occupy/fortify: number of armies to move'),
   })
@@ -390,7 +391,7 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
     {
       description:
         'Perform one game action on your turn. Returns the resulting events (dice rolls, conquests...), only the territories your action changed (with their neighbours), your armies, cards and continents, and your next legal moves. Other players do not act during your turn (the only exception: someone may surrender, handing their territories to the Neutral), so you rarely need to reread the board between actions. When your turn ends the full board comes back. Pass full:true for the whole board anyway. ' +
-        'Attack with blitz:true (one call resolves the whole battle) unless you deliberately want to stop after a single roll; spectators watch every call. ' +
+        'Attack with blitz:true (one call resolves the whole battle). To keep a garrison, add stopAt:N instead of rolling one die at a time: the blitz stops once the stack is down to N. Legal moves show the chance an all-in blitz takes each target. ' +
         'Under fog of war, omit "occupy" on attacks: the result lists what the conquest revealed (capitals are tagged CAPITAL) and you then occupy with the number that fits. ' +
         'Examples: {"type":"place","placements":{"alaska":3}} · {"type":"attack","from":"alaska","to":"kamchatka","blitz":true,"occupy":"max"} · {"type":"end_attack"} · {"type":"fortify","from":"peru","to":"brazil","armies":2} · {"type":"end_turn"}',
       inputSchema: {

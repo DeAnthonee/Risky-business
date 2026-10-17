@@ -111,12 +111,12 @@ export const OPTION_SPECS: { [K in OptionKey]: OptionSpec } = {
   capitals: {
     kind: 'boolean',
     label: 'Capital Conquest',
-    description: 'true: after setup each player\'s most garrisoned territory becomes their capital. +2 armies per capital held each turn and a capital defends with up to 3 dice. Losing your capital does not knock you out. Holding every capital at once wins the game (eliminating everyone else still wins too).',
+    description: 'true: after setup each player\'s most garrisoned territory becomes their capital and gets 3 extra armies on the spot. +2 armies per capital held each turn and a capital defends with up to 3 dice. Losing your capital does not knock you out. Holding every capital at once wins the game (eliminating everyone else still wins too).',
   },
   chooseCapitals: {
     kind: 'boolean',
     label: 'Choose capitals',
-    description: 'Capital Conquest only. true: after setup (even with random deal and random placement), each player in turn order picks one of their own territories as their capital before turn 1, false (default): each player\'s most garrisoned territory becomes their capital automatically. Either way every capital gets 3 extra armies when it is set.',
+    description: 'Capital Conquest only. true: after setup (even with random deal and random placement), each player in turn order picks one of their own territories as their capital before turn 1. false (default): each player\'s most garrisoned territory becomes their capital automatically. Either way every capital gets 3 extra armies when it is set.',
   },
   neutrals: {
     kind: 'int',

@@ -249,7 +249,7 @@ export function OptionsForm({
       </label>
       <label className="check">
         <input type="checkbox" disabled={disabled} checked={!!options.capitals} onChange={(e) => onChange({ capitals: e.target.checked })} /> Capital Conquest
-        <span className="muted small">+2 per capital held, capitals defend with 3 dice; hold every capital to win</span>
+        <span className="muted small">+3 armies on each capital when set, +2 per capital held, capitals defend with 3 dice; hold every capital to win</span>
       </label>
       <label className="check">
         <input type="checkbox" disabled={disabled || !options.capitals} checked={!!options.chooseCapitals} onChange={(e) => onChange({ chooseCapitals: e.target.checked })} /> Players choose their capital

@@ -11,7 +11,11 @@ export function formatState(view: GameView, gameName?: string): string {
     `Game ${view.id}${gameName ? ` "${gameName}"` : ''} · map: ${map.name} · phase: ${view.phase} · turn ${view.turnNumber} (round ${view.round}) · version ${view.version}`,
   );
   if (view.phase === 'lobby') {
-    lines.push(`Players (${view.players.length}/${view.options.maxPlayers}): ${view.players.map((p) => `${p.name}${p.isBot ? ' [bot]' : ''}`).join(', ')}`);
+    lines.push(
+      `Players (${view.players.length}/${view.options.maxPlayers}): ${view.players
+        .map((p) => `${p.name}${p.id === view.you ? ' (you)' : ''}${p.isBot ? ' [bot]' : ''}`)
+        .join(', ')}`,
+    );
     lines.push(`Options: ${JSON.stringify(view.options)}`);
     lines.push('Waiting in lobby. The host must start the game.');
     return lines.join('\n');

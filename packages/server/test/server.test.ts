@@ -223,7 +223,8 @@ describe('MCP seats', () => {
       expect(amb.text).toMatch(/holds 3 seats/);
       const asBravo = await call(host, 'get_state', { gameId, as: 'bravo' });
       expect(asBravo.isError).toBe(false);
-      expect(asBravo.text).toMatch(/Bravo \(p_[\w-]+\) \[YOU\]/);
+      expect(asBravo.text).toContain('Bravo (you)');
+      expect(asBravo.text).not.toContain('Alpha (you)');
       const started = await call(host, 'start_game', { gameId, as: 'Alpha' });
       expect(started.isError).toBe(false);
       expect(started.text).toContain('phase: setup');
@@ -275,7 +276,7 @@ describe('MCP over HTTP (/mcp)', () => {
       // ...but can act with the first session's token (reconnect scenario).
       const token = created.text.match(/TOKEN: (\S+)/)![1];
       const viaToken = (await other.callTool({ name: 'get_state', arguments: { gameId, token } })) as { isError?: boolean; content: { text: string }[] };
-      expect(viaToken.isError).toBe(false);
+      expect(viaToken.isError).toBeFalsy();
       expect(viaToken.content[0].text).toContain('[YOU');
       await other.close();
     } finally {

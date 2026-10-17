@@ -735,6 +735,8 @@ footer {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  /* A height saved on a taller window must not squeeze the log/chat out of a shorter one. */
+  max-height: calc(100% - 140px);
 }
 .players-slot > .players-panel {
   flex: 1;

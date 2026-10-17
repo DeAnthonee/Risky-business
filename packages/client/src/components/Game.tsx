@@ -74,15 +74,18 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
     const maxH = aside.getBoundingClientRect().height - 140; // keep room for the tabs and a few lines of chat
     const handle = e.currentTarget;
     handle.setPointerCapture(e.pointerId);
-    const move = (ev: PointerEvent) => setPlayersHeight(Math.max(60, Math.min(maxH, startH + ev.clientY - startY)));
+    const heightAt = (ev: PointerEvent) => Math.max(60, Math.min(maxH, startH + ev.clientY - startY));
+    const move = (ev: PointerEvent) => setPlayersHeight(heightAt(ev));
+    // pointercancel / lostpointercapture (touch gesture taken over, alt-tab, a dialog) end the drag too,
+    // otherwise the move listener would stay attached and the panel would follow a released pointer.
     const up = (ev: PointerEvent) => {
-      handle.releasePointerCapture(ev.pointerId);
+      if (handle.hasPointerCapture(ev.pointerId)) handle.releasePointerCapture(ev.pointerId);
+      for (const t of ['pointerup', 'pointercancel', 'lostpointercapture'] as const) handle.removeEventListener(t, up);
       handle.removeEventListener('pointermove', move);
-      handle.removeEventListener('pointerup', up);
-      savePlayersHeight(Math.max(60, Math.min(maxH, startH + ev.clientY - startY)));
+      savePlayersHeight(heightAt(ev));
     };
     handle.addEventListener('pointermove', move);
-    handle.addEventListener('pointerup', up);
+    for (const t of ['pointerup', 'pointercancel', 'lostpointercapture'] as const) handle.addEventListener(t, up);
   };
   const spectator = !me;
   // Spectator fog preview: follow the current player by default; click a player to pin, click again to see all.

@@ -7,13 +7,14 @@ import classicJson from './generated/classic.json' with { type: 'json' };
 import worldJson from './generated/world.json' with { type: 'json' };
 import worldLargeJson from './generated/world_large.json' with { type: 'json' };
 import europeJson from './generated/europe.json' with { type: 'json' };
+import europeAdvancedJson from './generated/europe_advanced.json' with { type: 'json' };
 import usaJson from './generated/usa.json' with { type: 'json' };
 import asiaJson from './generated/asia.json' with { type: 'json' };
 import fantasyJson from './generated/fantasy.json' with { type: 'json' };
 import { RuleError } from './types.js';
 
-export type MapId = 'classic' | 'world' | 'world_large' | 'europe' | 'usa' | 'asia' | 'fantasy';
-export const MAP_IDS: MapId[] = ['classic', 'world', 'world_large', 'europe', 'usa', 'asia', 'fantasy'];
+export type MapId = 'classic' | 'world' | 'world_large' | 'europe' | 'europe_advanced' | 'usa' | 'asia' | 'fantasy';
+export const MAP_IDS: MapId[] = ['classic', 'world', 'world_large', 'europe', 'europe_advanced', 'usa', 'asia', 'fantasy'];
 
 export interface TerritoryDef {
   id: string;
@@ -96,6 +97,7 @@ export const STARTING_ARMIES: Record<MapId, StartingArmiesRule> = {
   world: { classicScaled: true },
   world_large: { classicScaled: true },
   europe: { classicScaled: true },
+  europe_advanced: { classicScaled: true },
   usa: { classicScaled: true },
   asia: { classicScaled: true },
   fantasy: { classicScaled: true },
@@ -158,6 +160,7 @@ export const MAPS: Record<MapId, MapDef> = {
   world: wrap(worldJson as RawMap),
   world_large: wrap(worldLargeJson as RawMap),
   europe: wrap(europeJson as RawMap),
+  europe_advanced: wrap(europeAdvancedJson as RawMap),
   usa: wrap(usaJson as RawMap),
   asia: wrap(asiaJson as RawMap),
   fantasy: wrap(fantasyJson as RawMap),

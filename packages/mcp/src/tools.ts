@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import type { Action, GameView } from '@risk/engine';
+import { DEFAULT_OPTIONS, MAP_IDS, OPTION_KEYS, OPTION_SPECS, describeOptions, getMap, globalMax, optionLimits, type Action, type GameOptions, type GameView } from '@risk/engine';
 import { RiskHttpError, type IdentityStore, type RiskApi } from './api.js';
 import { formatEvents, formatState } from './format.js';
 
@@ -22,22 +22,33 @@ const tokenSchema = z
   .describe('Your player token for this game (returned by create_game/join_game). Always pass it: it identifies your seat even after a reconnect or when this connection holds several seats.');
 const asSchema = z.string().optional().describe('Alternative to token: the player name of the seat to act as, when this connection holds several seats in the game');
 
-const optionsSchema = z
-  .object({
-    map: z.enum(['classic', 'world']).optional().describe('Board: classic (42 territories, 2-6 players) or world (74 territories, 14 regions, 2-10 players)'),
-    maxPlayers: z.number().int().min(2).max(10).optional().describe('Seats in the game (2-6 classic, 2-10 world)'),
-    setupBatch: z.number().int().min(1).max(40).optional().describe('Armies each player may place per setup turn (1 = classic, 40 = all at once)'),
-    fortifyMode: z.enum(['adjacent', 'connected']).optional().describe('Fortify rule: adjacent (classic) or any connected path'),
-    randomDeal: z.boolean().optional().describe('true = territories dealt randomly (default); false = players claim them one by one'),
-    autoSetup: z.boolean().optional().describe('true = skip the army placement phase: starting armies are scattered randomly and turn 1 starts at once'),
-    cardValues: z.enum(['progressive', 'fixed']).optional().describe('progressive (4,6,8,10,12,15,+5...) or fixed (infantry 4, cavalry 6, artillery 8, one of each 10)'),
-    fogOfWar: z.boolean().optional().describe('true = players only see their territories and adjacent ones; hidden territories show as "?"'),
-    neutrals: z.number().int().min(0).max(40).optional().describe('Games of 3+ players: this many random territories start held by a Neutral army that never attacks (0 = off; at most a third of the map). 2-player games always have the classic Neutral'),
-    neutralArmies: z.number().int().min(1).max(10).optional().describe('Armies on each neutral territory when neutrals is on (default 2)'),
-    blizzards: z.number().int().min(0).max(20).optional().describe('Blizzards: number of random territories frozen for the whole game (0 = off; at most a sixth of the map). Nobody owns, attacks or moves through a blizzard'),
-    capitals: z.boolean().optional().describe('Capital Conquest: each player gets a capital (+2 armies per capital held per turn); capturing a capital takes over that player'),
-  })
-  .optional();
+/** Zod schema for game settings, generated from the engine's OPTION_SPECS so it can never drift. */
+function buildOptionsSchema() {
+  const shape: Record<string, z.ZodTypeAny> = {};
+  for (const key of OPTION_KEYS) {
+    const spec = OPTION_SPECS[key];
+    const def = DEFAULT_OPTIONS[key];
+    let field: z.ZodTypeAny;
+    let desc = spec.description;
+    if (spec.kind === 'enum') {
+      field = z.enum(spec.values as [string, ...string[]]);
+      desc += ' Values: ' + spec.values.map((v) => `"${v}" = ${spec.valueLabels[v]}`).join('; ') + '.';
+    } else if (spec.kind === 'boolean') {
+      field = z.boolean();
+    } else {
+      field = z.number().int().min(spec.min).max(globalMax(key));
+      const perMap = MAP_IDS.map((m) => `${m} ${spec.max(getMap(m))}`).join(', ');
+      desc += ` Range ${spec.min}-${globalMax(key)}${new Set(MAP_IDS.map((m) => spec.max(getMap(m)))).size > 1 ? ` (max by map: ${perMap})` : ''}.`;
+    }
+    shape[key] = field.optional().describe(`${desc} Default: ${JSON.stringify(def)}.`);
+  }
+  return z
+    .object(shape)
+    .strict()
+    .optional()
+    .describe('Game settings; pass only the ones you want to change from the defaults. Call game_options for the full list with limits.');
+}
+const optionsSchema = buildOptionsSchema();
 
 const actionSchema = z
   .object({
@@ -68,7 +79,7 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
     {
       instructions: [
         'You can play the board game Risk (classic world domination rules) against humans, bots and other agents.',
-        'Typical flow: rules -> create_game (or join_game with a code a human shared) -> optionally add_bot -> start_game -> loop { wait_for_turn -> get_state -> act }.',
+        'Typical flow: rules -> game_options (see every setting) -> create_game with the settings you want (or join_game with a code a human shared) -> optionally set_options / add_bot -> start_game -> loop { wait_for_turn -> get_state -> act }.',
         'get_state returns your legal moves; act takes one JSON action. Attacking with blitz:true and occupy:"max" resolves a whole battle in one call.',
         'IMPORTANT: create_game and join_game return a player token. Remember it and pass it as the "token" argument on every later call for that game: it is what identifies YOUR seat (several chats or agents can sit at the same table, each with its own token).',
         opts.identityNote ?? 'Seats are also remembered by this connection while it lasts; my_seats lists them and resume_game recovers one from a token.',
@@ -152,7 +163,8 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
   server.registerTool(
     'create_game',
     {
-      description: 'Create a new game and take a seat as its host. Returns the game code to share with other players/agents and your player token.',
+      description:
+        'Create a new game and take a seat as its host. Pass any game settings in "options" (map, seats, setup, cards, fog of war, Capital Conquest, neutrals, blizzards...); call game_options to see them all with defaults and limits. Returns the game code to share and your player token.',
       inputSchema: {
         playerName: z.string().max(24).optional().describe(`Your display name (default "${DEFAULT_NAME}")`),
         gameName: z.string().max(40).optional(),
@@ -241,12 +253,71 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
 
   server.registerTool(
     'set_options',
-    { description: 'Change game options (host only, lobby only).', inputSchema: { gameId: gameIdSchema, options: optionsSchema, token: tokenSchema, as: asSchema } },
+    {
+      description:
+        'Host only, while the game is in its lobby: change game settings. Pass only the settings to change; the rest keep their current values. Switching map clamps seats, neutrals and blizzards to the new map. Returns what changed and the full settings.',
+      inputSchema: { gameId: gameIdSchema, options: optionsSchema, token: tokenSchema, as: asSchema },
+    },
     async ({ gameId, options, token, as }) => {
       try {
         const id = gameId.toUpperCase();
-        const r = await api.setOptions(id, requireToken(id, token, as), options ?? {});
-        return text(formatState(r.state));
+        const tok = requireToken(id, token, as);
+        const before = (await api.getGame(id, tok)).state.options;
+        const r = await api.setOptions(id, tok, (options ?? {}) as Partial<GameOptions>);
+        const after = r.state.options;
+        const changed = OPTION_KEYS.filter((k) => before[k] !== after[k]).map((k) => `${k}: ${JSON.stringify(before[k])} -> ${JSON.stringify(after[k])}`);
+        return text(`${changed.length ? `Changed: ${changed.join(', ')}` : 'No settings changed.'}\n\n${formatState(r.state)}`);
+      } catch (e) {
+        return errorText(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    'game_options',
+    {
+      description:
+        'List every game setting with its allowed values, default and limits per map. With a gameId, also shows that game\'s current settings and whether you can change them (host, lobby only).',
+      inputSchema: { gameId: gameIdSchema.optional(), token: tokenSchema, as: asSchema },
+    },
+    async ({ gameId, token, as }) => {
+      try {
+        const lines: string[] = ['GAME SETTINGS (pass any subset as "options" to create_game; the host changes them in the lobby with set_options)', ''];
+        for (const key of OPTION_KEYS) {
+          const spec = OPTION_SPECS[key];
+          const def = JSON.stringify(DEFAULT_OPTIONS[key]);
+          if (spec.kind === 'enum') {
+            lines.push(`- ${key} (${spec.label}): one of ${spec.values.map((v) => `"${v}"`).join(' | ')}; default ${def}`);
+            for (const v of spec.values) lines.push(`    "${v}": ${spec.valueLabels[v]}`);
+          } else if (spec.kind === 'boolean') {
+            lines.push(`- ${key} (${spec.label}): true | false; default ${def}`);
+          } else {
+            const perMap = MAP_IDS.map((m) => `${m} ${optionLimits(m)[key].max}`).join(', ');
+            lines.push(`- ${key} (${spec.label}): whole number ${spec.min}..max (max: ${perMap}); default ${def}`);
+          }
+          lines.push(`    ${spec.description}`);
+        }
+        if (gameId) {
+          const id = gameId.toUpperCase();
+          let tok: string | undefined;
+          try {
+            tok = tokenFor(id, token, as);
+          } catch {
+            tok = undefined;
+          }
+          const g = await api.getGame(id, tok);
+          const isHost = !!g.playerId && g.host === g.playerId;
+          lines.push('', `CURRENT SETTINGS of game ${id} (${g.state.phase}):`, ...describeOptions(g.state.options, g.state.tradeCount).map((l) => `  ${l}`));
+          lines.push(`  raw: ${JSON.stringify(g.state.options)}`);
+          lines.push(
+            g.state.phase !== 'lobby'
+              ? 'Settings are locked: the game has started.'
+              : isHost
+                ? 'You are the host: change settings with set_options.'
+                : 'Only the host can change settings.',
+          );
+        }
+        return text(lines.join('\n'));
       } catch (e) {
         return errorText(e);
       }

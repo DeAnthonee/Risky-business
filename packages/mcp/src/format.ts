@@ -1,4 +1,4 @@
-import { fixedSetValue, getMap, tradeBonus, type GameEvent, type GameView } from '@risk/engine';
+import { describeOptions, fixedSetValue, getMap, type GameEvent, type GameView } from '@risk/engine';
 
 /** A compact, LLM-friendly text rendering of the game as seen by one player. */
 export function formatState(view: GameView, gameName?: string): string {
@@ -16,7 +16,7 @@ export function formatState(view: GameView, gameName?: string): string {
         .map((p) => `${p.name}${p.id === view.you ? ' (you)' : ''}${p.isBot ? ' [bot]' : ''}`)
         .join(', ')}`,
     );
-    lines.push(`Options: ${JSON.stringify(view.options)}`);
+    lines.push('Settings:', ...describeOptions(view.options, view.tradeCount).map((l) => `  ${l}`));
     lines.push('Waiting in lobby. The host must start the game.');
     return lines.join('\n');
   }
@@ -40,17 +40,12 @@ export function formatState(view: GameView, gameName?: string): string {
       lines.push('Your cards: none');
     }
     if (me.armiesToPlace > 0) lines.push(`Armies to place: ${me.armiesToPlace}`);
-    const mode = view.options.cardValues ?? 'progressive';
-    lines.push(
-      mode === 'fixed'
-        ? 'Card values: fixed (3 infantry 4, 3 cavalry 6, 3 artillery 8, one of each 10; +2 on an owned traded territory)'
-        : `Card values: progressive, next set is worth ${tradeBonus(view.tradeCount)} (+2 on an owned traded territory)`,
-    );
-    if (view.options.fogOfWar) lines.push('Fog of war is ON: you only see your territories and their neighbours.');
-    if ((view.options.neutrals ?? 0) > 0 && view.players.some((p) => p.isNeutral)) lines.push('Neutral territories are ON: Neutral never attacks or moves; conquer its territories like any other.');
-    if (view.blizzards?.length) lines.push(`Blizzards: ${view.blizzards.join(', ')} are impassable (cannot be attacked, entered or crossed).`);
-    if (view.options.capitals) lines.push('Capital Conquest is ON: +2 armies per capital held; capturing a capital takes over that player.');
   }
+
+  // Every viewer (players and spectators) gets the full rule set this game is played with.
+  lines.push('');
+  lines.push('Settings:', ...describeOptions(view.options, view.tradeCount).map((l) => `  ${l}`));
+  if (view.blizzards?.length) lines.push(`  Frozen territories: ${view.blizzards.join(', ')} (cannot be attacked, entered or crossed)`);
 
   lines.push('');
   lines.push('Territories (owner armies) with neighbours:');

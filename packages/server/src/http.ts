@@ -1,6 +1,6 @@
 import { timingSafeEqual } from 'node:crypto';
 import express, { type Request, type Response, type NextFunction } from 'express';
-import { MAP_IDS, RULES_TEXT, RuleError, getMap, redactEvents, type Action, type GameOptions, type MapDef } from '@risk/engine';
+import { MAP_IDS, RULES_TEXT, RuleError, getMap, optionCatalogue, parseOptions, redactEvents, type Action, type GameOptions, type MapDef } from '@risk/engine';
 
 /** Static map description for agents: no SVG paths, which are only useful to the web client. */
 export function mapInfo(m: MapDef) {
@@ -62,6 +62,7 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
     const m = getMap(typeof req.query.map === 'string' ? req.query.map : 'classic');
     res.json(mapInfo(m));
   });
+  api.get('/options', (_req, res) => res.json(optionCatalogue()));
   api.get('/maps', (_req, res) => res.json({ maps: MAP_IDS.map((id) => ({ id, name: getMap(id).name, territories: getMap(id).territoryIds.length, maxPlayers: getMap(id).maxPlayers })) }));
 
   // ---- games ----
@@ -302,21 +303,7 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
   return api;
 }
 
+/** Options from an untrusted body: unknown keys and wrong types are a 400 with a message listing them. */
 export function sanitizeOptions(raw: unknown): Partial<GameOptions> {
-  if (!raw || typeof raw !== 'object') return {};
-  const o = raw as Record<string, unknown>;
-  const out: Partial<GameOptions> = {};
-  if (o.setupBatch !== undefined) out.setupBatch = Number(o.setupBatch);
-  if (o.fortifyMode !== undefined) out.fortifyMode = o.fortifyMode as GameOptions['fortifyMode'];
-  if (o.randomDeal !== undefined) out.randomDeal = o.randomDeal === true || o.randomDeal === 'true';
-  if (o.autoSetup !== undefined) out.autoSetup = o.autoSetup === true || o.autoSetup === 'true';
-  if (o.cardValues !== undefined) out.cardValues = o.cardValues as GameOptions['cardValues'];
-  if (o.fogOfWar !== undefined) out.fogOfWar = o.fogOfWar === true || o.fogOfWar === 'true';
-  if (o.capitals !== undefined) out.capitals = o.capitals === true || o.capitals === 'true';
-  if (o.neutrals !== undefined) out.neutrals = Number(o.neutrals);
-  if (o.neutralArmies !== undefined) out.neutralArmies = Number(o.neutralArmies);
-  if (o.blizzards !== undefined) out.blizzards = Number(o.blizzards);
-  if (o.maxPlayers !== undefined) out.maxPlayers = Number(o.maxPlayers);
-  if (o.map !== undefined) out.map = o.map as GameOptions['map'];
-  return out;
+  return parseOptions(raw);
 }

@@ -68,6 +68,12 @@ Maps are data. Edit `scripts/maps/<id>.mjs` (country groupings, lon/lat boxes, e
 run `npm run build:map`, and read its output: adjacencies that do not touch become drawn sea links, and it
 warns about shapes that touch without being adjacent. Commit the regenerated JSON. Never hand-edit the JSON.
 
+Fictional boards use `kind: 'authored'` (see `scripts/maps/fantasy.mjs`): hand-sketched landmass outlines in the
+map's own coordinate space, one `site` point per territory (a seeded Voronoi partition with wiggly shared borders
+splits each landmass), single-territory islands, and `seaLanes` for crossings over water. Land adjacency comes from
+the shapes; the generator also warns about borders too short to count, badges that would overlap, and prints a
+suggested bonus per region (size plus entry points) next to the one you set.
+
 ## 6. Running locally
 
 ```bash

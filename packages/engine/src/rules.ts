@@ -12,6 +12,9 @@ Grand World (world_large): 104 territories in 20 regions (2-10 players), bonuses
 Europe: 44 territories in 8 regions (2-8 players), bonuses 2-6. USA: 45 territories (US states, small
 north-eastern ones merged) in 8 regions (2-10 players), bonuses 3-6; Alaska and Hawaii reach the mainland by sea.
 Asia: 49 territories in 7 regions (2-8 players), bonuses 4-6.
+Realms of Halvaren ("fantasy"): an original fantasy world, 87 territories in 16 regions (2-10 players), bonuses
+2-7 per region. The Grimward Wastes (+7) span the north and border almost everyone; the Inner Sea is crossed via
+Mistveil Isle; island chains (Shardsea, Tanuvai, Saltreach, Hrimvald) are linked by sea lanes. It does not wrap.
 Use the "map" tool for the exact territories, regions and adjacency of the map a game is using. On the classic,
 World and Grand World maps Alaska and Kamchatka are adjacent (the map wraps); on every map some adjacencies
 cross water.
@@ -22,6 +25,7 @@ Every other map: about three armies per territory shared out, between 20 and 60 
   World: 2 players 60, 5: 44, 10: 22. Grand World: 2-5 players 60, 6: 52, 7: 45, 8: 39, 9: 35, 10: 31.
   Europe: 2: 60, 3: 44, 4: 33, 5: 26, 6: 22, 7-8: 20. USA: 2: 60, 3: 45, 4: 34, 5: 27, 6: 23, 7-10: 20.
   Asia: 2: 60, 3: 49, 4: 37, 5: 29, 6: 25, 7: 21, 8: 20.
+  Realms of Halvaren: 2-4 players 60, 5: 52, 6: 44, 7: 37, 8: 33, 9: 29, 10: 26.
 
 SETUP
 Territories are dealt randomly (default) and get 1 army each. Then, in turn order, each player places armies on their
@@ -54,7 +58,7 @@ A TURN has three phases:
    neighbouring territories. Fortifying ends your turn. You may also simply end your turn.
 
 CARDS
-One card per territory (Infantry, Cavalry or Artillery) + 2 wilds (territories + 2: 44 on the classic map, 76 on World, 106 on Grand World). You earn
+One card per territory (Infantry, Cavalry or Artillery) + 2 wilds (territories + 2: 44 on the classic map, 76 on World, 106 on Grand World, 89 on Realms of Halvaren). You earn
 one card at the end of any turn in which you conquered at least one territory, and you take all of a player's
 cards when you eliminate them. A set is three of a kind, one of each, or any two plus a wild.
 Option "cardValues": "progressive" (default) escalates for the whole game: 4, 6, 8, 10, 12, 15, then +5 each

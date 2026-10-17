@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * Generates packages/engine/src/generated/<map>.json from real-world geography.
+ * Generates packages/engine/src/generated/<map>.json from real-world geography, or, for definitions
+ * with `kind: 'authored'` (fictional worlds), from hand-drawn landmasses (see authored-map.mjs).
  *
  * Territories are unions of features from a geodata source, optionally clipped to lon/lat boxes,
  * projected (Natural Earth I by default) and emitted as SVG path data plus a label anchor. The
@@ -35,6 +36,7 @@ import { presimplify, simplify } from 'topojson-simplify';
 import { geoPath, geoArea, geoContains, geoNaturalEarth1, geoConicEqualArea } from 'd3-geo';
 import pc from 'polygon-clipping';
 import polylabel from 'polylabel';
+import { buildAuthored } from './authored-map.mjs';
 
 const require = createRequire(import.meta.url);
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -297,15 +299,6 @@ function build(def) {
   // borders, but straight borders and our box cuts only share collinear segments, so test both.
   const touches = memoTouch(geoms);
 
-  const edgeKeys = new Set(def.edges.map((e) => [...e].sort().join('|')));
-  const ids = new Set(def.territories.map((t) => t.id));
-  for (const [a, b] of def.edges) {
-    if (!ids.has(a) || !ids.has(b)) throw new Error(`${def.id}: edge references unknown territory ${a}-${b}`);
-  }
-  const wrap = new Set((def.wrapEdges ?? []).map((e) => [...e].sort().join('|')));
-  const seaLinks = def.edges.filter(([a, b]) => !touches(a, b)).map(([a, b]) => ({ a, b, wrap: wrap.has([a, b].sort().join('|')) }));
-  const suspicious = touches.pairs().filter((k) => !edgeKeys.has(k));
-
   const anchorWarnings = [];
   const territories = def.territories.map((t) => {
     const g = geoms.get(t.id);
@@ -344,6 +337,53 @@ function build(def) {
       ...(label ? { labelX: Math.round(lx * 10) / 10, labelY: Math.round(ly * 10) / 10 } : {}),
     };
   });
+
+  return finish(def, { viewBox: [WIDTH, height], territories, continents, touches, anchorWarnings });
+}
+
+/** Hand-authored map: planar geometry, land adjacency from shared borders plus explicit sea lanes. */
+function buildAuthoredMap(def) {
+  const g = buildAuthored(def);
+  const landKeys = new Set(g.landEdges.map((e) => e.join('|')));
+  for (const [a, b] of def.seaLanes ?? []) {
+    if (landKeys.has([a, b].sort().join('|'))) g.warnings.push(`sea lane ${a}~${b} is redundant: they already share a border`);
+  }
+  const edges = [...g.landEdges, ...(def.seaLanes ?? []).filter(([a, b]) => !landKeys.has([a, b].sort().join('|')))];
+  const out = finish({ ...def, edges }, g);
+  for (const w of g.warnings) console.log(`  WARNING ${w}`);
+  // Suggested bonus (classic logic: grows with size and with the number of border entry points).
+  const adj = new Map(def.territories.map((t) => [t.id, new Set()]));
+  for (const [a, b] of edges) adj.get(a).add(b), adj.get(b).add(a);
+  const cont = new Map(def.territories.map((t) => [t.id, t.continent]));
+  for (const c of def.continents) {
+    const members = def.territories.filter((t) => t.continent === c.id);
+    const entries = members.filter((t) => [...adj.get(t.id)].some((n) => cont.get(n) !== c.id)).length;
+    const suggested = Math.max(1, Math.round(members.length / 3 + entries * 0.6));
+    const note = Math.abs(suggested - c.bonus) > 1 ? '  <- check' : '';
+    console.log(`  ${c.id}: ${members.length} territories, ${entries} entry points, bonus ${c.bonus} (suggested ${suggested})${note}`);
+  }
+  return out;
+}
+
+/** Shared tail: validate edges, derive sea links, warn about suspicious borders and badges, write the JSON. */
+function finish(def, { viewBox, territories, continents, touches, anchorWarnings = [] }) {
+  const [WIDTH, height] = viewBox;
+  const edgeKeys = new Set(def.edges.map((e) => [...e].sort().join('|')));
+  const ids = new Set(def.territories.map((t) => t.id));
+  for (const [a, b] of def.edges) {
+    if (!ids.has(a) || !ids.has(b)) throw new Error(`${def.id}: edge references unknown territory ${a}-${b}`);
+  }
+  const wrap = new Set((def.wrapEdges ?? []).map((e) => [...e].sort().join('|')));
+  const seaLinks = def.edges.filter(([a, b]) => !touches(a, b)).map(([a, b]) => ({ a, b, wrap: wrap.has([a, b].sort().join('|')) }));
+  const suspicious = touches.pairs().filter((k) => !edgeKeys.has(k));
+
+  // Every territory must be reachable from every other.
+  const adj = new Map([...ids].map((id) => [id, []]));
+  for (const [a, b] of def.edges) adj.get(a).push(b), adj.get(b).push(a);
+  const seen = new Set([def.territories[0].id]);
+  const queue = [def.territories[0].id];
+  while (queue.length) for (const n of adj.get(queue.shift())) if (!seen.has(n)) seen.add(n), queue.push(n);
+  if (seen.size !== ids.size) throw new Error(`${def.id}: map is not connected; unreachable: ${[...ids].filter((id) => !seen.has(id)).join(', ')}`);
 
   const out = {
     id: def.id,
@@ -391,10 +431,11 @@ function build(def) {
   return out;
 }
 
-const MAP_NAMES = ['classic', 'world', 'world_large', 'europe', 'usa', 'asia'];
+const MAP_NAMES = ['classic', 'world', 'world_large', 'europe', 'usa', 'asia', 'fantasy'];
 const wanted = process.argv.slice(2);
 for (const name of MAP_NAMES) {
   if (wanted.length && !wanted.includes(name)) continue;
   const def = (await import(`./maps/${name}.mjs`)).default;
-  build(def);
+  if (def.kind === 'authored') buildAuthoredMap(def);
+  else build(def);
 }

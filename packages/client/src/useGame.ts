@@ -17,7 +17,7 @@ export interface GameConnection {
   batches: EventBatch[];
   chat: ChatMessage[];
   act: (action: Action) => Promise<void>;
-  sendChat: (msg: string) => Promise<void>;
+  sendChat: (msg: string, name?: string) => Promise<void>;
   error: string | null;
   clearError: () => void;
   /** True when the server is running a newer build than this page. */
@@ -77,8 +77,8 @@ export function useGame(gameId: string | null, token: string | undefined): GameC
     }
   }, []);
 
-  const sendChat = useCallback(async (msg: string) => {
-    await sockRef.current?.chat(msg);
+  const sendChat = useCallback(async (msg: string, name?: string) => {
+    await sockRef.current?.chat(msg, name);
   }, []);
 
   return { view, host, name, you, connected, batches, chat, act, sendChat, error, clearError: () => setError(null), updateAvailable, presence, closedReason };

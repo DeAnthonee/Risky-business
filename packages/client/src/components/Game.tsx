@@ -51,6 +51,7 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
     if (!spectator || !fogOn) return;
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement | null;
+      if (e.ctrlKey || e.metaKey || e.altKey) return; // leave Ctrl/Cmd+F (find in page) alone
       if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable)) return;
       if (e.key === 'f' || e.key === 'F') setFogRevealed((r) => !r);
     };
@@ -528,7 +529,7 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
             Chat {conn.chat.length ? `(${conn.chat.length})` : ''}
           </button>
         </div>
-        {tab === 'log' ? <Log batches={conn.batches} view={view} /> : <Chat conn={conn} canSend={!!session} />}
+        {tab === 'log' ? <Log batches={conn.batches} view={view} /> : <Chat conn={conn} canSend={!!session} spectator={spectator} />}
       </aside>
 
       {showCards && me && (

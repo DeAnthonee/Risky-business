@@ -274,18 +274,19 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
     loadRoom,
     wrap((req, res) => {
       const since = Number(req.query.since ?? 0);
-      res.json({ messages: req.room!.chat.filter((m) => m.id > since) });
+      res.json({ messages: req.room!.chatFor(req.playerId ?? null, since) });
     }),
   );
 
   api.post(
     '/games/:id/chat',
     loadRoom,
-    requirePlayer,
     wrap((req, res) => {
       const room = req.room!;
       const message = String(req.body?.message ?? '').trim();
       if (!message) return res.status(400).json({ error: 'Empty message' });
+      // No seat: post as a spectator under the given name (flood-guarded per IP).
+      if (!req.playerId) return res.status(201).json({ message: room.addSpectatorChat(`ip:${req.ip}`, req.body?.name, message) });
       const player = room.state.players.find((p) => p.id === req.playerId);
       const msg = room.addChat(req.playerId!, player?.name ?? 'Unknown', message);
       res.status(201).json({ message: msg });

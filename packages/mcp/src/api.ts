@@ -38,7 +38,7 @@ export interface EventsResult {
 }
 
 export interface ChatResult {
-  messages: { id: number; name: string; message: string; at: number }[];
+  messages: { id: number; name: string; message: string; at: number; spectator?: boolean }[];
 }
 
 /**
@@ -59,7 +59,8 @@ export interface RiskApi {
   act(gameId: string, token: string, action: Action): Promise<{ events: GameEvent[]; state: GameView }>;
   wait(gameId: string, token: string | undefined, since: number | undefined, timeoutMs: number): Promise<WaitResult>;
   events(gameId: string, since: number, token?: string): Promise<EventsResult>;
-  chat(gameId: string, since: number): Promise<ChatResult>;
+  /** Pass the reader's token so fog-of-war games hide spectator messages from players. */
+  chat(gameId: string, since: number, token?: string): Promise<ChatResult>;
   sendChat(gameId: string, token: string, message: string): Promise<unknown>;
   leave(gameId: string, token: string): Promise<unknown>;
   closeGame(gameId: string, token: string): Promise<unknown>;
@@ -226,8 +227,8 @@ export class HttpRiskApi implements RiskApi {
   events(gameId: string, since: number, token?: string) {
     return this.request<EventsResult>(`/games/${gameId}/events?since=${since}`, {}, token);
   }
-  chat(gameId: string, since: number) {
-    return this.request<ChatResult>(`/games/${gameId}/chat?since=${since}`);
+  chat(gameId: string, since: number, token?: string) {
+    return this.request<ChatResult>(`/games/${gameId}/chat?since=${since}`, {}, token);
   }
   sendChat(gameId: string, token: string, message: string) {
     return this.request(`/games/${gameId}/chat`, { method: 'POST', body: JSON.stringify({ message }) }, token);

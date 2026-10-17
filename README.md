@@ -90,7 +90,7 @@ Host-selectable options:
 | `neutrals`    | games of 3+ players: this many random territories start held by a Neutral army that never attacks (0 = off, max a third of the map); 2-player games always have the classic Neutral | `0` |
 | `neutralArmies` | armies on each neutral territory when `neutrals` is on (1–10) | `2` |
 | `blizzards`   | number of random territories frozen for the whole game (0 = off, max a sixth of the map: 7 classic, 12 world); nobody can own, attack or cross them; the rest of the map stays connected and continents only need their open territories | `0` |
-| `capitals`    | Capital Conquest: each player's most garrisoned territory after setup becomes a capital (★); +2 armies per capital held each turn; capitals defend with up to 3 dice; capturing a player's capital takes over all their territories, troops and cards | `false` |
+| `capitals`    | Capital Conquest: each player's most garrisoned territory after setup becomes a capital (★); +2 armies per capital held each turn; capitals defend with up to 3 dice; losing your capital does not knock you out; holding every capital at once wins the game | `false` |
 
 ## Hosting (production)
 

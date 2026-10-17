@@ -727,7 +727,7 @@ function useAnimations(
             setBanner({ text: `${view.players.find((p) => p.id === e.player)?.name ?? 'Someone'} is out!`, color: colorOf(e.player) });
             break;
           case 'game_over':
-            setBanner({ text: `🏆 ${view.players.find((p) => p.id === e.winner)?.name ?? 'Someone'} wins!`, color: colorOf(e.winner) });
+            setBanner({ text: `🏆 ${view.players.find((p) => p.id === e.winner)?.name ?? 'Someone'} ${e.reason === 'capitals' ? 'holds every capital and wins!' : 'wins!'}`, color: colorOf(e.winner) });
             break;
         }
       }

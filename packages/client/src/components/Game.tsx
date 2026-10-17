@@ -217,7 +217,8 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
   }, [conn.error]);
 
   // ---------- animations ----------
-  const anim = useAnimations(conn.batches, view, colorOf, setBanner);
+  // Fast-forward is a spectator control: a seated player always gets the animations.
+  const anim = useAnimations(conn.batches, view, colorOf, setBanner, conn.fastForward && !me);
 
   // ---------- actions ----------
   const run = async (fn: () => Promise<void>) => {
@@ -367,7 +368,7 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
               </span>
               <span className="pstats" title="territories · armies · cards">
                 {p.territoryCount ?? '?'}t · {p.armyCount ?? '?'}a · {p.cardCount ?? '?'}c
-                {view.options.capitals && ` · ${Object.values(view.capitals ?? {}).filter((t) => view.territories[t]?.owner === p.id).length}★`}
+                {view.options.capitals && ` · ${p.territoryCount === null ? '?' : Object.values(view.capitals ?? {}).filter((t) => view.territories[t]?.owner === p.id).length}★`}
                 {p.income && p.alive && view.phase !== 'lobby' && (
                   <>
                     {' · '}
@@ -509,6 +510,14 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
                   </button>
                 </span>
               )}
+              <button
+                className={`small ${conn.fastForward ? 'primary' : ''}`}
+                aria-pressed={conn.fastForward}
+                title="Skip animations and the replay: show every move the moment it happens"
+                onClick={() => conn.setFastForward(!conn.fastForward)}
+              >
+                {conn.fastForward ? '⏸ Normal speed' : '⏩ Fast-forward'}
+              </button>
               <button className={`small ${bonusView ? 'primary' : ''}`} aria-pressed={bonusView} title="Show region bonuses, colour-coded, without armies (shortcut: B)" onClick={() => setBonusView((v) => !v)}>
                 {bonusView ? 'Back to board' : 'Bonuses'} <kbd>B</kbd>
               </button>
@@ -826,9 +835,24 @@ function useAnimations(
   view: GameView,
   colorOf: (pid: string | null | undefined) => string,
   setBanner: (b: { text: string; color: string } | null) => void,
+  /** Fast-forward: skip every animation (dice, cards, pop-ups, banners) and just show the board. */
+  skip = false,
 ) {
   const [state, setState] = useState<AnimState>({ battle: null, attackArrow: null, flashes: {}, moves: [], floats: [], sweeps: [], cardFx: null });
   const cardQueue = useRef<CardFx[]>([]);
+  // Read by timers already in flight, so a battle that was mid-animation stops instead of lingering.
+  const skipRef = useRef(skip);
+  skipRef.current = skip;
+  useEffect(() => {
+    if (!skip) return;
+    queue.current = [];
+    cardQueue.current = [];
+    // Forget the last attack too, so the first battle after fast-forward doesn't count as a continued blitz.
+    lastQueued.current = null;
+    lastBattle.current = null;
+    streak.current = 0;
+    setState((s) => ({ ...s, battle: null, attackArrow: null, cardFx: null, moves: [], floats: [], sweeps: [] }));
+  }, [skip]);
   const cardRunning = useRef(false);
 
   // Card animations play one at a time; the backlog is capped so they never lag far behind the game.
@@ -874,12 +898,20 @@ function useAnimations(
     const fast = streak.current > 1 || continues;
     const n = streak.current;
     setState((s) => ({ ...s, battle: { ev: next, rolling: true, streak: n }, attackArrow: { from: next.from, to: next.to } }));
+    const stopIfSkipping = () => {
+      if (!skipRef.current) return false;
+      running.current = false;
+      setState((s) => ({ ...s, battle: null, attackArrow: null }));
+      return true;
+    };
     setTimeout(
       () => {
+        if (stopIfSkipping()) return;
         setState((s) => ({ ...s, battle: { ev: next, rolling: false, streak: n } }));
         const more = queue.current.length > 0;
         setTimeout(
           () => {
+            if (stopIfSkipping()) return;
             running.current = false;
             if (!more) setState((s) => (s.battle?.ev === next ? { ...s, battle: null, attackArrow: null } : s));
             pumpBattles();
@@ -895,6 +927,7 @@ function useAnimations(
     const fresh = batches.filter((b) => b.id > seen.current);
     if (fresh.length === 0) return;
     seen.current = batches[batches.length - 1].id;
+    if (skip) return; // fast-forward: board only
     const flashes: Record<string, number> = {};
     const moves: MoveAnim[] = [];
     const floats: FloatAnim[] = [];
@@ -944,7 +977,7 @@ function useAnimations(
             break;
           }
           case 'traded':
-            newCards.push({ id: ++ids.current, kind: 'trade', player: e.player, color: colorOf(e.player), cards: e.cards, armies: e.armies, bonusTerritory: e.bonusTerritory });
+            newCards.push({ id: ++ids.current, kind: 'trade', player: e.player, color: colorOf(e.player), cards: e.cards, armies: e.armies, bonusTerritory: e.bonusTerritory, auto: !!e.auto });
             break;
           case 'cards_taken':
             if (e.count > 0) newCards.push({ id: ++ids.current, kind: 'taken', player: e.player, from: e.from, color: colorOf(e.player), fromColor: colorOf(e.from), count: e.count });

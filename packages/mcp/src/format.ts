@@ -149,7 +149,7 @@ export function formatEvents(events: GameEvent[], view: GameView): string {
         out.push(`${name(e.player)} placed ${e.armies} on ${t(e.territory)}`);
         break;
       case 'traded':
-        out.push(`${name(e.player)} traded cards for ${e.armies} armies${e.bonusTerritory ? ` (+2 on ${t(e.bonusTerritory)})` : ''}`);
+        out.push(`${name(e.player)} ${e.auto ? 'auto-traded (5+ cards)' : 'traded cards'} for ${e.armies} armies${e.bonusTerritory ? ` (+2 on ${t(e.bonusTerritory)})` : ''}`);
         break;
       case 'battle':
         out.push(

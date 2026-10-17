@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getMap, type GameView, type MapDef } from '@risk/engine';
 
 export type Highlight = 'source' | 'target' | 'place' | 'selected' | 'pending-target';
@@ -60,6 +60,110 @@ export function GameMap(props: MapProps) {
   const now = Date.now();
   const dense = map.territories.length > 50;
 
+  // ---- zoom & pan (viewBox manipulation; wheel, drag, pinch, buttons) ----
+  const [vb, setVb] = useState({ x: 0, y: 0, w: W, h: H });
+  useEffect(() => setVb({ x: 0, y: 0, w: W, h: H }), [W, H]);
+  const svgRef = useRef<SVGSVGElement>(null);
+  const pointers = useRef(new Map<number, { x: number; y: number }>());
+  const gesture = useRef<{ moved: boolean; last: { x: number; y: number } | null; pinch: number | null }>({ moved: false, last: null, pinch: null });
+  const scale = W / vb.w;
+  const MIN_SCALE = 1;
+  const MAX_SCALE = 6;
+
+  const clampVb = useCallback(
+    (v: { x: number; y: number; w: number; h: number }) => {
+      const w = Math.min(W, Math.max(W / MAX_SCALE, v.w));
+      const h = (w * H) / W;
+      return { x: Math.min(Math.max(v.x, 0), W - w), y: Math.min(Math.max(v.y, 0), H - h), w, h };
+    },
+    [W, H],
+  );
+
+  /** Convert a client point to viewBox coordinates. */
+  const toMap = useCallback(
+    (cx: number, cy: number) => {
+      const el = svgRef.current;
+      if (!el) return { x: 0, y: 0 };
+      const r = el.getBoundingClientRect();
+      // preserveAspectRatio meet: the viewBox is letterboxed inside the element.
+      const s = Math.min(r.width / vb.w, r.height / vb.h);
+      const ox = (r.width - vb.w * s) / 2;
+      const oy = (r.height - vb.h * s) / 2;
+      return { x: vb.x + (cx - r.left - ox) / s, y: vb.y + (cy - r.top - oy) / s, s };
+    },
+    [vb],
+  );
+
+  const zoomAt = useCallback(
+    (factor: number, cx?: number, cy?: number) => {
+      setVb((v) => {
+        const el = svgRef.current;
+        const r = el?.getBoundingClientRect();
+        const px = cx !== undefined && r ? toMap(cx, cy!).x : v.x + v.w / 2;
+        const py = cy !== undefined && r ? toMap(cx!, cy).y : v.y + v.h / 2;
+        const w = Math.min(W, Math.max(W / MAX_SCALE, v.w / factor));
+        const h = (w * H) / W;
+        // keep the point under the cursor fixed
+        const nx = px - ((px - v.x) * w) / v.w;
+        const ny = py - ((py - v.y) * h) / v.h;
+        return clampVb({ x: nx, y: ny, w, h });
+      });
+    },
+    [W, H, clampVb, toMap],
+  );
+
+  const onWheel = (e: React.WheelEvent) => {
+    e.preventDefault();
+    zoomAt(e.deltaY < 0 ? 1.2 : 1 / 1.2, e.clientX, e.clientY);
+  };
+  const onPointerDown = (e: React.PointerEvent) => {
+    (e.target as Element).setPointerCapture?.(e.pointerId);
+    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    gesture.current.moved = false;
+    gesture.current.last = { x: e.clientX, y: e.clientY };
+    if (pointers.current.size === 2) {
+      const [a, b] = [...pointers.current.values()];
+      gesture.current.pinch = Math.hypot(a.x - b.x, a.y - b.y);
+    }
+  };
+  const onPointerMove = (e: React.PointerEvent) => {
+    if (!pointers.current.has(e.pointerId)) return;
+    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointers.current.size === 2 && gesture.current.pinch) {
+      const [a, b] = [...pointers.current.values()];
+      const d = Math.hypot(a.x - b.x, a.y - b.y);
+      if (Math.abs(d - gesture.current.pinch) > 4) {
+        zoomAt(d / gesture.current.pinch, (a.x + b.x) / 2, (a.y + b.y) / 2);
+        gesture.current.pinch = d;
+        gesture.current.moved = true;
+      }
+      return;
+    }
+    const last = gesture.current.last;
+    if (!last || pointers.current.size !== 1) return;
+    const dx = e.clientX - last.x;
+    const dy = e.clientY - last.y;
+    if (!gesture.current.moved && Math.hypot(dx, dy) < 4) return;
+    gesture.current.moved = true;
+    gesture.current.last = { x: e.clientX, y: e.clientY };
+    const { s } = toMap(e.clientX, e.clientY) as { s?: number };
+    const k = s ?? 1;
+    setVb((v) => clampVb({ ...v, x: v.x - dx / k, y: v.y - dy / k }));
+  };
+  const onPointerUp = (e: React.PointerEvent) => {
+    pointers.current.delete(e.pointerId);
+    if (pointers.current.size < 2) gesture.current.pinch = null;
+    if (pointers.current.size === 0) gesture.current.last = null;
+  };
+  /** Territory clicks are ignored when the pointer was dragged. */
+  const click = (id: string, shift: boolean) => {
+    if (gesture.current.moved) return;
+    onTerritoryClick(id, shift);
+  };
+  const resetView = () => setVb({ x: 0, y: 0, w: W, h: H });
+  const zoomed = scale > 1.05;
+  const showNames = !dense || scale >= 1.7;
+
   const continentLabels = useMemo(
     () =>
       map.continents.map((c) => {
@@ -73,7 +177,19 @@ export function GameMap(props: MapProps) {
   );
 
   return (
-    <svg className={`map ${dense ? 'dense' : ''}`} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid meet">
+    <div className="map-wrap">
+    <svg
+      ref={svgRef}
+      className={`map ${dense ? 'dense' : ''} ${zoomed ? 'zoomed' : ''} ${showNames ? 'show-names' : ''}`}
+      viewBox={`${vb.x} ${vb.y} ${vb.w} ${vb.h}`}
+      preserveAspectRatio="xMidYMid meet"
+      onWheel={onWheel}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerUp}
+      onDoubleClick={(e) => zoomAt(1.6, e.clientX, e.clientY)}
+    >
       <defs>
         <marker id="arrowhead" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
           <path d="M0,0 L8,4 L0,8 z" fill="#ff5a5a" />
@@ -93,9 +209,9 @@ export function GameMap(props: MapProps) {
         </pattern>
       </defs>
 
-      {/* Ocean */}
-      <rect width={W} height={H} className="ocean" />
-      <rect width={W} height={H} fill="url(#ocean-grid)" />
+      {/* Ocean (oversized so panning never shows the page background) */}
+      <rect x={-W} y={-H} width={3 * W} height={3 * H} className="ocean" />
+      <rect x={-W} y={-H} width={3 * W} height={3 * H} fill="url(#ocean-grid)" />
 
       {/* Continent outlines give the board its regions */}
       <g className="continents" filter="url(#land-shadow)">
@@ -140,7 +256,7 @@ export function GameMap(props: MapProps) {
               d={t.path}
               className={cls}
               fill={owner ?? continentColor(map, t.continent)}
-              onClick={(e) => onTerritoryClick(t.id, e.shiftKey)}
+              onClick={(e) => click(t.id, e.shiftKey)}
             >
               <title>
                 {t.name} — {view.players.find((p) => p.id === ts?.owner)?.name ?? 'unowned'}, {ts?.armies ?? 0} armies
@@ -179,7 +295,7 @@ export function GameMap(props: MapProps) {
           const dim = dimOthers && !hl;
           const cls = ['badge', hl ? `hl-${hl}` : '', dim ? 'dim' : '', hl ? 'clickable' : ''].filter(Boolean).join(' ');
           return (
-            <g key={t.id} className={cls} transform={`translate(${t.x},${t.y})`} onClick={(e) => onTerritoryClick(t.id, e.shiftKey)}>
+            <g key={t.id} className={cls} transform={`translate(${t.x},${t.y})`} onClick={(e) => click(t.id, e.shiftKey)}>
               <circle className="ring" r={dense ? 15 : 19} />
               <circle className="body" r={dense ? 11 : 14} fill={owner} />
               <text key={(ts?.armies ?? 0) + pending} className="armies" textAnchor="middle" dominantBaseline="central">
@@ -225,5 +341,18 @@ export function GameMap(props: MapProps) {
         );
       })}
     </svg>
+    <div className="map-controls">
+      <button title="Zoom in" onClick={() => zoomAt(1.4)}>
+        +
+      </button>
+      <button title="Zoom out" onClick={() => zoomAt(1 / 1.4)}>
+        −
+      </button>
+      <button title="Reset view" onClick={resetView} disabled={!zoomed}>
+        ⟲
+      </button>
+      {dense && !showNames && <span className="map-hint">zoom in or hover for names</span>}
+    </div>
+    </div>
   );
 }

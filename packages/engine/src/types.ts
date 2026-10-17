@@ -224,6 +224,8 @@ export interface ReinforcementBreakdown {
   /** Capitals held (capitals option) and the armies they add. */
   capitals: number;
   fromCapitals: number;
+  /** Set when fog of war hides this breakdown from the viewer (all numbers are then 0). */
+  hidden?: boolean;
   /** Round 1 only (firstRoundBonus): extra armies that lift later players to their turn position (4th gets 4, ...). */
   fromTurnOrder?: number;
   total: number;

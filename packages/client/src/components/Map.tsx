@@ -39,14 +39,73 @@ export interface MapProps {
   sweeps: SweepAnim[];
   onTerritoryClick: (id: string, shift: boolean) => void;
   dimOthers: boolean;
+  /** Bonuses view: paint every territory in its region's colour, hide armies and owners, show region bonuses big. */
+  bonusView?: boolean;
+  onToggleBonusView?: () => void;
 }
 
 /** Region colours (used for unowned land, region outlines and labels). */
-const CONTINENT_PALETTE = ['#e8b84a', '#e06377', '#5b9dff', '#f58e4f', '#36c9b5', '#b48cf2', '#8fd14f', '#ff9f1c', '#4cc9f0', '#f72585', '#a3b18a', '#ffd166', '#06d6a0', '#c77dff'];
+// 22 colours, so every region on every board gets its own (the biggest board has 20 regions).
+const CONTINENT_PALETTE = [
+  '#e8b84a', '#e06377', '#5b9dff', '#f58e4f', '#36c9b5', '#b48cf2', '#8fd14f', '#ff9f1c', '#4cc9f0', '#f72585', '#a3b18a',
+  '#ffd166', '#06d6a0', '#c77dff', '#d62828', '#2a9d8f', '#ff8fab', '#8d99ae', '#c5e063', '#9b5de5', '#e9d8a6', '#3a86ff',
+];
+
+/** Perceptual colour (OKLab) for comparing how different two palette colours look. */
+function oklab(hex: string): [number, number, number] {
+  const lin = (v: number) => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
+  const [r, g, b] = [1, 3, 5].map((i) => lin(parseInt(hex.slice(i, i + 2), 16) / 255));
+  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+  return [0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s, 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s, 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s];
+}
+function colourDistance(a: string, b: string): number {
+  const [x, y] = [oklab(a), oklab(b)];
+  return Math.hypot(x[0] - y[0], x[1] - y[1], x[2] - y[2]);
+}
+
+/**
+ * Region colours: regions that border each other (by land or sea link) get colours that look as different
+ * as possible. Regions with the most neighbours pick first; each takes the colour farthest (perceptually)
+ * from its already-coloured neighbours, with regions two steps away counting a little, and colours are not
+ * reused while any are left, so every region is distinct and a yellow never sits next to an amber.
+ */
+const regionColorCache = new WeakMap<MapDef, Record<string, string>>();
+function regionColors(map: MapDef): Record<string, string> {
+  const cached = regionColorCache.get(map);
+  if (cached) return cached;
+  const regionOf: Record<string, string> = {};
+  for (const c of map.continents) for (const t of c.territories) regionOf[t] = c.id;
+  const neighbours: Record<string, Set<string>> = Object.fromEntries(map.continents.map((c) => [c.id, new Set<string>()]));
+  for (const t of map.territoryIds)
+    for (const n of map.adjacency[t] ?? []) if (regionOf[n] && regionOf[n] !== regionOf[t]) neighbours[regionOf[t]].add(regionOf[n]);
+  const order = [...map.continents].sort((a, b) => neighbours[b.id].size - neighbours[a.id].size || map.continents.indexOf(a) - map.continents.indexOf(b));
+  const out: Record<string, string> = {};
+  const used = new Map<string, number>();
+  for (const c of order) {
+    const near = [...neighbours[c.id]].map((n) => out[n]).filter(Boolean);
+    const twoAway = [...neighbours[c.id]].flatMap((n) => [...neighbours[n]]).filter((n) => n !== c.id && !neighbours[c.id].has(n)).map((n) => out[n]).filter(Boolean);
+    let best = CONTINENT_PALETTE[0];
+    let bestScore = -Infinity;
+    for (const col of CONTINENT_PALETTE) {
+      const dNear = near.length ? Math.min(...near.map((x) => colourDistance(col, x))) : 1;
+      const dFar = twoAway.length ? Math.min(...twoAway.map((x) => colourDistance(col, x))) : 1;
+      const score = dNear + 0.25 * dFar - 0.5 * (used.get(col) ?? 0);
+      if (score > bestScore + 1e-9) {
+        bestScore = score;
+        best = col;
+      }
+    }
+    out[c.id] = best;
+    used.set(best, (used.get(best) ?? 0) + 1);
+  }
+  regionColorCache.set(map, out);
+  return out;
+}
 
 export function continentColor(map: MapDef, continentId: string): string {
-  const i = map.continents.findIndex((c) => c.id === continentId);
-  return CONTINENT_PALETTE[(i < 0 ? 0 : i) % CONTINENT_PALETTE.length];
+  return regionColors(map)[continentId] ?? CONTINENT_PALETTE[0];
 }
 
 export function territoryName(map: MapDef, id: string): string {
@@ -63,8 +122,9 @@ function shortLabel(name: string): string {
 }
 
 export function GameMap(props: MapProps) {
-  const { view, highlights, pendingPlacements, attackArrow, flashes, moves, floats, sweeps, onTerritoryClick, dimOthers, hidden } = props;
-  const isHidden = (id: string) => !!(hidden?.has(id) || view.territories[id]?.hidden);
+  const { view, highlights, pendingPlacements, attackArrow, flashes, moves, floats, sweeps, onTerritoryClick, dimOthers, hidden, bonusView, onToggleBonusView } = props;
+  // The bonuses view shows regions only: no fog, owners or armies.
+  const isHidden = (id: string) => !bonusView && !!(hidden?.has(id) || view.territories[id]?.hidden);
   const isFrozen = (id: string) => !!view.blizzards?.includes(id);
   const capitalOwner = (id: string) => Object.entries(view.capitals ?? {}).find(([, t]) => t === id)?.[0];
   const map = getMap(view.options.map);
@@ -190,6 +250,19 @@ export function GameMap(props: MapProps) {
     [map],
   );
 
+  // Bonuses view: one big label per region, at the territory nearest the middle of the region.
+  const regionCentres = useMemo(
+    () =>
+      map.continents.map((c) => {
+        const pts = c.territories.map((t) => map.territoryById[t]);
+        const mx = pts.reduce((s, p) => s + p.x, 0) / pts.length;
+        const my = pts.reduce((s, p) => s + p.y, 0) / pts.length;
+        const best = pts.reduce((a, p) => (Math.hypot(p.x - mx, p.y - my) < Math.hypot(a.x - mx, a.y - my) ? p : a), pts[0]);
+        return { id: c.id, name: c.name, bonus: c.bonus, size: c.territories.length, x: best.x, y: best.y };
+      }),
+    [map],
+  );
+
   return (
     <div className="map-wrap" style={{ '--map-aspect': `${W} / ${H}` } as CSSProperties}>
     <svg
@@ -234,9 +307,9 @@ export function GameMap(props: MapProps) {
       {/* Continent outlines give the board its regions */}
       <g className="continents" filter="url(#land-shadow)">
         {map.continents.map((c) => {
-          const owner = view.continentOwners[c.id];
+          const owner = bonusView ? null : view.continentOwners[c.id];
           const col = owner ? colorOf(owner) ?? continentColor(map, c.id) : continentColor(map, c.id);
-          return <path key={c.id} d={c.outline} className={`continent-outline ${owner ? 'owned' : ''}`} stroke={col} />;
+          return <path key={c.id} d={c.outline} className={`continent-outline ${owner ? 'owned' : ''} ${bonusView ? 'bonus' : ''}`} stroke={col} />;
         })}
       </g>
 
@@ -276,6 +349,14 @@ export function GameMap(props: MapProps) {
                 <title>{`${t.name} — blizzard: impassable`}</title>
               </path>
             );
+          if (bonusView) {
+            const region = map.continentById[t.continent];
+            return (
+              <path key={t.id} d={t.path} className="territory bonus-fill" fill={continentColor(map, t.continent)}>
+                <title>{`${t.name} — ${region?.name ?? t.continent} (+${region?.bonus ?? 0})`}</title>
+              </path>
+            );
+          }
           return (
             <path
               key={t.id}
@@ -330,12 +411,32 @@ export function GameMap(props: MapProps) {
         })}
       </g>
 
-      {/* Continent labels */}
-      {continentLabels.map((c) => (
-        <text key={c.id} x={c.x} y={c.y} textAnchor="middle" className="continent-label" fill={continentColor(map, c.id)}>
-          {c.name.toUpperCase()} +{c.bonus}
-        </text>
-      ))}
+      {/* Continent labels (the bonuses view puts a big label in the middle of each region instead) */}
+      {!bonusView &&
+        continentLabels.map((c) => (
+          <text key={c.id} x={c.x} y={c.y} textAnchor="middle" className="continent-label" fill={continentColor(map, c.id)}>
+            {c.name.toUpperCase()} +{c.bonus}
+          </text>
+        ))}
+      {bonusView && (
+        <g className="bonus-labels">
+          {regionCentres.map((c) => (
+            <g key={c.id} transform={`translate(${c.x},${c.y})`}>
+              <text className="bonus-value" textAnchor="middle" dominantBaseline="central">
+                +{c.bonus}
+              </text>
+              <text className="bonus-name" y={dense ? 17 : 22} textAnchor="middle">
+                {c.name}
+              </text>
+              {!dense && (
+                <text className="bonus-count" y={36} textAnchor="middle">
+                  {c.size} territories
+                </text>
+              )}
+            </g>
+          ))}
+        </g>
+      )}
 
       {/* Attack arrow */}
       {attackArrow && (
@@ -350,7 +451,7 @@ export function GameMap(props: MapProps) {
       )}
 
       {/* Army badges + names (drawn above the shapes so they are always legible) */}
-      <g className="badges">
+      <g className="badges" style={bonusView ? { display: 'none' } : undefined}>
         {map.territories.map((t) => {
           const ts = view.territories[t.id];
           const hl = highlights[t.id];
@@ -435,6 +536,11 @@ export function GameMap(props: MapProps) {
       <button title="Reset view" onClick={resetView} disabled={!zoomed}>
         ⟲
       </button>
+      {onToggleBonusView && (
+        <button className={`bonus-toggle ${bonusView ? 'active' : ''}`} aria-pressed={!!bonusView} title="Show region bonuses, colour-coded (shortcut: B)" onClick={onToggleBonusView}>
+          {bonusView ? 'Back to board' : 'Bonuses'}
+        </button>
+      )}
       {dense && !showNames && <span className="map-hint">zoom in or hover for names</span>}
     </div>
     </div>

@@ -93,7 +93,7 @@ export function formatState(view: GameView, gameName?: string): string {
         lines.push(`  Tradeable sets (card ids): ${lm.tradeableSets.map(label).join(' ')}`);
       }
       if (lm.capitalChoices?.length) {
-        lines.push(`  Choose your capital (it gets +2 armies now, defends with 3 dice and pays +2 a turn): {"type":"choose_capital","territory":"<id>"}, one of: ${lm.capitalChoices.join(', ')}`);
+        lines.push(`  Choose your capital (it gets +3 armies now, defends with 3 dice and pays +2 a turn): {"type":"choose_capital","territory":"<id>"}, one of: ${lm.capitalChoices.join(', ')}`);
       }
       if (lm.canPlaceOn.length && !lm.mustTrade) {
         const unclaimed = lm.canPlaceOn.some((t) => view.territories[t].owner === null);
@@ -105,7 +105,8 @@ export function formatState(view: GameView, gameName?: string): string {
       }
       if (lm.attacks.length) {
         lines.push(`  Attacks available (from -> to, max dice): ${lm.attacks.map((a) => `${a.from}->${a.to} (${a.maxDice})`).join('; ')}`);
-        lines.push('    {"type":"attack","from":"..","to":"..","blitz":true,"occupy":"max"}  (or "dice":1-3 for a single roll; "occupy" may be a number, "min" or "max")');
+        lines.push('    Blitz by default: {"type":"attack","from":"..","to":"..","blitz":true,"occupy":"max"} fights the whole battle in ONE call (rolls until the territory falls or you run down to 1 army).');
+        lines.push('    Single rolls ("dice":1-3, no blitz) are only for stopping partway on purpose; rolling one at a time is slow for everyone watching. "occupy" may be a number, "min" or "max".');
       }
       if (lm.canEndAttack) lines.push('  {"type":"end_attack"} to move to fortify phase');
       if (lm.fortifies.length) {
@@ -170,7 +171,7 @@ export function formatEvents(events: GameEvent[], view: GameView): string {
         out.push(`Blizzards froze ${e.territories.map(t).join(', ')} (impassable all game)`);
         break;
       case 'capital_chosen':
-        out.push(`${name(e.player)} chose ${t(e.territory)} as their capital (+${e.armies} armies there)`);
+        out.push(e.auto ? `${name(e.player)}'s capital is ${t(e.territory)} (+${e.armies} armies there)` : `${name(e.player)} chose ${t(e.territory)} as their capital (+${e.armies} armies there)`);
         break;
       case 'capitals_assigned':
         out.push(`Capitals: ${Object.entries(e.capitals).map(([p, t]) => `${name(p)} -> ${t}`).join(', ')}`);

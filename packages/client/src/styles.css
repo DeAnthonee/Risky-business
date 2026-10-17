@@ -727,7 +727,45 @@ footer {
 }
 .players-panel {
   padding: 10px 12px;
-  border-bottom: 1px solid var(--border);
+  overflow-y: auto;
+  min-height: 0;
+}
+/* The resizable wrapper around the scoreboard in the desktop sidebar. */
+.players-slot {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  /* A height saved on a taller window must not squeeze the log/chat out of a shorter one. */
+  max-height: calc(100% - 140px);
+}
+.players-slot > .players-panel {
+  flex: 1;
+}
+/* Drag handle between the scoreboard and the log/chat. */
+.sidebar-splitter {
+  flex: none;
+  height: 7px;
+  cursor: row-resize;
+  border-top: 1px solid var(--border);
+  background: transparent;
+  touch-action: none;
+  position: relative;
+}
+.sidebar-splitter::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 2px;
+  width: 36px;
+  height: 3px;
+  margin-left: -18px;
+  border-radius: 2px;
+  background: var(--border);
+  transition: background 0.15s;
+}
+.sidebar-splitter:hover::after,
+.sidebar-splitter:active::after {
+  background: var(--muted);
 }
 .player-row {
   display: flex;
@@ -1049,7 +1087,8 @@ label.check input {
 }
 
 /* Spectator fog toggle */
-.fog-toggle kbd {
+.fog-toggle kbd,
+.action-group button kbd {
   font: inherit;
   font-size: 0.75em;
   padding: 0 4px;
@@ -1062,6 +1101,14 @@ label.check input {
 /* Spectator chat */
 .chat-msg.spectator { opacity: 0.85; font-style: italic; }
 .chat-msg.spectator .chat-spectator-name { color: #b9c3d6; font-style: normal; }
+/* Whispers: private between two players (spectators see them all) */
+.chat-msg.whisper { background: rgba(167, 139, 250, 0.12); border-left: 2px solid #a78bfa; border-radius: 4px; padding-left: 6px; font-style: italic; }
+.chat-msg.whisper[title^='Whisper: tap'] { cursor: pointer; }
+.chat-msg.whisper .whisper-tag { font-style: normal; color: #c4b5fd; }
+.chat-form select.chat-to { width: 100%; }
+/* A player named in a chat message, in that player's colour; your own name stands out more */
+.chat-msg .mention { font-weight: 700; font-style: normal; }
+.chat-msg .mention-you { background: rgba(255, 255, 255, 0.14); border-radius: 3px; padding: 0 3px; }
 .chat-note { padding: 4px 2px; }
 .chat-form { display: flex; flex-direction: column; gap: 6px; }
 .chat-form .chat-name { width: 100%; }
@@ -1492,3 +1539,20 @@ label.check input {
 .score-tip div { color: var(--muted); margin-top: 2px; }
 .score-note { margin-top: 2px; }
 @media (prefers-reduced-motion: reduce) { .score-seg { transition: none; } }
+.score-row:nth-last-child(-n + 2) .score-tip { top: auto; bottom: 100%; margin: 0 0 2px; } /* open upward near the bottom of the scrolling scoreboard */
+
+/* Bonuses view: regions colour-coded with their bonus, no armies */
+.territory.bonus-fill { stroke: rgba(10, 16, 28, 0.55); stroke-width: 0.8; fill-opacity: 0.88; cursor: default; }
+.continent-outline.bonus { stroke-width: 4; stroke-opacity: 1; stroke: #0a101c !important; fill: none; }
+.bonus-labels text { pointer-events: none; paint-order: stroke; stroke: rgba(8, 12, 22, 0.9); stroke-linejoin: round; fill: #fff; }
+.bonus-labels .bonus-value { font-size: 30px; font-weight: 900; stroke-width: 6px; }
+.bonus-labels .bonus-name { font-size: 12px; font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase; stroke-width: 4px; }
+.bonus-labels .bonus-count { font-size: 10px; font-weight: 600; opacity: 0.85; stroke-width: 3px; }
+.map.dense .bonus-labels .bonus-value { font-size: 22px; }
+.map.dense .bonus-labels .bonus-name { font-size: 10px; letter-spacing: 1px; }
+.map-controls .bonus-toggle { width: auto; padding: 0 10px; font-size: 13px; }
+.map-controls .bonus-toggle.active { background: var(--accent, #3b82f6); color: #fff; }
+
+/* Blitz counter in the dice panel */
+.dice-vs { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.dice-blitz { font-size: 10px; font-weight: 800; letter-spacing: 1px; color: #ffd166; white-space: nowrap; }

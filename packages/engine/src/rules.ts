@@ -78,7 +78,7 @@ players as usual and players keep their normal starting armies. Neutral never at
 conquer its territories like any other (it has no cards). Two-player games always use the classic Neutral above.
 
 OPTION: BLIZZARDS
-"blizzards" (a number, 0 = off, at most a sixth of the map): that many random territories are frozen at game start and
+"blizzards" (a number, 0 = off, up to 8, or a sixth of the map on bigger boards): that many random territories are frozen at game start and
 stay impassable all game. Nobody owns them; they cannot be attacked, entered, claimed or fortified through. They are
 chosen so the open territories stay connected and every continent keeps at least two open territories. To control a
 continent you need all of its open (non-blizzard) territories. Blizzards are visible to everyone, even under fog.
@@ -87,13 +87,13 @@ OPTIONS: FOG OF WAR AND CAPITALS
 "fogOfWar": you only see territories you own and those adjacent to them; everything else shows as hidden
 (owner and armies unknown) and events there are reported as "fogged". Spectators always see the whole board.
 "capitals" (Capital Conquest): after setup each player's most garrisoned territory becomes their capital (shown with a
-star). At the start of your turn you get +2 armies for every capital you hold. A capital defends with up to 3 dice
+star) and 3 extra armies are placed on it. At the start of your turn you get +2 armies for every capital you hold. A capital defends with up to 3 dice
 instead of 2 (all three pairs are compared). A captured capital becomes
 yours like any territory (with its +2 and its 3-dice defence); losing your capital does not knock you out, you
 keep playing with what you hold. The game ends as soon as one player holds every capital, including the capitals
 of eliminated players. Eliminating everyone else still wins too.
 With "chooseCapitals" on, there is a short capitals phase after setup (whatever the deal and placement settings):
 each player in turn order picks one of their own territories with {"type":"choose_capital","territory":"<id>"}.
-The chosen capital gets 2 extra armies on the spot (1 army becomes 3). Picks are public, except under fog of war,
+The chosen capital gets 3 extra armies on the spot (1 army becomes 4). Picks are public, except under fog of war,
 where you only learn of capitals you can see. Then turn 1 begins.
 `.trim();

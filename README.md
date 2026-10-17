@@ -34,6 +34,7 @@ conquest in a burst of attacks stays on screen for a moment (the replay speeds u
 Dice rolls, cards being earned, traded in (fanning out into "+N armies") or taken from an eliminated player
 all animate on the board. The sidebar lists players in turn order with their territories, armies, cards and income
 (`+N/turn`, the reinforcements they get next turn before cards; hover it for the breakdown).
+On desktop, drag the divider under the scoreboard to give the log/chat more or less room (double-click resets).
 
 Development with hot reload (server on :8080, Vite client on :5173 proxying `/api` and `/ws`):
 

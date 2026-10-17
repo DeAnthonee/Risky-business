@@ -48,6 +48,48 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
   const [toast, setToast] = useState<string | null>(null);
   const [banner, setBanner] = useState<{ text: string; color: string } | null>(null);
   const [copiedWatch, setCopiedWatch] = useState(false);
+  // Draggable divider between the scoreboard and the log/chat (height remembered in this browser).
+  const sidebarRef = useRef<HTMLElement>(null);
+  const [playersHeight, setPlayersHeight] = useState<number | null>(() => {
+    try {
+      const v = Number(localStorage.getItem('risk.playersHeight'));
+      return v > 0 ? v : null;
+    } catch {
+      return null;
+    }
+  });
+  const savePlayersHeight = (h: number | null) => {
+    setPlayersHeight(h);
+    try {
+      if (h === null) localStorage.removeItem('risk.playersHeight');
+      else localStorage.setItem('risk.playersHeight', String(Math.round(h)));
+    } catch {
+      /* storage unavailable: keep it for this visit only */
+    }
+  };
+  const startResize = (e: React.PointerEvent<HTMLDivElement>) => {
+    const aside = sidebarRef.current;
+    const panel = aside?.querySelector<HTMLElement>('.players-slot');
+    if (!aside || !panel) return;
+    e.preventDefault();
+    const startY = e.clientY;
+    const startH = panel.getBoundingClientRect().height;
+    const maxH = aside.getBoundingClientRect().height - 140; // keep room for the tabs and a few lines of chat
+    const handle = e.currentTarget;
+    handle.setPointerCapture(e.pointerId);
+    const heightAt = (ev: PointerEvent) => Math.max(60, Math.min(maxH, startH + ev.clientY - startY));
+    const move = (ev: PointerEvent) => setPlayersHeight(heightAt(ev));
+    // pointercancel / lostpointercapture (touch gesture taken over, alt-tab, a dialog) end the drag too,
+    // otherwise the move listener would stay attached and the panel would follow a released pointer.
+    const up = (ev: PointerEvent) => {
+      if (handle.hasPointerCapture(ev.pointerId)) handle.releasePointerCapture(ev.pointerId);
+      for (const t of ['pointerup', 'pointercancel', 'lostpointercapture'] as const) handle.removeEventListener(t, up);
+      handle.removeEventListener('pointermove', move);
+      savePlayersHeight(heightAt(ev));
+    };
+    handle.addEventListener('pointermove', move);
+    for (const t of ['pointerup', 'pointercancel', 'lostpointercapture'] as const) handle.addEventListener(t, up);
+  };
   const spectator = !me;
   // Spectator fog preview: follow the current player by default; click a player to pin, click again to see all.
   const fogOn = !!view.options.fogOfWar;
@@ -566,8 +608,19 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
 
       {/* ---------- sidebar (desktop) / bottom sheets (mobile) ---------- */}
       {!isMobile ? (
-        <aside className="sidebar">
-          {playersPanel}
+        <aside className="sidebar" ref={sidebarRef}>
+          <div className="players-slot" style={playersHeight !== null ? { height: playersHeight, flex: 'none' } : undefined}>
+            {playersPanel}
+          </div>
+          <div
+            className="sidebar-splitter"
+            role="separator"
+            aria-orientation="horizontal"
+            aria-label="Resize scoreboard and chat"
+            title="Drag to resize · double-click to reset"
+            onPointerDown={startResize}
+            onDoubleClick={() => savePlayersHeight(null)}
+          />
           <div className="tabs">
             <button className={tab === 'log' ? 'active' : ''} onClick={() => setTab('log')}>
               Log

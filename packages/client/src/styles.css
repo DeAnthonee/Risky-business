@@ -727,7 +727,45 @@ footer {
 }
 .players-panel {
   padding: 10px 12px;
-  border-bottom: 1px solid var(--border);
+  overflow-y: auto;
+  min-height: 0;
+}
+/* The resizable wrapper around the scoreboard in the desktop sidebar. */
+.players-slot {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  /* A height saved on a taller window must not squeeze the log/chat out of a shorter one. */
+  max-height: calc(100% - 140px);
+}
+.players-slot > .players-panel {
+  flex: 1;
+}
+/* Drag handle between the scoreboard and the log/chat. */
+.sidebar-splitter {
+  flex: none;
+  height: 7px;
+  cursor: row-resize;
+  border-top: 1px solid var(--border);
+  background: transparent;
+  touch-action: none;
+  position: relative;
+}
+.sidebar-splitter::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 2px;
+  width: 36px;
+  height: 3px;
+  margin-left: -18px;
+  border-radius: 2px;
+  background: var(--border);
+  transition: background 0.15s;
+}
+.sidebar-splitter:hover::after,
+.sidebar-splitter:active::after {
+  background: var(--muted);
 }
 .player-row {
   display: flex;

@@ -2,6 +2,7 @@
 import { parseArgs } from 'node:util';
 import { parseOptions, type GameOptions } from '@risk/engine';
 import { knownAgents, resolveAgent } from './agents.js';
+import { exportDataset } from './export.js';
 import { DEFAULT_PROMOTION, loadLadder, promotionDecision, recordMatch, runMatch, saveLadder } from './ladder.js';
 import { runBatch } from './runner.js';
 import type { Traits } from './traits.js';
@@ -11,6 +12,7 @@ const USAGE = `risk-selfplay: headless Risk self-play, rating ladder and decisio
   play     --agents risky@1,risky@1 [--games 100] [--seed 1] [--start 0] [--log DIR] [--no-gzip]
   ladder   --candidate ID [--best ID] [--file ladder.json] [--games 200] [--seed 1]
            [--threshold 0.55] [--min-games 200] [--log DIR]
+  export   --log DIR[,DIR...] --out DIR [--maps classic,world]
   agents   list the agent ids that can play
 
 common: [--map classic] [--players N (ladder)] [--options '{"fogOfWar":false}'] [--traits '{"aggression":0.8}']
@@ -18,6 +20,8 @@ common: [--map classic] [--players N (ladder)] [--options '{"fogOfWar":false}'] 
 
 play     plays games i = start .. start+games-1, game i seeded from (seed, i): split one big run over several
          processes with --start and the same --seed. --log writes meta.json, decisions-*.jsonl.gz, games-*.jsonl.
+export   encodes decision logs (format v2) into NumPy arrays for the trainer, one folder per map
+         (see packages/selfplay/README.md "Dataset export").
 ladder   plays mirrored pairs of games candidate vs best; with --file, rates the candidate against the file's best
          and promotes it when it clears the promotion rule (see README "Self-play").`;
 
@@ -63,8 +67,18 @@ async function main() {
       'min-games': { type: 'string' },
       log: { type: 'string' },
       'no-gzip': { type: 'boolean' },
+      out: { type: 'string' },
+      maps: { type: 'string' },
     },
   });
+
+  if (cmd === 'export') {
+    if (!values.log || !values.out) fail('export needs --log and --out');
+    const t0 = Date.now();
+    const results = await exportDataset(values.log.split(','), values.out, values.maps ? { maps: values.maps.split(',') } : {});
+    console.log(JSON.stringify({ out: values.out, maps: results, seconds: (Date.now() - t0) / 1000 }, null, 2));
+    return;
+  }
 
   if (cmd === 'agents') {
     console.log(knownAgents().join('\n'));

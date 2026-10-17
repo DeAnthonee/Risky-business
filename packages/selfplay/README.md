@@ -32,48 +32,86 @@ npm run selfplay -- ladder --file runs/ladder.json --candidate net@2 --games 200
 ```
 
 Games are played in mirrored pairs (same seed, seats swapped), which cancels most of the luck of the deal. The
-result is the candidate's score (win 1, draw 0.5, loss 0), its 95% interval and the Elo difference. A candidate
+result is the candidate's score (win 1, draw 0.5, loss 0), its 95% interval (computed over pair averages, since
+the two games of a pair are correlated) and the Elo difference. A candidate
 is **promoted** only when it has played at least `--min-games` (200), scores at least `--threshold` (0.55, about
 +35 Elo) **and** the lower end of the 95% interval is above 0.5. The ladder file keeps the current best, every
 version's rating (anchored at 1000 for the first best) and the match history. `--players 4` plays 4-player games
 with the two versions in alternating seats (even counts only); the score is then the share of games won by either of
 a version's seats, so its Elo is an approximation of 1v1 strength.
 
-## Decision log format (v1)
+## Decision log format (v2)
 
 A log directory holds:
 
 | file | contents |
 | --- | --- |
-| `meta.json` | format version, trait keys, phase and card-kind names, and per map: `territoryIds` (the territory order every array uses), `adjacency` (indexes) and `continents` (bonus, territory indexes) |
-| `decisions-<first>-<last>.jsonl.gz` | one JSON object per decision |
-| `games-<first>-<last>.jsonl` | one summary per game: seats' agents, winner, reason, turns, decisions, turn order, territories held |
+| `meta.json` | format version, trait keys, phase, card-kind, candidate-kind and rule-flag names, and per map: `territoryIds` (the territory order every array uses), `adjacency` (indexes) and `continents` (bonus, territory indexes) |
+| `decisions-<first>-<last>.jsonl.gz` | one JSON object per decision step |
+| `games-<first>-<last>.jsonl` | one summary per game: seats' agents, winner, reason, turns, decisions, steps, turn order, territories held |
 
-A decision record:
+A decision record (one per step: a fortify is two steps, everything else one):
 
 | field | meaning |
 | --- | --- |
-| `v`, `game`, `seed`, `map`, `players`, `i` | format version, game id, game seed, map id, seats, decision number in the game |
+| `v`, `game`, `seed`, `map`, `players`, `i` | format version, game id, game seed, map id, seats, step number in the game |
 | `turn`, `round`, `phase` | engine turn counter, completed rounds, phase index into `meta.phases` |
 | `seat`, `agent`, `traits` | who decided (seats are numbered in seating order), its version id, its traits in `meta.traitKeys` order |
+| `rules` | 0/1 flags in `meta.ruleKeys` order (capitals, fixed cards, adjacent fortify, fog of war, balanced blitz) |
 | `state.owner`, `state.armies` | per territory: owner (seat, `-1` nobody/blizzard, `-2` the Neutral) and armies |
-| `state.seats` | per seat: `[alive, cards held, armies to place]` |
+| `state.seats` | per seat: `[alive, cards held, armies to place, income]` (income: the engine's reinforcements next turn, before cards) |
+| `state.order` | seats in turn order |
 | `state.hand` | the decider's cards: `[card id, kind index, territory index or -1]` |
 | `state.tradeCount`, `state.pending`, `state.capitals`, `state.blizzards`, `state.conquered`, `state.fortified` | sets traded so far, pending occupy `[from, to, min, max]`, capital per seat, blocked territories, conquered/fortified this turn |
+| `state.fortifyFrom` | on a `fortify_to` step, the source the step before picked; `-1` otherwise |
 | `cands` | the legal choices, broken into small decisions (below) |
 | `choice` | index into `cands` (`-1` and an `action` field when an agent played outside the list) |
 | `outcome` | `{winner, z, turns, reason}`; `z` is 1 for the winner, 0 for losers; at the turn limit survivors share 1 |
 
 Candidates use territory indexes: `["place", t, n]` (n = all, half or 1), `["trade", [card ids]]`,
 `["capital", t]`, `["attack", from, to]` (a blitz; the move-in is the next decision), `["occupy", n]`
-(min, half or max), `["fortify", from, to, n]` (all or half), `["end_turn"]`.
+(min, half or max), `["fortify_from", from]` then, as the next step on the same board, `["fortify_to", to, n]`
+(all or half), `["end_turn"]`. Splitting the fortify keeps lists short: about 18 candidates per step on Classic and 20
+on World, where one-step fortify pairs averaged 117 and 300 and peaked near 15,000 on Greater Europe.
+v1 logs (one-step `["fortify", from, to, n]`, no `order`/`fortifyFrom`/income/`rules`) still read with
+`risky_log.py`, but `export` needs v2: re-run the games.
 
 The full game state is logged (no fog): fog-of-war games are left for later. `python/risky_log.py` is a
 standard-library reader (`iter_decisions`, `iter_games`, `load_meta`); `python3 python/risky_log.py runs/night-01`
 prints a summary.
 
+## Dataset export (board encoder)
+
+```bash
+npm run selfplay -- export --log runs/night-01,runs/night-02 --out data/export-01 [--maps classic]
+python3 packages/selfplay/python/risky_dataset.py data/export-01/classic     # checks and a summary (needs numpy)
+```
+
+`export` runs every logged step through the board encoder (`src/encode.ts`) and writes NumPy arrays, one folder
+per map, loadable with `np.load(..., mmap_mode='r')`:
+
+| array | shape | contents |
+| --- | --- | --- |
+| `territory.npy` | `[N, T, 27]` float32 | per territory: owner slot one-hot (10 seat slots, Neutral, nobody), armies, blizzard, capitals, continent bonus / my share / held whole, border, enemy and own armies next door, card in hand, pending occupy, fortify source |
+| `global.npy` | `[N, 94]` float32 | phase, traits, per seat slot (present, alive, cards, territory and army share, income), armies to place, hand, card set values, trade count, turn, round, map size, rule flags |
+| `cand.npy` | `[M, 13]` float32 | per candidate: kind one-hot, amount (share of its pool, log), attack odds (log army ratio), trade cards on own territories |
+| `cand_from.npy`, `cand_to.npy` | `[M]` int32 | territory a candidate moves from / targets (`-1` none): gather the territory embeddings it is about |
+| `cand_offset.npy` | `[N + 1]` int64 | decision k's candidates are rows `cand_offset[k]` to `cand_offset[k+1] - 1` |
+| `choice.npy`, `z.npy`, `game.npy`, `seat.npy` | `[N]` | chosen candidate (index within the decision), final result, game number (split by game), seat |
+
+`features.json` names every column and carries the map's territory order and adjacency. Everything is from the
+decider's point of view: seat slots are renumbered by turn order starting with the decider, so one network plays
+every seat. Unbounded counts (armies, escalating card values, income) are log-scaled. The encoder is the only
+feature code: live play builds the same input with `decisionInput(state, ...)` and `encodeDecision`, so the
+network sees in play exactly what it trained on. Bump `ENCODER_VERSION` when a feature changes.
+
+Size: about 4.5 KB per step on Classic (most of it `territory.npy`), so 1,000 two-player games are about 1.7 GB.
+`risky_dataset.py` gives `load_dataset(folder)`, `ds.decision(k)` and `ds.split_by_game(0.1)`.
+
 ## Adding a player version
 
 An agent is `{ id: 'name@version', choose(ctx) }`; `ctx` has the full state, the engine's legal moves, the
-candidates, the seat's traits and a seeded `random()`. It must be deterministic given `ctx`. Register it with
-`registerAgent` so the CLI can find it by id.
+candidates, the seat's traits and a seeded `random()`. It must be deterministic given `ctx`. A learning player is
+easiest as `stepAgent(id, pick)`: `pick(ctx)` returns an index into `ctx.candidates` and is asked again (with
+`ctx.fortifyFrom` set) for the destination after a `fortify_from`. Register it with `registerAgent` so the CLI can
+find it by id.

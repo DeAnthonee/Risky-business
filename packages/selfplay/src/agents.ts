@@ -1,5 +1,5 @@
 import { chooseBotAction, getMap, type Action, type GameState, type LegalMoves, type PlayerId, type RandomSource } from '@risk/engine';
-import { candidateToAction, type Candidate } from './actions.js';
+import { candidates, candidateToAction, type Candidate } from './actions.js';
 import type { Traits } from './traits.js';
 
 /** Everything a player gets when it is asked for a move. */
@@ -8,7 +8,7 @@ export interface DecisionContext {
   me: PlayerId;
   seat: number;
   legal: LegalMoves;
-  /** The discrete action space for this decision (see actions.ts). Learning players pick one of these. */
+  /** The discrete action space for this decision (see actions.ts). Learning players pick one of these (see stepAgent). */
   candidates: Candidate[];
   traits: Traits;
   /** Seeded per game and seat: use it instead of Math.random so games replay exactly. */
@@ -30,15 +30,37 @@ export const riskyBot: Agent = {
   choose: (ctx) => chooseBotAction(ctx.state, ctx.me, ctx.random),
 };
 
-/** Uniformly random legal candidate. A floor for the ladder, not a real opponent. */
-export const randomAgent: Agent = {
-  id: 'random@1',
-  choose: (ctx) => {
-    if (ctx.candidates.length === 0) return null;
-    const c = ctx.candidates[Math.floor(ctx.random() * ctx.candidates.length)];
-    return candidateToAction(getMap(ctx.state.options.map), c);
-  },
-};
+/** One step of a decision: `candidates` are this step's choices; a fortify_to step carries its source. */
+export interface StepContext extends DecisionContext {
+  fortifyFrom: number | null;
+}
+
+/**
+ * An agent that picks candidate indexes, one step at a time: after a `fortify_from` it is asked again for the
+ * `fortify_to`. This is the shape a trained network plays in (score every candidate, pick one).
+ */
+export function stepAgent(id: string, pick: (ctx: StepContext) => number): Agent {
+  return {
+    id,
+    choose: (ctx) => {
+      if (ctx.candidates.length === 0) return null;
+      const map = getMap(ctx.state.options.map);
+      const choose = (step: StepContext) => {
+        const i = pick(step);
+        if (!Number.isInteger(i) || i < 0 || i >= step.candidates.length) throw new Error(`${id} picked candidate ${i} of ${step.candidates.length}`);
+        return step.candidates[i];
+      };
+      const c = choose({ ...ctx, fortifyFrom: null });
+      if (c[0] !== 'fortify_from') return candidateToAction(map, c);
+      const from = c[1];
+      const second = candidates(ctx.state, ctx.me, ctx.legal, map.territoryIds[from]);
+      return candidateToAction(map, choose({ ...ctx, candidates: second, fortifyFrom: from }), from);
+    },
+  };
+}
+
+/** Uniformly random legal candidate at every step. A floor for the ladder, not a real opponent. */
+export const randomAgent: Agent = stepAgent('random@1', (ctx) => Math.floor(ctx.random() * ctx.candidates.length));
 
 const REGISTRY = new Map<string, Agent>([riskyBot, randomAgent].map((a) => [a.id, a]));
 

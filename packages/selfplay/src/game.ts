@@ -11,11 +11,12 @@ import {
   type GameOptions,
   type GameState,
 } from '@risk/engine';
-import { candidates, matchCandidate } from './actions.js';
+import { actionSteps, candidates } from './actions.js';
 import type { Agent } from './agents.js';
-import { encodeState, LOG_VERSION, PHASES, seatOf, type DecisionRecord, type Outcome } from './log.js';
+import { decisionInput } from './encode.js';
+import { LOG_VERSION, seatOf, type DecisionRecord, type Outcome } from './log.js';
 import { mixSeed, seededRandom } from './seed.js';
-import { makeTraits, traitVector, type Traits } from './traits.js';
+import { makeTraits, type Traits } from './traits.js';
 
 export interface Seat {
   agent: Agent;
@@ -47,6 +48,8 @@ export interface GameResult {
   turns: number;
   rounds: number;
   decisions: number;
+  /** Decision steps (decisions plus one per fortify, which is two steps); one log record each. */
+  steps: number;
   /** Seats in turn order. */
   turnOrder: number[];
   /** Territories held per seat at the end. */
@@ -82,6 +85,7 @@ export function playGame(cfg: GameConfig): GameResult {
   const illegal = new Array<number>(n).fill(0);
   const offList = new Array<number>(n).fill(0);
   let decisions = 0;
+  let stepCount = 0;
   let turnDecisions = 0;
   let lastTurn = state.turnNumber;
   let reason: Outcome['reason'] = 'turn_limit';
@@ -93,28 +97,23 @@ export function playGame(cfg: GameConfig): GameResult {
     const cands = candidates(state, me, legal);
     const agent = cfg.seats[seat].agent;
     const action: Action = agent.choose({ state, me, seat, legal, candidates: cands, traits: traits[seat], random: randoms[seat] }) ?? { type: 'surrender' };
-    const choice = matchCandidate(map, cands, action);
-    if (choice < 0) offList[seat]++;
+    const steps = actionSteps(state, me, legal, action, cands);
+    stepCount += steps.length;
+    if (steps[steps.length - 1].choice < 0) offList[seat]++;
     if (cfg.record) {
-      records.push({
-        v: LOG_VERSION,
-        game: id,
-        seed: cfg.seed,
-        map: map.id,
-        players: n,
-        i: decisions,
-        turn: state.turnNumber,
-        round: state.round,
-        phase: PHASES.indexOf(state.phase),
-        seat,
-        agent: agent.id,
-        traits: traitVector(traits[seat]),
-        state: encodeState(state, ids, me),
-        cands,
-        choice,
-        ...(choice < 0 ? { action } : {}),
-        outcome: null as unknown as Outcome,
-      });
+      for (const step of steps) {
+        records.push({
+          v: LOG_VERSION,
+          game: id,
+          seed: cfg.seed,
+          i: records.length,
+          agent: agent.id,
+          ...decisionInput(state, ids, me, traits[seat], step.cands, step.fortifyFrom ?? -1),
+          choice: step.choice,
+          ...(step.choice < 0 ? { action } : {}),
+          outcome: null as unknown as Outcome,
+        });
+      }
     }
 
     let events: GameEvent[];
@@ -155,6 +154,7 @@ export function playGame(cfg: GameConfig): GameResult {
     turns: state.turnNumber,
     rounds: state.round,
     decisions,
+    steps: stepCount,
     turnOrder: state.turnOrder.map((p) => ids.indexOf(p)),
     territories: ids.map((p) => map.territoryIds.filter((t) => state.territories[t].owner === p).length),
     illegal,

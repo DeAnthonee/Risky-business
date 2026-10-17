@@ -387,7 +387,9 @@ npm run selfplay -- play --agents risky@1,risky@1 --games 1000 --seed 1 --log ru
 npm run selfplay -- ladder --file runs/ladder.json --best risky@1 --candidate random@1 --games 200
 ```
 
-The log format, ladder rules and how to add a player version are in
+`npm run selfplay -- export --log runs/night-01 --out data/export-01` turns logs into NumPy arrays for the trainer,
+through the one board encoder that live play will also use. The log format, the encoder's features, ladder rules and
+how to add a player version are in
 [packages/selfplay/README.md](packages/selfplay/README.md). The built-in bot lives in the engine
 (`chooseBotAction`) so the server and self-play run the same code.
 

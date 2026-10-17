@@ -71,12 +71,23 @@ export function eloFromScore(s: number): number {
   return Math.max(-MAX_ELO, Math.min(MAX_ELO, 400 * Math.log10(s / (1 - s))));
 }
 
-export function summarizeMatch(candidate: string, best: string, scores: number[], turns: number[], turnLimit: number): MatchResult {
+/**
+ * Summarise a match. `pairSize` 2 means scores come in mirrored pairs (games 2k and 2k+1 share a seed): the two games
+ * of a pair are correlated, so the interval is computed over the pair averages, not over single games.
+ */
+export function summarizeMatch(candidate: string, best: string, scores: number[], turns: number[], turnLimit: number, pairSize = 1): MatchResult {
   const n = scores.length;
   const mean = n ? scores.reduce((a, b) => a + b, 0) / n : 0.5;
-  const variance = n > 1 ? scores.reduce((a, s) => a + (s - mean) ** 2, 0) / (n - 1) : 0.25;
-  // Never trust a zero variance from a handful of games: floor it at what a 90/10 split would give.
-  const se = Math.sqrt(Math.max(variance, 0.09) / Math.max(n, 1));
+  const units: number[] = [];
+  for (let i = 0; i < n; i += pairSize) {
+    const group = scores.slice(i, i + pairSize);
+    units.push(group.reduce((a, b) => a + b, 0) / group.length);
+  }
+  const u = units.length;
+  const variance = u > 1 ? units.reduce((a, s) => a + (s - mean) ** 2, 0) / (u - 1) : 0.25;
+  // Never trust a zero variance from a handful of games: floor it at what a 90/10 split would give (per game; a
+  // pair average of independent games has half that).
+  const se = Math.sqrt(Math.max(variance, 0.09 / pairSize) / Math.max(u, 1));
   const lo = Math.max(0, mean - 1.96 * se);
   const hi = Math.min(1, mean + 1.96 * se);
   const r = (x: number) => Math.round(x * 1000) / 1000;
@@ -120,7 +131,7 @@ export async function runMatch(cfg: MatchConfig): Promise<MatchResult> {
       cfg.onGame?.(result, i);
     },
   });
-  return summarizeMatch(cfg.candidate.id, cfg.best.id, scores, turns, turnLimit);
+  return summarizeMatch(cfg.candidate.id, cfg.best.id, scores, turns, turnLimit, 2);
 }
 
 export interface PromotionRule {

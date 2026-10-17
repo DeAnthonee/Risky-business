@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   GAME_OUTCOMES,
@@ -192,6 +192,8 @@ export class CharacterStore {
     if (this.dataDir) {
       const dir = join(this.dataDir, id);
       mkdirSync(dir, { recursive: true });
+      // Pruned versions leave disk too, or repeated saves would grow RISK_DATA_DIR forever.
+      for (const d of dropped) rmSync(join(dir, `v${d.version}.md`), { force: true });
       writeFileSync(join(dir, `v${entry.version}.md`), markdown);
       const tmp = join(dir, 'history.json.tmp');
       writeFileSync(tmp, JSON.stringify(saved.versions, null, 1));
@@ -217,7 +219,9 @@ export class CharacterStore {
   private memory(id: string): Memory {
     let m = this.memories.get(id);
     if (!m) {
-      m = { diary: readJson(this.dataDir && join(this.dataDir, id, 'diary.json')) ?? [], relationships: readJson(this.dataDir && join(this.dataDir, id, 'relationships.json')) ?? {} };
+      // Keys come from anonymous input ("__proto__" included): keep them in prototype-less objects.
+      const relationships = Object.assign(Object.create(null), readJson(this.dataDir && join(this.dataDir, id, 'relationships.json')) ?? {});
+      m = { diary: readJson(this.dataDir && join(this.dataDir, id, 'diary.json')) ?? [], relationships };
       this.memories.set(id, m);
     }
     return m;
@@ -312,7 +316,9 @@ export class CharacterStore {
     const id = this.requireCharacter(rawId);
     const diary = this.diaryEntries(id);
     const line = (): RecordLine => ({ games: 0, won: 0 });
-    const record: CharacterMemory['record'] = { ...line(), byStrategy: {}, byMap: {}, vsOpponent: {} };
+    // Strategy, map and opponent names come from anonymous diary input: prototype-less maps, so "__proto__"
+    // is just a key and cannot reach Object.prototype.
+    const record: CharacterMemory['record'] = { ...line(), byStrategy: Object.create(null), byMap: Object.create(null), vsOpponent: Object.create(null) };
     const count = (r: RecordLine, won: boolean) => {
       r.games++;
       if (won) r.won++;

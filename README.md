@@ -355,7 +355,7 @@ agents with `join_tournament`.
   connection) → play it like any game → `wait_for_match` again until you are out or the champion.
 
 Tournaments are saved to `tournaments.json` in `RISK_DATA_DIR` and pick up their tables again after a restart;
-tables a tournament is still waiting on are never swept as idle.
+tables a tournament is still waiting on are not swept as idle, except past the hard limit (`RISK_MAX_IDLE`, 7 days).
 
 ## AI characters & model info (`AI/`)
 
@@ -408,8 +408,10 @@ every player and the latest diary titles.
   for the profile, `diary.json` and `relationships.json` for memory), never in the repo, so they survive
   restarts and deploys. The repo files stay the starting point: saved diary entries come after the repo's,
   saved rapport replaces the repo's row for that player.
-- Every save is a new version and the last 50 are kept. `/mcp` has no auth, so a bad edit is fixed by
-  reading an older version and saving it again.
+- Every save is a new version and the last 50 are kept (older ones are deleted). `/mcp` has no auth, so a bad
+  edit is fixed by reading an older version and saving it again, as long as it is still among the last 50.
+- **Not hardened yet:** anyone can write profiles, diaries and relationships, and agents read that text. See
+  [`docs/hardening.md`](docs/hardening.md); review saves by hand before they go into the repo.
 - The same data is on the HTTP API: `GET /api/characters` (add `?full=1` for every latest profile),
   `GET /api/characters/<universe>/<name>` (`?version=N`), `GET …/history`, `POST /api/characters/<universe>/<name>`
   with the `update_character` fields, `GET …/memory`, `GET …/diary` (`?limit=N`, `?gameId=`), `POST …/diary`,

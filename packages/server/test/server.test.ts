@@ -1050,6 +1050,32 @@ describe('fantasy map over HTTP', () => {
 });
 
 describe('AI character profiles', () => {
+  it('keeps "__proto__" input harmless and deletes pruned profile versions from disk', async () => {
+    const { CharacterStore } = await import('../src/characters.js');
+    const { readdirSync } = await import('node:fs');
+    const root = mkdtempSync(join(tmpdir(), 'risk-ai-'));
+    const aiDir = join(root, 'AI');
+    const dataDir = join(root, 'data', 'characters');
+    mkdirSync(join(aiDir, 'characters', 'marvel'), { recursive: true });
+    writeFileSync(join(aiDir, 'characters', '_TEMPLATE.md'), '# <Character Name>\n');
+    writeFileSync(join(aiDir, 'characters', 'marvel', 'iron-man.md'), profile('Iron Man'));
+    const store = new CharacterStore(aiDir, dataDir);
+    store.addDiaryEntry('marvel/iron-man', { title: 'Game', text: 'Lost to a proto.', outcome: 'lost', opponents: ['__proto__'], strategy: '__proto__', map: '__proto__' } as any);
+    store.updateRelationship('marvel/iron-man', { with: '__proto__', note: 'Rivals.', change: -5 } as any);
+    const memory = store.memorySummary('marvel/iron-man');
+    expect(({} as any).games).toBeUndefined();
+    expect((memory.record.vsOpponent as any)['__proto__']).toEqual({ games: 1, won: 0 });
+    expect(memory.relationships.map((r) => r.with)).toContain('__proto__');
+    // Relationships survive a restart with the same key.
+    const again = new CharacterStore(aiDir, dataDir);
+    expect(again.memorySummary('marvel/iron-man').relationships.map((r) => r.with)).toContain('__proto__');
+    expect(({} as any).games).toBeUndefined();
+    // Only the kept versions stay on disk.
+    for (let i = 0; i < 55; i++) store.update('marvel/iron-man', { markdown: profile(`Iron Man ${i}`) } as any);
+    const files = readdirSync(join(dataDir, 'marvel', 'iron-man')).filter((f) => /^v\d+\.md$/.test(f));
+    expect(files.length).toBeLessThanOrEqual(50);
+  });
+
   const profile = (name: string, grudges = 'None yet.') => `# ${name}\n\n- **Universe:** Test\n\n## Strategy\n\nHold Australia.\n\n## Grudges & rivals\n\n${grudges}\n\n## Allies\n\nNone yet.\n`;
 
   async function withCharacters(fn: (base: string, aiDir: string, dataDir: string) => Promise<void>) {

@@ -3,6 +3,7 @@ import {
   ADJACENCY,
   CONTINENTS,
   EDGE_LIST,
+  LEGACY_MAP_IDS,
   MAPS,
   MAP_IDS,
   NEUTRAL_ID,
@@ -11,11 +12,13 @@ import {
   addPlayer,
   applyAction,
   bestSet,
+  describeOptions,
   capitalsHeldBy,
   createGame,
   findSets,
   isValidSet,
   legalMoves,
+  parseOptions,
   redactEvents,
   renamePlayer,
   setOptions,
@@ -628,7 +631,8 @@ describe('maps', () => {
     world: { territories: 74, regions: 14, maxPlayers: 10 },
     world_large: { territories: 104, regions: 20, maxPlayers: 10 },
     europe: { territories: 44, regions: 8, maxPlayers: 8 },
-    europe_advanced: { territories: 116, regions: 15, maxPlayers: 10 },
+    europe_advanced: { territories: 99, regions: 14, maxPlayers: 6 }, // legacy, saved games only
+    greater_europe: { territories: 116, regions: 15, maxPlayers: 10 },
     usa: { territories: 45, regions: 8, maxPlayers: 10 },
     asia: { territories: 49, regions: 7, maxPlayers: 8 },
     fantasy: { territories: 87, regions: 16, maxPlayers: 10 },
@@ -636,8 +640,10 @@ describe('maps', () => {
 
   it('every map is well formed', async () => {
     const { MAPS, MAP_IDS } = await import('../src/index.js');
-    expect(MAP_IDS).toEqual(['classic', 'world', 'world_large', 'europe', 'europe_advanced', 'usa', 'asia', 'fantasy']);
-    for (const id of MAP_IDS) {
+    expect(MAP_IDS).toEqual(['classic', 'world', 'world_large', 'europe', 'greater_europe', 'usa', 'asia', 'fantasy']);
+    // every registered board is either offered or legacy, never both
+    expect([...MAP_IDS, ...LEGACY_MAP_IDS].sort()).toEqual(Object.keys(MAPS).sort());
+    for (const id of [...MAP_IDS, ...LEGACY_MAP_IDS]) {
       const m = MAPS[id];
       expect(m.territories.length).toBe(EXPECTED[id].territories);
       expect(m.continents.length).toBe(EXPECTED[id].regions);
@@ -721,13 +727,14 @@ describe('maps', () => {
     expect(table('world')).toEqual([70, 62, 53, 44, 35, 30, 26, 23, 21]);
     expect(table('world_large')).toEqual([99, 87, 74, 62, 50, 42, 37, 33, 30]);
     expect(table('europe')).toEqual([42, 37, 31, 26, 21, 18, 16]);
-    expect(table('europe_advanced')).toEqual([110, 97, 83, 69, 55, 47, 41, 37, 33]);
+    expect(table('greater_europe')).toEqual([110, 97, 83, 69, 55, 47, 41, 37, 33]);
+    expect(table('europe_advanced')).toEqual([94, 83, 71, 59, 47]);
     expect(table('usa')).toEqual([43, 38, 32, 27, 21, 18, 16, 14, 13]);
     expect(table('asia')).toEqual([47, 41, 35, 29, 23, 20, 18]);
     expect(table('fantasy')).toEqual([83, 73, 62, 52, 41, 36, 31, 28, 25]);
   });
 
-  for (const id of ['world_large', 'europe', 'europe_advanced', 'usa', 'asia'] as const) {
+  for (const id of ['world_large', 'europe', 'europe_advanced', 'greater_europe', 'usa', 'asia'] as const) {
     it(`deals and plays the first turn of a full ${id} game`, async () => {
       const { MAPS } = await import('../src/index.js');
       const m = MAPS[id];
@@ -793,12 +800,12 @@ describe('maps', () => {
   });
 });
 
-describe('Greater Europe map (europe_advanced)', () => {
-  const m = MAPS.europe_advanced;
+describe('Greater Europe map (greater_europe)', () => {
+  const m = MAPS.greater_europe;
 
   it('is registered with 116 territories in 15 regions for 2-10 players', async () => {
     const { classicScaledArmies } = await import('../src/index.js');
-    expect(MAP_IDS).toContain('europe_advanced');
+    expect(MAP_IDS).toContain('greater_europe');
     expect(m.name).toMatch(/Greater Europe/);
     expect(m.territories).toHaveLength(116);
     expect(m.continents).toHaveLength(15);
@@ -858,7 +865,7 @@ describe('Greater Europe map (europe_advanced)', () => {
 
   it('deals and completes setup for ten players, also with blizzards and neutrals at their limits', async () => {
     const { optionLimits, maxBlizzards } = await import('../src/index.js');
-    let s = createGame('ea', { map: 'europe_advanced', maxPlayers: 10, setupBatch: 40 }, 21);
+    let s = createGame('ea', { map: 'greater_europe', maxPlayers: 10, setupBatch: 40 }, 21);
     for (let i = 0; i < 10; i++) s = addPlayer(s, `p${i}`, `P${i}`);
     expect(() => addPlayer(s, 'extra', 'X')).toThrow(/full/);
     let state = startGame(s).state;
@@ -870,9 +877,9 @@ describe('Greater Europe map (europe_advanced)', () => {
     expect(state.phase).toBe('reinforce');
     for (const t of m.territoryIds) expect(state.territories[t].owner).not.toBeNull();
 
-    const limits = optionLimits('europe_advanced');
+    const limits = optionLimits('greater_europe');
     expect(limits.blizzards.max).toBe(maxBlizzards(m));
-    let b = createGame('eab', { map: 'europe_advanced', maxPlayers: 10, autoSetup: true, blizzards: limits.blizzards.max, neutrals: 10 }, 4);
+    let b = createGame('eab', { map: 'greater_europe', maxPlayers: 10, autoSetup: true, blizzards: limits.blizzards.max, neutrals: 10 }, 4);
     for (let i = 0; i < 10; i++) b = addPlayer(b, `p${i}`, `P${i}`);
     const frozen = startGame(b).state;
     expect(frozen.phase).toBe('reinforce');
@@ -882,6 +889,37 @@ describe('Greater Europe map (europe_advanced)', () => {
     const queue = [open[0]];
     while (queue.length) for (const n of m.adjacency[queue.pop()!]) if (!frozen.blizzards.includes(n) && !reach.has(n)) (reach.add(n), queue.push(n));
     expect(reach.size).toBe(open.length);
+  });
+});
+
+describe('legacy board europe_advanced (99 territories)', () => {
+  const m = MAPS.europe_advanced;
+
+  it('keeps its id, territories and adjacency so saved games still load', () => {
+    expect(LEGACY_MAP_IDS).toContain('europe_advanced');
+    expect(MAP_IDS).not.toContain('europe_advanced');
+    expect(m.name).toBe('Europe (legacy, 99)');
+    expect(m.territories).toHaveLength(99);
+    expect(m.continents).toHaveLength(14);
+    expect(m.maxPlayers).toBe(6);
+    expect(m.isTerritory('morocco')).toBe(true);
+    expect(m.isTerritory('cappadocia')).toBe(true);
+    expect(m.adjacency.morocco).toContain('andalusia');
+  });
+
+  it('is not offered for new games but a lobby saved on it can still change other settings', () => {
+    expect(() => parseOptions({ map: 'europe_advanced' })).toThrow(/map must be one of/);
+    let s = createGame('legacy', { map: 'europe_advanced', maxPlayers: 6 }, 3);
+    s = setOptions(s, parseOptions({ maxPlayers: 4, fogOfWar: true }));
+    expect(s.options.map).toBe('europe_advanced');
+    expect(s.options.maxPlayers).toBe(4);
+    expect(() => setOptions(s, parseOptions({ maxPlayers: 7 }))).toThrow(/maxPlayers must be between 2 and 6/);
+    expect(describeOptions(s.options)[0]).toMatch(/^Map: Europe \(legacy, 99\): 99 territories, 2-6 players \(legacy board/);
+    // and can move to a current board
+    s = setOptions(s, parseOptions({ map: 'greater_europe' }));
+    expect(Object.keys(s.territories)).toHaveLength(116);
+    for (const id of ['a', 'b', 'c']) s = addPlayer(s, id, id.toUpperCase());
+    expect(startGame(s).state.phase).toBe('setup');
   });
 });
 
@@ -1183,7 +1221,9 @@ describe('capital placement bonus and 8 blizzards', () => {
 describe('rules text', () => {
   it('lists the same starting armies as the engine for every scaled map', async () => {
     const { RULES_TEXT } = await import('../src/rules.js');
-    const labels: Record<string, string> = { world: 'World', world_large: 'Grand World', europe: 'Europe', europe_advanced: 'Greater Europe', usa: 'USA', asia: 'Asia', fantasy: 'Realms of Halvaren' };
+    const labels: Record<string, string> = { world: 'World', world_large: 'Grand World', europe: 'Europe', greater_europe: 'Greater Europe', usa: 'USA', asia: 'Asia', fantasy: 'Realms of Halvaren' };
+    // every offered board except classic (whose fixed table is listed separately) is covered
+    expect(Object.keys(labels).sort()).toEqual(MAP_IDS.filter((id) => id !== 'classic').sort());
     const section = RULES_TEXT.slice(RULES_TEXT.indexOf('PLAYERS & STARTING ARMIES'), RULES_TEXT.indexOf('SETUP'));
     for (const [id, label] of Object.entries(labels)) {
       const m = MAPS[id as keyof typeof MAPS];

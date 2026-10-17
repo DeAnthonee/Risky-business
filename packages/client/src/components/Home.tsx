@@ -170,8 +170,9 @@ export function OptionsForm({
             onChange({ map: id, maxPlayers: Math.min(options.maxPlayers ?? limit, limit) });
           }}
         >
-          {MAP_IDS.map((id) => (
-            <option key={id} value={id}>
+          {/* A lobby saved on a legacy board (kept in MAPS, not offered in MAP_IDS) still shows its map. */}
+          {(options.map && !MAP_IDS.includes(options.map) ? [...MAP_IDS, options.map] : MAP_IDS).map((id) => (
+            <option key={id} value={id} disabled={!MAP_IDS.includes(id)}>
               {MAPS[id].name} · up to {MAPS[id].maxPlayers} players
             </option>
           ))}

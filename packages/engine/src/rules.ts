@@ -11,7 +11,7 @@ World: 74 territories in 14 regions (2-10 players), bonuses 2-7 per region.
 Grand World (world_large): 104 territories in 20 regions (2-10 players), bonuses 2-7 per region.
 Europe: 44 territories in 8 regions (2-8 players), bonuses 2-6. USA: 45 territories (US states, small
 north-eastern ones merged) in 8 regions (2-10 players), bonuses 3-6; Alaska and Hawaii reach the mainland by sea.
-Greater Europe (europe_advanced): 116 smaller territories in 15 regions (2-10 players), bonuses 2-7; Iceland to the
+Greater Europe (greater_europe): 116 smaller territories in 15 regions (2-10 players), bonuses 2-7; Iceland to the
 Urals, North Africa to the Caucasus, with sea crossings over the Channel, North Sea, Baltic and Mediterranean.
 Asia: 49 territories in 7 regions (2-8 players), bonuses 4-6.
 Realms of Halvaren ("fantasy"): an original fantasy world, 87 territories in 16 regions (2-10 players), bonuses

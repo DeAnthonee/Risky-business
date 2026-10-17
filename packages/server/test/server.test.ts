@@ -405,6 +405,69 @@ describe('static client caching', () => {
   });
 });
 
+describe('MCP game settings', () => {
+  it('creates a game with every setting, reports them, changes them, and rejects typos', async () => {
+    const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+    const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
+    const { OPTION_KEYS } = await import('@risk/engine');
+    const c = new Client({ name: 'settings', version: '0' });
+    await c.connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`)));
+    const call = async (name: string, args: Record<string, unknown> = {}) => {
+      const r = (await c.callTool({ name, arguments: args })) as { content: { text: string }[]; isError?: boolean };
+      return { text: r.content.map((x) => x.text).join('\n'), isError: !!r.isError };
+    };
+    try {
+      // The advertised schema covers exactly the engine's settings.
+      const tools = (await c.listTools()).tools;
+      const createSchema = tools.find((t) => t.name === 'create_game')!.inputSchema as any;
+      expect(Object.keys(createSchema.properties.options.properties).sort()).toEqual([...OPTION_KEYS].sort());
+      expect(tools.some((t) => t.name === 'game_options')).toBe(true);
+
+      const catalogue = await call('game_options');
+      for (const k of OPTION_KEYS) expect(catalogue.text).toContain(`- ${k} (`);
+
+      const options = { map: 'world', maxPlayers: 8, autoSetup: true, cardValues: 'fixed', fogOfWar: true, capitals: true, neutrals: 5, neutralArmies: 3, blizzards: 4, fortifyMode: 'adjacent' };
+      const created = await call('create_game', { playerName: 'Settler', options });
+      expect(created.isError).toBe(false);
+      const gameId = created.text.match(/Created game (\w+)/)![1];
+      expect(created.text).toContain('Fog of war: on');
+      expect(created.text).toContain('Neutral territories: 5 with 3 armies');
+      expect(created.text).toContain('Blizzards: 4 frozen');
+      const room = risk.store.get(gameId)!;
+      expect(room.state.options).toMatchObject(options);
+
+      // set_options reports the change; switching map clamps seats.
+      const changed = await call('set_options', { gameId, options: { map: 'classic', blizzards: 2 } });
+      expect(changed.isError).toBe(false);
+      expect(changed.text).toMatch(/map: "world" -> "classic"/);
+      expect(changed.text).toMatch(/maxPlayers: 8 -> 6/);
+      expect(room.state.options.blizzards).toBe(2);
+
+      // A typo is an error, not a silent no-op.
+      const typo = await call('set_options', { gameId, options: { fog_of_war: false } });
+      expect(typo.isError).toBe(true);
+      expect(room.state.options.fogOfWar).toBe(true);
+      // Out-of-range for the map is explained by the engine.
+      const tooMany = await call('set_options', { gameId, options: { maxPlayers: 9 } });
+      expect(tooMany.isError).toBe(true);
+      expect(tooMany.text).toMatch(/maxPlayers must be between 2 and 6/);
+
+      const current = await call('game_options', { gameId });
+      expect(current.text).toContain('You are the host');
+      expect(current.text).toContain('"fogOfWar":true');
+
+      // The settings also travel over plain HTTP.
+      const http = await api('/games', { method: 'POST', body: JSON.stringify({ playerName: 'H', options: { fogOfWar: 'maybe' } }) });
+      expect(http.status).toBe(400);
+      expect(http.body.error).toMatch(/fogOfWar must be true or false/);
+      const cat = await api('/options');
+      expect(cat.body.limitsByMap.world.maxPlayers.max).toBe(10);
+    } finally {
+      await c.close();
+    }
+  });
+});
+
 describe('MCP seats', () => {
   it('lets one connection hold several players in a game and resolves them by name or token', async () => {
     const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');

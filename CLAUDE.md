@@ -51,6 +51,10 @@ Online multiplayer Risk with bots and an MCP server for AI agents. npm-workspace
 ## Conventions
 
 - Rules live in the engine only; the server and MCP never re-implement game logic.
+- Game settings are defined once in `packages/engine/src/options.ts` (`OPTION_SPECS`). The MCP schema, the
+  `game_options` tool, server parsing (`parseOptions`, strict: unknown keys are errors), `GET /api/options` and
+  the settings summaries agents read all derive from it. Adding a setting = `GameOptions` + `DEFAULT_OPTIONS`
+  + a spec in `OPTION_SPECS` (+ map-dependent bounds in `validateOptions`); the compiler enforces the spec.
 - Maps are data: edit `scripts/maps/<id>.mjs` (country groupings, lon/lat boxes, edges, anchors), run
   `npm run build:map`, and read its warnings: every adjacency that does not touch on the map becomes a
   drawn sea link, and it lists shapes that touch without being adjacent. Never edit the generated JSON.

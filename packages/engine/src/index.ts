@@ -5,3 +5,4 @@ export * from './rng.js';
 export * from './engine.js';
 export * from './view.js';
 export * from './rules.js';
+export * from './options.js';

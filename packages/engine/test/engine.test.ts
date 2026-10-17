@@ -595,3 +595,29 @@ describe('maps', () => {
     expect(s.options.maxPlayers).toBe(6);
   });
 });
+
+describe('game settings catalogue', () => {
+  it('has a spec for every option and parses untrusted input strictly', async () => {
+    const { OPTION_KEYS, OPTION_SPECS, DEFAULT_OPTIONS, parseOptions, describeOptions, optionCatalogue, optionLimits } = await import('../src/index.js');
+    expect([...OPTION_KEYS].sort()).toEqual(Object.keys(DEFAULT_OPTIONS).sort());
+    for (const k of OPTION_KEYS) expect(OPTION_SPECS[k].description.length).toBeGreaterThan(20);
+    // coercion of form/query style values
+    expect(parseOptions({ fogOfWar: 'true', capitals: 1, blizzards: '3', map: 'world' })).toEqual({ fogOfWar: true, capitals: true, blizzards: 3, map: 'world' });
+    expect(parseOptions(undefined)).toEqual({});
+    // typos and wrong types are errors, never silently dropped
+    expect(() => parseOptions({ fog_of_war: true })).toThrow(/unknown setting "fog_of_war"/);
+    expect(() => parseOptions({ fogOfWar: 'yes' })).toThrow(/fogOfWar must be true or false/);
+    expect(() => parseOptions({ map: 'mars' })).toThrow(/map must be one of/);
+    expect(() => parseOptions({ blizzards: 1.5 })).toThrow(/whole number/);
+    expect(() => parseOptions({ neutrals: -1 })).toThrow(/at least 0/);
+    // per-map limits and a human summary that mentions every setting
+    expect(optionLimits('world').maxPlayers.max).toBe(10);
+    expect(optionLimits('classic').maxPlayers.max).toBe(6);
+    const lines = describeOptions({ ...DEFAULT_OPTIONS, fogOfWar: true, capitals: true, neutrals: 4, blizzards: 2, autoSetup: true });
+    expect(lines.join('\n')).toMatch(/Fog of war: on/);
+    expect(lines.join('\n')).toMatch(/Neutral territories: 4 with 2 armies/);
+    expect(lines.join('\n')).toMatch(/Blizzards: 2 frozen/);
+    expect(lines.join('\n')).toMatch(/Setup: skipped/);
+    expect(optionCatalogue().options.map((o) => o.key).sort()).toEqual([...OPTION_KEYS].sort());
+  });
+});

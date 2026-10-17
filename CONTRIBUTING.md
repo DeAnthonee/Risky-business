@@ -39,15 +39,18 @@ waiters, bots and the on-disk snapshot all see it.
    `packages/server/src/http.ts` **and** to `packages/server/src/local-api.ts` + the `RiskApi` interface in
    `packages/mcp/src/api.ts` (so the embedded `/mcp` and the stdio CLI both get it). Add a server test in
    `packages/server/test/server.test.ts` (tests bind `127.0.0.1` on port 0; never a fixed port).
-3. **Tools for agents.** New agent capability → a tool in `packages/mcp/src/tools.ts`, defined once over
+3. **Settings.** A new game option goes in `GameOptions` + `DEFAULT_OPTIONS` (`types.ts`) and gets a spec in
+   `packages/engine/src/options.ts`; the MCP tools, server parsing and summaries pick it up automatically.
+   Add the lobby control in `packages/client/src/components/Home.tsx` (`OptionsForm`).
+4. **Tools for agents.** New agent capability → a tool in `packages/mcp/src/tools.ts`, defined once over
    `RiskApi`. Keep descriptions explicit: agents only know what the description says.
-4. **UI.** `packages/client/src/components/*`. Game events drive the animations (`useAnimations` in
+5. **UI.** `packages/client/src/components/*`. Game events drive the animations (`useAnimations` in
    `Game.tsx`), so emit a `GameEvent` from the engine rather than guessing in the client.
-5. **Docs.** README for players/hosts, `CLAUDE.md` for conventions and invariants, this file if the
+6. **Docs.** README for players/hosts, `CLAUDE.md` for conventions and invariants, this file if the
    workflow changes.
-6. **Gate.** `npm test` (typecheck + engine + server tests) must be green. Build the client too
+7. **Gate.** `npm test` (typecheck + engine + server tests) must be green. Build the client too
    (`npm run build`) so a TypeScript error in the UI does not slip through.
-7. **PR.** Push your branch, open a pull request against `ccr-63b8112a-e2uk2g`, fill in the template. CI
+8. **PR.** Push your branch, open a pull request against `ccr-63b8112a-e2uk2g`, fill in the template. CI
    runs the same gate on the PR.
 
 ## 4. Things you must not break (the host pipeline depends on them)

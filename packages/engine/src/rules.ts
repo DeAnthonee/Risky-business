@@ -56,7 +56,8 @@ A TURN has three phases:
    Highest dice are compared, then second highest. The loser of each comparison loses one army. Ties go to the defender.
    When the defender's last army falls you conquer the territory and must move in at least as many armies as dice you
    rolled (and at most all but one). You may send more. If that player has no territories left they are eliminated and
-   you take their cards; if that leaves you with 6+ cards you must trade immediately (armies go on the map at once).
+   you take their cards; if that leaves you with 5+ cards you must trade immediately, until you hold 4 or fewer
+   (armies go on the map at once, then you keep attacking).
    Conquering at least one territory this turn earns you one card at the end of your turn (max one per turn).
    "blitz" keeps rolling until the territory falls or you cannot continue.
 

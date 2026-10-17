@@ -3,6 +3,7 @@ import { buildDeck, findSets, isValidSet, setValue } from './cards.js';
 import { createRng, nextInt, rollDie, shuffle, type Rng } from './rng.js';
 import {
   CAPITAL_BONUS,
+  FORCED_TRADE_CARDS,
   CAPITAL_DEFENSE_DICE,
   CAPITAL_PLACEMENT_ARMIES,
   DEFAULT_OPTIONS,
@@ -447,8 +448,9 @@ export function reinforcementsFor(state: GameState, id: PlayerId): Reinforcement
 /** Does the player have to trade cards right now before doing anything else? */
 export function mustTrade(state: GameState, id: PlayerId): boolean {
   const p = playerOf(state, id);
-  if (state.phase === 'reinforce') return p.cards.length >= 5;
-  if (state.phase === 'attack') return p.cards.length >= 6;
+  // 5 or more cards forces a trade: at the start of a turn, and straight after taking an eliminated
+  // player's cards (cards are only drawn at the end of a turn, so mid-turn this only happens on a kill).
+  if (state.phase === 'reinforce' || state.phase === 'attack') return p.cards.length >= FORCED_TRADE_CARDS;
   return false;
 }
 
@@ -651,7 +653,7 @@ function doTrade(state: GameState, playerId: PlayerId, action: TradeAction, even
   if (state.phase !== 'reinforce' && state.phase !== 'attack') throw new RuleError('Cards can only be traded during reinforce or attack phase');
   if (state.pendingConquest) throw new RuleError('You must occupy the conquered territory first');
   if (state.phase === 'attack' && !mustTrade(state, playerId))
-    throw new RuleError('During the attack phase you may only trade when forced to (6+ cards)');
+    throw new RuleError(`During the attack phase you may only trade when forced to (${FORCED_TRADE_CARDS}+ cards)`);
   const ids = action.cardIds ?? [];
   if (ids.length !== 3) throw new RuleError('Trade exactly 3 cards');
   const cards: Card[] = [];
@@ -710,7 +712,7 @@ function doAttack(state: GameState, playerId: PlayerId, action: AttackAction, ev
   const player = playerOf(state, playerId);
   if (state.phase !== 'attack') throw new RuleError('Not in attack phase');
   if (state.pendingConquest) throw new RuleError('You must occupy the conquered territory first');
-  if (mustTrade(state, playerId)) throw new RuleError('You hold 6 or more cards and must trade before attacking');
+  if (mustTrade(state, playerId)) throw new RuleError(`You hold ${FORCED_TRADE_CARDS} or more cards and must trade before attacking`);
   if (player.armiesToPlace > 0) throw new RuleError(`Place your ${player.armiesToPlace} armies before attacking`);
   requireTerritory(state, action.from);
   requireTerritory(state, action.to);
@@ -837,7 +839,7 @@ function finishGame(state: GameState, winner: PlayerId, reason: 'domination' | '
 function doEndAttack(state: GameState, playerId: PlayerId, events: GameEvent[]): void {
   if (state.phase !== 'attack') throw new RuleError('Not in attack phase');
   if (state.pendingConquest) throw new RuleError('You must occupy the conquered territory first');
-  if (mustTrade(state, playerId)) throw new RuleError('You hold 6 or more cards and must trade first');
+  if (mustTrade(state, playerId)) throw new RuleError(`You hold ${FORCED_TRADE_CARDS} or more cards and must trade first`);
   const player = playerOf(state, playerId);
   if (player.armiesToPlace > 0) throw new RuleError(`Place your ${player.armiesToPlace} armies first`);
   state.phase = 'fortify';

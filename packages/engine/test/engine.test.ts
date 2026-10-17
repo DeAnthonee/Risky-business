@@ -512,6 +512,48 @@ describe('turn flow', () => {
     expect(res.state.winner).toBe(me);
   });
 
+  it('a kill that leaves you with 5 cards forces a trade before you can keep attacking', () => {
+    let state = finishSetup(setup(3, { setupBatch: 40 }).state);
+    const me = state.currentPlayer!;
+    const victim = state.turnOrder.find((id) => id !== me)!;
+    const third = state.turnOrder.find((id) => id !== me && id !== victim)!;
+    // The victim is down to one territory with 2 cards; I already hold 3 (no set among them).
+    const victimTerrs = territoriesOf(state, victim);
+    for (const t of victimTerrs.slice(1)) state.territories[t].owner = third;
+    const last = victimTerrs[0];
+    state.territories[last].armies = 1;
+    const kinds = ['infantry', 'infantry', 'cavalry', 'cavalry', 'artillery'] as const;
+    const pick = (kind: (typeof kinds)[number]) => state.deck.splice(state.deck.findIndex((c) => c.kind === kind), 1)[0];
+    const meP = state.players.find((x) => x.id === me)!;
+    meP.cards = [pick('infantry'), pick('infantry'), pick('cavalry')];
+    state.players.find((x) => x.id === victim)!.cards = [pick('cavalry'), pick('artillery')];
+    const from = ADJACENCY[last][0];
+    state.territories[from] = { owner: me, armies: 40 };
+    state = applyAction(state, me, { type: 'place', placements: { [from]: meP.armiesToPlace } }).state;
+    expect(legalMoves(state, me).mustTrade).toBe(false); // 3 cards: no forced trade yet
+
+    state = applyAction(state, me, { type: 'attack', from, to: last, blitz: true, occupy: 'min' }).state;
+    const after = state.players.find((x) => x.id === me)!;
+    expect(after.cards).toHaveLength(5);
+    const lm = legalMoves(state, me);
+    expect(lm.mustTrade).toBe(true);
+    expect(lm.tradeableSets.length).toBeGreaterThan(0);
+    expect(lm.attacks).toHaveLength(0);
+    const target = ADJACENCY[from].find((t) => state.territories[t].owner !== me && !isBlizzardTest(state, t));
+    if (target) expect(() => applyAction(state, me, { type: 'attack', from, to: target })).toThrow(/must trade/);
+    expect(() => applyAction(state, me, { type: 'end_turn' })).toThrow(/must trade/);
+
+    // Trade, place the armies, and the attack phase carries on.
+    state = applyAction(state, me, { type: 'trade', cardIds: lm.tradeableSets[0] }).state;
+    const traded = state.players.find((x) => x.id === me)!;
+    expect(traded.cards.length).toBeLessThan(5);
+    expect(traded.armiesToPlace).toBeGreaterThan(0);
+    expect(state.phase).toBe('attack');
+    state = applyAction(state, me, { type: 'place', placements: { [from]: traded.armiesToPlace } }).state;
+    expect(legalMoves(state, me).mustTrade).toBe(false);
+    expect(legalMoves(state, me).canEndTurn).toBe(true);
+  });
+
   it('view hides other players cards and exposes legal moves', () => {
     let state = finishSetup(setup(3, { setupBatch: 40 }).state);
     const me = state.currentPlayer!;
@@ -1118,3 +1160,7 @@ describe('rules text', () => {
     }
   });
 });
+
+function isBlizzardTest(state: GameState, t: string): boolean {
+  return (state.blizzards ?? []).includes(t);
+}

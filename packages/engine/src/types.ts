@@ -74,6 +74,9 @@ export interface GameOptions {
 /** Reinforcements per capital held when the capitals option is on. */
 export const CAPITAL_BONUS = 2;
 
+/** Holding this many cards forces a trade: at the start of your turn, and right after an elimination hands you cards. */
+export const FORCED_TRADE_CARDS = 5;
+
 /** Dice a capital defends with when the capitals option is on (other territories defend with up to 2). */
 export const CAPITAL_DEFENSE_DICE = 3;
 

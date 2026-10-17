@@ -249,6 +249,10 @@ export function OptionsForm({
         <span className="muted small">round 1: the 4th player gets at least 4 armies, 5th at least 5, and so on</span>
       </label>
       <label className="check">
+        <input type="checkbox" disabled={disabled} checked={!!options.balancedBlitz} onChange={(e) => onChange({ balancedBlitz: e.target.checked })} /> Balanced blitz
+        <span className="muted small">a blitz plays out the middle of 5 real blitzes, so it lands near the odds; single rolls stay random</span>
+      </label>
+      <label className="check">
         <input type="checkbox" disabled={disabled} checked={!!options.capitals} onChange={(e) => onChange({ capitals: e.target.checked })} /> Capital Conquest
         <span className="muted small">+3 armies on each capital when set, +2 per capital held, capitals defend with 3 dice; hold every capital to win</span>
       </label>

@@ -23,6 +23,8 @@ export interface PlayerScore {
   total: number;
   /** Fog of war hides this player's armies and income from the viewer. */
   hidden: boolean;
+  /** Cards in hand: public even under fog of war. Not part of the power score. */
+  cards: number;
 }
 
 /** True when fog of war hides other players' numbers from this viewer (a seated player in a fog game). */
@@ -48,21 +50,37 @@ export function playerScores(view: GameView): PlayerScore[] {
         territories: (raw[i].territories / totals.territories) * weights.territories * 100,
         income: (raw[i].income / totals.income) * weights.income * 100,
       };
-      return { id: p.id, name: p.name, color: p.color, raw: raw[i], points, total: points.armies + points.territories + points.income, hidden: p.armyCount === null };
+      return { id: p.id, name: p.name, color: p.color, raw: raw[i], points, total: points.armies + points.territories + points.income, hidden: p.armyCount === null, cards: p.cardCount };
     })
     .sort((a, b) => b.total - a.total);
 }
 
 export function ScoreChart({ view }: { view: GameView }) {
   const [hover, setHover] = useState<string | null>(null);
-  if (scoresFogged(view))
+  if (scoresFogged(view)) {
+    // No ranking under fog, but card counts are public: list them in turn order.
+    const order = view.turnOrder.length ? view.turnOrder : view.players.map((p) => p.id);
+    const players = order.map((id) => view.players.find((p) => p.id === id)!).filter((p) => p && p.alive && !p.isNeutral);
     return (
       <div className="score-chart">
+        <ul className="score-rows">
+          {players.map((p) => (
+            <li key={p.id} className={`score-row ${view.currentPlayer === p.id ? 'active' : ''}`}>
+              <div className="score-label">
+                <span className="swatch" style={{ background: p.color }} />
+                <span className="score-name">{p.name}</span>
+                <CardBadge count={p.cardCount} />
+              </div>
+            </li>
+          ))}
+        </ul>
         <div className="muted small score-note">
-          Fog of war: you only know what you can see on the board, so there is no ranking while you play. Spectators see the full chart.
+          Fog of war: you only know what you can see on the board, so there is no ranking while you play (card counts are
+          public). Spectators see the full chart.
         </div>
       </div>
     );
+  }
   const scores = playerScores(view);
   if (scores.length === 0) return <div className="muted small">No players yet.</div>;
   const max = Math.max(...scores.map((s) => s.total), 1);
@@ -91,6 +109,7 @@ export function ScoreChart({ view }: { view: GameView }) {
               <span className="score-rank">{rank + 1}</span>
               <span className="swatch" style={{ background: s.color }} />
               <span className="score-name">{s.name}</span>
+              <CardBadge count={s.cards} />
               <span className="score-total">{Math.round(s.total)}%</span>
             </div>
             <div className="score-track">
@@ -110,6 +129,9 @@ export function ScoreChart({ view }: { view: GameView }) {
                     ? `${s.raw.territories} territories · armies and income hidden by fog`
                     : `${s.raw.armies} armies (${s.points.armies.toFixed(1)} pts) · ${s.raw.territories} territories (${s.points.territories.toFixed(1)} pts) · +${s.raw.income}/turn (${s.points.income.toFixed(1)} pts)`}
                 </div>
+                <div>
+                  {s.cards} card{s.cards === 1 ? '' : 's'} in hand
+                </div>
               </div>
             )}
           </li>
@@ -121,5 +143,16 @@ export function ScoreChart({ view }: { view: GameView }) {
           : 'Power = 40% share of armies + 30% of territories + 30% of income. Bars add up to 100%.'}
       </div>
     </div>
+  );
+}
+
+/** Cards in hand. Warms up at 3+ (a set is possible) and 4 (one more card forces a trade). */
+function CardBadge({ count }: { count: number }) {
+  const level = count >= 4 ? ' full' : count >= 3 ? ' ready' : '';
+  return (
+    <span className={`score-cards${level}`} title={`${count} card${count === 1 ? '' : 's'} in hand`} aria-label={`${count} cards`}>
+      <span aria-hidden="true">🂠</span>
+      {count}
+    </span>
   );
 }

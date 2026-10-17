@@ -338,6 +338,63 @@ describe('turn flow', () => {
     expect(set.map((c) => c.kind).sort()).toEqual(['artillery', 'cavalry', 'infantry']);
   });
 
+  it('balanced blitz plays out the median of several real blitzes: fewer upsets, single rolls untouched', () => {
+    // 12 attackers against 6 defenders, over many seeds, with and without balanced blitz.
+    const trial = (balanced: boolean, seed: number, blitz = true, attackers = 12, defenders = 6) => {
+      let state = finishSetup(setup(3, { setupBatch: 40, balancedBlitz: balanced }, seed).state);
+      const me = state.currentPlayer!;
+      const from = legalMoves(state, me).canPlaceOn.find((t) => ADJACENCY[t].some((n) => state.territories[n].owner !== me))!;
+      state = applyAction(state, me, { type: 'place', placements: { [from]: state.players.find((x) => x.id === me)!.armiesToPlace } }).state;
+      const to = ADJACENCY[from].find((n) => state.territories[n].owner !== me)!;
+      state.territories[from].armies = attackers;
+      state.territories[to].armies = defenders;
+      return applyAction(state, me, { type: 'attack', from, to, blitz });
+    };
+    let randomWins = 0;
+    let balancedWins = 0;
+    const runs = 300;
+    for (let seed = 1; seed <= runs; seed++) {
+      const r = trial(false, seed);
+      if (r.events.some((e) => e.type === 'conquered')) randomWins++;
+      expect(r.events.some((e) => e.type === 'battle' && e.balanced)).toBe(false);
+      const b = trial(true, seed);
+      if (b.events.some((e) => e.type === 'conquered')) balancedWins++;
+      const battles = b.events.filter((e) => e.type === 'battle') as Extract<GameEvent, { type: 'battle' }>[];
+      expect(battles.every((e) => e.balanced)).toBe(true);
+      // The played-out run is a real, consistent sequence of rolls.
+      let a = 12;
+      let d = 6;
+      for (const e of battles) {
+        const n = Math.min(e.attackerDice.length, e.defenderDice.length);
+        let al = 0;
+        for (let i = 0; i < n; i++) if (e.attackerDice[i] <= e.defenderDice[i]) al++;
+        expect(e.attackerLosses).toBe(al);
+        expect(e.defenderLosses).toBe(n - al);
+        a -= e.attackerLosses;
+        d -= e.defenderLosses;
+        expect(e.fromArmies).toBe(a);
+        expect(e.toArmies).toBe(d);
+      }
+      expect(d === 0 || a === 1).toBe(true);
+    }
+    // 12 v 6 wins about 90% of the time on pure luck; the median of 5 almost always does.
+    expect(randomWins / runs).toBeGreaterThan(0.8);
+    expect(randomWins / runs).toBeLessThan(0.97);
+    expect(balancedWins / runs).toBeGreaterThan(randomWins / runs + 0.04);
+    // And a long shot (5 v 6, about 25% on luck) comes off less often.
+    let longShotRandom = 0;
+    let longShotBalanced = 0;
+    for (let seed = 1; seed <= runs; seed++) {
+      if (trial(false, seed, true, 5, 6).events.some((e) => e.type === 'conquered')) longShotRandom++;
+      if (trial(true, seed, true, 5, 6).events.some((e) => e.type === 'conquered')) longShotBalanced++;
+    }
+    expect(longShotBalanced).toBeLessThan(longShotRandom);
+    // A single roll is never balanced, even with the setting on.
+    expect(trial(true, 7, false).events.some((e) => e.type === 'battle' && e.balanced)).toBe(false);
+    // Same seed, same outcome.
+    expect(trial(true, 9).events).toEqual(trial(true, 9).events);
+  });
+
   it('dice ties go to the defender', () => {
     // Force a 3v2 battle and check every comparison: equal dice cost the attacker.
     let state = finishSetup(setup(3, { setupBatch: 40 }).state);

@@ -498,6 +498,8 @@ export class Store {
           if (snap.state.options.chooseCapitals === undefined) snap.state.options.chooseCapitals = false;
           // Late-turn bonus arrived later: off for games already saved, so running games keep their rules.
           if (snap.state.options.firstRoundBonus === undefined) snap.state.options.firstRoundBonus = false;
+          // Balanced blitz arrived later; off by default.
+          if (snap.state.options.balancedBlitz === undefined) snap.state.options.balancedBlitz = false;
           const room = new GameRoom(snap);
           this.attach(room);
         }

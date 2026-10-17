@@ -3,6 +3,7 @@ import { buildDeck, findSets, isValidSet, setValue } from './cards.js';
 import { createRng, nextInt, rollDie, shuffle, type Rng } from './rng.js';
 import {
   CAPITAL_BONUS,
+  FORCED_TRADE_CARDS,
   CAPITAL_DEFENSE_DICE,
   CAPITAL_PLACEMENT_ARMIES,
   DEFAULT_OPTIONS,
@@ -447,8 +448,9 @@ export function reinforcementsFor(state: GameState, id: PlayerId): Reinforcement
 /** Does the player have to trade cards right now before doing anything else? */
 export function mustTrade(state: GameState, id: PlayerId): boolean {
   const p = playerOf(state, id);
-  if (state.phase === 'reinforce') return p.cards.length >= 5;
-  if (state.phase === 'attack') return p.cards.length >= 6;
+  // 5 or more cards forces a trade: at the start of a turn, and straight after taking an eliminated
+  // player's cards (cards are only drawn at the end of a turn, so mid-turn this only happens on a kill).
+  if (state.phase === 'reinforce' || state.phase === 'attack') return p.cards.length >= FORCED_TRADE_CARDS;
   return false;
 }
 
@@ -485,7 +487,7 @@ function doPlace(state: GameState, playerId: PlayerId, action: PlaceAction, even
     throw new RuleError('Cannot place armies now');
   if (state.phase === 'attack' && player.armiesToPlace === 0) throw new RuleError('No armies to place');
   if (state.phase === 'reinforce' && mustTrade(state, playerId))
-    throw new RuleError('You hold 5 or more cards and must trade a set first');
+    throw new RuleError(`You hold ${FORCED_TRADE_CARDS} or more cards and must trade a set first`);
 
   const entries = Object.entries(action.placements ?? {});
   if (entries.length === 0) throw new RuleError('No placements given');
@@ -640,6 +642,7 @@ function beginTurn(state: GameState, playerId: PlayerId, events: GameEvent[]): v
   player.armiesToPlace = reinforcements.total;
   events.push({ type: 'turn_started', player: playerId, turnNumber: state.turnNumber, round: state.round, reinforcements });
   events.push({ type: 'phase', phase: 'reinforce', player: playerId });
+  autoTrade(state, playerId, events);
 }
 
 // ------------------------------------------------------------------
@@ -651,7 +654,7 @@ function doTrade(state: GameState, playerId: PlayerId, action: TradeAction, even
   if (state.phase !== 'reinforce' && state.phase !== 'attack') throw new RuleError('Cards can only be traded during reinforce or attack phase');
   if (state.pendingConquest) throw new RuleError('You must occupy the conquered territory first');
   if (state.phase === 'attack' && !mustTrade(state, playerId))
-    throw new RuleError('During the attack phase you may only trade when forced to (6+ cards)');
+    throw new RuleError(`During the attack phase you may only trade when forced to (${FORCED_TRADE_CARDS}+ cards)`);
   const ids = action.cardIds ?? [];
   if (ids.length !== 3) throw new RuleError('Trade exactly 3 cards');
   const cards: Card[] = [];
@@ -662,7 +665,12 @@ function doTrade(state: GameState, playerId: PlayerId, action: TradeAction, even
     cards.push(c);
   }
   if (!isValidSet(cards)) throw new RuleError('Those cards do not form a set (3 of a kind, 1 of each, or with a wild)');
+  tradeSet(state, playerId, cards, events, false);
+}
 
+/** Trade three cards (already checked to be a valid set the player holds) for armies. */
+function tradeSet(state: GameState, playerId: PlayerId, cards: Card[], events: GameEvent[], auto: boolean): void {
+  const player = playerOf(state, playerId);
   const armies = setValue(cards, state.options.cardValues ?? 'progressive', state.tradeCount);
   state.tradeCount += 1;
   player.cards = player.cards.filter((c) => !cards.includes(c));
@@ -681,7 +689,40 @@ function doTrade(state: GameState, playerId: PlayerId, action: TradeAction, even
     state.territories[bonusTerritory].armies += 2;
     events.push({ type: 'placed', player: playerId, territory: bonusTerritory, armies: 2 });
   }
-  events.push({ type: 'traded', player: playerId, cardIds: ids, cards: cards.map((c) => ({ ...c })), armies, bonusTerritory });
+  const ids = cards.map((c) => c.id);
+  events.push({ type: 'traded', player: playerId, cardIds: ids, cards: cards.map((c) => ({ ...c })), armies, bonusTerritory, ...(auto ? { auto: true } : {}) });
+}
+
+/**
+ * The set the game trades for a player automatically: the most armies first, then one that shows a
+ * territory they own (+2 there), then the one that spends the fewest wilds (so they keep their flexibility).
+ */
+export function bestSet(state: GameState, playerId: PlayerId): Card[] | null {
+  const player = playerOf(state, playerId);
+  let best: { cards: Card[]; score: number[] } | null = null;
+  for (const ids of findSets(player.cards)) {
+    const cards = ids.map((id) => player.cards.find((c) => c.id === id)!);
+    const value = setValue(cards, state.options.cardValues ?? 'progressive', state.tradeCount);
+    const bonus = cards.some((c) => c.territory && state.territories[c.territory].owner === playerId) ? 1 : 0;
+    const wilds = cards.filter((c) => c.kind === 'wild').length;
+    const score = [value, bonus, -wilds];
+    const diff = best ? score.findIndex((v, i) => v !== best!.score[i]) : 0;
+    if (!best || (diff >= 0 && score[diff] > best.score[diff])) best = { cards, score };
+  }
+  return best?.cards ?? null;
+}
+
+/**
+ * Holding 5 or more cards (at the start of a turn, or after taking an eliminated player's hand) trades
+ * sets in automatically until the player is back under the limit. The armies join armiesToPlace.
+ */
+function autoTrade(state: GameState, playerId: PlayerId, events: GameEvent[]): void {
+  const player = playerOf(state, playerId);
+  while (player.cards.length >= FORCED_TRADE_CARDS) {
+    const set = bestSet(state, playerId);
+    if (!set) break; // cannot happen with 5+ cards, but never loop forever
+    tradeSet(state, playerId, set, events, true);
+  }
 }
 
 function drawCard(state: GameState, player: Player, events: GameEvent[]): void {
@@ -706,11 +747,61 @@ export function defenseDiceLimit(state: GameState, territory: TerritoryId): numb
   return state.options.capitals && Object.values(state.capitals).includes(territory) ? CAPITAL_DEFENSE_DICE : 2;
 }
 
+/** How many full blitzes a balanced blitz rolls before playing out the middle one. Odd, so there is a median. */
+export const BALANCED_BLITZ_RUNS = 5;
+
+interface Roll {
+  attackerDice: number[];
+  defenderDice: number[];
+  attackerLosses: number;
+  defenderLosses: number;
+}
+interface BattleRun {
+  rolls: Roll[];
+  fromArmies: number;
+  toArmies: number;
+  balanced?: boolean;
+}
+
+/** Roll one attack (or a whole blitz) on copies of the army counts. */
+function rollBattle(rng: Rng, fromArmies: number, toArmies: number, defenseLimit: number, dice: number | undefined, blitz: boolean): BattleRun {
+  const rolls: Roll[] = [];
+  for (;;) {
+    const maxDice = Math.min(3, fromArmies - 1);
+    if (maxDice < 1) break;
+    const aDiceCount = Math.min(dice ?? 3, maxDice);
+    const dDiceCount = Math.min(defenseLimit, toArmies);
+    const attackerDice = Array.from({ length: aDiceCount }, () => rollDie(rng)).sort((a, b) => b - a);
+    const defenderDice = Array.from({ length: dDiceCount }, () => rollDie(rng)).sort((a, b) => b - a);
+    let attackerLosses = 0;
+    let defenderLosses = 0;
+    for (let i = 0; i < Math.min(attackerDice.length, defenderDice.length); i++) {
+      if (attackerDice[i] > defenderDice[i]) defenderLosses++;
+      else attackerLosses++;
+    }
+    fromArmies -= attackerLosses;
+    toArmies -= defenderLosses;
+    rolls.push({ attackerDice, defenderDice, attackerLosses, defenderLosses });
+    if (toArmies === 0 || !blitz) break;
+  }
+  return { rolls, fromArmies, toArmies };
+}
+
+/**
+ * The middle run by how well it went for the attacker: a conquest beats a failed attack, a conquest with
+ * more armies left beats one with fewer, and a failed attack that left fewer defenders beats one that left more.
+ */
+function medianRun(runs: BattleRun[]): BattleRun {
+  const score = (r: BattleRun) => (r.toArmies === 0 ? 1_000_000 + r.fromArmies : -r.toArmies);
+  const sorted = [...runs].sort((a, b) => score(a) - score(b));
+  return { ...sorted[Math.floor(sorted.length / 2)], balanced: true };
+}
+
 function doAttack(state: GameState, playerId: PlayerId, action: AttackAction, events: GameEvent[]): void {
   const player = playerOf(state, playerId);
   if (state.phase !== 'attack') throw new RuleError('Not in attack phase');
   if (state.pendingConquest) throw new RuleError('You must occupy the conquered territory first');
-  if (mustTrade(state, playerId)) throw new RuleError('You hold 6 or more cards and must trade before attacking');
+  if (mustTrade(state, playerId)) throw new RuleError(`You hold ${FORCED_TRADE_CARDS} or more cards and must trade before attacking`);
   if (player.armiesToPlace > 0) throw new RuleError(`Place your ${player.armiesToPlace} armies before attacking`);
   requireTerritory(state, action.from);
   requireTerritory(state, action.to);
@@ -724,44 +815,37 @@ function doAttack(state: GameState, playerId: PlayerId, action: AttackAction, ev
   if (action.dice !== undefined && (!Number.isInteger(action.dice) || action.dice < 1 || action.dice > 3))
     throw new RuleError('dice must be 1, 2 or 3');
 
+  if (action.dice !== undefined && !action.blitz && action.dice > Math.min(3, from.armies - 1))
+    throw new RuleError(`You can roll at most ${Math.min(3, from.armies - 1)} dice from ${action.from}`);
+
   const rng = rngOf(state);
   const defenderId = to.owner!;
+  const defenseLimit = defenseDiceLimit(state, action.to);
+  const roll = () => rollBattle(rng, from.armies, to.armies, defenseLimit, action.dice, !!action.blitz);
+  // Balanced blitz: roll the whole blitz BALANCED_BLITZ_RUNS times with real dice and play out the median
+  // run, so blitzes land close to the odds (fewer freak wins and collapses). Single rolls stay fully random.
+  const result = action.blitz && state.options.balancedBlitz ? medianRun(Array.from({ length: BALANCED_BLITZ_RUNS }, roll)) : roll();
+  saveRng(state, rng);
   let lastAttackerDice = 0;
-  for (;;) {
-    const maxDice = Math.min(3, from.armies - 1);
-    if (maxDice < 1) break;
-    const aDiceCount = Math.min(action.dice ?? 3, maxDice);
-    if (action.dice !== undefined && action.dice > maxDice && !action.blitz)
-      throw new RuleError(`You can roll at most ${maxDice} dice from ${action.from}`);
-    const dDiceCount = Math.min(defenseDiceLimit(state, action.to), to.armies);
-    const aDice = Array.from({ length: aDiceCount }, () => rollDie(rng)).sort((a, b) => b - a);
-    const dDice = Array.from({ length: dDiceCount }, () => rollDie(rng)).sort((a, b) => b - a);
-    let aLoss = 0;
-    let dLoss = 0;
-    for (let i = 0; i < Math.min(aDice.length, dDice.length); i++) {
-      if (aDice[i] > dDice[i]) dLoss++;
-      else aLoss++;
-    }
-    from.armies -= aLoss;
-    to.armies -= dLoss;
-    lastAttackerDice = aDiceCount;
+  for (const r of result.rolls) {
+    from.armies -= r.attackerLosses;
+    to.armies -= r.defenderLosses;
+    lastAttackerDice = r.attackerDice.length;
     events.push({
       type: 'battle',
       attacker: playerId,
       defender: defenderId,
       from: action.from,
       to: action.to,
-      attackerDice: aDice,
-      defenderDice: dDice,
-      attackerLosses: aLoss,
-      defenderLosses: dLoss,
+      attackerDice: r.attackerDice,
+      defenderDice: r.defenderDice,
+      attackerLosses: r.attackerLosses,
+      defenderLosses: r.defenderLosses,
       fromArmies: from.armies,
       toArmies: to.armies,
+      ...(result.balanced ? { balanced: true } : {}),
     });
-    if (to.armies === 0) break;
-    if (!action.blitz) break;
   }
-  saveRng(state, rng);
 
   if (to.armies === 0) {
     // Conquered.
@@ -787,6 +871,7 @@ function doAttack(state: GameState, playerId: PlayerId, action: AttackAction, ev
         events.push({ type: 'cards_taken', player: playerId, from: defenderId, count: defender.cards.length });
         player.cards.push(...defender.cards);
         defender.cards = [];
+        autoTrade(state, playerId, events);
       }
     }
 
@@ -837,7 +922,7 @@ function finishGame(state: GameState, winner: PlayerId, reason: 'domination' | '
 function doEndAttack(state: GameState, playerId: PlayerId, events: GameEvent[]): void {
   if (state.phase !== 'attack') throw new RuleError('Not in attack phase');
   if (state.pendingConquest) throw new RuleError('You must occupy the conquered territory first');
-  if (mustTrade(state, playerId)) throw new RuleError('You hold 6 or more cards and must trade first');
+  if (mustTrade(state, playerId)) throw new RuleError(`You hold ${FORCED_TRADE_CARDS} or more cards and must trade first`);
   const player = playerOf(state, playerId);
   if (player.armiesToPlace > 0) throw new RuleError(`Place your ${player.armiesToPlace} armies first`);
   state.phase = 'fortify';

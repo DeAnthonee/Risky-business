@@ -30,7 +30,7 @@ export function formatState(view: GameView, gameName?: string): string {
       .filter(Boolean)
       .join(', ');
     const conts = p.continents.length ? ` holds ${p.continents.join(', ')}` : '';
-    lines.push(`  ${p.name} (${p.id})${tag ? ` [${tag}]` : ''}: ${p.territoryCount} territories, ${p.armyCount} armies, ${p.cardCount} cards${p.income && p.alive ? `, +${p.income.total}/turn` : ''}${conts}`);
+    lines.push(`  ${p.name} (${p.id})${tag ? ` [${tag}]` : ''}: ${p.territoryCount ?? '?'} territories, ${p.armyCount ?? '?'} armies, ${p.cardCount ?? '?'} cards${p.armyCount === null ? ' (hidden by fog)' : ''}${p.income && p.alive ? `, +${p.income.total}/turn` : ''}${conts}`);
   }
   if (me) {
     lines.push('');
@@ -107,6 +107,8 @@ export function formatState(view: GameView, gameName?: string): string {
         lines.push(`  Attacks available (from -> to, max dice): ${lm.attacks.map((a) => `${a.from}->${a.to} (${a.maxDice})`).join('; ')}`);
         lines.push('    Blitz by default: {"type":"attack","from":"..","to":"..","blitz":true,"occupy":"max"} fights the whole battle in ONE call (rolls until the territory falls or you run down to 1 army).');
         lines.push('    Single rolls ("dice":1-3, no blitz) are only for stopping partway on purpose; rolling one at a time is slow for everyone watching. "occupy" may be a number, "min" or "max".');
+        if (view.options.balancedBlitz)
+          lines.push('    Balanced blitz is ON: a blitz lands near the expected odds (a strong attack almost never collapses), while single rolls are pure luck. Blitz when you have the numbers.');
       }
       if (lm.canEndAttack) lines.push('  {"type":"end_attack"} to move to fortify phase');
       if (lm.fortifies.length) {
@@ -139,13 +141,17 @@ export function formatEvents(events: GameEvent[], view: GameView): string {
         out.push(`Game started. Turn order: ${e.turnOrder.map(name).join(' -> ')}`);
         break;
       case 'turn_started':
+        if (e.reinforcements.hidden) {
+          out.push(`Turn ${e.turnNumber}: ${name(e.player)}'s turn (reinforcements hidden by fog)`);
+          break;
+        }
         out.push(`Turn ${e.turnNumber}: ${name(e.player)} gets ${e.reinforcements.total} armies${e.reinforcements.fromTurnOrder ? ` (incl. ${e.reinforcements.fromTurnOrder} round-1 late-turn bonus)` : ''}`);
         break;
       case 'placed':
         out.push(`${name(e.player)} placed ${e.armies} on ${t(e.territory)}`);
         break;
       case 'traded':
-        out.push(`${name(e.player)} traded cards for ${e.armies} armies${e.bonusTerritory ? ` (+2 on ${t(e.bonusTerritory)})` : ''}`);
+        out.push(`${name(e.player)} ${e.auto ? 'auto-traded (5+ cards)' : 'traded cards'} for ${e.armies} armies${e.bonusTerritory ? ` (+2 on ${t(e.bonusTerritory)})` : ''}`);
         break;
       case 'battle':
         out.push(

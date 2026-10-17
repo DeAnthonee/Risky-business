@@ -49,8 +49,8 @@ export interface GameOptions {
   autoSetup: boolean;
   /** Maximum players allowed in this game (2 up to the map's limit). */
   maxPlayers: number;
-  /** Which board to play on (see MAP_IDS in maps.ts and OPTION_SPECS.map): 'classic' (42 territories, 2-6 players), 'world' (74, 2-10), 'world_large' (104, 2-10), 'europe' (44, 2-8), 'europe_advanced' (Greater Europe, 116, 2-10), 'europe_classic' (Europe Advanced, 84, 2-6), 'usa' (45, 2-10), 'asia' (49, 2-8), 'fantasy' (Realms of Halvaren, 87, 2-10). */
-  map: 'classic' | 'world' | 'world_large' | 'europe' | 'europe_advanced' | 'europe_classic' | 'usa' | 'asia' | 'fantasy';
+  /** Which board to play on (see MAP_IDS in maps.ts and OPTION_SPECS.map): 'classic' (42 territories, 2-6 players), 'world' (74, 2-10), 'world_large' (104, 2-10), 'europe' (44, 2-8), 'greater_europe' (Greater Europe, 116, 2-10), 'europe_classic' (Europe Advanced, 84, 2-6), 'usa' (45, 2-10), 'asia' (49, 2-8), 'fantasy' (Realms of Halvaren, 87, 2-10). 'europe_advanced' (Europe (legacy, 99), 2-6) is a legacy board: saved games on it still load, new games cannot pick it. */
+  map: 'classic' | 'world' | 'world_large' | 'europe' | 'europe_advanced' | 'greater_europe' | 'europe_classic' | 'usa' | 'asia' | 'fantasy';
   /** Card set values: 'progressive' (4,6,8,10,12,15,+5...) or 'fixed' (infantry 4, cavalry 6, artillery 8, mixed 10). */
   cardValues: 'progressive' | 'fixed';
   /** Fog of war: players only see their own territories and the ones adjacent to them. Spectators see everything. */
@@ -63,6 +63,8 @@ export interface GameOptions {
   chooseCapitals: boolean;
   /** Round 1 only: the Nth player in turn order receives at least N armies (offsets going later). */
   firstRoundBonus: boolean;
+  /** Balanced blitz: a blitz is rolled several times with real dice and the median outcome happens (fewer upsets). Single rolls stay random. */
+  balancedBlitz: boolean;
   /** Neutral territories in games of 3+ players: this many territories go to a Neutral army that never attacks (0 = off). Two-player games always have the classic Neutral. */
   neutrals: number;
   /** Armies on each neutral territory when `neutrals` is on. */
@@ -73,6 +75,9 @@ export interface GameOptions {
 
 /** Reinforcements per capital held when the capitals option is on. */
 export const CAPITAL_BONUS = 2;
+
+/** Holding this many cards forces a trade: at the start of your turn, and right after an elimination hands you cards. */
+export const FORCED_TRADE_CARDS = 5;
 
 /** Dice a capital defends with when the capitals option is on (other territories defend with up to 2). */
 export const CAPITAL_DEFENSE_DICE = 3;
@@ -95,6 +100,7 @@ export const DEFAULT_OPTIONS: GameOptions = {
   capitals: false,
   chooseCapitals: false,
   firstRoundBonus: true,
+  balancedBlitz: false,
   neutrals: 0,
   neutralArmies: 2,
   blizzards: 0,
@@ -221,6 +227,8 @@ export interface ReinforcementBreakdown {
   /** Capitals held (capitals option) and the armies they add. */
   capitals: number;
   fromCapitals: number;
+  /** Set when fog of war hides this breakdown from the viewer (all numbers are then 0). */
+  hidden?: boolean;
   /** Round 1 only (firstRoundBonus): extra armies that lift later players to their turn position (4th gets 4, ...). */
   fromTurnOrder?: number;
   total: number;
@@ -231,7 +239,8 @@ export type GameEvent =
   | { type: 'phase'; phase: Phase; player: PlayerId | null }
   | { type: 'turn_started'; player: PlayerId; turnNumber: number; round: number; reinforcements: ReinforcementBreakdown }
   | { type: 'placed'; player: PlayerId; territory: TerritoryId; armies: number }
-  | { type: 'traded'; player: PlayerId; cardIds: number[]; cards: Card[]; armies: number; bonusTerritory: TerritoryId | null }
+  /** auto: the game traded this set itself because the player held 5 or more cards. */
+  | { type: 'traded'; player: PlayerId; cardIds: number[]; cards: Card[]; armies: number; bonusTerritory: TerritoryId | null; auto?: boolean }
   | {
       type: 'battle';
       attacker: PlayerId;
@@ -244,6 +253,8 @@ export type GameEvent =
       defenderLosses: number;
       fromArmies: number;
       toArmies: number;
+      /** Part of a balanced blitz: the median of several real blitzes (see the balancedBlitz option). */
+      balanced?: boolean;
     }
   | { type: 'conquered'; player: PlayerId; from: TerritoryId; to: TerritoryId; previousOwner: PlayerId }
   | { type: 'moved'; player: PlayerId; from: TerritoryId; to: TerritoryId; armies: number }

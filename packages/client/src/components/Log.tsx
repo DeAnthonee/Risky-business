@@ -12,6 +12,7 @@ export function describe(e: GameEvent, view: GameView): string | null {
     case 'game_started':
       return `Game started. Turn order: ${e.turnOrder.map(name).join(' → ')}`;
     case 'turn_started': {
+      if (e.reinforcements.hidden) return `Turn ${e.turnNumber}: ${name(e.player)}'s turn (reinforcements hidden by fog)`;
       const r = e.reinforcements;
       const cont = r.continents.length ? ` + ${r.continents.map((c) => `${c.id.replace('_', ' ')} ${c.bonus}`).join(', ')}` : '';
       const caps = r.fromCapitals ? ` + ${r.fromCapitals} for ${r.capitals} capital${r.capitals === 1 ? '' : 's'}` : '';
@@ -22,7 +23,7 @@ export function describe(e: GameEvent, view: GameView): string | null {
       return `${name(e.player)} placed ${e.armies} on ${shortName(e.territory)}`;
     case 'traded': {
       const cards = (e.cards ?? []).map((c) => (c.kind === 'wild' ? 'Wild' : `${c.kind} ${c.territory ? shortName(c.territory) : ''}`.trim())).join(', ');
-      return `${name(e.player)} traded ${cards || 'a card set'} for ${e.armies} armies${e.bonusTerritory ? ` (+2 on ${shortName(e.bonusTerritory)})` : ''}`;
+      return `${name(e.player)} ${e.auto ? 'auto-traded' : 'traded'} ${cards || 'a card set'} for ${e.armies} armies${e.bonusTerritory ? ` (+2 on ${shortName(e.bonusTerritory)})` : ''}`;
     }
     case 'blizzards':
       return `❄ Blizzards: ${e.territories.map(shortName).join(', ')} are impassable`;

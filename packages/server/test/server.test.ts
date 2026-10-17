@@ -428,6 +428,19 @@ describe('game lifecycle over HTTP', () => {
     }
   });
 
+  it('under fog of war, a player gets no counts for opponents it cannot fully see; spectators get them all', async () => {
+    const created = await api('/games', { method: 'POST', body: JSON.stringify({ playerName: 'Fogged', options: { fogOfWar: true, autoSetup: true } }) });
+    const g = created.body.gameId;
+    for (let i = 0; i < 3; i++) await api(`/games/${g}/bots`, { method: 'POST', body: '{}' }, created.body.token);
+    await api(`/games/${g}/start`, { method: 'POST', body: '{}' }, created.body.token);
+    const asPlayer = await api(`/games/${g}`, {}, created.body.token);
+    const me = asPlayer.body.state.you;
+    const others = asPlayer.body.state.players.filter((p: any) => p.id !== me && !p.isNeutral);
+    expect(others.some((p: any) => p.armyCount === null && p.territoryCount === null && typeof p.cardCount === 'number' && p.income === null)).toBe(true);
+    const asSpectator = await api(`/games/${g}`);
+    expect(asSpectator.body.state.players.every((p: any) => p.isNeutral || typeof p.armyCount === 'number')).toBe(true);
+  });
+
   it('shuts down gracefully and releases long-poll waiters', async () => {
     const third = await startServer(null);
     const created = await fetch(`${third.base}/api/games`, {
@@ -614,6 +627,20 @@ describe('MCP game settings', () => {
   });
 });
 
+describe('balanced blitz over HTTP', () => {
+  it('accepts the setting, lists it in the catalog and rejects bad values', async () => {
+    const created = await api('/games', { method: 'POST', body: JSON.stringify({ playerName: 'B', options: { balancedBlitz: true } }) });
+    expect(created.status).toBe(201);
+    expect(created.body.state.options.balancedBlitz).toBe(true);
+    const plain = await api('/games', { method: 'POST', body: JSON.stringify({ playerName: 'P' }) });
+    expect(plain.body.state.options.balancedBlitz).toBe(false);
+    const bad = await api('/games', { method: 'POST', body: JSON.stringify({ playerName: 'X', options: { balancedBlitz: 'sometimes' } }) });
+    expect(bad.status).toBe(400);
+    const cat = await api('/options');
+    expect(JSON.stringify(cat.body)).toContain('balancedBlitz');
+  });
+});
+
 describe('MCP seats', () => {
   it('lets one connection hold several players in a game and resolves them by name or token', async () => {
     const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
@@ -757,7 +784,7 @@ describe('MCP act replies', () => {
       };
       const created = await call('create_game', { playerName: 'Foggy', options: { autoSetup: true, fogOfWar: true } });
       const gameId = created.text.match(/Created game (\w+)/)![1];
-      await call('add_bot', { gameId });
+      // One bot: with two, both bot turns (700 ms per action) could run before ours and outlast the wait.
       await call('add_bot', { gameId });
       await call('start_game', { gameId });
       expect((await call('wait_for_turn', { gameId, timeoutSeconds: 15 })).text).toMatch(/^It is your turn/);
@@ -782,13 +809,13 @@ describe('MCP act replies', () => {
 describe('new boards over HTTP', () => {
   it('lists every board', async () => {
     const r = await api('/maps');
-    expect(r.body.maps.map((m: any) => m.id)).toEqual(['classic', 'world', 'world_large', 'europe', 'europe_advanced', 'europe_classic', 'usa', 'asia', 'fantasy']);
+    expect(r.body.maps.map((m: any) => m.id)).toEqual(['classic', 'world', 'world_large', 'europe', 'greater_europe', 'europe_classic', 'usa', 'asia', 'fantasy']);
   });
 
   for (const [id, territories, maxPlayers] of [
     ['world_large', 104, 10],
     ['europe', 44, 8],
-    ['europe_advanced', 116, 10],
+    ['greater_europe', 116, 10],
     ['europe_classic', 84, 6],
     ['usa', 45, 10],
     ['asia', 49, 8],
@@ -815,7 +842,7 @@ describe('new boards over HTTP', () => {
     const r = await api('/games', { method: 'POST', body: JSON.stringify({ playerName: 'H', options: { map: 'europe', maxPlayers: 9 } }) });
     expect(r.status).toBe(400);
     expect(r.body.error).toMatch(/maxPlayers must be between 2 and 8/);
-    const ea = await api('/games', { method: 'POST', body: JSON.stringify({ playerName: 'H', options: { map: 'europe_advanced', maxPlayers: 11 } }) });
+    const ea = await api('/games', { method: 'POST', body: JSON.stringify({ playerName: 'H', options: { map: 'greater_europe', maxPlayers: 11 } }) });
     expect(ea.status).toBe(400);
     expect(ea.body.error).toMatch(/maxPlayers must be between 2 and 10/);
   });
@@ -834,11 +861,72 @@ describe('new boards over HTTP', () => {
 
   it('serves Greater Europe with its regions and cross-water adjacency', async () => {
     const maps = await api('/maps');
-    expect(maps.body.maps).toContainEqual(expect.objectContaining({ id: 'europe_advanced', territories: 116, maxPlayers: 10 }));
-    const map = await api('/map?map=europe_advanced');
+    expect(maps.body.maps).toContainEqual(expect.objectContaining({ id: 'greater_europe', name: 'Greater Europe (116)', territories: 116, maxPlayers: 10 }));
+    const map = await api('/map?map=greater_europe');
     expect(map.body.continents).toHaveLength(15);
     expect(map.body.adjacency.southern_england).toContain('ile_de_france');
     expect(map.body.adjacency.fez).toContain('andalusia');
+  });
+
+  it('no longer offers the legacy 99-territory europe_advanced board for new games', async () => {
+    const maps = await api('/maps');
+    expect(maps.body.maps.map((m: any) => m.id)).not.toContain('europe_advanced');
+    const created = await api('/games', { method: 'POST', body: JSON.stringify({ playerName: 'H', options: { map: 'europe_advanced' } }) });
+    expect(created.status).toBe(400);
+    expect(created.body.error).toMatch(/map must be one of/);
+    const options = await api('/options');
+    expect(options.body.options.find((o: any) => o.key === 'map').values).not.toContain('europe_advanced');
+    // its geometry is still served, for spectators of saved games
+    const legacy = await api('/map?map=europe_advanced');
+    expect(legacy.status).toBe(200);
+    expect(legacy.body.territories).toHaveLength(99);
+  });
+
+  it('loads saved games on the legacy europe_advanced board with its 99 territory ids', async () => {
+    const { addPlayer, createGame, startGame } = await import('@risk/engine');
+    const snap = (id: string, state: any, tokens: Record<string, string>) => ({ id, name: id, hostId: 'a', state, tokens, chat: [], history: [], updatedAt: Date.now() });
+    // a running game, dealt and set up on the 99-territory board as the build before Greater Europe did
+    let g = createGame('LEGACYEA', { map: 'europe_advanced', maxPlayers: 3, autoSetup: true }, 17);
+    for (const id of ['a', 'b', 'c']) g = addPlayer(g, id, id.toUpperCase());
+    const running = startGame(g).state;
+    expect(Object.keys(running.territories)).toHaveLength(99);
+    expect(running.territories.morocco).toBeDefined();
+    // and a lobby on it
+    const lobby = addPlayer(createGame('LOBBYEA', { map: 'europe_advanced', maxPlayers: 6 }, 3), 'a', 'A');
+    const file = join(dir, 'europe-advanced-99.json');
+    const { writeFileSync } = await import('node:fs');
+    writeFileSync(file, JSON.stringify([snap('LEGACYEA', running, { tokA: 'a', tokB: 'b', tokC: 'c' }), snap('LOBBYEA', lobby, { tokL: 'a' })]));
+    const legacy = await startServer(file);
+    const call = async (path: string, init: RequestInit = {}, token?: string) => {
+      const res = await fetch(`${legacy.base}/api${path}`, { ...init, headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) } });
+      return { status: res.status, body: (await res.json()) as any };
+    };
+    try {
+      const spectator = await call('/games/LEGACYEA');
+      expect(spectator.status).toBe(200);
+      expect(spectator.body.state.options.map).toBe('europe_advanced');
+      expect(Object.keys(spectator.body.state.territories)).toHaveLength(99);
+      const current = running.currentPlayer!;
+      const token = { a: 'tokA', b: 'tokB', c: 'tokC' }[current]!;
+      const seen = await call('/games/LEGACYEA', {}, token);
+      expect(seen.status).toBe(200);
+      const legal = seen.body.state.legal;
+      expect(legal.yourTurn).toBe(true);
+      expect(legal.canPlaceOn.length).toBeGreaterThan(0);
+      for (const t of legal.canPlaceOn) expect(t in running.territories).toBe(true);
+      const placed = await call('/games/LEGACYEA/actions', { method: 'POST', body: JSON.stringify({ action: { type: 'place', placements: { [legal.canPlaceOn[0]]: legal.armiesToPlace } } }) }, token);
+      expect(placed.status).toBe(200);
+      expect(placed.body.state.phase).toBe('attack');
+      expect(placed.body.state.legal.canEndAttack).toBe(true);
+      // the saved lobby keeps its board and can still change other settings
+      const opts = await call('/games/LOBBYEA/options', { method: 'POST', body: JSON.stringify({ options: { maxPlayers: 4, fogOfWar: true } }) }, 'tokL');
+      expect(opts.status).toBe(200);
+      expect(opts.body.state.options).toMatchObject({ map: 'europe_advanced', maxPlayers: 4, fogOfWar: true });
+      const back = await call('/games/LOBBYEA/options', { method: 'POST', body: JSON.stringify({ options: { map: 'europe_advanced' } }) }, 'tokL');
+      expect(back.status).toBe(400);
+    } finally {
+      await legacy.risk.shutdown('test');
+    }
   });
 });
 

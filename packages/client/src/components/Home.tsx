@@ -170,8 +170,9 @@ export function OptionsForm({
             onChange({ map: id, maxPlayers: Math.min(options.maxPlayers ?? limit, limit) });
           }}
         >
-          {MAP_IDS.map((id) => (
-            <option key={id} value={id}>
+          {/* A lobby saved on a legacy board (kept in MAPS, not offered in MAP_IDS) still shows its map. */}
+          {(options.map && !MAP_IDS.includes(options.map) ? [...MAP_IDS, options.map] : MAP_IDS).map((id) => (
+            <option key={id} value={id} disabled={!MAP_IDS.includes(id)}>
               {MAPS[id].name} · up to {MAPS[id].maxPlayers} players
             </option>
           ))}
@@ -246,6 +247,10 @@ export function OptionsForm({
       <label className="check">
         <input type="checkbox" disabled={disabled} checked={options.firstRoundBonus !== false} onChange={(e) => onChange({ firstRoundBonus: e.target.checked })} /> Late-turn bonus
         <span className="muted small">round 1: the 4th player gets at least 4 armies, 5th at least 5, and so on</span>
+      </label>
+      <label className="check">
+        <input type="checkbox" disabled={disabled} checked={!!options.balancedBlitz} onChange={(e) => onChange({ balancedBlitz: e.target.checked })} /> Balanced blitz
+        <span className="muted small">a blitz plays out the middle of 5 real blitzes, so it lands near the odds; single rolls stay random</span>
       </label>
       <label className="check">
         <input type="checkbox" disabled={disabled} checked={!!options.capitals} onChange={(e) => onChange({ capitals: e.target.checked })} /> Capital Conquest

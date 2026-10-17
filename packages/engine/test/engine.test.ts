@@ -12,6 +12,11 @@ import {
   addPlayer,
   applyAction,
   bestSet,
+  blitzOdds,
+  commitForOdds,
+  chooseBotAction,
+  createRng,
+  nextFloat,
   describeOptions,
   capitalsHeldBy,
   createGame,
@@ -1562,5 +1567,121 @@ describe('fog of war hides everything a player cannot see', () => {
     expect(redactEvents(out, me, events)).toEqual(events);
     const over = { ...state, phase: 'finished' as const };
     expect(hidden(over)).toBe(0);
+  });
+});
+
+describe('blitz with stopAt, and blitz odds', () => {
+  // A board where `me` attacks one enemy neighbour with chosen army counts.
+  const board = (seed: number, attackers: number, defenders: number, options: Record<string, unknown> = {}) => {
+    let state = finishSetup(setup(3, { setupBatch: 40, ...options }, seed).state);
+    const me = state.currentPlayer!;
+    const from = legalMoves(state, me).canPlaceOn.find((t) => ADJACENCY[t].some((n) => state.territories[n].owner !== me))!;
+    state = applyAction(state, me, { type: 'place', placements: { [from]: state.players.find((x) => x.id === me)!.armiesToPlace } }).state;
+    const to = ADJACENCY[from].find((n) => state.territories[n].owner !== me)!;
+    state.territories[from].armies = attackers;
+    state.territories[to].armies = defenders;
+    return { state, me, from, to };
+  };
+
+  it('never leaves fewer than stopAt armies behind, in one call, and implies blitz', () => {
+    let stopped = 0;
+    for (let seed = 1; seed <= 200; seed++) {
+      const { state, me, from, to } = board(seed, 20, 30);
+      const r = applyAction(state, me, { type: 'attack', from, to, stopAt: 12 });
+      const battles = r.events.filter((e) => e.type === 'battle') as Extract<GameEvent, { type: 'battle' }>[];
+      for (const e of battles) {
+        expect(e.fromArmies).toBeGreaterThanOrEqual(12);
+        // Never more dice than it can lose without going below stopAt.
+        expect(e.attackerDice.length).toBeLessThanOrEqual(e.fromArmies + e.attackerLosses - 12);
+      }
+      if (!r.events.some((e) => e.type === 'conquered')) {
+        expect(r.state.territories[from].armies).toBe(12);
+        stopped++;
+      }
+    }
+    expect(stopped).toBeGreaterThan(150); // 8 armies against 30 rarely wins
+  });
+
+  it('occupy "max" with stopAt moves in only what is above stopAt', () => {
+    for (let seed = 1; seed <= 40; seed++) {
+      const { state, me, from, to } = board(seed, 30, 1);
+      const r = applyAction(state, me, { type: 'attack', from, to, stopAt: 10, occupy: 'max' });
+      expect(r.state.territories[to].owner).toBe(me);
+      expect(r.state.territories[from].armies).toBe(10);
+      expect(r.state.territories[to].armies).toBe(r.state.territories[from].armies + r.state.territories[to].armies - 10);
+    }
+  });
+
+  it('rejects a stopAt that is not below the attacking stack', () => {
+    const { state, me, from, to } = board(1, 10, 3);
+    expect(() => applyAction(state, me, { type: 'attack', from, to, stopAt: 10 })).toThrow(RuleError);
+    expect(() => applyAction(state, me, { type: 'attack', from, to, stopAt: 0 })).toThrow(RuleError);
+  });
+
+  it('computes exact odds that match known values and the engine dice', () => {
+    expect(blitzOdds(2, 1, 2).win).toBeCloseTo(15 / 36, 10); // one die against one
+    expect(blitzOdds(4, 2, 2).win).toBeCloseTo(0.656, 3); // the classic 3 vs 2 table
+    // A capital defends with 3 dice, which is worse for the attacker.
+    expect(blitzOdds(10, 5, 3).win).toBeLessThan(blitzOdds(10, 5, 2).win);
+    // Committing less lowers the chance; balanced pushes likely wins up and unlikely ones down.
+    const all = blitzOdds(20, 8, 2);
+    const part = blitzOdds(20, 8, 2, 10);
+    expect(part.win).toBeLessThan(all.win);
+    expect(all.balancedWin).toBeGreaterThan(all.win);
+    expect(blitzOdds(6, 8, 2).balancedWin).toBeLessThan(blitzOdds(6, 8, 2).win);
+    // The engine's own dice agree with the computed chance (random and balanced), stopAt included.
+    for (const [balanced, stopAt] of [[false, 1], [false, 6], [true, 6]] as const) {
+      let wins = 0;
+      const runs = 400;
+      for (let seed = 1; seed <= runs; seed++) {
+        const { state, me, from, to } = board(seed, 14, 7, { balancedBlitz: balanced });
+        if (applyAction(state, me, { type: 'attack', from, to, stopAt }).events.some((e) => e.type === 'conquered')) wins++;
+      }
+      const o = blitzOdds(14, 7, 2, stopAt);
+      expect(Math.abs(wins / runs - (balanced ? o.balancedWin : o.win))).toBeLessThan(0.08);
+    }
+  });
+
+  it('finds the fewest armies to commit for a win chance', () => {
+    const n = commitForOdds(30, 8, 2, 0.9)!;
+    expect(blitzOdds(30, 8, 2, 30 - n).win).toBeGreaterThanOrEqual(0.9);
+    expect(blitzOdds(30, 8, 2, 30 - (n - 1)).win).toBeLessThan(0.9);
+    expect(commitForOdds(5, 40, 2, 0.5)).toBeNull();
+    // Committing N armies fights exactly like an all-in blitz from N + 1.
+    expect(blitzOdds(25, 12, 2, 15)).toEqual(blitzOdds(11, 12, 2, 1));
+    // Huge late-game stacks stay fast: estimated on a scaled-down battle and flagged as approximate.
+    const t0 = Date.now();
+    const huge = blitzOdds(3000, 3000, 2);
+    commitForOdds(3000, 3000, 2, 0.9);
+    expect(Date.now() - t0).toBeLessThan(2000);
+    expect(huge.exact).toBe(false);
+    expect(blitzOdds(200, 200, 2).exact).toBe(true);
+  });
+});
+
+describe('built-in bot', () => {
+  function seeded(seed: number) {
+    const rng = createRng(seed);
+    return () => nextFloat(rng);
+  }
+
+  function botGame(seed: number) {
+    let s = createGame('b', {}, 99);
+    s = addPlayer(s, 'a', 'A', true);
+    s = addPlayer(s, 'b', 'B', true);
+    s = startGame(s).state;
+    const random = seeded(seed);
+    const actions: unknown[] = [];
+    while (s.phase !== 'finished' && actions.length < 400) {
+      const action = chooseBotAction(s, s.currentPlayer!, random)!;
+      actions.push(action);
+      s = applyAction(s, s.currentPlayer!, action).state;
+    }
+    return actions;
+  }
+
+  it('plays the same moves for the same random source (self-play depends on it)', () => {
+    expect(botGame(1)).toEqual(botGame(1));
+    expect(botGame(1)).not.toEqual(botGame(2));
   });
 });

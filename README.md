@@ -9,6 +9,7 @@ packages/
   server/   Node game server: REST + WebSocket API, lobbies, bots, JSON persistence, serves the web client
   client/   React + Vite web client: SVG map, animations, cards, chat, log
   mcp/      Model Context Protocol server (stdio) that lets any MCP-capable agent play
+  selfplay/ headless self-play, rating ladder and decision logs for training AI players (never loaded by the server)
 ```
 
 > **Contribution rule: every change lands through a pull request.** Nobody pushes directly to the deploy
@@ -44,7 +45,7 @@ Dice rolls, troop placements ("+N" bursts that stay up longer for spectators), c
 (`+N/turn`, the reinforcements they get next turn before cards; hover it for the breakdown).
 Picking a map (when creating a game, and in the lobby) shows a preview of the board: every territory in its region's
 colour, sea links, the region bonuses (hover one to pick it out) and the starting armies for the player count.
-On desktop, drag the divider under the scoreboard to give the log/chat more or less room (double-click resets). The log shows each attack as one entry: who took (or failed to take) which territory, each side's armies at the start and end with the losses, the number of rolls and the armies moved in; hover it for the individual dice rolls. Runs of fogged events collapse into one line with a count.
+On desktop, drag the divider under the scoreboard to give the log/chat more or less room (double-click resets). The log shows each attack as one entry: who took (or failed to take) which territory, each side's armies at the start and end with the losses, the number of rolls and the armies moved in; hover it for the individual dice rolls. Runs of fogged events collapse into one line with a count. When you pick an attack, a **commit slider** sets how many armies to throw at it (the rest stay home; the blitz stops there) and shows the exact chance to take the territory with random dice and with balanced blitz, the average losses on each side, and one-click buttons for the commitment a 50%, 75%, 90% or 99% chance needs. Agents get the same as `stopAt` and a win chance next to each attack in their legal moves.
 Press **Bonuses** (on the map, in the spectator bar, or **B**) to see every region painted in its own colour with
 its bonus, no armies; neighbouring regions never share a colour, on the board or in this view.
 Switch the scoreboard to **Who's winning** for a bar chart: each living player's power is 40% their share of all
@@ -243,6 +244,7 @@ or `{"ok":false,"error":"…"}`.
 {"type":"trade","cardIds":[3,17,42]}
 {"type":"attack","from":"alaska","to":"kamchatka","blitz":true,"occupy":"max"} // fight to the end, move in (what agents should normally send; under fog of war leave out "occupy")
 {"type":"attack","from":"alaska","to":"kamchatka","dice":3}              // one roll
+{"type":"attack","from":"alaska","to":"kamchatka","stopAt":10}            // blitz, but stop once alaska is down to 10 (10 always stay home)
 {"type":"occupy","armies":4}                          // after a conquest without "occupy" (under fog the conquest has already revealed its neighbours, capitals tagged)
 {"type":"end_attack"}
 {"type":"fortify","from":"peru","to":"brazil","armies":2}  // also ends the turn
@@ -414,6 +416,22 @@ every player and the latest diary titles.
   `POST …/relationships`, and `GET /api/model-info`.
 - **Bringing saves back into the repo:** fetch `GET /api/characters?full=1` from the live server, write each
   `markdown` to `AI/characters/<id>.md`, and open a PR. The live saves stay ahead of the repo either way.
+
+## Self-play (training AI players)
+
+`packages/selfplay` plays games headless on the engine (no server, no sockets), seeded and deterministic, at
+roughly a dozen two-player games per second per core. It rates player versions on a ladder (mirrored pairs,
+promotion only after ~200 games with a clear margin) and logs every decision as gzipped JSON lines a Python
+trainer can read. It is its own entry point and never runs inside the game server.
+
+```bash
+npm run selfplay -- play --agents risky@1,risky@1 --games 1000 --seed 1 --log runs/night-01
+npm run selfplay -- ladder --file runs/ladder.json --best risky@1 --candidate random@1 --games 200
+```
+
+The log format, ladder rules and how to add a player version are in
+[packages/selfplay/README.md](packages/selfplay/README.md). The built-in bot lives in the engine
+(`chooseBotAction`) so the server and self-play run the same code.
 
 ## Contributing
 

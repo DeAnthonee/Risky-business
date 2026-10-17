@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { getMap, tradeBonus, visibleTerritories, type Card, type GameEvent, type GameView } from '@risk/engine';
+import { CAPITAL_DEFENSE_DICE, getMap, tradeBonus, visibleTerritories, type Card, type GameEvent, type GameView } from '@risk/engine';
 import { api } from '../api';
 import { CARD_FX_MS, CardFxPanel, type CardFx } from './CardFx';
 import { ScoreChart } from './ScoreChart';
@@ -9,6 +9,7 @@ import { CardsPanel } from './Cards';
 import { Chat } from './Chat';
 import { DicePanel, type BattleEvent } from './Dice';
 import { Log } from './Log';
+import { BlitzPlanner } from './BlitzPlanner';
 import { GameMap, territoryName, type FloatAnim, type Highlight, type MoveAnim, type SweepAnim } from './Map';
 
 type Mode = 'idle' | 'capital' | 'place' | 'attack' | 'fortify';
@@ -41,6 +42,11 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
   const [pending, setPending] = useState<Record<string, number>>({});
   const [dice, setDice] = useState(3);
   const [moveArmies, setMoveArmies] = useState(1);
+  // Blitz commitment: armies thrown at the target; the rest stay home (sent as stopAt). Defaults to all in.
+  const [commit, setCommit] = useState(Infinity);
+  // A partial blitz shrinks the stack: start the next commitment from "all in" rather than an old count.
+  const sourceArmies = selected ? view.territories[selected]?.armies : undefined;
+  useEffect(() => setCommit(Infinity), [sourceArmies]);
   const [showCards, setShowCards] = useState(false);
   const [tab, setTab] = useState<'log' | 'chat'>('log');
   // Phones/narrow screens: the board fills the screen; panels open underneath it so the map stays visible.
@@ -261,6 +267,7 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
       if (selected && ts.owner !== you && legal!.attacks.some((a) => a.from === selected && a.to === id)) {
         setTarget(id);
         setDice(legal!.attacks.find((a) => a.from === selected && a.to === id)!.maxDice);
+        setCommit(Infinity);
         return;
       }
       if (ts.owner === you && attacksFrom.length > 0) {
@@ -289,8 +296,15 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
     }
   };
 
-  const attack = (blitz: boolean) =>
-    selected && target && run(() => conn.act({ type: 'attack', from: selected, to: target, dice: blitz ? undefined : dice, blitz }));
+  const attack = (blitz: boolean) => {
+    if (!selected || !target) return;
+    const fromArmies = view.territories[selected].armies;
+    const c = Math.max(1, Math.min(commit, fromArmies - 1));
+    // Committing less than everything keeps the rest home: a blitz that stops at fromArmies - commit.
+    const stopAt = blitz && c < fromArmies - 1 ? fromArmies - c : undefined;
+    return run(() => conn.act({ type: 'attack', from: selected, to: target, dice: blitz ? undefined : dice, blitz, ...(stopAt ? { stopAt } : {}) }));
+  };
+  const defenseLimitOf = (t: string) => (view.options.capitals && Object.values(view.capitals ?? {}).includes(t) ? CAPITAL_DEFENSE_DICE : 2);
   const occupy = () => run(() => conn.act({ type: 'occupy', armies: moveArmies }));
   const fortify = () => selected && target && run(() => conn.act({ type: 'fortify', from: selected, to: target, armies: moveArmies }));
   const endAttack = () => run(() => conn.act({ type: 'end_attack' }));
@@ -625,9 +639,19 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
                     Roll
                   </button>
                   <button className="danger" disabled={busy} onClick={() => attack(true)}>
-                    Blitz
+                    {Math.min(commit, view.territories[selected!].armies - 1) < view.territories[selected!].armies - 1
+                      ? `Blitz ${Math.max(1, Math.min(commit, view.territories[selected!].armies - 1))}`
+                      : 'Blitz all'}
                   </button>
                   <button onClick={() => setTarget(null)}>Cancel</button>
+                  <BlitzPlanner
+                    fromArmies={view.territories[selected!].armies}
+                    toArmies={view.territories[target!].armies}
+                    defenseLimit={defenseLimitOf(target!)}
+                    balancedOn={!!view.options.balancedBlitz}
+                    commit={commit}
+                    onCommit={setCommit}
+                  />
                 </>
               ) : selected ? (
                 <strong>Attack from {shortName(selected)}: choose a highlighted enemy territory</strong>

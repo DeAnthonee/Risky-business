@@ -66,7 +66,7 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
   };
   const startResize = (e: React.PointerEvent<HTMLDivElement>) => {
     const aside = sidebarRef.current;
-    const panel = aside?.querySelector<HTMLElement>('.players-panel');
+    const panel = aside?.querySelector<HTMLElement>('.players-slot');
     if (!aside || !panel) return;
     e.preventDefault();
     const startY = e.clientY;
@@ -600,69 +600,21 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
         </div>
       </div>
 
-<<<<<<< HEAD
-      {/* ---------- sidebar ---------- */}
-      <aside className="sidebar" ref={sidebarRef}>
-        <div className="players-panel" style={playersHeight !== null ? { height: playersHeight, flex: 'none' } : undefined}>
-          {[...view.players].sort((a, b) => a.order - b.order).map((p) => (
-            <div
-              key={p.id}
-              className={`player-row ${p.id === view.currentPlayer ? 'active' : ''} ${!p.alive ? 'dead' : ''} ${fogAs === p.id ? 'fog-as' : ''} ${spectator && fogOn && !p.isNeutral ? 'clickable' : ''}`}
-              onClick={() => !p.isNeutral && pickFog(p.id)}
-              title={spectator && fogOn ? `Click to see the board as ${p.name} sees it` : undefined}
-            >
-              <span className="swatch" style={{ background: p.color }} />
-              <span className="pname">
-                {p.name}
-                {p.isBot && ' 🤖'}
-                {p.id === you && ' (you)'}
-                {!p.isBot && !p.isNeutral && <span className={`online-dot ${conn.presence.online.includes(p.id) ? 'on' : ''}`} title={conn.presence.online.includes(p.id) ? 'online' : 'offline'} />}
-              </span>
-              <span className="pstats" title="territories · armies · cards">
-                {p.territoryCount}t · {p.armyCount}a · {p.cardCount}c
-                {view.options.capitals && ` · ${Object.values(view.capitals ?? {}).filter((t) => view.territories[t]?.owner === p.id).length}★`}
-                {p.income && p.alive && view.phase !== 'lobby' && (
-                  <>
-                    {' · '}
-                    <span className="income" title={incomeTitle(p.income, getMap(view.options.map))}>
-                      +{p.income.total}/turn
-                    </span>
-                  </>
-                )}
-              </span>
-              {spectator && p.cards && p.cards.length > 0 && <HandSummary cards={p.cards} shortName={shortName} />}
-            </div>
-          ))}
-          {me && (
-            <div className="muted small reinforcement-hint">
-              Next turn: +{reinforcementPreview(view, me.id)} armies
-            </div>
-          )}
-        </div>
-        <div
-          className="sidebar-splitter"
-          role="separator"
-          aria-orientation="horizontal"
-          aria-label="Resize scoreboard and chat"
-          title="Drag to resize · double-click to reset"
-          onPointerDown={startResize}
-          onDoubleClick={() => savePlayersHeight(null)}
-        />
-        <div className="tabs">
-          <button className={tab === 'log' ? 'active' : ''} onClick={() => setTab('log')}>
-            Log
-          </button>
-          <button className={tab === 'chat' ? 'active' : ''} onClick={() => setTab('chat')}>
-            Chat {conn.chat.length ? `(${conn.chat.length})` : ''}
-          </button>
-        </div>
-        {tab === 'log' ? <Log batches={conn.batches} view={view} /> : <Chat conn={conn} canSend={!!session} spectator={spectator} />}
-      </aside>
-=======
       {/* ---------- sidebar (desktop) / bottom sheets (mobile) ---------- */}
       {!isMobile ? (
-        <aside className="sidebar">
-          {playersPanel}
+        <aside className="sidebar" ref={sidebarRef}>
+          <div className="players-slot" style={playersHeight !== null ? { height: playersHeight, flex: 'none' } : undefined}>
+            {playersPanel}
+          </div>
+          <div
+            className="sidebar-splitter"
+            role="separator"
+            aria-orientation="horizontal"
+            aria-label="Resize scoreboard and chat"
+            title="Drag to resize · double-click to reset"
+            onPointerDown={startResize}
+            onDoubleClick={() => savePlayersHeight(null)}
+          />
           <div className="tabs">
             <button className={tab === 'log' ? 'active' : ''} onClick={() => setTab('log')}>
               Log
@@ -709,7 +661,6 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
           </nav>
         </>
       )}
->>>>>>> origin/ccr-63b8112a-e2uk2g
 
       {showCards && me && (
         <CardsPanel

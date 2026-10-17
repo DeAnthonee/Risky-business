@@ -730,6 +730,15 @@ footer {
   overflow-y: auto;
   min-height: 0;
 }
+/* The resizable wrapper around the scoreboard in the desktop sidebar. */
+.players-slot {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.players-slot > .players-panel {
+  flex: 1;
+}
 /* Drag handle between the scoreboard and the log/chat. */
 .sidebar-splitter {
   flex: none;

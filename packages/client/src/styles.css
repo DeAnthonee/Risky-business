@@ -1062,6 +1062,11 @@ label.check input {
 /* Spectator chat */
 .chat-msg.spectator { opacity: 0.85; font-style: italic; }
 .chat-msg.spectator .chat-spectator-name { color: #b9c3d6; font-style: normal; }
+/* Whispers: private between two players (spectators see them all) */
+.chat-msg.whisper { background: rgba(167, 139, 250, 0.12); border-left: 2px solid #a78bfa; border-radius: 4px; padding-left: 6px; font-style: italic; }
+.chat-msg.whisper[title^='Whisper: tap'] { cursor: pointer; }
+.chat-msg.whisper .whisper-tag { font-style: normal; color: #c4b5fd; }
+.chat-form select.chat-to { width: 100%; }
 .chat-note { padding: 4px 2px; }
 .chat-form { display: flex; flex-direction: column; gap: 6px; }
 .chat-form .chat-name { width: 100%; }

@@ -29,6 +29,10 @@ export interface ChatMessage {
   at: number;
   /** Posted by someone watching, not a seated player. */
   spectator?: boolean;
+  /** Whisper: only the sender, this player and spectators can read it. */
+  to?: PlayerId;
+  /** Display name of the whisper's recipient. */
+  toName?: string;
 }
 
 /** Spectator chat flood guard: at most this many messages per sender per window. */
@@ -282,13 +286,19 @@ export class GameRoom extends EventEmitter {
     return { state, events };
   }
 
-  addChat(playerId: PlayerId | null, name: string, message: string): ChatMessage {
+  /**
+   * Post a message from a seated player. With `to` (a player id or name) it is a whisper: only the sender,
+   * that player and spectators can read it.
+   */
+  addChat(playerId: PlayerId | null, name: string, message: string, to?: unknown): ChatMessage {
+    const target = to === undefined || to === null || to === '' ? null : this.whisperTarget(playerId, to);
     const msg: ChatMessage = {
       id: (this.chat.at(-1)?.id ?? 0) + 1,
       playerId,
       name,
       message: message.slice(0, 500),
       at: Date.now(),
+      ...(target ? { to: target.id, toName: target.name } : {}),
     };
     this.chat.push(msg);
     if (this.chat.length > MAX_CHAT) this.chat.splice(0, this.chat.length - MAX_CHAT);
@@ -327,11 +337,22 @@ export class GameRoom extends EventEmitter {
     return msg;
   }
 
+  /** The player a whisper goes to, given as a player id or name (any case). */
+  private whisperTarget(from: PlayerId | null, to: unknown) {
+    if (!from) throw new RuleError('Only seated players can whisper');
+    const key = String(to).trim().toLowerCase();
+    const target = this.state.players.find((p) => !p.isNeutral && (p.id.toLowerCase() === key || p.name.toLowerCase() === key));
+    if (!target) throw new RuleError(`No player "${String(to).slice(0, 40)}" to whisper to`);
+    if (target.id === from) throw new RuleError("You can't whisper to yourself");
+    return target;
+  }
+
   /** Whether a viewer (a seated player, or null for a spectator) may read a chat message. */
-  canReadChat(_msg: ChatMessage, _viewer: PlayerId | null): boolean {
-    // Everyone sees everything, fog or not: spectators are the crowd (or the gods) and are meant to be
-    // heard by the players, tips and all. Kept as a hook in case a per-game filter is wanted later.
-    return true;
+  canReadChat(msg: ChatMessage, viewer: PlayerId | null): boolean {
+    // Public messages (spectators' included, fog or not) reach everyone: the crowd is meant to be heard.
+    // Whispers reach only their two players, plus spectators, who watch everything.
+    if (!msg.to || viewer === null) return true;
+    return viewer === msg.playerId || viewer === msg.to;
   }
 
   /** Chat as a given viewer may see it. */

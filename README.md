@@ -44,7 +44,9 @@ Press **Bonuses** (on the map, in the spectator bar, or **B**) to see every regi
 its bonus, no armies; neighbouring regions never share a colour, on the board or in this view.
 Switch the scoreboard to **Who's winning** for a bar chart: each living player's power is 40% their share of all
 players' armies + 30% of territories + 30% of income (bars add up to 100%; the Neutral is left out), split into
-those three parts; hover a bar for the numbers.
+those three parts; hover a bar for the numbers. Each row also shows the player's card count (yellow at 3, a set is
+possible; orange at 4+). Card counts are public, so under fog of war a seated player still gets the card-count list.
+In a progressive-cards game the top bar shows what the **next set** is worth (hover for the next three values).
 
 Development with hot reload (server on :8080, Vite client on :5173 proxying `/api` and `/ws`):
 

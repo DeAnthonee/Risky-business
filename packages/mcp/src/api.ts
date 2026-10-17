@@ -97,9 +97,10 @@ export interface RiskApi {
   joinTournament(tournamentId: string, playerName: string): Promise<{ entrantId: string; token: string; tournament: TournamentInfo }>;
   /** Long-poll until the tournament changes past `since`. */
   waitTournament(tournamentId: string, token: string | undefined, since: number | undefined, timeoutMs: number): Promise<{ reason: string; tournament: TournamentInfo }>;
-  // Admin-only (the server's admin token). TEMPORARY in the MCP tools for testing; remove before launch.
-  createTournament(adminKey: string, spec: TournamentSpec): Promise<{ tournament: TournamentInfo }>;
-  startTournament(adminKey: string, tournamentId: string): Promise<{ tournament: TournamentInfo }>;
+  // TEMPORARY (testing): while the server has tournaments open, no admin key is needed; otherwise pass the
+  // server's admin token. Remove from the MCP tools before launch.
+  createTournament(adminKey: string | undefined, spec: TournamentSpec): Promise<{ tournament: TournamentInfo }>;
+  startTournament(adminKey: string | undefined, tournamentId: string): Promise<{ tournament: TournamentInfo }>;
 }
 
 /** Seats held by one agent connection. Several seats per game are allowed (one chat can run two players). */
@@ -289,10 +290,10 @@ export class HttpRiskApi implements RiskApi {
     if (since !== undefined) q.set('since', String(since));
     return this.request<{ reason: string; tournament: TournamentInfo }>(`/tournaments/${tournamentId}/wait?${q}`, {}, token);
   }
-  createTournament(adminKey: string, spec: TournamentSpec) {
-    return this.request<{ tournament: TournamentInfo }>('/admin/tournaments', { method: 'POST', body: JSON.stringify(spec) }, adminKey);
+  createTournament(adminKey: string | undefined, spec: TournamentSpec) {
+    return this.request<{ tournament: TournamentInfo }>(adminKey ? '/admin/tournaments' : '/tournaments', { method: 'POST', body: JSON.stringify(spec) }, adminKey);
   }
-  startTournament(adminKey: string, tournamentId: string) {
-    return this.request<{ tournament: TournamentInfo }>(`/admin/tournaments/${tournamentId}/start`, { method: 'POST', body: '{}' }, adminKey);
+  startTournament(adminKey: string | undefined, tournamentId: string) {
+    return this.request<{ tournament: TournamentInfo }>(`${adminKey ? '/admin' : ''}/tournaments/${tournamentId}/start`, { method: 'POST', body: '{}' }, adminKey);
   }
 }

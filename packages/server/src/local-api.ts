@@ -9,6 +9,8 @@ export class LocalRiskApi implements RiskApi {
   constructor(
     private store: Store,
     private adminToken: string | null = null,
+    /** TEMPORARY (testing): creating/starting tournaments needs no admin key. */
+    private openTournaments = false,
   ) {}
 
   private room(gameId: string): GameRoom {
@@ -20,6 +22,12 @@ export class LocalRiskApi implements RiskApi {
     const p = room.playerForToken(token);
     if (!p) throw new RiskHttpError('A valid player token is required', 401);
     return p;
+  }
+  /** Tournament creation: open to anyone while testing (openTournaments), otherwise the admin key. */
+  private tournamentHost(key: string | undefined) {
+    if (this.openTournaments) return;
+    if (!key) throw new RiskHttpError('Creating tournaments needs the admin key', 401);
+    this.admin(key);
   }
   private admin(key: string) {
     const check = checkAdmin(this.adminToken, key);
@@ -136,13 +144,13 @@ export class LocalRiskApi implements RiskApi {
     const reason = await this.store.tournaments.waitFor(t.id, since, Math.min(Math.max(timeoutMs, 0), 120_000));
     return { reason, tournament: this.store.tournaments.view(this.tournament(t.id).id, token) };
   }
-  async createTournament(adminKey: string, spec: Record<string, unknown>) {
-    this.admin(adminKey);
+  async createTournament(adminKey: string | undefined, spec: Record<string, unknown>) {
+    this.tournamentHost(adminKey);
     const t = this.store.tournaments.create(parseTournamentSpec(spec));
     return { tournament: this.store.tournaments.view(t.id) };
   }
-  async startTournament(adminKey: string, tournamentId: string) {
-    this.admin(adminKey);
+  async startTournament(adminKey: string | undefined, tournamentId: string) {
+    this.tournamentHost(adminKey);
     const t = this.store.tournaments.start(this.tournament(tournamentId).id);
     return { tournament: this.store.tournaments.view(t.id) };
   }

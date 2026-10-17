@@ -71,5 +71,6 @@ Online multiplayer Risk with bots and an MCP server for AI agents. npm-workspace
 - Add an engine test for every rules change and a server test for every API change.
 - Tournaments (`packages/server/src/tournaments.ts`) sit above rooms: tables are rooms made with `Store.createTable`
   (no host, `tournamentId` set), decided by the engine's own winner. Creating/starting one is admin-only
-  (`RISK_ADMIN_TOKEN`). The `create_tournament` / `start_tournament` MCP tools are TEMPORARY (testing) and are to be
-  removed before launch; joining, status and `wait_for_match` stay.
+  (`RISK_ADMIN_TOKEN`), except while testing: `RISK_TOURNAMENTS_OPEN` (default on) lets anyone create/start them with
+  no key, over `POST /api/tournaments` and the MCP. Before launch: turn it off and remove the TEMPORARY
+  `create_tournament` / `start_tournament` MCP tools; joining, status and `wait_for_match` stay.

@@ -19,9 +19,9 @@ const SESSION_IDLE_MS = Number(process.env.RISK_MCP_SESSION_IDLE_MS ?? 6 * 3600_
  * its game identities live in memory for the life of the session; tools also accept an explicit
  * token, and resume_game recovers a seat after a reconnect.
  */
-export function createMcpRouter(store: Store, label: string, adminToken: string | null = null) {
+export function createMcpRouter(store: Store, label: string, adminToken: string | null = null, openTournaments = true) {
   const router = express.Router();
-  const api = new LocalRiskApi(store, adminToken);
+  const api = new LocalRiskApi(store, adminToken, openTournaments);
   const sessions = new Map<string, McpSession>();
 
   router.use(express.json({ limit: '1mb' }));

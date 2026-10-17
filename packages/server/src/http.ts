@@ -46,6 +46,8 @@ type Req = Request & { room?: GameRoom; playerId?: string | null };
 export interface ApiOptions {
   /** Enables /api/admin/* when set (Authorization: Bearer <token>). */
   adminToken?: string | null;
+  /** TEMPORARY (testing): POST /tournaments and /tournaments/:id/start work without the admin token. */
+  openTournaments?: boolean;
 }
 
 export function createApi(store: Store, opts: ApiOptions = {}) {
@@ -220,6 +222,30 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
     wrap((req, res) => {
       if (!store.tournaments.delete(String(req.params.id))) return res.status(404).json({ error: 'Tournament not found' });
       res.json({ ok: true });
+    }),
+  );
+
+  // TEMPORARY (testing): while tournaments are open, anyone can create and start one here, no admin token.
+  // With openTournaments off these answer 403 and only the /admin routes above work.
+  function requireOpenTournaments(_req: Request, res: Response, next: NextFunction) {
+    if (!opts.openTournaments) return res.status(403).json({ error: 'Only the host can create or start tournaments' });
+    next();
+  }
+  api.post(
+    '/tournaments',
+    requireOpenTournaments,
+    wrap((req, res) => {
+      const t = store.tournaments.create(parseTournamentSpec(req.body ?? {}));
+      res.status(201).json({ tournament: store.tournaments.view(t.id) });
+    }),
+  );
+  api.post(
+    '/tournaments/:id/start',
+    requireOpenTournaments,
+    wrap((req, res) => {
+      if (!store.tournaments.get(String(req.params.id))) return res.status(404).json({ error: 'Tournament not found' });
+      const t = store.tournaments.start(String(req.params.id));
+      res.json({ tournament: store.tournaments.view(t.id) });
     }),
   );
 

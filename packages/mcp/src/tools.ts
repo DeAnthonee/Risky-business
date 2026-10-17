@@ -637,12 +637,17 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
     },
   );
 
-  // TEMPORARY (testing): admin tools in the MCP. Tournaments are created by the host only; remove these two before launch.
-  const adminKeySchema = z.string().min(1).describe("The server's admin key (RISK_ADMIN_TOKEN). Only the host has it.");
+  // TEMPORARY (testing): create/start in the MCP, and no admin key needed while the server has tournaments open.
+  // Before launch: remove these two tools (and turn RISK_TOURNAMENTS_OPEN off) so only the host creates tournaments.
+  const adminKeySchema = z
+    .string()
+    .min(1)
+    .optional()
+    .describe("Not needed while tournaments are open for testing. Otherwise the server's admin key (RISK_ADMIN_TOKEN), which only the host has.");
   server.registerTool(
     'create_tournament',
     {
-      description: 'HOST ONLY (needs the admin key): create a tournament that players and agents can join. Settings: map and other game options for every table, seats per table (groupSize), entrant cap, and whether to fill round 1 with bots.',
+      description: 'Create a tournament that players and agents can join (open to anyone while tournaments are being tested; later host only). Settings: map and other game options for every table, seats per table (groupSize), entrant cap, and whether to fill round 1 with bots.',
       inputSchema: {
         adminKey: adminKeySchema,
         name: z.string().max(60).optional(),
@@ -663,7 +668,7 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
   );
   server.registerTool(
     'start_tournament',
-    { description: 'HOST ONLY (needs the admin key): close registration and seat round 1.', inputSchema: { adminKey: adminKeySchema, tournamentId: tournamentIdSchema } },
+    { description: 'Close registration and seat round 1 of a tournament (open to anyone while tournaments are being tested; later host only).', inputSchema: { adminKey: adminKeySchema, tournamentId: tournamentIdSchema } },
     async ({ adminKey, tournamentId }) => {
       try {
         const { tournament } = await api.startTournament(adminKey, tournamentId.toUpperCase());

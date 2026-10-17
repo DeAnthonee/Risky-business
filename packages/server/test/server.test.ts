@@ -1017,7 +1017,7 @@ describe('tournaments', () => {
   }
   const post = (body: unknown = {}): RequestInit => ({ method: 'POST', body: JSON.stringify(body) });
 
-  it('only the admin can create or start one', async () => {
+  it('the admin routes need the admin token', async () => {
     // No admin token configured on the shared server: the admin API does not exist.
     expect((await api('/admin/tournaments', post({ name: 'x' }))).status).toBe(404);
     const own = await adminServer(null);
@@ -1184,7 +1184,44 @@ describe('tournaments', () => {
     }
   });
 
-  it('is playable over MCP: create (admin key), join, start, wait for your table, play it', async () => {
+  it('is open to create and start while testing: no admin key over HTTP or MCP', async () => {
+    const created = await api('/tournaments', post({ name: 'Open Cup', groupSize: 2 }));
+    expect(created.status).toBe(201);
+    const id = created.body.tournament.id;
+    await api(`/tournaments/${id}/join`, post({ playerName: 'A' }));
+    await api(`/tournaments/${id}/join`, post({ playerName: 'B' }));
+    const started = await api(`/tournaments/${id}/start`, post());
+    expect(started.status).toBe(200);
+    expect(started.body.tournament.status).toBe('running');
+    expect((await api('/tournaments/NOPE1/start', post())).status).toBe(404);
+  });
+
+  it('is host-only when tournaments are closed (the launch setting)', async () => {
+    const store = new Store(null);
+    const r = createRiskServer(store, { clientDir: null, adminToken: ADMIN, openTournaments: false, sweepIntervalMs: 0 });
+    await new Promise<void>((resolve) => r.server.listen(0, '127.0.0.1', resolve));
+    const base2 = `http://127.0.0.1:${(r.server.address() as AddressInfo).port}`;
+    const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+    const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
+    const client = new Client({ name: 'closed', version: '0' });
+    await client.connect(new StreamableHTTPClientTransport(new URL(`${base2}/mcp`)));
+    const tool = async (name: string, args: Record<string, unknown>) => {
+      const res = (await client.callTool({ name, arguments: args })) as { content: { text: string }[]; isError?: boolean };
+      return { text: res.content.map((c) => c.text).join('\n'), isError: !!res.isError };
+    };
+    try {
+      const res = await fetch(`${base2}/api/tournaments`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+      expect(res.status).toBe(403);
+      expect((await tool('create_tournament', { name: 'x' })).text).toMatch(/needs the admin key/);
+      expect((await tool('create_tournament', { name: 'x', adminKey: 'wrong' })).text).toMatch(/Invalid admin key/);
+      expect((await tool('create_tournament', { name: 'x', adminKey: ADMIN })).isError).toBe(false);
+    } finally {
+      await client.close();
+      await r.shutdown('test');
+    }
+  });
+
+  it('is playable over MCP: create, join, start, wait for your table, play it', async () => {
     const own = await adminServer(null);
     const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
     const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
@@ -1195,15 +1232,14 @@ describe('tournaments', () => {
       return { text: r.content.map((c) => c.text).join('\n'), isError: !!r.isError };
     };
     try {
-      expect((await call('create_tournament', { adminKey: 'wrong', name: 'Agents Cup' })).text).toMatch(/Invalid admin key/);
-      const created = await call('create_tournament', { adminKey: ADMIN, name: 'Agents Cup', groupSize: 2, fillBots: true });
+      const created = await call('create_tournament', { name: 'Agents Cup', groupSize: 2, fillBots: true });
       expect(created.isError).toBe(false);
       const id = created.text.match(/Created tournament (\w+)/)![1];
       expect((await call('list_tournaments')).text).toContain(id);
       const joined = await call('join_tournament', { tournamentId: id, playerName: 'Claude' });
       expect(joined.text).toMatch(/ENTRANT TOKEN: \S+/);
       expect((await call('wait_for_match', { tournamentId: id, timeoutSeconds: 1 })).text).toMatch(/^Timed out/);
-      expect((await call('start_tournament', { adminKey: ADMIN, tournamentId: id })).isError).toBe(false);
+      expect((await call('start_tournament', { tournamentId: id })).isError).toBe(false);
       const ready = await call('wait_for_match', { tournamentId: id, timeoutSeconds: 5 });
       expect(ready.text).toMatch(/^Your table is ready/);
       const gameId = ready.text.match(/YOUR TABLE: game (\w+)/)![1];

@@ -157,6 +157,7 @@ Environment variables:
 | `RISK_BOTS_ONLY_TTL_MIN`   | delete a running game with only built-in bots left and no watchers (default 30) |
 | `RISK_FINISHED_TTL_MIN`    | delete a finished game nobody is connected to (default 120) |
 | `RISK_ADMIN_TOKEN`         | the host's admin key: enables `/api/admin/*` (list rooms with idle time, delete a room, run a sweep, create/start/forfeit/delete tournaments); unset = disabled |
+| `RISK_TOURNAMENTS_OPEN`    | **temporary, for testing**: anyone can create and start tournaments without the admin key (default on). Set to `0` before launch so only the host can |
 
 Behaviour that the deploy pipeline relies on:
 
@@ -213,6 +214,7 @@ cards are hidden).
 | `GET  /admin/games`, `DELETE /admin/games/:id`, `POST /admin/sweep` | admin token only: inspect, delete, sweep rooms |
 | `POST /admin/tournaments`          | admin: `{name?, options?, groupSize?, maxEntrants?, fillBots?}` → `{tournament}` (see [Tournaments](#tournaments)) |
 | `POST /admin/tournaments/:id/start`, `POST /admin/tournaments/:id/forfeit` `{entrantId}`, `DELETE /admin/tournaments/:id` | admin: seat round 1; concede for a no-show; delete (closes tables still playing) |
+| `POST /tournaments`, `POST /tournaments/:id/start` | **temporary, for testing**: the same as the admin routes but without the admin token, while `RISK_TOURNAMENTS_OPEN` is on (403 when it is off) |
 | `GET  /tournaments`, `GET /tournaments/:id` | list; bracket. With an entrant token the bracket adds `you`: status and your current table's seat `{gameId, playerId, token}` |
 | `POST /tournaments/:id/join`       | `{playerName}` while registering → `{entrantId, token, tournament}` |
 | `GET  /tournaments/:id/wait?since=&timeoutMs=` | long-poll until the bracket's `version` passes `since` |
@@ -252,8 +254,8 @@ The game speaks the Model Context Protocol two ways. Both expose the same tools:
 `game_options`, `list_games`, `create_game`, `join_game`, `resume_game`, `spectate_game`, `add_bot`,
 `set_options`, `start_game`, `get_state`, `wait_for_turn`, `act`, `recent_events`, `send_chat` (pass `to` to whisper
 to one player), `read_chat`, `leave_game`, `close_game`, and for tournaments `list_tournaments`, `join_tournament`,
-`tournament_status`, `wait_for_match` (plus `create_tournament` / `start_tournament`, which need the admin key and are
-in the MCP **for testing only**: they will be removed before launch).
+`tournament_status`, `wait_for_match` (plus `create_tournament` / `start_tournament`, in the MCP **for testing only**: no admin key needed while
+`RISK_TOURNAMENTS_OPEN` is on; they will be removed before launch).
 
 ### 1. Remote connector (nothing to install)
 
@@ -327,7 +329,8 @@ that someone may surrender); the full board comes back when your turn ends, from
 ## Tournaments
 
 Knockout tournaments, run by the host. Only the host creates and starts them (with the admin key,
-`RISK_ADMIN_TOKEN`); people join on the website (the Tournaments list on the home page, or `?tournament=CODE`) and
+`RISK_ADMIN_TOKEN`), except while they are being tested: with `RISK_TOURNAMENTS_OPEN` on (the default for now) anyone
+can, no key needed. People join on the website (the Tournaments list on the home page, or `?tournament=CODE`) and
 agents with `join_tournament`.
 
 - **Tables.** Each round seats the remaining entrants at tables of up to `groupSize` (default 4, on Four Crowns by

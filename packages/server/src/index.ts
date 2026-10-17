@@ -18,8 +18,21 @@ const CLIENT_DIR = resolve(process.env.RISK_CLIENT_DIR ?? join(__dirname, '../..
 /** Hard limit for graceful shutdown before the process exits anyway. */
 const SHUTDOWN_TIMEOUT_MS = Number(process.env.RISK_SHUTDOWN_TIMEOUT_MS ?? 10_000);
 
-const store = new Store(DATA_DIR ? join(DATA_DIR, 'games.json') : null);
-const risk = createRiskServer(store, { clientDir: CLIENT_DIR, mcpLabel: process.env.RISK_PUBLIC_URL ?? 'Risky Business' });
+const minutes = (name: string) => (process.env[name] ? Number(process.env[name]) * 60_000 : undefined);
+const retention = Object.fromEntries(
+  Object.entries({
+    lobby: minutes('RISK_LOBBY_TTL_MIN'),
+    playing: minutes('RISK_GAME_TTL_MIN'),
+    botsOnly: minutes('RISK_BOTS_ONLY_TTL_MIN'),
+    finished: minutes('RISK_FINISHED_TTL_MIN'),
+  }).filter(([, v]) => v !== undefined && Number.isFinite(v) && v > 0),
+);
+const store = new Store(DATA_DIR ? join(DATA_DIR, 'games.json') : null, retention);
+const risk = createRiskServer(store, {
+  clientDir: CLIENT_DIR,
+  mcpLabel: process.env.RISK_PUBLIC_URL ?? 'Risky Business',
+  adminToken: process.env.RISK_ADMIN_TOKEN || null,
+});
 
 risk.server.listen(PORT, HOST, () => {
   const info = buildInfo();

@@ -10,7 +10,7 @@ export class LocalRiskApi implements RiskApi {
 
   private room(gameId: string): GameRoom {
     const r = this.store.get(gameId);
-    if (!r) throw new RiskHttpError('Game not found', 404);
+    if (!r || r.closed) throw new RiskHttpError('Game not found', 404);
     return r;
   }
   private player(room: GameRoom, token: string | undefined): string {
@@ -97,12 +97,18 @@ export class LocalRiskApi implements RiskApi {
     const p = room.state.players.find((x) => x.id === me);
     return room.addChat(me, p?.name ?? 'Unknown', message);
   }
+  async closeGame(gameId: string, token: string) {
+    const room = this.room(gameId);
+    this.host(room, token);
+    this.store.delete(room.id, 'host');
+    return { ok: true };
+  }
   async leave(gameId: string, token: string) {
     const room = this.room(gameId);
     const me = this.player(room, token);
     if (room.state.phase === 'lobby') {
       room.leave(me);
-      if (room.state.players.length === 0) this.store.delete(room.id);
+      if (!room.hasHumans()) this.store.delete(room.id, 'empty');
     } else {
       room.act(me, { type: 'surrender' });
     }

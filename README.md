@@ -11,6 +11,11 @@ packages/
   mcp/      Model Context Protocol server (stdio) that lets any MCP-capable agent play
 ```
 
+> **Contribution rule: every change lands through a pull request.** Nobody pushes directly to the deploy
+> branch (`ccr-63b8112a-e2uk2g`, the "master" that auto-deploys to risky.deanthoneeking.com). Branch off it,
+> open a PR, let CI pass, merge. That keeps a clean history to bisect and makes recovering the branch a
+> one-line revert. Details in [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## Quick start
 
 ```bash
@@ -70,7 +75,7 @@ Host-selectable options:
 | `cardValues`  | `progressive` (4, 6, 8, 10, 12, 15, +5…) \| `fixed` (3 infantry 4, 3 cavalry 6, 3 artillery 8, one of each 10; a wild completes the best set) | `progressive` |
 | `fogOfWar`    | players see only their territories and adjacent ones; events elsewhere are reported as fogged; spectators see everything and can preview any player's fog | `false` |
 | `blizzards`   | number of random territories frozen for the whole game (0 = off, max a sixth of the map: 7 classic, 12 world); nobody can own, attack or cross them; the rest of the map stays connected and continents only need their open territories | `0` |
-| `capitals`    | Capital Conquest: each player's most garrisoned territory after setup becomes a capital (★); +2 armies per capital held each turn; capturing a player's capital takes over all their territories, troops and cards | `false` |
+| `capitals`    | Capital Conquest: each player's most garrisoned territory after setup becomes a capital (★); +2 armies per capital held each turn; capitals defend with up to 3 dice; capturing a player's capital takes over all their territories, troops and cards | `false` |
 
 ## Hosting (production)
 
@@ -97,6 +102,11 @@ Environment variables:
 | `RISK_BOT_DELAY_MS`        | pause between bot actions so humans can follow (default 700)            |
 | `RISK_SHUTDOWN_TIMEOUT_MS` | hard exit after this on SIGTERM (default 10000)                         |
 | `RISK_PUBLIC_URL`          | public URL shown to MCP agents in the server instructions (optional)    |
+| `RISK_LOBBY_TTL_MIN`       | delete a lobby nobody is connected to after this many idle minutes (default 60) |
+| `RISK_GAME_TTL_MIN`        | delete a running game nobody is connected to after this many idle minutes (default 720) |
+| `RISK_BOTS_ONLY_TTL_MIN`   | delete a running game with only built-in bots left and no watchers (default 30) |
+| `RISK_FINISHED_TTL_MIN`    | delete a finished game nobody is connected to (default 120) |
+| `RISK_ADMIN_TOKEN`         | enables `/api/admin/*` (list rooms with idle time, delete a room, run a sweep); unset = disabled |
 
 Behaviour that the deploy pipeline relies on:
 
@@ -105,6 +115,12 @@ Behaviour that the deploy pipeline relies on:
   games, player tokens, chat and bots resume where they were. Browsers reconnect automatically
   (WebSocket close 1012, exponential backoff) and MCP agents simply call `wait_for_turn` again.
   Updates therefore do not need to wait for `playing == 0`.
+- **Room cleanup.** A sweeper runs every 5 minutes. "Idle" means no person or agent has acted (bot moves don't
+  count); a room with any WebSocket client or long-polling agent attached is kept, up to a 7-day hard cap.
+  Lobbies go after 1 hour idle, finished games after 2 hours, running games after 12 hours, and games where
+  only built-in bots are left after 30 minutes unwatched. Rooms with no people or agents at all go at once,
+  as does a lobby when its last person leaves. Hosts can close their room (button in the lobby and game,
+  `POST /api/games/:id/close`, MCP `close_game`); connected clients see why it closed.
 - **Graceful shutdown.** SIGTERM/SIGINT: save, close WebSocket clients, release long-polls, close the
   HTTP server, exit 0 — typically well under a second, hard limit `RISK_SHUTDOWN_TIMEOUT_MS`.
 - **Caching.** `index.html` and the SPA fallback are `Cache-Control: no-cache`; Vite's hashed
@@ -142,6 +158,8 @@ cards are hidden).
 | `POST /games/:id/start`            | host: start                                                        |
 | `POST /games/:id/kick`             | host: `{playerId}` (lobby)                                         |
 | `POST /games/:id/leave`            | leave the lobby, or surrender a running game                       |
+| `POST /games/:id/close`            | host: close and delete the room for everyone                       |
+| `GET  /admin/games`, `DELETE /admin/games/:id`, `POST /admin/sweep` | admin token only: inspect, delete, sweep rooms |
 | `GET  /games/:id`                  | your view of the state, including `legal` moves on your turn       |
 | `POST /games/:id/actions`          | `{action}` → `{events, state}`                                     |
 | `GET  /games/:id/wait?timeoutMs=&since=` | long-poll until it is your turn, the game ends, or the version passes `since` |
@@ -233,8 +251,11 @@ agent keeps its seats. To run two agents on one machine, register the server twi
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md): branch off the deploy branch, add tests, open a PR. It is written so a
-Claude session can follow it unaided.
+**All changes go through pull requests; never push to the deploy branch directly.** See
+[CONTRIBUTING.md](CONTRIBUTING.md): branch off the deploy branch, add tests, open a PR, merge after CI. It is
+written so a Claude session can follow it unaided. The audience for this game is mostly **spectators**: humans
+watch AI models play each other, so the spectator experience (fog previews, hands, animations, log) is a
+first-class feature, not an afterthought.
 
 ## Roadmap / polish ideas
 

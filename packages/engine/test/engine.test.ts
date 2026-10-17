@@ -384,6 +384,32 @@ describe('turn flow', () => {
     expect(setOptions(world, { map: 'classic' }).options.blizzards).toBe(7);
   });
 
+  it('capital conquest: a capital defends with up to 3 dice, other territories with 2', () => {
+    let state = finishSetup(setup(3, { setupBatch: 40, capitals: true }).state);
+    const me = state.currentPlayer!;
+    const meP = state.players.find((x) => x.id === me)!;
+    state = applyAction(state, me, { type: 'place', placements: { [territoriesOf(state, me)[0]]: meP.armiesToPlace } }).state;
+    const rival = state.turnOrder.find((id) => id !== me)!;
+    const cap = state.capitals[rival];
+    const from = ADJACENCY[cap][0];
+    state.territories[from] = { owner: me, armies: 10 };
+    state.territories[cap] = { owner: rival, armies: 5 };
+    const capBattle = applyAction(state, me, { type: 'attack', from, to: cap }).events.find((e) => e.type === 'battle')!;
+    expect(capBattle.type === 'battle' && capBattle.defenderDice).toHaveLength(3);
+    expect(capBattle.type === 'battle' && capBattle.attackerLosses + capBattle.defenderLosses).toBe(3);
+
+    // A non-capital rival territory still defends with 2.
+    const plain = ADJACENCY[from].find((t) => t !== cap && !Object.values(state.capitals).includes(t))!;
+    state.territories[plain] = { owner: rival, armies: 5 };
+    const plainBattle = applyAction(state, me, { type: 'attack', from, to: plain }).events.find((e) => e.type === 'battle')!;
+    expect(plainBattle.type === 'battle' && plainBattle.defenderDice).toHaveLength(2);
+
+    // Without the capitals option there is no bonus at all.
+    const off = { ...state, options: { ...state.options, capitals: false } };
+    const offBattle = applyAction(off, me, { type: 'attack', from, to: cap }).events.find((e) => e.type === 'battle')!;
+    expect(offBattle.type === 'battle' && offBattle.defenderDice).toHaveLength(2);
+  });
+
   it('eliminating a player transfers cards and ends the game when one remains', () => {
     let state = finishSetup(setup(2, { setupBatch: 40 }).state);
     const me = state.currentPlayer!;

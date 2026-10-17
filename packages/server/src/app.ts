@@ -15,6 +15,10 @@ export interface AppOptions {
   clientDir?: string | null;
   /** Public label for the MCP endpoint's instructions (e.g. the site URL). */
   mcpLabel?: string;
+  /** Enables /api/admin/* when set. */
+  adminToken?: string | null;
+  /** Sweep interval for idle rooms; 0 disables the automatic sweeper (tests). */
+  sweepIntervalMs?: number;
 }
 
 export interface RiskServer {
@@ -62,7 +66,8 @@ export function createRiskServer(store: Store, opts: AppOptions = {}): RiskServe
     res.setHeader('Cache-Control', 'no-store');
     next();
   });
-  app.use('/api', createApi(store));
+  app.use('/api', createApi(store, { adminToken: opts.adminToken }));
+  if (opts.sweepIntervalMs !== 0) store.startSweeper(opts.sweepIntervalMs ?? 5 * 60_000);
 
   // Remote MCP endpoint for AI agents (claude.ai connectors, any Streamable HTTP MCP client).
   const mcp = createMcpRouter(store, opts.mcpLabel ?? 'Risky Business');

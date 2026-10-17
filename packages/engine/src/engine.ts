@@ -3,6 +3,7 @@ import { buildDeck, findSets, isValidSet, setValue } from './cards.js';
 import { createRng, nextInt, rollDie, shuffle, type Rng } from './rng.js';
 import {
   CAPITAL_BONUS,
+  CAPITAL_DEFENSE_DICE,
   DEFAULT_OPTIONS,
   RuleError,
   type Action,
@@ -631,6 +632,11 @@ function drawCard(state: GameState, player: Player, events: GameEvent[]): void {
 // Attack
 // ------------------------------------------------------------------
 
+/** Most dice a territory may defend with: 2, or 3 for a capital (Capital Conquest, as in RISK: Global Domination). */
+export function defenseDiceLimit(state: GameState, territory: TerritoryId): number {
+  return state.options.capitals && Object.values(state.capitals).includes(territory) ? CAPITAL_DEFENSE_DICE : 2;
+}
+
 function doAttack(state: GameState, playerId: PlayerId, action: AttackAction, events: GameEvent[]): void {
   const player = playerOf(state, playerId);
   if (state.phase !== 'attack') throw new RuleError('Not in attack phase');
@@ -658,7 +664,7 @@ function doAttack(state: GameState, playerId: PlayerId, action: AttackAction, ev
     const aDiceCount = Math.min(action.dice ?? 3, maxDice);
     if (action.dice !== undefined && action.dice > maxDice && !action.blitz)
       throw new RuleError(`You can roll at most ${maxDice} dice from ${action.from}`);
-    const dDiceCount = Math.min(2, to.armies);
+    const dDiceCount = Math.min(defenseDiceLimit(state, action.to), to.armies);
     const aDice = Array.from({ length: aDiceCount }, () => rollDie(rng)).sort((a, b) => b - a);
     const dDice = Array.from({ length: dDiceCount }, () => rollDie(rng)).sort((a, b) => b - a);
     let aLoss = 0;

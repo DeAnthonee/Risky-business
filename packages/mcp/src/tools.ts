@@ -380,6 +380,21 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
   });
 
   server.registerTool(
+    'close_game',
+    { description: 'Host only: close a game you host and delete the room for everyone (lobby, running or finished).', inputSchema: { gameId: gameIdSchema, token: tokenSchema, as: asSchema } },
+    async ({ gameId, token, as }) => {
+      try {
+        const id = gameId.toUpperCase();
+        await api.closeGame(id, requireToken(id, token, as));
+        identities.forget(id);
+        return text(`Closed game ${id}.`);
+      } catch (e) {
+        return errorText(e);
+      }
+    },
+  );
+
+  server.registerTool(
     'spectate_game',
     {
       description:

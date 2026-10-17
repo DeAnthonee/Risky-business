@@ -42,6 +42,8 @@ name is highlighted.
 Dice rolls, troop placements ("+N" bursts that stay up longer for spectators), cards being earned, traded in
 (fanning out into "+N armies") or taken from an eliminated player all animate on the board. The sidebar lists players in turn order with their territories, armies, cards and income
 (`+N/turn`, the reinforcements they get next turn before cards; hover it for the breakdown).
+Picking a map (when creating a game, and in the lobby) shows a preview of the board: every territory in its region's
+colour, sea links, the region bonuses (hover one to pick it out) and the starting armies for the player count.
 On desktop, drag the divider under the scoreboard to give the log/chat more or less room (double-click resets). The log shows each attack as one entry: who took (or failed to take) which territory, each side's armies at the start and end with the losses, the number of rolls and the armies moved in; hover it for the individual dice rolls. Runs of fogged events collapse into one line with a count.
 Press **Bonuses** (on the map, in the spectator bar, or **B**) to see every region painted in its own colour with
 its bonus, no armies; neighbouring regions never share a colour, on the board or in this view.

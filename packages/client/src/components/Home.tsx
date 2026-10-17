@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { MapPreview } from './MapPreview';
 import { MAPS, MAP_IDS, maxBlizzards, type GameOptions } from '@risk/engine';
 import { api, type GameSummary } from '../api';
 import type { Session } from '../session';
@@ -150,10 +151,13 @@ export function OptionsForm({
   options,
   onChange,
   disabled,
+  players,
 }: {
   options: Partial<GameOptions>;
   onChange: (o: Partial<GameOptions>) => void;
   disabled?: boolean;
+  /** Players seated so far (in a lobby); the preview's starting armies use it. Defaults to the seat count. */
+  players?: number;
 }) {
   const map = MAPS[options.map ?? 'classic'];
   const maxSeats = map.maxPlayers;
@@ -178,6 +182,7 @@ export function OptionsForm({
           ))}
         </select>
       </label>
+      <MapPreview mapId={options.map ?? 'classic'} players={players ?? options.maxPlayers} />
       <label>
         Max players
         <select disabled={disabled} value={Math.min(options.maxPlayers ?? maxSeats, maxSeats)} onChange={(e) => onChange({ maxPlayers: Number(e.target.value) })}>

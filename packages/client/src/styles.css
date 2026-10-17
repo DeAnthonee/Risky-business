@@ -1172,11 +1172,12 @@ label.check input {
 
 /* =====================================================================
    Mobile / narrow screens (<= 900px): the board fills the screen, the
-   sidebar becomes a bottom tab bar whose tabs open full-height sheets.
+   sidebar becomes a bottom tab bar whose tabs open a panel under the map.
+   The panel splits the screen rather than covering it, so the map always
+   stays visible (and tappable).
    ===================================================================== */
 .mobile-dock,
-.sheet,
-.sheet-backdrop {
+.sheet {
   display: none;
 }
 @media (max-width: 900px) {
@@ -1263,6 +1264,23 @@ label.check input {
     scale: 0.78;
     transform-origin: top left; /* scale applies after translateX(-50%); this keeps it centred */
   }
+  /* the top bar already says who is playing */
+  .game.mobile .watch-note {
+    display: none;
+  }
+  /* with a panel open the map is short: keep pop-ups small so it stays visible */
+  .game.mobile.has-sheet .dice-panel {
+    top: 72px;
+    transform: translateX(-50%) scale(0.55);
+  }
+  .game.mobile.has-sheet .card-fx {
+    top: 72px;
+    scale: 0.55;
+  }
+  .game.mobile.has-sheet .banner {
+    font-size: 0.9em;
+    padding: 6px 14px;
+  }
   .game.mobile .banner {
     font-size: 1.1em;
     padding: 10px 18px;
@@ -1323,28 +1341,18 @@ label.check input {
     line-height: 18px;
   }
 
-  /* sheets */
-  .sheet-backdrop {
-    display: block;
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.45);
-    z-index: 20;
-    animation: fade-in 0.15s ease-out;
-  }
+  /* panel under the map (in the flex column, so the map shrinks instead of being covered) */
   .sheet {
     display: flex;
     flex-direction: column;
-    position: fixed;
-    left: 0;
-    right: 0;
-    bottom: calc(52px + env(safe-area-inset-bottom));
-    height: min(78dvh, calc(100dvh - 110px));
+    flex: none;
+    height: 46dvh;
+    min-height: 220px;
     background: var(--panel);
     border-top: 1px solid var(--border);
     border-radius: 16px 16px 0 0;
-    box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.5);
-    z-index: 25;
+    box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.35);
+    z-index: 4;
     animation: sheet-up 0.22s ease-out;
   }
   .sheet-header {
@@ -1352,7 +1360,7 @@ label.check input {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 14px 14px 10px;
+    padding: 10px 14px 6px;
     border-bottom: 1px solid var(--border);
     flex: none;
   }
@@ -1367,8 +1375,8 @@ label.check input {
     background: var(--border);
   }
   .sheet-close {
-    width: 36px;
-    height: 36px;
+    width: 32px;
+    height: 32px;
     padding: 0;
     border-radius: 50%;
     font-size: 1em;
@@ -1410,6 +1418,35 @@ label.check input {
   .sheet .chat-msg {
     padding: 4px 0;
   }
+  /* one-line composer: [name] [message] [Send], so the messages get the height */
+  .sheet .chat-form {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    flex: none;
+    padding-top: 6px;
+  }
+  .sheet .chat-form .chat-name {
+    flex: 0 0 88px;
+    width: 88px;
+    min-width: 0;
+  }
+  .sheet .chat-form .row {
+    flex: 1 1 0;
+    flex-wrap: nowrap;
+    min-width: 0;
+    gap: 6px;
+  }
+  .sheet .chat-form .row input {
+    flex: 1;
+    min-width: 0;
+  }
+  .sheet .chat-form .row button {
+    flex: none;
+  }
+  .sheet .chat-form .chat-error {
+    flex-basis: 100%;
+  }
   /* 16px inputs stop iOS from zooming the page when a field is focused */
   .game.mobile input,
   .game.mobile select,
@@ -1423,17 +1460,10 @@ label.check input {
 }
 @keyframes sheet-up {
   from {
-    transform: translateY(100%);
-  }
-  to {
-    transform: translateY(0);
-  }
-}
-@keyframes fade-in {
-  from {
+    transform: translateY(40px);
     opacity: 0;
   }
   to {
-    opacity: 1;
+    transform: translateY(0);
   }
 }

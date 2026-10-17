@@ -36,7 +36,7 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
   const [moveArmies, setMoveArmies] = useState(1);
   const [showCards, setShowCards] = useState(false);
   const [tab, setTab] = useState<'log' | 'chat'>('log');
-  // Phones/narrow screens: the board fills the screen and panels open as bottom sheets.
+  // Phones/narrow screens: the board fills the screen; panels open underneath it so the map stays visible.
   const isMobile = useMediaQuery('(max-width: 900px)');
   const [sheet, setSheet] = useState<'players' | 'log' | 'chat' | null>(null);
   const [seenChatId, setSeenChatId] = useState(0);
@@ -309,7 +309,7 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
   const unreadLog = conn.batches.filter((b) => b.id > seenBatchId).length;
 
   return (
-    <div className={`game ${isMobile ? 'mobile' : ''}`}>
+    <div className={`game ${isMobile ? 'mobile' : ''} ${isMobile && sheet ? 'has-sheet' : ''}`}>
       <div className="map-area">
         <div className="topbar">
           <div className="topbar-left">
@@ -383,7 +383,7 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
             </div>
           ) : !me ? (
             <div className="action-group">
-              <span className="muted">
+              <span className="muted watch-note">
                 👁 You are watching. {current ? `${current.name} is playing (${view.phase}).` : ''}
               </span>
               {fogOn && (
@@ -577,9 +577,8 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
         </aside>
       ) : (
         <>
-          {sheet && <div className="sheet-backdrop" onClick={() => setSheet(null)} />}
           {sheet && (
-            <section className={`sheet sheet-${sheet}`} role="dialog" aria-label={sheet}>
+            <section className={`sheet sheet-${sheet}`} aria-label={sheet}>
               <header className="sheet-header">
                 <span className="sheet-grip" />
                 <strong>{sheet === 'players' ? `Players (${view.players.filter((p) => !p.isNeutral).length})` : sheet === 'log' ? 'Battle log' : 'Chat'}</strong>

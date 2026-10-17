@@ -185,6 +185,8 @@ export function recordMatch(ladder: LadderFile, r: MatchResult, decision: { prom
     next.ratings[r.best] ??= { elo: BASE_ELO, games: 0 };
   }
   if (next.best !== r.best) throw new Error(`Match was against ${r.best} but the ladder's best is ${next.best}`);
+  // The same entry on both sides would count every game twice.
+  if (r.candidate === r.best) throw new Error(`Candidate ${r.candidate} is already the best version`);
   const bestEntry = next.ratings[r.best];
   bestEntry.games += r.games;
   const prev = next.ratings[r.candidate];

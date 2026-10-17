@@ -129,13 +129,19 @@ async function main() {
       minGames: intArg(values['min-games'], 'min-games', DEFAULT_PROMOTION.minGames),
       threshold: values.threshold === undefined ? DEFAULT_PROMOTION.threshold : Number(values.threshold),
     };
+    // NaN would make every `score < threshold` check false and silently skip the rule.
+    if (!Number.isFinite(rule.threshold) || rule.threshold < 0 || rule.threshold > 1) fail('--threshold must be a number between 0 and 1');
+    if (resolveAgent(values.candidate).id === resolveAgent(bestId).id) fail('--candidate and --best are the same version');
+    const players = intArg(values.players, 'players', 2);
+    // Seats alternate between the two versions, so an odd table gives one of them more seats in every game.
+    if (players < 2 || players % 2 !== 0) fail('--players must be an even number (2, 4, ...) for a ladder match');
     let done = 0;
     const result = await runMatch({
       candidate: resolveAgent(values.candidate),
       best: resolveAgent(bestId),
       games,
       seed,
-      players: intArg(values.players, 'players', 2),
+      players,
       options,
       maxTurns,
       traits,

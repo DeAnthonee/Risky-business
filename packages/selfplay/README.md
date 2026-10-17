@@ -36,7 +36,8 @@ result is the candidate's score (win 1, draw 0.5, loss 0), its 95% interval and 
 is **promoted** only when it has played at least `--min-games` (200), scores at least `--threshold` (0.55, about
 +35 Elo) **and** the lower end of the 95% interval is above 0.5. The ladder file keeps the current best, every
 version's rating (anchored at 1000 for the first best) and the match history. `--players 4` plays 4-player games
-with the two versions in alternating seats.
+with the two versions in alternating seats (even counts only); the score is then the share of games won by either of
+a version's seats, so its Elo is an approximation of 1v1 strength.
 
 ## Decision log format (v1)
 

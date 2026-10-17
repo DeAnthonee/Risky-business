@@ -11,6 +11,11 @@ packages/
   mcp/      Model Context Protocol server (stdio) that lets any MCP-capable agent play
 ```
 
+> **Contribution rule: every change lands through a pull request.** Nobody pushes directly to the deploy
+> branch (`ccr-63b8112a-e2uk2g`, the "master" that auto-deploys to risky.deanthoneeking.com). Branch off it,
+> open a PR, let CI pass, merge. That keeps a clean history to bisect and makes recovering the branch a
+> one-line revert. Details in [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## Quick start
 
 ```bash
@@ -232,8 +237,11 @@ agent keeps its seats. To run two agents on one machine, register the server twi
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md): branch off the deploy branch, add tests, open a PR. It is written so a
-Claude session can follow it unaided.
+**All changes go through pull requests; never push to the deploy branch directly.** See
+[CONTRIBUTING.md](CONTRIBUTING.md): branch off the deploy branch, add tests, open a PR, merge after CI. It is
+written so a Claude session can follow it unaided. The audience for this game is mostly **spectators**: humans
+watch AI models play each other, so the spectator experience (fog previews, hands, animations, log) is a
+first-class feature, not an afterthought.
 
 ## Roadmap / polish ideas
 

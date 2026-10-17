@@ -18,6 +18,14 @@ export interface FloatAnim {
   color: string;
 }
 
+/** A conquest: the new owner's colour sweeps across the territory from the attacker's side. */
+export interface SweepAnim {
+  id: number;
+  territory: string;
+  from: string;
+  color: string;
+}
+
 export interface MapProps {
   view: GameView;
   /** Territories to draw as fogged (spectator fog preview or a player's own fogged view). */
@@ -28,6 +36,7 @@ export interface MapProps {
   flashes: Record<string, number>;
   moves: MoveAnim[];
   floats: FloatAnim[];
+  sweeps: SweepAnim[];
   onTerritoryClick: (id: string, shift: boolean) => void;
   dimOthers: boolean;
 }
@@ -54,7 +63,7 @@ function shortLabel(name: string): string {
 }
 
 export function GameMap(props: MapProps) {
-  const { view, highlights, pendingPlacements, attackArrow, flashes, moves, floats, onTerritoryClick, dimOthers, hidden } = props;
+  const { view, highlights, pendingPlacements, attackArrow, flashes, moves, floats, sweeps, onTerritoryClick, dimOthers, hidden } = props;
   const isHidden = (id: string) => !!(hidden?.has(id) || view.territories[id]?.hidden);
   const capitalOwner = (id: string) => Object.entries(view.capitals ?? {}).find(([, t]) => t === id)?.[0];
   const map = getMap(view.options.map);
@@ -267,6 +276,44 @@ export function GameMap(props: MapProps) {
                 {fog ? `${t.name} — hidden by fog` : `${t.name} — ${view.players.find((p) => p.id === ts?.owner)?.name ?? 'unowned'}, ${ts?.armies ?? 0} armies`}
               </title>
             </path>
+          );
+        })}
+      </g>
+
+      {/* Capture sweeps: a clipped band of the new owner's colour wipes across the shape */}
+      <g className="sweeps">
+        {sweeps.map((sw) => {
+          const t = map.territoryById[sw.territory];
+          const f = map.territoryById[sw.from];
+          if (!t || !f) return null;
+          const [bx, by, bw, bh] = t.bbox;
+          const pad = 6;
+          const dx = t.x - f.x;
+          const dy = t.y - f.y;
+          const horizontal = Math.abs(dx) >= Math.abs(dy);
+          // The band starts fully outside the shape on the attacker's side and grows across it.
+          const rect = horizontal
+            ? { x: dx >= 0 ? bx - pad : bx + bw + pad, y: by - pad, w: 0, h: bh + 2 * pad, attr: 'width', to: bw + 2 * pad, anchorRight: dx < 0 }
+            : { x: bx - pad, y: dy >= 0 ? by - pad : by + bh + pad, w: bw + 2 * pad, h: 0, attr: 'height', to: bh + 2 * pad, anchorRight: dy < 0 };
+          const clipId = `sweep-${sw.id}`;
+          return (
+            <g key={sw.id} className="sweep">
+              <clipPath id={clipId}>
+                {rect.anchorRight ? (
+                  // grow towards the left/top: animate both position and size
+                  <rect x={rect.x} y={rect.y} width={rect.w} height={rect.h}>
+                    <animate attributeName={rect.attr} from="0" to={String(rect.to)} dur="0.55s" fill="freeze" calcMode="spline" keySplines="0.2 0.7 0.3 1" />
+                    <animate attributeName={horizontal ? 'x' : 'y'} from={String(horizontal ? rect.x : rect.y)} to={String((horizontal ? rect.x : rect.y) - rect.to)} dur="0.55s" fill="freeze" calcMode="spline" keySplines="0.2 0.7 0.3 1" />
+                  </rect>
+                ) : (
+                  <rect x={rect.x} y={rect.y} width={rect.w} height={rect.h}>
+                    <animate attributeName={rect.attr} from="0" to={String(rect.to)} dur="0.55s" fill="freeze" calcMode="spline" keySplines="0.2 0.7 0.3 1" />
+                  </rect>
+                )}
+              </clipPath>
+              <path d={t.path} fill={sw.color} className="sweep-fill" clipPath={`url(#${clipId})`} />
+              <path d={t.path} className="sweep-edge" stroke={sw.color} />
+            </g>
           );
         })}
       </g>

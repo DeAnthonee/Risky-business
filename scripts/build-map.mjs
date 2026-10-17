@@ -200,13 +200,16 @@ function build(def) {
     const projected = largest.map((ring) => ring.map((pt) => projection(pt)).filter(Boolean));
     // Explicit anchor (lon/lat) wins; otherwise the pole of inaccessibility.
     const [x, y] = t.anchor ? projection(t.anchor) : polylabel(projected, 0.5);
+    const [[bx0, by0], [bx1, by1]] = path.bounds(g);
+    const r = (v) => Math.round(v * 10) / 10;
     return {
       id: t.id,
       name: t.name,
       continent: t.continent,
-      x: Math.round(x * 10) / 10,
-      y: Math.round(y * 10) / 10,
+      x: r(x),
+      y: r(y),
       path: path(g),
+      bbox: [r(bx0), r(by0), r(bx1 - bx0), r(by1 - by0)],
     };
   });
 

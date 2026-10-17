@@ -18,6 +18,8 @@ export interface TerritoryDef {
   y: number;
   /** SVG path data for the territory shape. */
   path: string;
+  /** Bounding box of the shape: [x, y, width, height]. */
+  bbox: [number, number, number, number];
 }
 
 export interface ContinentDef {

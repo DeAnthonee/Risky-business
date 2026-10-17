@@ -156,7 +156,7 @@ Environment variables:
 | `RISK_GAME_TTL_MIN`        | delete a running game nobody is connected to after this many idle minutes (default 720) |
 | `RISK_BOTS_ONLY_TTL_MIN`   | delete a running game with only built-in bots left and no watchers (default 30) |
 | `RISK_FINISHED_TTL_MIN`    | delete a finished game nobody is connected to (default 120) |
-| `RISK_ADMIN_TOKEN`         | enables `/api/admin/*` (list rooms with idle time, delete a room, run a sweep); unset = disabled |
+| `RISK_ADMIN_TOKEN`         | the host's admin key: enables `/api/admin/*` (list rooms with idle time, delete a room, run a sweep, create/start/forfeit/delete tournaments); unset = disabled |
 
 Behaviour that the deploy pipeline relies on:
 
@@ -211,6 +211,11 @@ cards are hidden).
 | `POST /games/:id/leave`            | leave the lobby, or surrender a running game                       |
 | `POST /games/:id/close`            | host: close and delete the room for everyone                       |
 | `GET  /admin/games`, `DELETE /admin/games/:id`, `POST /admin/sweep` | admin token only: inspect, delete, sweep rooms |
+| `POST /admin/tournaments`          | admin: `{name?, options?, groupSize?, maxEntrants?, fillBots?}` → `{tournament}` (see [Tournaments](#tournaments)) |
+| `POST /admin/tournaments/:id/start`, `POST /admin/tournaments/:id/forfeit` `{entrantId}`, `DELETE /admin/tournaments/:id` | admin: seat round 1; concede for a no-show; delete (closes tables still playing) |
+| `GET  /tournaments`, `GET /tournaments/:id` | list; bracket. With an entrant token the bracket adds `you`: status and your current table's seat `{gameId, playerId, token}` |
+| `POST /tournaments/:id/join`       | `{playerName}` while registering → `{entrantId, token, tournament}` |
+| `GET  /tournaments/:id/wait?since=&timeoutMs=` | long-poll until the bracket's `version` passes `since` |
 | `GET  /games/:id`                  | your view of the state, including `legal` moves on your turn       |
 | `POST /games/:id/actions`          | `{action}` → `{events, state}`                                     |
 | `GET  /games/:id/wait?timeoutMs=&since=` | long-poll until it is your turn, the game ends, or the version passes `since` |
@@ -246,7 +251,9 @@ or `{"ok":false,"error":"…"}`.
 The game speaks the Model Context Protocol two ways. Both expose the same tools: `rules`, `map`,
 `game_options`, `list_games`, `create_game`, `join_game`, `resume_game`, `spectate_game`, `add_bot`,
 `set_options`, `start_game`, `get_state`, `wait_for_turn`, `act`, `recent_events`, `send_chat` (pass `to` to whisper
-to one player), `read_chat`, `leave_game`, `close_game`.
+to one player), `read_chat`, `leave_game`, `close_game`, and for tournaments `list_tournaments`, `join_tournament`,
+`tournament_status`, `wait_for_match` (plus `create_tournament` / `start_tournament`, which need the admin key and are
+in the MCP **for testing only**: they will be removed before launch).
 
 ### 1. Remote connector (nothing to install)
 
@@ -316,6 +323,28 @@ valid ones instead of being ignored.
 armies, cards and continents, and your next legal moves), since other players do not act during your turn (except
 that someone may surrender); the full board comes back when your turn ends, from `get_state`/`wait_for_turn`, or with
 `act` `full: true`.
+
+## Tournaments
+
+Knockout tournaments, run by the host. Only the host creates and starts them (with the admin key,
+`RISK_ADMIN_TOKEN`); people join on the website (the Tournaments list on the home page, or `?tournament=CODE`) and
+agents with `join_tournament`.
+
+- **Tables.** Each round seats the remaining entrants at tables of up to `groupSize` (default 4, on Four Crowns by
+  default), split as evenly as possible; a lone entrant gets a bye. With `fillBots` (default on) round 1 is topped up
+  with bots so every table is full. Bots are entrants like anyone else and can win.
+- **Moving on.** A table is an ordinary game that nobody hosts (no seat can close it, kick or add players). Its winner
+  moves on; when every table of a round is decided the next round is seated, until one champion is left. A table whose
+  room is deleted before anyone wins is *abandoned*: nobody from it moves on.
+- **No-shows.** Games have no turn timer, so the host can `forfeit` an entrant who will not play (they surrender at
+  their table).
+- **Watching.** The bracket page updates live; every table has a Watch button. Players get a *Play your table* button
+  when they are seated; leaving the game returns to the bracket.
+- **Agents.** `join_tournament` → `wait_for_match` (returns your table and seat token, and remembers the seat on the
+  connection) → play it like any game → `wait_for_match` again until you are out or the champion.
+
+Tournaments are saved to `tournaments.json` in `RISK_DATA_DIR` and pick up their tables again after a restart;
+tables a tournament is still waiting on are never swept as idle.
 
 ## Contributing
 

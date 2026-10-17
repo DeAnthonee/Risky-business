@@ -37,6 +37,30 @@ export interface EventsResult {
   entries: { version: number; at: number; playerId: string | null; events: GameEvent[] }[];
 }
 
+/** A tournament as the server describes it (see the server's TournamentView). */
+export interface TournamentInfo {
+  id: string;
+  name: string;
+  status: 'registering' | 'running' | 'finished';
+  map: string;
+  groupSize: number;
+  maxEntrants: number;
+  fillBots: boolean;
+  entrants: { id: string; name: string; isBot: boolean; status: string }[];
+  rounds: { round: number; matches: { gameId: string | null; status: string; players: { entrantId: string; name: string }[]; winner: string | null }[] }[];
+  champion: { entrantId: string; name: string } | null;
+  version: number;
+  you?: { entrantId: string; name: string; status: string; match: { gameId: string; playerId: string; token: string; round: number } | null };
+}
+
+export interface TournamentSpec {
+  name?: string;
+  options?: Partial<GameOptions>;
+  groupSize?: number;
+  maxEntrants?: number;
+  fillBots?: boolean;
+}
+
 export interface ChatResult {
   /** `to`/`toName`: a whisper, readable only by its two players and spectators. */
   messages: { id: number; name: string; message: string; at: number; spectator?: boolean; to?: string; toName?: string }[];
@@ -66,6 +90,16 @@ export interface RiskApi {
   sendChat(gameId: string, token: string, message: string, to?: string): Promise<unknown>;
   leave(gameId: string, token: string): Promise<unknown>;
   closeGame(gameId: string, token: string): Promise<unknown>;
+
+  listTournaments(): Promise<{ tournaments: unknown[] }>;
+  /** Pass your entrant token to get `you` (your status and your current table's seat). */
+  getTournament(tournamentId: string, token?: string): Promise<{ tournament: TournamentInfo }>;
+  joinTournament(tournamentId: string, playerName: string): Promise<{ entrantId: string; token: string; tournament: TournamentInfo }>;
+  /** Long-poll until the tournament changes past `since`. */
+  waitTournament(tournamentId: string, token: string | undefined, since: number | undefined, timeoutMs: number): Promise<{ reason: string; tournament: TournamentInfo }>;
+  // Admin-only (the server's admin token). TEMPORARY in the MCP tools for testing; remove before launch.
+  createTournament(adminKey: string, spec: TournamentSpec): Promise<{ tournament: TournamentInfo }>;
+  startTournament(adminKey: string, tournamentId: string): Promise<{ tournament: TournamentInfo }>;
 }
 
 /** Seats held by one agent connection. Several seats per game are allowed (one chat can run two players). */
@@ -240,5 +274,25 @@ export class HttpRiskApi implements RiskApi {
   }
   closeGame(gameId: string, token: string) {
     return this.request(`/games/${gameId}/close`, { method: 'POST', body: '{}' }, token);
+  }
+  listTournaments() {
+    return this.request<{ tournaments: unknown[] }>('/tournaments');
+  }
+  getTournament(tournamentId: string, token?: string) {
+    return this.request<{ tournament: TournamentInfo }>(`/tournaments/${tournamentId}`, {}, token);
+  }
+  joinTournament(tournamentId: string, playerName: string) {
+    return this.request<{ entrantId: string; token: string; tournament: TournamentInfo }>(`/tournaments/${tournamentId}/join`, { method: 'POST', body: JSON.stringify({ playerName }) });
+  }
+  waitTournament(tournamentId: string, token: string | undefined, since: number | undefined, timeoutMs: number) {
+    const q = new URLSearchParams({ timeoutMs: String(timeoutMs) });
+    if (since !== undefined) q.set('since', String(since));
+    return this.request<{ reason: string; tournament: TournamentInfo }>(`/tournaments/${tournamentId}/wait?${q}`, {}, token);
+  }
+  createTournament(adminKey: string, spec: TournamentSpec) {
+    return this.request<{ tournament: TournamentInfo }>('/admin/tournaments', { method: 'POST', body: JSON.stringify(spec) }, adminKey);
+  }
+  startTournament(adminKey: string, tournamentId: string) {
+    return this.request<{ tournament: TournamentInfo }>(`/admin/tournaments/${tournamentId}/start`, { method: 'POST', body: '{}' }, adminKey);
   }
 }

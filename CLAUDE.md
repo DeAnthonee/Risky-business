@@ -69,3 +69,7 @@ Online multiplayer Risk with bots and an MCP server for AI agents. npm-workspace
 - Every state change goes through `GameRoom.commit` so WebSocket clients, long-poll waiters,
   bots and persistence all see it.
 - Add an engine test for every rules change and a server test for every API change.
+- Tournaments (`packages/server/src/tournaments.ts`) sit above rooms: tables are rooms made with `Store.createTable`
+  (no host, `tournamentId` set), decided by the engine's own winner. Creating/starting one is admin-only
+  (`RISK_ADMIN_TOKEN`). The `create_tournament` / `start_tournament` MCP tools are TEMPORARY (testing) and are to be
+  removed before launch; joining, status and `wait_for_match` stay.

@@ -1002,3 +1002,219 @@ describe('skirmish map over HTTP', () => {
     }
   });
 });
+
+describe('tournaments', () => {
+  const ADMIN = 'tournament-admin-key';
+  async function adminServer(file: string | null) {
+    const own = await startServer(file, undefined, ADMIN);
+    const call = async (path: string, init: RequestInit = {}, token?: string) => {
+      const headers: Record<string, string> = { 'content-type': 'application/json' };
+      if (token) headers.authorization = `Bearer ${token}`;
+      const res = await fetch(`${own.base}/api${path}`, { ...init, headers });
+      return { status: res.status, body: (await res.json()) as any };
+    };
+    return { ...own, call };
+  }
+  const post = (body: unknown = {}): RequestInit => ({ method: 'POST', body: JSON.stringify(body) });
+
+  it('only the admin can create or start one', async () => {
+    // No admin token configured on the shared server: the admin API does not exist.
+    expect((await api('/admin/tournaments', post({ name: 'x' }))).status).toBe(404);
+    const own = await adminServer(null);
+    try {
+      expect((await own.call('/admin/tournaments', post({ name: 'x' }))).status).toBe(401);
+      expect((await own.call('/admin/tournaments', post({ name: 'x' }), 'wrong')).status).toBe(401);
+      expect((await own.call('/admin/tournaments', post({ options: { bogus: 1 } }), ADMIN)).status).toBe(400);
+      expect((await own.call('/admin/tournaments', post({ groupSize: 5 }), ADMIN)).status).toBe(400); // skirmish seats 4
+      expect((await own.call('/admin/tournaments', post({ options: { blizzards: 99 } }), ADMIN)).status).toBe(400); // too many for the map
+      const created = await own.call('/admin/tournaments', post({ name: 'Cup' }), ADMIN);
+      expect(created.status).toBe(201);
+      expect(created.body.tournament).toMatchObject({ name: 'Cup', status: 'registering', map: 'skirmish', groupSize: 4, fillBots: true });
+      const id = created.body.tournament.id;
+      expect((await own.call(`/admin/tournaments/${id}/start`, post(), 'wrong')).status).toBe(401);
+      expect((await own.call(`/admin/tournaments/${id}/start`, post(), ADMIN)).status).toBe(400); // nobody joined
+    } finally {
+      await own.risk.shutdown('test');
+    }
+  });
+
+  it('runs a knockout: tables of 4, winners move on, one champion', async () => {
+    const own = await adminServer(null);
+    const { call } = own;
+    try {
+      const id = (await call('/admin/tournaments', post({ name: 'Crown Cup', fillBots: false }), ADMIN)).body.tournament.id;
+      const tokens: Record<string, string> = {};
+      for (let i = 1; i <= 8; i++) {
+        const r = await call(`/tournaments/${id}/join`, post({ playerName: `P${i}` }));
+        expect(r.status).toBe(201);
+        tokens[r.body.entrantId] = r.body.token;
+        expect(r.body.tournament.you).toMatchObject({ name: `P${i}`, status: 'registered', match: null });
+      }
+      expect((await call(`/tournaments/${id}/join`, post({ playerName: 'p1' }))).status).toBe(400); // names are unique
+      expect((await call('/tournaments')).body.tournaments).toContainEqual(expect.objectContaining({ id, entrants: 8, status: 'registering' }));
+
+      const started = await call(`/admin/tournaments/${id}/start`, post(), ADMIN);
+      expect(started.status).toBe(200);
+      expect(started.body.tournament.status).toBe('running');
+      const r1 = started.body.tournament.rounds[0].matches;
+      expect(r1).toHaveLength(2);
+      for (const m of r1) {
+        expect(m.players).toHaveLength(4);
+        expect(m.status).toBe('playing');
+      }
+      expect((await call(`/tournaments/${id}/join`, post({ playerName: 'Late' }))).status).toBe(400);
+
+      // Every entrant learns their table and seat; the seat works in the game, and nobody hosts the table.
+      for (const [entrantId, token] of Object.entries(tokens)) {
+        const you = (await call(`/tournaments/${id}`, {}, token)).body.tournament.you;
+        expect(you).toMatchObject({ entrantId, status: 'playing', match: { round: 1 } });
+        const game = await call(`/games/${you.match.gameId}`, {}, you.match.token);
+        expect(game.body.playerId).toBe(you.match.playerId);
+        expect(game.body.state.options).toMatchObject({ map: 'skirmish', maxPlayers: 4 });
+        expect((await call(`/games/${you.match.gameId}/close`, post(), you.match.token)).status).toBe(403);
+      }
+      expect((await call(`/tournaments/${id}`, {}, 'not-a-token')).status).toBe(400);
+
+      // A long-poll wakes up when the bracket changes.
+      const version = (await call(`/tournaments/${id}`)).body.tournament.version;
+      const waiting = call(`/tournaments/${id}/wait?since=${version}&timeoutMs=5000`);
+
+      // Decide each table: three players forfeit, the fourth wins it.
+      const winners: string[] = [];
+      for (const m of r1) {
+        const [keep, ...rest] = m.players.map((p: any) => p.entrantId);
+        for (const e of rest) expect((await call(`/admin/tournaments/${id}/forfeit`, post({ entrantId: e }), ADMIN)).status).toBe(200);
+        winners.push(keep);
+      }
+      expect((await waiting).body.reason).toBe('change');
+
+      let t = (await call(`/tournaments/${id}`)).body.tournament;
+      expect(t.rounds[0].matches.map((m: any) => m.winner).sort()).toEqual(winners.slice().sort());
+      expect(t.rounds).toHaveLength(2);
+      expect(t.rounds[1].matches).toHaveLength(1);
+      expect(t.rounds[1].matches[0].players.map((p: any) => p.entrantId).sort()).toEqual(winners.slice().sort());
+      expect(t.entrants.filter((e: any) => e.status === 'out')).toHaveLength(6);
+      const finalTable = (await call(`/tournaments/${id}`, {}, tokens[winners[0]])).body.tournament.you.match;
+      expect(finalTable).toMatchObject({ round: 2 });
+      expect((await call(`/games/${finalTable.gameId}`)).body.state.options.maxPlayers).toBe(2);
+
+      // The final: one finalist forfeits, the other is champion.
+      expect((await call(`/admin/tournaments/${id}/forfeit`, post({ entrantId: winners[0] }), ADMIN)).status).toBe(200);
+      t = (await call(`/tournaments/${id}`, {}, tokens[winners[1]])).body.tournament;
+      expect(t.status).toBe('finished');
+      expect(t.champion.entrantId).toBe(winners[1]);
+      expect(t.you).toMatchObject({ status: 'champion', match: null });
+      expect((await call(`/admin/tournaments/${id}/forfeit`, post({ entrantId: winners[1] }), ADMIN)).status).toBe(400);
+    } finally {
+      await own.risk.shutdown('test');
+    }
+  });
+
+  it('fills round 1 with bots, and a bot can be beaten to the title', async () => {
+    const own = await adminServer(null);
+    const { call } = own;
+    try {
+      const id = (await call('/admin/tournaments', post({ name: 'Solo', groupSize: 3 }), ADMIN)).body.tournament.id;
+      const me = await call(`/tournaments/${id}/join`, post({ playerName: 'Human' }));
+      const t = (await call(`/admin/tournaments/${id}/start`, post(), ADMIN)).body.tournament;
+      expect(t.entrants).toHaveLength(3);
+      expect(t.entrants.filter((e: any) => e.isBot)).toHaveLength(2);
+      const you = (await call(`/tournaments/${id}`, {}, me.body.token)).body.tournament.you;
+      const players = (await call(`/games/${you.match.gameId}`)).body.state.players.filter((p: any) => !p.isNeutral);
+      expect(players.map((p: any) => p.isBot).sort()).toEqual([false, true, true]);
+      // Bots at a table can be forfeited too (an admin clean-up); the human then wins it all.
+      for (const e of t.entrants.filter((x: any) => x.isBot)) expect((await call(`/admin/tournaments/${id}/forfeit`, post({ entrantId: e.id }), ADMIN)).status).toBe(200);
+      const done = (await call(`/tournaments/${id}`)).body.tournament;
+      expect(done.status).toBe('finished');
+      expect(done.champion.name).toBe('Human');
+    } finally {
+      await own.risk.shutdown('test');
+    }
+  });
+
+  it('survives a restart: tables stay linked and keep deciding the bracket', async () => {
+    const tdir = mkdtempSync(join(tmpdir(), 'risk-tourney-'));
+    const file = join(tdir, 'games.json');
+    try {
+      const first = await adminServer(file);
+      const id = (await first.call('/admin/tournaments', post({ name: 'Persist', fillBots: false }), ADMIN)).body.tournament.id;
+      const a = (await first.call(`/tournaments/${id}/join`, post({ playerName: 'A' }))).body;
+      const b = (await first.call(`/tournaments/${id}/join`, post({ playerName: 'B' }))).body;
+      await first.call(`/admin/tournaments/${id}/start`, post(), ADMIN);
+      const table = (await first.call(`/tournaments/${id}`, {}, a.token)).body.tournament.you.match;
+      await first.risk.shutdown('test');
+      expect(existsSync(join(tdir, 'tournaments.json'))).toBe(true);
+
+      const second = await adminServer(file);
+      try {
+        const t = (await second.call(`/tournaments/${id}`, {}, b.token)).body.tournament;
+        expect(t.status).toBe('running');
+        expect(t.you.match.gameId).toBe(table.gameId);
+        // The restored store does not sweep a table its tournament still needs, even if nobody is watching.
+        expect(second.risk.store.staleReason(second.risk.store.get(table.gameId)!)).toBeNull();
+        expect((await second.call(`/admin/tournaments/${id}/forfeit`, post({ entrantId: a.entrantId }), ADMIN)).status).toBe(200);
+        const done = (await second.call(`/tournaments/${id}`)).body.tournament;
+        expect(done.status).toBe('finished');
+        expect(done.champion.entrantId).toBe(b.entrantId);
+      } finally {
+        await second.risk.shutdown('test');
+      }
+    } finally {
+      rmSync(tdir, { recursive: true, force: true });
+    }
+  });
+
+  it('marks a table abandoned when its room is deleted, and the bracket still finishes', async () => {
+    const own = await adminServer(null);
+    const { call } = own;
+    try {
+      const id = (await call('/admin/tournaments', post({ name: 'Gone', fillBots: false, groupSize: 2 }), ADMIN)).body.tournament.id;
+      for (const n of ['A', 'B', 'C', 'D']) await call(`/tournaments/${id}/join`, post({ playerName: n }));
+      const t = (await call(`/admin/tournaments/${id}/start`, post(), ADMIN)).body.tournament;
+      const [m1, m2] = t.rounds[0].matches;
+      expect((await call(`/admin/games/${m1.gameId}`, { method: 'DELETE' }, ADMIN)).status).toBe(200);
+      await call(`/admin/tournaments/${id}/forfeit`, post({ entrantId: m2.players[0].entrantId }), ADMIN);
+      const done = (await call(`/tournaments/${id}`)).body.tournament;
+      expect(done.rounds[0].matches[0].status).toBe('abandoned');
+      // One winner left after round 1: they are the champion.
+      expect(done.status).toBe('finished');
+      expect(done.champion.entrantId).toBe(m2.players[1].entrantId);
+    } finally {
+      await own.risk.shutdown('test');
+    }
+  });
+
+  it('is playable over MCP: create (admin key), join, start, wait for your table, play it', async () => {
+    const own = await adminServer(null);
+    const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+    const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
+    const client = new Client({ name: 'tourney-agent', version: '0' });
+    await client.connect(new StreamableHTTPClientTransport(new URL(`${own.base}/mcp`)));
+    const call = async (name: string, args: Record<string, unknown> = {}) => {
+      const r = (await client.callTool({ name, arguments: args })) as { content: { text: string }[]; isError?: boolean };
+      return { text: r.content.map((c) => c.text).join('\n'), isError: !!r.isError };
+    };
+    try {
+      expect((await call('create_tournament', { adminKey: 'wrong', name: 'Agents Cup' })).text).toMatch(/Invalid admin key/);
+      const created = await call('create_tournament', { adminKey: ADMIN, name: 'Agents Cup', groupSize: 2, fillBots: true });
+      expect(created.isError).toBe(false);
+      const id = created.text.match(/Created tournament (\w+)/)![1];
+      expect((await call('list_tournaments')).text).toContain(id);
+      const joined = await call('join_tournament', { tournamentId: id, playerName: 'Claude' });
+      expect(joined.text).toMatch(/ENTRANT TOKEN: \S+/);
+      expect((await call('wait_for_match', { tournamentId: id, timeoutSeconds: 1 })).text).toMatch(/^Timed out/);
+      expect((await call('start_tournament', { adminKey: ADMIN, tournamentId: id })).isError).toBe(false);
+      const ready = await call('wait_for_match', { tournamentId: id, timeoutSeconds: 5 });
+      expect(ready.text).toMatch(/^Your table is ready/);
+      const gameId = ready.text.match(/YOUR TABLE: game (\w+)/)![1];
+      // The seat is remembered on this connection: game tools work without a token.
+      const state = await call('get_state', { gameId });
+      expect(state.isError).toBe(false);
+      expect(state.text).toContain('Claude');
+      expect((await call('tournament_status', { tournamentId: id })).text).toMatch(/You: Claude .* - playing/);
+    } finally {
+      await client.close();
+      await own.risk.shutdown('test');
+    }
+  });
+});

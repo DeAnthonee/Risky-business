@@ -70,7 +70,7 @@ export function createRiskServer(store: Store, opts: AppOptions = {}): RiskServe
   if (opts.sweepIntervalMs !== 0) store.startSweeper(opts.sweepIntervalMs ?? 5 * 60_000);
 
   // Remote MCP endpoint for AI agents (claude.ai connectors, any Streamable HTTP MCP client).
-  const mcp = createMcpRouter(store, opts.mcpLabel ?? 'Risky Business');
+  const mcp = createMcpRouter(store, opts.mcpLabel ?? 'Risky Business', opts.adminToken ?? null);
   app.use('/mcp', mcp.router);
 
   const health = (): HealthReport => {

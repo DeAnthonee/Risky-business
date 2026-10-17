@@ -23,10 +23,11 @@ PLAYERS & STARTING ARMIES
 Classic: 2 players: 40 each (plus a 40-army Neutral that never attacks). 3: 35. 4: 30. 5: 25. 6: 20.
 Every other map: the classic numbers scaled by map size (territories / 42); above 6 players everyone gets an equal
 share of the 6-player total (120 armies per 42 territories). Never fewer than 1.5 armies per territory you are dealt.
-  World: 2 players 60, 5: 44, 10: 22. Grand World: 2-5 players 60, 6: 52, 7: 45, 8: 39, 9: 35, 10: 31.
-  Europe: 2: 60, 3: 44, 4: 33, 5: 26, 6: 22, 7-8: 20. USA: 2: 60, 3: 45, 4: 34, 5: 27, 6: 23, 7-10: 20.
-  Asia: 2: 60, 3: 49, 4: 37, 5: 29, 6: 25, 7: 21, 8: 20.
-  Realms of Halvaren: 2-4 players 60, 5: 52, 6: 44, 7: 37, 8: 33, 9: 29, 10: 26.
+  World: 2 players 70, 3: 62, 4: 53, 5: 44, 6: 35, 7: 30, 8: 26, 9: 23, 10: 21.
+  Grand World: 2: 99, 3: 87, 4: 74, 5: 62, 6: 50, 7: 42, 8: 37, 9: 33, 10: 30.
+  Europe: 2: 42, 3: 37, 4: 31, 5: 26, 6: 21, 7: 18, 8: 16. USA: 2: 43, 3: 38, 4: 32, 5: 27, 6: 21, 7: 18, 8: 16, 9: 14, 10: 13.
+  Asia: 2: 47, 3: 41, 4: 35, 5: 29, 6: 23, 7: 20, 8: 18.
+  Realms of Halvaren: 2: 83, 3: 73, 4: 62, 5: 52, 6: 41, 7: 36, 8: 31, 9: 28, 10: 25.
 
 SETUP
 Territories are dealt randomly (default) and get 1 army each. Then, in turn order, each player places armies on their
@@ -91,4 +92,8 @@ instead of 2 (all three pairs are compared). A captured capital becomes
 yours like any territory (with its +2 and its 3-dice defence); losing your capital does not knock you out, you
 keep playing with what you hold. The game ends as soon as one player holds every capital, including the capitals
 of eliminated players. Eliminating everyone else still wins too.
+With "chooseCapitals" on, there is a short capitals phase after setup (whatever the deal and placement settings):
+each player in turn order picks one of their own territories with {"type":"choose_capital","territory":"<id>"}.
+The chosen capital gets 2 extra armies on the spot (1 army becomes 3). Picks are public, except under fog of war,
+where you only learn of capitals you can see. Then turn 1 begins.
 `.trim();

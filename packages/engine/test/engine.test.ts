@@ -23,6 +23,7 @@ import {
   territoriesOf,
   tradeBonus,
   viewFor,
+  visibleTerritories,
   type GameState,
   type GameEvent,
 } from '../src/index.js';
@@ -913,5 +914,91 @@ describe('round-1 late-turn bonus', () => {
     }
     const last = state.players.find((x) => x.id === state.currentPlayer)!;
     expect(last.armiesToPlace).toBe(viewFor(state, null).players.find((x) => x.id === last.id)!.income!.total);
+  });
+});
+
+describe('chosen capitals', () => {
+  it('players pick their capitals in turn order before turn 1, each getting +2 armies there', () => {
+    let state = setup(3, { capitals: true, chooseCapitals: true, autoSetup: true }).state;
+    expect(state.phase).toBe('capitals');
+    expect(state.capitals).toEqual({});
+    const order = state.turnOrder;
+    for (const pid of order) {
+      expect(state.currentPlayer).toBe(pid);
+      const lm = legalMoves(state, pid);
+      expect(lm.capitalChoices.length).toBe(territoriesOf(state, pid).length);
+      expect(() => applyAction(state, pid, { type: 'end_turn' })).toThrow(RuleError);
+      const enemy = TERRITORY_IDS.find((t) => state.territories[t].owner !== pid)!;
+      expect(() => applyAction(state, pid, { type: 'choose_capital', territory: enemy })).toThrow(RuleError);
+      // Pick the weakest territory to show the +2.
+      const pick = [...lm.capitalChoices].sort((a, b) => state.territories[a].armies - state.territories[b].armies)[0];
+      const before = state.territories[pick].armies;
+      const res = applyAction(state, pid, { type: 'choose_capital', territory: pick });
+      expect(res.state.territories[pick].armies).toBe(before + 2);
+      expect(res.events).toContainEqual({ type: 'capital_chosen', player: pid, territory: pick, armies: 2 });
+      expect(res.state.capitals[pid]).toBe(pick);
+      state = res.state;
+    }
+    // Everyone picked: turn 1 starts with the first player reinforcing.
+    expect(state.phase).toBe('reinforce');
+    expect(state.currentPlayer).toBe(order[0]);
+    expect(Object.keys(state.capitals)).toHaveLength(3);
+  });
+
+  it('under fog of war, a capital pick is only revealed to players who can see it', () => {
+    const state = setup(3, { capitals: true, chooseCapitals: true, autoSetup: true, fogOfWar: true }).state;
+    const pid = state.currentPlayer!;
+    const others = state.turnOrder.filter((id) => id !== pid);
+    // A territory at least one rival cannot see, so the fog actually has something to hide.
+    const hiddenFrom = (t: string) => others.filter((o) => !visibleTerritories(state.territories, o, MAPS.classic).has(t));
+    const pick = legalMoves(state, pid).capitalChoices.find((t) => hiddenFrom(t).length > 0)!;
+    expect(pick).toBeDefined();
+    const res = applyAction(state, pid, { type: 'choose_capital', territory: pick });
+    const chosen = res.events.filter((e) => e.type === 'capital_chosen');
+    expect(chosen).toHaveLength(1);
+    expect(redactEvents(res.state, pid, chosen)).toEqual(chosen);
+    expect(redactEvents(res.state, null, chosen)).toEqual(chosen);
+    for (const other of others) {
+      const sees = !hiddenFrom(pick).includes(other);
+      expect(redactEvents(res.state, other, chosen)[0].type).toBe(sees ? 'capital_chosen' : 'fogged');
+    }
+  });
+
+  it('without chooseCapitals, capitals are assigned automatically with no bonus armies', () => {
+    const state = setup(3, { capitals: true, autoSetup: true }).state;
+    expect(state.phase).toBe('reinforce');
+    expect(Object.keys(state.capitals)).toHaveLength(3);
+  });
+
+  it('a capital rolls 3 dice only when defending, never more than 3 when attacking', () => {
+    let state = finishSetup(setup(3, { setupBatch: 40, capitals: true }).state);
+    const me = state.currentPlayer!;
+    const meP = state.players.find((x) => x.id === me)!;
+    state = applyAction(state, me, { type: 'place', placements: { [territoriesOf(state, me)[0]]: meP.armiesToPlace } }).state;
+    const myCap = state.capitals[me];
+    state.territories[myCap].armies = 20;
+    const target = ADJACENCY[myCap].find((t) => !Object.values(state.capitals).includes(t))!;
+    const rival = state.turnOrder.find((id) => id !== me)!;
+    state.territories[target] = { owner: rival, armies: 10 };
+    const battle = applyAction(state, me, { type: 'attack', from: myCap, to: target }).events.find((e) => e.type === 'battle')!;
+    expect(battle.type === 'battle' && battle.attackerDice).toHaveLength(3);
+    expect(battle.type === 'battle' && battle.defenderDice).toHaveLength(2);
+    expect(legalMoves(state, me).attacks.filter((a) => a.from === myCap).every((a) => a.maxDice <= 3)).toBe(true);
+  });
+});
+
+describe('rules text', () => {
+  it('lists the same starting armies as the engine for every scaled map', async () => {
+    const { RULES_TEXT } = await import('../src/rules.js');
+    const labels: Record<string, string> = { world: 'World', world_large: 'Grand World', europe: 'Europe', usa: 'USA', asia: 'Asia', fantasy: 'Realms of Halvaren' };
+    const section = RULES_TEXT.slice(RULES_TEXT.indexOf('PLAYERS & STARTING ARMIES'), RULES_TEXT.indexOf('SETUP'));
+    for (const [id, label] of Object.entries(labels)) {
+      const m = MAPS[id as keyof typeof MAPS];
+      const line = section.match(new RegExp(`(?:\\n  |\\. )${label}: (?:2 players )?([^A-Z\\n]*)`))?.[1] ?? '';
+      const listed = Object.fromEntries([...line.matchAll(/(\d+): (\d+)/g)].map((x) => [Number(x[1]), Number(x[2])]));
+      const two = line.match(/^(\d+),/);
+      if (two) listed[2] = Number(two[1]);
+      for (let p = 2; p <= m.maxPlayers; p++) expect(listed[p], `${label} ${p} players`).toBe(m.startingArmies(p));
+    }
   });
 });

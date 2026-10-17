@@ -251,6 +251,10 @@ export function OptionsForm({
         <input type="checkbox" disabled={disabled} checked={!!options.capitals} onChange={(e) => onChange({ capitals: e.target.checked })} /> Capital Conquest
         <span className="muted small">+2 per capital held, capitals defend with 3 dice; hold every capital to win</span>
       </label>
+      <label className="check">
+        <input type="checkbox" disabled={disabled || !options.capitals} checked={!!options.chooseCapitals} onChange={(e) => onChange({ chooseCapitals: e.target.checked })} /> Players choose their capital
+        <span className="muted small">pick it before turn 1 (+2 armies there), even with random setup</span>
+      </label>
       <label>
         Fortify
         <select disabled={disabled} value={options.fortifyMode ?? 'connected'} onChange={(e) => onChange({ fortifyMode: e.target.value as GameOptions['fortifyMode'] })}>

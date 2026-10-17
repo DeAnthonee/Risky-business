@@ -466,7 +466,7 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
           ) : mode === 'capital' ? (
             <div className="action-group">
               <strong>★ Choose your capital</strong>
-              <span className="muted small">click one of your territories · it gets +2 armies, defends with 3 dice and pays +2 a turn</span>
+              <span className="muted small">click one of your territories · it gets +3 armies, defends with 3 dice and pays +2 a turn</span>
             </div>
           ) : mode === 'place' ? (
             <div className="action-group">

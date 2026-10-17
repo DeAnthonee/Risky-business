@@ -31,7 +31,8 @@ log and chat, a live "watching" count, and which players are online. In fog-of-w
 see the board as any player sees it (click a player, or "Follow turn") and press **F** ("Hide fog" /
 "Show fog") to flip to the whole map and back. Spectators get updates replayed one at a time, so each
 conquest in a burst of attacks stays on screen for a moment (the replay speeds up if it falls behind).
-The sidebar lists players in turn order with their territories, armies, cards and income
+Dice rolls, cards being earned, traded in (fanning out into "+N armies") or taken from an eliminated player
+all animate on the board. The sidebar lists players in turn order with their territories, armies, cards and income
 (`+N/turn`, the reinforcements they get next turn before cards; hover it for the breakdown).
 
 Development with hot reload (server on :8080, Vite client on :5173 proxying `/api` and `/ws`):
@@ -95,10 +96,10 @@ Host-selectable options:
 | `spectatorChat` | watchers can post in the game chat (marked as spectators, 5 messages / 10 s); every player sees them, even under fog of war | `true` |
 | `neutrals`    | games of 3+ players: this many random territories start held by a Neutral army that never attacks (0 = off, max a third of the map); 2-player games always have the classic Neutral | `0` |
 | `neutralArmies` | armies on each neutral territory when `neutrals` is on (1–10) | `2` |
-| `blizzards`   | number of random territories frozen for the whole game (0 = off, max a sixth of the map: 7 classic, 12 world, 14 fantasy); nobody can own, attack or cross them; the rest of the map stays connected and continents only need their open territories | `0` |
+| `blizzards`   | number of random territories frozen for the whole game (0 = off, max 8, or a sixth of the map on bigger boards: 12 world, 14 fantasy, 17 grand world); nobody can own, attack or cross them; the rest of the map stays connected and continents only need their open territories | `0` |
 | `firstRoundBonus` | round 1 only: the Nth player in turn order receives at least N armies (4th at least 4, ... 10th at least 10) to offset going later; games saved before this option keep it off | `true` |
-| `capitals`    | Capital Conquest: each player's most garrisoned territory after setup becomes a capital (★); +2 armies per capital held each turn; capitals defend with up to 3 dice; losing your capital does not knock you out; holding every capital at once wins the game | `false` |
-| `chooseCapitals` | Capital Conquest only: after setup each player, in turn order, picks one of their own territories as their capital and gets 2 extra armies there (under fog of war only players who can see it learn the pick); off = most garrisoned territory becomes the capital | `false` |
+| `capitals`    | Capital Conquest: each player's most garrisoned territory after setup becomes a capital (★) and gets 3 extra armies; +2 armies per capital held each turn; capitals defend with up to 3 dice; losing your capital does not knock you out; holding every capital at once wins the game | `false` |
+| `chooseCapitals` | Capital Conquest only: after setup each player, in turn order, picks one of their own territories as their capital (under fog of war only players who can see it learn the pick); off = most garrisoned territory becomes the capital | `false` |
 
 ## Hosting (production)
 
@@ -202,6 +203,7 @@ or `{"ok":false,"error":"…"}`.
 
 ```jsonc
 {"type":"place","placements":{"alaska":3,"peru":1}}   // setup / reinforce / forced placement
+{"type":"choose_capital","territory":"brazil"}        // capitals phase (chooseCapitals): pick your capital, +3 armies there
 {"type":"trade","cardIds":[3,17,42]}
 {"type":"attack","from":"alaska","to":"kamchatka","dice":3}              // one roll
 {"type":"attack","from":"alaska","to":"kamchatka","blitz":true,"occupy":"max"} // fight to the end, move in
@@ -215,8 +217,9 @@ or `{"ok":false,"error":"…"}`.
 ## AI agents via MCP
 
 The game speaks the Model Context Protocol two ways. Both expose the same tools: `rules`, `map`,
-`list_games`, `create_game`, `join_game`, `resume_game`, `add_bot`, `set_options`, `start_game`,
-`get_state`, `wait_for_turn`, `act`, `recent_events`, `send_chat`, `read_chat`, `leave_game`.
+`game_options`, `list_games`, `create_game`, `join_game`, `resume_game`, `spectate_game`, `add_bot`,
+`set_options`, `start_game`, `get_state`, `wait_for_turn`, `act`, `recent_events`, `send_chat`, `read_chat`,
+`leave_game`, `close_game`.
 
 ### 1. Remote connector (nothing to install)
 

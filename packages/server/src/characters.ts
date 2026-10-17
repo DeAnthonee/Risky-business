@@ -1,6 +1,21 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { RiskHttpError, type CharacterProfile, type CharacterSummary, type CharacterUpdate, type CharacterVersion, type ModelInfoDoc } from '@risk/mcp';
+import {
+  GAME_OUTCOMES,
+  RiskHttpError,
+  type CharacterMemory,
+  type CharacterProfile,
+  type CharacterSummary,
+  type CharacterUpdate,
+  type CharacterVersion,
+  type DiaryEntry,
+  type DiaryInput,
+  type GameOutcome,
+  type ModelInfoDoc,
+  type RecordLine,
+  type Relationship,
+  type RelationshipInput,
+} from '@risk/mcp';
 
 /** "<universe>/<name>", both lowercase kebab-case, e.g. "marvel/iron-man". */
 const ID_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*\/[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -8,6 +23,18 @@ const MAX_MARKDOWN = 32 * 1024;
 const MAX_CHARACTERS = 500;
 /** Older versions beyond this are dropped (oldest first). */
 const MAX_VERSIONS = 50;
+const MAX_DIARY_TEXT = 8000;
+/** Saved diary entries beyond this are dropped (oldest first); repo entries always stay. */
+const MAX_DIARY_ENTRIES = 500;
+const MAX_RELATIONSHIPS = 200;
+const MAX_RELATIONSHIP_NOTES = 50;
+
+/** Diary entries and relationships saved by agents (on top of the repo's seeds). */
+interface Memory {
+  diary: Omit<DiaryEntry, 'n'>[];
+  /** Keyed by lowercase name; holds every player touched since the repo seed, with full notes. */
+  relationships: Record<string, Relationship>;
+}
 
 interface Saved {
   versions: CharacterVersion[];
@@ -176,6 +203,137 @@ export class CharacterStore {
     return this.get(id);
   }
 
+  // ---- memory: diary entries and relationships ----
+
+  private memories = new Map<string, Memory>();
+
+  /** Throws 404 unless the character has a profile (repo or saved), so a typo cannot start an orphan diary. */
+  private requireCharacter(rawId: string): string {
+    const id = checkCharacterId(rawId);
+    if (!this.saved.has(id) && this.seed(id) === null) throw new RiskHttpError(`No character "${id}". list_characters shows them all.`, 404);
+    return id;
+  }
+
+  private memory(id: string): Memory {
+    let m = this.memories.get(id);
+    if (!m) {
+      m = { diary: readJson(this.dataDir && join(this.dataDir, id, 'diary.json')) ?? [], relationships: readJson(this.dataDir && join(this.dataDir, id, 'relationships.json')) ?? {} };
+      this.memories.set(id, m);
+    }
+    return m;
+  }
+
+  private saveMemory(id: string, m: Memory, part: 'diary' | 'relationships') {
+    if (!this.dataDir) return;
+    const dir = join(this.dataDir, id);
+    mkdirSync(dir, { recursive: true });
+    writeJson(join(dir, `${part}.json`), m[part]);
+  }
+
+  private seedFile(id: string, kind: 'diary' | 'relationships'): string | null {
+    const p = this.aiDir ? join(this.aiDir, 'characters', `${id}.${kind}.md`) : null;
+    return p && existsSync(p) ? readFileSync(p, 'utf8') : null;
+  }
+
+  private diaryEntries(id: string): DiaryEntry[] {
+    const seeded = parseDiary(this.seedFile(id, 'diary') ?? '');
+    return [...seeded, ...this.memory(id).diary].map((e, i) => ({ ...e, n: i + 1 }));
+  }
+
+  private relationshipList(id: string): Relationship[] {
+    const all = new Map(parseRelationships(this.seedFile(id, 'relationships') ?? '').map((r) => [r.with.toLowerCase(), r]));
+    for (const [k, r] of Object.entries(this.memory(id).relationships)) all.set(k, r);
+    return [...all.values()].sort((a, b) => Math.abs(b.rapport) - Math.abs(a.rapport) || a.with.localeCompare(b.with));
+  }
+
+  readDiary(rawId: string, limit?: number, gameId?: string): { id: string; total: number; entries: DiaryEntry[] } {
+    const id = this.requireCharacter(rawId);
+    const all = this.diaryEntries(id);
+    const n = limit === undefined ? 5 : Math.max(1, Math.min(Math.floor(limit), 50));
+    const entries = gameId ? all.filter((e) => e.gameId?.toUpperCase() === gameId.trim().toUpperCase()) : all.slice(-n);
+    return { id, total: all.length, entries };
+  }
+
+  addDiaryEntry(rawId: string, input: DiaryInput): DiaryEntry {
+    const id = this.requireCharacter(rawId);
+    const title = String(input.title ?? '').trim();
+    const text = String(input.text ?? '').trim();
+    if (!title || title.length > 120) throw new RiskHttpError('title is required (max 120 characters)', 400);
+    if (!text || text.length > MAX_DIARY_TEXT) throw new RiskHttpError(`text is required (max ${MAX_DIARY_TEXT} characters)`, 400);
+    if (input.outcome !== undefined && !GAME_OUTCOMES.includes(input.outcome)) throw new RiskHttpError(`outcome must be one of ${GAME_OUTCOMES.join(', ')}`, 400);
+    const short = (v: unknown, max = 80) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : undefined);
+    const opponents = Array.isArray(input.opponents) ? input.opponents.map((o) => short(o)).filter((o): o is string => !!o).slice(0, 12) : undefined;
+    const entry: Omit<DiaryEntry, 'n'> = clean({
+      at: new Date().toISOString(),
+      source: 'saved' as const,
+      title,
+      text,
+      gameId: short(input.gameId, 12)?.toUpperCase(),
+      outcome: input.outcome,
+      map: short(input.map, 40),
+      opponents: opponents?.length ? opponents : undefined,
+      strategy: short(input.strategy),
+      winner: short(input.winner),
+    });
+    const m = this.memory(id);
+    m.diary.push(entry);
+    if (m.diary.length > MAX_DIARY_ENTRIES) m.diary.splice(0, m.diary.length - MAX_DIARY_ENTRIES);
+    this.saveMemory(id, m, 'diary');
+    const all = this.diaryEntries(id);
+    return all[all.length - 1];
+  }
+
+  updateRelationship(rawId: string, input: RelationshipInput): Relationship {
+    const id = this.requireCharacter(rawId);
+    const who = String(input.with ?? '').trim().slice(0, 80);
+    const note = String(input.note ?? '').trim();
+    if (!who) throw new RiskHttpError('with is required: the other player\'s name or character id', 400);
+    if (!note || note.length > 1000) throw new RiskHttpError('note is required (max 1000 characters): what happened', 400);
+    const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? Math.round(v) : undefined);
+    const change = num(input.change);
+    const set = num(input.rapport);
+    if (change === undefined && set === undefined && (input.change !== undefined || input.rapport !== undefined)) throw new RiskHttpError('change and rapport must be numbers', 400);
+    const key = who.toLowerCase();
+    const m = this.memory(id);
+    const current = this.relationshipList(id).find((r) => r.with.toLowerCase() === key) ?? { with: who, rapport: 0, notes: [] };
+    if (!m.relationships[key] && Object.keys(m.relationships).length >= MAX_RELATIONSHIPS) throw new RiskHttpError(`Too many relationships (max ${MAX_RELATIONSHIPS})`, 400);
+    const rapport = clamp(set ?? current.rapport + (change ?? 0));
+    const updated: Relationship = {
+      with: current.with,
+      rapport,
+      notes: [...current.notes, clean({ at: new Date().toISOString(), gameId: typeof input.gameId === 'string' && input.gameId.trim() ? input.gameId.trim().toUpperCase().slice(0, 12) : undefined, change: rapport - current.rapport, note })].slice(-MAX_RELATIONSHIP_NOTES),
+    };
+    m.relationships[key] = updated;
+    this.saveMemory(id, m, 'relationships');
+    return updated;
+  }
+
+  memorySummary(rawId: string): CharacterMemory {
+    const id = this.requireCharacter(rawId);
+    const diary = this.diaryEntries(id);
+    const line = (): RecordLine => ({ games: 0, won: 0 });
+    const record: CharacterMemory['record'] = { ...line(), byStrategy: {}, byMap: {}, vsOpponent: {} };
+    const count = (r: RecordLine, won: boolean) => {
+      r.games++;
+      if (won) r.won++;
+    };
+    for (const e of diary) {
+      if (!e.outcome) continue;
+      const won = e.outcome === 'won';
+      count(record, won);
+      if (e.strategy) count((record.byStrategy[e.strategy.toLowerCase()] ??= line()), won);
+      if (e.map) count((record.byMap[e.map.toLowerCase()] ??= line()), won);
+      for (const o of e.opponents ?? []) count((record.vsOpponent[o] ??= line()), won);
+    }
+    return {
+      id,
+      record,
+      relationships: this.relationshipList(id).map((r) => ({ ...r, notes: r.notes.slice(-3) })),
+      diaryEntries: diary.length,
+      recentDiary: diary.slice(-5).map((e) => clean({ n: e.n, at: e.at, title: e.title, outcome: e.outcome })),
+    };
+  }
+
   /** Docs from AI/general-model-info (every model reads these), plus the character template. */
   modelInfo(): { docs: ModelInfoDoc[] } {
     if (!this.aiDir) return { docs: [] };
@@ -188,6 +346,72 @@ export class CharacterStore {
     if (existsSync(template)) docs.push({ file: 'characters/_TEMPLATE.md', markdown: readFileSync(template, 'utf8') });
     return { docs };
   }
+}
+
+const clamp = (n: number) => Math.max(-100, Math.min(100, n));
+
+/** Drops undefined fields so saved JSON and replies stay compact. */
+function clean<T extends object>(o: T): T {
+  return Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as T;
+}
+
+function readJson<T>(file: string | null): T | null {
+  if (!file || !existsSync(file)) return null;
+  try {
+    return JSON.parse(readFileSync(file, 'utf8')) as T;
+  } catch {
+    return null;
+  }
+}
+
+function writeJson(file: string, data: unknown) {
+  writeFileSync(`${file}.tmp`, JSON.stringify(data, null, 1));
+  renameSync(`${file}.tmp`, file);
+}
+
+/**
+ * A repo diary (<name>.diary.md): one "## <title>" block per entry. Optional "- **Key:** value" lines
+ * set Game, Date, Outcome, Map, Opponents (comma-separated), Strategy and Winner; the rest is the text.
+ */
+export function parseDiary(markdown: string): Omit<DiaryEntry, 'n'>[] {
+  const blocks = markdown.split(/^## /m).slice(1);
+  return blocks.map((block) => {
+    const [heading, ...lines] = block.split('\n');
+    const fields: Record<string, string> = {};
+    const text = lines
+      .filter((l) => {
+        const f = l.match(/^- \*\*(Game|Date|Outcome|Map|Opponents|Strategy|Winner):\*\*\s*(.+)$/i);
+        if (f) fields[f[1].toLowerCase()] = f[2].trim();
+        return !f;
+      })
+      .join('\n')
+      .trim();
+    const outcome = fields.outcome?.split(/\s/)[0].toLowerCase() as GameOutcome | undefined;
+    return clean({
+      at: fields.date && !Number.isNaN(Date.parse(fields.date)) ? new Date(fields.date).toISOString() : null,
+      source: 'repo' as const,
+      title: heading.trim(),
+      text,
+      gameId: fields.game?.toUpperCase(),
+      outcome: outcome && GAME_OUTCOMES.includes(outcome) ? outcome : undefined,
+      map: fields.map,
+      opponents: fields.opponents?.split(',').map((o) => o.trim()).filter(Boolean),
+      strategy: fields.strategy,
+      winner: fields.winner,
+    });
+  });
+}
+
+/** A repo relationships file (<name>.relationships.md): a "| Player | Rapport | Notes |" table. */
+export function parseRelationships(markdown: string): Relationship[] {
+  const out: Relationship[] = [];
+  for (const line of markdown.split('\n')) {
+    const cells = line.trim().match(/^\|(.*)\|$/)?.[1].split('|').map((c) => c.trim());
+    if (!cells || cells.length < 2 || !/^[-+]?\d+$/.test(cells[1])) continue;
+    const rapport = clamp(Number(cells[1]));
+    out.push({ with: cells[0].replace(/\*\*/g, ''), rapport, notes: cells[2] ? [{ at: null, change: rapport, note: cells[2] }] : [] });
+  }
+  return out;
 }
 
 function safeDir(dir: string): string[] {

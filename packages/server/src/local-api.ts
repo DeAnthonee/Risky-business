@@ -1,5 +1,5 @@
 import { RULES_TEXT, RuleError, getMap, redactEvents, type Action, type GameOptions } from '@risk/engine';
-import type { CharacterUpdate, RiskApi } from '@risk/mcp';
+import type { CharacterUpdate, DiaryInput, RelationshipInput, RiskApi } from '@risk/mcp';
 import { RiskHttpError } from '@risk/mcp';
 import { mapInfo, sanitizeOptions } from './http.js';
 import type { GameRoom, Store } from './store.js';
@@ -135,6 +135,18 @@ export class LocalRiskApi implements RiskApi {
   }
   async modelInfo() {
     return this.characters.modelInfo();
+  }
+  async characterMemory(id: string) {
+    return this.characters.memorySummary(id);
+  }
+  async readDiary(id: string, limit?: number, gameId?: string) {
+    return this.characters.readDiary(id, limit, gameId);
+  }
+  async addDiaryEntry(id: string, entry: DiaryInput) {
+    return this.characters.addDiaryEntry(id, entry);
+  }
+  async updateRelationship(id: string, update: RelationshipInput) {
+    return this.characters.updateRelationship(id, update);
   }
 }
 

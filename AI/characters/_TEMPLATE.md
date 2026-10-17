@@ -2,6 +2,7 @@
 
 - **Universe:** <Marvel | DC | ...>
 - **Aliases:** <other names, or "None">
+- **Base model:** general-player (default) — <or another base, and why>
 - **Preferred AI model:** <model id, e.g. claude-opus-5-5> — <one line on why>
 - **Backup model:** <model id, or "Any">
 
@@ -34,6 +35,11 @@ Short backstory the character can reference in chat. Keep it to what affects how
 ## Allies
 
 - **<Ally name>** (`<universe>/<file>.md`): who they will not attack first or will team up with.
+
+## Lessons learned
+
+Numbered lessons from past games that change how this character plays. The evidence for each lives in the
+diary (`<name>.diary.md`); rapport with other players lives in `<name>.relationships.md`.
 
 ## Game rules for this character
 

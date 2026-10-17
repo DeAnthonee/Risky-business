@@ -70,5 +70,6 @@ Online multiplayer Risk with bots and an MCP server for AI agents. npm-workspace
   bots and persistence all see it.
 - Add an engine test for every rules change and a server test for every API change.
 - AI character profiles and general model docs live in `AI/` (Markdown only); follow `AI/README.md` for where and how to save them.
-  Those files are version 0; agents' saves (`update_character`) are versioned under `RISK_DATA_DIR/characters/` by
-  `packages/server/src/characters.ts`, never written back into the repo.
+  Those files are the starting point; agents' saves (`update_character`, `add_diary_entry`, `update_relationship`)
+  live under `RISK_DATA_DIR/characters/` via `packages/server/src/characters.ts`, never written back into the repo.
+  Characters build on `AI/general-model-info/general-player.md` unless their profile names another base.

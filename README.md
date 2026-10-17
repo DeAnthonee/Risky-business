@@ -248,7 +248,7 @@ The game speaks the Model Context Protocol two ways. Both expose the same tools:
 `game_options`, `list_games`, `create_game`, `join_game`, `resume_game`, `spectate_game`, `add_bot`,
 `set_options`, `start_game`, `get_state`, `wait_for_turn`, `act`, `recent_events`, `send_chat` (pass `to` to whisper
 to one player), `read_chat`, `leave_game`, `close_game`, and for character profiles `list_characters`, `get_character`,
-`update_character`, `general_model_info` (see below).
+`update_character`, `general_model_info`, `read_diary`, `add_diary_entry`, `update_relationship` (see below).
 
 Agents do not need a separate README: on connect every MCP client receives the server's instructions (the typical
 flow, how tokens work, how to use character profiles) and every tool's description, which is all an agent sees.
@@ -332,14 +332,19 @@ of contents. Where to save things:
 | A Marvel character | `AI/characters/marvel/` | `<character>.md`, lowercase kebab-case (`iron-man.md`) |
 | A DC character | `AI/characters/dc/` | `<character>.md` (`batman.md`) |
 | A character from another universe | `AI/characters/<universe>/` (create the folder, lowercase) | `<character>.md` |
+| A character's match history (diary) | next to its profile | `<character>.diary.md` (`ultron.diary.md`), one `## ` entry per game |
+| A character's rapport with other players | next to its profile | `<character>.relationships.md`, a `\| Player \| Rapport \| Notes \|` table |
 | Info that applies to every model | `AI/general-model-info/` | `<topic>.md` (`playing-via-mcp.md`) |
 
 Rules for agents saving character info:
 
 1. Start from [`AI/characters/_TEMPLATE.md`](AI/characters/_TEMPLATE.md) and keep its headings: universe,
-   aliases, **preferred AI model**, personality, strategy, skills, weaknesses, history, grudges & rivals,
-   allies, and game rules for the character.
-2. One character = one file. If the file exists, edit it; never make a duplicate under another name.
+   aliases, **base model** (default: the general player in `AI/general-model-info/general-player.md`),
+   **preferred AI model**, personality, strategy, skills, weaknesses, history, grudges & rivals, allies,
+   lessons learned, and game rules for the character. Diary and relationships formats are in
+   [`AI/README.md`](AI/README.md).
+2. One character = one profile (plus its optional diary and relationships files). If a file exists, edit it;
+   never make a duplicate under another name.
 3. Anything true for all models goes in `AI/general-model-info/`, never in a character file.
 4. Add every new file to the tree in [`AI/README.md`](AI/README.md) (and new general docs to
    `AI/general-model-info/README.md`).
@@ -354,15 +359,24 @@ profile through MCP, and the server keeps those saves:
 | `list_characters` | every character, grouped by universe, with its latest version and save time |
 | `get_character` | the latest profile (`version` reads an older one, `history: true` lists versions) |
 | `update_character` | save a new version: one `## ` section (`section` + `content`) or the whole profile (`markdown`); `expectedVersion` rejects a save if someone saved since you read |
-| `general_model_info` | the docs in `AI/general-model-info/` plus the profile template |
+| `general_model_info` | the docs in `AI/general-model-info/` (including the general player) plus the profile template |
+| `read_diary` | the latest diary entries, or one game's (`gameId`) |
+| `add_diary_entry` | write an entry after a game; `outcome`, `map`, `opponents`, `strategy` build the win/loss record |
+| `update_relationship` | change rapport (-100 enemy .. 100 ally) with another player, with a note on what happened |
 
-- Saves live under `RISK_DATA_DIR/characters/<universe>/<name>/` (`v1.md`, `v2.md`, … and `history.json`),
-  never in the repo, so they survive restarts and deploys. The repo file stays version 0.
+`get_character` also returns the character's **memory**: record (by strategy, map and opponent), rapport with
+every player and the latest diary titles.
+
+- Saves live under `RISK_DATA_DIR/characters/<universe>/<name>/` (`v1.md`, `v2.md`, … and `history.json`
+  for the profile, `diary.json` and `relationships.json` for memory), never in the repo, so they survive
+  restarts and deploys. The repo files stay the starting point: saved diary entries come after the repo's,
+  saved rapport replaces the repo's row for that player.
 - Every save is a new version and the last 50 are kept. `/mcp` has no auth, so a bad edit is fixed by
   reading an older version and saving it again.
 - The same data is on the HTTP API: `GET /api/characters` (add `?full=1` for every latest profile),
   `GET /api/characters/<universe>/<name>` (`?version=N`), `GET …/history`, `POST /api/characters/<universe>/<name>`
-  with the `update_character` fields, and `GET /api/model-info`.
+  with the `update_character` fields, `GET …/memory`, `GET …/diary` (`?limit=N`, `?gameId=`), `POST …/diary`,
+  `POST …/relationships`, and `GET /api/model-info`.
 - **Bringing saves back into the repo:** fetch `GET /api/characters?full=1` from the live server, write each
   `markdown` to `AI/characters/<id>.md`, and open a PR. The live saves stay ahead of the repo either way.
 

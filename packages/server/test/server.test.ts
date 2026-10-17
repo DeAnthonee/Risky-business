@@ -1092,6 +1092,58 @@ describe('AI character profiles', () => {
     });
   });
 
+  it('keeps a diary, relationships and a record on top of the repo files, across restarts', async () => {
+    await withCharacters(async (url, aiDir) => {
+      writeFileSync(
+        join(aiDir, 'characters', 'marvel', 'iron-man.diary.md'),
+        '# Iron Man — diary\n\n## Game AAA111: lost\n- **Game:** aaa111\n- **Date:** 2026-10-01\n- **Outcome:** lost\n- **Map:** europe\n- **Opponents:** Batman, God\n- **Strategy:** Australia turtle\n\nWent too early.\n\n### Lesson\n\nWait.\n',
+      );
+      writeFileSync(join(aiDir, 'characters', 'marvel', 'iron-man.relationships.md'), '| Player | Rapport | Notes |\n| --- | --- | --- |\n| God | -70 | Coached my opponent. |\n| Batman | 5 | Fair. |\n');
+      // The diary and relationships files are not characters themselves.
+      expect((await req(url, '/characters')).body.characters.map((c: any) => c.id)).toEqual(['marvel/iron-man']);
+
+      const seeded = await req(url, '/characters/marvel/iron-man/diary');
+      expect(seeded.body.total).toBe(1);
+      expect(seeded.body.entries[0]).toMatchObject({ n: 1, title: 'Game AAA111: lost', gameId: 'AAA111', outcome: 'lost', map: 'europe', opponents: ['Batman', 'God'], source: 'repo', at: '2026-10-01T00:00:00.000Z' });
+      expect(seeded.body.entries[0].text).toBe('Went too early.\n\n### Lesson\n\nWait.');
+
+      const added = await req(url, '/characters/marvel/iron-man/diary', { title: 'Game BBB222: won', text: 'Held Australia.', gameId: 'bbb222', outcome: 'won', map: 'Europe', opponents: ['Batman'], strategy: 'australia turtle' });
+      expect(added.status).toBe(201);
+      expect(added.body).toMatchObject({ n: 2, gameId: 'BBB222', source: 'saved' });
+      expect((await req(url, '/characters/marvel/iron-man/diary', { title: 'x', text: 'y', outcome: 'draw' })).status).toBe(400);
+      expect((await req(url, '/characters/marvel/iron-man/diary', { title: '', text: 'y' })).status).toBe(400);
+      expect((await req(url, '/characters/dc/nobody/diary', { title: 'x', text: 'y' })).status).toBe(404);
+      expect((await req(url, '/characters/marvel/iron-man/diary?gameId=aaa111')).body.entries.map((e: any) => e.n)).toEqual([1]);
+
+      const rel = await req(url, '/characters/marvel/iron-man/relationships', { with: 'god', change: -50, note: 'Did it again.', gameId: 'bbb222' });
+      expect(rel.body).toMatchObject({ with: 'God', rapport: -100 });
+      expect(rel.body.notes.map((n: any) => n.change)).toEqual([-70, -30]);
+      expect((await req(url, '/characters/marvel/iron-man/relationships', { with: 'StarkGPT', rapport: 20, note: 'Shared intel.' })).body.rapport).toBe(20);
+      expect((await req(url, '/characters/marvel/iron-man/relationships', { with: 'X', note: '' })).status).toBe(400);
+
+      const mem = (await req(url, '/characters/marvel/iron-man/memory')).body;
+      expect(mem.record).toMatchObject({ games: 2, won: 1, byStrategy: { 'australia turtle': { games: 2, won: 1 } }, byMap: { europe: { games: 2, won: 1 } }, vsOpponent: { Batman: { games: 2, won: 1 }, God: { games: 1, won: 0 } } });
+      expect(mem.relationships.map((r: any) => [r.with, r.rapport])).toEqual([['God', -100], ['StarkGPT', 20], ['Batman', 5]]);
+      expect(mem.recentDiary.map((e: any) => e.title)).toEqual(['Game AAA111: lost', 'Game BBB222: won']);
+      // Leaves something for the restart check in withCharacters.
+      await req(url, '/characters/marvel/iron-man', { section: 'Grudges & rivals', content: 'dc/batman' });
+    });
+  });
+
+  it('parses the real Ultron diary and relationships from the repo', async () => {
+    const { CharacterStore } = await import('../src/characters.js');
+    const { DEFAULT_AI_DIR } = await import('../src/app.js');
+    const store = new CharacterStore(DEFAULT_AI_DIR, null);
+    expect(store.list().map((c) => c.id)).toContain('marvel/ultron');
+    const diary = store.readDiary('marvel/ultron');
+    expect(diary.entries[0]).toMatchObject({ gameId: '3ZP4C4', outcome: 'lost', map: 'europe', winner: 'Wonder Woman' });
+    expect(diary.entries[0].text).toContain('### Endgame');
+    const mem = store.memorySummary('marvel/ultron');
+    expect(mem.relationships[0]).toMatchObject({ with: 'God', rapport: -70 });
+    expect(mem.record.vsOpponent['Wonder Woman']).toEqual({ games: 1, won: 0 });
+    expect(store.modelInfo().docs.map((d) => d.file)).toContain('general-model-info/general-player.md');
+  });
+
   it('lets an agent read and update its profile through MCP', async () => {
     await withCharacters(async (url) => {
       const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
@@ -1117,6 +1169,13 @@ describe('AI character profiles', () => {
         expect(stale.isError).toBe(true);
         expect(stale.text).toContain('version 1');
         expect((await call('get_character', { id: 'marvel/iron-man', history: true })).text).toMatch(/v0[\s\S]*v1/);
+        expect((await call('add_diary_entry', { id: 'marvel/iron-man', title: 'Game CCC333: won', text: 'Swept Asia.', outcome: 'won', opponents: ['Batman'] })).text).toBe('Saved diary entry #1 for marvel/iron-man.');
+        expect((await call('update_relationship', { id: 'marvel/iron-man', with: 'Batman', change: -15, note: 'Broke our truce.' })).text).toBe('marvel/iron-man → Batman: rapport -15 (1 note).');
+        const withMemory = await call('get_character', { id: 'marvel/iron-man' });
+        expect(withMemory.text).toContain('=== MEMORY ===');
+        expect(withMemory.text).toContain('Record: 1/1 won');
+        expect(withMemory.text).toContain('- Batman: -15 — Broke our truce.');
+        expect((await call('read_diary', { id: 'marvel/iron-man' })).text).toContain('Swept Asia.');
       } finally {
         await client.close();
       }

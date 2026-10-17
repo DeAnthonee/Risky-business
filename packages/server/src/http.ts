@@ -95,6 +95,13 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
         }),
       );
     });
+    api.get('/characters/:universe/:name/memory', (req, res) => res.json(characters.memorySummary(cid(req))));
+    api.get('/characters/:universe/:name/diary', (req, res) => {
+      const limit = typeof req.query.limit === 'string' ? Number(req.query.limit) : undefined;
+      res.json(characters.readDiary(cid(req), Number.isFinite(limit) ? limit : undefined, typeof req.query.gameId === 'string' ? req.query.gameId : undefined));
+    });
+    api.post('/characters/:universe/:name/diary', (req, res) => res.status(201).json(characters.addDiaryEntry(cid(req), req.body ?? {})));
+    api.post('/characters/:universe/:name/relationships', (req, res) => res.json(characters.updateRelationship(cid(req), req.body ?? {})));
     api.get('/model-info', (_req, res) => res.json(characters.modelInfo()));
   }
 

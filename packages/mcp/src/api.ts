@@ -78,6 +78,71 @@ export interface ModelInfoDoc {
   markdown: string;
 }
 
+export const GAME_OUTCOMES = ['won', 'lost', 'eliminated', 'surrendered', 'abandoned'] as const;
+export type GameOutcome = (typeof GAME_OUTCOMES)[number];
+
+/** What an agent writes after a game (or about any moment worth remembering). */
+export interface DiaryInput {
+  title: string;
+  text: string;
+  gameId?: string;
+  /** Set for a finished game, so it counts in the character's record. */
+  outcome?: GameOutcome;
+  map?: string;
+  /** Other players in that game (names or character ids). */
+  opponents?: string[];
+  /** The plan in a few words, e.g. "hold Australia, late card sweep"; the record groups results by it. */
+  strategy?: string;
+  /** Who won, when it was not this character. */
+  winner?: string;
+}
+
+/** n counts from 1 over the whole diary (repo entries first). at is null for undated repo entries. */
+export interface DiaryEntry extends DiaryInput {
+  n: number;
+  at: string | null;
+  source: 'repo' | 'saved';
+}
+
+export interface RelationshipNote {
+  at: string | null;
+  gameId?: string;
+  /** How much this moment moved rapport. */
+  change: number;
+  note: string;
+}
+
+/** How a character feels about another player: rapport from -100 (enemy) to 100 (trusted ally). */
+export interface Relationship {
+  with: string;
+  rapport: number;
+  notes: RelationshipNote[];
+}
+
+export interface RelationshipInput {
+  with: string;
+  /** Add to rapport (e.g. -20 after a betrayal). */
+  change?: number;
+  /** Or set rapport outright. */
+  rapport?: number;
+  note: string;
+  gameId?: string;
+}
+
+export interface RecordLine {
+  games: number;
+  won: number;
+}
+
+/** Everything a character remembers beyond its profile, summarised for the start of a game. */
+export interface CharacterMemory {
+  id: string;
+  record: RecordLine & { byStrategy: Record<string, RecordLine>; byMap: Record<string, RecordLine>; vsOpponent: Record<string, RecordLine> };
+  relationships: Relationship[];
+  diaryEntries: number;
+  recentDiary: { n: number; at: string | null; title: string; outcome?: GameOutcome }[];
+}
+
 /**
  * Everything the MCP tools need from a Risk game server. Implemented over HTTP by
  * `HttpRiskApi` (stdio MCP talking to a remote server) and directly over the in-memory
@@ -109,6 +174,12 @@ export interface RiskApi {
   updateCharacter(id: string, update: CharacterUpdate): Promise<CharacterProfile>;
   /** Docs that apply to every model (AI/general-model-info) plus the character template. */
   modelInfo(): Promise<{ docs: ModelInfoDoc[] }>;
+  /** Record, relationships and the latest diary titles. */
+  characterMemory(id: string): Promise<CharacterMemory>;
+  /** The latest `limit` entries (oldest first), or one game's entries. */
+  readDiary(id: string, limit?: number, gameId?: string): Promise<{ id: string; total: number; entries: DiaryEntry[] }>;
+  addDiaryEntry(id: string, entry: DiaryInput): Promise<DiaryEntry>;
+  updateRelationship(id: string, update: RelationshipInput): Promise<Relationship>;
 }
 
 /** Seats held by one agent connection. Several seats per game are allowed (one chat can run two players). */
@@ -298,6 +369,21 @@ export class HttpRiskApi implements RiskApi {
   }
   modelInfo() {
     return this.request<{ docs: ModelInfoDoc[] }>('/model-info');
+  }
+  characterMemory(id: string) {
+    return this.request<CharacterMemory>(`/characters/${characterPath(id)}/memory`);
+  }
+  readDiary(id: string, limit?: number, gameId?: string) {
+    const q = new URLSearchParams();
+    if (limit !== undefined) q.set('limit', String(limit));
+    if (gameId) q.set('gameId', gameId);
+    return this.request<{ id: string; total: number; entries: DiaryEntry[] }>(`/characters/${characterPath(id)}/diary${q.size ? `?${q}` : ''}`);
+  }
+  addDiaryEntry(id: string, entry: DiaryInput) {
+    return this.request<DiaryEntry>(`/characters/${characterPath(id)}/diary`, { method: 'POST', body: JSON.stringify(entry) });
+  }
+  updateRelationship(id: string, update: RelationshipInput) {
+    return this.request<Relationship>(`/characters/${characterPath(id)}/relationships`, { method: 'POST', body: JSON.stringify(update) });
   }
 }
 

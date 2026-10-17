@@ -109,6 +109,9 @@ export function useGame(gameId: string | null, token: string | undefined): GameC
 
   useEffect(() => {
     if (!gameId) return;
+    // A new connection (another game, or a spectator taking a seat) starts at normal speed.
+    playback.current.fast = false;
+    setFastForwardState(false);
     const apply = (m: StateMessage) => {
       setView(m.state);
       setHost(m.host);
@@ -143,7 +146,7 @@ export function useGame(gameId: string | null, token: string | undefined): GameC
       onState: (m: StateMessage) => {
         if (m.commit && m.commit !== 'unknown' && __COMMIT__ !== 'unknown' && m.commit !== __COMMIT__) setUpdateAvailable(true);
         // Fast-forward: no replay at all.
-        if (pb.fast && pb.queue.length === 0 && !pb.timer) return apply(m);
+        if (pb.fast && !m.you && pb.queue.length === 0 && !pb.timer) return apply(m);
         // Seated players, and the initial snapshot, apply at once; spectators replay in sequence.
         if (m.you || m.events.length === 0) {
           if (pb.queue.length === 0 && !pb.timer) return apply(m);

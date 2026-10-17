@@ -217,7 +217,8 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
   }, [conn.error]);
 
   // ---------- animations ----------
-  const anim = useAnimations(conn.batches, view, colorOf, setBanner, conn.fastForward);
+  // Fast-forward is a spectator control: a seated player always gets the animations.
+  const anim = useAnimations(conn.batches, view, colorOf, setBanner, conn.fastForward && !me);
 
   // ---------- actions ----------
   const run = async (fn: () => Promise<void>) => {
@@ -831,10 +832,17 @@ function useAnimations(
 ) {
   const [state, setState] = useState<AnimState>({ battle: null, attackArrow: null, flashes: {}, moves: [], floats: [], sweeps: [], cardFx: null });
   const cardQueue = useRef<CardFx[]>([]);
+  // Read by timers already in flight, so a battle that was mid-animation stops instead of lingering.
+  const skipRef = useRef(skip);
+  skipRef.current = skip;
   useEffect(() => {
     if (!skip) return;
     queue.current = [];
     cardQueue.current = [];
+    // Forget the last attack too, so the first battle after fast-forward doesn't count as a continued blitz.
+    lastQueued.current = null;
+    lastBattle.current = null;
+    streak.current = 0;
     setState((s) => ({ ...s, battle: null, attackArrow: null, cardFx: null, moves: [], floats: [], sweeps: [] }));
   }, [skip]);
   const cardRunning = useRef(false);
@@ -882,12 +890,20 @@ function useAnimations(
     const fast = streak.current > 1 || continues;
     const n = streak.current;
     setState((s) => ({ ...s, battle: { ev: next, rolling: true, streak: n }, attackArrow: { from: next.from, to: next.to } }));
+    const stopIfSkipping = () => {
+      if (!skipRef.current) return false;
+      running.current = false;
+      setState((s) => ({ ...s, battle: null, attackArrow: null }));
+      return true;
+    };
     setTimeout(
       () => {
+        if (stopIfSkipping()) return;
         setState((s) => ({ ...s, battle: { ev: next, rolling: false, streak: n } }));
         const more = queue.current.length > 0;
         setTimeout(
           () => {
+            if (stopIfSkipping()) return;
             running.current = false;
             if (!more) setState((s) => (s.battle?.ev === next ? { ...s, battle: null, attackArrow: null } : s));
             pumpBattles();

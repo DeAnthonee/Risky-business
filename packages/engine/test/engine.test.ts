@@ -14,6 +14,9 @@ import {
   bestSet,
   blitzOdds,
   commitForOdds,
+  chooseBotAction,
+  createRng,
+  nextFloat,
   describeOptions,
   capitalsHeldBy,
   createGame,
@@ -696,11 +699,12 @@ describe('maps', () => {
     usa: { territories: 45, regions: 8, maxPlayers: 10 },
     asia: { territories: 49, regions: 7, maxPlayers: 8 },
     fantasy: { territories: 87, regions: 16, maxPlayers: 10 },
+    skirmish: { territories: 24, regions: 6, maxPlayers: 4 },
   };
 
   it('every map is well formed', async () => {
     const { MAPS, MAP_IDS } = await import('../src/index.js');
-    expect(MAP_IDS).toEqual(['classic', 'world', 'world_large', 'europe', 'greater_europe', 'europe_classic', 'usa', 'asia', 'fantasy']);
+    expect(MAP_IDS).toEqual(['classic', 'world', 'world_large', 'europe', 'greater_europe', 'europe_classic', 'usa', 'asia', 'fantasy', 'skirmish']);
     // every registered board is either offered or legacy, never both
     expect([...MAP_IDS, ...LEGACY_MAP_IDS].sort()).toEqual(Object.keys(MAPS).sort());
     for (const id of [...MAP_IDS, ...LEGACY_MAP_IDS]) {
@@ -793,6 +797,7 @@ describe('maps', () => {
     expect(table('usa')).toEqual([43, 38, 32, 27, 21, 18, 16, 14, 13]);
     expect(table('asia')).toEqual([47, 41, 35, 29, 23, 20, 18]);
     expect(table('fantasy')).toEqual([83, 73, 62, 52, 41, 36, 31, 28, 25]);
+    expect(table('skirmish')).toEqual([23, 20, 17]);
   });
 
   for (const id of ['world_large', 'europe', 'europe_advanced', 'greater_europe', 'europe_classic', 'usa', 'asia'] as const) {
@@ -1183,6 +1188,71 @@ describe('fantasy map (Realms of Halvaren)', () => {
   });
 });
 
+describe('skirmish map (Four Crowns)', () => {
+  const m = MAPS.skirmish;
+  const kingdoms = ['frostmarch', 'emberreach', 'mossvale', 'sunhollow'];
+  const outside = (c: string) => m.continentById[c].territories.filter((t) => m.adjacency[t].some((n) => m.territoryById[n].continent !== c));
+
+  it('is a small 4-player board: 24 territories in 6 regions', () => {
+    expect(MAP_IDS).toContain('skirmish');
+    expect(m.territories).toHaveLength(24);
+    expect(m.continents.map((c) => c.id).sort()).toEqual([...kingdoms, 'heartland', 'waystones'].sort());
+    expect(m.maxPlayers).toBe(4);
+    expect(m.name).toMatch(/Four Crowns/);
+    for (const c of m.continents) expect(c.territories).toHaveLength(4);
+  });
+
+  it('gives every kingdom the same shape: one gate to the Heartland, two harbours, one interior', () => {
+    for (const k of kingdoms) {
+      expect(m.continentById[k].bonus).toBe(2);
+      const entries = outside(k);
+      expect(entries).toHaveLength(3);
+      const out = entries.map((t) => m.adjacency[t].filter((n) => m.territoryById[n].continent !== k).map((n) => m.territoryById[n].continent));
+      expect(out.flat().sort()).toEqual(['heartland', 'waystones', 'waystones']);
+      // the interior borders all three entry territories, so nothing in a kingdom is cut off
+      const inner = m.continentById[k].territories.find((t) => !entries.includes(t))!;
+      expect(m.adjacency[inner].sort()).toEqual(entries.slice().sort());
+    }
+    expect(m.continentById.heartland.bonus).toBe(4);
+    expect(m.continentById.waystones.bonus).toBe(3);
+    // each Waystone isle links exactly two neighbouring kingdoms
+    for (const isle of m.continentById.waystones.territories) {
+      expect(m.adjacency[isle]).toHaveLength(2);
+      const ks = m.adjacency[isle].map((n) => m.territoryById[n].continent);
+      expect(new Set(ks).size).toBe(2);
+      expect(ks.every((c) => kingdoms.includes(c))).toBe(true);
+    }
+  });
+
+  it('has symmetric, connected adjacency', () => {
+    for (const t of m.territoryIds) for (const n of m.adjacency[t]) expect(m.adjacency[n]).toContain(t);
+    const seen = new Set<string>([m.territoryIds[0]]);
+    const stack = [m.territoryIds[0]];
+    while (stack.length) for (const n of m.adjacency[stack.pop()!]) if (!seen.has(n)) (seen.add(n), stack.push(n));
+    expect(seen.size).toBe(24);
+    expect(m.seaLinks).toHaveLength(12);
+  });
+
+  it('deals 6 territories and 17 armies to each of 4 players', () => {
+    let s = createGame('s', { map: 'skirmish', maxPlayers: 4 }, 5);
+    for (let i = 0; i < 4; i++) s = addPlayer(s, `p${i}`, `P${i}`);
+    expect(() => addPlayer(s, 'extra', 'X')).toThrow(/full/);
+    const state = finishSetup(startGame(s).state);
+    expect(state.phase).toBe('reinforce');
+    for (const p of state.players) {
+      expect(territoriesOf(state, p.id)).toHaveLength(6);
+      expect(territoriesOf(state, p.id).reduce((sum, t) => sum + state.territories[t].armies, 0)).toBe(17);
+    }
+  });
+
+  it('clamps seats to 4 when switching to skirmish', () => {
+    let s = setOptions(createGame('x'), { maxPlayers: 6 });
+    s = setOptions(s, { map: 'skirmish' });
+    expect(s.options.maxPlayers).toBe(4);
+    expect(Object.keys(s.territories)).toHaveLength(24);
+  });
+});
+
 describe('game settings catalogue', () => {
   it('has a spec for every option and parses untrusted input strictly', async () => {
     const { OPTION_KEYS, OPTION_SPECS, DEFAULT_OPTIONS, parseOptions, describeOptions, optionCatalogue, optionLimits } = await import('../src/index.js');
@@ -1384,7 +1454,7 @@ describe('capital placement bonus and 8 blizzards', () => {
 describe('rules text', () => {
   it('lists the same starting armies as the engine for every scaled map', async () => {
     const { RULES_TEXT } = await import('../src/rules.js');
-    const labels: Record<string, string> = { world: 'World', world_large: 'Grand World', europe: 'Europe', greater_europe: 'Greater Europe', europe_classic: 'Europe Advanced', usa: 'USA', asia: 'Asia', fantasy: 'Realms of Halvaren' };
+    const labels: Record<string, string> = { world: 'World', world_large: 'Grand World', europe: 'Europe', greater_europe: 'Greater Europe', europe_classic: 'Europe Advanced', usa: 'USA', asia: 'Asia', fantasy: 'Realms of Halvaren', skirmish: 'Four Crowns' };
     // every offered board except classic (whose fixed table is listed separately) is covered
     expect(Object.keys(labels).sort()).toEqual(MAP_IDS.filter((id) => id !== 'classic').sort());
     const section = RULES_TEXT.slice(RULES_TEXT.indexOf('PLAYERS & STARTING ARMIES'), RULES_TEXT.indexOf('SETUP'));
@@ -1577,5 +1647,32 @@ describe('blitz with stopAt, and blitz odds', () => {
     expect(blitzOdds(30, 8, 2, 30 - n).win).toBeGreaterThanOrEqual(0.9);
     expect(blitzOdds(30, 8, 2, 30 - (n - 1)).win).toBeLessThan(0.9);
     expect(commitForOdds(5, 40, 2, 0.5)).toBeNull();
+  });
+});
+
+describe('built-in bot', () => {
+  function seeded(seed: number) {
+    const rng = createRng(seed);
+    return () => nextFloat(rng);
+  }
+
+  function botGame(seed: number) {
+    let s = createGame('b', {}, 99);
+    s = addPlayer(s, 'a', 'A', true);
+    s = addPlayer(s, 'b', 'B', true);
+    s = startGame(s).state;
+    const random = seeded(seed);
+    const actions: unknown[] = [];
+    while (s.phase !== 'finished' && actions.length < 400) {
+      const action = chooseBotAction(s, s.currentPlayer!, random)!;
+      actions.push(action);
+      s = applyAction(s, s.currentPlayer!, action).state;
+    }
+    return actions;
+  }
+
+  it('plays the same moves for the same random source (self-play depends on it)', () => {
+    expect(botGame(1)).toEqual(botGame(1));
+    expect(botGame(1)).not.toEqual(botGame(2));
   });
 });

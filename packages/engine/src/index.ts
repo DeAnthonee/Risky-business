@@ -7,3 +7,4 @@ export * from './view.js';
 export * from './rules.js';
 export * from './options.js';
 export * from './odds.js';
+export * from './bot.js';

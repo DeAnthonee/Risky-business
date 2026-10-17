@@ -432,7 +432,7 @@ function finish(def, { viewBox, territories, continents, touches, anchorWarnings
   return out;
 }
 
-const MAP_NAMES = ['classic', 'world', 'world_large', 'europe', 'europe_advanced', 'greater_europe', 'europe_classic', 'usa', 'asia', 'fantasy'];
+const MAP_NAMES = ['classic', 'world', 'world_large', 'europe', 'europe_advanced', 'greater_europe', 'europe_classic', 'usa', 'asia', 'fantasy', 'skirmish'];
 const wanted = process.argv.slice(2);
 for (const name of MAP_NAMES) {
   if (wanted.length && !wanted.includes(name)) continue;

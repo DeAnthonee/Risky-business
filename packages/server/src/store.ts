@@ -464,6 +464,8 @@ export class Store {
           if (!snap.state.blizzards) snap.state.blizzards = [];
           // Spectator chat arrived later; on by default.
           if (snap.state.options.spectatorChat === undefined) snap.state.options.spectatorChat = true;
+          // Late-turn bonus arrived later: off for games already saved, so running games keep their rules.
+          if (snap.state.options.firstRoundBonus === undefined) snap.state.options.firstRoundBonus = false;
           const room = new GameRoom(snap);
           this.attach(room);
         }

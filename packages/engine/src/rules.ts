@@ -21,7 +21,8 @@ cross water.
 
 PLAYERS & STARTING ARMIES
 Classic: 2 players: 40 each (plus a 40-army Neutral that never attacks). 3: 35. 4: 30. 5: 25. 6: 20.
-Every other map: about three armies per territory shared out, between 20 and 60 per player.
+Every other map: the classic numbers scaled by map size (territories / 42); above 6 players everyone gets an equal
+share of the 6-player total (120 armies per 42 territories). Never fewer than 1.5 armies per territory you are dealt.
   World: 2 players 60, 5: 44, 10: 22. Grand World: 2-5 players 60, 6: 52, 7: 45, 8: 39, 9: 35, 10: 31.
   Europe: 2: 60, 3: 44, 4: 33, 5: 26, 6: 22, 7-8: 20. USA: 2: 60, 3: 45, 4: 34, 5: 27, 6: 23, 7-10: 20.
   Asia: 2: 60, 3: 49, 4: 37, 5: 29, 6: 25, 7: 21, 8: 20.
@@ -40,6 +41,9 @@ A TURN has three phases:
    You receive armies = max(3, floor(territories you own / 3)) + continent bonuses for every continent you fully control.
    Cards: if you hold 5 or more cards at the start of your turn you MUST trade a set before placing.
    You may trade any valid set during this phase. Place all armies on your own territories to move to the attack phase.
+
+   Round 1 only ("firstRoundBonus", on by default): the Nth player in turn order receives at least N armies
+   (1st-3rd their normal 3+, 4th at least 4, 5th at least 5, ... 10th at least 10).
 
 2. ATTACK (optional, as many times as you like)
    Attack an adjacent enemy territory from a territory with at least 2 armies.

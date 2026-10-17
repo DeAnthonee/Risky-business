@@ -6,3 +6,6 @@ export * from './log.js';
 export * from './game.js';
 export * from './runner.js';
 export * from './ladder.js';
+export * from './encode.js';
+export * from './npy.js';
+export * from './export.js';

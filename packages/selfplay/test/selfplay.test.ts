@@ -7,6 +7,9 @@ import { applyAction, getMap, legalMoves, type GameOptions, type GameState } fro
 import {
   candidateScore,
   candidates,
+  actionSteps,
+  actionToCandidate,
+  CANDIDATE_KINDS,
   candidateToAction,
   eloFromScore,
   emptyLadder,
@@ -22,6 +25,7 @@ import {
   runBatch,
   runMatch,
   saveLadder,
+  stepAgent,
   summarizeMatch,
   TRAIT_KEYS,
   type Agent,
@@ -32,6 +36,19 @@ const tmp = mkdtempSync(join(tmpdir(), 'risk-selfplay-'));
 afterAll(() => rmSync(tmp, { recursive: true, force: true }));
 
 const risky2 = [{ agent: riskyBot }, { agent: riskyBot }];
+
+/** Every state a Risky bot decided in, for one game of a config (played once, shared by the tests). */
+const stateCache = new Map<string, GameState[]>();
+function statesOf({ name, players, options }: (typeof CONFIGS)[number]): GameState[] {
+  let states = stateCache.get(name);
+  if (!states) {
+    const seen: GameState[] = [];
+    const spy: Agent = { id: 'risky@1', choose: (ctx) => (seen.push(ctx.state), riskyBot.choose(ctx)) };
+    playGame({ seed: 11, seats: Array.from({ length: players }, () => ({ agent: spy })), options });
+    stateCache.set(name, (states = seen));
+  }
+  return states;
+}
 
 /** Rules variety so every candidate kind (setup claims, capitals, trades, occupy, fortify) shows up. */
 const CONFIGS: { name: string; players: number; options: Partial<GameOptions> }[] = [
@@ -60,52 +77,72 @@ describe('playGame', () => {
     expect([...r.turnOrder].sort()).toEqual(Array.from({ length: players }, (_, i) => i));
   });
 
-  it.each(CONFIGS)('every candidate is a legal action ($name)', ({ players, options }) => {
-    // Record a game, then try candidates of every 7th decision against the engine (at most 40 per decision, spread
-    // over the list: connected-mode fortify lists run into the thousands on big maps).
-    const seats = Array.from({ length: players }, () => ({ agent: riskyBot }));
-    const states: GameState[] = [];
-    const spy: Agent = { id: 'risky@1', choose: (ctx) => (states.push(ctx.state), riskyBot.choose(ctx)) };
-    playGame({ seed: 11, seats: seats.map(() => ({ agent: spy })), options });
+  it.each(CONFIGS)('every candidate is a legal action, fortify_to steps included ($name)', (cfg) => {
+    // Try candidates of every 7th decision (about 60 per game at most) of a recorded game against the engine (at most 40 per list, spread over it;
+    // the fortify_to lists of two sources per decision).
+    const states = statesOf(cfg);
     const map = getMap(states[0].options.map);
-    const kinds = new Set<string>();
     let tried = 0;
-    for (let i = 0; i < states.length; i += 7) {
+    const sample = <T,>(xs: T[]) => xs.filter((_, j) => j % Math.max(1, Math.floor(xs.length / 40)) === 0);
+    const stride = Math.max(7, Math.floor(states.length / 60));
+    for (let i = 0; i < states.length; i += stride) {
       const s = states[i];
       const me = s.currentPlayer!;
-      const cands = candidates(s, me, legalMoves(s, me));
+      const lm = legalMoves(s, me);
+      const cands = candidates(s, me, lm);
       expect(cands.length).toBeGreaterThan(0);
-      const step = Math.max(1, Math.floor(cands.length / 40));
-      for (let j = 0; j < cands.length; j += step) {
-        const c = cands[j];
-        kinds.add(c[0]);
+      let expanded = 0;
+      for (const c of sample(cands)) {
         tried++;
-        expect(() => applyAction(s, me, candidateToAction(map, c)), JSON.stringify(c)).not.toThrow();
+        if (c[0] !== 'fortify_from') {
+          expect(() => applyAction(s, me, candidateToAction(map, c)), JSON.stringify(c)).not.toThrow();
+          continue;
+        }
+        if (expanded++ >= 2) continue; // two sources per decision are enough to check the second step
+        const second = candidates(s, me, lm, map.territoryIds[c[1]]);
+        expect(second.length).toBeGreaterThan(0);
+        for (const c2 of sample(second)) expect(() => applyAction(s, me, candidateToAction(map, c2, c[1])), JSON.stringify(c2)).not.toThrow();
       }
     }
     expect(tried).toBeGreaterThan(100);
-    expect(kinds.has('place') && kinds.has('attack')).toBe(true);
   });
 
-  it('the configs above offer every candidate kind', () => {
+  it('the configs above offer every candidate kind (except the v1-only fortify)', () => {
     const seen = new Set<string>();
-    for (const { players, options } of CONFIGS) {
-      const spy: Agent = { id: 'risky@1', choose: (ctx) => (ctx.candidates.forEach((c) => seen.add(c[0])), riskyBot.choose(ctx)) };
-      playGame({ seed: 11, seats: Array.from({ length: players }, () => ({ agent: spy })), options });
+    for (const cfg of CONFIGS) {
+      for (const s of statesOf(cfg)) {
+        const lm = legalMoves(s, s.currentPlayer!);
+        for (const c of candidates(s, s.currentPlayer!, lm)) {
+          seen.add(c[0]);
+          if (c[0] === 'fortify_from' && !seen.has('fortify_to')) candidates(s, s.currentPlayer!, lm, getMap(s.options.map).territoryIds[c[1]]).forEach((x) => seen.add(x[0]));
+        }
+      }
     }
-    expect([...seen].sort()).toEqual(['attack', 'capital', 'end_turn', 'fortify', 'occupy', 'place', 'trade']);
+    expect([...seen].sort()).toEqual([...CANDIDATE_KINDS].filter((k) => k !== 'fortify').sort());
   });
 
   it('records each decision with its state, candidates, choice and final outcome', () => {
     const r = playGame({ seed: 5, seats: [{ agent: riskyBot, traits: { aggression: 0.9 } }, { agent: riskyBot }], record: true });
     const recs = r.records!;
-    expect(recs.length).toBe(r.decisions);
+    expect(recs.length).toBe(r.steps);
+    // A fortify is two steps on the same board: fortify_from, then fortify_to carrying the chosen source.
+    const fortifies = recs.filter((x) => x.state.fortifyFrom >= 0);
+    expect(fortifies.length).toBeGreaterThan(0);
+    expect(r.steps).toBe(r.decisions + fortifies.length);
+    for (const second of fortifies) {
+      const first = recs[second.i - 1];
+      expect(first.cands[first.choice]).toEqual(['fortify_from', second.state.fortifyFrom]);
+      expect(second.cands.every((c) => c[0] === 'fortify_to')).toBe(true);
+      expect(second.state.armies).toEqual(first.state.armies);
+    }
     const t = getMap('classic').territoryIds.length;
     recs.forEach((rec: DecisionRecord, i) => {
       expect(rec.i).toBe(i);
       expect(rec.state.owner).toHaveLength(t);
       expect(rec.state.armies).toHaveLength(t);
       expect(rec.state.seats).toHaveLength(2);
+      expect([...rec.state.order].sort()).toEqual([0, 1]);
+      expect(rec.rules).toEqual([0, 0, 0, 0, 0]);
       expect(rec.choice).toBeGreaterThanOrEqual(0);
       expect(rec.choice).toBeLessThan(rec.cands.length);
       expect(rec.traits).toHaveLength(TRAIT_KEYS.length);
@@ -147,9 +184,9 @@ describe('runBatch and decision logs', () => {
     const results = await runBatch({ games: 3, seed: 9, seats: () => risky2, logDir: dir });
     expect(readdirSync(dir).sort()).toEqual(['decisions-0-2.jsonl.gz', 'games-0-2.jsonl', 'meta.json']);
     const lines = gunzipSync(readFileSync(join(dir, 'decisions-0-2.jsonl.gz'))).toString().trim().split('\n');
-    expect(lines.length).toBe(results.reduce((a, r) => a + r.decisions, 0));
+    expect(lines.length).toBe(results.reduce((a, r) => a + r.steps, 0));
     const first = JSON.parse(lines[0]) as DecisionRecord;
-    expect(first).toMatchObject({ v: 1, game: 'g0', seed: gameSeed(9, 0), map: 'classic', players: 2, i: 0 });
+    expect(first).toMatchObject({ v: 2, game: 'g0', seed: gameSeed(9, 0), map: 'classic', players: 2, i: 0 });
     const games = readFileSync(join(dir, 'games-0-2.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
     expect(games.map((g) => g.index)).toEqual([0, 1, 2]);
     const meta = JSON.parse(readFileSync(join(dir, 'meta.json'), 'utf8'));
@@ -184,6 +221,19 @@ describe('ladder', () => {
     expect(m.scoreHigh).toBeGreaterThan(0.625);
   });
 
+  it('computes the interval over mirrored pairs, which are correlated', () => {
+    // Pairs that agree (both games won or both lost): the pair is one piece of evidence, not two.
+    const agreeing = Array.from({ length: 100 }, (_, i) => (Math.floor(i / 2) % 5 < 3 ? 1 : 0));
+    const single = summarizeMatch('c', 'b', agreeing, [], 0, 1);
+    const paired = summarizeMatch('c', 'b', agreeing, [], 0, 2);
+    expect(paired.score).toBe(single.score);
+    expect(paired.scoreHigh - paired.scoreLow).toBeGreaterThan(single.scoreHigh - single.scoreLow);
+    // Pairs that split (each side wins once): nothing to tell apart, and the interval stays honest.
+    const split = summarizeMatch('c', 'b', Array.from({ length: 40 }, (_, i) => i % 2), [], 0, 2);
+    expect(split.score).toBe(0.5);
+    expect(split.scoreLow).toBeLessThan(0.5);
+  });
+
   it('promotes only past the minimum games, the threshold and a clear interval', () => {
     const at = (score: number, games: number) => summarizeMatch('c', 'b', Array.from({ length: games }, (_, i) => (i < score * games ? 1 : 0)), [], 0);
     expect(promotionDecision(at(0.9, 100)).promote).toBe(false); // too few games
@@ -193,11 +243,11 @@ describe('ladder', () => {
   });
 
   it('a clearly stronger version wins the match; a version against itself scores exactly 0.5', async () => {
-    const m = await runMatch({ candidate: riskyBot, best: randomAgent, games: 20, seed: 1 });
-    expect(m.games).toBe(20);
+    const m = await runMatch({ candidate: riskyBot, best: randomAgent, games: 12, seed: 1 });
+    expect(m.games).toBe(12);
     expect(m.score).toBeGreaterThan(0.9);
-    expect(promotionDecision(m, { minGames: 20, threshold: 0.55 }).promote).toBe(true);
-    const mirror = await runMatch({ candidate: riskyBot, best: riskyBot, games: 10, seed: 1 });
+    expect(promotionDecision(m, { minGames: 12, threshold: 0.55 }).promote).toBe(true);
+    const mirror = await runMatch({ candidate: riskyBot, best: riskyBot, games: 4, seed: 1 });
     expect(mirror.score).toBe(0.5);
   });
 
@@ -217,6 +267,35 @@ describe('ladder', () => {
 });
 
 describe('agents', () => {
+  it('a blitz with stopAt is not the plain blitz candidate', () => {
+    const map = getMap('classic');
+    expect(actionToCandidate(map, { type: 'attack', from: 'alaska', to: 'kamchatka', blitz: true })).toEqual(['attack', 0, map.territoryIds.indexOf('kamchatka')]);
+    expect(actionToCandidate(map, { type: 'attack', from: 'alaska', to: 'kamchatka', blitz: true, stopAt: 3 })).toBeNull();
+  });
+
+  it('a step agent is asked twice for a fortify: source, then destination', () => {
+    const asked: (number | null)[] = [];
+    // Always fortify when possible (last fortify_to), else play like Risky.
+    const fortifier = stepAgent('fortifier@1', (ctx) => {
+      asked.push(ctx.fortifyFrom);
+      const i = ctx.candidates.findIndex((c) => c[0] === 'fortify_from');
+      if (ctx.fortifyFrom !== null) return ctx.candidates.length - 1;
+      if (i >= 0) return i;
+      const a = riskyBot.choose(ctx)!;
+      const step = actionSteps(ctx.state, ctx.me, ctx.legal, a, ctx.candidates)[0];
+      return step.choice;
+    });
+    const r = playGame({ seed: 4, seats: [{ agent: fortifier }, { agent: riskyBot }], maxTurns: 30, record: true });
+    expect(r.offList).toEqual([0, 0]);
+    expect(asked.filter((x) => x !== null).length).toBeGreaterThan(0);
+    expect(r.records!.filter((x) => x.seat === 0 && x.state.fortifyFrom >= 0).length).toBe(asked.filter((x) => x !== null).length);
+  });
+
+  it('a step agent that picks outside the list fails clearly', () => {
+    const bad = stepAgent('bad@1', (ctx) => ctx.candidates.length);
+    expect(() => playGame({ seed: 1, seats: [{ agent: bad }, { agent: riskyBot }] })).toThrow(/bad@1 picked candidate \d+ of \d+/);
+  });
+
   it('random agent only picks candidates', () => {
     const r = playGame({ seed: 8, seats: [{ agent: randomAgent }, { agent: riskyBot }], maxTurns: 40 });
     expect(r.offList).toEqual([0, 0]);

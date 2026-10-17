@@ -1,30 +1,45 @@
 import { createWriteStream, mkdirSync, writeFileSync, type WriteStream } from 'node:fs';
 import { join } from 'node:path';
 import { createGzip, type Gzip } from 'node:zlib';
-import { getMap, MAP_IDS, NEUTRAL_ID, type CardKind, type GameState, type Phase } from '@risk/engine';
-import { territoryIndex, type Candidate } from './actions.js';
+import { getMap, MAP_IDS, NEUTRAL_ID, reinforcementsFor, type CardKind, type GameOptions, type GameState, type Phase } from '@risk/engine';
+import { CANDIDATE_KINDS, territoryIndex, type Candidate } from './actions.js';
 import { TRAIT_KEYS } from './traits.js';
 
 /**
- * Decision log format, version 1. One JSON object per line (JSONL, gzip by default), one line per decision.
+ * Decision log format, version 2. One JSON object per line (JSONL, gzip by default), one line per decision step
+ * (a fortify is two steps: fortify_from, then fortify_to with `state.fortifyFrom` set).
+ * v2 over v1: fortify split in two steps; `state.order`, `state.fortifyFrom`, per-seat income and `rules` added.
  * A Python trainer reads it with `gzip.open(path, 'rt')` + `json.loads` per line; `meta.json` next to the shards
  * describes the maps (territory order, adjacency, continents) and the order of every enum and vector below.
  *
  * Seats: players are numbered 0..N-1 in the order they were seated (not turn order). Territory owner codes:
  * seat index, OWNER_NONE (unowned or blizzard) or OWNER_NEUTRAL.
  */
-export const LOG_VERSION = 1;
+export const LOG_VERSION = 2;
 export const OWNER_NONE = -1;
 export const OWNER_NEUTRAL = -2;
 export const PHASES: Phase[] = ['lobby', 'setup', 'capitals', 'reinforce', 'attack', 'fortify', 'finished'];
 export const CARD_KINDS: CardKind[] = ['infantry', 'cavalry', 'artillery', 'wild'];
+/** Rule flags logged with every decision (0/1, in this order). Only append. */
+export const RULE_KEYS = ['capitals', 'fixedCards', 'adjacentFortify', 'fogOfWar', 'balancedBlitz'] as const;
+
+export function encodeRules(o: GameOptions): number[] {
+  const flags: Record<(typeof RULE_KEYS)[number], boolean> = {
+    capitals: o.capitals,
+    fixedCards: o.cardValues === 'fixed',
+    adjacentFortify: o.fortifyMode === 'adjacent',
+    fogOfWar: o.fogOfWar,
+    balancedBlitz: o.balancedBlitz,
+  };
+  return RULE_KEYS.map((k) => (flags[k] ? 1 : 0));
+}
 
 export interface EncodedState {
   /** Owner code per territory, in the map's territory order. */
   owner: number[];
   armies: number[];
-  /** Per seat: [alive 0/1, cards held, armies to place]. */
-  seats: [number, number, number][];
+  /** Per seat: [alive 0/1, cards held, armies to place, income] (income: the engine's reinforcements next turn, before cards; 0 when out). */
+  seats: [number, number, number, number][];
   /** The deciding player's cards: [card id, kind index, territory index or -1 for wild]. */
   hand: [number, number, number][];
   tradeCount: number;
@@ -36,6 +51,10 @@ export interface EncodedState {
   /** The deciding player has conquered this turn (earns a card) / has fortified this turn. */
   conquered: boolean;
   fortified: boolean;
+  /** Seats in turn order. */
+  order: number[];
+  /** Source picked by the fortify_from step this fortify_to step completes (-1 otherwise). */
+  fortifyFrom: number;
 }
 
 export interface DecisionRecord {
@@ -44,7 +63,7 @@ export interface DecisionRecord {
   seed: number;
   map: string;
   players: number;
-  /** Decision number within the game (0-based). */
+  /** Step number within the game (0-based). */
   i: number;
   turn: number;
   round: number;
@@ -53,6 +72,8 @@ export interface DecisionRecord {
   agent: string;
   /** In TRAIT_KEYS order. */
   traits: number[];
+  /** RULE_KEYS flags. */
+  rules: number[];
   state: EncodedState;
   cands: Candidate[];
   /** Index into cands; -1 when the agent played an action outside the discrete space (then see `action`). */
@@ -77,7 +98,7 @@ export function seatOf(seats: string[], id: string | null): number {
   return seats.indexOf(id);
 }
 
-export function encodeState(state: GameState, seats: string[], me: string): EncodedState {
+export function encodeState(state: GameState, seats: string[], me: string, fortifyFrom = -1): EncodedState {
   const map = getMap(state.options.map);
   const idx = territoryIndex(map);
   const ti = (t: string) => idx.get(t)!;
@@ -88,7 +109,7 @@ export function encodeState(state: GameState, seats: string[], me: string): Enco
     armies: map.territoryIds.map((t) => state.territories[t].armies),
     seats: seats.map((id) => {
       const p = state.players.find((x) => x.id === id)!;
-      return [p.alive ? 1 : 0, p.cards.length, p.armiesToPlace];
+      return [p.alive ? 1 : 0, p.cards.length, p.armiesToPlace, p.alive ? reinforcementsFor(state, id).total : 0];
     }),
     hand: player.cards.map((c) => [c.id, CARD_KINDS.indexOf(c.kind), c.territory === null ? -1 : ti(c.territory)]),
     tradeCount: state.tradeCount,
@@ -97,6 +118,8 @@ export function encodeState(state: GameState, seats: string[], me: string): Enco
     blizzards: state.blizzards.map(ti),
     conquered: player.conqueredThisTurn,
     fortified: state.fortifiedThisTurn,
+    order: state.turnOrder.map((id) => seats.indexOf(id)),
+    fortifyFrom,
   };
 }
 
@@ -108,7 +131,8 @@ export function logMeta() {
     phases: PHASES,
     cardKinds: CARD_KINDS,
     ownerCodes: { none: OWNER_NONE, neutral: OWNER_NEUTRAL, seat: '0..N-1 in seating order' },
-    candidateKinds: ['place', 'trade', 'capital', 'attack', 'occupy', 'fortify', 'end_turn'],
+    candidateKinds: CANDIDATE_KINDS,
+    ruleKeys: RULE_KEYS,
     maps: Object.fromEntries(
       MAP_IDS.map((id) => {
         const map = getMap(id);

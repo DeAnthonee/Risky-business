@@ -1,4 +1,8 @@
-"""Reference reader for Risky Business self-play decision logs (format v1). Standard library only.
+"""Reference reader for Risky Business self-play decision logs (formats v1 and v2). Standard library only.
+
+v2 splits a fortify into two steps (fortify_from, then fortify_to with state["fortifyFrom"] set) and adds
+state["order"], per-seat income in state["seats"] and rec["rules"]. For training arrays use the `export` command and
+risky_dataset.py instead of encoding these records yourself.
 
     from risky_log import load_meta, iter_decisions
     meta = load_meta("runs/night-01")
@@ -15,13 +19,13 @@ import json
 import os
 import sys
 
-SUPPORTED_VERSION = 1
+SUPPORTED_VERSIONS = (1, 2)
 
 
 def load_meta(log_dir):
     with open(os.path.join(log_dir, "meta.json")) as f:
         meta = json.load(f)
-    if meta["v"] != SUPPORTED_VERSION:
+    if meta["v"] not in SUPPORTED_VERSIONS:
         raise ValueError(f"unsupported log version {meta['v']}")
     return meta
 
@@ -36,7 +40,7 @@ def iter_decisions(log_dir):
         with _open(path) as f:
             for line in f:
                 rec = json.loads(line)
-                if rec["v"] != SUPPORTED_VERSION:
+                if rec["v"] not in SUPPORTED_VERSIONS:
                     raise ValueError(f"{path}: unsupported record version {rec['v']}")
                 yield rec
 

@@ -80,6 +80,7 @@ Online multiplayer Risk with bots and an MCP server for AI agents. npm-workspace
 - Self-play (`packages/selfplay`, `npm run selfplay`): must stay deterministic from the seed (no `Math.random`,
   no clocks in decisions) and never be imported by the server. The decision log format is versioned
   (`LOG_VERSION`, `meta.json`): only append trait keys and candidate kinds; bump the version for anything else.
+  Features live only in `encode.ts` (training export and live play both use it); bump `ENCODER_VERSION` on any change.
 - AI character profiles and general model docs live in `AI/` (Markdown only); follow `AI/README.md` for where and how to save them.
 - Known gaps left open on purpose (anonymous character writes, open tournaments, ...) are tracked in
   `docs/hardening.md`. Read it before touching those features; remove an item only in the PR that fixes it.

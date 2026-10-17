@@ -154,6 +154,29 @@ describe('game lifecycle over HTTP', () => {
     }
   });
 
+  it('backfills the map option for games saved by older builds', async () => {
+    const file = join(dir, 'legacy.json');
+    risk.store.save();
+    const saved = JSON.parse(readFileSync(join(dir, 'games.json'), 'utf8')) as any[];
+    for (const g of saved) delete g.state.options.map;
+    const { writeFileSync } = await import('node:fs');
+    writeFileSync(file, JSON.stringify(saved));
+    const legacy = await startServer(file);
+    try {
+      const room = legacy.risk.store.get(gameId)!;
+      expect(room.state.options.map).toBe('classic');
+      // Option changes on a legacy lobby must not throw "Unknown map".
+      const lobby = await fetch(`${legacy.base}/api/games`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ playerName: 'L' }) }).then((r) => r.json());
+      const lobbyRoom = legacy.risk.store.get(lobby.gameId)!;
+      delete (lobbyRoom.state.options as any).map;
+      lobbyRoom.state.options.map = 'classic';
+      lobbyRoom.setOptions({ setupBatch: 3 });
+      expect(lobbyRoom.state.options.setupBatch).toBe(3);
+    } finally {
+      await legacy.risk.shutdown('test');
+    }
+  });
+
   it('shuts down gracefully and releases long-poll waiters', async () => {
     const third = await startServer(null);
     const created = await fetch(`${third.base}/api/games`, {

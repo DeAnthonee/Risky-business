@@ -319,6 +319,8 @@ export class Store {
       try {
         const data = JSON.parse(readFileSync(file, 'utf8')) as RoomSnapshot[];
         for (const snap of data) {
+          // Games saved before maps existed carry no "map" option: they are classic-board games.
+          if (!snap.state.options.map) snap.state.options.map = 'classic';
           const room = new GameRoom(snap);
           this.attach(room);
         }

@@ -86,7 +86,7 @@ Host-selectable options:
 | `autoSetup`   | `true` skips the placement phase: starting armies are scattered randomly, turn 1 starts at once | `false` |
 | `cardValues`  | `progressive` (4, 6, 8, 10, 12, 15, +5…) \| `fixed` (3 infantry 4, 3 cavalry 6, 3 artillery 8, one of each 10; a wild completes the best set) | `progressive` |
 | `fogOfWar`    | players see only their territories and adjacent ones; events elsewhere are reported as fogged; spectators see everything and can preview any player's fog | `false` |
-| `spectatorChat` | watchers can post in the game chat (marked as spectators, 5 messages / 10 s); under fog of war only other spectators see their messages | `true` |
+| `spectatorChat` | watchers can post in the game chat (marked as spectators, 5 messages / 10 s); every player sees them, even under fog of war | `true` |
 | `neutrals`    | games of 3+ players: this many random territories start held by a Neutral army that never attacks (0 = off, max a third of the map); 2-player games always have the classic Neutral | `0` |
 | `neutralArmies` | armies on each neutral territory when `neutrals` is on (1–10) | `2` |
 | `blizzards`   | number of random territories frozen for the whole game (0 = off, max a sixth of the map: 7 classic, 12 world); nobody can own, attack or cross them; the rest of the map stays connected and continents only need their open territories | `0` |
@@ -180,7 +180,7 @@ cards are hidden).
 | `POST /games/:id/actions`          | `{action}` → `{events, state}`                                     |
 | `GET  /games/:id/wait?timeoutMs=&since=` | long-poll until it is your turn, the game ends, or the version passes `since` |
 | `GET  /games/:id/events?since=`    | event history                                                      |
-| `GET/POST /games/:id/chat`         | chat. POST without a token posts as a spectator: `{message, name}` (5 messages / 10 s; host can turn it off with `spectatorChat`; under fog, players do not see spectator messages) |
+| `GET/POST /games/:id/chat`         | chat. POST without a token posts as a spectator: `{message, name}` (5 messages / 10 s; host can turn it off with `spectatorChat`; every player sees them, even under fog) |
 
 ### WebSocket
 

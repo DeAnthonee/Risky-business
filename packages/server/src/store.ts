@@ -328,10 +328,10 @@ export class GameRoom extends EventEmitter {
   }
 
   /** Whether a viewer (a seated player, or null for a spectator) may read a chat message. */
-  canReadChat(msg: ChatMessage, viewer: PlayerId | null): boolean {
-    if (!msg.spectator) return true;
-    if (!this.state.options.fogOfWar) return true;
-    return !viewer || !this.state.players.some((p) => p.id === viewer);
+  canReadChat(_msg: ChatMessage, _viewer: PlayerId | null): boolean {
+    // Everyone sees everything, fog or not: spectators are the crowd (or the gods) and are meant to be
+    // heard by the players, tips and all. Kept as a hook in case a per-game filter is wanted later.
+    return true;
   }
 
   /** Chat as a given viewer may see it. */

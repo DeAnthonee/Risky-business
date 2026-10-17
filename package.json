@@ -7,18 +7,20 @@
     "packages/engine",
     "packages/server",
     "packages/client",
-    "packages/mcp"
+    "packages/mcp",
+    "packages/selfplay"
   ],
   "scripts": {
-    "build": "npm run build -w @risk/engine && npm run build -w @risk/mcp && npm run build -w @risk/client && npm run build -w @risk/server",
+    "build": "npm run build -w @risk/engine && npm run build -w @risk/mcp && npm run build -w @risk/client && npm run build -w @risk/server && npm run build -w @risk/selfplay",
     "dev": "npm run build -w @risk/engine && npm run build -w @risk/mcp && concurrently -n server,client -c blue,magenta \"npm run dev -w @risk/server\" \"npm run dev -w @risk/client\"",
     "start": "node packages/server/dist/index.js",
-    "pretest": "npm run build -w @risk/engine && npm run build -w @risk/mcp",
-    "test": "npm run typecheck && npm run test -w @risk/engine && npm run test -w @risk/server",
-    "test:unit": "npm run test -w @risk/engine && npm run test -w @risk/server",
+    "pretest": "npm run build -w @risk/engine && npm run build -w @risk/mcp && npm run build -w @risk/selfplay",
+    "test": "npm run typecheck && npm run test -w @risk/engine && npm run test -w @risk/server && npm run test -w @risk/selfplay",
+    "test:unit": "npm run test -w @risk/engine && npm run test -w @risk/server && npm run test -w @risk/selfplay",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "mcp": "node packages/mcp/dist/cli.js",
-    "build:map": "node scripts/build-map.mjs"
+    "build:map": "node scripts/build-map.mjs",
+    "selfplay": "node packages/selfplay/dist/cli.js"
   },
   "devDependencies": {
     "concurrently": "^9.2.1",

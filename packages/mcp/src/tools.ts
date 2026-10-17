@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { DEFAULT_OPTIONS, MAP_IDS, OPTION_KEYS, OPTION_SPECS, describeOptions, getMap, globalMax, optionLimits, type Action, type GameOptions, type GameView } from '@risk/engine';
 import { RiskHttpError, type IdentityStore, type RiskApi } from './api.js';
-import { formatEvents, formatState } from './format.js';
+import { formatActResult, formatEvents, formatState } from './format.js';
 
 export interface RiskMcpOptions {
   api: RiskApi;
@@ -389,16 +389,25 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
     'act',
     {
       description:
-        'Perform one game action on your turn. Returns the resulting events (dice rolls, conquests...) and the new state with your next legal moves. ' +
+        'Perform one game action on your turn. Returns the resulting events (dice rolls, conquests...), only the territories your action changed (with their neighbours), your armies/cards and your next legal moves: nothing else moves during your own turn, so you do not need to reread the board between actions. When your turn ends the full board comes back. Pass full:true for the whole board anyway. ' +
         'Examples: {"type":"place","placements":{"alaska":3}} · {"type":"attack","from":"alaska","to":"kamchatka","blitz":true,"occupy":"max"} · {"type":"end_attack"} · {"type":"fortify","from":"peru","to":"brazil","armies":2} · {"type":"end_turn"}',
-      inputSchema: { gameId: gameIdSchema, action: actionSchema, token: tokenSchema, as: asSchema },
+      inputSchema: {
+        gameId: gameIdSchema,
+        action: actionSchema,
+        token: tokenSchema,
+        as: asSchema,
+        full: z.boolean().optional().describe('true: return the whole board instead of just what your action changed'),
+      },
     },
-    async ({ gameId, action, token, as }) => {
+    async ({ gameId, action, token, as, full }) => {
       try {
         const id = gameId.toUpperCase();
         const r = await api.act(id, requireToken(id, token, as), action as Action);
-        const ev = formatEvents(r.events, r.state);
-        return text(`OK.${ev ? `\nEvents:\n${ev}` : ''}\n\n${formatState(r.state)}`);
+        if (full) {
+          const ev = formatEvents(r.events, r.state);
+          return text(`OK.${ev ? `\nEvents:\n${ev}` : ''}\n\n${formatState(r.state)}`);
+        }
+        return text(formatActResult(r.events, r.state));
       } catch (e) {
         return errorText(e);
       }

@@ -603,6 +603,43 @@ describe('MCP over HTTP (/mcp)', () => {
   });
 });
 
+describe('MCP act replies', () => {
+  it('returns only what the action changed plus legal moves, and the full board on request', async () => {
+    const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+    const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
+    const client = new Client({ name: 'compact-agent', version: '0' });
+    await client.connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`)));
+    try {
+      const call = async (name: string, args: Record<string, unknown> = {}) => {
+        const r = (await client.callTool({ name, arguments: args })) as { content: { text: string }[]; isError?: boolean };
+        return { text: r.content.map((c) => c.text).join('\n'), isError: !!r.isError };
+      };
+      const created = await call('create_game', { playerName: 'Lean', options: { autoSetup: true } });
+      const gameId = created.text.match(/Created game (\w+)/)![1];
+      await call('add_bot', { gameId });
+      await call('start_game', { gameId });
+      expect((await call('wait_for_turn', { gameId, timeoutSeconds: 15 })).text).toMatch(/^It is your turn/);
+      const board = await call('get_state', { gameId });
+      const mine = board.text.match(/YOUR LEGAL MOVES:[\s\S]*?Place up to (\d+) armies/)!;
+      const room = risk.store.get(gameId)!;
+      const me = room.state.players.find((p) => p.name === 'Lean')!;
+      const territory = Object.entries(room.state.territories).find(([, t]) => t.owner === me.id)![0];
+      const placed = await call('act', { gameId, action: { type: 'place', placements: { [territory]: Number(mine[1]) } } });
+      expect(placed.isError).toBe(false);
+      expect(placed.text).toContain('Changed territories');
+      expect(placed.text).toContain(`${territory}:`);
+      expect(placed.text).toContain('YOUR LEGAL MOVES');
+      expect(placed.text).not.toContain('Territories (owner armies) with neighbours:');
+      expect(placed.text.length).toBeLessThan(board.text.length / 2);
+      // full:true still gives the whole board.
+      const end = await call('act', { gameId, action: { type: 'end_attack' }, full: true });
+      expect(end.text).toContain('Territories (owner armies) with neighbours:');
+    } finally {
+      await client.close();
+    }
+  });
+});
+
 describe('new boards over HTTP', () => {
   it('lists every board', async () => {
     const r = await api('/maps');

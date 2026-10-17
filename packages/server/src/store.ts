@@ -466,6 +466,8 @@ export class Store {
           if (snap.state.options.spectatorChat === undefined) snap.state.options.spectatorChat = true;
           // Chosen capitals arrived later; older games keep automatic capitals.
           if (snap.state.options.chooseCapitals === undefined) snap.state.options.chooseCapitals = false;
+          // Late-turn bonus arrived later: off for games already saved, so running games keep their rules.
+          if (snap.state.options.firstRoundBonus === undefined) snap.state.options.firstRoundBonus = false;
           const room = new GameRoom(snap);
           this.attach(room);
         }

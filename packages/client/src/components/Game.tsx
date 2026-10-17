@@ -36,6 +36,11 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
   const [moveArmies, setMoveArmies] = useState(1);
   const [showCards, setShowCards] = useState(false);
   const [tab, setTab] = useState<'log' | 'chat'>('log');
+  // Phones/narrow screens: the board fills the screen; panels open underneath it so the map stays visible.
+  const isMobile = useMediaQuery('(max-width: 900px)');
+  const [sheet, setSheet] = useState<'players' | 'log' | 'chat' | null>(null);
+  const [seenChatId, setSeenChatId] = useState(0);
+  const [seenBatchId, setSeenBatchId] = useState(0);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [banner, setBanner] = useState<{ text: string; color: string } | null>(null);
@@ -293,8 +298,57 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
   // Only dim when we are choosing a source/target.
   const dimOthers = myTurn && (mode === 'attack' || mode === 'fortify') && !!selected;
 
+  const playersPanel = (
+        <div className="players-panel">
+          {[...view.players].sort((a, b) => a.order - b.order).map((p) => (
+            <div
+              key={p.id}
+              className={`player-row ${p.id === view.currentPlayer ? 'active' : ''} ${!p.alive ? 'dead' : ''} ${fogAs === p.id ? 'fog-as' : ''} ${spectator && fogOn && !p.isNeutral ? 'clickable' : ''}`}
+              onClick={() => !p.isNeutral && pickFog(p.id)}
+              title={spectator && fogOn ? `Click to see the board as ${p.name} sees it` : undefined}
+            >
+              <span className="swatch" style={{ background: p.color }} />
+              <span className="pname">
+                {p.name}
+                {p.isBot && ' 🤖'}
+                {p.id === you && ' (you)'}
+                {!p.isBot && !p.isNeutral && <span className={`online-dot ${conn.presence.online.includes(p.id) ? 'on' : ''}`} title={conn.presence.online.includes(p.id) ? 'online' : 'offline'} />}
+              </span>
+              <span className="pstats" title="territories · armies · cards">
+                {p.territoryCount}t · {p.armyCount}a · {p.cardCount}c
+                {view.options.capitals && ` · ${Object.values(view.capitals ?? {}).filter((t) => view.territories[t]?.owner === p.id).length}★`}
+                {p.income && p.alive && view.phase !== 'lobby' && (
+                  <>
+                    {' · '}
+                    <span className="income" title={incomeTitle(p.income, getMap(view.options.map))}>
+                      +{p.income.total}/turn
+                    </span>
+                  </>
+                )}
+              </span>
+              {spectator && p.cards && p.cards.length > 0 && <HandSummary cards={p.cards} shortName={shortName} />}
+            </div>
+          ))}
+          {me && (
+            <div className="muted small reinforcement-hint">
+              Next turn: +{reinforcementPreview(view, me.id)} armies
+            </div>
+          )}
+        </div>
+  );
+
+  // Unread counts for the mobile dock: anything newer than what was on screen when the sheet was last open.
+  const lastChatId = conn.chat.at(-1)?.id ?? 0;
+  const lastBatchId = conn.batches.at(-1)?.id ?? 0;
+  useEffect(() => {
+    if (sheet === 'chat' || !isMobile) setSeenChatId(lastChatId);
+    if (sheet === 'log' || !isMobile) setSeenBatchId(lastBatchId);
+  }, [sheet, isMobile, lastChatId, lastBatchId]);
+  const unreadChat = conn.chat.filter((m) => m.id > seenChatId).length;
+  const unreadLog = conn.batches.filter((b) => b.id > seenBatchId).length;
+
   return (
-    <div className="game">
+    <div className={`game ${isMobile ? 'mobile' : ''} ${isMobile && sheet ? 'has-sheet' : ''}`}>
       <div className="map-area">
         <div className="topbar">
           <div className="topbar-left">
@@ -368,7 +422,7 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
             </div>
           ) : !me ? (
             <div className="action-group">
-              <span className="muted">
+              <span className="muted watch-note">
                 👁 You are watching. {current ? `${current.name} is playing (${view.phase}).` : ''}
               </span>
               {fogOn && (
@@ -546,6 +600,7 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
         </div>
       </div>
 
+<<<<<<< HEAD
       {/* ---------- sidebar ---------- */}
       <aside className="sidebar" ref={sidebarRef}>
         <div className="players-panel" style={playersHeight !== null ? { height: playersHeight, flex: 'none' } : undefined}>
@@ -603,6 +658,58 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
         </div>
         {tab === 'log' ? <Log batches={conn.batches} view={view} /> : <Chat conn={conn} canSend={!!session} spectator={spectator} />}
       </aside>
+=======
+      {/* ---------- sidebar (desktop) / bottom sheets (mobile) ---------- */}
+      {!isMobile ? (
+        <aside className="sidebar">
+          {playersPanel}
+          <div className="tabs">
+            <button className={tab === 'log' ? 'active' : ''} onClick={() => setTab('log')}>
+              Log
+            </button>
+            <button className={tab === 'chat' ? 'active' : ''} onClick={() => setTab('chat')}>
+              Chat {conn.chat.length ? `(${conn.chat.length})` : ''}
+            </button>
+          </div>
+          {tab === 'log' ? <Log batches={conn.batches} view={view} /> : <Chat conn={conn} canSend={!!session} spectator={spectator} />}
+        </aside>
+      ) : (
+        <>
+          {sheet && (
+            <section className={`sheet sheet-${sheet}`} aria-label={sheet}>
+              <header className="sheet-header">
+                <span className="sheet-grip" />
+                <strong>{sheet === 'players' ? `Players (${view.players.filter((p) => !p.isNeutral).length})` : sheet === 'log' ? 'Battle log' : 'Chat'}</strong>
+                <button className="sheet-close" aria-label="Close" onClick={() => setSheet(null)}>
+                  ✕
+                </button>
+              </header>
+              <div className="sheet-body">
+                {sheet === 'players' && <div className="sheet-scroll">{playersPanel}</div>}
+                {sheet === 'log' && <Log batches={conn.batches} view={view} />}
+                {sheet === 'chat' && <Chat conn={conn} canSend={!!session} spectator={spectator} />}
+              </div>
+            </section>
+          )}
+          <nav className="mobile-dock">
+            <button className={sheet === null ? 'active' : ''} onClick={() => setSheet(null)}>
+              <span className="dock-icon">🗺</span>Board
+            </button>
+            <button className={sheet === 'players' ? 'active' : ''} onClick={() => setSheet(sheet === 'players' ? null : 'players')}>
+              <span className="dock-icon">{current ? <span className="swatch dock-swatch" style={{ background: current.color }} /> : '👥'}</span>Players
+            </button>
+            <button className={sheet === 'log' ? 'active' : ''} onClick={() => setSheet(sheet === 'log' ? null : 'log')}>
+              <span className="dock-icon">📜</span>Log
+              {unreadLog > 0 && sheet !== 'log' && <span className="dock-badge">{unreadLog > 99 ? '99+' : unreadLog}</span>}
+            </button>
+            <button className={sheet === 'chat' ? 'active' : ''} onClick={() => setSheet(sheet === 'chat' ? null : 'chat')}>
+              <span className="dock-icon">💬</span>Chat
+              {unreadChat > 0 && sheet !== 'chat' && <span className="dock-badge">{unreadChat > 99 ? '99+' : unreadChat}</span>}
+            </button>
+          </nav>
+        </>
+      )}
+>>>>>>> origin/ccr-63b8112a-e2uk2g
 
       {showCards && me && (
         <CardsPanel
@@ -640,6 +747,20 @@ function incomeTitle(income: NonNullable<GameView['players'][number]['income']>,
   for (const c of income.continents) parts.push(`${c.bonus} for ${map.continentById[c.id]?.name ?? c.id}`);
   if (income.fromCapitals) parts.push(`${income.fromCapitals} for ${income.capitals} capital${income.capitals === 1 ? '' : 's'}`);
   return `Income next turn, before cards: ${income.total}\n${parts.join('\n')}`;
+}
+
+function useMediaQuery(query: string): boolean {
+  const get = () => (typeof window !== 'undefined' && window.matchMedia ? window.matchMedia(query).matches : false);
+  const [matches, setMatches] = useState(get);
+  useEffect(() => {
+    if (!window.matchMedia) return;
+    const mq = window.matchMedia(query);
+    const on = () => setMatches(mq.matches);
+    on();
+    mq.addEventListener('change', on);
+    return () => mq.removeEventListener('change', on);
+  }, [query]);
+  return matches;
 }
 
 function reinforcementPreview(view: GameView, pid: string): number {

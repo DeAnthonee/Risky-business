@@ -7,13 +7,21 @@ Conquer the world by eliminating every other player. The last player holding ter
 THE MAPS
 Classic: 42 territories in 6 continents (2-6 players). Continent bonuses: North America 5, South America 2,
 Europe 5, Africa 3, Asia 7, Australia 2.
-World: 74 territories in 14 regions (2-10 players), bonuses 2-7 per region. Use the "map" tool for the exact
-territories, regions and adjacency of the map a game is using. On both maps Alaska and Kamchatka are adjacent
-(the map wraps) and some adjacencies cross water.
+World: 74 territories in 14 regions (2-10 players), bonuses 2-7 per region.
+Grand World (world_large): 104 territories in 20 regions (2-10 players), bonuses 2-7 per region.
+Europe: 44 territories in 8 regions (2-8 players), bonuses 2-6. USA: 45 territories (US states, small
+north-eastern ones merged) in 8 regions (2-10 players), bonuses 3-6; Alaska and Hawaii reach the mainland by sea.
+Asia: 49 territories in 7 regions (2-8 players), bonuses 4-6.
+Use the "map" tool for the exact territories, regions and adjacency of the map a game is using. On the classic,
+World and Grand World maps Alaska and Kamchatka are adjacent (the map wraps); on every map some adjacencies
+cross water.
 
 PLAYERS & STARTING ARMIES
 Classic: 2 players: 40 each (plus a 40-army Neutral that never attacks). 3: 35. 4: 30. 5: 25. 6: 20.
-World: about three armies per territory shared out, between 20 and 60 per player (2 players: 60, 5: 44, 10: 22).
+Every other map: about three armies per territory shared out, between 20 and 60 per player.
+  World: 2 players 60, 5: 44, 10: 22. Grand World: 2-5 players 60, 6: 52, 7: 45, 8: 39, 9: 35, 10: 31.
+  Europe: 2: 60, 3: 44, 4: 33, 5: 26, 6: 22, 7-8: 20. USA: 2: 60, 3: 45, 4: 34, 5: 27, 6: 23, 7-10: 20.
+  Asia: 2: 60, 3: 49, 4: 37, 5: 29, 6: 25, 7: 21, 8: 20.
 
 SETUP
 Territories are dealt randomly (default) and get 1 army each. Then, in turn order, each player places armies on their
@@ -46,7 +54,7 @@ A TURN has three phases:
    neighbouring territories. Fortifying ends your turn. You may also simply end your turn.
 
 CARDS
-One card per territory (Infantry, Cavalry or Artillery) + 2 wilds (44 on the classic map, 76 on World). You earn
+One card per territory (Infantry, Cavalry or Artillery) + 2 wilds (territories + 2: 44 on the classic map, 76 on World, 106 on Grand World). You earn
 one card at the end of any turn in which you conquered at least one territory, and you take all of a player's
 cards when you eliminate them. A set is three of a kind, one of each, or any two plus a wild.
 Option "cardValues": "progressive" (default) escalates for the whole game: 4, 6, 8, 10, 12, 15, then +5 each

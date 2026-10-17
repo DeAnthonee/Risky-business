@@ -1,0 +1,126 @@
+// Europe: 44 territories, 8 regions, up to 8 players. Natural Earth 1:50m countries, some split
+// with lon/lat boxes; western Russia, Anatolia and the Maghreb form the edges of the board.
+// part = country id | { c: id, box | boxes | pick } (see scripts/build-map.mjs)
+export default {
+  id: 'europe',
+  name: 'Europe (44)',
+  maxPlayers: 8,
+  source: 'countries-50m',
+  simplify: 0.003,
+  minArea: 0.15,
+  densify: 1,
+  projection: { type: 'conicEqualArea', rotate: [-17, 0], parallels: [38, 62] },
+  continents: [
+    { id: 'northern_europe', name: 'Northern Europe', bonus: 6, label: [-14, 59] },
+    { id: 'western_europe', name: 'Western Europe', bonus: 4, label: [-14, 43] },
+    { id: 'central_europe', name: 'Central Europe', bonus: 5, label: [4, 57.6] },
+    { id: 'southern_europe', name: 'Southern Europe', bonus: 5, label: [12, 37.2] },
+    { id: 'eastern_europe', name: 'Eastern Europe', bonus: 4, label: [33.5, 44.6] },
+    { id: 'russia', name: 'Russia', bonus: 3, label: [50, 67.5] },
+    { id: 'anatolia', name: 'Anatolia', bonus: 2, label: [37, 34.6] },
+    { id: 'north_africa', name: 'North Africa', bonus: 2, label: [0, 29] },
+  ],
+  territories: [
+    // Northern Europe
+    { id: 'iceland', name: 'Iceland', continent: 'northern_europe', parts: ['352'] },
+    { id: 'ireland', name: 'Ireland', continent: 'northern_europe', parts: ['372', { c: '826', pick: [-8.5, -5.4, 54, 55.4] }] },
+    { id: 'scotland', name: 'Scotland', continent: 'northern_europe', parts: [{ c: '826', boxes: [[-9, 0, 55.3, 61], [-5.3, -3.1, 54.6, 55.3]] }] },
+    { id: 'northern_england', name: 'Northern England', continent: 'northern_europe', anchor: [-1.9, 54.4], parts: [{ c: '826', boxes: [[-3.1, 2, 53.3, 55.3], [-5.3, -3.1, 53.3, 54.6]] }] },
+    { id: 'southern_england', name: 'Southern England', continent: 'northern_europe', anchor: [-1.2, 51.75], parts: [{ c: '826', box: [-6.5, 2, 49.8, 53.3] }] },
+    { id: 'norway', name: 'Norway', continent: 'northern_europe', parts: [{ c: '578', box: [4, 32, 57.5, 71.5] }] },
+    { id: 'sweden', name: 'Sweden', continent: 'northern_europe', anchor: [15.3, 61], parts: ['752'] },
+    { id: 'finland', name: 'Finland', continent: 'northern_europe', parts: ['246', '248'] },
+    { id: 'denmark', name: 'Denmark', continent: 'northern_europe', parts: ['208'] },
+    // Western Europe
+    { id: 'portugal', name: 'Portugal', continent: 'western_europe', parts: [{ c: '620', box: [-10, -6, 36.8, 42.2] }] },
+    { id: 'northern_spain', name: 'Northern Spain', continent: 'western_europe', parts: [{ c: '724', box: [-10, 5, 40.3, 44] }, '020'] },
+    { id: 'southern_spain', name: 'Southern Spain', continent: 'western_europe', parts: [{ c: '724', box: [-10, 5, 35.95, 40.3] }] },
+    { id: 'northern_france', name: 'Northern France', continent: 'western_europe', parts: [{ c: '250', box: [-5.5, 10, 46.5, 51.5] }] },
+    { id: 'southern_france', name: 'Southern France', continent: 'western_europe', parts: [{ c: '250', box: [-5.5, 10, 41, 46.5] }, '492'] },
+    { id: 'benelux', name: 'Benelux', continent: 'western_europe', parts: ['056', '528', '442'] },
+    // Central Europe
+    { id: 'northern_germany', name: 'Northern Germany', continent: 'central_europe', parts: [{ c: '276', box: [5, 15.5, 50.6, 55.2] }] },
+    { id: 'southern_germany', name: 'Southern Germany', continent: 'central_europe', anchor: [9.5, 49.6], parts: [{ c: '276', box: [5, 15.5, 47, 50.6] }] },
+    { id: 'alps', name: 'Alpine States', continent: 'central_europe', anchor: [12.2, 47.4], parts: ['756', '040', '438'] },
+    { id: 'poland', name: 'Poland', continent: 'central_europe', parts: ['616'] },
+    { id: 'czechoslovakia', name: 'Czechia & Slovakia', continent: 'central_europe', anchor: [16.5, 49.7], parts: ['203', '703'] },
+    { id: 'hungary', name: 'Hungary', continent: 'central_europe', parts: ['348'] },
+    // Southern Europe
+    { id: 'northern_italy', name: 'Northern Italy', continent: 'southern_europe', anchor: [10.3, 45], parts: [{ c: '380', box: [6, 14, 43.3, 47.2] }, '674'] },
+    { id: 'southern_italy', name: 'Southern Italy', continent: 'southern_europe', parts: [{ c: '380', box: [6, 19, 36, 43.3] }, '336', '470'] },
+    { id: 'croatia', name: 'Croatia & Slovenia', continent: 'southern_europe', anchor: [16, 45.6], parts: ['191', '705'] },
+    { id: 'serbia', name: 'Serbia & Bosnia', continent: 'southern_europe', anchor: [20.4, 43.9], parts: ['688', '070', '499', 'Kosovo'] },
+    { id: 'albania', name: 'Albania & Macedonia', continent: 'southern_europe', anchor: [20.6, 41.5], parts: ['008', '807'] },
+    { id: 'greece', name: 'Greece', continent: 'southern_europe', anchor: [22.1, 39.1], parts: ['300'] },
+    { id: 'bulgaria', name: 'Bulgaria', continent: 'southern_europe', parts: ['100'] },
+    // Eastern Europe
+    { id: 'baltic_states', name: 'Baltic States', continent: 'eastern_europe', parts: ['233', '428', '440', { c: '643', box: [19, 23, 54, 56] }] },
+    { id: 'belarus', name: 'Belarus', continent: 'eastern_europe', parts: ['112'] },
+    { id: 'western_ukraine', name: 'Western Ukraine', continent: 'eastern_europe', parts: [{ c: '804', box: [22, 30, 44, 53] }] },
+    { id: 'eastern_ukraine', name: 'Eastern Ukraine', continent: 'eastern_europe', parts: [{ c: '804', box: [30, 41, 44, 53] }, { c: '643', box: [32.4, 36.65, 44.3, 46.2] }] },
+    { id: 'romania', name: 'Romania & Moldova', continent: 'eastern_europe', parts: ['642', '498'] },
+    // Russia
+    { id: 'karelia', name: 'Karelia', continent: 'russia', parts: [{ c: '643', box: [27, 42, 58.5, 70.2] }] },
+    { id: 'northern_russia', name: 'Northern Russia', continent: 'russia', parts: [{ c: '643', box: [42, 60, 58.5, 70.2] }] },
+    { id: 'moscow', name: 'Moscow', continent: 'russia', parts: [{ c: '643', box: [27, 45, 52, 58.5] }] },
+    { id: 'volga', name: 'Volga', continent: 'russia', parts: [{ c: '643', box: [45, 60, 49, 58.5] }] },
+    { id: 'southern_russia', name: 'Southern Russia', continent: 'russia', parts: [{ c: '643', boxes: [[36.65, 50, 41, 49], [36.65, 45, 49, 52], [36, 36.65, 46.2, 52]] }] },
+    // Anatolia
+    { id: 'western_anatolia', name: 'Western Anatolia', continent: 'anatolia', parts: [{ c: '792', box: [25, 35, 35, 43] }, '196', 'N. Cyprus'] },
+    { id: 'eastern_anatolia', name: 'Eastern Anatolia', continent: 'anatolia', parts: [{ c: '792', box: [35, 45, 35, 43] }] },
+    { id: 'caucasus', name: 'Caucasus', continent: 'anatolia', parts: ['268', '051', '031'] },
+    // North Africa
+    { id: 'morocco', name: 'Morocco', continent: 'north_africa', parts: [{ c: '504', box: [-13, -1, 29, 36] }] },
+    { id: 'algeria', name: 'Algeria', continent: 'north_africa', parts: [{ c: '012', box: [-9, 12, 30, 37.5] }] },
+    { id: 'tunisia', name: 'Tunisia & Libya', continent: 'north_africa', anchor: [11.5, 31.3], parts: ['788', { c: '434', box: [9, 25.5, 29, 34] }] },
+  ],
+  edges: [
+    // Northern Europe
+    ['iceland', 'norway'], ['iceland', 'scotland'],
+    ['ireland', 'scotland'], ['ireland', 'northern_england'], ['ireland', 'southern_england'],
+    ['scotland', 'northern_england'], ['scotland', 'norway'],
+    ['northern_england', 'southern_england'], ['northern_england', 'denmark'],
+    ['southern_england', 'northern_france'], ['southern_england', 'benelux'],
+    ['norway', 'sweden'], ['norway', 'finland'], ['norway', 'denmark'], ['norway', 'karelia'],
+    ['sweden', 'finland'], ['sweden', 'denmark'], ['sweden', 'baltic_states'],
+    ['finland', 'karelia'], ['finland', 'baltic_states'],
+    ['denmark', 'northern_germany'],
+    // Western Europe
+    ['portugal', 'northern_spain'], ['portugal', 'southern_spain'],
+    ['northern_spain', 'southern_spain'], ['northern_spain', 'southern_france'],
+    ['southern_spain', 'morocco'], ['southern_spain', 'algeria'],
+    ['northern_france', 'southern_france'], ['northern_france', 'benelux'], ['northern_france', 'southern_germany'], ['northern_france', 'alps'],
+    ['southern_france', 'alps'], ['southern_france', 'northern_italy'], ['southern_france', 'algeria'],
+    ['benelux', 'northern_germany'], ['benelux', 'southern_germany'],
+    // Central Europe
+    ['northern_germany', 'southern_germany'], ['northern_germany', 'poland'], ['northern_germany', 'czechoslovakia'],
+    ['southern_germany', 'alps'], ['southern_germany', 'czechoslovakia'],
+    ['alps', 'northern_italy'], ['alps', 'hungary'], ['alps', 'czechoslovakia'], ['alps', 'croatia'],
+    ['poland', 'czechoslovakia'], ['poland', 'baltic_states'], ['poland', 'belarus'], ['poland', 'western_ukraine'],
+    ['czechoslovakia', 'hungary'], ['czechoslovakia', 'western_ukraine'],
+    ['hungary', 'western_ukraine'], ['hungary', 'romania'], ['hungary', 'serbia'], ['hungary', 'croatia'],
+    // Southern Europe
+    ['northern_italy', 'southern_italy'], ['northern_italy', 'croatia'],
+    ['southern_italy', 'albania'], ['southern_italy', 'tunisia'],
+    ['croatia', 'serbia'],
+    ['serbia', 'albania'], ['serbia', 'bulgaria'], ['serbia', 'romania'],
+    ['albania', 'greece'], ['albania', 'bulgaria'],
+    ['greece', 'bulgaria'], ['greece', 'western_anatolia'],
+    ['bulgaria', 'romania'], ['bulgaria', 'western_anatolia'],
+    // Eastern Europe
+    ['baltic_states', 'belarus'], ['baltic_states', 'karelia'], ['baltic_states', 'moscow'],
+    ['belarus', 'western_ukraine'], ['belarus', 'eastern_ukraine'], ['belarus', 'moscow'],
+    ['western_ukraine', 'eastern_ukraine'], ['western_ukraine', 'romania'],
+    ['eastern_ukraine', 'moscow'], ['eastern_ukraine', 'southern_russia'], ['eastern_ukraine', 'romania'],
+    // Russia
+    ['karelia', 'northern_russia'], ['karelia', 'moscow'],
+    ['northern_russia', 'moscow'], ['northern_russia', 'volga'],
+    ['moscow', 'volga'], ['moscow', 'southern_russia'],
+    ['volga', 'southern_russia'],
+    ['southern_russia', 'caucasus'],
+    // Anatolia
+    ['western_anatolia', 'eastern_anatolia'], ['eastern_anatolia', 'caucasus'],
+    // North Africa
+    ['morocco', 'algeria'], ['algeria', 'tunisia'],
+  ],
+};

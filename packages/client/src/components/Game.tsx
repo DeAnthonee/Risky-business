@@ -7,7 +7,7 @@ import { CardsPanel } from './Cards';
 import { Chat } from './Chat';
 import { DicePanel, type BattleEvent } from './Dice';
 import { Log } from './Log';
-import { GameMap, territoryName, type FloatAnim, type Highlight, type MoveAnim } from './Map';
+import { GameMap, territoryName, type FloatAnim, type Highlight, type MoveAnim, type SweepAnim } from './Map';
 
 type Mode = 'idle' | 'place' | 'attack' | 'fortify';
 
@@ -266,6 +266,7 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
           flashes={anim.flashes}
           moves={anim.moves}
           floats={anim.floats}
+          sweeps={anim.sweeps}
           onTerritoryClick={onTerritoryClick}
           dimOthers={dimOthers}
         />
@@ -566,6 +567,7 @@ interface AnimState {
   flashes: Record<string, number>;
   moves: MoveAnim[];
   floats: FloatAnim[];
+  sweeps: SweepAnim[];
 }
 
 function useAnimations(
@@ -574,7 +576,7 @@ function useAnimations(
   colorOf: (pid: string | null | undefined) => string,
   setBanner: (b: { text: string; color: string } | null) => void,
 ) {
-  const [state, setState] = useState<AnimState>({ battle: null, attackArrow: null, flashes: {}, moves: [], floats: [] });
+  const [state, setState] = useState<AnimState>({ battle: null, attackArrow: null, flashes: {}, moves: [], floats: [], sweeps: [] });
   const seen = useRef(0);
   const queue = useRef<BattleEvent[]>([]);
   const running = useRef(false);
@@ -610,6 +612,7 @@ function useAnimations(
     const flashes: Record<string, number> = {};
     const moves: MoveAnim[] = [];
     const floats: FloatAnim[] = [];
+    const sweeps: SweepAnim[] = [];
     let newBattles = 0;
     const myId = view.you;
     for (const b of fresh) {
@@ -628,6 +631,7 @@ function useAnimations(
             break;
           case 'conquered':
             flashes[e.to] = Date.now();
+            sweeps.push({ id: ++ids.current, territory: e.to, from: e.from, color: colorOf(e.player) });
             break;
           case 'moved':
             moves.push({ id: ++ids.current, from: e.from, to: e.to, armies: e.armies, color: colorOf(e.player) });
@@ -647,15 +651,16 @@ function useAnimations(
         }
       }
     }
-    if (Object.keys(flashes).length || moves.length || floats.length) {
-      setState((s) => ({ ...s, flashes: { ...s.flashes, ...flashes }, moves: [...s.moves, ...moves], floats: [...s.floats, ...floats] }));
+    if (Object.keys(flashes).length || moves.length || floats.length || sweeps.length) {
+      setState((s) => ({ ...s, flashes: { ...s.flashes, ...flashes }, moves: [...s.moves, ...moves], floats: [...s.floats, ...floats], sweeps: [...s.sweeps, ...sweeps] }));
       setTimeout(() => {
         setState((s) => ({
           ...s,
           moves: s.moves.filter((m) => !moves.includes(m)),
           floats: s.floats.filter((f) => !floats.includes(f)),
+          sweeps: s.sweeps.filter((f) => !sweeps.includes(f)),
         }));
-      }, 1300);
+      }, 1600);
     }
     if (newBattles) pumpBattles();
     // eslint-disable-next-line react-hooks/exhaustive-deps

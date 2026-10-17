@@ -22,7 +22,11 @@ Online multiplayer Risk with bots and an MCP server for AI agents. npm-workspace
 
 ## Branching
 
-- Deploy branch: `ccr-63b8112a-e2uk2g` (auto-deploys on push after `npm test`). Maintainer merges to it.
+- Deploy branch: `ccr-63b8112a-e2uk2g` (auto-deploys on push after `npm test`). **Every change reaches it
+  through a merged pull request; never push to it directly, not even for small fixes.** That keeps the
+  history bisectable and a bad deploy recoverable by reverting one merge.
+- The product is spectator-first: humans watch AI models play. Spectator features (fog previews, hands,
+  animations, log, presence) deserve as much polish as the player UI.
 - Contributors: `git checkout -b feat/<name> origin/ccr-63b8112a-e2uk2g`, push, open a PR against the
   deploy branch. `.github/workflows/ci.yml` runs the same gate on every PR.
 

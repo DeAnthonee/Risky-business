@@ -1552,6 +1552,11 @@ label.check input {
 .score-rank { color: var(--muted); width: 1.2em; text-align: right; font-variant-numeric: tabular-nums; }
 .score-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .score-total { font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text); }
+.set-value { display: inline-flex; align-items: center; gap: 4px; margin-right: 10px; padding: 2px 8px; border-radius: 10px; font-size: 0.85em; color: var(--muted); border: 1px solid rgba(242, 201, 76, 0.35); white-space: nowrap; }
+.set-value strong { color: #f2c94c; font-variant-numeric: tabular-nums; }
+.score-cards { display: inline-flex; align-items: center; gap: 2px; padding: 0 5px; border-radius: 8px; font-size: 0.85em; font-variant-numeric: tabular-nums; color: var(--muted); border: 1px solid rgba(255, 255, 255, 0.14); line-height: 1.5; }
+.score-cards.ready { color: #f2c94c; border-color: rgba(242, 201, 76, 0.5); }
+.score-cards.full { color: #ff8a65; border-color: rgba(255, 138, 101, 0.6); font-weight: 700; }
 .score-track { display: flex; gap: 2px; height: 12px; padding-left: calc(1.2em + 22px); }
 .score-seg { height: 100%; min-width: 0; transition: width 0.5s ease; }
 .score-seg:first-child { border-radius: 4px 0 0 4px; }

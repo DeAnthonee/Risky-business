@@ -26,6 +26,9 @@ export interface GameConnection {
   presence: PresenceMessage;
   /** Set when the room was closed (by the host, an admin, or for being idle). */
   closedReason: string | null;
+  /** Spectator fast-forward: show every update the moment it arrives, no replay pacing (and no animations). */
+  fastForward: boolean;
+  setFastForward: (on: boolean) => void;
 }
 
 /**
@@ -89,10 +92,26 @@ export function useGame(gameId: string | null, token: string | undefined): GameC
   const [closedReason, setClosedReason] = useState<string | null>(null);
   const sockRef = useRef<GameSocket | null>(null);
   const seq = useRef(0);
-  const playback = useRef<{ queue: StateMessage[]; timer: ReturnType<typeof setTimeout> | null; previous: GameEvent[] | null }>({ queue: [], timer: null, previous: null });
+  const playback = useRef<{ queue: StateMessage[]; timer: ReturnType<typeof setTimeout> | null; previous: GameEvent[] | null; fast: boolean; flush: (() => void) | null }>({
+    queue: [],
+    timer: null,
+    previous: null,
+    fast: false,
+    flush: null,
+  });
+  const [fastForward, setFastForwardState] = useState(false);
+  const setFastForward = useCallback((on: boolean) => {
+    playback.current.fast = on;
+    setFastForwardState(on);
+    // Jump straight to the live board.
+    if (on) playback.current.flush?.();
+  }, []);
 
   useEffect(() => {
     if (!gameId) return;
+    // A new connection (another game, or a spectator taking a seat) starts at normal speed.
+    playback.current.fast = false;
+    setFastForwardState(false);
     const apply = (m: StateMessage) => {
       setView(m.state);
       setHost(m.host);
@@ -101,6 +120,12 @@ export function useGame(gameId: string | null, token: string | undefined): GameC
       if (m.events.length) setBatches((b) => [...b.slice(-200), { id: ++seq.current, version: m.version, events: m.events }]);
     };
     const pb = playback.current;
+    pb.flush = () => {
+      if (pb.timer) clearTimeout(pb.timer);
+      pb.timer = null;
+      const all = pb.queue.splice(0);
+      for (const m of all) apply(m);
+    };
     const pump = () => {
       pb.timer = null;
       if (pb.queue.length >= PACE.flushAt || (typeof document !== 'undefined' && document.hidden && pb.queue.length > PACE.hurryAt)) {
@@ -120,6 +145,8 @@ export function useGame(gameId: string | null, token: string | undefined): GameC
     const sock = new GameSocket(gameId, token, {
       onState: (m: StateMessage) => {
         if (m.commit && m.commit !== 'unknown' && __COMMIT__ !== 'unknown' && m.commit !== __COMMIT__) setUpdateAvailable(true);
+        // Fast-forward: no replay at all.
+        if (pb.fast && !m.you && pb.queue.length === 0 && !pb.timer) return apply(m);
         // Seated players, and the initial snapshot, apply at once; spectators replay in sequence.
         if (m.you || m.events.length === 0) {
           if (pb.queue.length === 0 && !pb.timer) return apply(m);
@@ -148,6 +175,7 @@ export function useGame(gameId: string | null, token: string | undefined): GameC
       pb.timer = null;
       pb.queue.length = 0;
       pb.previous = null;
+      pb.flush = null;
     };
   }, [gameId, token]);
 
@@ -165,5 +193,5 @@ export function useGame(gameId: string | null, token: string | undefined): GameC
     await sockRef.current?.chat(msg, name, to);
   }, []);
 
-  return { view, host, name, you, connected, batches, chat, act, sendChat, error, clearError: () => setError(null), updateAvailable, presence, closedReason };
+  return { view, host, name, you, connected, batches, chat, act, sendChat, error, clearError: () => setError(null), updateAvailable, presence, closedReason, fastForward, setFastForward };
 }

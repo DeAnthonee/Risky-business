@@ -7,7 +7,7 @@ export const CARD_ICON: Record<Card['kind'], string> = { infantry: '🪖', caval
 /** One card animation, shown in a panel over the bottom of the board. */
 export type CardFx =
   | { id: number; kind: 'draw'; player: string; color: string; card: Card | null }
-  | { id: number; kind: 'trade'; player: string; color: string; cards: Card[]; armies: number; bonusTerritory: string | null }
+  | { id: number; kind: 'trade'; player: string; color: string; cards: Card[]; armies: number; bonusTerritory: string | null; auto?: boolean }
   | { id: number; kind: 'taken'; player: string; from: string; color: string; fromColor: string; count: number };
 
 /** How long each animation stays up, in ms (the CSS keyframes are timed to fit). */
@@ -59,7 +59,7 @@ export function CardFxPanel({ fx, names, mapId }: { fx: CardFx; names: Record<st
           </div>
         </div>
         <div className="fx-caption">
-          <strong style={{ color: fx.color }}>{who(fx.player)}</strong> traded in a set for <strong>{fx.armies}</strong> armies
+          <strong style={{ color: fx.color }}>{who(fx.player)}</strong> {fx.auto ? 'auto-traded (5+ cards)' : 'traded in a set'} for <strong>{fx.armies}</strong> armies
           {fx.bonusTerritory && <span className="muted"> · +2 on {shortName(fx.bonusTerritory)}</span>}
         </div>
       </div>

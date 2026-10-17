@@ -10,6 +10,7 @@ import {
   TERRITORY_IDS,
   addPlayer,
   applyAction,
+  bestSet,
   capitalsHeldBy,
   createGame,
   findSets,
@@ -279,24 +280,59 @@ describe('turn flow', () => {
     }
   });
 
-  it('forces a trade with 5+ cards in reinforce and awards escalating bonuses', () => {
+  it('trades a set in automatically when a turn starts with 5+ cards', () => {
+    let state = finishSetup(setup(3, { setupBatch: 40 }).state);
+    const me = state.currentPlayer!;
+    const next = state.turnOrder[(state.turnOrder.indexOf(me) + 1) % state.turnOrder.length];
+    const nextP = state.players.find((x) => x.id === next)!;
+    nextP.cards = state.deck.splice(0, 5);
+    expect(legalMoves(state, next).mustTrade).toBe(false); // not their turn yet
+    state = applyAction(state, me, { type: 'place', placements: { [territoriesOf(state, me)[0]]: state.players.find((x) => x.id === me)!.armiesToPlace } }).state;
+    const res = applyAction(state, me, { type: 'end_turn' });
+    expect(res.state.currentPlayer).toBe(next);
+    const traded = res.events.filter((e) => e.type === 'traded') as Extract<GameEvent, { type: 'traded' }>[];
+    expect(traded).toHaveLength(1);
+    expect(traded[0].auto).toBe(true);
+    expect(traded[0].player).toBe(next);
+    expect(traded[0].armies).toBe(4);
+    const after = res.state.players.find((x) => x.id === next)!;
+    expect(after.cards).toHaveLength(2);
+    const started = res.events.find((e) => e.type === 'turn_started') as Extract<GameEvent, { type: 'turn_started' }>;
+    expect(after.armiesToPlace).toBe(started.reinforcements.total + 4);
+    expect(res.state.tradeCount).toBe(1);
+    expect(legalMoves(res.state, next).mustTrade).toBe(false);
+    expect(legalMoves(res.state, next).canPlaceOn.length).toBeGreaterThan(0);
+  });
+
+  it('lets you trade a set by choice in reinforce and awards escalating bonuses', () => {
     let state = finishSetup(setup(3, { setupBatch: 40 }).state);
     const me = state.currentPlayer!;
     const p = state.players.find((x) => x.id === me)!;
-    p.cards = state.deck.splice(0, 5);
+    const pick = (kind: string) => state.deck.splice(state.deck.findIndex((c) => c.kind === kind), 1)[0];
+    p.cards = [pick('infantry'), pick('infantry'), pick('infantry'), pick('cavalry')];
     const lm = legalMoves(state, me);
-    expect(lm.mustTrade).toBe(true);
-    expect(lm.canPlaceOn).toHaveLength(0);
-    expect(() => applyAction(state, me, { type: 'place', placements: { [territoriesOf(state, me)[0]]: 1 } })).toThrow(/trade/);
+    expect(lm.mustTrade).toBe(false);
     const set = lm.tradeableSets[0];
     expect(set).toBeDefined();
     const before = p.armiesToPlace;
     const res = applyAction(state, me, { type: 'trade', cardIds: set });
     const traded = res.events.find((e) => e.type === 'traded') as Extract<GameEvent, { type: 'traded' }>;
     expect(traded.armies).toBe(4);
+    expect(traded.auto).toBeUndefined();
     expect(res.state.players.find((x) => x.id === me)!.armiesToPlace).toBe(before + 4);
     expect(res.state.tradeCount).toBe(1);
-    expect(res.state.players.find((x) => x.id === me)!.cards).toHaveLength(2);
+    expect(res.state.players.find((x) => x.id === me)!.cards).toHaveLength(1);
+  });
+
+  it('the automatic trade picks the most armies and keeps wilds', () => {
+    let state = finishSetup(setup(3, { setupBatch: 40, cardValues: 'fixed' }).state);
+    const me = state.currentPlayer!;
+    const p = state.players.find((x) => x.id === me)!;
+    const pick = (kind: string) => state.deck.splice(state.deck.findIndex((c) => c.kind === kind), 1)[0];
+    // Sets on offer: 3 infantry (4), infantry+cavalry+artillery (10), and several with the wild.
+    p.cards = [pick('infantry'), pick('infantry'), pick('infantry'), pick('cavalry'), pick('artillery'), pick('wild')];
+    const set = bestSet(state, me)!;
+    expect(set.map((c) => c.kind).sort()).toEqual(['artillery', 'cavalry', 'infantry']);
   });
 
   it('balanced blitz plays out the median of several real blitzes: fewer upsets, single rolls untouched', () => {
@@ -567,6 +603,43 @@ describe('turn flow', () => {
     expect(res.events.some((e) => e.type === 'cards_taken')).toBe(true);
     expect(res.state.phase).toBe('finished');
     expect(res.state.winner).toBe(me);
+  });
+
+  it('a kill that leaves you with 5 cards trades a set in automatically, then you keep attacking', () => {
+    let state = finishSetup(setup(3, { setupBatch: 40 }).state);
+    const me = state.currentPlayer!;
+    const victim = state.turnOrder.find((id) => id !== me)!;
+    const third = state.turnOrder.find((id) => id !== me && id !== victim)!;
+    // The victim is down to one territory with 2 cards; I already hold 3 (no set among them).
+    const victimTerrs = territoriesOf(state, victim);
+    for (const t of victimTerrs.slice(1)) state.territories[t].owner = third;
+    const last = victimTerrs[0];
+    state.territories[last].armies = 1;
+    const kinds = ['infantry', 'infantry', 'cavalry', 'cavalry', 'artillery'] as const;
+    const pick = (kind: (typeof kinds)[number]) => state.deck.splice(state.deck.findIndex((c) => c.kind === kind), 1)[0];
+    const meP = state.players.find((x) => x.id === me)!;
+    meP.cards = [pick('infantry'), pick('infantry'), pick('cavalry')];
+    state.players.find((x) => x.id === victim)!.cards = [pick('cavalry'), pick('artillery')];
+    const from = ADJACENCY[last][0];
+    state.territories[from] = { owner: me, armies: 40 };
+    state = applyAction(state, me, { type: 'place', placements: { [from]: meP.armiesToPlace } }).state;
+    expect(legalMoves(state, me).mustTrade).toBe(false); // 3 cards: no forced trade yet
+
+    const res = applyAction(state, me, { type: 'attack', from, to: last, blitz: true, occupy: 'min' });
+    state = res.state;
+    const traded = res.events.find((e) => e.type === 'traded') as Extract<GameEvent, { type: 'traded' }>;
+    expect(traded?.auto).toBe(true);
+    // The trade comes after the cards are taken.
+    expect(res.events.findIndex((e) => e.type === 'traded')).toBeGreaterThan(res.events.findIndex((e) => e.type === 'cards_taken'));
+    const after = state.players.find((x) => x.id === me)!;
+    expect(after.cards).toHaveLength(2);
+    expect(after.armiesToPlace).toBeGreaterThan(0);
+    expect(state.phase).toBe('attack');
+    expect(legalMoves(state, me).mustTrade).toBe(false);
+
+    // Place the armies, and the attack phase carries on.
+    state = applyAction(state, me, { type: 'place', placements: { [from]: after.armiesToPlace } }).state;
+    expect(legalMoves(state, me).canEndTurn).toBe(true);
   });
 
   it('view hides other players cards and exposes legal moves', () => {
@@ -1173,5 +1246,106 @@ describe('rules text', () => {
       if (two) listed[2] = Number(two[1]);
       for (let p = 2; p <= m.maxPlayers; p++) expect(listed[p], `${label} ${p} players`).toBe(m.startingArmies(p));
     }
+  });
+});
+
+describe('fog of war hides everything a player cannot see', () => {
+  it('hides other players\' counts, income and continents unless all their territories are visible', () => {
+    const state = finishSetup(setup(4, { setupBatch: 40, fogOfWar: true }).state);
+    const [me, ...others] = state.turnOrder;
+    const v = viewFor(state, me);
+    const mine = v.players.find((p) => p.id === me)!;
+    expect(mine.armyCount).not.toBeNull();
+    expect(mine.territoryCount).not.toBeNull();
+    expect(mine.income).not.toBeNull();
+    for (const o of others) {
+      const pv = v.players.find((p) => p.id === o)!;
+      const allVisible = territoriesOf(state, o).every((t) => !v.territories[t].hidden);
+      if (allVisible) continue;
+      expect(pv.armyCount).toBeNull();
+      expect(pv.territoryCount).toBeNull();
+      expect(pv.cardCount).toBe(state.players.find((p) => p.id === o)!.cards.length); // card counts stay public
+      expect(pv.income).toBeNull();
+      expect(pv.cards).toBeNull();
+    }
+    // Spectators see everything.
+    const spec = viewFor(state, null);
+    for (const p of spec.players.filter((x) => !x.isNeutral)) {
+      expect(p.armyCount).not.toBeNull();
+      expect(p.territoryCount).not.toBeNull();
+    }
+    // A continent only shows an owner if the viewer can see all of it.
+    for (const [cid, owner] of Object.entries(v.continentOwners)) {
+      if (!owner || owner === me) continue;
+      const c = CONTINENTS.find((x) => x.id === cid)!;
+      expect(c.territories.every((t) => !v.territories[t].hidden)).toBe(true);
+    }
+  });
+
+  it('shows another player\'s numbers once every territory they hold is visible', () => {
+    const state = finishSetup(setup(3, { setupBatch: 40, fogOfWar: true }).state);
+    const [me, other] = state.turnOrder;
+    // Shrink `other` to one territory next to mine.
+    const mineT = territoriesOf(state, me)[0];
+    const target = ADJACENCY[mineT][0];
+    for (const t of territoriesOf(state, other)) state.territories[t].owner = me;
+    state.territories[target] = { owner: other, armies: 4 };
+    const pv = viewFor(state, me).players.find((p) => p.id === other)!;
+    expect(pv.territoryCount).toBe(1);
+    expect(pv.armyCount).toBe(4);
+  });
+
+  it('redacts other players\' income, card draws and trades from the event stream', () => {
+    const state = finishSetup(setup(4, { setupBatch: 40, fogOfWar: true }).state);
+    const [me, other] = state.turnOrder;
+    const events: GameEvent[] = [
+      { type: 'turn_started', player: other, turnNumber: 2, round: 1, reinforcements: { territories: 10, fromTerritories: 3, continents: [], capitals: 0, fromCapitals: 0, total: 3 } },
+      { type: 'card_drawn', player: other },
+      { type: 'traded', player: other, cardIds: [1, 2, 3], cards: [], armies: 4, bonusTerritory: null },
+      { type: 'card_drawn', player: me },
+    ];
+    const out = redactEvents(state, me, events);
+    // With 4 players on 42 territories, `other` always holds something `me` cannot see.
+    expect(territoriesOf(state, other).some((t) => viewFor(state, me).territories[t].hidden)).toBe(true);
+    expect(out[0]).toMatchObject({ type: 'turn_started', player: other, reinforcements: { hidden: true, total: 0 } });
+    expect(out[1]).toEqual(events[1]); // card draws are public, like card counts
+    expect(out[2]).toEqual({ type: 'fogged', kind: 'traded' });
+    expect(out[3]).toEqual(events[3]);
+    // Spectators get everything as is.
+    expect(redactEvents(state, null, events)).toEqual(events);
+  });
+
+  it('hides another player\'s armies to place and pending occupy behind the fog', () => {
+    const state = finishSetup(setup(4, { setupBatch: 40, fogOfWar: true }).state);
+    const [first, me] = state.turnOrder;
+    expect(state.currentPlayer).toBe(first);
+    const hiddenFromMe = (t: string) => viewFor(state, me).territories[t].hidden;
+    expect(territoriesOf(state, first).some(hiddenFromMe)).toBe(true);
+    // `first` is reinforcing: their armies to place equal their (hidden) income.
+    expect(state.players.find((p) => p.id === first)!.armiesToPlace).toBeGreaterThan(0);
+    expect(viewFor(state, me).players.find((p) => p.id === first)!.armiesToPlace).toBe(0);
+    expect(viewFor(state, null).players.find((p) => p.id === first)!.armiesToPlace).toBeGreaterThan(0);
+    // A pending occupy between two territories `me` cannot see.
+    const to = territoriesOf(state, first).find(hiddenFromMe)!;
+    const from = ADJACENCY[to].find(hiddenFromMe) ?? to;
+    state.pendingConquest = { from, to, minArmies: 3, maxArmies: 29 };
+    expect(viewFor(state, me).pendingConquest).toBeNull();
+    expect(viewFor(state, first).pendingConquest).toEqual(state.pendingConquest);
+    expect(viewFor(state, null).pendingConquest).toEqual(state.pendingConquest);
+  });
+
+  it('lifts the fog for eliminated players and once the game is over', () => {
+    const state = finishSetup(setup(4, { setupBatch: 40, fogOfWar: true }).state);
+    const [, me, other] = state.turnOrder;
+    const hidden = (s: GameState) => Object.values(viewFor(s, me).territories).filter((t) => t.hidden).length;
+    expect(hidden(state)).toBeGreaterThan(0);
+    const events: GameEvent[] = [{ type: 'traded', player: other, cardIds: [1, 2, 3], cards: [], armies: 4, bonusTerritory: null }];
+    expect(redactEvents(state, me, events)[0].type).toBe('fogged');
+    const out = { ...state, players: state.players.map((p) => (p.id === me ? { ...p, alive: false } : p)) };
+    expect(hidden(out)).toBe(0);
+    expect(viewFor(out, me).players.find((p) => p.id === other)!.armyCount).not.toBeNull();
+    expect(redactEvents(out, me, events)).toEqual(events);
+    const over = { ...state, phase: 'finished' as const };
+    expect(hidden(over)).toBe(0);
   });
 });

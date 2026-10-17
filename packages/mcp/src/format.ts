@@ -194,3 +194,60 @@ export function formatEvents(events: GameEvent[], view: GameView): string {
   }
   return out.join('\n');
 }
+
+/** Territories an event touches (placements, battles, conquests, moves, capitals). */
+function touchedTerritories(events: GameEvent[]): string[] {
+  const out = new Set<string>();
+  for (const e of events) {
+    if (e.type === 'placed' || e.type === 'capital_chosen' || e.type === 'capital_captured') out.add(e.territory);
+    else if (e.type === 'battle' || e.type === 'conquered' || e.type === 'moved') (out.add(e.from), out.add(e.to));
+    else if (e.type === 'traded' && e.bonusTerritory) out.add(e.bonusTerritory);
+  }
+  return [...out];
+}
+
+/**
+ * The reply to one of your own actions: what happened, only the territories it touched (with their
+ * neighbours, so you can keep attacking from a fresh conquest), your armies/cards and your next legal
+ * moves. Other players do not act during your turn (except that someone may surrender), so the rest of the
+ * board is not resent; the full board comes with get_state / wait_for_turn (or act with full:true).
+ */
+export function formatActResult(events: GameEvent[], view: GameView): string {
+  const full = formatState(view);
+  const lines: string[] = [];
+  const ev = formatEvents(events, view);
+  lines.push(`OK.${ev ? `\nEvents:\n${ev}` : ''}`);
+  if (view.phase === 'finished' || view.currentPlayer !== view.you) {
+    // Turn over (or game over): hand back the whole picture, the next decision needs it.
+    lines.push('', full);
+    return lines.join('\n');
+  }
+  const name = (id: string | null | undefined) => view.players.find((p) => p.id === id)?.name ?? id ?? 'none';
+  const map = getMap(view.options.map);
+  const touched = touchedTerritories(events);
+  const me = view.players.find((p) => p.id === view.you);
+  lines.push('');
+  lines.push(`Phase: ${view.phase} · version ${view.version}${me ? ` · you hold ${me.territoryCount} territories, ${me.armyCount} armies, ${me.cardCount} cards, +${me.income?.total ?? 0}/turn` : ''}`);
+  if (me?.continents.length) lines.push(`Your continents: ${me.continents.join(', ')}`);
+  // Cards change on conquests, trades and eliminations; the ids alone are not enough to pick a set.
+  if (me?.cards?.length) lines.push(`Your cards: ${me.cards.map((c) => `#${c.id} ${c.kind}${c.territory ? ` (${c.territory})` : ''}`).join(', ')}`);
+  if (me?.armiesToPlace) lines.push(`Armies to place: ${me.armiesToPlace}`);
+  if (touched.length) {
+    lines.push('Changed territories (owner armies) with neighbours:');
+    for (const t of touched) {
+      const ts = view.territories[t];
+      if (!ts || ts.hidden) continue;
+      const nbrs = map.adjacency[t].map((n) => {
+        const ns = view.territories[n];
+        if (ns.hidden) return `${n}?(fog)`;
+        if (view.blizzards?.includes(n)) return `${n}(blizzard)`;
+        return `${n}${ns.owner === ts.owner ? '' : '*'}(${short(name(ns.owner))} ${ns.armies})`;
+      });
+      lines.push(`  ${t}: ${short(name(ts.owner))} ${ts.armies} — ${nbrs.join(', ')}`);
+    }
+  }
+  const legal = full.indexOf('\nYOUR LEGAL MOVES:');
+  if (legal >= 0) lines.push(full.slice(legal));
+  lines.push('', '(Only what your action changed is shown; the rest of the board is as in your last get_state unless someone surrendered. Pass "full":true to act, or call get_state, for the whole board.)');
+  return lines.join('\n');
+}

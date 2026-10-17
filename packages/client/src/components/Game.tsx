@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getMap, visibleTerritories, type Card, type GameEvent, type GameView } from '@risk/engine';
 import { api } from '../api';
 import { CARD_FX_MS, CardFxPanel, type CardFx } from './CardFx';
+import { ScoreChart } from './ScoreChart';
 import { spectateLink, type Session } from '../session';
 import type { EventBatch, GameConnection } from '../useGame';
 import { CardsPanel } from './Cards';
@@ -48,6 +49,22 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
   const [toast, setToast] = useState<string | null>(null);
   const [banner, setBanner] = useState<{ text: string; color: string } | null>(null);
   const [copiedWatch, setCopiedWatch] = useState(false);
+  // Scoreboard: player list, or a "who's winning" chart (remembered in this browser).
+  const [scoreView, setScoreView] = useState<'list' | 'chart'>(() => {
+    try {
+      return localStorage.getItem('risk.scoreView') === 'chart' ? 'chart' : 'list';
+    } catch {
+      return 'list';
+    }
+  });
+  const saveScoreView = (v: 'list' | 'chart') => {
+    setScoreView(v);
+    try {
+      localStorage.setItem('risk.scoreView', v);
+    } catch {
+      /* storage unavailable */
+    }
+  };
   // Draggable divider between the scoreboard and the log/chat (height remembered in this browser).
   const sidebarRef = useRef<HTMLElement>(null);
   const [playersHeight, setPlayersHeight] = useState<number | null>(() => {
@@ -97,6 +114,17 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
   const [followTurn, setFollowTurn] = useState(true);
   // "Hide fog" reveals the whole map at a glance without forgetting which fog view was chosen.
   const [fogRevealed, setFogRevealed] = useState(false);
+  // Bonuses view: regions colour-coded with their bonuses, no armies (toggle with B or the buttons).
+  const [bonusView, setBonusView] = useState(false);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable)) return;
+      if ((e.key === 'b' || e.key === 'B') && !e.metaKey && !e.ctrlKey && !e.altKey) setBonusView((v) => !v);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
   const fogAs = spectator && fogOn && !fogRevealed ? (followTurn ? view.currentPlayer : fogPin) : null;
   useEffect(() => {
     if (!spectator || !fogOn) return;
@@ -306,6 +334,20 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
 
   const playersPanel = (
         <div className="players-panel">
+          {view.phase !== 'lobby' && (
+            <div className="players-view-toggle" role="tablist" aria-label="Scoreboard view">
+              <button role="tab" aria-selected={scoreView === 'list'} className={scoreView === 'list' ? 'active' : ''} onClick={() => saveScoreView('list')}>
+                List
+              </button>
+              <button role="tab" aria-selected={scoreView === 'chart'} className={scoreView === 'chart' ? 'active' : ''} onClick={() => saveScoreView('chart')}>
+                Who's winning
+              </button>
+            </div>
+          )}
+          {scoreView === 'chart' && view.phase !== 'lobby' ? (
+            <ScoreChart view={view} />
+          ) : (
+          <>
           {[...view.players].sort((a, b) => a.order - b.order).map((p) => (
             <div
               key={p.id}
@@ -339,6 +381,8 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
             <div className="muted small reinforcement-hint">
               Next turn: +{reinforcementPreview(view, me.id)} armies
             </div>
+          )}
+          </>
           )}
         </div>
   );
@@ -391,6 +435,8 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
           sweeps={anim.sweeps}
           onTerritoryClick={onTerritoryClick}
           dimOthers={dimOthers}
+          bonusView={bonusView}
+          onToggleBonusView={() => setBonusView((v) => !v)}
         />
 
         {anim.battle && (
@@ -452,6 +498,9 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
                   </button>
                 </span>
               )}
+              <button className={`small ${bonusView ? 'primary' : ''}`} aria-pressed={bonusView} title="Show region bonuses, colour-coded, without armies (shortcut: B)" onClick={() => setBonusView((v) => !v)}>
+                {bonusView ? 'Back to board' : 'Bonuses'} <kbd>B</kbd>
+              </button>
               <span className="spacer" />
               <button className="small" onClick={copyWatchLink}>
                 {copiedWatch ? 'Copied!' : 'Copy watch link'}

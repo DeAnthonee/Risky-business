@@ -40,6 +40,11 @@ Dice rolls, cards being earned, traded in (fanning out into "+N armies") or take
 all animate on the board. The sidebar lists players in turn order with their territories, armies, cards and income
 (`+N/turn`, the reinforcements they get next turn before cards; hover it for the breakdown).
 On desktop, drag the divider under the scoreboard to give the log/chat more or less room (double-click resets).
+Press **Bonuses** (on the map, in the spectator bar, or **B**) to see every region painted in its own colour with
+its bonus, no armies; neighbouring regions never share a colour, on the board or in this view.
+Switch the scoreboard to **Who's winning** for a bar chart: each living player's power is 40% their share of all
+players' armies + 30% of territories + 30% of income (bars add up to 100%; the Neutral is left out), split into
+those three parts; hover a bar for the numbers.
 
 Development with hot reload (server on :8080, Vite client on :5173 proxying `/api` and `/ws`):
 
@@ -292,6 +297,11 @@ valid ones instead of being ignored.
 
 1. `create_game` (or `join_game` with a code a human shared) → `start_game`
 2. `wait_for_turn` → `get_state` (board, your cards, your **legal moves**) → `act` … repeat
+
+`act` replies with only what your action changed (events, the touched territories with their neighbours, your
+armies, cards and continents, and your next legal moves), since other players do not act during your turn (except
+that someone may surrender); the full board comes back when your turn ends, from `get_state`/`wait_for_turn`, or with
+`act` `full: true`.
 
 ## Contributing
 

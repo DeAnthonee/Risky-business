@@ -249,22 +249,7 @@ footer {
   grid-template-columns: 1fr 320px;
   height: 100%;
 }
-@media (max-width: 900px) {
-  .game {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto auto;
-    height: auto;
-  }
-  .sidebar {
-    max-height: 50vh;
-  }
-  /* The page scrolls here, so the board takes its own aspect ratio (capped for tall boards). */
-  .map-wrap {
-    flex: none;
-    aspect-ratio: var(--map-aspect, 1000 / 520);
-    max-height: 80vh;
-  }
-}
+/* Mobile layout lives at the end of this file (".game.mobile"). */
 .map-area {
   position: relative;
   display: flex;
@@ -1184,3 +1169,301 @@ label.check input {
 
 /* Player income in the sidebar */
 .pstats .income { color: #8fd18f; font-weight: 600; cursor: help; }
+
+/* =====================================================================
+   Mobile / narrow screens (<= 900px): the board fills the screen, the
+   sidebar becomes a bottom tab bar whose tabs open a panel under the map.
+   The panel splits the screen rather than covering it, so the map always
+   stays visible (and tappable).
+   ===================================================================== */
+.mobile-dock,
+.sheet {
+  display: none;
+}
+@media (max-width: 900px) {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  .game.mobile {
+    display: flex;
+    flex-direction: column;
+    height: 100dvh;
+    overflow: hidden;
+  }
+  .game.mobile .map-area {
+    flex: 1;
+    min-height: 0;
+  }
+  .game.mobile .map-wrap {
+    flex: 1;
+    min-height: 0;
+  }
+  /* compact top bar: one or two short rows */
+  .game.mobile .topbar {
+    flex-wrap: wrap;
+    gap: 4px 10px;
+    padding: 6px 10px;
+    font-size: 0.8em;
+  }
+  .game.mobile .topbar-left {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    min-width: 0;
+  }
+  .game.mobile .phase-steps {
+    order: 3;
+    width: 100%;
+    justify-content: center;
+  }
+  .game.mobile .step {
+    padding: 1px 8px;
+    font-size: 0.8em;
+  }
+  .game.mobile .spectator-badge {
+    margin-left: 0;
+    padding: 1px 6px;
+  }
+  /* compact action bar with thumb-sized buttons */
+  .game.mobile .action-bar {
+    padding: 6px 10px;
+    min-height: 0;
+    font-size: 0.88em;
+  }
+  .game.mobile .action-group {
+    gap: 6px 8px;
+  }
+  .game.mobile .action-group button {
+    min-height: 38px;
+  }
+  .game.mobile .action-group .spacer {
+    display: none;
+  }
+  .game.mobile .map-controls {
+    left: 8px;
+    bottom: 8px;
+  }
+  .game.mobile .map-hint {
+    display: none;
+  }
+  /* below the two-row top bar, over the empty ocean above the map */
+  .game.mobile .dice-panel {
+    top: 76px;
+    transform: translateX(-50%) scale(0.78);
+    transform-origin: top center;
+    animation: none;
+  }
+  /* card pop-ups share the dice spot so they never cover the action bar */
+  .game.mobile .card-fx {
+    top: 76px;
+    bottom: auto;
+    min-width: 0;
+    scale: 0.78;
+    transform-origin: top left; /* scale applies after translateX(-50%); this keeps it centred */
+  }
+  /* the top bar already says who is playing */
+  .game.mobile .watch-note {
+    display: none;
+  }
+  /* with a panel open the map is short: keep pop-ups small so it stays visible */
+  .game.mobile.has-sheet .dice-panel {
+    top: 72px;
+    transform: translateX(-50%) scale(0.55);
+  }
+  .game.mobile.has-sheet .card-fx {
+    top: 72px;
+    scale: 0.55;
+  }
+  .game.mobile.has-sheet .banner {
+    font-size: 0.9em;
+    padding: 6px 14px;
+  }
+  .game.mobile .banner {
+    font-size: 1.1em;
+    padding: 10px 18px;
+  }
+
+  /* bottom tab bar */
+  .mobile-dock {
+    display: flex;
+    flex: none;
+    background: var(--panel);
+    border-top: 1px solid var(--border);
+    padding-bottom: env(safe-area-inset-bottom);
+    z-index: 30;
+  }
+  .mobile-dock button {
+    position: relative;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: var(--muted);
+    font-size: 0.72em;
+    padding: 7px 0 6px;
+    min-height: 52px;
+  }
+  .mobile-dock button.active {
+    color: var(--text);
+    box-shadow: inset 0 2px 0 var(--accent);
+  }
+  .dock-icon {
+    font-size: 1.45em;
+    line-height: 1.1;
+    height: 1.2em;
+    display: flex;
+    align-items: center;
+  }
+  .dock-swatch {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+  }
+  .dock-badge {
+    position: absolute;
+    top: 4px;
+    left: calc(50% + 8px);
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: 999px;
+    background: var(--danger);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 18px;
+  }
+
+  /* panel under the map (in the flex column, so the map shrinks instead of being covered) */
+  .sheet {
+    display: flex;
+    flex-direction: column;
+    flex: none;
+    height: 46dvh;
+    min-height: 220px;
+    background: var(--panel);
+    border-top: 1px solid var(--border);
+    border-radius: 16px 16px 0 0;
+    box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.35);
+    z-index: 4;
+    animation: sheet-up 0.22s ease-out;
+  }
+  .sheet-header {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px 6px;
+    border-bottom: 1px solid var(--border);
+    flex: none;
+  }
+  .sheet-grip {
+    position: absolute;
+    top: 6px;
+    left: 50%;
+    width: 40px;
+    height: 4px;
+    margin-left: -20px;
+    border-radius: 2px;
+    background: var(--border);
+  }
+  .sheet-close {
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border-radius: 50%;
+    font-size: 1em;
+  }
+  .sheet-body {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .sheet-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .sheet .players-panel {
+    border-bottom: 0;
+  }
+  .sheet .player-row {
+    padding: 8px 6px;
+  }
+  .sheet .log {
+    flex: 1;
+    min-height: 0;
+    font-size: 0.92em;
+    padding: 10px 14px;
+  }
+  .sheet .chat {
+    flex: 1;
+    min-height: 0;
+    padding: 8px 12px 10px;
+  }
+  .sheet .chat-list {
+    flex: 1;
+    min-height: 0;
+    font-size: 0.98em;
+  }
+  .sheet .chat-msg {
+    padding: 4px 0;
+  }
+  /* one-line composer: [name] [message] [Send], so the messages get the height */
+  .sheet .chat-form {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    flex: none;
+    padding-top: 6px;
+  }
+  .sheet .chat-form .chat-name {
+    flex: 0 0 88px;
+    width: 88px;
+    min-width: 0;
+  }
+  .sheet .chat-form .row {
+    flex: 1 1 0;
+    flex-wrap: nowrap;
+    min-width: 0;
+    gap: 6px;
+  }
+  .sheet .chat-form .row input {
+    flex: 1;
+    min-width: 0;
+  }
+  .sheet .chat-form .row button {
+    flex: none;
+  }
+  .sheet .chat-form .chat-error {
+    flex-basis: 100%;
+  }
+  /* 16px inputs stop iOS from zooming the page when a field is focused */
+  .game.mobile input,
+  .game.mobile select,
+  .lobby input,
+  .lobby select {
+    font-size: 16px;
+  }
+  .lobby .chat-list {
+    max-height: 40vh;
+  }
+}
+@keyframes sheet-up {
+  from {
+    transform: translateY(40px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+  }
+}

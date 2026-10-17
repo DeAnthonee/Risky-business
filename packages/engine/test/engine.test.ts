@@ -137,9 +137,19 @@ describe('setup', () => {
     expect(territoriesOf(two, NEUTRAL_ID)).toHaveLength(14); // classic 2-player Neutral, unchanged
     expect(() => createGame('x', { neutrals: 15 })).toThrow(RuleError);
     expect(() => createGame('x', { neutralArmies: 0 })).toThrow(RuleError);
+    expect(setOptions(createGame('x', { map: 'world', neutrals: 24 }), { map: 'classic' }).options.neutrals).toBe(14);
     const claim = setup(3, { neutrals: 6, randomDeal: false }).state;
     expect(territoriesOf(claim, NEUTRAL_ID)).toHaveLength(6);
     expect(legalMoves(claim, claim.currentPlayer!).canPlaceOn).toHaveLength(36);
+  });
+  it('neutral territories never land on a blizzard', () => {
+    for (const seed of [1, 2, 3, 4, 5]) {
+      const { state } = setup(4, { neutrals: 14, blizzards: 7 }, seed);
+      const held = territoriesOf(state, NEUTRAL_ID);
+      expect(held).toHaveLength(14);
+      for (const t of held) expect(state.blizzards).not.toContain(t);
+      for (const t of state.blizzards) expect(state.territories[t]).toEqual({ owner: null, armies: 0 });
+    }
   });
   it('enforces setup batch and advances to first turn', () => {
     let { state } = setup(3, { setupBatch: 5 });
@@ -374,6 +384,75 @@ describe('turn flow', () => {
     expect(territoriesOf(res.state, me).length).toBeGreaterThanOrEqual(rivalTerritories + 1);
     expect(res.state.players.find((x) => x.id === me)!.cards.length).toBe(2);
     expect(capitalsHeldBy(res.state, me)).toContain(cap);
+  });
+
+  it('blizzards: frozen territories are unowned, impassable and keep the map connected', () => {
+    for (const seed of [1, 2, 3, 4, 5, 6, 7, 8]) {
+      const { state: s0, events } = setup(3, { blizzards: 7 }, seed);
+      expect(s0.blizzards).toHaveLength(7);
+      expect(events.some((e) => e.type === 'blizzards')).toBe(true);
+      for (const t of s0.blizzards) expect(s0.territories[t]).toEqual({ owner: null, armies: 0 });
+      // Open territories form one network, and every continent keeps at least two open territories.
+      const open = TERRITORY_IDS.filter((t) => !s0.blizzards.includes(t));
+      const seen = new Set([open[0]]);
+      const queue = [open[0]];
+      while (queue.length) for (const n of ADJACENCY[queue.pop()!]) if (!s0.blizzards.includes(n) && !seen.has(n)) (seen.add(n), queue.push(n));
+      expect(seen.size).toBe(open.length);
+      for (const c of CONTINENTS) expect(c.territories.filter((t) => !s0.blizzards.includes(t)).length).toBeGreaterThanOrEqual(2);
+      // Every open territory was dealt.
+      for (const t of open) expect(s0.territories[t].owner).not.toBeNull();
+    }
+
+    let state = finishSetup(setup(3, { blizzards: 5, setupBatch: 40 }).state);
+    const me = state.currentPlayer!;
+    const meP = state.players.find((x) => x.id === me)!;
+    state = applyAction(state, me, { type: 'place', placements: { [territoriesOf(state, me)[0]]: meP.armiesToPlace } }).state;
+    const frozen = state.blizzards[0];
+    const from = ADJACENCY[frozen].find((t) => !state.blizzards.includes(t))!;
+    state.territories[from] = { owner: me, armies: 20 };
+    expect(legalMoves(state, me).attacks.some((a) => a.to === frozen)).toBe(false);
+    expect(() => applyAction(state, me, { type: 'attack', from, to: frozen })).toThrow(RuleError);
+  });
+
+  it('blizzards: a continent is controlled by owning all its open territories', () => {
+    let state = finishSetup(setup(3, { blizzards: 7, setupBatch: 40 }, 3).state);
+    const me = state.currentPlayer!;
+    const cont = CONTINENTS.find((c) => c.territories.some((t) => state.blizzards.includes(t)))!;
+    for (const t of cont.territories) if (!state.blizzards.includes(t)) state.territories[t] = { owner: me, armies: 1 };
+    expect(viewFor(state, me).continentOwners[cont.id]).toBe(me);
+  });
+
+  it('blizzards: option is validated per map and clamped when switching maps', () => {
+    expect(() => createGame('x', { blizzards: 8 })).toThrow(RuleError);
+    expect(() => createGame('x', { blizzards: -1 })).toThrow(RuleError);
+    const world = createGame('x', { map: 'world', blizzards: 12 });
+    expect(setOptions(world, { map: 'classic' }).options.blizzards).toBe(7);
+  });
+
+  it('capital conquest: a capital defends with up to 3 dice, other territories with 2', () => {
+    let state = finishSetup(setup(3, { setupBatch: 40, capitals: true }).state);
+    const me = state.currentPlayer!;
+    const meP = state.players.find((x) => x.id === me)!;
+    state = applyAction(state, me, { type: 'place', placements: { [territoriesOf(state, me)[0]]: meP.armiesToPlace } }).state;
+    const rival = state.turnOrder.find((id) => id !== me)!;
+    const cap = state.capitals[rival];
+    const from = ADJACENCY[cap][0];
+    state.territories[from] = { owner: me, armies: 10 };
+    state.territories[cap] = { owner: rival, armies: 5 };
+    const capBattle = applyAction(state, me, { type: 'attack', from, to: cap }).events.find((e) => e.type === 'battle')!;
+    expect(capBattle.type === 'battle' && capBattle.defenderDice).toHaveLength(3);
+    expect(capBattle.type === 'battle' && capBattle.attackerLosses + capBattle.defenderLosses).toBe(3);
+
+    // A non-capital rival territory still defends with 2.
+    const plain = ADJACENCY[from].find((t) => t !== cap && !Object.values(state.capitals).includes(t))!;
+    state.territories[plain] = { owner: rival, armies: 5 };
+    const plainBattle = applyAction(state, me, { type: 'attack', from, to: plain }).events.find((e) => e.type === 'battle')!;
+    expect(plainBattle.type === 'battle' && plainBattle.defenderDice).toHaveLength(2);
+
+    // Without the capitals option there is no bonus at all.
+    const off = { ...state, options: { ...state.options, capitals: false } };
+    const offBattle = applyAction(off, me, { type: 'attack', from, to: cap }).events.find((e) => e.type === 'battle')!;
+    expect(offBattle.type === 'battle' && offBattle.defenderDice).toHaveLength(2);
   });
 
   it('eliminating a player transfers cards and ends the game when one remains', () => {

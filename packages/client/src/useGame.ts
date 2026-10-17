@@ -24,6 +24,8 @@ export interface GameConnection {
   updateAvailable: boolean;
   /** Who is connected right now. */
   presence: PresenceMessage;
+  /** Set when the room was closed (by the host, an admin, or for being idle). */
+  closedReason: string | null;
 }
 
 export function useGame(gameId: string | null, token: string | undefined): GameConnection {
@@ -37,6 +39,7 @@ export function useGame(gameId: string | null, token: string | undefined): GameC
   const [error, setError] = useState<string | null>(null);
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [presence, setPresence] = useState<PresenceMessage>({ spectators: 0, online: [] });
+  const [closedReason, setClosedReason] = useState<string | null>(null);
   const sockRef = useRef<GameSocket | null>(null);
   const seq = useRef(0);
 
@@ -54,6 +57,7 @@ export function useGame(gameId: string | null, token: string | undefined): GameC
       onChat: (m) => setChat((c) => [...c.slice(-200), m]),
       onChatHistory: (ms) => setChat(ms),
       onPresence: setPresence,
+      onClosed: setClosedReason,
       onStatus: setConnected,
     });
     sockRef.current = sock;
@@ -77,5 +81,5 @@ export function useGame(gameId: string | null, token: string | undefined): GameC
     await sockRef.current?.chat(msg);
   }, []);
 
-  return { view, host, name, you, connected, batches, chat, act, sendChat, error, clearError: () => setError(null), updateAvailable, presence };
+  return { view, host, name, you, connected, batches, chat, act, sendChat, error, clearError: () => setError(null), updateAvailable, presence, closedReason };
 }

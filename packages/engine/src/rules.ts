@@ -31,7 +31,8 @@ A TURN has three phases:
 
 2. ATTACK (optional, as many times as you like)
    Attack an adjacent enemy territory from a territory with at least 2 armies.
-   Attacker rolls up to 3 dice (must leave 1 army behind: dice <= armies - 1). Defender rolls up to 2 (dice <= armies).
+   Attacker rolls up to 3 dice (must leave 1 army behind: dice <= armies - 1). Defender rolls up to 2 (dice <= armies),
+   or up to 3 when defending a capital in Capital Conquest.
    Highest dice are compared, then second highest. The loser of each comparison loses one army. Ties go to the defender.
    When the defender's last army falls you conquer the territory and must move in at least as many armies as dice you
    rolled (and at most all but one). You may send more. If that player has no territories left they are eliminated and
@@ -59,10 +60,17 @@ territories start held by a grey Neutral army with "neutralArmies" armies each (
 players as usual and players keep their normal starting armies. Neutral never attacks, reinforces or moves; you
 conquer its territories like any other (it has no cards). Two-player games always use the classic Neutral above.
 
+OPTION: BLIZZARDS
+"blizzards" (a number, 0 = off, at most a sixth of the map): that many random territories are frozen at game start and
+stay impassable all game. Nobody owns them; they cannot be attacked, entered, claimed or fortified through. They are
+chosen so the open territories stay connected and every continent keeps at least two open territories. To control a
+continent you need all of its open (non-blizzard) territories. Blizzards are visible to everyone, even under fog.
+
 OPTIONS: FOG OF WAR AND CAPITALS
 "fogOfWar": you only see territories you own and those adjacent to them; everything else shows as hidden
 (owner and armies unknown) and events there are reported as "fogged". Spectators always see the whole board.
 "capitals" (Capital Conquest): after setup each player's most garrisoned territory becomes their capital (shown with a
-star). At the start of your turn you get +2 armies for every capital you hold. Capturing a player's own capital takes
+star). At the start of your turn you get +2 armies for every capital you hold. A capital defends with up to 3 dice
+instead of 2 (all three pairs are compared). Capturing a player's own capital takes
 over that player: all their territories, troops and cards become yours and they are out. Hold every capital to win.
 `.trim();

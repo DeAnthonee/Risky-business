@@ -39,12 +39,15 @@ export function attachWebSocket(server: Server, store: Store, commit: () => stri
     room.emit('presence', { spectators: p.spectators, online: [...p.players.keys()] });
   };
   const enter = (room: GameRoom, playerId: string | null) => {
+    room.connections++;
+    if (playerId) room.touch();
     const p = presenceOf(room.id);
     if (playerId) p.players.set(playerId, (p.players.get(playerId) ?? 0) + 1);
     else p.spectators++;
     broadcastPresence(room);
   };
   const exit = (room: GameRoom, playerId: string | null) => {
+    room.connections = Math.max(0, room.connections - 1);
     const p = presenceOf(room.id);
     if (playerId) {
       const n = (p.players.get(playerId) ?? 1) - 1;
@@ -61,6 +64,7 @@ export function attachWebSocket(server: Server, store: Store, commit: () => stri
     let onChange: ((m: ChangeMessage) => void) | null = null;
     let onChat: ((m: ChatMessage) => void) | null = null;
     let onPresence: ((m: { spectators: number; online: string[] }) => void) | null = null;
+    let onClosed: ((reason: string) => void) | null = null;
     let alive = true;
 
     const send = (obj: unknown) => {
@@ -71,11 +75,13 @@ export function attachWebSocket(server: Server, store: Store, commit: () => stri
       if (room && onChange) room.off('change', onChange);
       if (room && onChat) room.off('chat', onChat);
       if (room && onPresence) room.off('presence', onPresence);
+      if (room && onClosed) room.off('closed', onClosed);
       if (room) exit(room, playerId);
       room = null;
       onChange = null;
       onChat = null;
       onPresence = null;
+      onClosed = null;
     };
 
     ws.on('pong', () => (alive = true));
@@ -94,7 +100,7 @@ export function attachWebSocket(server: Server, store: Store, commit: () => stri
           case 'subscribe': {
             unsubscribe();
             const r = store.get(String(msg.gameId ?? ''));
-            if (!r) return send({ type: 'error', error: 'Game not found', reqId: msg.reqId });
+            if (!r || r.closed) return send({ type: 'closed', reason: 'gone', reqId: msg.reqId });
             room = r;
             playerId = r.playerForToken(msg.token);
             onChange = (m) => send({ type: 'state', state: r.view(playerId), events: redactEvents(m.state, playerId, m.events), version: m.version, host: r.hostId, name: r.name, you: playerId, commit: commit() });
@@ -103,6 +109,11 @@ export function attachWebSocket(server: Server, store: Store, commit: () => stri
             r.on('change', onChange);
             r.on('chat', onChat);
             r.on('presence', onPresence);
+            onClosed = (reason) => {
+              send({ type: 'closed', reason });
+              unsubscribe();
+            };
+            r.on('closed', onClosed);
             enter(r, playerId);
             send({ type: 'state', state: r.view(playerId), events: [], version: r.state.version, host: r.hostId, name: r.name, you: playerId, commit: commit(), reqId: msg.reqId });
             send({ type: 'chat_history', messages: r.chat.slice(-100) });

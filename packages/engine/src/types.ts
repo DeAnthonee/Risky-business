@@ -60,10 +60,15 @@ export interface GameOptions {
   neutrals: number;
   /** Armies on each neutral territory when `neutrals` is on. */
   neutralArmies: number;
+  /** Blizzards: this many random territories are impassable for the whole game (0 = off). Nobody owns, attacks or crosses them. */
+  blizzards: number;
 }
 
 /** Reinforcements per capital held when the capitals option is on. */
 export const CAPITAL_BONUS = 2;
+
+/** Dice a capital defends with when the capitals option is on (other territories defend with up to 2). */
+export const CAPITAL_DEFENSE_DICE = 3;
 
 export const DEFAULT_OPTIONS: GameOptions = {
   setupBatch: 1,
@@ -77,6 +82,7 @@ export const DEFAULT_OPTIONS: GameOptions = {
   capitals: false,
   neutrals: 0,
   neutralArmies: 2,
+  blizzards: 0,
 };
 
 export interface PendingConquest {
@@ -108,6 +114,8 @@ export interface GameState {
   pendingConquest: PendingConquest | null;
   /** Capital territory per player (capitals option). */
   capitals: Record<PlayerId, TerritoryId>;
+  /** Impassable blizzard territories (blizzards option). Unowned, 0 armies, chosen at game start. */
+  blizzards: TerritoryId[];
   /** Set once the player has fortified this turn. */
   fortifiedThisTurn: boolean;
   winner: PlayerId | null;
@@ -219,6 +227,7 @@ export type GameEvent =
   | { type: 'cards_taken'; player: PlayerId; from: PlayerId; count: number }
   | { type: 'eliminated'; player: PlayerId; by: PlayerId | null }
   | { type: 'capitals_assigned'; capitals: Record<PlayerId, TerritoryId> }
+  | { type: 'blizzards'; territories: TerritoryId[] }
   | { type: 'capital_captured'; player: PlayerId; territory: TerritoryId; previousOwner: PlayerId }
   /** A fogged-out event the viewer is not allowed to see in detail. */
   | { type: 'fogged'; kind: GameEvent['type'] }

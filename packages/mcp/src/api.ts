@@ -62,6 +62,7 @@ export interface RiskApi {
   chat(gameId: string, since: number): Promise<ChatResult>;
   sendChat(gameId: string, token: string, message: string): Promise<unknown>;
   leave(gameId: string, token: string): Promise<unknown>;
+  closeGame(gameId: string, token: string): Promise<unknown>;
 }
 
 /** Seats held by one agent connection. Several seats per game are allowed (one chat can run two players). */
@@ -233,5 +234,8 @@ export class HttpRiskApi implements RiskApi {
   }
   leave(gameId: string, token: string) {
     return this.request(`/games/${gameId}/leave`, { method: 'POST', body: '{}' }, token);
+  }
+  closeGame(gameId: string, token: string) {
+    return this.request(`/games/${gameId}/close`, { method: 'POST', body: '{}' }, token);
   }
 }

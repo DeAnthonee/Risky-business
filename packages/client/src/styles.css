@@ -1011,3 +1011,43 @@ label.check {
 label.check input {
   width: auto;
 }
+
+/* Blizzards: impassable frozen territories */
+.territory.blizzard { stroke: #c9d8e8; cursor: not-allowed; opacity: 1; filter: none; }
+.badge.blizzard .blizzard-icon line { stroke: #2f5577; stroke-width: 2.5; stroke-linecap: round; }
+.badge.blizzard { pointer-events: none; }
+
+/* ---------- Capture sweep ---------- */
+.sweep {
+  pointer-events: none;
+  animation: sweep-fade 1.5s ease-in forwards;
+}
+.sweep-fill {
+  fill-opacity: 0.95;
+  filter: brightness(1.35) url(#glow);
+}
+.sweep-edge {
+  fill: none;
+  stroke-width: 3;
+  stroke-opacity: 0.9;
+  animation: sweep-edge 1.2s ease-out forwards;
+}
+@keyframes sweep-fade {
+  0%,
+  55% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes sweep-edge {
+  0% {
+    stroke-width: 6;
+    stroke-opacity: 1;
+  }
+  100% {
+    stroke-width: 1;
+    stroke-opacity: 0;
+  }
+}

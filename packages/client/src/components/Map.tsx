@@ -18,6 +18,14 @@ export interface FloatAnim {
   color: string;
 }
 
+/** A conquest: the new owner's colour sweeps across the territory from the attacker's side. */
+export interface SweepAnim {
+  id: number;
+  territory: string;
+  from: string;
+  color: string;
+}
+
 export interface MapProps {
   view: GameView;
   /** Territories to draw as fogged (spectator fog preview or a player's own fogged view). */
@@ -28,6 +36,7 @@ export interface MapProps {
   flashes: Record<string, number>;
   moves: MoveAnim[];
   floats: FloatAnim[];
+  sweeps: SweepAnim[];
   onTerritoryClick: (id: string, shift: boolean) => void;
   dimOthers: boolean;
 }
@@ -54,8 +63,9 @@ function shortLabel(name: string): string {
 }
 
 export function GameMap(props: MapProps) {
-  const { view, highlights, pendingPlacements, attackArrow, flashes, moves, floats, onTerritoryClick, dimOthers, hidden } = props;
+  const { view, highlights, pendingPlacements, attackArrow, flashes, moves, floats, sweeps, onTerritoryClick, dimOthers, hidden } = props;
   const isHidden = (id: string) => !!(hidden?.has(id) || view.territories[id]?.hidden);
+  const isFrozen = (id: string) => !!view.blizzards?.includes(id);
   const capitalOwner = (id: string) => Object.entries(view.capitals ?? {}).find(([, t]) => t === id)?.[0];
   const map = getMap(view.options.map);
   const [W, H] = map.viewBox;
@@ -211,6 +221,10 @@ export function GameMap(props: MapProps) {
         <pattern id="ocean-grid" width="40" height="40" patternUnits="userSpaceOnUse">
           <path d="M40 0H0V40" fill="none" stroke="rgba(255,255,255,0.045)" strokeWidth="1" />
         </pattern>
+        <pattern id="blizzard" width="10" height="10" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+          <rect width="10" height="10" fill="#dfe8f2" />
+          <line x1="0" y1="0" x2="0" y2="10" stroke="#b3c4d6" strokeWidth="4" />
+        </pattern>
       </defs>
 
       {/* Ocean (oversized so panning never shows the page background) */}
@@ -254,7 +268,14 @@ export function GameMap(props: MapProps) {
           const owner = fog ? null : colorOf(ts?.owner ?? null);
           const flashing = !fog && flashes[t.id] && now - flashes[t.id] < 1200;
           const dim = dimOthers && !hl;
-          const cls = ['territory', hl ? `hl-${hl}` : '', flashing ? 'flash' : '', dim ? 'dim' : '', hl ? 'clickable' : '', owner ? '' : 'unowned', fog ? 'fog' : ''].filter(Boolean).join(' ');
+          const frozen = isFrozen(t.id);
+          const cls = ['territory', hl ? `hl-${hl}` : '', flashing ? 'flash' : '', dim ? 'dim' : '', hl ? 'clickable' : '', owner ? '' : 'unowned', fog ? 'fog' : '', frozen ? 'blizzard' : ''].filter(Boolean).join(' ');
+          if (frozen)
+            return (
+              <path key={t.id} d={t.path} className="territory blizzard" fill="url(#blizzard)">
+                <title>{`${t.name} — blizzard: impassable`}</title>
+              </path>
+            );
           return (
             <path
               key={t.id}
@@ -267,6 +288,44 @@ export function GameMap(props: MapProps) {
                 {fog ? `${t.name} — hidden by fog` : `${t.name} — ${view.players.find((p) => p.id === ts?.owner)?.name ?? 'unowned'}, ${ts?.armies ?? 0} armies`}
               </title>
             </path>
+          );
+        })}
+      </g>
+
+      {/* Capture sweeps: a clipped band of the new owner's colour wipes across the shape */}
+      <g className="sweeps">
+        {sweeps.map((sw) => {
+          const t = map.territoryById[sw.territory];
+          const f = map.territoryById[sw.from];
+          if (!t || !f) return null;
+          const [bx, by, bw, bh] = t.bbox;
+          const pad = 6;
+          const dx = t.x - f.x;
+          const dy = t.y - f.y;
+          const horizontal = Math.abs(dx) >= Math.abs(dy);
+          // The band starts fully outside the shape on the attacker's side and grows across it.
+          const rect = horizontal
+            ? { x: dx >= 0 ? bx - pad : bx + bw + pad, y: by - pad, w: 0, h: bh + 2 * pad, attr: 'width', to: bw + 2 * pad, anchorRight: dx < 0 }
+            : { x: bx - pad, y: dy >= 0 ? by - pad : by + bh + pad, w: bw + 2 * pad, h: 0, attr: 'height', to: bh + 2 * pad, anchorRight: dy < 0 };
+          const clipId = `sweep-${sw.id}`;
+          return (
+            <g key={sw.id} className="sweep">
+              <clipPath id={clipId}>
+                {rect.anchorRight ? (
+                  // grow towards the left/top: animate both position and size
+                  <rect x={rect.x} y={rect.y} width={rect.w} height={rect.h}>
+                    <animate attributeName={rect.attr} from="0" to={String(rect.to)} dur="0.55s" fill="freeze" calcMode="spline" keySplines="0.2 0.7 0.3 1" />
+                    <animate attributeName={horizontal ? 'x' : 'y'} from={String(horizontal ? rect.x : rect.y)} to={String((horizontal ? rect.x : rect.y) - rect.to)} dur="0.55s" fill="freeze" calcMode="spline" keySplines="0.2 0.7 0.3 1" />
+                  </rect>
+                ) : (
+                  <rect x={rect.x} y={rect.y} width={rect.w} height={rect.h}>
+                    <animate attributeName={rect.attr} from="0" to={String(rect.to)} dur="0.55s" fill="freeze" calcMode="spline" keySplines="0.2 0.7 0.3 1" />
+                  </rect>
+                )}
+              </clipPath>
+              <path d={t.path} fill={sw.color} className="sweep-fill" clipPath={`url(#${clipId})`} />
+              <path d={t.path} className="sweep-edge" stroke={sw.color} />
+            </g>
           );
         })}
       </g>
@@ -300,6 +359,19 @@ export function GameMap(props: MapProps) {
           const owner = fog ? '#3a4152' : (colorOf(ts?.owner ?? null) ?? '#555');
           const dim = dimOthers && !hl;
           const cap = capitalOwner(t.id);
+          if (isFrozen(t.id))
+            return (
+              <g key={t.id} className="badge blizzard" transform={`translate(${t.x},${t.y})`}>
+                <g className="blizzard-icon">
+                  {[0, 60, 120].map((a) => (
+                    <line key={a} x1={0} y1={-9} x2={0} y2={9} transform={`rotate(${a})`} />
+                  ))}
+                </g>
+                <text className="label" y={dense ? 22 : 26} textAnchor="middle">
+                  {shortLabel(t.name)}
+                </text>
+              </g>
+            );
           const cls = ['badge', hl ? `hl-${hl}` : '', dim ? 'dim' : '', hl ? 'clickable' : '', fog ? 'fog' : '', cap ? 'capital' : ''].filter(Boolean).join(' ');
           return (
             <g key={t.id} className={cls} transform={`translate(${t.x},${t.y})`} onClick={(e) => click(t.id, e.shiftKey)}>

@@ -34,6 +34,7 @@ const optionsSchema = z
     fogOfWar: z.boolean().optional().describe('true = players only see their territories and adjacent ones; hidden territories show as "?"'),
     neutrals: z.number().int().min(0).max(40).optional().describe('Games of 3+ players: this many random territories start held by a Neutral army that never attacks (0 = off; at most a third of the map). 2-player games always have the classic Neutral'),
     neutralArmies: z.number().int().min(1).max(10).optional().describe('Armies on each neutral territory when neutrals is on (default 2)'),
+    blizzards: z.number().int().min(0).max(20).optional().describe('Blizzards: number of random territories frozen for the whole game (0 = off; at most a sixth of the map). Nobody owns, attacks or moves through a blizzard'),
     capitals: z.boolean().optional().describe('Capital Conquest: each player gets a capital (+2 armies per capital held per turn); capturing a capital takes over that player'),
   })
   .optional();
@@ -379,6 +380,21 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
       return errorText(e);
     }
   });
+
+  server.registerTool(
+    'close_game',
+    { description: 'Host only: close a game you host and delete the room for everyone (lobby, running or finished).', inputSchema: { gameId: gameIdSchema, token: tokenSchema, as: asSchema } },
+    async ({ gameId, token, as }) => {
+      try {
+        const id = gameId.toUpperCase();
+        await api.closeGame(id, requireToken(id, token, as));
+        identities.forget(id);
+        return text(`Closed game ${id}.`);
+      } catch (e) {
+        return errorText(e);
+      }
+    },
+  );
 
   server.registerTool(
     'spectate_game',

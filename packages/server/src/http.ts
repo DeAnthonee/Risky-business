@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'node:crypto';
 import express, { type Request, type Response, type NextFunction } from 'express';
 import { MAP_IDS, RULES_TEXT, RuleError, getMap, redactEvents, type Action, type GameOptions, type MapDef } from '@risk/engine';
 
@@ -16,7 +17,12 @@ import type { GameRoom, Store } from './store.js';
 
 type Req = Request & { room?: GameRoom; playerId?: string | null };
 
-export function createApi(store: Store) {
+export interface ApiOptions {
+  /** Enables /api/admin/* when set (Authorization: Bearer <token>). */
+  adminToken?: string | null;
+}
+
+export function createApi(store: Store, opts: ApiOptions = {}) {
   const api = express.Router();
   api.use(express.json({ limit: '64kb' }));
 
@@ -34,7 +40,7 @@ export function createApi(store: Store) {
 
   function loadRoom(req: Req, res: Response, next: NextFunction) {
     const room = store.get(String(req.params.id));
-    if (!room) return res.status(404).json({ error: 'Game not found' });
+    if (!room || room.closed) return res.status(404).json({ error: 'Game not found' });
     req.room = room;
     req.playerId = room.playerForToken(tokenOf(req));
     next();
@@ -106,6 +112,59 @@ export function createApi(store: Store) {
   );
 
   api.post(
+    '/games/:id/close',
+    loadRoom,
+    requireHost,
+    wrap((req, res) => {
+      store.delete(req.room!.id, 'host');
+      res.json({ ok: true });
+    }),
+  );
+
+  // ---- admin (only when RISK_ADMIN_TOKEN is configured) ----
+  const adminToken = opts.adminToken || null;
+  function requireAdmin(req: Request, res: Response, next: NextFunction) {
+    if (!adminToken) return res.status(404).json({ error: 'Admin API disabled (set RISK_ADMIN_TOKEN)' });
+    const given = tokenOf(req) ?? '';
+    const a = Buffer.from(given);
+    const b = Buffer.from(adminToken);
+    if (a.length !== b.length || !timingSafeEqual(a, b)) return res.status(401).json({ error: 'Invalid admin token' });
+    next();
+  }
+  api.get(
+    '/admin/games',
+    requireAdmin,
+    wrap((_req, res) => {
+      const now = Date.now();
+      res.json({
+        retention: store.retention,
+        games: [...store.rooms.values()].map((r) => ({
+          ...r.summary(),
+          lastActivity: r.lastActivity,
+          idleMinutes: Math.round((now - r.lastActivity) / 60_000),
+          connections: r.connections,
+          watched: r.isWatched(),
+          wouldSweep: store.staleReason(r, now),
+        })),
+      });
+    }),
+  );
+  api.delete(
+    '/admin/games/:id',
+    requireAdmin,
+    wrap((req, res) => {
+      const ok = store.delete(String(req.params.id), 'admin');
+      if (!ok) return res.status(404).json({ error: 'Game not found' });
+      res.json({ ok: true });
+    }),
+  );
+  api.post(
+    '/admin/sweep',
+    requireAdmin,
+    wrap((_req, res) => res.json({ removed: store.sweep() })),
+  );
+
+  api.post(
     '/games/:id/kick',
     loadRoom,
     requireHost,
@@ -126,7 +185,7 @@ export function createApi(store: Store) {
       const room = req.room!;
       if (room.state.phase === 'lobby') {
         room.leave(req.playerId!);
-        if (room.state.players.length === 0) store.delete(room.id);
+        if (!room.hasHumans()) store.delete(room.id, 'empty');
       } else {
         room.act(req.playerId!, { type: 'surrender' });
       }
@@ -256,6 +315,7 @@ export function sanitizeOptions(raw: unknown): Partial<GameOptions> {
   if (o.capitals !== undefined) out.capitals = o.capitals === true || o.capitals === 'true';
   if (o.neutrals !== undefined) out.neutrals = Number(o.neutrals);
   if (o.neutralArmies !== undefined) out.neutralArmies = Number(o.neutralArmies);
+  if (o.blizzards !== undefined) out.blizzards = Number(o.blizzards);
   if (o.maxPlayers !== undefined) out.maxPlayers = Number(o.maxPlayers);
   if (o.map !== undefined) out.map = o.map as GameOptions['map'];
   return out;

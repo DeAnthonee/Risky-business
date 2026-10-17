@@ -33,6 +33,9 @@ see the board as any player sees it (click a player, or "Follow turn") and press
 conquest in a burst of attacks stays on screen for a moment (the replay speeds up if it falls behind).
 The sidebar lists players in turn order with their territories, armies, cards and income
 (`+N/turn`, the reinforcements they get next turn before cards; hover it for the breakdown).
+Switch the scoreboard to **Who's winning** for a bar chart: each living player's power is 40% their share of all
+armies + 30% of territories + 30% of income (bars add up to 100%), split into those three parts; hover a bar for
+the numbers.
 
 Development with hot reload (server on :8080, Vite client on :5173 proxying `/api` and `/ws`):
 

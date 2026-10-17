@@ -1467,3 +1467,28 @@ label.check input {
     transform: translateY(0);
   }
 }
+
+/* Scoreboard: List / Who's winning toggle and chart */
+.players-view-toggle { display: flex; gap: 2px; margin-bottom: 8px; background: var(--panel2); border-radius: 7px; padding: 2px; }
+.players-view-toggle button { flex: 1; border: 0; background: transparent; color: var(--muted); padding: 4px 6px; font-size: 0.85em; border-radius: 5px; }
+.players-view-toggle button.active { background: var(--panel); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3); }
+.score-chart { display: flex; flex-direction: column; gap: 6px; }
+.score-legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 0.75em; color: var(--muted); }
+.score-legend-item { display: inline-flex; align-items: center; gap: 4px; }
+.score-swatch { width: 10px; height: 10px; border-radius: 2px; background: var(--text); display: inline-block; }
+.score-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 7px; }
+.score-row { position: relative; padding: 3px 4px; border-radius: 6px; outline: none; }
+.score-row.active { background: rgba(79, 140, 255, 0.1); }
+.score-row:focus-visible { box-shadow: 0 0 0 2px var(--accent); }
+.score-label { display: flex; align-items: center; gap: 6px; font-size: 0.88em; margin-bottom: 3px; }
+.score-rank { color: var(--muted); width: 1.2em; text-align: right; font-variant-numeric: tabular-nums; }
+.score-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.score-total { font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text); }
+.score-track { display: flex; gap: 2px; height: 12px; padding-left: calc(1.2em + 22px); }
+.score-seg { height: 100%; min-width: 0; transition: width 0.5s ease; }
+.score-seg:first-child { border-radius: 4px 0 0 4px; }
+.score-seg:last-child { border-radius: 0 4px 4px 0; }
+.score-tip { position: absolute; z-index: 10; left: 8px; right: 8px; top: 100%; margin-top: 2px; background: #0b1120; border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; font-size: 0.78em; color: var(--text); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5); }
+.score-tip div { color: var(--muted); margin-top: 2px; }
+.score-note { margin-top: 2px; }
+@media (prefers-reduced-motion: reduce) { .score-seg { transition: none; } }

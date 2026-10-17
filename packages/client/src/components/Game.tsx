@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getMap, visibleTerritories, type Card, type GameEvent, type GameView } from '@risk/engine';
 import { api } from '../api';
 import { CARD_FX_MS, CardFxPanel, type CardFx } from './CardFx';
+import { ScoreChart } from './ScoreChart';
 import { spectateLink, type Session } from '../session';
 import type { EventBatch, GameConnection } from '../useGame';
 import { CardsPanel } from './Cards';
@@ -45,6 +46,22 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
   const [toast, setToast] = useState<string | null>(null);
   const [banner, setBanner] = useState<{ text: string; color: string } | null>(null);
   const [copiedWatch, setCopiedWatch] = useState(false);
+  // Scoreboard: player list, or a "who's winning" chart (remembered in this browser).
+  const [scoreView, setScoreView] = useState<'list' | 'chart'>(() => {
+    try {
+      return localStorage.getItem('risk.scoreView') === 'chart' ? 'chart' : 'list';
+    } catch {
+      return 'list';
+    }
+  });
+  const saveScoreView = (v: 'list' | 'chart') => {
+    setScoreView(v);
+    try {
+      localStorage.setItem('risk.scoreView', v);
+    } catch {
+      /* storage unavailable */
+    }
+  };
   const spectator = !me;
   // Spectator fog preview: follow the current player by default; click a player to pin, click again to see all.
   const fogOn = !!view.options.fogOfWar;
@@ -261,6 +278,20 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
 
   const playersPanel = (
         <div className="players-panel">
+          {view.phase !== 'lobby' && (
+            <div className="players-view-toggle" role="tablist" aria-label="Scoreboard view">
+              <button role="tab" aria-selected={scoreView === 'list'} className={scoreView === 'list' ? 'active' : ''} onClick={() => saveScoreView('list')}>
+                List
+              </button>
+              <button role="tab" aria-selected={scoreView === 'chart'} className={scoreView === 'chart' ? 'active' : ''} onClick={() => saveScoreView('chart')}>
+                Who's winning
+              </button>
+            </div>
+          )}
+          {scoreView === 'chart' && view.phase !== 'lobby' ? (
+            <ScoreChart view={view} />
+          ) : (
+          <>
           {[...view.players].sort((a, b) => a.order - b.order).map((p) => (
             <div
               key={p.id}
@@ -294,6 +325,8 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
             <div className="muted small reinforcement-hint">
               Next turn: +{reinforcementPreview(view, me.id)} armies
             </div>
+          )}
+          </>
           )}
         </div>
   );

@@ -464,6 +464,8 @@ export class Store {
           if (!snap.state.blizzards) snap.state.blizzards = [];
           // Spectator chat arrived later; on by default.
           if (snap.state.options.spectatorChat === undefined) snap.state.options.spectatorChat = true;
+          // Chosen capitals arrived later; older games keep automatic capitals.
+          if (snap.state.options.chooseCapitals === undefined) snap.state.options.chooseCapitals = false;
           const room = new GameRoom(snap);
           this.attach(room);
         }

@@ -23,6 +23,7 @@ import {
   territoriesOf,
   tradeBonus,
   viewFor,
+  visibleTerritories,
   type GameState,
   type GameEvent,
 } from '../src/index.js';
@@ -904,6 +905,25 @@ describe('chosen capitals', () => {
     expect(state.phase).toBe('reinforce');
     expect(state.currentPlayer).toBe(order[0]);
     expect(Object.keys(state.capitals)).toHaveLength(3);
+  });
+
+  it('under fog of war, a capital pick is only revealed to players who can see it', () => {
+    const state = setup(3, { capitals: true, chooseCapitals: true, autoSetup: true, fogOfWar: true }).state;
+    const pid = state.currentPlayer!;
+    const others = state.turnOrder.filter((id) => id !== pid);
+    // A territory at least one rival cannot see, so the fog actually has something to hide.
+    const hiddenFrom = (t: string) => others.filter((o) => !visibleTerritories(state.territories, o, MAPS.classic).has(t));
+    const pick = legalMoves(state, pid).capitalChoices.find((t) => hiddenFrom(t).length > 0)!;
+    expect(pick).toBeDefined();
+    const res = applyAction(state, pid, { type: 'choose_capital', territory: pick });
+    const chosen = res.events.filter((e) => e.type === 'capital_chosen');
+    expect(chosen).toHaveLength(1);
+    expect(redactEvents(res.state, pid, chosen)).toEqual(chosen);
+    expect(redactEvents(res.state, null, chosen)).toEqual(chosen);
+    for (const other of others) {
+      const sees = !hiddenFrom(pick).includes(other);
+      expect(redactEvents(res.state, other, chosen)[0].type).toBe(sees ? 'capital_chosen' : 'fogged');
+    }
   });
 
   it('without chooseCapitals, capitals are assigned automatically with no bonus armies', () => {

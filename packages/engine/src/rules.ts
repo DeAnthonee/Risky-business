@@ -89,5 +89,6 @@ keep playing with what you hold. The game ends as soon as one player holds every
 of eliminated players. Eliminating everyone else still wins too.
 With "chooseCapitals" on, there is a short capitals phase after setup (whatever the deal and placement settings):
 each player in turn order picks one of their own territories with {"type":"choose_capital","territory":"<id>"}.
-The chosen capital gets 2 extra armies on the spot (1 army becomes 3). Picks are public. Then turn 1 begins.
+The chosen capital gets 2 extra armies on the spot (1 army becomes 3). Picks are public, except under fog of war,
+where you only learn of capitals you can see. Then turn 1 begins.
 `.trim();

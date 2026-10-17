@@ -103,10 +103,20 @@ export const OPTION_SPECS: { [K in OptionKey]: OptionSpec } = {
     label: 'Spectator chat',
     description: 'true (default): people watching can post in the game chat, marked as spectators. Every player sees them, even under fog of war, so watchers can cheer, heckle and tip players off. false: only seated players can chat.',
   },
+  firstRoundBonus: {
+    kind: 'boolean',
+    label: 'Late-turn bonus (round 1)',
+    description: 'true (default): in round 1 only, the Nth player in turn order receives at least N armies (1st-3rd get their normal 3+, 4th at least 4, 5th at least 5, up to 10th at least 10), offsetting the disadvantage of going later. false: everyone gets the normal reinforcements.',
+  },
   capitals: {
     kind: 'boolean',
     label: 'Capital Conquest',
     description: 'true: after setup each player\'s most garrisoned territory becomes their capital. +2 armies per capital held each turn and a capital defends with up to 3 dice. Losing your capital does not knock you out. Holding every capital at once wins the game (eliminating everyone else still wins too).',
+  },
+  chooseCapitals: {
+    kind: 'boolean',
+    label: 'Choose capitals',
+    description: 'Capital Conquest only. true: after setup (even with random deal and random placement), each player in turn order picks one of their own territories as their capital before turn 1, and 2 extra armies are placed there. false (default): each player\'s most garrisoned territory becomes their capital automatically.',
   },
   neutrals: {
     kind: 'int',
@@ -221,7 +231,7 @@ export function describeOptions(o: GameOptions, tradeCount = 0): string[] {
       ? `Cards: fixed values (${(OPTION_SPECS.cardValues as EnumSpec).valueLabels.fixed})`
       : `Cards: progressive, next set worth ${tradeBonus(tradeCount)} (then ${[1, 2, 3].map((i) => tradeBonus(tradeCount + i)).join(', ')}...)`,
     `Fog of war: ${o.fogOfWar ? 'on (players see only their territories and neighbours)' : 'off'}`,
-    `Capital Conquest: ${o.capitals ? 'on (+2 per capital held, capitals defend with 3 dice, hold every capital to win)' : 'off'}`,
+    `Capital Conquest: ${o.capitals ? `on (+2 per capital held, capitals defend with 3 dice, hold every capital to win; ${o.chooseCapitals ? 'players choose their capitals before turn 1' : 'capital = most garrisoned territory after setup'})` : 'off'}`,
     `Neutral territories: ${o.neutrals > 0 ? `${o.neutrals} with ${o.neutralArmies} arm${o.neutralArmies === 1 ? 'y' : 'ies'} each (games of 3+ players)` : 'off'}`,
     `Blizzards: ${o.blizzards > 0 ? `${o.blizzards} frozen territories (max ${maxBlizzards(map)} on this map)` : 'off'}`,
   ];

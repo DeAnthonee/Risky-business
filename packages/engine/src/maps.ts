@@ -79,23 +79,36 @@ interface RawMap {
 }
 
 /**
- * How many armies each player starts with, per map. Either a fixed table by player count, or
- * "scaled": about `perTerritory` armies per territory shared between the players, clamped to
- * [min, max] each. Change a map's starting armies here.
+ * How many armies each player starts with, per map. Change a map's starting armies here.
+ * - `table`: fixed numbers by player count.
+ * - `classicScaled`: the classic board-game numbers (2: 40, 3: 35, 4: 30, 5: 25, 6: 20 on 42 territories)
+ *   scaled by this map's size; above 6 players everyone gets an equal share of the 6-player total
+ *   (120 armies per 42 territories). Never fewer than 1.5 armies per territory a player is dealt.
+ * - `perTerritory`: about that many armies per territory shared out, clamped to [min, max] each.
  */
-export type StartingArmiesRule = { table: Record<number, number> } | { perTerritory: number; min: number; max: number };
+export type StartingArmiesRule = { table: Record<number, number> } | { classicScaled: true } | { perTerritory: number; min: number; max: number };
+
+/** Classic Hasbro starting armies on the 42-territory board. */
+export const CLASSIC_STARTING_ARMIES: Record<number, number> = { 2: 40, 3: 35, 4: 30, 5: 25, 6: 20 };
 
 export const STARTING_ARMIES: Record<MapId, StartingArmiesRule> = {
-  // Classic Hasbro table: 2 players 40 (plus Neutral), 3: 35, 4: 30, 5: 25, 6: 20.
-  classic: { table: { 2: 40, 3: 35, 4: 30, 5: 25, 6: 20 } },
-  world: { perTerritory: 3, min: 20, max: 60 },
-  world_large: { perTerritory: 3, min: 20, max: 60 },
-  europe: { perTerritory: 3, min: 20, max: 60 },
-  usa: { perTerritory: 3, min: 20, max: 60 },
-  asia: { perTerritory: 3, min: 20, max: 60 },
-  // Realms of Halvaren: same scaled rule (2-4 players 60, 5: 52, 6: 44, 7: 37, 8: 33, 9: 29, 10: 26).
-  fantasy: { perTerritory: 3, min: 20, max: 60 },
+  classic: { table: CLASSIC_STARTING_ARMIES },
+  world: { classicScaled: true },
+  world_large: { classicScaled: true },
+  europe: { classicScaled: true },
+  usa: { classicScaled: true },
+  asia: { classicScaled: true },
+  fantasy: { classicScaled: true },
 };
+
+/** Classic numbers scaled to a map with `territoryCount` territories (see StartingArmiesRule). */
+export function classicScaledArmies(territoryCount: number, players: number): number {
+  const scale = territoryCount / 42;
+  const scaled = players <= 6 ? Math.round(CLASSIC_STARTING_ARMIES[players] * scale) : Math.round((120 * scale) / players);
+  // Two-player games deal a third of the map to the Neutral.
+  const dealt = Math.ceil(territoryCount / (players === 2 ? 3 : players));
+  return Math.max(scaled, Math.ceil(dealt * 1.5));
+}
 
 function startingArmiesFor(rule: StartingArmiesRule, territoryCount: number, maxPlayers: number) {
   return (players: number): number => {
@@ -105,6 +118,7 @@ function startingArmiesFor(rule: StartingArmiesRule, territoryCount: number, max
       if (!n) throw new RuleError(`No starting armies defined for ${players} players on this map`);
       return n;
     }
+    if ('classicScaled' in rule) return classicScaledArmies(territoryCount, players);
     return Math.max(rule.min, Math.min(rule.max, Math.round((territoryCount * rule.perTerritory) / players)));
   };
 }

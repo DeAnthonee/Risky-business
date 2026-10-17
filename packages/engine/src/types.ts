@@ -10,7 +10,8 @@ export interface Card {
   territory: TerritoryId | null;
 }
 
-export type Phase = 'lobby' | 'setup' | 'reinforce' | 'attack' | 'fortify' | 'finished';
+/** 'capitals': Capital Conquest with chosen capitals; players pick their capital in turn order before turn 1. */
+export type Phase = 'lobby' | 'setup' | 'capitals' | 'reinforce' | 'attack' | 'fortify' | 'finished';
 
 export interface Player {
   id: PlayerId;
@@ -58,6 +59,10 @@ export interface GameOptions {
   spectatorChat: boolean;
   /** Capital Conquest: each player gets a capital after setup; every capital held pays +CAPITAL_BONUS per turn and defends with 3 dice; holding all capitals wins. */
   capitals: boolean;
+  /** Capital Conquest: players choose their own capital (in turn order, before turn 1) instead of getting their most garrisoned territory. */
+  chooseCapitals: boolean;
+  /** Round 1 only: the Nth player in turn order receives at least N armies (offsets going later). */
+  firstRoundBonus: boolean;
   /** Neutral territories in games of 3+ players: this many territories go to a Neutral army that never attacks (0 = off). Two-player games always have the classic Neutral. */
   neutrals: number;
   /** Armies on each neutral territory when `neutrals` is on. */
@@ -72,6 +77,9 @@ export const CAPITAL_BONUS = 2;
 /** Dice a capital defends with when the capitals option is on (other territories defend with up to 2). */
 export const CAPITAL_DEFENSE_DICE = 3;
 
+/** Extra armies placed on a capital when a player chooses it (chooseCapitals option). */
+export const CHOSEN_CAPITAL_ARMIES = 2;
+
 export const DEFAULT_OPTIONS: GameOptions = {
   setupBatch: 1,
   fortifyMode: 'connected',
@@ -83,6 +91,8 @@ export const DEFAULT_OPTIONS: GameOptions = {
   fogOfWar: false,
   spectatorChat: true,
   capitals: false,
+  chooseCapitals: false,
+  firstRoundBonus: true,
   neutrals: 0,
   neutralArmies: 2,
   blizzards: 0,
@@ -137,6 +147,12 @@ export interface PlaceAction {
   placements: Record<TerritoryId, number>;
 }
 
+/** Capitals phase: pick one of your own territories as your capital. */
+export interface ChooseCapitalAction {
+  type: 'choose_capital';
+  territory: TerritoryId;
+}
+
 export interface TradeAction {
   type: 'trade';
   cardIds: number[];
@@ -183,6 +199,7 @@ export interface SurrenderAction {
 
 export type Action =
   | PlaceAction
+  | ChooseCapitalAction
   | TradeAction
   | AttackAction
   | OccupyAction
@@ -202,6 +219,8 @@ export interface ReinforcementBreakdown {
   /** Capitals held (capitals option) and the armies they add. */
   capitals: number;
   fromCapitals: number;
+  /** Round 1 only (firstRoundBonus): extra armies that lift later players to their turn position (4th gets 4, ...). */
+  fromTurnOrder?: number;
   total: number;
 }
 
@@ -230,6 +249,7 @@ export type GameEvent =
   | { type: 'cards_taken'; player: PlayerId; from: PlayerId; count: number }
   | { type: 'eliminated'; player: PlayerId; by: PlayerId | null }
   | { type: 'capitals_assigned'; capitals: Record<PlayerId, TerritoryId> }
+  | { type: 'capital_chosen'; player: PlayerId; territory: TerritoryId; armies: number }
   | { type: 'blizzards'; territories: TerritoryId[] }
   | { type: 'capital_captured'; player: PlayerId; territory: TerritoryId; previousOwner: PlayerId }
   /** A fogged-out event the viewer is not allowed to see in detail. */

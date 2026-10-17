@@ -92,6 +92,9 @@ export function formatState(view: GameView, gameName?: string): string {
           view.options.cardValues === 'fixed' ? `[${set.join(',')}]=${fixedSetValue(set.map((id) => cardsById.get(id)!).filter(Boolean))}` : `[${set.join(',')}]`;
         lines.push(`  Tradeable sets (card ids): ${lm.tradeableSets.map(label).join(' ')}`);
       }
+      if (lm.capitalChoices?.length) {
+        lines.push(`  Choose your capital (it gets +2 armies now, defends with 3 dice and pays +2 a turn): {"type":"choose_capital","territory":"<id>"}, one of: ${lm.capitalChoices.join(', ')}`);
+      }
       if (lm.canPlaceOn.length && !lm.mustTrade) {
         const unclaimed = lm.canPlaceOn.some((t) => view.territories[t].owner === null);
         lines.push(
@@ -135,7 +138,7 @@ export function formatEvents(events: GameEvent[], view: GameView): string {
         out.push(`Game started. Turn order: ${e.turnOrder.map(name).join(' -> ')}`);
         break;
       case 'turn_started':
-        out.push(`Turn ${e.turnNumber}: ${name(e.player)} gets ${e.reinforcements.total} armies`);
+        out.push(`Turn ${e.turnNumber}: ${name(e.player)} gets ${e.reinforcements.total} armies${e.reinforcements.fromTurnOrder ? ` (incl. ${e.reinforcements.fromTurnOrder} round-1 late-turn bonus)` : ''}`);
         break;
       case 'placed':
         out.push(`${name(e.player)} placed ${e.armies} on ${t(e.territory)}`);
@@ -165,6 +168,9 @@ export function formatEvents(events: GameEvent[], view: GameView): string {
         break;
       case 'blizzards':
         out.push(`Blizzards froze ${e.territories.map(t).join(', ')} (impassable all game)`);
+        break;
+      case 'capital_chosen':
+        out.push(`${name(e.player)} chose ${t(e.territory)} as their capital (+${e.armies} armies there)`);
         break;
       case 'capitals_assigned':
         out.push(`Capitals: ${Object.entries(e.capitals).map(([p, t]) => `${name(p)} -> ${t}`).join(', ')}`);

@@ -32,6 +32,7 @@ function eventTerritories(e: GameEvent): TerritoryId[] {
     case 'moved':
       return [e.from, e.to];
     case 'capital_captured':
+    case 'capital_chosen':
       return [e.territory];
     default:
       return [];
@@ -47,6 +48,7 @@ function eventPlayers(e: GameEvent): PlayerId[] {
     case 'conquered':
     case 'moved':
     case 'capital_captured':
+    case 'capital_chosen':
       return [e.player];
     case 'battle':
       return [e.attacker, e.defender];

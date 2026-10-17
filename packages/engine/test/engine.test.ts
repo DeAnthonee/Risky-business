@@ -23,6 +23,7 @@ import {
   territoriesOf,
   tradeBonus,
   viewFor,
+  visibleTerritories,
   type GameState,
   type GameEvent,
 } from '../src/index.js';
@@ -615,8 +616,8 @@ describe('maps', () => {
       expect(() => m.startingArmies(m.maxPlayers + 1)).toThrow(RuleError);
     }
     expect(MAPS.world.maxPlayers).toBe(10);
-    expect(MAPS.world.startingArmies(10)).toBe(22);
-    expect(MAPS.world.startingArmies(2)).toBe(60);
+    expect(MAPS.world.startingArmies(10)).toBe(21);
+    expect(MAPS.world.startingArmies(2)).toBe(70);
     expect(() => MAPS.classic.startingArmies(7)).toThrow(RuleError);
   });
 
@@ -638,13 +639,16 @@ describe('maps', () => {
     for (const t of lm.canPlaceOn) expect(t in state.territories).toBe(true);
   });
 
-  it('scales starting armies on the new maps like the World map', async () => {
+  it('scales the classic starting armies by map size (equal share of the 6-player total above 6)', async () => {
     const { MAPS } = await import('../src/index.js');
     const table = (id: keyof typeof MAPS) => Array.from({ length: MAPS[id].maxPlayers - 1 }, (_, i) => MAPS[id].startingArmies(i + 2));
-    expect(table('world_large')).toEqual([60, 60, 60, 60, 52, 45, 39, 35, 31]);
-    expect(table('europe')).toEqual([60, 44, 33, 26, 22, 20, 20]);
-    expect(table('usa')).toEqual([60, 45, 34, 27, 23, 20, 20, 20, 20]);
-    expect(table('asia')).toEqual([60, 49, 37, 29, 25, 21, 20]);
+    expect(table('classic')).toEqual([40, 35, 30, 25, 20]);
+    expect(table('world')).toEqual([70, 62, 53, 44, 35, 30, 26, 23, 21]);
+    expect(table('world_large')).toEqual([99, 87, 74, 62, 50, 42, 37, 33, 30]);
+    expect(table('europe')).toEqual([42, 37, 31, 26, 21, 18, 16]);
+    expect(table('usa')).toEqual([43, 38, 32, 27, 21, 18, 16, 14, 13]);
+    expect(table('asia')).toEqual([47, 41, 35, 29, 23, 20, 18]);
+    expect(table('fantasy')).toEqual([83, 73, 62, 52, 41, 36, 31, 28, 25]);
   });
 
   for (const id of ['world_large', 'europe', 'usa', 'asia'] as const) {
@@ -768,8 +772,8 @@ describe('fantasy map (Realms of Halvaren)', () => {
     for (const c of m.continents) expect(c.territories.some((t) => m.adjacency[t].some((n) => m.territoryById[n].continent !== c.id))).toBe(true);
   });
 
-  it('scales starting armies with the player count (3 per territory shared out, 20-60)', () => {
-    const expected: Record<number, number> = { 2: 60, 3: 60, 4: 60, 5: 52, 6: 44, 7: 37, 8: 33, 9: 29, 10: 26 };
+  it('scales starting armies with the player count (classic numbers scaled by map size)', () => {
+    const expected: Record<number, number> = { 2: 83, 3: 73, 4: 62, 5: 52, 6: 41, 7: 36, 8: 31, 9: 28, 10: 25 };
     for (let n = 2; n <= 10; n++) {
       const armies = m.startingArmies(n);
       expect(armies).toBe(expected[n]);
@@ -795,7 +799,7 @@ describe('fantasy map (Realms of Halvaren)', () => {
     expect(state.phase).toBe('reinforce');
     for (const p of state.players) {
       const total = territoriesOf(state, p.id).reduce((sum, t) => sum + state.territories[t].armies, 0);
-      expect(total).toBe(26);
+      expect(total).toBe(25);
     }
     const lm = legalMoves(state, state.currentPlayer!);
     expect(lm.canPlaceOn.length).toBeGreaterThan(0);
@@ -874,6 +878,127 @@ describe('blizzards never trap territories or split the map', () => {
         while (queue.length) for (const n of map.adjacency[queue.pop()!]) if (!blocked.has(n) && !seen.has(n)) (seen.add(n), queue.push(n));
         expect(seen.size, `${id} seed ${seed}: map split by blizzards`).toBe(open.length);
       }
+    }
+  });
+});
+
+describe('round-1 late-turn bonus', () => {
+  it('the Nth player in turn order gets at least N armies in round 1 only', () => {
+    let state = setup(6, { autoSetup: true }).state;
+    const order = state.turnOrder;
+    const got: number[] = [];
+    for (let i = 0; i < order.length; i++) {
+      const pid = state.currentPlayer!;
+      expect(pid).toBe(order[i]);
+      const p = state.players.find((x) => x.id === pid)!;
+      got.push(p.armiesToPlace);
+      expect(p.armiesToPlace).toBeGreaterThanOrEqual(Math.max(3, i + 1));
+      state = applyAction(state, pid, { type: 'place', placements: { [territoriesOf(state, pid)[0]]: p.armiesToPlace } }).state;
+      state = applyAction(state, pid, { type: 'end_turn' }).state;
+    }
+    // 7 territories each, no continents at random: 3, 3, 3, 4, 5, 6.
+    expect(got.slice(3)).toEqual([4, 5, 6].map((n, k) => Math.max(n, got[3 + k])));
+    // Round 2: back to normal reinforcements.
+    const p = state.players.find((x) => x.id === state.currentPlayer)!;
+    expect(state.round).toBe(2);
+    expect(p.armiesToPlace).toBe(viewFor(state, null).players.find((x) => x.id === p.id)!.income!.total);
+  });
+
+  it('can be turned off', () => {
+    let state = setup(6, { autoSetup: true, firstRoundBonus: false }).state;
+    for (let i = 0; i < 5; i++) {
+      const pid = state.currentPlayer!;
+      const p = state.players.find((x) => x.id === pid)!;
+      state = applyAction(state, pid, { type: 'place', placements: { [territoriesOf(state, pid)[0]]: p.armiesToPlace } }).state;
+      state = applyAction(state, pid, { type: 'end_turn' }).state;
+    }
+    const last = state.players.find((x) => x.id === state.currentPlayer)!;
+    expect(last.armiesToPlace).toBe(viewFor(state, null).players.find((x) => x.id === last.id)!.income!.total);
+  });
+});
+
+describe('chosen capitals', () => {
+  it('players pick their capitals in turn order before turn 1, each getting +2 armies there', () => {
+    let state = setup(3, { capitals: true, chooseCapitals: true, autoSetup: true }).state;
+    expect(state.phase).toBe('capitals');
+    expect(state.capitals).toEqual({});
+    const order = state.turnOrder;
+    for (const pid of order) {
+      expect(state.currentPlayer).toBe(pid);
+      const lm = legalMoves(state, pid);
+      expect(lm.capitalChoices.length).toBe(territoriesOf(state, pid).length);
+      expect(() => applyAction(state, pid, { type: 'end_turn' })).toThrow(RuleError);
+      const enemy = TERRITORY_IDS.find((t) => state.territories[t].owner !== pid)!;
+      expect(() => applyAction(state, pid, { type: 'choose_capital', territory: enemy })).toThrow(RuleError);
+      // Pick the weakest territory to show the +2.
+      const pick = [...lm.capitalChoices].sort((a, b) => state.territories[a].armies - state.territories[b].armies)[0];
+      const before = state.territories[pick].armies;
+      const res = applyAction(state, pid, { type: 'choose_capital', territory: pick });
+      expect(res.state.territories[pick].armies).toBe(before + 2);
+      expect(res.events).toContainEqual({ type: 'capital_chosen', player: pid, territory: pick, armies: 2 });
+      expect(res.state.capitals[pid]).toBe(pick);
+      state = res.state;
+    }
+    // Everyone picked: turn 1 starts with the first player reinforcing.
+    expect(state.phase).toBe('reinforce');
+    expect(state.currentPlayer).toBe(order[0]);
+    expect(Object.keys(state.capitals)).toHaveLength(3);
+  });
+
+  it('under fog of war, a capital pick is only revealed to players who can see it', () => {
+    const state = setup(3, { capitals: true, chooseCapitals: true, autoSetup: true, fogOfWar: true }).state;
+    const pid = state.currentPlayer!;
+    const others = state.turnOrder.filter((id) => id !== pid);
+    // A territory at least one rival cannot see, so the fog actually has something to hide.
+    const hiddenFrom = (t: string) => others.filter((o) => !visibleTerritories(state.territories, o, MAPS.classic).has(t));
+    const pick = legalMoves(state, pid).capitalChoices.find((t) => hiddenFrom(t).length > 0)!;
+    expect(pick).toBeDefined();
+    const res = applyAction(state, pid, { type: 'choose_capital', territory: pick });
+    const chosen = res.events.filter((e) => e.type === 'capital_chosen');
+    expect(chosen).toHaveLength(1);
+    expect(redactEvents(res.state, pid, chosen)).toEqual(chosen);
+    expect(redactEvents(res.state, null, chosen)).toEqual(chosen);
+    for (const other of others) {
+      const sees = !hiddenFrom(pick).includes(other);
+      expect(redactEvents(res.state, other, chosen)[0].type).toBe(sees ? 'capital_chosen' : 'fogged');
+    }
+  });
+
+  it('without chooseCapitals, capitals are assigned automatically with no bonus armies', () => {
+    const state = setup(3, { capitals: true, autoSetup: true }).state;
+    expect(state.phase).toBe('reinforce');
+    expect(Object.keys(state.capitals)).toHaveLength(3);
+  });
+
+  it('a capital rolls 3 dice only when defending, never more than 3 when attacking', () => {
+    let state = finishSetup(setup(3, { setupBatch: 40, capitals: true }).state);
+    const me = state.currentPlayer!;
+    const meP = state.players.find((x) => x.id === me)!;
+    state = applyAction(state, me, { type: 'place', placements: { [territoriesOf(state, me)[0]]: meP.armiesToPlace } }).state;
+    const myCap = state.capitals[me];
+    state.territories[myCap].armies = 20;
+    const target = ADJACENCY[myCap].find((t) => !Object.values(state.capitals).includes(t))!;
+    const rival = state.turnOrder.find((id) => id !== me)!;
+    state.territories[target] = { owner: rival, armies: 10 };
+    const battle = applyAction(state, me, { type: 'attack', from: myCap, to: target }).events.find((e) => e.type === 'battle')!;
+    expect(battle.type === 'battle' && battle.attackerDice).toHaveLength(3);
+    expect(battle.type === 'battle' && battle.defenderDice).toHaveLength(2);
+    expect(legalMoves(state, me).attacks.filter((a) => a.from === myCap).every((a) => a.maxDice <= 3)).toBe(true);
+  });
+});
+
+describe('rules text', () => {
+  it('lists the same starting armies as the engine for every scaled map', async () => {
+    const { RULES_TEXT } = await import('../src/rules.js');
+    const labels: Record<string, string> = { world: 'World', world_large: 'Grand World', europe: 'Europe', usa: 'USA', asia: 'Asia', fantasy: 'Realms of Halvaren' };
+    const section = RULES_TEXT.slice(RULES_TEXT.indexOf('PLAYERS & STARTING ARMIES'), RULES_TEXT.indexOf('SETUP'));
+    for (const [id, label] of Object.entries(labels)) {
+      const m = MAPS[id as keyof typeof MAPS];
+      const line = section.match(new RegExp(`(?:\\n  |\\. )${label}: (?:2 players )?([^A-Z\\n]*)`))?.[1] ?? '';
+      const listed = Object.fromEntries([...line.matchAll(/(\d+): (\d+)/g)].map((x) => [Number(x[1]), Number(x[2])]));
+      const two = line.match(/^(\d+),/);
+      if (two) listed[2] = Number(two[1]);
+      for (let p = 2; p <= m.maxPlayers; p++) expect(listed[p], `${label} ${p} players`).toBe(m.startingArmies(p));
     }
   });
 });

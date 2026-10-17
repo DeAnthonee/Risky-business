@@ -14,6 +14,13 @@ export function chooseBotAction(state: GameState, me: PlayerId): Action | null {
     return { type: 'occupy', armies: n };
   }
 
+  if (lm.capitalChoices.length > 0) {
+    // Pick a well-garrisoned territory with few enemy neighbours.
+    const score = (t: string) => state.territories[t].armies * 2 - enemyNeighbours(state, me, t).length - threat(state, me, t) / 4 + Math.random();
+    const best = [...lm.capitalChoices].sort((a, b) => score(b) - score(a))[0];
+    return { type: 'choose_capital', territory: best };
+  }
+
   if (lm.tradeableSets.length > 0 && (lm.mustTrade || state.phase === 'reinforce')) {
     return { type: 'trade', cardIds: lm.tradeableSets[0] };
   }

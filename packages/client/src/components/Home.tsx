@@ -244,8 +244,16 @@ export function OptionsForm({
         <span className="muted small">watchers can talk, and every player sees it (even under fog)</span>
       </label>
       <label className="check">
+        <input type="checkbox" disabled={disabled} checked={options.firstRoundBonus !== false} onChange={(e) => onChange({ firstRoundBonus: e.target.checked })} /> Late-turn bonus
+        <span className="muted small">round 1: the 4th player gets at least 4 armies, 5th at least 5, and so on</span>
+      </label>
+      <label className="check">
         <input type="checkbox" disabled={disabled} checked={!!options.capitals} onChange={(e) => onChange({ capitals: e.target.checked })} /> Capital Conquest
         <span className="muted small">+2 per capital held, capitals defend with 3 dice; hold every capital to win</span>
+      </label>
+      <label className="check">
+        <input type="checkbox" disabled={disabled || !options.capitals} checked={!!options.chooseCapitals} onChange={(e) => onChange({ chooseCapitals: e.target.checked })} /> Players choose their capital
+        <span className="muted small">pick it before turn 1 (+2 armies there), even with random setup</span>
       </label>
       <label>
         Fortify

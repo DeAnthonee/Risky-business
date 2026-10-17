@@ -29,7 +29,8 @@ Open http://localhost:8080, enter a name, create a game, add a bot or share the 
 press "Watch" in the game list or open `?game=CODE&spectate=1`. Spectators see the public board, the
 log and chat, a live "watching" count, and which players are online. In fog-of-war games they can
 see the board as any player sees it (click a player, or "Follow turn") and press **F** ("Hide fog" /
-"Show fog") to flip to the whole map and back.
+"Show fog") to flip to the whole map and back. Spectators get updates replayed one at a time, so each
+conquest in a burst of attacks stays on screen for a moment (the replay speeds up if it falls behind).
 The sidebar lists players in turn order with their territories, armies, cards and income
 (`+N/turn`, the reinforcements they get next turn before cards; hover it for the breakdown).
 

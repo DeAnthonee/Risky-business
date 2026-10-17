@@ -28,6 +28,41 @@ export interface GameConnection {
   closedReason: string | null;
 }
 
+/**
+ * Spectator playback pacing. Seated players see every update the moment it happens; spectators get
+ * updates replayed one at a time so a burst of attacks reads as a sequence: each conquest stays on screen
+ * for a moment before the next. The queue speeds up when it falls behind so it never lags far.
+ */
+const PACE = {
+  /** A commit that conquered a territory. */
+  conquestMs: 900,
+  /** A commit with dice but no conquest: base plus a little per roll (blitzes roll many times). */
+  battleBaseMs: 450,
+  battlePerRollMs: 120,
+  battleMaxMs: 1400,
+  /** Placements, phase changes and other quiet commits. */
+  quietMs: 140,
+  /** Backlog size at which pacing starts speeding up (proportionally to the backlog). */
+  hurryAt: 4,
+  /** Floor for the hurried delay: even catching up, each conquest gets its own frame. */
+  minConquestMs: 160,
+  /** Backlog size at which everything queued is applied at once (only sane for a background tab). */
+  flushAt: 400,
+};
+
+function hurriedWait(base: number, backlog: number, conquest: boolean): number {
+  if (backlog < PACE.hurryAt) return base;
+  const scaled = base * Math.max(0.12, PACE.hurryAt / backlog);
+  return conquest ? Math.max(PACE.minConquestMs, scaled) : scaled;
+}
+
+function paceFor(events: GameEvent[]): number {
+  if (events.some((e) => e.type === 'conquered')) return PACE.conquestMs;
+  const rolls = events.filter((e) => e.type === 'battle').length;
+  if (rolls) return Math.min(PACE.battleMaxMs, PACE.battleBaseMs + rolls * PACE.battlePerRollMs);
+  return events.length ? PACE.quietMs : 0;
+}
+
 export function useGame(gameId: string | null, token: string | undefined): GameConnection {
   const [view, setView] = useState<GameView | null>(null);
   const [host, setHost] = useState<string | null>(null);
@@ -42,17 +77,49 @@ export function useGame(gameId: string | null, token: string | undefined): GameC
   const [closedReason, setClosedReason] = useState<string | null>(null);
   const sockRef = useRef<GameSocket | null>(null);
   const seq = useRef(0);
+  const playback = useRef<{ queue: StateMessage[]; timer: ReturnType<typeof setTimeout> | null }>({ queue: [], timer: null });
 
   useEffect(() => {
     if (!gameId) return;
+    const apply = (m: StateMessage) => {
+      setView(m.state);
+      setHost(m.host);
+      setName(m.name);
+      setYou(m.you);
+      if (m.events.length) setBatches((b) => [...b.slice(-200), { id: ++seq.current, version: m.version, events: m.events }]);
+    };
+    const pb = playback.current;
+    const pump = () => {
+      pb.timer = null;
+      if (pb.queue.length >= PACE.flushAt || (typeof document !== 'undefined' && document.hidden && pb.queue.length > PACE.hurryAt)) {
+        // Hopelessly behind (e.g. the tab was in the background): catch up in one go.
+        const all = pb.queue.splice(0);
+        for (const m of all) apply(m);
+        return;
+      }
+      const next = pb.queue.shift();
+      if (!next) return;
+      apply(next);
+      const wait = hurriedWait(paceFor(next.events), pb.queue.length, next.events.some((e) => e.type === 'conquered'));
+      if (pb.queue.length) pb.timer = setTimeout(pump, wait);
+      else if (wait) pb.timer = setTimeout(pump, wait); // hold the last frame before the next arrival
+    };
     const sock = new GameSocket(gameId, token, {
       onState: (m: StateMessage) => {
-        setView(m.state);
-        setHost(m.host);
-        setName(m.name);
-        setYou(m.you);
         if (m.commit && m.commit !== 'unknown' && __COMMIT__ !== 'unknown' && m.commit !== __COMMIT__) setUpdateAvailable(true);
-        if (m.events.length) setBatches((b) => [...b.slice(-200), { id: ++seq.current, version: m.version, events: m.events }]);
+        // Seated players, and the initial snapshot, apply at once; spectators replay in sequence.
+        if (m.you || m.events.length === 0) {
+          if (pb.queue.length === 0 && !pb.timer) return apply(m);
+          if (m.you) {
+            // Just took a seat: drop the replay and show the live board.
+            pb.queue.length = 0;
+            if (pb.timer) clearTimeout(pb.timer);
+            pb.timer = null;
+            return apply(m);
+          }
+        }
+        pb.queue.push(m);
+        if (!pb.timer) pump();
       },
       onChat: (m) => setChat((c) => [...c.slice(-200), m]),
       onChatHistory: (ms) => setChat(ms),
@@ -64,6 +131,9 @@ export function useGame(gameId: string | null, token: string | undefined): GameC
     return () => {
       sock.close();
       sockRef.current = null;
+      if (pb.timer) clearTimeout(pb.timer);
+      pb.timer = null;
+      pb.queue.length = 0;
     };
   }, [gameId, token]);
 

@@ -334,18 +334,20 @@ of contents. Where to save things:
 | A character from another universe | `AI/characters/<universe>/` (create the folder, lowercase) | `<character>.md` |
 | A character's match history (diary) | next to its profile | `<character>.diary.md` (`ultron.diary.md`), one `## ` entry per game |
 | A character's rapport with other players | next to its profile | `<character>.relationships.md`, a `\| Player \| Rapport \| Notes \|` table |
-| Info that applies to every model | `AI/general-model-info/` | `<topic>.md` (`playing-via-mcp.md`) |
+| Base-player strategy: ways to win, findings from games | `AI/general-player/` | `ways-to-win.md` (by setting), `findings.md` (append, with evidence), `playbook.md` (turn routine) |
+| Info about the models themselves | `AI/general-model-info/` | `<topic>.md` (`local-models.md`) |
 
 Rules for agents saving character info:
 
 1. Start from [`AI/characters/_TEMPLATE.md`](AI/characters/_TEMPLATE.md) and keep its headings: universe,
-   aliases, **base model** (default: the general player in `AI/general-model-info/general-player.md`),
+   aliases, **base model** (default: the general player in `AI/general-player/`),
    **preferred AI model**, personality, strategy, skills, weaknesses, history, grudges & rivals, allies,
    lessons learned, and game rules for the character. Diary and relationships formats are in
    [`AI/README.md`](AI/README.md).
 2. One character = one profile (plus its optional diary and relationships files). If a file exists, edit it;
    never make a duplicate under another name.
-3. Anything true for all models goes in `AI/general-model-info/`, never in a character file.
+3. Anything true for every player (strategy, findings) goes in `AI/general-player/`; anything about the models
+   themselves in `AI/general-model-info/`; never in a character file.
 4. Add every new file to the tree in [`AI/README.md`](AI/README.md) (and new general docs to
    `AI/general-model-info/README.md`).
 
@@ -359,7 +361,7 @@ profile through MCP, and the server keeps those saves:
 | `list_characters` | every character, grouped by universe, with its latest version and save time |
 | `get_character` | the latest profile (`version` reads an older one, `history: true` lists versions) |
 | `update_character` | save a new version: one `## ` section (`section` + `content`) or the whole profile (`markdown`); `expectedVersion` rejects a save if someone saved since you read |
-| `general_model_info` | the docs in `AI/general-model-info/` (including the general player) plus the profile template |
+| `general_model_info` | the general player (`AI/general-player/`: playbook, ways to win, findings), `AI/general-model-info/`, and the profile template |
 | `read_diary` | the latest diary entries, or one game's (`gameId`) |
 | `add_diary_entry` | write an entry after a game; `outcome`, `map`, `opponents`, `strategy` build the win/loss record |
 | `update_relationship` | change rapport (-100 enemy .. 100 ally) with another player, with a note on what happened |

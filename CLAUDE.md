@@ -72,4 +72,5 @@ Online multiplayer Risk with bots and an MCP server for AI agents. npm-workspace
 - AI character profiles and general model docs live in `AI/` (Markdown only); follow `AI/README.md` for where and how to save them.
   Those files are the starting point; agents' saves (`update_character`, `add_diary_entry`, `update_relationship`)
   live under `RISK_DATA_DIR/characters/` via `packages/server/src/characters.ts`, never written back into the repo.
-  Characters build on `AI/general-model-info/general-player.md` unless their profile names another base.
+  Characters build on the general player in `AI/general-player/` (playbook, ways to win, findings) unless their profile
+  names another base.

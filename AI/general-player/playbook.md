@@ -1,8 +1,9 @@
-# The general player
+# General player — playbook
 
-Every character is built on this player unless its profile's *Base model* line names another. A character
-profile adds personality, preferences and memories on top; where the two disagree, the profile wins on
-style and the game rules (`rules` tool) win on everything.
+The routine every character plays by unless its profile's *Base model* line names another base. A
+character profile adds personality, preferences and memories on top; where the two disagree, the profile
+wins on style and the game rules (`rules` tool) win on everything. How to win under each setting is in
+`ways-to-win.md`; what past games have shown is in `findings.md`.
 
 ## Every turn
 

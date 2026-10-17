@@ -334,14 +334,17 @@ export class CharacterStore {
     };
   }
 
-  /** Docs from AI/general-model-info (every model reads these), plus the character template. */
+  /** Docs every model reads: AI/general-player (playbook, ways to win, findings), AI/general-model-info, and the character template. */
   modelInfo(): { docs: ModelInfoDoc[] } {
     if (!this.aiDir) return { docs: [] };
-    const dir = join(this.aiDir, 'general-model-info');
-    const docs = safeDir(dir)
-      .filter((f) => f.endsWith('.md') && f !== 'README.md')
-      .sort()
-      .map((f) => ({ file: `general-model-info/${f}`, markdown: readFileSync(join(dir, f), 'utf8') }));
+    const order = ['playbook.md', 'ways-to-win.md', 'findings.md'];
+    const rank = (f: string) => (order.includes(f) ? order.indexOf(f) : order.length);
+    const docs = ['general-player', 'general-model-info'].flatMap((folder) =>
+      safeDir(join(this.aiDir!, folder))
+        .filter((f) => f.endsWith('.md') && f !== 'README.md')
+        .sort((a, b) => rank(a) - rank(b) || a.localeCompare(b))
+        .map((f) => ({ file: `${folder}/${f}`, markdown: readFileSync(join(this.aiDir!, folder, f), 'utf8') })),
+    );
     const template = join(this.aiDir, 'characters', '_TEMPLATE.md');
     if (existsSync(template)) docs.push({ file: 'characters/_TEMPLATE.md', markdown: readFileSync(template, 'utf8') });
     return { docs };

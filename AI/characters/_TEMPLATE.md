@@ -2,7 +2,7 @@
 
 - **Universe:** <Marvel | DC | ...>
 - **Aliases:** <other names, or "None">
-- **Base model:** general-player (default) — <or another base, and why>
+- **Base model:** general-player (default: `AI/general-player/`) — <or another base, and why>
 - **Preferred AI model:** <model id, e.g. claude-opus-5-5> — <one line on why>
 - **Backup model:** <model id, or "Any">
 

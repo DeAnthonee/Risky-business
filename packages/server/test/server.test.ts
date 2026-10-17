@@ -1141,7 +1141,7 @@ describe('AI character profiles', () => {
     const mem = store.memorySummary('marvel/ultron');
     expect(mem.relationships[0]).toMatchObject({ with: 'God', rapport: -70 });
     expect(mem.record.vsOpponent['Wonder Woman']).toEqual({ games: 1, won: 0 });
-    expect(store.modelInfo().docs.map((d) => d.file)).toContain('general-model-info/general-player.md');
+    expect(store.modelInfo().docs.map((d) => d.file).slice(0, 3)).toEqual(['general-player/playbook.md', 'general-player/ways-to-win.md', 'general-player/findings.md']);
   });
 
   it('lets an agent read and update its profile through MCP', async () => {

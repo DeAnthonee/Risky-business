@@ -714,7 +714,7 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
     'general_model_info',
     {
       description:
-        'Docs that apply to every AI model and every character (read once before playing): the general player every character is built on unless its profile picks another base, plus the template a character profile follows.',
+        'Docs that apply to every AI model and every character (read once before playing): the general player every character is built on unless its profile picks another base (playbook, ways to win under each setting, findings from past games), model docs, and the template a character profile follows.',
       inputSchema: {},
     },
     async () => {

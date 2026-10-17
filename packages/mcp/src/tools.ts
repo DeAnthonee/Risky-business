@@ -140,7 +140,7 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
     'map',
     {
       description: 'Return a static map: territories, continents with bonuses, and adjacency (which territories border which). Pass the map a game uses (get_state shows options.map).',
-      inputSchema: { map: z.enum(MAP_IDS as [string, ...string[]]).optional().describe(`Default classic. One of: ${MAP_IDS.join(', ')}`) },
+      inputSchema: { map: z.enum(MAP_IDS as [string, ...string[]]).optional().describe(`Default classic. One of: ${MAP_IDS.join(', ')} (fantasy = Realms of Halvaren, an original fantasy world)`) },
     },
     async ({ map }) => {
     try {

@@ -606,7 +606,7 @@ describe('MCP over HTTP (/mcp)', () => {
 describe('new boards over HTTP', () => {
   it('lists every board', async () => {
     const r = await api('/maps');
-    expect(r.body.maps.map((m: any) => m.id)).toEqual(['classic', 'world', 'world_large', 'europe', 'usa', 'asia']);
+    expect(r.body.maps.map((m: any) => m.id)).toEqual(['classic', 'world', 'world_large', 'europe', 'usa', 'asia', 'fantasy']);
   });
 
   for (const [id, territories, maxPlayers] of [
@@ -637,5 +637,41 @@ describe('new boards over HTTP', () => {
     const r = await api('/games', { method: 'POST', body: JSON.stringify({ playerName: 'H', options: { map: 'europe', maxPlayers: 9 } }) });
     expect(r.status).toBe(400);
     expect(r.body.error).toMatch(/maxPlayers must be between 2 and 8/);
+  });
+});
+
+describe('fantasy map over HTTP', () => {
+  it('lists the board, serves its map and runs a 10-seat game on it with bots', async () => {
+    const own = await startServer(null);
+    const call = async (path: string, init: RequestInit = {}, token?: string) => {
+      const headers: Record<string, string> = { 'content-type': 'application/json' };
+      if (token) headers.authorization = `Bearer ${token}`;
+      const res = await fetch(`${own.base}/api${path}`, { ...init, headers });
+      return { status: res.status, body: (await res.json()) as any };
+    };
+    try {
+      const maps = await call('/maps');
+      expect(maps.body.maps).toContainEqual(expect.objectContaining({ id: 'fantasy', territories: 87, maxPlayers: 10 }));
+      const map = await call('/map?map=fantasy');
+      expect(map.status).toBe(200);
+      expect(map.body.territories).toHaveLength(87);
+      expect(map.body.continents).toHaveLength(16);
+
+      const created = await call('/games', { method: 'POST', body: JSON.stringify({ playerName: 'Wanderer', options: { map: 'fantasy', maxPlayers: 10, autoSetup: true } }) });
+      expect(created.status).toBe(201);
+      expect(created.body.state.options.map).toBe('fantasy');
+      const { gameId, token } = created.body;
+      for (let i = 0; i < 9; i++) expect((await call(`/games/${gameId}/bots`, { method: 'POST', body: '{}' }, token)).status).toBe(201);
+      expect((await call(`/games/${gameId}/bots`, { method: 'POST', body: '{}' }, token)).status).toBeGreaterThanOrEqual(400);
+      const started = await call(`/games/${gameId}/start`, { method: 'POST', body: '{}' }, token);
+      expect(started.status).toBe(200);
+      const state = started.body.state;
+      expect(state.players).toHaveLength(10);
+      expect(Object.keys(state.territories)).toHaveLength(87);
+      expect(Object.values(state.territories).every((t: any) => t.owner)).toBe(true);
+      expect(state.phase).not.toBe('lobby');
+    } finally {
+      await own.risk.shutdown('test');
+    }
   });
 });

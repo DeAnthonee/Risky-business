@@ -3,6 +3,8 @@ import {
   ADJACENCY,
   CONTINENTS,
   EDGE_LIST,
+  MAPS,
+  MAP_IDS,
   NEUTRAL_ID,
   RuleError,
   TERRITORY_IDS,
@@ -17,6 +19,7 @@ import {
   renamePlayer,
   setOptions,
   startGame,
+  startingArmies,
   territoriesOf,
   tradeBonus,
   viewFor,
@@ -522,11 +525,12 @@ describe('maps', () => {
     europe: { territories: 44, regions: 8, maxPlayers: 8 },
     usa: { territories: 45, regions: 8, maxPlayers: 10 },
     asia: { territories: 49, regions: 7, maxPlayers: 8 },
+    fantasy: { territories: 87, regions: 16, maxPlayers: 10 },
   };
 
   it('every map is well formed', async () => {
     const { MAPS, MAP_IDS } = await import('../src/index.js');
-    expect(MAP_IDS).toEqual(['classic', 'world', 'world_large', 'europe', 'usa', 'asia']);
+    expect(MAP_IDS).toEqual(['classic', 'world', 'world_large', 'europe', 'usa', 'asia', 'fantasy']);
     for (const id of MAP_IDS) {
       const m = MAPS[id];
       expect(m.territories.length).toBe(EXPECTED[id].territories);
@@ -673,6 +677,103 @@ describe('maps', () => {
     s = setOptions(s, { map: 'world' });
     expect(s.options.map).toBe('world');
     expect(Object.keys(s.territories)).toHaveLength(74);
+    s = setOptions(s, { maxPlayers: 10 });
+    s = setOptions(s, { map: 'classic' });
+    expect(s.options.maxPlayers).toBe(6);
+  });
+});
+
+describe('fantasy map (Realms of Halvaren)', () => {
+  const m = MAPS.fantasy;
+
+  it('is registered with 87 territories in 16 regions for up to 10 players', () => {
+    expect(MAP_IDS).toContain('fantasy');
+    expect(m.territories).toHaveLength(87);
+    expect(m.continents).toHaveLength(16);
+    expect(m.maxPlayers).toBe(10);
+    expect(m.name).toMatch(/Halvaren/);
+  });
+
+  it('puts every territory in exactly one region, with a shape and an anchor on the board', () => {
+    const counts = new Map<string, number>();
+    for (const c of m.continents) for (const t of c.territories) counts.set(t, (counts.get(t) ?? 0) + 1);
+    for (const t of m.territories) {
+      expect(counts.get(t.id)).toBe(1);
+      expect(m.continentById[t.continent].territories).toContain(t.id);
+      expect(t.path.length).toBeGreaterThan(10);
+      expect(t.x).toBeGreaterThan(0);
+      expect(t.x).toBeLessThan(m.viewBox[0]);
+      expect(t.y).toBeGreaterThan(0);
+      expect(t.y).toBeLessThan(m.viewBox[1]);
+    }
+    expect(new Set(m.territoryIds).size).toBe(87);
+    for (const c of m.continents) {
+      expect(c.bonus).toBeGreaterThanOrEqual(2);
+      expect(c.bonus).toBeLessThanOrEqual(7);
+      expect(c.outline.length).toBeGreaterThan(10);
+    }
+    // The lawless wasteland is the biggest prize.
+    expect(Math.max(...m.continents.map((c) => c.bonus))).toBe(m.continentById.grimward.bonus);
+  });
+
+  it('has symmetric, connected adjacency with sea lanes that do not wrap', () => {
+    for (const t of m.territoryIds) {
+      expect(m.adjacency[t].length).toBeGreaterThan(0);
+      expect(new Set(m.adjacency[t]).size).toBe(m.adjacency[t].length);
+      for (const n of m.adjacency[t]) {
+        expect(n).not.toBe(t);
+        expect(m.adjacency[n]).toContain(t);
+      }
+    }
+    const seen = new Set<string>([m.territoryIds[0]]);
+    const stack = [m.territoryIds[0]];
+    while (stack.length) for (const n of m.adjacency[stack.pop()!]) if (!seen.has(n)) (seen.add(n), stack.push(n));
+    expect(seen.size).toBe(87);
+    expect(m.seaLinks.length).toBeGreaterThan(10);
+    for (const l of m.seaLinks) {
+      expect(m.isAdjacent(l.a, l.b)).toBe(true);
+      expect(l.wrap).toBe(false);
+    }
+    // every region is reachable from outside (no sealed-off region)
+    for (const c of m.continents) expect(c.territories.some((t) => m.adjacency[t].some((n) => m.territoryById[n].continent !== c.id))).toBe(true);
+  });
+
+  it('scales starting armies with the player count (3 per territory shared out, 20-60)', () => {
+    const expected: Record<number, number> = { 2: 60, 3: 60, 4: 60, 5: 52, 6: 44, 7: 37, 8: 33, 9: 29, 10: 26 };
+    for (let n = 2; n <= 10; n++) {
+      const armies = m.startingArmies(n);
+      expect(armies).toBe(expected[n]);
+      expect(armies).toBe(startingArmies(n, 'fantasy'));
+      // enough to cover every territory a player is dealt (2 players share with the Neutral)
+      expect(armies).toBeGreaterThanOrEqual(Math.ceil(87 / Math.max(3, n)));
+      if (n > 2) expect(armies).toBeLessThanOrEqual(m.startingArmies(n - 1));
+    }
+    expect(() => m.startingArmies(1)).toThrow(RuleError);
+    expect(() => m.startingArmies(11)).toThrow(RuleError);
+  });
+
+  it('sets up and starts a 10-player game', () => {
+    let s = createGame('f', { map: 'fantasy', maxPlayers: 10, setupBatch: 40 }, 11);
+    for (let i = 0; i < 10; i++) s = addPlayer(s, `p${i}`, `P${i}`);
+    expect(() => addPlayer(s, 'extra', 'X')).toThrow(/full/);
+    let state = startGame(s).state;
+    expect(Object.keys(state.territories)).toHaveLength(87);
+    const counts = state.players.map((p) => territoriesOf(state, p.id).length);
+    expect(Math.max(...counts) - Math.min(...counts)).toBeLessThanOrEqual(1);
+    expect(state.deck.length).toBe(89);
+    state = finishSetup(state);
+    expect(state.phase).toBe('reinforce');
+    for (const p of state.players) {
+      const total = territoriesOf(state, p.id).reduce((sum, t) => sum + state.territories[t].armies, 0);
+      expect(total).toBe(26);
+    }
+    const lm = legalMoves(state, state.currentPlayer!);
+    expect(lm.canPlaceOn.length).toBeGreaterThan(0);
+  });
+
+  it('clamps seats when switching from fantasy back to classic', () => {
+    let s = setOptions(createGame('x'), { map: 'fantasy' });
+    expect(Object.keys(s.territories)).toHaveLength(87);
     s = setOptions(s, { maxPlayers: 10 });
     s = setOptions(s, { map: 'classic' });
     expect(s.options.maxPlayers).toBe(6);

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { GameConnection } from '../useGame';
 import { getName, setName } from '../session';
 
@@ -7,6 +7,42 @@ import { getName, setName } from '../session';
  * them and spectators see it); spectators post under a display name of their choosing (remembered in
  * this browser) and their messages are marked as coming from the crowd.
  */
+interface Mentionable {
+  id: string;
+  name: string;
+  color: string;
+}
+
+/**
+ * Returns a function that splits a chat message so each player it names (whole word, any case, with or
+ * without "@") can be drawn in that player's colour. Longer names win, so "Bot 12" isn't read as "Bot 1".
+ */
+function mentioner(players: Mentionable[], you: string | null): (text: string) => ReactNode[] {
+  const named = players.filter((p) => p.name.trim()).sort((a, b) => b.name.length - a.name.length);
+  if (!named.length) return (text) => [text];
+  const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = `(^|[^\\p{L}\\p{N}_])(@?(?:${named.map((p) => escape(p.name)).join('|')}))(?=$|[^\\p{L}\\p{N}_])`;
+  return (text) => {
+    const out: ReactNode[] = [];
+    let last = 0;
+    for (const m of text.matchAll(new RegExp(pattern, 'giu'))) {
+      const word = m[2];
+      const p = named.find((x) => x.name.toLowerCase() === word.replace(/^@/, '').toLowerCase());
+      if (!p) continue;
+      const start = m.index! + m[1].length;
+      if (start > last) out.push(text.slice(last, start));
+      out.push(
+        <span key={start} className={`mention${p.id === you ? ' mention-you' : ''}`} style={{ color: p.color }}>
+          {word}
+        </span>,
+      );
+      last = start + word.length;
+    }
+    if (last < text.length) out.push(text.slice(last));
+    return out;
+  };
+}
+
 export function Chat({ conn, canSend, spectator }: { conn: GameConnection; canSend: boolean; spectator: boolean }) {
   const [text, setText] = useState('');
   const [watcherName, setWatcherName] = useState(() => getName());
@@ -44,6 +80,8 @@ export function Chat({ conn, canSend, spectator }: { conn: GameConnection; canSe
   };
 
   const colorOf = (pid: string | null) => conn.view?.players.find((p) => p.id === pid)?.color ?? '#aaa';
+  const players = conn.view?.players;
+  const highlight = useMemo(() => mentioner((players ?? []).filter((p) => !p.isNeutral), conn.you), [players, conn.you]);
 
   return (
     <div className="chat">
@@ -71,7 +109,7 @@ export function Chat({ conn, canSend, spectator }: { conn: GameConnection; canSe
                 <strong style={{ color: colorOf(m.to) }}>{m.to === conn.you ? 'you' : m.toName}</strong>
               </span>
             )}{' '}
-            {m.message}
+            {highlight(m.message)}
           </div>
         ))}
       </div>

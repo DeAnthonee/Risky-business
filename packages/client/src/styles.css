@@ -1067,6 +1067,9 @@ label.check input {
 .chat-msg.whisper[title^='Whisper: tap'] { cursor: pointer; }
 .chat-msg.whisper .whisper-tag { font-style: normal; color: #c4b5fd; }
 .chat-form select.chat-to { width: 100%; }
+/* A player named in a chat message, in that player's colour; your own name stands out more */
+.chat-msg .mention { font-weight: 700; font-style: normal; }
+.chat-msg .mention-you { background: rgba(255, 255, 255, 0.14); border-radius: 3px; padding: 0 3px; }
 .chat-note { padding: 4px 2px; }
 .chat-form { display: flex; flex-direction: column; gap: 6px; }
 .chat-form .chat-name { width: 100%; }

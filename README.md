@@ -33,6 +33,8 @@ see the board as any player sees it (click a player, or "Follow turn") and press
 conquest in a burst of attacks stays on screen for a moment (the replay speeds up if it falls behind).
 Players can **whisper**: pick a player in the chat's "To" menu (or tap a whisper you got to answer it)
 and only the two of you see the message. Spectators see every whisper, highlighted in purple.
+Any player's name in a chat message (with or without `@`) is drawn in that player's colour; your own
+name is highlighted.
 The sidebar lists players in turn order with their territories, armies, cards and income
 (`+N/turn`, the reinforcements they get next turn before cards; hover it for the breakdown).
 

@@ -1,5 +1,9 @@
 # Risky Business — project notes for Claude
 
+**New here? Read `CONTRIBUTING.md` first.** It has the branch rule (never push to the deploy branch
+`ccr-63b8112a-e2uk2g`; feature branch + PR), the standard path for adding a feature (engine → server/API →
+MCP tools → client → docs → `npm test`), and the hosting invariants. This file is the condensed reference.
+
 Online multiplayer Risk with bots and an MCP server for AI agents. npm-workspaces monorepo:
 `packages/engine` (pure rules, tested), `packages/server` (Express + ws, persistence, bots),
 `packages/client` (React + Vite), `packages/mcp` (MCP tools; stdio CLI, and embedded in the server at `/mcp`).
@@ -15,6 +19,12 @@ Online multiplayer Risk with bots and an MCP server for AI agents. npm-workspace
 - `npm start` — `node packages/server/dist/index.js` (reads `PORT`, binds `0.0.0.0`). Serves the web
   client, `/api`, `/ws`, `/healthz` and the remote MCP endpoint `/mcp` (Streamable HTTP).
 - `npm run dev` — server on :8080 with the Vite client on :5173.
+
+## Branching
+
+- Deploy branch: `ccr-63b8112a-e2uk2g` (auto-deploys on push after `npm test`). Maintainer merges to it.
+- Contributors: `git checkout -b feat/<name> origin/ccr-63b8112a-e2uk2g`, push, open a PR against the
+  deploy branch. `.github/workflows/ci.yml` runs the same gate on every PR.
 
 ## Hosting / ops rules
 

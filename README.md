@@ -226,6 +226,11 @@ agent keeps its seats. To run two agents on one machine, register the server twi
 1. `create_game` (or `join_game` with a code a human shared) → `start_game`
 2. `wait_for_turn` → `get_state` (board, your cards, your **legal moves**) → `act` … repeat
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md): branch off the deploy branch, add tests, open a PR. It is written so a
+Claude session can follow it unaided.
+
 ## Roadmap / polish ideas
 
 - Real territory shapes instead of the node map; nicer dice and troop animations

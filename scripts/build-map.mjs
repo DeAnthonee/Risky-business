@@ -19,8 +19,19 @@
  *               deg² (keeps the generated JSON small for detailed sources)
  *   densify     add box-cut vertices every this many degrees so long cuts follow parallels and
  *               neighbouring cuts line up (recommended on zoomed-in maps: 1)
+ *   width       viewBox width (default 1000). Very big boards (hundreds of territories) use a wider
+ *               canvas so army badges keep their size relative to the land; the client zooms further.
+ *   edges       adjacency list. Optional: without it, land adjacency is derived from the shapes
+ *               (territories that share a border) and `seaLanes` ([a, b] pairs) add the crossings
+ *               over water, like the authored maps. `wrapEdges` marks sea lanes drawn around the edge.
+ * Continent fields: bonus may be left out to use the suggested bonus (size plus entry points).
  * Part fields: c (feature id or name), box / boxes (clip to lon/lat boxes), pick (keep only the
- * polygons whose centre lies in a lon/lat box, without cutting any), mainland, islands.
+ * polygons whose centre lies in a lon/lat box, without cutting any), mainland, islands, split.
+ * `drop` (a lon/lat box) removes the polygons whose centre lies in it (the opposite of pick).
+ * `split: true` divides the feature between every territory that splits it (with the same box): each
+ * gets the Voronoi cell around its `site` ([lon, lat]) or the union of the cells around its `sites`
+ * (several points, for long or bent provinces), so a big country becomes provinces from a list of
+ * named points instead of hand-placed boxes.
  * Territory fields: inset { from: [lon, lat], to: [lon, lat], scale: k | [kx, ky] } moves a far-away
  * territory (Alaska, Hawaii) next to the rest of the map; its anchor is moved with it.
  *
@@ -36,6 +47,7 @@ import { presimplify, simplify } from 'topojson-simplify';
 import { geoPath, geoArea, geoContains, geoNaturalEarth1, geoConicEqualArea } from 'd3-geo';
 import pc from 'polygon-clipping';
 import polylabel from 'polylabel';
+import { Delaunay } from 'd3-delaunay';
 import { buildAuthored } from './authored-map.mjs';
 
 const require = createRequire(import.meta.url);
@@ -63,7 +75,9 @@ function loadSource(name, minWeight = 0) {
   for (const f of feature(topo, topo.objects[src.object]).features) {
     // Features are addressed by id (ISO numeric / FIPS) or, when they have none, by name; names
     // always work as aliases so definitions stay readable.
-    byKey.set(f.id ?? f.properties.name, f);
+    // Two 1:50m features share an id (036: Australia and the Ashmore and Cartier Islands); the
+    // first, the country, keeps it and the islets stay reachable by name.
+    if (!byKey.has(f.id ?? f.properties.name)) byKey.set(f.id ?? f.properties.name, f);
     if (f.properties?.name && !byKey.has(f.properties.name)) byKey.set(f.properties.name, f);
   }
   sourceCache.set(cacheKey, byKey);
@@ -72,7 +86,6 @@ function loadSource(name, minWeight = 0) {
 let byKey = loadSource('countries-110m');
 let sourceName = 'countries-110m';
 
-const WIDTH = 1000;
 let MIN_AREA_DEG2 = 0.6; // drop islets smaller than this unless they are all a territory has
 
 function polygonsOf(geom) {
@@ -126,7 +139,40 @@ function unwrap(multi) {
   );
 }
 
-function partGeometry(part) {
+/**
+ * Voronoi cells for `split` parts: for every feature split between territories, a cell (lon/lat ring)
+ * per territory around its site. Longitudes are scaled by cos(mean latitude) first so cells are not
+ * stretched east-west far from the equator.
+ */
+let splitCells = new Map();
+const splitKey = (spec) => `${spec.c}|${JSON.stringify(spec.boxes ?? spec.box ?? null)}`;
+function computeSplitCells(def) {
+  const groups = new Map();
+  for (const t of def.territories)
+    for (const part of t.parts) {
+      if (typeof part === 'string' || !part.split) continue;
+      const sites = t.sites ?? (t.site ? [t.site] : null);
+      if (!sites) throw new Error(`${t.id}: a split part needs a site`);
+      const key = splitKey(part);
+      if (!groups.has(key)) groups.set(key, []);
+      for (const site of sites) groups.get(key).push({ id: t.id, site });
+    }
+  splitCells = new Map();
+  for (const [key, points] of groups) {
+    const cells = new Map();
+    splitCells.set(key, cells);
+    if (new Set(points.map((p) => p.id)).size === 1) continue; // the whole feature
+    const k = Math.cos((points.reduce((s, p) => s + p.site[1], 0) / points.length) * (Math.PI / 180));
+    const delaunay = Delaunay.from(points.map((p) => [p.site[0] * k, p.site[1]]));
+    const voronoi = delaunay.voronoi([-400 * k, -90, 400 * k, 90]);
+    points.forEach((p, i) => {
+      if (!cells.has(p.id)) cells.set(p.id, []);
+      cells.get(p.id).push([voronoi.cellPolygon(i).map(([x, y]) => [x / k, y])]);
+    });
+  }
+}
+
+function partGeometry(part, t) {
   const spec = typeof part === 'string' ? { c: part } : part;
   const f = byKey.get(spec.c);
   if (!f) throw new Error(`Unknown feature ${spec.c} in ${sourceName}`);
@@ -143,6 +189,15 @@ function partGeometry(part) {
       return cx >= lonMin && cx <= lonMax && cy >= latMin && cy <= latMax;
     });
   }
+  if (spec.drop) {
+    const [lonMin, lonMax, latMin, latMax] = spec.drop;
+    multi = multi.filter((poly) => {
+      const ring = poly[0];
+      const cx = ring.reduce((s, p) => s + p[0], 0) / ring.length;
+      const cy = ring.reduce((s, p) => s + p[1], 0) / ring.length;
+      return !(cx >= lonMin && cx <= lonMax && cy >= latMin && cy <= latMax);
+    });
+  }
   // `mainland` keeps only the country's largest polygon; `islands` keeps everything else.
   if (spec.mainland || spec.islands) {
     const ranked = multi.map((poly) => ({ poly, area: ringArea(poly[0]) })).sort((a, b) => b.area - a.area);
@@ -150,6 +205,8 @@ function partGeometry(part) {
   }
   const boxes = spec.boxes ?? (spec.box ? [spec.box] : null);
   if (boxes) multi = pc.intersection(multi, boxes.map(boxPoly));
+  const cells = spec.split && splitCells.get(splitKey(spec))?.get(t.id);
+  if (cells) multi = pc.intersection(multi, cells);
   return multi;
 }
 
@@ -175,7 +232,7 @@ function ringArea(ring) {
 }
 
 function territoryGeometry(t) {
-  const parts = t.parts.map(partGeometry).filter((m) => m.length);
+  const parts = t.parts.map((p) => partGeometry(p, t)).filter((m) => m.length);
   if (!parts.length) throw new Error(`${t.id}: no geometry`);
   let multi = densify(pc.union(...parts));
   if (t.inset) multi = multi.map((poly) => poly.map((ring) => ring.map((pt) => insetPoint(t.inset, pt))));
@@ -283,6 +340,8 @@ function build(def) {
   byKey = loadSource(sourceName, def.simplify ?? 0);
   MIN_AREA_DEG2 = def.minArea ?? 0.6;
   DENSIFY = def.densify ?? 0;
+  const WIDTH = def.width ?? 1000;
+  computeSplitCells(def);
   const geoms = new Map();
   for (const t of def.territories) geoms.set(t.id, territoryGeometry(t));
 
@@ -293,7 +352,8 @@ function build(def) {
   const height = Math.ceil(y1 - y0 + 2 * PAD);
   const [tx, ty] = projection.translate();
   projection.translate([tx + PAD, ty - y0 + PAD]);
-  const path = geoPath(projection).digits(1);
+  // Wide boards draw at whole units (a unit there is already finer than a tenth on a 1000-wide board).
+  const path = geoPath(projection).digits(WIDTH >= 2000 ? 0 : 1);
 
   // Which territories share a border? Natural Earth topology shares exact vertices along real
   // borders, but straight borders and our box cuts only share collinear segments, so test both.
@@ -338,7 +398,39 @@ function build(def) {
     };
   });
 
-  return finish(def, { viewBox: [WIDTH, height], territories, continents, touches, anchorWarnings });
+  if (!def.edges) {
+    // Derived adjacency: every pair of shapes that share a border, plus the declared sea lanes.
+    const land = touches.pairs().map((k) => k.split('|'));
+    const landKeys = new Set(touches.pairs());
+    const lanes = (def.seaLanes ?? []).filter(([a, b]) => {
+      if (!landKeys.has([a, b].sort().join('|'))) return true;
+      anchorWarnings.push(`sea lane ${a}~${b} is redundant: they already share a border`);
+      return false;
+    });
+    def = { ...def, edges: [...land, ...lanes] };
+  }
+  const out = finish(def, { viewBox: [WIDTH, height], territories, continents, touches, anchorWarnings });
+  if (def.continents.some((c) => c.bonus === undefined)) printBonuses(def, out);
+  return out;
+}
+
+/** Suggested bonus per region (classic logic: grows with size and with the number of border entry points). */
+function suggestedBonuses(def, edges) {
+  const adj = new Map(def.territories.map((t) => [t.id, new Set()]));
+  for (const [a, b] of edges) adj.get(a).add(b), adj.get(b).add(a);
+  const cont = new Map(def.territories.map((t) => [t.id, t.continent]));
+  return def.continents.map((c) => {
+    const members = def.territories.filter((t) => t.continent === c.id);
+    const entries = members.filter((t) => [...adj.get(t.id)].some((n) => cont.get(n) !== c.id)).length;
+    return { c, members: members.length, entries, suggested: Math.max(1, Math.round(members.length / 3 + entries * 0.6)) };
+  });
+}
+
+function printBonuses(def, out) {
+  for (const { c, members, entries, suggested } of suggestedBonuses(def, out.edges)) {
+    const note = c.bonus !== undefined && Math.abs(suggested - c.bonus) > 1 ? '  <- check' : '';
+    console.log(`  ${c.id}: ${members} territories, ${entries} entry points, bonus ${c.bonus ?? `${suggested} (suggested)`}${c.bonus !== undefined ? ` (suggested ${suggested})` : ''}${note}`);
+  }
 }
 
 /** Hand-authored map: planar geometry, land adjacency from shared borders plus explicit sea lanes. */
@@ -351,17 +443,7 @@ function buildAuthoredMap(def) {
   const edges = [...g.landEdges, ...(def.seaLanes ?? []).filter(([a, b]) => !landKeys.has([a, b].sort().join('|')))];
   const out = finish({ ...def, edges }, g);
   for (const w of g.warnings) console.log(`  WARNING ${w}`);
-  // Suggested bonus (classic logic: grows with size and with the number of border entry points).
-  const adj = new Map(def.territories.map((t) => [t.id, new Set()]));
-  for (const [a, b] of edges) adj.get(a).add(b), adj.get(b).add(a);
-  const cont = new Map(def.territories.map((t) => [t.id, t.continent]));
-  for (const c of def.continents) {
-    const members = def.territories.filter((t) => t.continent === c.id);
-    const entries = members.filter((t) => [...adj.get(t.id)].some((n) => cont.get(n) !== c.id)).length;
-    const suggested = Math.max(1, Math.round(members.length / 3 + entries * 0.6));
-    const note = Math.abs(suggested - c.bonus) > 1 ? '  <- check' : '';
-    console.log(`  ${c.id}: ${members.length} territories, ${entries} entry points, bonus ${c.bonus} (suggested ${suggested})${note}`);
-  }
+  printBonuses(def, out);
   return out;
 }
 
@@ -385,13 +467,14 @@ function finish(def, { viewBox, territories, continents, touches, anchorWarnings
   while (queue.length) for (const n of adj.get(queue.shift())) if (!seen.has(n)) seen.add(n), queue.push(n);
   if (seen.size !== ids.size) throw new Error(`${def.id}: map is not connected; unreachable: ${[...ids].filter((id) => !seen.has(id)).join(', ')}`);
 
+  const bonusOf = new Map(suggestedBonuses(def, def.edges).map((b) => [b.c.id, b.c.bonus ?? b.suggested]));
   const out = {
     id: def.id,
     name: def.name,
     maxPlayers: def.maxPlayers,
     viewBox: [WIDTH, height],
     territories,
-    continents,
+    continents: continents.map((c) => ({ ...c, bonus: bonusOf.get(c.id) })),
     edges: def.edges,
     seaLinks,
   };
@@ -431,7 +514,7 @@ function finish(def, { viewBox, territories, continents, touches, anchorWarnings
   return out;
 }
 
-const MAP_NAMES = ['classic', 'world', 'world_large', 'europe', 'europe_advanced','usa', 'asia', 'fantasy'];
+const MAP_NAMES = ['classic', 'world', 'world_large', 'europe', 'europe_advanced', 'usa', 'asia', 'fantasy', 'earth'];
 const wanted = process.argv.slice(2);
 for (const name of MAP_NAMES) {
   if (wanted.length && !wanted.includes(name)) continue;

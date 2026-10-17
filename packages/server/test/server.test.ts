@@ -809,13 +809,14 @@ describe('MCP act replies', () => {
 describe('new boards over HTTP', () => {
   it('lists every board', async () => {
     const r = await api('/maps');
-    expect(r.body.maps.map((m: any) => m.id)).toEqual(['classic', 'world', 'world_large', 'europe', 'greater_europe', 'usa', 'asia', 'fantasy']);
+    expect(r.body.maps.map((m: any) => m.id)).toEqual(['classic', 'world', 'world_large', 'europe', 'greater_europe', 'europe_classic', 'usa', 'asia', 'fantasy']);
   });
 
   for (const [id, territories, maxPlayers] of [
     ['world_large', 104, 10],
     ['europe', 44, 8],
     ['greater_europe', 116, 10],
+    ['europe_classic', 84, 6],
     ['usa', 45, 10],
     ['asia', 49, 8],
   ] as const) {
@@ -844,6 +845,18 @@ describe('new boards over HTTP', () => {
     const ea = await api('/games', { method: 'POST', body: JSON.stringify({ playerName: 'H', options: { map: 'greater_europe', maxPlayers: 11 } }) });
     expect(ea.status).toBe(400);
     expect(ea.body.error).toMatch(/maxPlayers must be between 2 and 10/);
+  });
+
+  it('serves Europe Advanced (europe_classic) with the reference regions and rejects a 7th seat', async () => {
+    const maps = await api('/maps');
+    expect(maps.body.maps).toContainEqual(expect.objectContaining({ id: 'europe_classic', name: 'Europe Advanced (84)', territories: 84, maxPlayers: 6 }));
+    const map = await api('/map?map=europe_classic');
+    expect(map.body.continents).toHaveLength(14);
+    expect(map.body.continents.find((c: any) => c.id === 'eastern_europe')).toMatchObject({ name: 'Eastern Europe', bonus: 8 });
+    expect(map.body.adjacency.corsica_sardinia).toContain('constantine');
+    const r = await api('/games', { method: 'POST', body: JSON.stringify({ playerName: 'H', options: { map: 'europe_classic', maxPlayers: 7 } }) });
+    expect(r.status).toBe(400);
+    expect(r.body.error).toMatch(/maxPlayers must be between 2 and 6/);
   });
 
   it('serves Greater Europe with its regions and cross-water adjacency', async () => {

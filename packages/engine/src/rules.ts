@@ -11,6 +11,9 @@ World: 74 territories in 14 regions (2-10 players), bonuses 2-7 per region.
 Grand World (world_large): 104 territories in 20 regions (2-10 players), bonuses 2-7 per region.
 Europe: 44 territories in 8 regions (2-8 players), bonuses 2-6. USA: 45 territories (US states, small
 north-eastern ones merged) in 8 regions (2-10 players), bonuses 3-6; Alaska and Hawaii reach the mainland by sea.
+Europe Advanced (europe_classic): 84 territories in 14 regions (2-6 players): Iceland +2, British Empire +3,
+Scandinavia +3, Western Europe +4, Central Europe +5, Dinaric Alps +4, Southern Europe +4, South Western Europe +4,
+South Eastern Europe +4, Eastern Europe +8, Russian Empire +7, Orient +6, West Africa +6, North Africa +3.
 Greater Europe (greater_europe): 116 smaller territories in 15 regions (2-10 players), bonuses 2-7; Iceland to the
 Urals, North Africa to the Caucasus, with sea crossings over the Channel, North Sea, Baltic and Mediterranean.
 Asia: 49 territories in 7 regions (2-8 players), bonuses 4-6.
@@ -27,6 +30,7 @@ Every other map: the classic numbers scaled by map size (territories / 42); abov
 share of the 6-player total (120 armies per 42 territories). Never fewer than 1.5 armies per territory you are dealt.
   World: 2 players 70, 3: 62, 4: 53, 5: 44, 6: 35, 7: 30, 8: 26, 9: 23, 10: 21.
   Grand World: 2: 99, 3: 87, 4: 74, 5: 62, 6: 50, 7: 42, 8: 37, 9: 33, 10: 30.
+  Europe Advanced: 2: 80, 3: 70, 4: 60, 5: 50, 6: 40.
   Greater Europe: 2: 110, 3: 97, 4: 83, 5: 69, 6: 55, 7: 47, 8: 41, 9: 37, 10: 33.
   Europe: 2: 42, 3: 37, 4: 31, 5: 26, 6: 21, 7: 18, 8: 16. USA: 2: 43, 3: 38, 4: 32, 5: 27, 6: 21, 7: 18, 8: 16, 9: 14, 10: 13.
   Asia: 2: 47, 3: 41, 4: 35, 5: 29, 6: 23, 7: 20, 8: 18.

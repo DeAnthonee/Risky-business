@@ -50,14 +50,14 @@ export const OPTION_SPECS: { [K in OptionKey]: OptionSpec } = {
       }),
     ),
     description:
-      'Which board to play on: classic (the Hasbro board), world (finer world), world_large (Grand World, the biggest board, made for 8-10 players), europe, greater_europe (Greater Europe: 116 smaller territories, up to 10 players), usa (US states), asia or fantasy (Realms of Halvaren, an original fantasy world). Changing it clamps maxPlayers, neutrals and blizzards to the new map.',
+      'Which board to play on: classic (the Hasbro board), world (finer world), world_large (Grand World, the biggest board, made for 8-10 players), europe, greater_europe (Greater Europe: 116 smaller territories, up to 10 players), europe_classic (Europe Advanced: 84 territories in 14 regions such as the Russian Empire and the Orient, 2-6 players), usa (US states), asia or fantasy (Realms of Halvaren, an original fantasy world). Changing it clamps maxPlayers, neutrals and blizzards to the new map.',
   },
   maxPlayers: {
     kind: 'int',
     label: 'Seats',
     min: 2,
     max: (m) => m.maxPlayers,
-    description: 'Number of seats, counting bots and agents (classic up to 6, europe and asia up to 8, world, world_large, greater_europe, usa and fantasy up to 10).',
+    description: 'Number of seats, counting bots and agents (classic and europe_classic up to 6, europe and asia up to 8, world, world_large, greater_europe, usa and fantasy up to 10).',
   },
   autoSetup: {
     kind: 'boolean',

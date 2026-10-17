@@ -61,6 +61,8 @@ export interface GameOptions {
   capitals: boolean;
   /** Capital Conquest: players choose their own capital (in turn order, before turn 1) instead of getting their most garrisoned territory. */
   chooseCapitals: boolean;
+  /** Round 1 only: the Nth player in turn order receives at least N armies (offsets going later). */
+  firstRoundBonus: boolean;
   /** Neutral territories in games of 3+ players: this many territories go to a Neutral army that never attacks (0 = off). Two-player games always have the classic Neutral. */
   neutrals: number;
   /** Armies on each neutral territory when `neutrals` is on. */
@@ -90,6 +92,7 @@ export const DEFAULT_OPTIONS: GameOptions = {
   spectatorChat: true,
   capitals: false,
   chooseCapitals: false,
+  firstRoundBonus: true,
   neutrals: 0,
   neutralArmies: 2,
   blizzards: 0,
@@ -216,6 +219,8 @@ export interface ReinforcementBreakdown {
   /** Capitals held (capitals option) and the armies they add. */
   capitals: number;
   fromCapitals: number;
+  /** Round 1 only (firstRoundBonus): extra armies that lift later players to their turn position (4th gets 4, ...). */
+  fromTurnOrder?: number;
   total: number;
 }
 

@@ -363,7 +363,7 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
                 {!p.isBot && !p.isNeutral && <span className={`online-dot ${conn.presence.online.includes(p.id) ? 'on' : ''}`} title={conn.presence.online.includes(p.id) ? 'online' : 'offline'} />}
               </span>
               <span className="pstats" title="territories · armies · cards">
-                {p.territoryCount}t · {p.armyCount}a · {p.cardCount}c
+                {p.territoryCount ?? '?'}t · {p.armyCount ?? '?'}a · {p.cardCount ?? '?'}c
                 {view.options.capitals && ` · ${Object.values(view.capitals ?? {}).filter((t) => view.territories[t]?.owner === p.id).length}★`}
                 {p.income && p.alive && view.phase !== 'lobby' && (
                   <>
@@ -522,7 +522,7 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
             <div className="action-group muted">
               Waiting for <span style={{ color: current?.color }}>{current?.name}</span>…
               <button className="small" onClick={() => setShowCards(true)}>
-                Cards ({me.cardCount})
+                Cards ({me.cardCount ?? 0})
               </button>
               <button className="small danger" onClick={surrender}>
                 Surrender
@@ -580,7 +580,7 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
               )}
               {view.phase === 'reinforce' && (
                 <button className="small" onClick={() => setShowCards(true)}>
-                  Cards ({me.cardCount})
+                  Cards ({me.cardCount ?? 0})
                 </button>
               )}
             </div>
@@ -616,7 +616,7 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
               )}
               <span className="spacer" />
               <button className="small" onClick={() => setShowCards(true)}>
-                Cards ({me.cardCount})
+                Cards ({me.cardCount ?? 0})
               </button>
               <button disabled={busy} onClick={endAttack}>
                 End attack → fortify
@@ -774,7 +774,7 @@ function reinforcementPreview(view: GameView, pid: string): number {
   if (!p) return 0;
   if (p.income) return p.income.total;
   const map = getMap(view.options.map);
-  const base = Math.max(3, Math.floor(p.territoryCount / 3));
+  const base = Math.max(3, Math.floor((p.territoryCount ?? 0) / 3));
   const caps = view.options.capitals ? Object.values(view.capitals ?? {}).filter((t) => view.territories[t]?.owner === pid).length * 2 : 0;
   return base + p.continents.reduce((n, c) => n + (map.continentById[c]?.bonus ?? 0), 0) + caps;
 }

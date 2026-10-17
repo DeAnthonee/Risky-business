@@ -428,6 +428,19 @@ describe('game lifecycle over HTTP', () => {
     }
   });
 
+  it('under fog of war, a player gets no counts for opponents it cannot fully see; spectators get them all', async () => {
+    const created = await api('/games', { method: 'POST', body: JSON.stringify({ playerName: 'Fogged', options: { fogOfWar: true, autoSetup: true } }) });
+    const g = created.body.gameId;
+    for (let i = 0; i < 3; i++) await api(`/games/${g}/bots`, { method: 'POST', body: '{}' }, created.body.token);
+    await api(`/games/${g}/start`, { method: 'POST', body: '{}' }, created.body.token);
+    const asPlayer = await api(`/games/${g}`, {}, created.body.token);
+    const me = asPlayer.body.state.you;
+    const others = asPlayer.body.state.players.filter((p: any) => p.id !== me && !p.isNeutral);
+    expect(others.some((p: any) => p.armyCount === null && p.territoryCount === null && p.cardCount === null && p.income === null)).toBe(true);
+    const asSpectator = await api(`/games/${g}`);
+    expect(asSpectator.body.state.players.every((p: any) => p.isNeutral || typeof p.armyCount === 'number')).toBe(true);
+  });
+
   it('shuts down gracefully and releases long-poll waiters', async () => {
     const third = await startServer(null);
     const created = await fetch(`${third.base}/api/games`, {

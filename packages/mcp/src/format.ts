@@ -30,7 +30,7 @@ export function formatState(view: GameView, gameName?: string): string {
       .filter(Boolean)
       .join(', ');
     const conts = p.continents.length ? ` holds ${p.continents.join(', ')}` : '';
-    lines.push(`  ${p.name} (${p.id})${tag ? ` [${tag}]` : ''}: ${p.territoryCount} territories, ${p.armyCount} armies, ${p.cardCount} cards${p.income && p.alive ? `, +${p.income.total}/turn` : ''}${conts}`);
+    lines.push(`  ${p.name} (${p.id})${tag ? ` [${tag}]` : ''}: ${p.territoryCount ?? '?'} territories, ${p.armyCount ?? '?'} armies, ${p.cardCount ?? '?'} cards${p.armyCount === null ? ' (hidden by fog)' : ''}${p.income && p.alive ? `, +${p.income.total}/turn` : ''}${conts}`);
   }
   if (me) {
     lines.push('');
@@ -139,6 +139,10 @@ export function formatEvents(events: GameEvent[], view: GameView): string {
         out.push(`Game started. Turn order: ${e.turnOrder.map(name).join(' -> ')}`);
         break;
       case 'turn_started':
+        if (e.reinforcements.hidden) {
+          out.push(`Turn ${e.turnNumber}: ${name(e.player)}'s turn (reinforcements hidden by fog)`);
+          break;
+        }
         out.push(`Turn ${e.turnNumber}: ${name(e.player)} gets ${e.reinforcements.total} armies${e.reinforcements.fromTurnOrder ? ` (incl. ${e.reinforcements.fromTurnOrder} round-1 late-turn bonus)` : ''}`);
         break;
       case 'placed':

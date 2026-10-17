@@ -1118,3 +1118,70 @@ describe('rules text', () => {
     }
   });
 });
+
+describe('fog of war hides everything a player cannot see', () => {
+  it('hides other players\' counts, income and continents unless all their territories are visible', () => {
+    const state = finishSetup(setup(4, { setupBatch: 40, fogOfWar: true }).state);
+    const [me, ...others] = state.turnOrder;
+    const v = viewFor(state, me);
+    const mine = v.players.find((p) => p.id === me)!;
+    expect(mine.armyCount).not.toBeNull();
+    expect(mine.territoryCount).not.toBeNull();
+    expect(mine.income).not.toBeNull();
+    for (const o of others) {
+      const pv = v.players.find((p) => p.id === o)!;
+      const allVisible = territoriesOf(state, o).every((t) => !v.territories[t].hidden);
+      if (allVisible) continue;
+      expect(pv.armyCount).toBeNull();
+      expect(pv.territoryCount).toBeNull();
+      expect(pv.cardCount).toBeNull();
+      expect(pv.income).toBeNull();
+      expect(pv.cards).toBeNull();
+    }
+    // Spectators see everything.
+    const spec = viewFor(state, null);
+    for (const p of spec.players.filter((x) => !x.isNeutral)) {
+      expect(p.armyCount).not.toBeNull();
+      expect(p.territoryCount).not.toBeNull();
+    }
+    // A continent only shows an owner if the viewer can see all of it.
+    for (const [cid, owner] of Object.entries(v.continentOwners)) {
+      if (!owner || owner === me) continue;
+      const c = CONTINENTS.find((x) => x.id === cid)!;
+      expect(c.territories.every((t) => !v.territories[t].hidden)).toBe(true);
+    }
+  });
+
+  it('shows another player\'s numbers once every territory they hold is visible', () => {
+    const state = finishSetup(setup(3, { setupBatch: 40, fogOfWar: true }).state);
+    const [me, other] = state.turnOrder;
+    // Shrink `other` to one territory next to mine.
+    const mineT = territoriesOf(state, me)[0];
+    const target = ADJACENCY[mineT][0];
+    for (const t of territoriesOf(state, other)) state.territories[t].owner = me;
+    state.territories[target] = { owner: other, armies: 4 };
+    const pv = viewFor(state, me).players.find((p) => p.id === other)!;
+    expect(pv.territoryCount).toBe(1);
+    expect(pv.armyCount).toBe(4);
+  });
+
+  it('redacts other players\' income, card draws and trades from the event stream', () => {
+    const state = finishSetup(setup(4, { setupBatch: 40, fogOfWar: true }).state);
+    const [me, other] = state.turnOrder;
+    const events: GameEvent[] = [
+      { type: 'turn_started', player: other, turnNumber: 2, round: 1, reinforcements: { territories: 10, fromTerritories: 3, continents: [], capitals: 0, fromCapitals: 0, total: 3 } },
+      { type: 'card_drawn', player: other },
+      { type: 'traded', player: other, cardIds: [1, 2, 3], cards: [], armies: 4, bonusTerritory: null },
+      { type: 'card_drawn', player: me },
+    ];
+    const out = redactEvents(state, me, events);
+    // With 4 players on 42 territories, `other` always holds something `me` cannot see.
+    expect(territoriesOf(state, other).some((t) => viewFor(state, me).territories[t].hidden)).toBe(true);
+    expect(out[0]).toMatchObject({ type: 'turn_started', player: other, reinforcements: { hidden: true, total: 0 } });
+    expect(out[1]).toEqual({ type: 'fogged', kind: 'card_drawn' });
+    expect(out[2]).toEqual({ type: 'fogged', kind: 'traded' });
+    expect(out[3]).toEqual(events[3]);
+    // Spectators get everything as is.
+    expect(redactEvents(state, null, events)).toEqual(events);
+  });
+});

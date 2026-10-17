@@ -195,15 +195,16 @@ export interface RiskApi {
   /** Latest version unless `version` is given. */
   getCharacter(id: string, version?: number): Promise<CharacterProfile>;
   characterHistory(id: string): Promise<{ id: string; versions: CharacterVersion[] }>;
-  updateCharacter(id: string, update: CharacterUpdate): Promise<CharacterProfile>;
+  /** Writes need the server's characters write key (RISK_CHARACTERS_KEY or the admin token). */
+  updateCharacter(id: string, update: CharacterUpdate, key?: string): Promise<CharacterProfile>;
   /** Docs that apply to every model (AI/general-model-info) plus the character template. */
   modelInfo(): Promise<{ docs: ModelInfoDoc[] }>;
   /** Record, relationships and the latest diary titles. */
   characterMemory(id: string): Promise<CharacterMemory>;
   /** The latest `limit` entries (oldest first), or one game's entries. */
   readDiary(id: string, limit?: number, gameId?: string): Promise<{ id: string; total: number; entries: DiaryEntry[] }>;
-  addDiaryEntry(id: string, entry: DiaryInput): Promise<DiaryEntry>;
-  updateRelationship(id: string, update: RelationshipInput): Promise<Relationship>;
+  addDiaryEntry(id: string, entry: DiaryInput, key?: string): Promise<DiaryEntry>;
+  updateRelationship(id: string, update: RelationshipInput, key?: string): Promise<Relationship>;
 
   listTournaments(): Promise<{ tournaments: unknown[] }>;
   /** Pass your entrant token to get `you` (your status and your current table's seat). */
@@ -321,13 +322,18 @@ export function defaultSessionFile(): string {
 
 /** RiskApi over the game server's HTTP API. */
 export class HttpRiskApi implements RiskApi {
-  constructor(public baseUrl: string) {
+  constructor(
+    public baseUrl: string,
+    /** Default characters write key for saves (a tool's own "key" wins). */
+    private charactersKey?: string,
+  ) {
     this.baseUrl = baseUrl.replace(/\/+$/, '');
   }
 
-  private async request<T>(path: string, init: RequestInit = {}, token?: string): Promise<T> {
+  private async request<T>(path: string, init: RequestInit = {}, token?: string, charactersKey?: string): Promise<T> {
     const headers: Record<string, string> = { 'content-type': 'application/json' };
     if (token) headers.authorization = `Bearer ${token}`;
+    if (charactersKey) headers['x-characters-key'] = charactersKey;
     const res = await fetch(`${this.baseUrl}/api${path}`, { ...init, headers });
     const text = await res.text();
     let body: Record<string, unknown> = {};
@@ -399,8 +405,8 @@ export class HttpRiskApi implements RiskApi {
   characterHistory(id: string) {
     return this.request<{ id: string; versions: CharacterVersion[] }>(`/characters/${characterPath(id)}/history`);
   }
-  updateCharacter(id: string, update: CharacterUpdate) {
-    return this.request<CharacterProfile>(`/characters/${characterPath(id)}`, { method: 'POST', body: JSON.stringify(update) });
+  updateCharacter(id: string, update: CharacterUpdate, key?: string) {
+    return this.request<CharacterProfile>(`/characters/${characterPath(id)}`, { method: 'POST', body: JSON.stringify(update) }, undefined, key ?? this.charactersKey);
   }
   modelInfo() {
     return this.request<{ docs: ModelInfoDoc[] }>('/model-info');
@@ -414,11 +420,11 @@ export class HttpRiskApi implements RiskApi {
     if (gameId) q.set('gameId', gameId);
     return this.request<{ id: string; total: number; entries: DiaryEntry[] }>(`/characters/${characterPath(id)}/diary${q.size ? `?${q}` : ''}`);
   }
-  addDiaryEntry(id: string, entry: DiaryInput) {
-    return this.request<DiaryEntry>(`/characters/${characterPath(id)}/diary`, { method: 'POST', body: JSON.stringify(entry) });
+  addDiaryEntry(id: string, entry: DiaryInput, key?: string) {
+    return this.request<DiaryEntry>(`/characters/${characterPath(id)}/diary`, { method: 'POST', body: JSON.stringify(entry) }, undefined, key ?? this.charactersKey);
   }
-  updateRelationship(id: string, update: RelationshipInput) {
-    return this.request<Relationship>(`/characters/${characterPath(id)}/relationships`, { method: 'POST', body: JSON.stringify(update) });
+  updateRelationship(id: string, update: RelationshipInput, key?: string) {
+    return this.request<Relationship>(`/characters/${characterPath(id)}/relationships`, { method: 'POST', body: JSON.stringify(update) }, undefined, key ?? this.charactersKey);
   }
   listTournaments() {
     return this.request<{ tournaments: unknown[] }>('/tournaments');

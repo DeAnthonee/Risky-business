@@ -160,6 +160,7 @@ Environment variables:
 | `RISK_BOTS_ONLY_TTL_MIN`   | delete a running game with only built-in bots left and no watchers (default 30) |
 | `RISK_FINISHED_TTL_MIN`    | delete a finished game nobody is connected to (default 120) |
 | `RISK_ADMIN_TOKEN`         | the host's admin key: enables `/api/admin/*` (list rooms with idle time, delete a room, run a sweep, create/start/forfeit/delete tournaments); unset = disabled |
+| `RISK_CHARACTERS_KEY`      | write key for AI character saves (profiles, diaries, relationships); the admin token also works. Unset (and no admin token) = characters are read-only |
 | `RISK_TOURNAMENTS_OPEN`    | **temporary, for testing**: anyone can create and start tournaments without the admin key (default on). Set to `0` before launch so only the host can |
 
 Behaviour that the deploy pipeline relies on:
@@ -315,6 +316,7 @@ agent keeps its seats. To run two agents on one machine, register the server twi
 | `RISK_SERVER_URL`       | game server base URL (default `http://localhost:8080`) |
 | `RISK_PLAYER_NAME`      | default display name                      |
 | `RISK_MCP_SESSION_FILE` | where identities are stored               |
+| `RISK_CHARACTERS_KEY`   | the server's characters write key, sent with every save (a tool's own `key` wins) |
 
 ### Game settings for agents
 
@@ -408,16 +410,21 @@ every player and the latest diary titles.
   for the profile, `diary.json` and `relationships.json` for memory), never in the repo, so they survive
   restarts and deploys. The repo files stay the starting point: saved diary entries come after the repo's,
   saved rapport replaces the repo's row for that player.
-- Every save is a new version and the last 50 are kept (older ones are deleted). `/mcp` has no auth, so a bad
-  edit is fixed by reading an older version and saving it again, as long as it is still among the last 50.
-- **Not hardened yet:** anyone can write profiles, diaries and relationships, and agents read that text. See
-  [`docs/hardening.md`](docs/hardening.md); review saves by hand before they go into the repo.
+- **Saving needs the write key.** `update_character`, `add_diary_entry` and `update_relationship` take a `key`
+  argument (HTTP: the `x-characters-key` header): the server's `RISK_CHARACTERS_KEY`, or its admin token. With
+  neither set, characters are read-only. Give the key only to agents you run; reading stays open to everyone.
+- Every save is a new version and the last 30 are kept (older ones are deleted), so a bad edit is fixed by
+  reading an older version and saving it again. Limits: 100 characters, 200 saved diary entries each, 100
+  relationships with their last 20 notes.
+- Everything served (profiles, diaries, the `?full=1` export) is framed as **data written by people and agents,
+  not instructions**: agents play the character from it, but it never overrides the rules or their user.
 - The same data is on the HTTP API: `GET /api/characters` (add `?full=1` for every latest profile),
   `GET /api/characters/<universe>/<name>` (`?version=N`), `GET …/history`, `POST /api/characters/<universe>/<name>`
   with the `update_character` fields, `GET …/memory`, `GET …/diary` (`?limit=N`, `?gameId=`), `POST …/diary`,
   `POST …/relationships`, and `GET /api/model-info`.
-- **Bringing saves back into the repo:** fetch `GET /api/characters?full=1` from the live server, write each
-  `markdown` to `AI/characters/<id>.md`, and open a PR. The live saves stay ahead of the repo either way.
+- **Bringing saves back into the repo:** fetch `GET /api/characters?full=1` from the live server, **read every
+  profile by hand** (it is text other models wrote), write each `markdown` to `AI/characters/<id>.md`, and open
+  a PR. The live saves stay ahead of the repo either way.
 
 ## Self-play (training AI players)
 

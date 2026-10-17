@@ -176,8 +176,8 @@ export class LocalRiskApi implements RiskApi {
   async characterHistory(id: string) {
     return this.characters.history(id);
   }
-  async updateCharacter(id: string, update: CharacterUpdate) {
-    return this.characters.update(id, update);
+  async updateCharacter(id: string, update: CharacterUpdate, key?: string) {
+    return this.characters.update(id, update, key);
   }
   async modelInfo() {
     return this.characters.modelInfo();
@@ -188,11 +188,11 @@ export class LocalRiskApi implements RiskApi {
   async readDiary(id: string, limit?: number, gameId?: string) {
     return this.characters.readDiary(id, limit, gameId);
   }
-  async addDiaryEntry(id: string, entry: DiaryInput) {
-    return this.characters.addDiaryEntry(id, entry);
+  async addDiaryEntry(id: string, entry: DiaryInput, key?: string) {
+    return this.characters.addDiaryEntry(id, entry, key);
   }
-  async updateRelationship(id: string, update: RelationshipInput) {
-    return this.characters.updateRelationship(id, update);
+  async updateRelationship(id: string, update: RelationshipInput, key?: string) {
+    return this.characters.updateRelationship(id, update, key);
   }
 }
 

@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { timingSafeEqual } from 'node:crypto';
 import { join } from 'node:path';
 import {
   GAME_OUTCOMES,
@@ -20,14 +21,14 @@ import {
 /** "<universe>/<name>", both lowercase kebab-case, e.g. "marvel/iron-man". */
 const ID_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*\/[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const MAX_MARKDOWN = 32 * 1024;
-const MAX_CHARACTERS = 500;
+const MAX_CHARACTERS = 100;
 /** Older versions beyond this are dropped (oldest first). */
-const MAX_VERSIONS = 50;
+const MAX_VERSIONS = 30;
 const MAX_DIARY_TEXT = 8000;
 /** Saved diary entries beyond this are dropped (oldest first); repo entries always stay. */
-const MAX_DIARY_ENTRIES = 500;
-const MAX_RELATIONSHIPS = 200;
-const MAX_RELATIONSHIP_NOTES = 50;
+const MAX_DIARY_ENTRIES = 200;
+const MAX_RELATIONSHIPS = 100;
+const MAX_RELATIONSHIP_NOTES = 20;
 
 /** Diary entries and relationships saved by agents (on top of the repo's seeds). */
 interface Memory {
@@ -76,8 +77,25 @@ export class CharacterStore {
     private aiDir: string | null,
     /** Where saved versions live (under RISK_DATA_DIR), or null for memory only. */
     private dataDir: string | null,
+    /** Keys that allow saving (RISK_CHARACTERS_KEY, the admin token). None set = read-only. */
+    writeKeys: (string | null | undefined)[] = [],
   ) {
+    this.writeKeys = writeKeys.filter((k): k is string => !!k);
     if (dataDir) this.load();
+  }
+
+  private writeKeys: string[];
+
+  get writable(): boolean {
+    return this.writeKeys.length > 0;
+  }
+
+  /** Every save needs a write key: the endpoints have no other auth, and saved text is read by other models. */
+  private checkWrite(key: string | undefined) {
+    if (!this.writable) throw new RiskHttpError('Saving characters is turned off on this server (no RISK_CHARACTERS_KEY set): profiles, diaries and relationships are read-only.', 403);
+    if (!key) throw new RiskHttpError('Saving characters needs the write key: pass it as "key" (MCP) or the x-characters-key header (HTTP).', 401);
+    const given = Buffer.from(key);
+    if (!this.writeKeys.some((k) => given.length === Buffer.byteLength(k) && timingSafeEqual(given, Buffer.from(k)))) throw new RiskHttpError('Wrong characters write key', 403);
   }
 
   private load() {
@@ -161,7 +179,8 @@ export class CharacterStore {
     return { id, versions: [...repo, ...saved] };
   }
 
-  update(rawId: string, u: CharacterUpdate): CharacterProfile {
+  update(rawId: string, u: CharacterUpdate, writeKey?: string): CharacterProfile {
+    this.checkWrite(writeKey);
     const id = checkCharacterId(rawId);
     const last = this.latest(id);
     const current = this.body(id, last?.version ?? 0);
@@ -258,7 +277,8 @@ export class CharacterStore {
     return { id, total: all.length, entries };
   }
 
-  addDiaryEntry(rawId: string, input: DiaryInput): DiaryEntry {
+  addDiaryEntry(rawId: string, input: DiaryInput, writeKey?: string): DiaryEntry {
+    this.checkWrite(writeKey);
     const id = this.requireCharacter(rawId);
     const title = String(input.title ?? '').trim();
     const text = String(input.text ?? '').trim();
@@ -287,7 +307,8 @@ export class CharacterStore {
     return all[all.length - 1];
   }
 
-  updateRelationship(rawId: string, input: RelationshipInput): Relationship {
+  updateRelationship(rawId: string, input: RelationshipInput, writeKey?: string): Relationship {
+    this.checkWrite(writeKey);
     const id = this.requireCharacter(rawId);
     const who = String(input.with ?? '').trim().slice(0, 80);
     const note = String(input.note ?? '').trim();

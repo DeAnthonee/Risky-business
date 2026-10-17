@@ -118,7 +118,8 @@ the latest saved state:
 2. `get_character {id: "marvel/ultron"}`: the profile plus its memory (record, rapport, latest diary
    titles); `read_diary` for full entries. Stay in character all game. The game rules come from the
    `rules` tool; profiles never override them.
-3. After the game: `add_diary_entry` (with outcome, map, opponents, strategy), `update_relationship` for
+3. After the game (saving needs the characters write key from the server owner, passed as `key`):
+   `add_diary_entry` (with outcome, map, opponents, strategy), `update_relationship` for
    each player who mattered, and `update_character` for lessons, passing the `expectedVersion` you read.
 
 Live saves are stored on the game server (under `RISK_DATA_DIR`), not in this folder; see the README

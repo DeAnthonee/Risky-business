@@ -56,6 +56,10 @@ export interface GameOptions {
   fogOfWar: boolean;
   /** Capital Conquest: each player gets a capital after setup; capturing one takes over that player, every capital held pays +CAPITAL_BONUS per turn. */
   capitals: boolean;
+  /** Neutral territories in games of 3+ players: this many territories go to a Neutral army that never attacks (0 = off). Two-player games always have the classic Neutral. */
+  neutrals: number;
+  /** Armies on each neutral territory when `neutrals` is on. */
+  neutralArmies: number;
   /** Blizzards: this many random territories are impassable for the whole game (0 = off). Nobody owns, attacks or crosses them. */
   blizzards: number;
 }
@@ -76,6 +80,8 @@ export const DEFAULT_OPTIONS: GameOptions = {
   cardValues: 'progressive',
   fogOfWar: false,
   capitals: false,
+  neutrals: 0,
+  neutralArmies: 2,
   blizzards: 0,
 };
 

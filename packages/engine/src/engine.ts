@@ -82,6 +82,11 @@ export function validateOptions(o: GameOptions): void {
   const maxBliz = maxBlizzards(map);
   if (!Number.isInteger(o.blizzards) || o.blizzards < 0 || o.blizzards > maxBliz)
     throw new RuleError(`blizzards must be an integer between 0 and ${maxBliz} on the ${map.name} map`);
+  const maxNeutrals = Math.floor(map.territoryIds.length / 3);
+  if (!Number.isInteger(o.neutrals) || o.neutrals < 0 || o.neutrals > maxNeutrals)
+    throw new RuleError(`neutrals must be an integer between 0 and ${maxNeutrals} on the ${map.name} map`);
+  if (!Number.isInteger(o.neutralArmies) || o.neutralArmies < 1 || o.neutralArmies > 10)
+    throw new RuleError('neutralArmies must be an integer between 1 and 10');
   if (!Number.isInteger(o.maxPlayers) || o.maxPlayers < 2 || o.maxPlayers > map.maxPlayers)
     throw new RuleError(`maxPlayers must be between 2 and ${map.maxPlayers} on the ${map.name} map`);
 }
@@ -96,6 +101,9 @@ export function setOptions(state: GameState, options: Partial<GameOptions>): Gam
   }
   if (options.map && options.map !== state.options.map && options.blizzards === undefined) {
     next.options.blizzards = Math.min(next.options.blizzards ?? 0, maxBlizzards(getMap(options.map)));
+  }
+  if (options.map && options.map !== state.options.map && options.neutrals === undefined) {
+    next.options.neutrals = Math.min(next.options.neutrals ?? 0, Math.floor(getMap(options.map).territoryIds.length / 3));
   }
   validateOptions(next.options);
   if (next.players.length > next.options.maxPlayers) throw new RuleError('maxPlayers is below the current player count');
@@ -167,8 +175,9 @@ export function startGame(state: GameState): ActionResult {
   const events: GameEvent[] = [];
   const armies = map.startingArmies(humansAndBots.length);
 
-  // Two-player games use a neutral third army (classic rules).
-  if (humansAndBots.length === 2) {
+  // Two-player games use a neutral third army (classic rules); larger games get one when the neutrals option is on.
+  const neutralTerritories = humansAndBots.length === 2 ? 0 : Math.min(next.options.neutrals ?? 0, map.territoryIds.length - humansAndBots.length);
+  if (humansAndBots.length === 2 || neutralTerritories > 0) {
     next.players.push({
       id: NEUTRAL_ID,
       name: 'Neutral',
@@ -191,7 +200,7 @@ export function startGame(state: GameState): ActionResult {
   next.turnOrder = order;
   next.players.forEach((p) => {
     p.order = p.isNeutral ? order.length : order.indexOf(p.id);
-    p.armiesToPlace = armies;
+    p.armiesToPlace = p.isNeutral && neutralTerritories > 0 ? 0 : armies;
     p.cards = [];
     p.alive = true;
   });
@@ -205,11 +214,19 @@ export function startGame(state: GameState): ActionResult {
   if (next.blizzards.length) events.push({ type: 'blizzards', territories: [...next.blizzards] });
   const playable = map.territoryIds.filter((t) => !next.blizzards.includes(t));
 
+  // Neutral territories (3+ players): set aside at random from the open territories before the deal, each with a fixed garrison.
+  let dealable = playable;
+  if (neutralTerritories > 0) {
+    const picked = shuffle(rng, playable).slice(0, Math.min(neutralTerritories, playable.length - humansAndBots.length));
+    for (const t of picked) next.territories[t] = { owner: NEUTRAL_ID, armies: next.options.neutralArmies };
+    dealable = playable.filter((t) => !picked.includes(t));
+  }
+
   // Deal territories round-robin in turn order (neutral included for 2p).
-  const dealOrder = [...order, ...next.players.filter((p) => p.isNeutral).map((p) => p.id)];
+  const dealOrder = [...order, ...(neutralTerritories > 0 ? [] : next.players.filter((p) => p.isNeutral).map((p) => p.id))];
   const randomDeal = next.options.randomDeal || next.options.autoSetup;
   if (randomDeal) {
-    const shuffledTerritories = shuffle(rng, playable);
+    const shuffledTerritories = shuffle(rng, dealable);
     shuffledTerritories.forEach((t, i) => {
       const owner = dealOrder[i % dealOrder.length];
       next.territories[t] = { owner, armies: 1 };
@@ -217,7 +234,7 @@ export function startGame(state: GameState): ActionResult {
     });
   } else {
     // Claiming phase: nobody owns anything yet; players claim one per setup turn.
-    for (const t of playable) next.territories[t] = { owner: null, armies: 0 };
+    for (const t of dealable) next.territories[t] = { owner: null, armies: 0 };
   }
 
   // Neutral player: auto-distribute all remaining armies evenly.

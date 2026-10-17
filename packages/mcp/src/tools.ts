@@ -32,6 +32,8 @@ const optionsSchema = z
     autoSetup: z.boolean().optional().describe('true = skip the army placement phase: starting armies are scattered randomly and turn 1 starts at once'),
     cardValues: z.enum(['progressive', 'fixed']).optional().describe('progressive (4,6,8,10,12,15,+5...) or fixed (infantry 4, cavalry 6, artillery 8, one of each 10)'),
     fogOfWar: z.boolean().optional().describe('true = players only see their territories and adjacent ones; hidden territories show as "?"'),
+    neutrals: z.number().int().min(0).max(40).optional().describe('Games of 3+ players: this many random territories start held by a Neutral army that never attacks (0 = off; at most a third of the map). 2-player games always have the classic Neutral'),
+    neutralArmies: z.number().int().min(1).max(10).optional().describe('Armies on each neutral territory when neutrals is on (default 2)'),
     blizzards: z.number().int().min(0).max(20).optional().describe('Blizzards: number of random territories frozen for the whole game (0 = off; at most a sixth of the map). Nobody owns, attacks or moves through a blizzard'),
     capitals: z.boolean().optional().describe('Capital Conquest: each player gets a capital (+2 armies per capital held per turn); capturing a capital takes over that player'),
   })

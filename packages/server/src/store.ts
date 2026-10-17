@@ -408,6 +408,9 @@ export class Store {
         for (const snap of data) {
           // Games saved before maps existed carry no "map" option: they are classic-board games.
           if (!snap.state.options.map) snap.state.options.map = 'classic';
+          // Games saved before neutral territories existed have none.
+          if (snap.state.options.neutrals === undefined) snap.state.options.neutrals = 0;
+          if (snap.state.options.neutralArmies === undefined) snap.state.options.neutralArmies = 2;
           // Games saved before blizzards existed have none.
           if (snap.state.options.blizzards === undefined) snap.state.options.blizzards = 0;
           if (!snap.state.blizzards) snap.state.blizzards = [];

@@ -30,6 +30,8 @@ press "Watch" in the game list or open `?game=CODE&spectate=1`. Spectators see t
 log and chat, a live "watching" count, and which players are online. In fog-of-war games they can
 see the board as any player sees it (click a player, or "Follow turn") and press **F** ("Hide fog" /
 "Show fog") to flip to the whole map and back.
+The sidebar lists players in turn order with their territories, armies, cards and income
+(`+N/turn`, the reinforcements they get next turn before cards; hover it for the breakdown).
 
 Development with hot reload (server on :8080, Vite client on :5173 proxying `/api` and `/ws`):
 

@@ -622,6 +622,28 @@ describe('game settings catalogue', () => {
   });
 });
 
+describe('player income in views', () => {
+  it('reports each player\'s next-turn reinforcements with a breakdown; none for the Neutral', () => {
+    const state = finishSetup(setup(2, { setupBatch: 40 }).state);
+    const v = viewFor(state, null);
+    for (const p of v.players) {
+      if (p.isNeutral) {
+        expect(p.income).toBeNull();
+        continue;
+      }
+      expect(p.income).toEqual(reinforcementsForTest(state, p.id));
+      expect(p.income!.total).toBeGreaterThanOrEqual(3);
+    }
+  });
+});
+
+function reinforcementsForTest(state: GameState, id: string) {
+  const owned = territoriesOf(state, id).length;
+  const continents = CONTINENTS.filter((c) => c.territories.every((t) => state.territories[t].owner === id)).map((c) => ({ id: c.id, bonus: c.bonus }));
+  const fromTerritories = Math.max(3, Math.floor(owned / 3));
+  return { territories: owned, fromTerritories, continents, capitals: 0, fromCapitals: 0, total: fromTerritories + continents.reduce((n, c) => n + c.bonus, 0) };
+}
+
 describe('blizzards never trap territories or split the map', () => {
   it('on every map, at the maximum count, every open territory can reach every other', async () => {
     const { MAPS, MAP_IDS, pickBlizzards, maxBlizzards, createRng } = await import('../src/index.js');

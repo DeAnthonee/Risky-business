@@ -1070,3 +1070,6 @@ label.check input {
 .chat-form { display: flex; flex-direction: column; gap: 6px; }
 .chat-form .chat-name { width: 100%; }
 .chat-error { color: #ff7a7a; }
+
+/* Player income in the sidebar */
+.pstats .income { color: #8fd18f; font-weight: 600; cursor: help; }

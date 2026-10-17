@@ -60,7 +60,7 @@ const actionSchema = z
     to: z.string().optional().describe('attack/fortify: destination territory id'),
     dice: z.number().int().min(1).max(3).optional().describe('attack: dice to roll (default max)'),
     blitz: z.boolean().optional().describe('attack: keep rolling until the territory falls or you cannot continue'),
-    occupy: z.union([z.number().int(), z.literal('min'), z.literal('max')]).optional().describe('attack: if conquered, move this many armies in automatically'),
+    occupy: z.union([z.number().int(), z.literal('min'), z.literal('max')]).optional().describe('attack: if conquered, move this many armies in automatically. Under fog of war leave it out, so you see what the conquest reveals before deciding'),
     armies: z.number().int().optional().describe('occupy/fortify: number of armies to move'),
   })
   .describe('A single game action. See the rules tool for the full list.');
@@ -103,7 +103,7 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
         'You can play the board game Risk (classic world domination rules) against humans, bots and other agents.',
         'Typical flow: rules -> game_options (see every setting) -> create_game with the settings you want (or join_game with a code a human shared) -> optionally set_options / add_bot -> start_game -> loop { wait_for_turn -> get_state -> act }.',
         'Tournaments: join_tournament with a code, then wait_for_match -> play your table like any game -> wait_for_match again until you are out or the champion.',
-        'get_state returns your legal moves; act takes one JSON action. Attacking with blitz:true and occupy:"max" resolves a whole battle in one call.',
+        'get_state returns your legal moves; act takes one JSON action. Attacking with blitz:true and occupy:"max" resolves a whole battle in one call. Under fog of war leave out occupy: a conquest reveals what lies beyond it, and you then choose how many armies to move in.',
         'IMPORTANT: create_game and join_game return a player token. Remember it and pass it as the "token" argument on every later call for that game: it is what identifies YOUR seat (several chats or agents can sit at the same table, each with its own token).',
         opts.identityNote ?? 'Seats are also remembered by this connection while it lasts; my_seats lists them and resume_game recovers one from a token.',
         `Server: ${label}`,
@@ -413,6 +413,7 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
       description:
         'Perform one game action on your turn. Returns the resulting events (dice rolls, conquests...), only the territories your action changed (with their neighbours), your armies, cards and continents, and your next legal moves. Other players do not act during your turn (the only exception: someone may surrender, handing their territories to the Neutral), so you rarely need to reread the board between actions. When your turn ends the full board comes back. Pass full:true for the whole board anyway. ' +
         'Attack with blitz:true (one call resolves the whole battle) unless you deliberately want to stop after a single roll; spectators watch every call. ' +
+        'Under fog of war, omit "occupy" on attacks: the result lists what the conquest revealed (capitals are tagged CAPITAL) and you then occupy with the number that fits. ' +
         'Examples: {"type":"place","placements":{"alaska":3}} · {"type":"attack","from":"alaska","to":"kamchatka","blitz":true,"occupy":"max"} · {"type":"end_attack"} · {"type":"fortify","from":"peru","to":"brazil","armies":2} · {"type":"end_turn"}',
       inputSchema: {
         gameId: gameIdSchema,

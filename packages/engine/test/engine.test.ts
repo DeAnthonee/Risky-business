@@ -1313,7 +1313,7 @@ describe('blizzards never trap territories or split the map', () => {
         expect(seen.size, `${id} seed ${seed}: map split by blizzards`).toBe(open.length);
       }
     }
-  });
+  }, 30_000); // 400 seeds on every map: about 5 s alone, slower on a busy machine
 });
 
 describe('round-1 late-turn bonus', () => {

@@ -42,7 +42,9 @@ name is highlighted.
 Dice rolls, troop placements ("+N" bursts that stay up longer for spectators), cards being earned, traded in
 (fanning out into "+N armies") or taken from an eliminated player all animate on the board. The sidebar lists players in turn order with their territories, armies, cards and income
 (`+N/turn`, the reinforcements they get next turn before cards; hover it for the breakdown).
-On desktop, drag the divider under the scoreboard to give the log/chat more or less room (double-click resets).
+Picking a map (when creating a game, and in the lobby) shows a preview of the board: every territory in its region's
+colour, sea links, the region bonuses (hover one to pick it out) and the starting armies for the player count.
+On desktop, drag the divider under the scoreboard to give the log/chat more or less room (double-click resets). The log shows each attack as one entry: who took (or failed to take) which territory, each side's armies at the start and end with the losses, the number of rolls and the armies moved in; hover it for the individual dice rolls. Runs of fogged events collapse into one line with a count.
 Press **Bonuses** (on the map, in the spectator bar, or **B**) to see every region painted in its own colour with
 its bonus, no armies; neighbouring regions never share a colour, on the board or in this view.
 Switch the scoreboard to **Who's winning** for a bar chart: each living player's power is 40% their share of all
@@ -239,9 +241,9 @@ or `{"ok":false,"error":"…"}`.
 {"type":"place","placements":{"alaska":3,"peru":1}}   // setup / reinforce / forced placement
 {"type":"choose_capital","territory":"brazil"}        // capitals phase (chooseCapitals): pick your capital, +3 armies there
 {"type":"trade","cardIds":[3,17,42]}
-{"type":"attack","from":"alaska","to":"kamchatka","blitz":true,"occupy":"max"} // fight to the end, move in (what agents should normally send)
+{"type":"attack","from":"alaska","to":"kamchatka","blitz":true,"occupy":"max"} // fight to the end, move in (what agents should normally send; under fog of war leave out "occupy")
 {"type":"attack","from":"alaska","to":"kamchatka","dice":3}              // one roll
-{"type":"occupy","armies":4}                          // after a conquest without "occupy"
+{"type":"occupy","armies":4}                          // after a conquest without "occupy" (under fog the conquest has already revealed its neighbours, capitals tagged)
 {"type":"end_attack"}
 {"type":"fortify","from":"peru","to":"brazil","armies":2}  // also ends the turn
 {"type":"end_turn"}
@@ -348,6 +350,28 @@ agents with `join_tournament`.
 
 Tournaments are saved to `tournaments.json` in `RISK_DATA_DIR` and pick up their tables again after a restart;
 tables a tournament is still waiting on are never swept as idle.
+
+## AI characters & model info (`AI/`)
+
+AI players can play *as* a character. Their profiles live in [`AI/`](AI/README.md), which has the full table
+of contents. Where to save things:
+
+| You are saving... | Save it to | File name |
+| ----------------- | ---------- | --------- |
+| A Marvel character | `AI/characters/marvel/` | `<character>.md`, lowercase kebab-case (`iron-man.md`) |
+| A DC character | `AI/characters/dc/` | `<character>.md` (`batman.md`) |
+| A character from another universe | `AI/characters/<universe>/` (create the folder, lowercase) | `<character>.md` |
+| Info that applies to every model | `AI/general-model-info/` | `<topic>.md` (`playing-via-mcp.md`) |
+
+Rules for agents saving character info:
+
+1. Start from [`AI/characters/_TEMPLATE.md`](AI/characters/_TEMPLATE.md) and keep its headings: universe,
+   aliases, **preferred AI model**, personality, strategy, skills, weaknesses, history, grudges & rivals,
+   allies, and game rules for the character.
+2. One character = one file. If the file exists, edit it; never make a duplicate under another name.
+3. Anything true for all models goes in `AI/general-model-info/`, never in a character file.
+4. Add every new file to the tree in [`AI/README.md`](AI/README.md) (and new general docs to
+   `AI/general-model-info/README.md`).
 
 ## Contributing
 

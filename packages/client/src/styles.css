@@ -197,6 +197,65 @@ input[type='range'] {
   grid-template-columns: 1fr 1fr;
   gap: 0 12px;
 }
+.map-preview {
+  grid-column: 1 / -1;
+  margin: 2px 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: #0b1b2b;
+}
+.map-preview svg {
+  display: block;
+  width: 100%;
+  max-height: 260px;
+}
+.preview-territory {
+  stroke: rgba(10, 16, 28, 0.9);
+  stroke-width: 1;
+  stroke-linejoin: round;
+  fill-opacity: 0.85;
+  transition: fill-opacity 0.2s;
+}
+.preview-territory.faded {
+  fill-opacity: 0.15;
+}
+@media (prefers-reduced-motion: reduce) {
+  .preview-territory { transition: none; }
+}
+.map-preview figcaption {
+  padding: 8px 10px;
+  border-top: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.18);
+  font-size: 0.82em;
+}
+.map-preview-stats {
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+.map-preview-stats strong {
+  color: var(--text);
+}
+.map-preview-regions {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+.map-preview-regions li {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: default;
+  white-space: nowrap;
+}
+.map-preview-regions .swatch {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+}
 .game-list {
   list-style: none;
   padding: 0;
@@ -833,6 +892,25 @@ footer {
 }
 .log-line.turn_started {
   color: var(--accent);
+}
+/* One line per attack: headline, then start → end armies and losses for each side (rolls on hover). */
+.log-line.battle-summary {
+  cursor: help;
+}
+.battle-stats {
+  font-weight: 400;
+  color: var(--muted);
+}
+.battle-stats b {
+  color: var(--text);
+  font-weight: 600;
+}
+.battle-side {
+  white-space: nowrap;
+}
+.battle-loss {
+  color: #ff8a8a;
+  font-weight: 600;
 }
 .chat {
   flex: 1;

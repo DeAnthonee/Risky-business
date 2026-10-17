@@ -74,3 +74,4 @@ Online multiplayer Risk with bots and an MCP server for AI agents. npm-workspace
   (`RISK_ADMIN_TOKEN`), except while testing: `RISK_TOURNAMENTS_OPEN` (default on) lets anyone create/start them with
   no key, over `POST /api/tournaments` and the MCP. Before launch: turn it off and remove the TEMPORARY
   `create_tournament` / `start_tournament` MCP tools; joining, status and `wait_for_match` stay.
+- AI character profiles and general model docs live in `AI/` (Markdown only); follow `AI/README.md` for where and how to save them.

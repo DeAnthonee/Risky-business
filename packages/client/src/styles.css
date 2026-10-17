@@ -1467,3 +1467,24 @@ label.check input {
     transform: translateY(0);
   }
 }
+
+/* Troops landing: a "+N" that pops in like the card-trade burst, holds, then drifts up */
+.float.burst {
+  font-size: 22px;
+  font-weight: 900;
+  stroke: rgba(8, 12, 22, 0.85);
+  stroke-width: 4px;
+  transform-box: fill-box;
+  transform-origin: center;
+  filter: drop-shadow(0 0 6px currentColor);
+  animation: float-burst 3.2s ease-out forwards;
+}
+@keyframes float-burst {
+  0% { opacity: 0; transform: translateY(6px) scale(0.3); }
+  10% { opacity: 1; transform: translateY(0) scale(1.45); }
+  20% { transform: translateY(0) scale(1); }
+  70% { opacity: 1; transform: translateY(-4px) scale(1); }
+  100% { opacity: 0; transform: translateY(-26px) scale(0.95); }
+}
+.map.dense .float.burst { font-size: 17px; }
+@media (prefers-reduced-motion: reduce) { .float.burst { animation-name: fadeout; } }

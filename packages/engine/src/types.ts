@@ -42,6 +42,8 @@ export interface GameOptions {
   fortifyMode: 'adjacent' | 'connected';
   /** Randomly deal territories (true) or let players claim them one by one (false). */
   randomDeal: boolean;
+  /** Skip the army-placement setup phase: starting armies are placed randomly and turn 1 begins at once (implies randomDeal). */
+  autoSetup: boolean;
   /** Maximum players allowed in this game (2 up to the map's limit). */
   maxPlayers: number;
   /** Which board to play on: 'classic' (42 territories, 2-6 players) or 'world' (74 territories, 2-10). */
@@ -52,6 +54,7 @@ export const DEFAULT_OPTIONS: GameOptions = {
   setupBatch: 1,
   fortifyMode: 'connected',
   randomDeal: true,
+  autoSetup: false,
   maxPlayers: 6,
   map: 'classic',
 };

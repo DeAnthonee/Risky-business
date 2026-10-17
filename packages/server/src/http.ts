@@ -249,6 +249,7 @@ export function sanitizeOptions(raw: unknown): Partial<GameOptions> {
   if (o.setupBatch !== undefined) out.setupBatch = Number(o.setupBatch);
   if (o.fortifyMode !== undefined) out.fortifyMode = o.fortifyMode as GameOptions['fortifyMode'];
   if (o.randomDeal !== undefined) out.randomDeal = o.randomDeal === true || o.randomDeal === 'true';
+  if (o.autoSetup !== undefined) out.autoSetup = o.autoSetup === true || o.autoSetup === 'true';
   if (o.maxPlayers !== undefined) out.maxPlayers = Number(o.maxPlayers);
   if (o.map !== undefined) out.map = o.map as GameOptions['map'];
   return out;

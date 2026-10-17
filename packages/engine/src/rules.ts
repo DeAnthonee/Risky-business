@@ -19,7 +19,8 @@ SETUP
 Territories are dealt randomly (default) and get 1 army each. Then, in turn order, each player places armies on their
 own territories until everyone has placed all starting armies. By default you place 1 army per setup turn (option
 "setupBatch" lets the host allow more per turn). With the "claim" option instead of random dealing, players take turns
-claiming one unowned territory at a time first.
+claiming one unowned territory at a time first. With the "autoSetup" option there is no placement phase at all: the
+starting armies are scattered randomly over each player's territories and turn 1 begins immediately.
 
 A TURN has three phases:
 

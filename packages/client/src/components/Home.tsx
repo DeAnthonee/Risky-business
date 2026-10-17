@@ -19,7 +19,7 @@ export function Home({
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [gameName, setGameName] = useState('');
-  const [options, setOptions] = useState<Partial<GameOptions>>({ map: 'classic', maxPlayers: 6, setupBatch: 1, fortifyMode: 'connected', randomDeal: true });
+  const [options, setOptions] = useState<Partial<GameOptions>>({ map: 'classic', maxPlayers: 6, setupBatch: 1, fortifyMode: 'connected', randomDeal: true, autoSetup: false });
 
   useEffect(() => {
     let alive = true;
@@ -188,8 +188,15 @@ export function OptionsForm({
         </select>
       </label>
       <label>
+        Starting armies
+        <select disabled={disabled} value={options.autoSetup ? 'auto' : 'manual'} onChange={(e) => onChange({ autoSetup: e.target.value === 'auto' })}>
+          <option value="manual">Players place them (classic)</option>
+          <option value="auto">Placed randomly, skip setup</option>
+        </select>
+      </label>
+      <label>
         Armies per setup turn
-        <select disabled={disabled} value={options.setupBatch ?? 1} onChange={(e) => onChange({ setupBatch: Number(e.target.value) })}>
+        <select disabled={disabled || !!options.autoSetup} value={options.setupBatch ?? 1} onChange={(e) => onChange({ setupBatch: Number(e.target.value) })}>
           <option value={1}>1 (classic)</option>
           <option value={3}>3</option>
           <option value={5}>5</option>
@@ -206,7 +213,7 @@ export function OptionsForm({
       </label>
       <label>
         Territories
-        <select disabled={disabled} value={options.randomDeal === false ? 'claim' : 'random'} onChange={(e) => onChange({ randomDeal: e.target.value === 'random' })}>
+        <select disabled={disabled || !!options.autoSetup} value={options.randomDeal === false && !options.autoSetup ? 'claim' : 'random'} onChange={(e) => onChange({ randomDeal: e.target.value === 'random' })}>
           <option value="random">Dealt randomly</option>
           <option value="claim">Claimed in turns</option>
         </select>

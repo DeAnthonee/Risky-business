@@ -106,6 +106,23 @@ describe('setup', () => {
     const total = TERRITORY_IDS.reduce((n, t) => n + state.territories[t].armies, 0);
     expect(total).toBe(35 * 3); // every starting army is on the board
   });
+  it('autoSetup skips placement and starts turn 1 with all armies on the board', () => {
+    const { state, events } = setup(4, { autoSetup: true }, 11);
+    expect(state.phase).toBe('reinforce');
+    expect(state.currentPlayer).toBe(state.turnOrder[0]);
+    expect(events.some((e) => e.type === 'turn_started')).toBe(true);
+    expect(events.some((e) => e.type === 'phase' && e.phase === 'setup')).toBe(false);
+    const onBoard = TERRITORY_IDS.reduce((n, t) => n + state.territories[t].armies, 0);
+    const current = state.players.find((p) => p.id === state.currentPlayer)!;
+    expect(onBoard).toBe(30 * 4);
+    expect(current.armiesToPlace).toBeGreaterThan(0); // turn-1 reinforcements, not setup armies
+    for (const p of state.players) if (p.id !== current.id) expect(p.armiesToPlace).toBe(0);
+    // 2 players: the neutral army is placed too
+    const two = setup(2, { autoSetup: true, randomDeal: false }, 5).state; // implies random deal
+    expect(two.phase).toBe('reinforce');
+    expect(TERRITORY_IDS.reduce((n, t) => n + two.territories[t].armies, 0)).toBe(40 * 3);
+  });
+
   it('claim mode lets players pick territories', () => {
     let { state } = setup(3, { randomDeal: false, setupBatch: 10 });
     expect(TERRITORY_IDS.every((t) => state.territories[t].owner === null)).toBe(true);

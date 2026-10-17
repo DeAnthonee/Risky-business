@@ -29,6 +29,7 @@ const optionsSchema = z
     setupBatch: z.number().int().min(1).max(40).optional().describe('Armies each player may place per setup turn (1 = classic, 40 = all at once)'),
     fortifyMode: z.enum(['adjacent', 'connected']).optional().describe('Fortify rule: adjacent (classic) or any connected path'),
     randomDeal: z.boolean().optional().describe('true = territories dealt randomly (default); false = players claim them one by one'),
+    autoSetup: z.boolean().optional().describe('true = skip the army placement phase: starting armies are scattered randomly and turn 1 starts at once'),
   })
   .optional();
 

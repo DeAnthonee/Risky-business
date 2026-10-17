@@ -190,7 +190,8 @@ export function startGame(state: GameState): ActionResult {
 
   // Deal territories round-robin in turn order (neutral included for 2p).
   const dealOrder = [...order, ...next.players.filter((p) => p.isNeutral).map((p) => p.id)];
-  if (next.options.randomDeal) {
+  const randomDeal = next.options.randomDeal || next.options.autoSetup;
+  if (randomDeal) {
     const shuffledTerritories = shuffle(rng, map.territoryIds);
     shuffledTerritories.forEach((t, i) => {
       const owner = dealOrder[i % dealOrder.length];
@@ -204,21 +205,44 @@ export function startGame(state: GameState): ActionResult {
 
   // Neutral player: auto-distribute all remaining armies evenly.
   const neutral = next.players.find((p) => p.isNeutral);
-  if (neutral && next.options.randomDeal) {
+  if (neutral && randomDeal) {
     distributeEvenly(next, neutral, rng);
+  }
+
+  next.startedAt = Date.now();
+  events.push({ type: 'game_started', players: next.players.map((p) => p.id), turnOrder: order });
+
+  if (next.options.autoSetup) {
+    // Skip the placement phase: every player's starting armies land on random territories they own.
+    for (const p of next.players) if (!p.isNeutral) distributeRandomly(next, p, rng);
+    saveRng(next, rng);
+    next.version++;
+    beginFirstTurn(next, events);
+    return { state: next, events };
   }
 
   next.phase = 'setup';
   next.currentPlayer = order[0];
-  next.startedAt = Date.now();
   saveRng(next, rng);
   next.version++;
-  events.push({ type: 'game_started', players: next.players.map((p) => p.id), turnOrder: order });
   events.push({ type: 'phase', phase: 'setup', player: next.currentPlayer });
 
   // If nobody has anything to place (impossible with classic numbers, but keep safe) start turn 1.
   if (next.players.every((p) => p.armiesToPlace === 0)) beginFirstTurn(next, events);
   return { state: next, events };
+}
+
+/** Drop each remaining army on a uniformly random territory the player owns. */
+function distributeRandomly(state: GameState, player: Player, rng: Rng): void {
+  const owned = mapOf(state).territoryIds.filter((t) => state.territories[t].owner === player.id);
+  if (owned.length === 0) {
+    player.armiesToPlace = 0;
+    return;
+  }
+  while (player.armiesToPlace > 0) {
+    state.territories[owned[nextInt(rng, owned.length)]].armies += 1;
+    player.armiesToPlace -= 1;
+  }
 }
 
 function distributeEvenly(state: GameState, player: Player, rng: Rng): void {

@@ -37,6 +37,35 @@ export interface GameSummary {
   turnNumber: number;
 }
 
+export interface TournamentSummary {
+  id: string;
+  name: string;
+  status: 'registering' | 'running' | 'finished';
+  map: string;
+  entrants: number;
+  maxEntrants: number;
+  round: number;
+  champion: string | null;
+  updatedAt: number;
+}
+
+export type EntrantStatus = 'registered' | 'playing' | 'waiting' | 'out' | 'champion';
+
+export interface TournamentView {
+  id: string;
+  name: string;
+  status: TournamentSummary['status'];
+  map: string;
+  groupSize: number;
+  maxEntrants: number;
+  fillBots: boolean;
+  entrants: { id: string; name: string; isBot: boolean; status: EntrantStatus }[];
+  rounds: { round: number; matches: { gameId: string | null; status: 'playing' | 'finished' | 'bye' | 'abandoned'; players: { entrantId: string; name: string }[]; winner: string | null }[] }[];
+  champion: { entrantId: string; name: string } | null;
+  version: number;
+  you?: { entrantId: string; name: string; status: EntrantStatus; match: { gameId: string; playerId: string; token: string; round: number } | null };
+}
+
 export interface JoinResponse {
   gameId: string;
   playerId: string;
@@ -62,6 +91,12 @@ export const api = {
   setOptions: (gameId: string, token: string, options: Partial<GameOptions>) =>
     request(`/games/${gameId}/options`, { method: 'POST', body: JSON.stringify({ options }) }, token),
   start: (gameId: string, token: string) => request(`/games/${gameId}/start`, { method: 'POST', body: '{}' }, token),
+  listTournaments: () => request<{ tournaments: TournamentSummary[] }>('/tournaments'),
+  getTournament: (id: string, token?: string) => request<{ tournament: TournamentView }>(`/tournaments/${id}`, {}, token),
+  joinTournament: (id: string, playerName: string) =>
+    request<{ entrantId: string; token: string; tournament: TournamentView }>(`/tournaments/${id}/join`, { method: 'POST', body: JSON.stringify({ playerName }) }),
+  waitTournament: (id: string, since: number, token?: string) =>
+    request<{ reason: string; tournament: TournamentView }>(`/tournaments/${id}/wait?since=${since}&timeoutMs=25000`, {}, token),
   act: (gameId: string, token: string, action: Action) =>
     request<{ events: GameEvent[]; state: GameView }>(`/games/${gameId}/actions`, { method: 'POST', body: JSON.stringify({ action }) }, token),
 };

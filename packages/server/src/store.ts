@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { randomBytes } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync, existsSync, renameSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
 import {
   RuleError,
   addPlayer,
@@ -20,6 +20,7 @@ import {
   type PlayerId,
 } from '@risk/engine';
 import { chooseBotAction } from './bot.js';
+import { TournamentManager } from './tournaments.js';
 
 export interface ChatMessage {
   id: number;
@@ -58,6 +59,8 @@ export interface RoomSnapshot {
   updatedAt: number;
   /** Last time a person or agent did something here (bot moves do not count). */
   lastActivity?: number;
+  /** Set on a tournament table: the tournament that seated it. Nobody hosts such a room. */
+  tournamentId?: string;
 }
 
 /** How long an idle room is kept, by phase. All values in milliseconds. */
@@ -140,6 +143,8 @@ export class GameRoom extends EventEmitter {
   /** WebSocket clients currently subscribed (players and spectators). */
   connections = 0;
   closed = false;
+  /** Tournament that owns this table, if any. */
+  tournamentId?: string;
   private botTimer: NodeJS.Timeout | null = null;
   private waiters = new Set<() => void>();
 
@@ -155,6 +160,7 @@ export class GameRoom extends EventEmitter {
     this.history = snapshot.history;
     this.updatedAt = snapshot.updatedAt;
     this.lastActivity = snapshot.lastActivity ?? snapshot.updatedAt;
+    this.tournamentId = snapshot.tournamentId;
   }
 
   snapshot(): RoomSnapshot {
@@ -168,6 +174,7 @@ export class GameRoom extends EventEmitter {
       history: this.history,
       updatedAt: this.updatedAt,
       lastActivity: this.lastActivity,
+      ...(this.tournamentId ? { tournamentId: this.tournamentId } : {}),
     };
   }
 
@@ -470,6 +477,7 @@ export class GameRoom extends EventEmitter {
 
 export class Store {
   rooms = new Map<string, GameRoom>();
+  tournaments: TournamentManager;
   private saveTimer: NodeJS.Timeout | null = null;
 
   retention: RetentionPolicy;
@@ -508,6 +516,8 @@ export class Store {
         console.error('Failed to load saved games:', err);
       }
     }
+    // Tournaments are saved next to the games (tournaments.json) and re-attach to their tables.
+    this.tournaments = new TournamentManager(this, file ? join(dirname(file), 'tournaments.json') : null);
     for (const room of this.rooms.values()) room.scheduleBot();
   }
 
@@ -538,6 +548,21 @@ export class Store {
     return { room, playerId, token };
   }
 
+  /**
+   * A tournament table: a room nobody hosts (so no seat can close it, kick or add players), seated with
+   * the given players in order and started at once. Returns each player's seat in the same order.
+   */
+  createTable(name: string, options: Partial<GameOptions>, players: { name: string; isBot: boolean }[], tournamentId: string): { room: GameRoom; seats: { playerId: PlayerId; token: string }[] } {
+    let id = joinCode();
+    while (this.rooms.has(id)) id = joinCode();
+    const room = new GameRoom({ id, name, hostId: '', state: createGame(id, options), tokens: {}, chat: [], history: [], updatedAt: Date.now(), tournamentId });
+    this.attach(room);
+    const seats = players.map((p) => room.join(p.name, p.isBot));
+    room.start();
+    this.scheduleSave();
+    return { room, seats };
+  }
+
   get(id: string): GameRoom | undefined {
     return this.rooms.get(id.toUpperCase());
   }
@@ -565,6 +590,12 @@ export class Store {
 
   releaseWaiters() {
     for (const room of this.rooms.values()) room.releaseWaiters();
+    this.tournaments.releaseWaiters();
+  }
+
+  /** Save soon (debounced). */
+  requestSave() {
+    this.scheduleSave();
   }
 
   stopTimers() {
@@ -585,6 +616,8 @@ export class Store {
     const r = this.retention;
     if (idle > r.max) return `idle ${fmt(idle)} (hard limit)`;
     if (room.isWatched()) return null;
+    // A table its tournament is still waiting on stays until it is decided, even with only bots at it.
+    if (this.tournaments.isManagedTable(room)) return null;
     const phase = room.state.phase;
     if (!room.hasHumans()) return 'no people or agents in the room';
     if (phase === 'lobby' && idle > r.lobby) return `lobby idle ${fmt(idle)}`;
@@ -641,6 +674,7 @@ export class Store {
     } catch (err) {
       console.error('Failed to save games:', err);
     }
+    this.tournaments.save();
   }
 }
 

@@ -14,12 +14,40 @@ export function mapInfo(m: MapDef) {
   };
 }
 import type { GameRoom, Store } from './store.js';
+import type { CreateTournamentSpec } from './tournaments.js';
+
+/** Constant-time check of an admin token. 'disabled' when the server has none configured. */
+export function checkAdmin(adminToken: string | null | undefined, given: string | undefined): 'ok' | 'bad' | 'disabled' {
+  if (!adminToken) return 'disabled';
+  const a = Buffer.from(given ?? '');
+  const b = Buffer.from(adminToken);
+  return a.length === b.length && timingSafeEqual(a, b) ? 'ok' : 'bad';
+}
+
+/** Tournament settings from an untrusted body. Game settings go through the same strict parser as games. */
+export function parseTournamentSpec(body: Record<string, unknown>): CreateTournamentSpec {
+  const int = (v: unknown, key: string) => {
+    if (v === undefined || v === null) return undefined;
+    if (typeof v !== 'number' || !Number.isInteger(v)) throw new RuleError(`${key} must be a whole number`);
+    return v;
+  };
+  if (body.fillBots !== undefined && typeof body.fillBots !== 'boolean') throw new RuleError('fillBots must be true or false');
+  return {
+    name: body.name === undefined ? undefined : String(body.name),
+    options: body.options === undefined ? undefined : parseOptions(body.options),
+    groupSize: int(body.groupSize, 'groupSize'),
+    maxEntrants: int(body.maxEntrants, 'maxEntrants'),
+    fillBots: body.fillBots as boolean | undefined,
+  };
+}
 
 type Req = Request & { room?: GameRoom; playerId?: string | null };
 
 export interface ApiOptions {
   /** Enables /api/admin/* when set (Authorization: Bearer <token>). */
   adminToken?: string | null;
+  /** TEMPORARY (testing): POST /tournaments and /tournaments/:id/start work without the admin token. */
+  openTournaments?: boolean;
 }
 
 export function createApi(store: Store, opts: ApiOptions = {}) {
@@ -125,11 +153,9 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
   // ---- admin (only when RISK_ADMIN_TOKEN is configured) ----
   const adminToken = opts.adminToken || null;
   function requireAdmin(req: Request, res: Response, next: NextFunction) {
-    if (!adminToken) return res.status(404).json({ error: 'Admin API disabled (set RISK_ADMIN_TOKEN)' });
-    const given = tokenOf(req) ?? '';
-    const a = Buffer.from(given);
-    const b = Buffer.from(adminToken);
-    if (a.length !== b.length || !timingSafeEqual(a, b)) return res.status(401).json({ error: 'Invalid admin token' });
+    const check = checkAdmin(adminToken, tokenOf(req));
+    if (check === 'disabled') return res.status(404).json({ error: 'Admin API disabled (set RISK_ADMIN_TOKEN)' });
+    if (check === 'bad') return res.status(401).json({ error: 'Invalid admin token' });
     next();
   }
   api.get(
@@ -163,6 +189,93 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
     '/admin/sweep',
     requireAdmin,
     wrap((_req, res) => res.json({ removed: store.sweep() })),
+  );
+
+  // ---- tournaments: the admin creates and runs them; anyone can join, follow and watch ----
+  api.post(
+    '/admin/tournaments',
+    requireAdmin,
+    wrap((req, res) => {
+      const t = store.tournaments.create(parseTournamentSpec(req.body ?? {}));
+      res.status(201).json({ tournament: store.tournaments.view(t.id) });
+    }),
+  );
+  api.post(
+    '/admin/tournaments/:id/start',
+    requireAdmin,
+    wrap((req, res) => {
+      const t = store.tournaments.start(String(req.params.id));
+      res.json({ tournament: store.tournaments.view(t.id) });
+    }),
+  );
+  api.post(
+    '/admin/tournaments/:id/forfeit',
+    requireAdmin,
+    wrap((req, res) => {
+      const t = store.tournaments.forfeit(String(req.params.id), String(req.body?.entrantId ?? ''));
+      res.json({ tournament: store.tournaments.view(t.id) });
+    }),
+  );
+  api.delete(
+    '/admin/tournaments/:id',
+    requireAdmin,
+    wrap((req, res) => {
+      if (!store.tournaments.delete(String(req.params.id))) return res.status(404).json({ error: 'Tournament not found' });
+      res.json({ ok: true });
+    }),
+  );
+
+  // TEMPORARY (testing): while tournaments are open, anyone can create and start one here, no admin token.
+  // With openTournaments off these answer 403 and only the /admin routes above work.
+  function requireOpenTournaments(_req: Request, res: Response, next: NextFunction) {
+    if (!opts.openTournaments) return res.status(403).json({ error: 'Only the host can create or start tournaments' });
+    next();
+  }
+  api.post(
+    '/tournaments',
+    requireOpenTournaments,
+    wrap((req, res) => {
+      const t = store.tournaments.create(parseTournamentSpec(req.body ?? {}));
+      res.status(201).json({ tournament: store.tournaments.view(t.id) });
+    }),
+  );
+  api.post(
+    '/tournaments/:id/start',
+    requireOpenTournaments,
+    wrap((req, res) => {
+      if (!store.tournaments.get(String(req.params.id))) return res.status(404).json({ error: 'Tournament not found' });
+      const t = store.tournaments.start(String(req.params.id));
+      res.json({ tournament: store.tournaments.view(t.id) });
+    }),
+  );
+
+  api.get('/tournaments', (_req, res) => res.json({ tournaments: store.tournaments.list() }));
+  api.get(
+    '/tournaments/:id',
+    wrap((req, res) => {
+      if (!store.tournaments.get(String(req.params.id))) return res.status(404).json({ error: 'Tournament not found' });
+      res.json({ tournament: store.tournaments.view(String(req.params.id), tokenOf(req)) });
+    }),
+  );
+  api.post(
+    '/tournaments/:id/join',
+    wrap((req, res) => {
+      if (!store.tournaments.get(String(req.params.id))) return res.status(404).json({ error: 'Tournament not found' });
+      const { entrantId, token } = store.tournaments.join(String(req.params.id), req.body?.playerName ?? req.body?.name);
+      res.status(201).json({ entrantId, token, tournament: store.tournaments.view(String(req.params.id), token) });
+    }),
+  );
+  api.get(
+    '/tournaments/:id/wait',
+    wrap(async (req, res) => {
+      const id = String(req.params.id);
+      if (!store.tournaments.get(id)) return res.status(404).json({ error: 'Tournament not found' });
+      const timeoutMs = Math.min(Math.max(Number(req.query.timeoutMs ?? 30000), 0), 120_000);
+      const since = req.query.since !== undefined ? Number(req.query.since) : undefined;
+      const reason = await store.tournaments.waitFor(id, since, timeoutMs);
+      if (!store.tournaments.get(id)) return res.status(404).json({ error: 'Tournament not found' });
+      res.json({ reason, tournament: store.tournaments.view(id, tokenOf(req)) });
+    }),
   );
 
   api.post(

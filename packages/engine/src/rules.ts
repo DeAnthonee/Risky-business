@@ -20,6 +20,9 @@ Asia: 49 territories in 7 regions (2-8 players), bonuses 4-6.
 Realms of Halvaren ("fantasy"): an original fantasy world, 87 territories in 16 regions (2-10 players), bonuses
 2-7 per region. The Grimward Wastes (+7) span the north and border almost everyone; the Inner Sea is crossed via
 Mistveil Isle; island chains (Shardsea, Tanuvai, Saltreach, Hrimvald) are linked by sea lanes. It does not wrap.
+Four Crowns ("skirmish"): a small, fast original board, 24 territories in 6 regions (2-4 players). Four corner
+kingdoms (+2 each) ring the Heartland (+4); each kingdom has one gate into the Heartland and two harbours to the
+Waystones (+3), four lone isles that carry the sea lanes from one kingdom to the next. It does not wrap.
 Use the "map" tool for the exact territories, regions and adjacency of the map a game is using. On the classic,
 World and Grand World maps Alaska and Kamchatka are adjacent (the map wraps); on every map some adjacencies
 cross water.
@@ -35,6 +38,7 @@ share of the 6-player total (120 armies per 42 territories). Never fewer than 1.
   Europe: 2: 42, 3: 37, 4: 31, 5: 26, 6: 21, 7: 18, 8: 16. USA: 2: 43, 3: 38, 4: 32, 5: 27, 6: 21, 7: 18, 8: 16, 9: 14, 10: 13.
   Asia: 2: 47, 3: 41, 4: 35, 5: 29, 6: 23, 7: 20, 8: 18.
   Realms of Halvaren: 2: 83, 3: 73, 4: 62, 5: 52, 6: 41, 7: 36, 8: 31, 9: 28, 10: 25.
+  Four Crowns: 2: 23, 3: 20, 4: 17.
 
 SETUP
 Territories are dealt randomly (default) and get 1 army each. Then, in turn order, each player places armies on their

@@ -32,6 +32,8 @@ const risk = createRiskServer(store, {
   clientDir: CLIENT_DIR,
   mcpLabel: process.env.RISK_PUBLIC_URL ?? 'Risky Business',
   adminToken: process.env.RISK_ADMIN_TOKEN || null,
+  // TEMPORARY: tournaments are open to create while testing; RISK_TOURNAMENTS_OPEN=0 makes them host-only.
+  openTournaments: process.env.RISK_TOURNAMENTS_OPEN !== '0',
 });
 
 risk.server.listen(PORT, HOST, () => {

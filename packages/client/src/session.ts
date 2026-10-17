@@ -60,6 +60,36 @@ export function spectateFromUrl(): boolean {
   return v === '1' || v === 'true';
 }
 
+export function tournamentIdFromUrl(): string | null {
+  const t = new URL(window.location.href).searchParams.get('tournament');
+  return t ? t.toUpperCase() : null;
+}
+
+export function setTournamentInUrl(id: string | null) {
+  const u = new URL(window.location.href);
+  if (id) u.searchParams.set('tournament', id);
+  else u.searchParams.delete('tournament');
+  window.history.replaceState({}, '', u.toString());
+}
+
+/** Your entrant token for a tournament on this browser. */
+const entrantKey = (id: string) => `risk.tournament.${id.toUpperCase()}`;
+export function getEntrantToken(id: string): string | null {
+  try {
+    return localStorage.getItem(entrantKey(id));
+  } catch {
+    return null;
+  }
+}
+export function saveEntrantToken(id: string, token: string | null) {
+  try {
+    if (token) localStorage.setItem(entrantKey(id), token);
+    else localStorage.removeItem(entrantKey(id));
+  } catch {
+    /* ignore */
+  }
+}
+
 export function setGameInUrl(gameId: string | null, spectate = false) {
   const u = new URL(window.location.href);
   if (gameId) u.searchParams.set('game', gameId);

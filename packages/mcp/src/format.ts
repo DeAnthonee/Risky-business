@@ -170,7 +170,7 @@ export function formatEvents(events: GameEvent[], view: GameView): string {
         out.push(`Capitals: ${Object.entries(e.capitals).map(([p, t]) => `${name(p)} -> ${t}`).join(', ')}`);
         break;
       case 'capital_captured':
-        out.push(`${name(e.player)} captured the capital ${t(e.territory)} of ${name(e.previousOwner)}`);
+        out.push(`${name(e.player)} captured the capital ${t(e.territory)} from ${name(e.previousOwner)}`);
         break;
       case 'fogged':
         out.push(`(something happened in the fog: ${e.kind})`);
@@ -181,7 +181,7 @@ export function formatEvents(events: GameEvent[], view: GameView): string {
       case 'phase':
         break;
       case 'game_over':
-        out.push(`GAME OVER: ${name(e.winner)} wins`);
+        out.push(`GAME OVER: ${name(e.winner)} wins${e.reason === 'capitals' ? ' by holding every capital' : ''}`);
         break;
     }
   }

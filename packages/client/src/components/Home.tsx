@@ -245,7 +245,7 @@ export function OptionsForm({
       </label>
       <label className="check">
         <input type="checkbox" disabled={disabled} checked={!!options.capitals} onChange={(e) => onChange({ capitals: e.target.checked })} /> Capital Conquest
-        <span className="muted small">+2 per capital held; capture a capital to take that player over</span>
+        <span className="muted small">+2 per capital held, capitals defend with 3 dice; hold every capital to win</span>
       </label>
       <label>
         Fortify

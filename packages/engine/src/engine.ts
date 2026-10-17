@@ -720,12 +720,9 @@ function doAttack(state: GameState, playerId: PlayerId, action: AttackAction, ev
     const maxArmies = from.armies - 1;
     state.pendingConquest = { from: action.from, to: action.to, minArmies: Math.max(1, minArmies), maxArmies };
 
-    // Capital Conquest: taking a player's own capital takes over everything they hold.
+    // Capital Conquest: a captured capital is just a (valuable) territory; its old holder plays on.
     const defender = playerOf(state, defenderId);
-    if (state.options.capitals && state.capitals[defenderId] === action.to && !defender.isNeutral) {
-      events.push({ type: 'capital_captured', player: playerId, territory: action.to, previousOwner: defenderId });
-      for (const t of territoriesOf(state, defenderId)) state.territories[t].owner = playerId;
-    } else if (state.options.capitals && Object.values(state.capitals).includes(action.to)) {
+    if (state.options.capitals && Object.values(state.capitals).includes(action.to)) {
       events.push({ type: 'capital_captured', player: playerId, territory: action.to, previousOwner: defenderId });
     }
 
@@ -769,13 +766,20 @@ function doOccupy(state: GameState, playerId: PlayerId, armies: number, events: 
 
 function checkVictory(state: GameState, playerId: PlayerId, events: GameEvent[]): void {
   const alive = state.players.filter((p) => p.alive && !p.isNeutral);
-  if (alive.length === 1) {
-    state.phase = 'finished';
-    state.winner = alive[0].id;
-    state.finishedAt = Date.now();
-    state.currentPlayer = null;
-    events.push({ type: 'game_over', winner: alive[0].id });
+  if (alive.length === 1) return finishGame(state, alive[0].id, 'domination', events);
+  // Capital Conquest: holding every capital (including those of eliminated players) wins outright.
+  const capitals = Object.values(state.capitals);
+  if (state.options.capitals && capitals.length > 1 && capitals.every((t) => state.territories[t]?.owner === playerId)) {
+    finishGame(state, playerId, 'capitals', events);
   }
+}
+
+function finishGame(state: GameState, winner: PlayerId, reason: 'domination' | 'capitals', events: GameEvent[]): void {
+  state.phase = 'finished';
+  state.winner = winner;
+  state.finishedAt = Date.now();
+  state.currentPlayer = null;
+  events.push({ type: 'game_over', winner, reason });
 }
 
 function doEndAttack(state: GameState, playerId: PlayerId, events: GameEvent[]): void {

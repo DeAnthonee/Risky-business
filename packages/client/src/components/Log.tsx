@@ -28,7 +28,7 @@ export function describe(e: GameEvent, view: GameView): string | null {
     case 'capitals_assigned':
       return `Capitals: ${Object.entries(e.capitals).map(([p, t]) => `${name(p)} → ${shortName(t)}`).join(', ')}`;
     case 'capital_captured':
-      return `★ ${name(e.player)} captured ${name(e.previousOwner)}'s capital ${shortName(e.territory)}`;
+      return `★ ${name(e.player)} captured the capital ${shortName(e.territory)} from ${name(e.previousOwner)}`;
     case 'fogged':
       return `… something happened in the fog (${e.kind.replace('_', ' ')})`;
     case 'battle':
@@ -48,7 +48,7 @@ export function describe(e: GameEvent, view: GameView): string | null {
     case 'phase':
       return null;
     case 'game_over':
-      return `🏆 ${name(e.winner)} wins the game!`;
+      return e.reason === 'capitals' ? `🏆 ${name(e.winner)} holds every capital and wins the game!` : `🏆 ${name(e.winner)} wins the game!`;
   }
 }
 

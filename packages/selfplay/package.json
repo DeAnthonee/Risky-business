@@ -1,0 +1,29 @@
+{
+  "name": "@risk/selfplay",
+  "version": "0.1.0",
+  "description": "Headless self-play harness, rating ladder and decision logging for training Risk players. Never loaded by the game server.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "risk-selfplay": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@risk/engine": "0.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.0",
+    "vitest": "^3.2.4"
+  }
+}

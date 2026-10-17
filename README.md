@@ -9,6 +9,7 @@ packages/
   server/   Node game server: REST + WebSocket API, lobbies, bots, JSON persistence, serves the web client
   client/   React + Vite web client: SVG map, animations, cards, chat, log
   mcp/      Model Context Protocol server (stdio) that lets any MCP-capable agent play
+  selfplay/ headless self-play, rating ladder and decision logs for training AI players (never loaded by the server)
 ```
 
 > **Contribution rule: every change lands through a pull request.** Nobody pushes directly to the deploy
@@ -42,7 +43,9 @@ name is highlighted.
 Dice rolls, troop placements ("+N" bursts that stay up longer for spectators), cards being earned, traded in
 (fanning out into "+N armies") or taken from an eliminated player all animate on the board. The sidebar lists players in turn order with their territories, armies, cards and income
 (`+N/turn`, the reinforcements they get next turn before cards; hover it for the breakdown).
-On desktop, drag the divider under the scoreboard to give the log/chat more or less room (double-click resets).
+Picking a map (when creating a game, and in the lobby) shows a preview of the board: every territory in its region's
+colour, sea links, the region bonuses (hover one to pick it out) and the starting armies for the player count.
+On desktop, drag the divider under the scoreboard to give the log/chat more or less room (double-click resets). The log shows each attack as one entry: who took (or failed to take) which territory, each side's armies at the start and end with the losses, the number of rolls and the armies moved in; hover it for the individual dice rolls. Runs of fogged events collapse into one line with a count. When you pick an attack, a **commit slider** sets how many armies to throw at it (the rest stay home; the blitz stops there) and shows the exact chance to take the territory with random dice and with balanced blitz, the average losses on each side, and one-click buttons for the commitment a 50%, 75%, 90% or 99% chance needs. Agents get the same as `stopAt` and a win chance next to each attack in their legal moves.
 Press **Bonuses** (on the map, in the spectator bar, or **B**) to see every region painted in its own colour with
 its bonus, no armies; neighbouring regions never share a colour, on the board or in this view.
 Switch the scoreboard to **Who's winning** for a bar chart: each living player's power is 40% their share of all
@@ -65,8 +68,8 @@ npm test
 
 ## Maps
 
-Nine boards. Eight are drawn from real geography (Natural Earth countries or US Census states, cut into
-territories and projected to SVG); Realms of Halvaren is an original fantasy world drawn by hand:
+Ten boards. Eight are drawn from real geography (Natural Earth countries or US Census states, cut into
+territories and projected to SVG); Realms of Halvaren and Four Crowns are original worlds drawn by hand:
 
 | map | territories | regions | players | notes |
 | --- | --- | --- | --- | --- |
@@ -79,6 +82,7 @@ territories and projected to SVG); Realms of Halvaren is an original fantasy wor
 | **USA** | 45 | 8 | 2–10 | US states (small north-eastern ones merged); Alaska and Hawaii as insets reached by sea; bonuses 3–6 |
 | **Asia** | 49 | 7 | 2–8 | Middle East to Japan, Siberia to Java; bonuses 4–6 |
 | **Realms of Halvaren** (`fantasy`) | 87 | 16 | 2–10 | original fantasy world: rival kingdoms around an Inner Sea, the lawless Grimward Wastes across the north (+7, borders almost everyone), a cursed swamp, a desert, mountain passes and island chains linked by sea lanes; bonuses 2–7; 83 armies each for 2 players, 25 for 10 |
+| **Four Crowns** (`skirmish`) | 24 | 6 | 2–4 | small, fast original board: four corner kingdoms (+2 each: one gate to the Heartland, two harbours) ring the Heartland (+4); four lone Waystone isles (+3) carry the sea lanes between neighbouring kingdoms; 17 armies each for 4 players |
 
 Every map except Classic starts each player with the classic numbers scaled by map size (territories ÷ 42; above 6 players an equal share of the 6-player total)
 (`STARTING_ARMIES` in `packages/engine/src/maps.ts`; the exact table per player count is in the rules text).
@@ -109,8 +113,8 @@ Host-selectable options:
 
 | option        | values                        | default     |
 | ------------- | ----------------------------- | ----------- |
-| `map`         | `classic` \| `world` \| `world_large` \| `europe` \| `greater_europe` \| `europe_classic` \| `usa` \| `asia` \| `fantasy` | `classic` |
-| `maxPlayers`  | 2–6 (classic, europe_classic) / 2–8 (europe, asia) / 2–10 (world, world_large, greater_europe, usa, fantasy) | 6 |
+| `map`         | `classic` \| `world` \| `world_large` \| `europe` \| `greater_europe` \| `europe_classic` \| `usa` \| `asia` \| `fantasy` \| `skirmish` | `classic` |
+| `maxPlayers`  | 2–4 (skirmish) / 2–6 (classic, europe_classic) / 2–8 (europe, asia) / 2–10 (world, world_large, greater_europe, usa, fantasy) | 6 |
 | `setupBatch`  | armies placed per setup turn  | 1 (classic) |
 | `fortifyMode` | `connected` \| `adjacent`     | `connected` |
 | `randomDeal`  | `true` (deal) \| `false` (claim one by one) | `true` |
@@ -155,7 +159,8 @@ Environment variables:
 | `RISK_GAME_TTL_MIN`        | delete a running game nobody is connected to after this many idle minutes (default 720) |
 | `RISK_BOTS_ONLY_TTL_MIN`   | delete a running game with only built-in bots left and no watchers (default 30) |
 | `RISK_FINISHED_TTL_MIN`    | delete a finished game nobody is connected to (default 120) |
-| `RISK_ADMIN_TOKEN`         | enables `/api/admin/*` (list rooms with idle time, delete a room, run a sweep); unset = disabled |
+| `RISK_ADMIN_TOKEN`         | the host's admin key: enables `/api/admin/*` (list rooms with idle time, delete a room, run a sweep, create/start/forfeit/delete tournaments); unset = disabled |
+| `RISK_TOURNAMENTS_OPEN`    | **temporary, for testing**: anyone can create and start tournaments without the admin key (default on). Set to `0` before launch so only the host can |
 
 Behaviour that the deploy pipeline relies on:
 
@@ -210,6 +215,12 @@ cards are hidden).
 | `POST /games/:id/leave`            | leave the lobby, or surrender a running game                       |
 | `POST /games/:id/close`            | host: close and delete the room for everyone                       |
 | `GET  /admin/games`, `DELETE /admin/games/:id`, `POST /admin/sweep` | admin token only: inspect, delete, sweep rooms |
+| `POST /admin/tournaments`          | admin: `{name?, options?, groupSize?, maxEntrants?, fillBots?}` → `{tournament}` (see [Tournaments](#tournaments)) |
+| `POST /admin/tournaments/:id/start`, `POST /admin/tournaments/:id/forfeit` `{entrantId}`, `DELETE /admin/tournaments/:id` | admin: seat round 1; concede for a no-show; delete (closes tables still playing) |
+| `POST /tournaments`, `POST /tournaments/:id/start` | **temporary, for testing**: the same as the admin routes but without the admin token, while `RISK_TOURNAMENTS_OPEN` is on (403 when it is off) |
+| `GET  /tournaments`, `GET /tournaments/:id` | list; bracket. With an entrant token the bracket adds `you`: status and your current table's seat `{gameId, playerId, token}` |
+| `POST /tournaments/:id/join`       | `{playerName}` while registering → `{entrantId, token, tournament}` |
+| `GET  /tournaments/:id/wait?since=&timeoutMs=` | long-poll until the bracket's `version` passes `since` |
 | `GET  /games/:id`                  | your view of the state, including `legal` moves on your turn       |
 | `POST /games/:id/actions`          | `{action}` → `{events, state}`                                     |
 | `GET  /games/:id/wait?timeoutMs=&since=` | long-poll until it is your turn, the game ends, or the version passes `since` |
@@ -233,6 +244,7 @@ or `{"ok":false,"error":"…"}`.
 {"type":"trade","cardIds":[3,17,42]}
 {"type":"attack","from":"alaska","to":"kamchatka","blitz":true,"occupy":"max"} // fight to the end, move in (what agents should normally send; under fog of war leave out "occupy")
 {"type":"attack","from":"alaska","to":"kamchatka","dice":3}              // one roll
+{"type":"attack","from":"alaska","to":"kamchatka","stopAt":10}            // blitz, but stop once alaska is down to 10 (10 always stay home)
 {"type":"occupy","armies":4}                          // after a conquest without "occupy" (under fog the conquest has already revealed its neighbours, capitals tagged)
 {"type":"end_attack"}
 {"type":"fortify","from":"peru","to":"brazil","armies":2}  // also ends the turn
@@ -245,7 +257,13 @@ or `{"ok":false,"error":"…"}`.
 The game speaks the Model Context Protocol two ways. Both expose the same tools: `rules`, `map`,
 `game_options`, `list_games`, `create_game`, `join_game`, `resume_game`, `spectate_game`, `add_bot`,
 `set_options`, `start_game`, `get_state`, `wait_for_turn`, `act`, `recent_events`, `send_chat` (pass `to` to whisper
-to one player), `read_chat`, `leave_game`, `close_game`.
+to one player), `read_chat`, `leave_game`, `close_game`; for tournaments `list_tournaments`, `join_tournament`,
+`tournament_status`, `wait_for_match` (plus `create_tournament` / `start_tournament`, in the MCP **for testing only**: no admin key needed while
+`RISK_TOURNAMENTS_OPEN` is on; they will be removed before launch); and for character profiles `list_characters`, `get_character`,
+`update_character`, `general_model_info`, `read_diary`, `add_diary_entry`, `update_relationship` (see below).
+
+Agents do not need a separate README: on connect every MCP client receives the server's instructions (the typical
+flow, how tokens work, how to use character profiles) and every tool's description, which is all an agent sees.
 
 ### 1. Remote connector (nothing to install)
 
@@ -316,6 +334,29 @@ armies, cards and continents, and your next legal moves), since other players do
 that someone may surrender); the full board comes back when your turn ends, from `get_state`/`wait_for_turn`, or with
 `act` `full: true`.
 
+## Tournaments
+
+Knockout tournaments, run by the host. Only the host creates and starts them (with the admin key,
+`RISK_ADMIN_TOKEN`), except while they are being tested: with `RISK_TOURNAMENTS_OPEN` on (the default for now) anyone
+can, no key needed. People join on the website (the Tournaments list on the home page, or `?tournament=CODE`) and
+agents with `join_tournament`.
+
+- **Tables.** Each round seats the remaining entrants at tables of up to `groupSize` (default 4, on Four Crowns by
+  default), split as evenly as possible; a lone entrant gets a bye. With `fillBots` (default on) round 1 is topped up
+  with bots so every table is full. Bots are entrants like anyone else and can win.
+- **Moving on.** A table is an ordinary game that nobody hosts (no seat can close it, kick or add players). Its winner
+  moves on; when every table of a round is decided the next round is seated, until one champion is left. A table whose
+  room is deleted before anyone wins is *abandoned*: nobody from it moves on.
+- **No-shows.** Games have no turn timer, so the host can `forfeit` an entrant who will not play (they surrender at
+  their table).
+- **Watching.** The bracket page updates live; every table has a Watch button. Players get a *Play your table* button
+  when they are seated; leaving the game returns to the bracket.
+- **Agents.** `join_tournament` → `wait_for_match` (returns your table and seat token, and remembers the seat on the
+  connection) → play it like any game → `wait_for_match` again until you are out or the champion.
+
+Tournaments are saved to `tournaments.json` in `RISK_DATA_DIR` and pick up their tables again after a restart;
+tables a tournament is still waiting on are not swept as idle, except past the hard limit (`RISK_MAX_IDLE`, 7 days).
+
 ## AI characters & model info (`AI/`)
 
 AI players can play *as* a character. Their profiles live in [`AI/`](AI/README.md), which has the full table
@@ -326,17 +367,73 @@ of contents. Where to save things:
 | A Marvel character | `AI/characters/marvel/` | `<character>.md`, lowercase kebab-case (`iron-man.md`) |
 | A DC character | `AI/characters/dc/` | `<character>.md` (`batman.md`) |
 | A character from another universe | `AI/characters/<universe>/` (create the folder, lowercase) | `<character>.md` |
-| Info that applies to every model | `AI/general-model-info/` | `<topic>.md` (`playing-via-mcp.md`) |
+| A character's match history (diary) | next to its profile | `<character>.diary.md` (`ultron.diary.md`), one `## ` entry per game |
+| A character's rapport with other players | next to its profile | `<character>.relationships.md`, a `\| Player \| Rapport \| Notes \|` table |
+| Base-player strategy: ways to win, findings from games | `AI/general-player/` | `ways-to-win.md` (by setting), `findings.md` (append, with evidence), `playbook.md` (turn routine) |
+| Info about the models themselves | `AI/general-model-info/` | `<topic>.md` (`local-models.md`) |
 
 Rules for agents saving character info:
 
 1. Start from [`AI/characters/_TEMPLATE.md`](AI/characters/_TEMPLATE.md) and keep its headings: universe,
-   aliases, **preferred AI model**, personality, strategy, skills, weaknesses, history, grudges & rivals,
-   allies, and game rules for the character.
-2. One character = one file. If the file exists, edit it; never make a duplicate under another name.
-3. Anything true for all models goes in `AI/general-model-info/`, never in a character file.
+   aliases, **base model** (default: the general player in `AI/general-player/`),
+   **preferred AI model**, personality, strategy, skills, weaknesses, history, grudges & rivals, allies,
+   lessons learned, and game rules for the character. Diary and relationships formats are in
+   [`AI/README.md`](AI/README.md).
+2. One character = one profile (plus its optional diary and relationships files). If a file exists, edit it;
+   never make a duplicate under another name.
+3. Anything true for every player (strategy, findings) goes in `AI/general-player/`; anything about the models
+   themselves in `AI/general-model-info/`; never in a character file.
 4. Add every new file to the tree in [`AI/README.md`](AI/README.md) (and new general docs to
    `AI/general-model-info/README.md`).
+
+### Live profiles over MCP
+
+The files in `AI/` are each character's **starting profile**. While playing, models read and update their
+profile through MCP, and the server keeps those saves:
+
+| Tool | What it does |
+| ---- | ------------ |
+| `list_characters` | every character, grouped by universe, with its latest version and save time |
+| `get_character` | the latest profile (`version` reads an older one, `history: true` lists versions) |
+| `update_character` | save a new version: one `## ` section (`section` + `content`) or the whole profile (`markdown`); `expectedVersion` rejects a save if someone saved since you read |
+| `general_model_info` | the general player (`AI/general-player/`: playbook, ways to win, findings), `AI/general-model-info/`, and the profile template |
+| `read_diary` | the latest diary entries, or one game's (`gameId`) |
+| `add_diary_entry` | write an entry after a game; `outcome`, `map`, `opponents`, `strategy` build the win/loss record |
+| `update_relationship` | change rapport (-100 enemy .. 100 ally) with another player, with a note on what happened |
+
+`get_character` also returns the character's **memory**: record (by strategy, map and opponent), rapport with
+every player and the latest diary titles.
+
+- Saves live under `RISK_DATA_DIR/characters/<universe>/<name>/` (`v1.md`, `v2.md`, … and `history.json`
+  for the profile, `diary.json` and `relationships.json` for memory), never in the repo, so they survive
+  restarts and deploys. The repo files stay the starting point: saved diary entries come after the repo's,
+  saved rapport replaces the repo's row for that player.
+- Every save is a new version and the last 50 are kept (older ones are deleted). `/mcp` has no auth, so a bad
+  edit is fixed by reading an older version and saving it again, as long as it is still among the last 50.
+- **Not hardened yet:** anyone can write profiles, diaries and relationships, and agents read that text. See
+  [`docs/hardening.md`](docs/hardening.md); review saves by hand before they go into the repo.
+- The same data is on the HTTP API: `GET /api/characters` (add `?full=1` for every latest profile),
+  `GET /api/characters/<universe>/<name>` (`?version=N`), `GET …/history`, `POST /api/characters/<universe>/<name>`
+  with the `update_character` fields, `GET …/memory`, `GET …/diary` (`?limit=N`, `?gameId=`), `POST …/diary`,
+  `POST …/relationships`, and `GET /api/model-info`.
+- **Bringing saves back into the repo:** fetch `GET /api/characters?full=1` from the live server, write each
+  `markdown` to `AI/characters/<id>.md`, and open a PR. The live saves stay ahead of the repo either way.
+
+## Self-play (training AI players)
+
+`packages/selfplay` plays games headless on the engine (no server, no sockets), seeded and deterministic, at
+roughly a dozen two-player games per second per core. It rates player versions on a ladder (mirrored pairs,
+promotion only after ~200 games with a clear margin) and logs every decision as gzipped JSON lines a Python
+trainer can read. It is its own entry point and never runs inside the game server.
+
+```bash
+npm run selfplay -- play --agents risky@1,risky@1 --games 1000 --seed 1 --log runs/night-01
+npm run selfplay -- ladder --file runs/ladder.json --best risky@1 --candidate random@1 --games 200
+```
+
+The log format, ladder rules and how to add a player version are in
+[packages/selfplay/README.md](packages/selfplay/README.md). The built-in bot lives in the engine
+(`chooseBotAction`) so the server and self-play run the same code.
 
 ## Contributing
 

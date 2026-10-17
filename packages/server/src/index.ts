@@ -3,7 +3,8 @@ import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
 import { Store } from './store.js';
-import { createRiskServer } from './app.js';
+import { DEFAULT_AI_DIR, createRiskServer } from './app.js';
+import { CharacterStore } from './characters.js';
 import { buildInfo } from './build-info.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -32,6 +33,10 @@ const risk = createRiskServer(store, {
   clientDir: CLIENT_DIR,
   mcpLabel: process.env.RISK_PUBLIC_URL ?? 'Risky Business',
   adminToken: process.env.RISK_ADMIN_TOKEN || null,
+  // Starting profiles come from the repo; saved versions live under RISK_DATA_DIR so they survive deploys.
+  characters: new CharacterStore(resolve(process.env.RISK_AI_DIR ?? DEFAULT_AI_DIR), DATA_DIR ? join(DATA_DIR, 'characters') : null),
+  // TEMPORARY: tournaments are open to create while testing; RISK_TOURNAMENTS_OPEN=0 makes them host-only.
+  openTournaments: process.env.RISK_TOURNAMENTS_OPEN !== '0',
 });
 
 risk.server.listen(PORT, HOST, () => {

@@ -1,7 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { DEFAULT_OPTIONS, MAP_IDS, OPTION_KEYS, OPTION_SPECS, describeOptions, getMap, globalMax, optionLimits, type Action, type GameOptions, type GameView } from '@risk/engine';
-import { RiskHttpError, type IdentityStore, type RiskApi } from './api.js';
+import { GAME_OUTCOMES, RiskHttpError, type CharacterMemory, type IdentityStore, type RiskApi, type TournamentInfo } from './api.js';
 import { formatActResult, formatEvents, formatState } from './format.js';
 
 export interface RiskMcpOptions {
@@ -60,10 +60,58 @@ const actionSchema = z
     to: z.string().optional().describe('attack/fortify: destination territory id'),
     dice: z.number().int().min(1).max(3).optional().describe('attack: dice to roll (default max)'),
     blitz: z.boolean().optional().describe('attack: keep rolling until the territory falls or you cannot continue'),
+    stopAt: z.number().int().min(1).optional().describe('attack: blitz (implied) but stop once the attacking stack is down to this many armies; that many always stay home. Use instead of single rolls when you want a safety margin'),
     occupy: z.union([z.number().int(), z.literal('min'), z.literal('max')]).optional().describe('attack: if conquered, move this many armies in automatically. Under fog of war leave it out, so you see what the conquest reveals before deciding'),
     armies: z.number().int().optional().describe('occupy/fortify: number of armies to move'),
   })
   .describe('A single game action. See the rules tool for the full list.');
+
+const checkId = (id: string) => id.trim().toLowerCase();
+
+const pct = (r: { games: number; won: number }) => `${r.won}/${r.games} won`;
+
+/** The memory block shown under a profile: record, rapport, latest diary titles. */
+export function formatMemory(m: CharacterMemory): string {
+  const lines = ['=== MEMORY ==='];
+  lines.push(`Record: ${m.record.games ? pct(m.record) : 'no recorded games yet'}`);
+  const group = (label: string, rec: Record<string, { games: number; won: number }>) => {
+    const parts = Object.entries(rec).map(([k, r]) => `${k} ${pct(r)}`);
+    if (parts.length) lines.push(`  ${label}: ${parts.join('; ')}`);
+  };
+  group('by strategy', m.record.byStrategy);
+  group('by map', m.record.byMap);
+  group('vs opponent', m.record.vsOpponent);
+  if (m.relationships.length) {
+    lines.push('Relationships (rapport -100 enemy .. 100 ally):');
+    for (const r of m.relationships) lines.push(`- ${r.with}: ${r.rapport}${r.notes.length ? ` — ${r.notes[r.notes.length - 1].note}` : ''}`);
+  } else lines.push('Relationships: none yet');
+  if (m.recentDiary.length) {
+    lines.push(`Diary (${m.diaryEntries} entries; read_diary for the text):`);
+    for (const e of m.recentDiary) lines.push(`- #${e.n} ${e.title}${e.outcome ? ` [${e.outcome}]` : ''}`);
+  } else lines.push('Diary: empty');
+  return lines.join('\n');
+}
+
+const tournamentIdSchema = z.string().min(4).max(12).describe('Tournament code, e.g. "TAB12C"');
+
+/** A bracket as text: entrants, every round's tables and, with an entrant token, where you stand. */
+export function formatTournament(t: TournamentInfo): string {
+  const lines = [`TOURNAMENT ${t.id} "${t.name}" - ${t.status.toUpperCase()} - map ${t.map}, tables of up to ${t.groupSize}${t.fillBots ? ', round 1 filled with bots' : ''}`];
+  lines.push(`Entrants (${t.entrants.length}/${t.maxEntrants}): ${t.entrants.map((e) => `${e.name}${e.isBot ? ' [bot]' : ''} (${e.status})`).join(', ') || 'none yet'}`);
+  for (const r of t.rounds) {
+    lines.push(`Round ${r.round}:`);
+    r.matches.forEach((m, i) => {
+      const who = m.players.map((p) => (p.entrantId === m.winner ? `*${p.name}*` : p.name)).join(', ');
+      lines.push(`  ${m.gameId ? `table ${i + 1}, game ${m.gameId}` : 'bye'} [${m.status}]: ${who}`);
+    });
+  }
+  if (t.champion) lines.push(`CHAMPION: ${t.champion.name}`);
+  if (t.you) {
+    lines.push(`You: ${t.you.name} (${t.you.entrantId}) - ${t.you.status}`);
+    if (t.you.match) lines.push(`YOUR TABLE: game ${t.you.match.gameId} (round ${t.you.match.round}). Seat token: ${t.you.match.token} <- pass it as "token" to wait_for_turn / get_state / act for that game.`);
+  }
+  return lines.join('\n');
+}
 
 function text(s: string) {
   return { content: [{ type: 'text' as const, text: s }] };
@@ -81,9 +129,11 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
       instructions: [
         'You can play the board game Risk (classic world domination rules) against humans, bots and other agents.',
         'Typical flow: rules -> game_options (see every setting) -> create_game with the settings you want (or join_game with a code a human shared) -> optionally set_options / add_bot -> start_game -> loop { wait_for_turn -> get_state -> act }.',
+        'Tournaments: join_tournament with a code, then wait_for_match -> play your table like any game -> wait_for_match again until you are out or the champion.',
         'get_state returns your legal moves; act takes one JSON action. Attacking with blitz:true and occupy:"max" resolves a whole battle in one call. Under fog of war leave out occupy: a conquest reveals what lies beyond it, and you then choose how many armies to move in.',
         'IMPORTANT: create_game and join_game return a player token. Remember it and pass it as the "token" argument on every later call for that game: it is what identifies YOUR seat (several chats or agents can sit at the same table, each with its own token).',
         opts.identityNote ?? 'Seats are also remembered by this connection while it lasts; my_seats lists them and resume_game recovers one from a token.',
+        'CHARACTERS: you may be asked to play as a character (e.g. "marvel/iron-man"). Call general_model_info once (the general player every character builds on, plus the profile template), then get_character: the profile (personality, strategy, grudges, lessons, base and preferred model) and its memory (record, rapport with other players, latest diary titles; read_diary for the full entries). Stay in character all game; the rules tool always wins over a profile. After the game: add_diary_entry with the outcome and what decided it, update_relationship for each player who mattered, and update_character for lessons that should change how you play, so the next game starts from the latest version.',
         `Server: ${label}`,
       ].join(' '),
     },
@@ -141,7 +191,7 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
     'map',
     {
       description: 'Return a static map: territories, continents with bonuses, and adjacency (which territories border which). Pass the map a game uses (get_state shows options.map).',
-      inputSchema: { map: z.enum(MAP_IDS as [string, ...string[]]).optional().describe(`Default classic. One of: ${MAP_IDS.join(', ')} (fantasy = Realms of Halvaren, an original fantasy world)`) },
+      inputSchema: { map: z.enum(MAP_IDS as [string, ...string[]]).optional().describe(`Default classic. One of: ${MAP_IDS.join(', ')} (fantasy = Realms of Halvaren, an original fantasy world; skirmish = Four Crowns, a small fast 4-player board)`) },
     },
     async ({ map }) => {
     try {
@@ -390,7 +440,7 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
     {
       description:
         'Perform one game action on your turn. Returns the resulting events (dice rolls, conquests...), only the territories your action changed (with their neighbours), your armies, cards and continents, and your next legal moves. Other players do not act during your turn (the only exception: someone may surrender, handing their territories to the Neutral), so you rarely need to reread the board between actions. When your turn ends the full board comes back. Pass full:true for the whole board anyway. ' +
-        'Attack with blitz:true (one call resolves the whole battle) unless you deliberately want to stop after a single roll; spectators watch every call. ' +
+        'Attack with blitz:true (one call resolves the whole battle). To keep a garrison, add stopAt:N instead of rolling one die at a time: the blitz stops once the stack is down to N. Legal moves show the chance an all-in blitz takes each target. ' +
         'Under fog of war, omit "occupy" on attacks: the result lists what the conquest revealed (capitals are tagged CAPITAL) and you then occupy with the number that fits. ' +
         'Examples: {"type":"place","placements":{"alaska":3}} · {"type":"attack","from":"alaska","to":"kamchatka","blitz":true,"occupy":"max"} · {"type":"end_attack"} · {"type":"fortify","from":"peru","to":"brazil","armies":2} · {"type":"end_turn"}',
       inputSchema: {
@@ -527,11 +577,310 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
     },
   );
 
+  // ---- tournaments ----
+  /** Entrant tokens this connection holds, by tournament id. */
+  const entrants = new Map<string, { token: string; name: string }>();
+  const entrantToken = (id: string, override?: string) => override ?? entrants.get(id)?.token;
+  /** Remember the seat at your current table so the game tools work without a token. */
+  const rememberTable = (t: TournamentInfo) => {
+    const m = t.you?.match;
+    if (m) identities.set({ gameId: m.gameId, playerId: m.playerId, token: m.token, name: t.you!.name });
+  };
+  const entrantTokenSchema = z.string().optional().describe('Your entrant token for this tournament (returned by join_tournament). Pass it to see your status and your table.');
+
+  server.registerTool('list_tournaments', { description: 'List tournaments on the server: code, name, status (registering / running / finished), map, entrants and champion.', inputSchema: {} }, async () => {
+    try {
+      return text(JSON.stringify(await api.listTournaments(), null, 1));
+    } catch (e) {
+      return errorText(e);
+    }
+  });
+
+  server.registerTool(
+    'join_tournament',
+    {
+      description:
+        'Enter a tournament while it is registering. Knockout format: each round seats the remaining entrants at tables of a few players, and each table\'s winner moves on until one champion is left. Returns your ENTRANT token: keep it. Once the host starts the tournament, call wait_for_match to be seated at your table.',
+      inputSchema: { tournamentId: tournamentIdSchema, playerName: z.string().max(24).optional().describe(`Your display name in the tournament (default "${DEFAULT_NAME}"); must be unique in it`) },
+    },
+    async ({ tournamentId, playerName }) => {
+      try {
+        const id = tournamentId.toUpperCase();
+        const name = playerName ?? DEFAULT_NAME;
+        const r = await api.joinTournament(id, name);
+        entrants.set(id, { token: r.token, name });
+        return text(`Joined tournament ${id} as ${name}. ENTRANT TOKEN: ${r.token}  <- pass it as "token" to tournament_status and wait_for_match.\n\n${formatTournament(r.tournament)}`);
+      } catch (e) {
+        return errorText(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    'tournament_status',
+    {
+      description: 'Show a tournament bracket: entrants, every round\'s tables and winners, the champion. With your entrant token it also shows your status and, while you are playing, your table and seat token.',
+      inputSchema: { tournamentId: tournamentIdSchema, token: entrantTokenSchema },
+    },
+    async ({ tournamentId, token }) => {
+      try {
+        const id = tournamentId.toUpperCase();
+        const { tournament } = await api.getTournament(id, entrantToken(id, token));
+        rememberTable(tournament);
+        return text(formatTournament(tournament));
+      } catch (e) {
+        return errorText(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    'wait_for_match',
+    {
+      description:
+        'Block until you have a table to play in this tournament (or you are out, or it is over), up to timeoutSeconds. When it returns YOUR TABLE, play that game with wait_for_turn / get_state / act and the seat token it gives; when that game ends, call wait_for_match again for the next round. Call again if it times out.',
+      inputSchema: { tournamentId: tournamentIdSchema, token: entrantTokenSchema, timeoutSeconds: z.number().min(1).max(110).optional().describe('Default 60') },
+    },
+    async ({ tournamentId, token, timeoutSeconds }) => {
+      try {
+        const id = tournamentId.toUpperCase();
+        const tok = entrantToken(id, token);
+        if (!tok) throw new RiskHttpError('No entrant token for this tournament on this connection: pass "token" (from join_tournament)', 401);
+        const deadline = Date.now() + (timeoutSeconds ?? 60) * 1000;
+        let { tournament: t } = await api.getTournament(id, tok);
+        while (!t.you?.match && t.status !== 'finished' && t.you?.status !== 'out' && Date.now() < deadline) {
+          t = (await api.waitTournament(id, tok, t.version, Math.max(0, deadline - Date.now()))).tournament;
+        }
+        rememberTable(t);
+        const header = t.you?.match
+          ? 'Your table is ready.'
+          : t.status === 'finished'
+            ? 'The tournament is over.'
+            : t.you?.status === 'out'
+              ? 'You are out of the tournament.'
+              : 'Timed out: no table for you yet. Call wait_for_match again.';
+        return text(`${header}\n\n${formatTournament(t)}`);
+      } catch (e) {
+        return errorText(e);
+      }
+    },
+  );
+
+  // TEMPORARY (testing): create/start in the MCP, and no admin key needed while the server has tournaments open.
+  // Before launch: remove these two tools (and turn RISK_TOURNAMENTS_OPEN off) so only the host creates tournaments.
+  const adminKeySchema = z
+    .string()
+    .min(1)
+    .optional()
+    .describe("Not needed while tournaments are open for testing. Otherwise the server's admin key (RISK_ADMIN_TOKEN), which only the host has.");
+  server.registerTool(
+    'create_tournament',
+    {
+      description: 'Create a tournament that players and agents can join (open to anyone while tournaments are being tested; later host only). Settings: map and other game options for every table, seats per table (groupSize), entrant cap, and whether to fill round 1 with bots.',
+      inputSchema: {
+        adminKey: adminKeySchema,
+        name: z.string().max(60).optional(),
+        options: optionsSchema,
+        groupSize: z.number().int().min(2).max(10).optional().describe('Players per table (default 4, or the map maximum if smaller)'),
+        maxEntrants: z.number().int().min(2).max(256).optional().describe('Default 64'),
+        fillBots: z.boolean().optional().describe('Fill round 1 with bots so every table is full (default true)'),
+      },
+    },
+    async ({ adminKey, name, options, groupSize, maxEntrants, fillBots }) => {
+      try {
+        const { tournament } = await api.createTournament(adminKey, { name, options: options as Partial<GameOptions> | undefined, groupSize, maxEntrants, fillBots });
+        return text(`Created tournament ${tournament.id}. Share the code: players join with join_tournament (agents) or on the website; start it with start_tournament.\n\n${formatTournament(tournament)}`);
+      } catch (e) {
+        return errorText(e);
+      }
+    },
+  );
+  server.registerTool(
+    'start_tournament',
+    { description: 'Close registration and seat round 1 of a tournament (open to anyone while tournaments are being tested; later host only).', inputSchema: { adminKey: adminKeySchema, tournamentId: tournamentIdSchema } },
+    async ({ adminKey, tournamentId }) => {
+      try {
+        const { tournament } = await api.startTournament(adminKey, tournamentId.toUpperCase());
+        return text(`Tournament started.\n\n${formatTournament(tournament)}`);
+      } catch (e) {
+        return errorText(e);
+      }
+    },
+  );
+
   server.registerTool('my_seats', { description: 'List the seats (game, player name, token) this connection currently holds, so you can pick which player to act as or recover a token.', inputSchema: {} }, async () => {
     const seats = identities.all();
     if (!seats.length) return text('No seats on this connection. Use create_game, join_game, or resume_game with a token.');
     return text(seats.map(seatLine).join('\n'));
   });
+
+  // ---- character profiles ----
+  const characterIdSchema = z.string().min(3).max(80).describe('Character id "<universe>/<name>" in lowercase kebab-case, e.g. "marvel/iron-man" or "dc/batman". list_characters shows them all.');
+
+  server.registerTool(
+    'list_characters',
+    { description: 'List every character profile AI players can play as, grouped by universe, with each one\'s latest version and when it was last saved.', inputSchema: {} },
+    async () => {
+      try {
+        const { characters } = await api.listCharacters();
+        if (!characters.length) return text('No characters yet. Create one with update_character (whole profile as markdown; see general_model_info for the template).');
+        const lines: string[] = [];
+        let universe = '';
+        for (const c of characters) {
+          if (c.universe !== universe) lines.push(`${lines.length ? '\n' : ''}${(universe = c.universe).toUpperCase()}`);
+          lines.push(`- ${c.id}: ${c.name} (v${c.version}, ${c.updatedAt ? `saved ${c.updatedAt}` : 'starting profile from the repo'})`);
+        }
+        return text(lines.join('\n'));
+      } catch (e) {
+        return errorText(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    'get_character',
+    {
+      description:
+        'Read a character profile (Markdown): personality, strategy, skills, weaknesses, history, grudges, allies, lessons, base and preferred AI model and rules for playing them, followed by its memory: win/loss record (by strategy, map and opponent), rapport with other players and the latest diary titles. Returns the latest saved version; pass version to read an older one, or history:true to list all versions.',
+      inputSchema: {
+        id: characterIdSchema,
+        version: z.number().int().min(0).optional().describe('Read this version instead of the latest (0 = the repo\'s starting profile)'),
+        history: z.boolean().optional().describe('List the saved versions (number, time, note) instead of reading the profile'),
+      },
+    },
+    async ({ id, version, history }) => {
+      try {
+        if (history) {
+          const h = await api.characterHistory(id);
+          return text(`Versions of ${h.id} (oldest first):\n` + h.versions.map((v) => `- v${v.version}${v.at ? ` ${v.at}` : ''}${v.note ? `: ${v.note}` : ''}`).join('\n'));
+        }
+        const c = await api.getCharacter(id, version);
+        const memory = version === undefined ? `\n\n${formatMemory(await api.characterMemory(c.id))}` : '';
+        return text(`${c.id} v${c.version} (${c.updatedAt ? `saved ${c.updatedAt}` : 'starting profile from the repo'}). To save changes: update_character {id:"${c.id}", expectedVersion:${c.version}, ...}\n\n${c.markdown}${memory}`);
+      } catch (e) {
+        return errorText(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    'update_character',
+    {
+      description:
+        'Save a character profile as a new version (older versions are kept and can be read back with get_character). Prefer updating one section: section = a "## " heading such as "Grudges & rivals", "Strategy" or "History & background", content = that section\'s new full text (it replaces the old text, so include what should stay). A missing section is added. To create a character or rewrite everything, pass markdown = the whole profile instead, starting with "# <Name>" and following the template from general_model_info. Pass expectedVersion (from get_character) so you never overwrite a save made since you read it.',
+      inputSchema: {
+        id: characterIdSchema,
+        section: z.string().max(80).optional().describe('The "## " heading to replace, e.g. "Grudges & rivals"'),
+        content: z.string().max(16_000).optional().describe('New full text of that section (Markdown, without the heading)'),
+        markdown: z.string().max(32_000).optional().describe('The whole profile, to create a character or rewrite it; use instead of section + content'),
+        expectedVersion: z.number().int().min(0).optional().describe('The version you read; the save is rejected if someone saved since'),
+        note: z.string().max(200).optional().describe('Short note on what changed, e.g. "grudge against dc/batman after game ABC123"'),
+      },
+    },
+    async ({ id, ...update }) => {
+      try {
+        const c = await api.updateCharacter(id, update);
+        return text(`Saved ${c.id} as v${c.version}.`);
+      } catch (e) {
+        return errorText(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    'read_diary',
+    {
+      description: "Read a character's diary: one entry per game (outcome, decisive moves, agreements, lessons) plus other moments worth remembering. Returns the latest entries, oldest first; pass gameId for one game's entries.",
+      inputSchema: {
+        id: characterIdSchema,
+        limit: z.number().int().min(1).max(50).optional().describe('How many of the latest entries (default 5)'),
+        gameId: z.string().max(12).optional().describe('Only the entries about this game code'),
+      },
+    },
+    async ({ id, limit, gameId }) => {
+      try {
+        const d = await api.readDiary(id, limit, gameId);
+        if (!d.entries.length) return text(`${d.id} has ${d.total ? 'no matching' : 'no'} diary entries.${d.total ? '' : ' Write one after your next game with add_diary_entry.'}`);
+        const head = (e: (typeof d.entries)[number]) =>
+          [`#${e.n} ${e.title}`, e.at?.slice(0, 10), e.gameId && `game ${e.gameId}`, e.outcome, e.map && `map ${e.map}`, e.strategy && `strategy: ${e.strategy}`, e.winner && `winner: ${e.winner}`].filter(Boolean).join(' · ');
+        return text(
+          `${d.id} diary: showing ${d.entries.length} of ${d.total} entries.\n\n` +
+            d.entries.map((e) => `${head(e)}${e.opponents?.length ? `\nOpponents: ${e.opponents.join(', ')}` : ''}\n${e.text}`).join('\n\n-----\n\n'),
+        );
+      } catch (e) {
+        return errorText(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    'add_diary_entry',
+    {
+      description:
+        "Write a diary entry for a character, normally once after each game. Record observed facts (outcome, decisive moves, agreements made and kept or broken, relevant chat) separately from accusations and opinions, and end with a concrete lesson that changes how the next game is played. Set outcome, map, opponents and strategy for a finished game: they build the character's win/loss record.",
+      inputSchema: {
+        id: characterIdSchema,
+        title: z.string().min(1).max(120).describe('e.g. "Game 3ZP4C4: lost to Wonder Woman on capitals"'),
+        text: z.string().min(1).max(8000).describe('The entry (Markdown)'),
+        gameId: z.string().max(12).optional().describe('Game code'),
+        outcome: z.enum(GAME_OUTCOMES).optional().describe('For a finished game: how it ended for this character'),
+        map: z.string().max(40).optional().describe('Map id, e.g. "europe"'),
+        opponents: z.array(z.string().max(80)).max(12).optional().describe('The other players (display names or character ids)'),
+        strategy: z.string().max(80).optional().describe('Your plan in a few words, e.g. "eastern bonus, capital raids"'),
+        winner: z.string().max(80).optional().describe('Who won, if not you'),
+      },
+    },
+    async ({ id, ...entry }) => {
+      try {
+        const e = await api.addDiaryEntry(id, entry);
+        return text(`Saved diary entry #${e.n} for ${checkId(id)}.`);
+      } catch (e) {
+        return errorText(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    'update_relationship',
+    {
+      description:
+        "Record how a moment changed a character's relationship with another player, so rapport builds across games: rapport runs from -100 (sworn enemy) to 100 (trusted ally). Pass change (e.g. -25 for a broken truce, +10 for useful intelligence) or rapport to set it outright, and a note on what happened.",
+      inputSchema: {
+        id: characterIdSchema,
+        with: z.string().min(1).max(80).describe("The other player: display name (e.g. \"God\") or character id (e.g. \"dc/wonder-woman\")"),
+        change: z.number().int().min(-200).max(200).optional().describe('Add this to rapport'),
+        rapport: z.number().int().min(-100).max(100).optional().describe('Or set rapport to this'),
+        note: z.string().min(1).max(1000).describe('What happened, as observed'),
+        gameId: z.string().max(12).optional().describe('Game code'),
+      },
+    },
+    async ({ id, ...update }) => {
+      try {
+        const r = await api.updateRelationship(id, update);
+        return text(`${checkId(id)} → ${r.with}: rapport ${r.rapport} (${r.notes.length} note${r.notes.length === 1 ? '' : 's'}).`);
+      } catch (e) {
+        return errorText(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    'general_model_info',
+    {
+      description:
+        'Docs that apply to every AI model and every character (read once before playing): the general player every character is built on unless its profile picks another base (playbook, ways to win under each setting, findings from past games), model docs, and the template a character profile follows.',
+      inputSchema: {},
+    },
+    async () => {
+      try {
+        const { docs } = await api.modelInfo();
+        if (!docs.length) return text('No general model docs yet.');
+        return text(docs.map((d) => `===== ${d.file} =====\n${d.markdown.trim()}`).join('\n\n'));
+      } catch (e) {
+        return errorText(e);
+      }
+    },
+  );
 
   return server;
 }

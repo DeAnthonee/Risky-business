@@ -6,7 +6,8 @@ MCP tools → client → docs → `npm test`), and the hosting invariants. This 
 
 Online multiplayer Risk with bots and an MCP server for AI agents. npm-workspaces monorepo:
 `packages/engine` (pure rules, tested), `packages/server` (Express + ws, persistence, bots),
-`packages/client` (React + Vite), `packages/mcp` (MCP tools; stdio CLI, and embedded in the server at `/mcp`).
+`packages/client` (React + Vite), `packages/mcp` (MCP tools; stdio CLI, and embedded in the server at `/mcp`),
+`packages/selfplay` (headless self-play, rating ladder, decision logs for training; never imported by the server).
 
 ## Commands
 
@@ -69,4 +70,20 @@ Online multiplayer Risk with bots and an MCP server for AI agents. npm-workspace
 - Every state change goes through `GameRoom.commit` so WebSocket clients, long-poll waiters,
   bots and persistence all see it.
 - Add an engine test for every rules change and a server test for every API change.
+- Tournaments (`packages/server/src/tournaments.ts`) sit above rooms: tables are rooms made with `Store.createTable`
+  (no host, `tournamentId` set), decided by the engine's own winner. Creating/starting one is admin-only
+  (`RISK_ADMIN_TOKEN`), except while testing: `RISK_TOURNAMENTS_OPEN` (default on) lets anyone create/start them with
+  no key, over `POST /api/tournaments` and the MCP. Before launch: turn it off and remove the TEMPORARY
+  `create_tournament` / `start_tournament` MCP tools; joining, status and `wait_for_match` stay.
+- The built-in bot is `chooseBotAction` in the engine (`bot.ts`), with an injectable random source; the server
+  re-exports it and self-play passes a seeded one. Keep it pure.
+- Self-play (`packages/selfplay`, `npm run selfplay`): must stay deterministic from the seed (no `Math.random`,
+  no clocks in decisions) and never be imported by the server. The decision log format is versioned
+  (`LOG_VERSION`, `meta.json`): only append trait keys and candidate kinds; bump the version for anything else.
 - AI character profiles and general model docs live in `AI/` (Markdown only); follow `AI/README.md` for where and how to save them.
+- Known gaps left open on purpose (anonymous character writes, open tournaments, ...) are tracked in
+  `docs/hardening.md`. Read it before touching those features; remove an item only in the PR that fixes it.
+  Those files are the starting point; agents' saves (`update_character`, `add_diary_entry`, `update_relationship`)
+  live under `RISK_DATA_DIR/characters/` via `packages/server/src/characters.ts`, never written back into the repo.
+  Characters build on the general player in `AI/general-player/` (playbook, ways to win, findings) unless their profile
+  names another base.

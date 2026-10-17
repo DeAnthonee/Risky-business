@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, existsSync, readFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
@@ -849,10 +849,50 @@ describe('MCP conquest under fog of war', () => {
   });
 });
 
+describe('MCP blitz with stopAt', () => {
+  it('shows each attack\'s win chance and accepts stopAt in one call', async () => {
+    const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+    const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
+    const { getMap } = await import('@risk/engine');
+    const client = new Client({ name: 'stopat-agent', version: '0' });
+    await client.connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`)));
+    try {
+      const call = async (name: string, args: Record<string, unknown> = {}) => {
+        const r = (await client.callTool({ name, arguments: args })) as { content: { text: string }[]; isError?: boolean };
+        return { text: r.content.map((c) => c.text).join('\n'), isError: !!r.isError };
+      };
+      const created = await call('create_game', { playerName: 'Careful', options: { autoSetup: true } });
+      const gameId = created.text.match(/Created game (\w+)/)![1];
+      await call('add_bot', { gameId });
+      await call('start_game', { gameId });
+      expect((await call('wait_for_turn', { gameId, timeoutSeconds: 15 })).text).toMatch(/^It is your turn/);
+      const room = risk.store.get(gameId)!;
+      const me = room.state.players.find((p) => p.name === 'Careful')!;
+      const adj = getMap(room.state.options.map).adjacency;
+      const from = Object.keys(room.state.territories).find((t) => room.state.territories[t].owner === me.id && adj[t].some((n) => room.state.territories[n].owner !== me.id))!;
+      const to = adj[from].find((n) => room.state.territories[n].owner !== me.id)!;
+      const toPlace = me.armiesToPlace;
+      await call('act', { gameId, action: { type: 'place', placements: { [from]: toPlace } } });
+      room.state.territories[from].armies = 25;
+      room.state.territories[to].armies = 40;
+      const board = await call('get_state', { gameId });
+      expect(board.text).toContain('chance an all-in blitz takes it');
+      expect(board.text).toMatch(new RegExp(`${from}->${to} \\(3, \\d+%\\)`));
+      expect(board.text).toContain('"stopAt":N');
+      const r = await call('act', { gameId, action: { type: 'attack', from, to, stopAt: 15 } });
+      expect(r.isError).toBe(false);
+      expect(room.state.territories[from].armies).toBeGreaterThanOrEqual(15);
+      expect(room.state.territories[to].owner).not.toBe(me.id);
+    } finally {
+      await client.close();
+    }
+  });
+});
+
 describe('new boards over HTTP', () => {
   it('lists every board', async () => {
     const r = await api('/maps');
-    expect(r.body.maps.map((m: any) => m.id)).toEqual(['classic', 'world', 'world_large', 'europe', 'greater_europe', 'europe_classic', 'usa', 'asia', 'fantasy']);
+    expect(r.body.maps.map((m: any) => m.id)).toEqual(['classic', 'world', 'world_large', 'europe', 'greater_europe', 'europe_classic', 'usa', 'asia', 'fantasy', 'skirmish']);
   });
 
   for (const [id, territories, maxPlayers] of [
@@ -1004,6 +1044,495 @@ describe('fantasy map over HTTP', () => {
       expect(Object.values(state.territories).every((t: any) => t.owner)).toBe(true);
       expect(state.phase).not.toBe('lobby');
     } finally {
+      await own.risk.shutdown('test');
+    }
+  });
+});
+
+describe('AI character profiles', () => {
+  it('keeps "__proto__" input harmless and deletes pruned profile versions from disk', async () => {
+    const { CharacterStore } = await import('../src/characters.js');
+    const { readdirSync } = await import('node:fs');
+    const root = mkdtempSync(join(tmpdir(), 'risk-ai-'));
+    const aiDir = join(root, 'AI');
+    const dataDir = join(root, 'data', 'characters');
+    mkdirSync(join(aiDir, 'characters', 'marvel'), { recursive: true });
+    writeFileSync(join(aiDir, 'characters', '_TEMPLATE.md'), '# <Character Name>\n');
+    writeFileSync(join(aiDir, 'characters', 'marvel', 'iron-man.md'), profile('Iron Man'));
+    const store = new CharacterStore(aiDir, dataDir);
+    store.addDiaryEntry('marvel/iron-man', { title: 'Game', text: 'Lost to a proto.', outcome: 'lost', opponents: ['__proto__'], strategy: '__proto__', map: '__proto__' } as any);
+    store.updateRelationship('marvel/iron-man', { with: '__proto__', note: 'Rivals.', change: -5 } as any);
+    const memory = store.memorySummary('marvel/iron-man');
+    expect(({} as any).games).toBeUndefined();
+    expect((memory.record.vsOpponent as any)['__proto__']).toEqual({ games: 1, won: 0 });
+    expect(memory.relationships.map((r) => r.with)).toContain('__proto__');
+    // Relationships survive a restart with the same key.
+    const again = new CharacterStore(aiDir, dataDir);
+    expect(again.memorySummary('marvel/iron-man').relationships.map((r) => r.with)).toContain('__proto__');
+    expect(({} as any).games).toBeUndefined();
+    // Only the kept versions stay on disk.
+    for (let i = 0; i < 55; i++) store.update('marvel/iron-man', { markdown: profile(`Iron Man ${i}`) } as any);
+    const files = readdirSync(join(dataDir, 'marvel', 'iron-man')).filter((f) => /^v\d+\.md$/.test(f));
+    expect(files.length).toBeLessThanOrEqual(50);
+  });
+
+  const profile = (name: string, grudges = 'None yet.') => `# ${name}\n\n- **Universe:** Test\n\n## Strategy\n\nHold Australia.\n\n## Grudges & rivals\n\n${grudges}\n\n## Allies\n\nNone yet.\n`;
+
+  async function withCharacters(fn: (base: string, aiDir: string, dataDir: string) => Promise<void>) {
+    const { CharacterStore } = await import('../src/characters.js');
+    const root = mkdtempSync(join(tmpdir(), 'risk-ai-'));
+    const aiDir = join(root, 'AI');
+    const dataDir = join(root, 'data', 'characters');
+    mkdirSync(join(aiDir, 'characters', 'marvel'), { recursive: true });
+    mkdirSync(join(aiDir, 'general-model-info'), { recursive: true });
+    writeFileSync(join(aiDir, 'characters', '_TEMPLATE.md'), '# <Character Name>\n');
+    writeFileSync(join(aiDir, 'characters', 'marvel', 'iron-man.md'), profile('Iron Man'));
+    writeFileSync(join(aiDir, 'general-model-info', 'README.md'), '# index\n');
+    writeFileSync(join(aiDir, 'general-model-info', 'table-talk.md'), '# Table talk\n\nBe polite.\n');
+    const start = async () => {
+      const r = createRiskServer(new Store(null), { clientDir: null, sweepIntervalMs: 0, characters: new CharacterStore(aiDir, dataDir) });
+      await new Promise<void>((resolve) => r.server.listen(0, '127.0.0.1', resolve));
+      return { r, url: `http://127.0.0.1:${(r.server.address() as AddressInfo).port}` };
+    };
+    let s = await start();
+    try {
+      await fn(s.url, aiDir, dataDir);
+      // Saves survive a restart (they live under the data dir, not the repo).
+      await s.r.shutdown('test');
+      s = await start();
+      const res = await (await fetch(`${s.url}/api/characters/marvel/iron-man`)).json();
+      expect(res.source).toBe('saved');
+      expect(res.markdown).toContain('dc/batman');
+    } finally {
+      await s.r.shutdown('test');
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+
+  const req = async (url: string, path: string, body?: unknown) => {
+    const res = await fetch(`${url}/api${path}`, body === undefined ? {} : { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    return { status: res.status, body: (await res.json()) as any };
+  };
+
+  it('serves repo profiles, saves sections as new versions, keeps history and rejects stale or bad saves over HTTP', async () => {
+    await withCharacters(async (url, aiDir) => {
+      const list = await req(url, '/characters');
+      expect(list.body.characters).toEqual([{ id: 'marvel/iron-man', universe: 'marvel', name: 'Iron Man', version: 0, updatedAt: null, source: 'repo' }]);
+      const v0 = await req(url, '/characters/marvel/iron-man');
+      expect(v0.body.version).toBe(0);
+
+      const saved = await req(url, '/characters/marvel/iron-man', { section: 'grudges & rivals', content: '- **Batman** (`dc/batman.md`): beat him in game ABC123.', expectedVersion: 0, note: 'lost to batman' });
+      expect(saved.status).toBe(200);
+      expect(saved.body.version).toBe(1);
+      expect(saved.body.markdown).toContain('## Grudges & rivals\n\n- **Batman**');
+      expect(saved.body.markdown).toContain('## Strategy\n\nHold Australia.');
+      expect(saved.body.markdown).toContain('## Allies\n\nNone yet.');
+      expect(saved.body.markdown).not.toContain('None yet.\n\n## Allies');
+      // The repo file is never touched.
+      expect(readFileSync(join(aiDir, 'characters', 'marvel', 'iron-man.md'), 'utf8')).toBe(profile('Iron Man'));
+
+      const stale = await req(url, '/characters/marvel/iron-man', { section: 'Strategy', content: 'x', expectedVersion: 0 });
+      expect(stale.status).toBe(409);
+      const added = await req(url, '/characters/marvel/iron-man', { section: 'Weaknesses', content: 'Overconfident.' });
+      expect(added.body.version).toBe(2);
+      expect(added.body.markdown.trimEnd().endsWith('## Weaknesses\n\nOverconfident.')).toBe(true);
+
+      const history = await req(url, '/characters/marvel/iron-man/history');
+      expect(history.body.versions.map((v: any) => v.version)).toEqual([0, 1, 2]);
+      expect(history.body.versions[1].note).toBe('lost to batman');
+      expect((await req(url, '/characters/marvel/iron-man?version=0')).body.markdown).toBe(profile('Iron Man'));
+
+      expect((await req(url, '/characters/marvel/Iron Man', { markdown: profile('x') })).status).toBe(400);
+      expect((await req(url, '/characters/dc/batman', { section: 'Strategy', content: 'x' })).status).toBe(404);
+      expect((await req(url, '/characters/dc/batman', { markdown: 'no heading' })).status).toBe(400);
+      const created = await req(url, '/characters/dc/batman', { markdown: profile('Batman') });
+      expect(created.body).toMatchObject({ id: 'dc/batman', version: 1, source: 'saved' });
+      expect((await req(url, '/characters/dc/robin')).status).toBe(404);
+
+      const full = await req(url, '/characters?full=1');
+      expect(full.body.characters.map((c: any) => [c.id, c.version])).toEqual([['dc/batman', 1], ['marvel/iron-man', 2]]);
+      expect(full.body.characters[1].markdown).toContain('Overconfident.');
+
+      const info = await req(url, '/model-info');
+      expect(info.body.docs.map((d: any) => d.file)).toEqual(['general-model-info/table-talk.md', 'characters/_TEMPLATE.md']);
+    });
+  });
+
+  it('keeps a diary, relationships and a record on top of the repo files, across restarts', async () => {
+    await withCharacters(async (url, aiDir) => {
+      writeFileSync(
+        join(aiDir, 'characters', 'marvel', 'iron-man.diary.md'),
+        '# Iron Man — diary\n\n## Game AAA111: lost\n- **Game:** aaa111\n- **Date:** 2026-10-01\n- **Outcome:** lost\n- **Map:** europe\n- **Opponents:** Batman, God\n- **Strategy:** Australia turtle\n\nWent too early.\n\n### Lesson\n\nWait.\n',
+      );
+      writeFileSync(join(aiDir, 'characters', 'marvel', 'iron-man.relationships.md'), '| Player | Rapport | Notes |\n| --- | --- | --- |\n| God | -70 | Coached my opponent. |\n| Batman | 5 | Fair. |\n');
+      // The diary and relationships files are not characters themselves.
+      expect((await req(url, '/characters')).body.characters.map((c: any) => c.id)).toEqual(['marvel/iron-man']);
+
+      const seeded = await req(url, '/characters/marvel/iron-man/diary');
+      expect(seeded.body.total).toBe(1);
+      expect(seeded.body.entries[0]).toMatchObject({ n: 1, title: 'Game AAA111: lost', gameId: 'AAA111', outcome: 'lost', map: 'europe', opponents: ['Batman', 'God'], source: 'repo', at: '2026-10-01T00:00:00.000Z' });
+      expect(seeded.body.entries[0].text).toBe('Went too early.\n\n### Lesson\n\nWait.');
+
+      const added = await req(url, '/characters/marvel/iron-man/diary', { title: 'Game BBB222: won', text: 'Held Australia.', gameId: 'bbb222', outcome: 'won', map: 'Europe', opponents: ['Batman'], strategy: 'australia turtle' });
+      expect(added.status).toBe(201);
+      expect(added.body).toMatchObject({ n: 2, gameId: 'BBB222', source: 'saved' });
+      expect((await req(url, '/characters/marvel/iron-man/diary', { title: 'x', text: 'y', outcome: 'draw' })).status).toBe(400);
+      expect((await req(url, '/characters/marvel/iron-man/diary', { title: '', text: 'y' })).status).toBe(400);
+      expect((await req(url, '/characters/dc/nobody/diary', { title: 'x', text: 'y' })).status).toBe(404);
+      expect((await req(url, '/characters/marvel/iron-man/diary?gameId=aaa111')).body.entries.map((e: any) => e.n)).toEqual([1]);
+
+      const rel = await req(url, '/characters/marvel/iron-man/relationships', { with: 'god', change: -50, note: 'Did it again.', gameId: 'bbb222' });
+      expect(rel.body).toMatchObject({ with: 'God', rapport: -100 });
+      expect(rel.body.notes.map((n: any) => n.change)).toEqual([-70, -30]);
+      expect((await req(url, '/characters/marvel/iron-man/relationships', { with: 'StarkGPT', rapport: 20, note: 'Shared intel.' })).body.rapport).toBe(20);
+      expect((await req(url, '/characters/marvel/iron-man/relationships', { with: 'X', note: '' })).status).toBe(400);
+
+      const mem = (await req(url, '/characters/marvel/iron-man/memory')).body;
+      expect(mem.record).toMatchObject({ games: 2, won: 1, byStrategy: { 'australia turtle': { games: 2, won: 1 } }, byMap: { europe: { games: 2, won: 1 } }, vsOpponent: { Batman: { games: 2, won: 1 }, God: { games: 1, won: 0 } } });
+      expect(mem.relationships.map((r: any) => [r.with, r.rapport])).toEqual([['God', -100], ['StarkGPT', 20], ['Batman', 5]]);
+      expect(mem.recentDiary.map((e: any) => e.title)).toEqual(['Game AAA111: lost', 'Game BBB222: won']);
+      // Leaves something for the restart check in withCharacters.
+      await req(url, '/characters/marvel/iron-man', { section: 'Grudges & rivals', content: 'dc/batman' });
+    });
+  });
+
+  it('parses the real Ultron diary and relationships from the repo', async () => {
+    const { CharacterStore } = await import('../src/characters.js');
+    const { DEFAULT_AI_DIR } = await import('../src/app.js');
+    const store = new CharacterStore(DEFAULT_AI_DIR, null);
+    expect(store.list().map((c) => c.id)).toContain('marvel/ultron');
+    const diary = store.readDiary('marvel/ultron');
+    expect(diary.entries[0]).toMatchObject({ gameId: '3ZP4C4', outcome: 'lost', map: 'europe', winner: 'Wonder Woman' });
+    expect(diary.entries[0].text).toContain('### Endgame');
+    const mem = store.memorySummary('marvel/ultron');
+    expect(mem.relationships[0]).toMatchObject({ with: 'God', rapport: -70 });
+    expect(mem.record.vsOpponent['Wonder Woman']).toEqual({ games: 1, won: 0 });
+    expect(store.modelInfo().docs.map((d) => d.file).slice(0, 3)).toEqual(['general-player/playbook.md', 'general-player/ways-to-win.md', 'general-player/findings.md']);
+  });
+
+  it('lets an agent read and update its profile through MCP', async () => {
+    await withCharacters(async (url) => {
+      const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+      const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
+      const client = new Client({ name: 'character-agent', version: '0' });
+      await client.connect(new StreamableHTTPClientTransport(new URL(`${url}/mcp`)));
+      const call = async (name: string, args: Record<string, unknown> = {}) => {
+        const r = (await client.callTool({ name, arguments: args })) as { content: { text: string }[]; isError?: boolean };
+        return { text: r.content.map((c) => c.text).join('\n'), isError: !!r.isError };
+      };
+      try {
+        expect(client.getInstructions()).toContain('get_character');
+        expect((await call('list_characters')).text).toContain('marvel/iron-man: Iron Man (v0');
+        const info = await call('general_model_info');
+        expect(info.text).toContain('Be polite.');
+        expect(info.text).not.toContain('# index');
+        const got = await call('get_character', { id: 'marvel/iron-man' });
+        expect(got.text).toContain('expectedVersion:0');
+        expect(got.text).toContain('## Strategy');
+        const saved = await call('update_character', { id: 'marvel/iron-man', section: 'Grudges & rivals', content: 'dc/batman', expectedVersion: 0 });
+        expect(saved.text).toBe('Saved marvel/iron-man as v1.');
+        const stale = await call('update_character', { id: 'marvel/iron-man', section: 'Strategy', content: 'x', expectedVersion: 0 });
+        expect(stale.isError).toBe(true);
+        expect(stale.text).toContain('version 1');
+        expect((await call('get_character', { id: 'marvel/iron-man', history: true })).text).toMatch(/v0[\s\S]*v1/);
+        expect((await call('add_diary_entry', { id: 'marvel/iron-man', title: 'Game CCC333: won', text: 'Swept Asia.', outcome: 'won', opponents: ['Batman'] })).text).toBe('Saved diary entry #1 for marvel/iron-man.');
+        expect((await call('update_relationship', { id: 'marvel/iron-man', with: 'Batman', change: -15, note: 'Broke our truce.' })).text).toBe('marvel/iron-man → Batman: rapport -15 (1 note).');
+        const withMemory = await call('get_character', { id: 'marvel/iron-man' });
+        expect(withMemory.text).toContain('=== MEMORY ===');
+        expect(withMemory.text).toContain('Record: 1/1 won');
+        expect(withMemory.text).toContain('- Batman: -15 — Broke our truce.');
+        expect((await call('read_diary', { id: 'marvel/iron-man' })).text).toContain('Swept Asia.');
+      } finally {
+        await client.close();
+      }
+    });
+  });
+});
+
+describe('skirmish map over HTTP', () => {
+  it('lists the small board, rejects a fifth seat and starts a 4-seat game with bots', async () => {
+    const own = await startServer(null);
+    const call = async (path: string, init: RequestInit = {}, token?: string) => {
+      const headers: Record<string, string> = { 'content-type': 'application/json' };
+      if (token) headers.authorization = `Bearer ${token}`;
+      const res = await fetch(`${own.base}/api${path}`, { ...init, headers });
+      return { status: res.status, body: (await res.json()) as any };
+    };
+    try {
+      const maps = await call('/maps');
+      expect(maps.body.maps).toContainEqual(expect.objectContaining({ id: 'skirmish', territories: 24, maxPlayers: 4 }));
+      const map = await call('/map?map=skirmish');
+      expect(map.status).toBe(200);
+      expect(map.body.territories).toHaveLength(24);
+      expect(map.body.continents).toHaveLength(6);
+
+      const tooMany = await call('/games', { method: 'POST', body: JSON.stringify({ playerName: 'Host', options: { map: 'skirmish', maxPlayers: 5 } }) });
+      expect(tooMany.status).toBe(400);
+
+      const created = await call('/games', { method: 'POST', body: JSON.stringify({ playerName: 'Host', options: { map: 'skirmish', maxPlayers: 4, autoSetup: true } }) });
+      expect(created.status).toBe(201);
+      const { gameId, token } = created.body;
+      for (let i = 0; i < 3; i++) expect((await call(`/games/${gameId}/bots`, { method: 'POST', body: '{}' }, token)).status).toBe(201);
+      expect((await call(`/games/${gameId}/bots`, { method: 'POST', body: '{}' }, token)).status).toBeGreaterThanOrEqual(400);
+      const started = await call(`/games/${gameId}/start`, { method: 'POST', body: '{}' }, token);
+      expect(started.status).toBe(200);
+      const state = started.body.state;
+      expect(state.players).toHaveLength(4);
+      expect(Object.keys(state.territories)).toHaveLength(24);
+      expect(state.phase).not.toBe('lobby');
+    } finally {
+      await own.risk.shutdown('test');
+    }
+  });
+});
+
+describe('tournaments', () => {
+  const ADMIN = 'tournament-admin-key';
+  async function adminServer(file: string | null) {
+    const own = await startServer(file, undefined, ADMIN);
+    const call = async (path: string, init: RequestInit = {}, token?: string) => {
+      const headers: Record<string, string> = { 'content-type': 'application/json' };
+      if (token) headers.authorization = `Bearer ${token}`;
+      const res = await fetch(`${own.base}/api${path}`, { ...init, headers });
+      return { status: res.status, body: (await res.json()) as any };
+    };
+    return { ...own, call };
+  }
+  const post = (body: unknown = {}): RequestInit => ({ method: 'POST', body: JSON.stringify(body) });
+
+  it('the admin routes need the admin token', async () => {
+    // No admin token configured on the shared server: the admin API does not exist.
+    expect((await api('/admin/tournaments', post({ name: 'x' }))).status).toBe(404);
+    const own = await adminServer(null);
+    try {
+      expect((await own.call('/admin/tournaments', post({ name: 'x' }))).status).toBe(401);
+      expect((await own.call('/admin/tournaments', post({ name: 'x' }), 'wrong')).status).toBe(401);
+      expect((await own.call('/admin/tournaments', post({ options: { bogus: 1 } }), ADMIN)).status).toBe(400);
+      expect((await own.call('/admin/tournaments', post({ groupSize: 5 }), ADMIN)).status).toBe(400); // skirmish seats 4
+      expect((await own.call('/admin/tournaments', post({ options: { blizzards: 99 } }), ADMIN)).status).toBe(400); // too many for the map
+      const created = await own.call('/admin/tournaments', post({ name: 'Cup' }), ADMIN);
+      expect(created.status).toBe(201);
+      expect(created.body.tournament).toMatchObject({ name: 'Cup', status: 'registering', map: 'skirmish', groupSize: 4, fillBots: true });
+      const id = created.body.tournament.id;
+      expect((await own.call(`/admin/tournaments/${id}/start`, post(), 'wrong')).status).toBe(401);
+      expect((await own.call(`/admin/tournaments/${id}/start`, post(), ADMIN)).status).toBe(400); // nobody joined
+    } finally {
+      await own.risk.shutdown('test');
+    }
+  });
+
+  it('runs a knockout: tables of 4, winners move on, one champion', async () => {
+    const own = await adminServer(null);
+    const { call } = own;
+    try {
+      const id = (await call('/admin/tournaments', post({ name: 'Crown Cup', fillBots: false }), ADMIN)).body.tournament.id;
+      const tokens: Record<string, string> = {};
+      for (let i = 1; i <= 8; i++) {
+        const r = await call(`/tournaments/${id}/join`, post({ playerName: `P${i}` }));
+        expect(r.status).toBe(201);
+        tokens[r.body.entrantId] = r.body.token;
+        expect(r.body.tournament.you).toMatchObject({ name: `P${i}`, status: 'registered', match: null });
+      }
+      expect((await call(`/tournaments/${id}/join`, post({ playerName: 'p1' }))).status).toBe(400); // names are unique
+      expect((await call('/tournaments')).body.tournaments).toContainEqual(expect.objectContaining({ id, entrants: 8, status: 'registering' }));
+
+      const started = await call(`/admin/tournaments/${id}/start`, post(), ADMIN);
+      expect(started.status).toBe(200);
+      expect(started.body.tournament.status).toBe('running');
+      const r1 = started.body.tournament.rounds[0].matches;
+      expect(r1).toHaveLength(2);
+      for (const m of r1) {
+        expect(m.players).toHaveLength(4);
+        expect(m.status).toBe('playing');
+      }
+      expect((await call(`/tournaments/${id}/join`, post({ playerName: 'Late' }))).status).toBe(400);
+
+      // Every entrant learns their table and seat; the seat works in the game, and nobody hosts the table.
+      for (const [entrantId, token] of Object.entries(tokens)) {
+        const you = (await call(`/tournaments/${id}`, {}, token)).body.tournament.you;
+        expect(you).toMatchObject({ entrantId, status: 'playing', match: { round: 1 } });
+        const game = await call(`/games/${you.match.gameId}`, {}, you.match.token);
+        expect(game.body.playerId).toBe(you.match.playerId);
+        expect(game.body.state.options).toMatchObject({ map: 'skirmish', maxPlayers: 4 });
+        expect((await call(`/games/${you.match.gameId}/close`, post(), you.match.token)).status).toBe(403);
+      }
+      expect((await call(`/tournaments/${id}`, {}, 'not-a-token')).status).toBe(400);
+
+      // A long-poll wakes up when the bracket changes.
+      const version = (await call(`/tournaments/${id}`)).body.tournament.version;
+      const waiting = call(`/tournaments/${id}/wait?since=${version}&timeoutMs=5000`);
+
+      // Decide each table: three players forfeit, the fourth wins it.
+      const winners: string[] = [];
+      for (const m of r1) {
+        const [keep, ...rest] = m.players.map((p: any) => p.entrantId);
+        for (const e of rest) expect((await call(`/admin/tournaments/${id}/forfeit`, post({ entrantId: e }), ADMIN)).status).toBe(200);
+        winners.push(keep);
+      }
+      expect((await waiting).body.reason).toBe('change');
+
+      let t = (await call(`/tournaments/${id}`)).body.tournament;
+      expect(t.rounds[0].matches.map((m: any) => m.winner).sort()).toEqual(winners.slice().sort());
+      expect(t.rounds).toHaveLength(2);
+      expect(t.rounds[1].matches).toHaveLength(1);
+      expect(t.rounds[1].matches[0].players.map((p: any) => p.entrantId).sort()).toEqual(winners.slice().sort());
+      expect(t.entrants.filter((e: any) => e.status === 'out')).toHaveLength(6);
+      const finalTable = (await call(`/tournaments/${id}`, {}, tokens[winners[0]])).body.tournament.you.match;
+      expect(finalTable).toMatchObject({ round: 2 });
+      expect((await call(`/games/${finalTable.gameId}`)).body.state.options.maxPlayers).toBe(2);
+
+      // The final: one finalist forfeits, the other is champion.
+      expect((await call(`/admin/tournaments/${id}/forfeit`, post({ entrantId: winners[0] }), ADMIN)).status).toBe(200);
+      t = (await call(`/tournaments/${id}`, {}, tokens[winners[1]])).body.tournament;
+      expect(t.status).toBe('finished');
+      expect(t.champion.entrantId).toBe(winners[1]);
+      expect(t.you).toMatchObject({ status: 'champion', match: null });
+      expect((await call(`/admin/tournaments/${id}/forfeit`, post({ entrantId: winners[1] }), ADMIN)).status).toBe(400);
+    } finally {
+      await own.risk.shutdown('test');
+    }
+  });
+
+  it('fills round 1 with bots, and a bot can be beaten to the title', async () => {
+    const own = await adminServer(null);
+    const { call } = own;
+    try {
+      const id = (await call('/admin/tournaments', post({ name: 'Solo', groupSize: 3 }), ADMIN)).body.tournament.id;
+      const me = await call(`/tournaments/${id}/join`, post({ playerName: 'Human' }));
+      const t = (await call(`/admin/tournaments/${id}/start`, post(), ADMIN)).body.tournament;
+      expect(t.entrants).toHaveLength(3);
+      expect(t.entrants.filter((e: any) => e.isBot)).toHaveLength(2);
+      const you = (await call(`/tournaments/${id}`, {}, me.body.token)).body.tournament.you;
+      const players = (await call(`/games/${you.match.gameId}`)).body.state.players.filter((p: any) => !p.isNeutral);
+      expect(players.map((p: any) => p.isBot).sort()).toEqual([false, true, true]);
+      // Bots at a table can be forfeited too (an admin clean-up); the human then wins it all.
+      for (const e of t.entrants.filter((x: any) => x.isBot)) expect((await call(`/admin/tournaments/${id}/forfeit`, post({ entrantId: e.id }), ADMIN)).status).toBe(200);
+      const done = (await call(`/tournaments/${id}`)).body.tournament;
+      expect(done.status).toBe('finished');
+      expect(done.champion.name).toBe('Human');
+    } finally {
+      await own.risk.shutdown('test');
+    }
+  });
+
+  it('survives a restart: tables stay linked and keep deciding the bracket', async () => {
+    const tdir = mkdtempSync(join(tmpdir(), 'risk-tourney-'));
+    const file = join(tdir, 'games.json');
+    try {
+      const first = await adminServer(file);
+      const id = (await first.call('/admin/tournaments', post({ name: 'Persist', fillBots: false }), ADMIN)).body.tournament.id;
+      const a = (await first.call(`/tournaments/${id}/join`, post({ playerName: 'A' }))).body;
+      const b = (await first.call(`/tournaments/${id}/join`, post({ playerName: 'B' }))).body;
+      await first.call(`/admin/tournaments/${id}/start`, post(), ADMIN);
+      const table = (await first.call(`/tournaments/${id}`, {}, a.token)).body.tournament.you.match;
+      await first.risk.shutdown('test');
+      expect(existsSync(join(tdir, 'tournaments.json'))).toBe(true);
+
+      const second = await adminServer(file);
+      try {
+        const t = (await second.call(`/tournaments/${id}`, {}, b.token)).body.tournament;
+        expect(t.status).toBe('running');
+        expect(t.you.match.gameId).toBe(table.gameId);
+        // The restored store does not sweep a table its tournament still needs, even if nobody is watching.
+        expect(second.risk.store.staleReason(second.risk.store.get(table.gameId)!)).toBeNull();
+        expect((await second.call(`/admin/tournaments/${id}/forfeit`, post({ entrantId: a.entrantId }), ADMIN)).status).toBe(200);
+        const done = (await second.call(`/tournaments/${id}`)).body.tournament;
+        expect(done.status).toBe('finished');
+        expect(done.champion.entrantId).toBe(b.entrantId);
+      } finally {
+        await second.risk.shutdown('test');
+      }
+    } finally {
+      rmSync(tdir, { recursive: true, force: true });
+    }
+  });
+
+  it('marks a table abandoned when its room is deleted, and the bracket still finishes', async () => {
+    const own = await adminServer(null);
+    const { call } = own;
+    try {
+      const id = (await call('/admin/tournaments', post({ name: 'Gone', fillBots: false, groupSize: 2 }), ADMIN)).body.tournament.id;
+      for (const n of ['A', 'B', 'C', 'D']) await call(`/tournaments/${id}/join`, post({ playerName: n }));
+      const t = (await call(`/admin/tournaments/${id}/start`, post(), ADMIN)).body.tournament;
+      const [m1, m2] = t.rounds[0].matches;
+      expect((await call(`/admin/games/${m1.gameId}`, { method: 'DELETE' }, ADMIN)).status).toBe(200);
+      await call(`/admin/tournaments/${id}/forfeit`, post({ entrantId: m2.players[0].entrantId }), ADMIN);
+      const done = (await call(`/tournaments/${id}`)).body.tournament;
+      expect(done.rounds[0].matches[0].status).toBe('abandoned');
+      // One winner left after round 1: they are the champion.
+      expect(done.status).toBe('finished');
+      expect(done.champion.entrantId).toBe(m2.players[1].entrantId);
+    } finally {
+      await own.risk.shutdown('test');
+    }
+  });
+
+  it('is open to create and start while testing: no admin key over HTTP or MCP', async () => {
+    const created = await api('/tournaments', post({ name: 'Open Cup', groupSize: 2 }));
+    expect(created.status).toBe(201);
+    const id = created.body.tournament.id;
+    await api(`/tournaments/${id}/join`, post({ playerName: 'A' }));
+    await api(`/tournaments/${id}/join`, post({ playerName: 'B' }));
+    const started = await api(`/tournaments/${id}/start`, post());
+    expect(started.status).toBe(200);
+    expect(started.body.tournament.status).toBe('running');
+    expect((await api('/tournaments/NOPE1/start', post())).status).toBe(404);
+  });
+
+  it('is host-only when tournaments are closed (the launch setting)', async () => {
+    const store = new Store(null);
+    const r = createRiskServer(store, { clientDir: null, adminToken: ADMIN, openTournaments: false, sweepIntervalMs: 0 });
+    await new Promise<void>((resolve) => r.server.listen(0, '127.0.0.1', resolve));
+    const base2 = `http://127.0.0.1:${(r.server.address() as AddressInfo).port}`;
+    const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+    const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
+    const client = new Client({ name: 'closed', version: '0' });
+    await client.connect(new StreamableHTTPClientTransport(new URL(`${base2}/mcp`)));
+    const tool = async (name: string, args: Record<string, unknown>) => {
+      const res = (await client.callTool({ name, arguments: args })) as { content: { text: string }[]; isError?: boolean };
+      return { text: res.content.map((c) => c.text).join('\n'), isError: !!res.isError };
+    };
+    try {
+      const res = await fetch(`${base2}/api/tournaments`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+      expect(res.status).toBe(403);
+      expect((await tool('create_tournament', { name: 'x' })).text).toMatch(/needs the admin key/);
+      expect((await tool('create_tournament', { name: 'x', adminKey: 'wrong' })).text).toMatch(/Invalid admin key/);
+      expect((await tool('create_tournament', { name: 'x', adminKey: ADMIN })).isError).toBe(false);
+    } finally {
+      await client.close();
+      await r.shutdown('test');
+    }
+  });
+
+  it('is playable over MCP: create, join, start, wait for your table, play it', async () => {
+    const own = await adminServer(null);
+    const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+    const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
+    const client = new Client({ name: 'tourney-agent', version: '0' });
+    await client.connect(new StreamableHTTPClientTransport(new URL(`${own.base}/mcp`)));
+    const call = async (name: string, args: Record<string, unknown> = {}) => {
+      const r = (await client.callTool({ name, arguments: args })) as { content: { text: string }[]; isError?: boolean };
+      return { text: r.content.map((c) => c.text).join('\n'), isError: !!r.isError };
+    };
+    try {
+      const created = await call('create_tournament', { name: 'Agents Cup', groupSize: 2, fillBots: true });
+      expect(created.isError).toBe(false);
+      const id = created.text.match(/Created tournament (\w+)/)![1];
+      expect((await call('list_tournaments')).text).toContain(id);
+      const joined = await call('join_tournament', { tournamentId: id, playerName: 'Claude' });
+      expect(joined.text).toMatch(/ENTRANT TOKEN: \S+/);
+      expect((await call('wait_for_match', { tournamentId: id, timeoutSeconds: 1 })).text).toMatch(/^Timed out/);
+      expect((await call('start_tournament', { tournamentId: id })).isError).toBe(false);
+      const ready = await call('wait_for_match', { tournamentId: id, timeoutSeconds: 5 });
+      expect(ready.text).toMatch(/^Your table is ready/);
+      const gameId = ready.text.match(/YOUR TABLE: game (\w+)/)![1];
+      // The seat is remembered on this connection: game tools work without a token.
+      const state = await call('get_state', { gameId });
+      expect(state.isError).toBe(false);
+      expect(state.text).toContain('Claude');
+      expect((await call('tournament_status', { tournamentId: id })).text).toMatch(/You: Claude .* - playing/);
+    } finally {
+      await client.close();
       await own.risk.shutdown('test');
     }
   });

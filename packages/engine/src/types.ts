@@ -49,8 +49,8 @@ export interface GameOptions {
   autoSetup: boolean;
   /** Maximum players allowed in this game (2 up to the map's limit). */
   maxPlayers: number;
-  /** Which board to play on (see MAP_IDS in maps.ts and OPTION_SPECS.map): 'classic' (42 territories, 2-6 players), 'world' (74, 2-10), 'world_large' (104, 2-10), 'europe' (44, 2-8), 'greater_europe' (Greater Europe, 116, 2-10), 'europe_classic' (Europe Advanced, 84, 2-6), 'usa' (45, 2-10), 'asia' (49, 2-8), 'fantasy' (Realms of Halvaren, 87, 2-10). 'europe_advanced' (Europe (legacy, 99), 2-6) is a legacy board: saved games on it still load, new games cannot pick it. */
-  map: 'classic' | 'world' | 'world_large' | 'europe' | 'europe_advanced' | 'greater_europe' | 'europe_classic' | 'usa' | 'asia' | 'fantasy';
+  /** Which board to play on (see MAP_IDS in maps.ts and OPTION_SPECS.map): 'classic' (42 territories, 2-6 players), 'world' (74, 2-10), 'world_large' (104, 2-10), 'europe' (44, 2-8), 'greater_europe' (Greater Europe, 116, 2-10), 'europe_classic' (Europe Advanced, 84, 2-6), 'usa' (45, 2-10), 'asia' (49, 2-8), 'fantasy' (Realms of Halvaren, 87, 2-10), 'skirmish' (Four Crowns, 24, 2-4). 'europe_advanced' (Europe (legacy, 99), 2-6) is a legacy board: saved games on it still load, new games cannot pick it. */
+  map: 'classic' | 'world' | 'world_large' | 'europe' | 'europe_advanced' | 'greater_europe' | 'europe_classic' | 'usa' | 'asia' | 'fantasy' | 'skirmish';
   /** Card set values: 'progressive' (4,6,8,10,12,15,+5...) or 'fixed' (infantry 4, cavalry 6, artillery 8, mixed 10). */
   cardValues: 'progressive' | 'fixed';
   /** Fog of war: players only see their own territories and the ones adjacent to them. Spectators see everything. */
@@ -179,6 +179,12 @@ export interface AttackAction {
    * 'min' = the minimum required, 'max' = everything but one.
    */
   occupy?: number | 'min' | 'max';
+  /**
+   * Blitz, but stop once the attacking stack is down to this many armies (at least 1, below the stack).
+   * The attacker never rolls more dice than it can lose without going below it, so the stack always keeps
+   * at least stopAt armies. Implies blitz. With occupy 'max', everything above stopAt moves in.
+   */
+  stopAt?: number;
 }
 
 export interface OccupyAction {

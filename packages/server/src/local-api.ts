@@ -1,12 +1,19 @@
 import { RULES_TEXT, RuleError, getMap, redactEvents, type Action, type GameOptions } from '@risk/engine';
-import type { RiskApi } from '@risk/mcp';
+import type { CharacterUpdate, DiaryInput, RelationshipInput, RiskApi } from '@risk/mcp';
 import { RiskHttpError } from '@risk/mcp';
-import { mapInfo, sanitizeOptions } from './http.js';
+import { checkAdmin, mapInfo, parseTournamentSpec, sanitizeOptions } from './http.js';
 import type { GameRoom, Store } from './store.js';
+import type { CharacterStore } from './characters.js';
 
 /** RiskApi implemented directly over the in-memory store (for the embedded /mcp endpoint). */
 export class LocalRiskApi implements RiskApi {
-  constructor(private store: Store) {}
+  constructor(
+    private store: Store,
+    private characters: CharacterStore,
+    private adminToken: string | null = null,
+    /** TEMPORARY (testing): creating/starting tournaments needs no admin key. */
+    private openTournaments = false,
+  ) {}
 
   private room(gameId: string): GameRoom {
     const r = this.store.get(gameId);
@@ -17,6 +24,22 @@ export class LocalRiskApi implements RiskApi {
     const p = room.playerForToken(token);
     if (!p) throw new RiskHttpError('A valid player token is required', 401);
     return p;
+  }
+  /** Tournament creation: open to anyone while testing (openTournaments), otherwise the admin key. */
+  private tournamentHost(key: string | undefined) {
+    if (this.openTournaments) return;
+    if (!key) throw new RiskHttpError('Creating tournaments needs the admin key', 401);
+    this.admin(key);
+  }
+  private admin(key: string) {
+    const check = checkAdmin(this.adminToken, key);
+    if (check === 'disabled') throw new RiskHttpError('Admin API disabled (set RISK_ADMIN_TOKEN)', 404);
+    if (check === 'bad') throw new RiskHttpError('Invalid admin key', 401);
+  }
+  private tournament(id: string) {
+    const t = this.store.tournaments.get(id);
+    if (!t) throw new RiskHttpError('Tournament not found', 404);
+    return t;
   }
   private host(room: GameRoom, token: string | undefined): string {
     const p = this.player(room, token);
@@ -106,6 +129,33 @@ export class LocalRiskApi implements RiskApi {
     this.store.delete(room.id, 'host');
     return { ok: true };
   }
+  async listTournaments() {
+    return { tournaments: this.store.tournaments.list() };
+  }
+  async getTournament(tournamentId: string, token?: string) {
+    const t = this.tournament(tournamentId);
+    return { tournament: this.store.tournaments.view(t.id, token) };
+  }
+  async joinTournament(tournamentId: string, playerName: string) {
+    const t = this.tournament(tournamentId);
+    const { entrantId, token } = this.store.tournaments.join(t.id, playerName);
+    return { entrantId, token, tournament: this.store.tournaments.view(t.id, token) };
+  }
+  async waitTournament(tournamentId: string, token: string | undefined, since: number | undefined, timeoutMs: number) {
+    const t = this.tournament(tournamentId);
+    const reason = await this.store.tournaments.waitFor(t.id, since, Math.min(Math.max(timeoutMs, 0), 120_000));
+    return { reason, tournament: this.store.tournaments.view(this.tournament(t.id).id, token) };
+  }
+  async createTournament(adminKey: string | undefined, spec: Record<string, unknown>) {
+    this.tournamentHost(adminKey);
+    const t = this.store.tournaments.create(parseTournamentSpec(spec));
+    return { tournament: this.store.tournaments.view(t.id) };
+  }
+  async startTournament(adminKey: string | undefined, tournamentId: string) {
+    this.tournamentHost(adminKey);
+    const t = this.store.tournaments.start(this.tournament(tournamentId).id);
+    return { tournament: this.store.tournaments.view(t.id) };
+  }
   async leave(gameId: string, token: string) {
     const room = this.room(gameId);
     const me = this.player(room, token);
@@ -116,6 +166,33 @@ export class LocalRiskApi implements RiskApi {
       room.act(me, { type: 'surrender' });
     }
     return { ok: true };
+  }
+  async listCharacters() {
+    return { characters: this.characters.list() };
+  }
+  async getCharacter(id: string, version?: number) {
+    return this.characters.get(id, version);
+  }
+  async characterHistory(id: string) {
+    return this.characters.history(id);
+  }
+  async updateCharacter(id: string, update: CharacterUpdate) {
+    return this.characters.update(id, update);
+  }
+  async modelInfo() {
+    return this.characters.modelInfo();
+  }
+  async characterMemory(id: string) {
+    return this.characters.memorySummary(id);
+  }
+  async readDiary(id: string, limit?: number, gameId?: string) {
+    return this.characters.readDiary(id, limit, gameId);
+  }
+  async addDiaryEntry(id: string, entry: DiaryInput) {
+    return this.characters.addDiaryEntry(id, entry);
+  }
+  async updateRelationship(id: string, update: RelationshipInput) {
+    return this.characters.updateRelationship(id, update);
   }
 }
 

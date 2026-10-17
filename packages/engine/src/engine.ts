@@ -764,10 +764,11 @@ interface BattleRun {
 }
 
 /** Roll one attack (or a whole blitz) on copies of the army counts. */
-function rollBattle(rng: Rng, fromArmies: number, toArmies: number, defenseLimit: number, dice: number | undefined, blitz: boolean): BattleRun {
+function rollBattle(rng: Rng, fromArmies: number, toArmies: number, defenseLimit: number, dice: number | undefined, blitz: boolean, stopAt = 1): BattleRun {
   const rolls: Roll[] = [];
   for (;;) {
-    const maxDice = Math.min(3, fromArmies - 1);
+    // Never roll more dice than the stack can lose without dropping below stopAt (see blitzAttackDice in odds.ts).
+    const maxDice = Math.min(3, fromArmies - 1, fromArmies - stopAt);
     if (maxDice < 1) break;
     const aDiceCount = Math.min(dice ?? 3, maxDice);
     const dDiceCount = Math.min(defenseLimit, toArmies);
@@ -815,16 +816,22 @@ function doAttack(state: GameState, playerId: PlayerId, action: AttackAction, ev
   if (action.dice !== undefined && (!Number.isInteger(action.dice) || action.dice < 1 || action.dice > 3))
     throw new RuleError('dice must be 1, 2 or 3');
 
-  if (action.dice !== undefined && !action.blitz && action.dice > Math.min(3, from.armies - 1))
+  if (action.stopAt !== undefined) {
+    if (!Number.isInteger(action.stopAt) || action.stopAt < 1) throw new RuleError('stopAt must be a whole number of at least 1');
+    if (action.stopAt >= from.armies) throw new RuleError(`stopAt must be below the ${from.armies} armies on ${action.from}`);
+  }
+  const blitz = !!action.blitz || action.stopAt !== undefined;
+  const stopAt = action.stopAt ?? 1;
+  if (action.dice !== undefined && !blitz && action.dice > Math.min(3, from.armies - 1))
     throw new RuleError(`You can roll at most ${Math.min(3, from.armies - 1)} dice from ${action.from}`);
 
   const rng = rngOf(state);
   const defenderId = to.owner!;
   const defenseLimit = defenseDiceLimit(state, action.to);
-  const roll = () => rollBattle(rng, from.armies, to.armies, defenseLimit, action.dice, !!action.blitz);
+  const roll = () => rollBattle(rng, from.armies, to.armies, defenseLimit, action.dice, blitz, stopAt);
   // Balanced blitz: roll the whole blitz BALANCED_BLITZ_RUNS times with real dice and play out the median
   // run, so blitzes land close to the odds (fewer freak wins and collapses). Single rolls stay fully random.
-  const result = action.blitz && state.options.balancedBlitz ? medianRun(Array.from({ length: BALANCED_BLITZ_RUNS }, roll)) : roll();
+  const result = blitz && state.options.balancedBlitz ? medianRun(Array.from({ length: BALANCED_BLITZ_RUNS }, roll)) : roll();
   saveRng(state, rng);
   let lastAttackerDice = 0;
   for (const r of result.rolls) {
@@ -881,7 +888,7 @@ function doAttack(state: GameState, playerId: PlayerId, action: AttackAction, ev
         action.occupy === 'min'
           ? state.pendingConquest.minArmies
           : action.occupy === 'max'
-            ? state.pendingConquest.maxArmies
+            ? Math.max(state.pendingConquest.minArmies, state.pendingConquest.maxArmies + 1 - stopAt)
             : action.occupy;
       doOccupy(state, playerId, n, events);
     }

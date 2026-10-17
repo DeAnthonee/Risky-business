@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
+import { MapPreview } from './MapPreview';
 import { MAPS, MAP_IDS, maxBlizzards, type GameOptions } from '@risk/engine';
-import { api, type GameSummary } from '../api';
+import { api, type GameSummary, type TournamentSummary } from '../api';
 import type { Session } from '../session';
 
 export function Home({
@@ -8,13 +9,16 @@ export function Home({
   setName,
   onEnter,
   onSpectate,
+  onOpenTournament,
 }: {
   name: string;
   setName: (n: string) => void;
   onEnter: (s: Session) => void;
   onSpectate: (gameId: string) => void;
+  onOpenTournament: (id: string) => void;
 }) {
   const [games, setGames] = useState<GameSummary[]>([]);
+  const [tournaments, setTournaments] = useState<TournamentSummary[]>([]);
   const [code, setCode] = useState('');
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -28,11 +32,19 @@ export function Home({
         .listGames()
         .then((r) => alive && setGames(r.games))
         .catch(() => {});
+    const loadTournaments = () =>
+      api
+        .listTournaments()
+        .then((r) => alive && setTournaments(r.tournaments))
+        .catch(() => {});
+    loadTournaments();
+    const tt = setInterval(loadTournaments, 10_000);
     load();
     const t = setInterval(load, 3000);
     return () => {
       alive = false;
       clearInterval(t);
+      clearInterval(tt);
     };
   }, []);
 
@@ -105,6 +117,30 @@ export function Home({
           </button>
         </section>
 
+        {tournaments.length > 0 && (
+          <section className="card wide">
+            <h2>🏆 Tournaments</h2>
+            <ul className="game-list">
+              {tournaments.map((t) => (
+                <li key={t.id}>
+                  <div>
+                    <strong>{t.name}</strong> <code>{t.id}</code>
+                    <div className="muted small">
+                      {t.status === 'registering' ? 'Registration open' : t.status === 'running' ? `Round ${t.round}` : `Finished${t.champion ? ` · champion ${t.champion}` : ''}`} · {t.entrants}/{t.maxEntrants} entrants ·{' '}
+                      {MAPS[t.map as keyof typeof MAPS]?.name ?? t.map}
+                    </div>
+                  </div>
+                  <div className="row">
+                    <button className={t.status === 'registering' ? 'primary' : ''} onClick={() => onOpenTournament(t.id)}>
+                      {t.status === 'registering' ? 'Join / view' : 'View bracket'}
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
         <section className="card wide">
           <h2>Open games</h2>
           {games.length === 0 && <p className="muted">No games yet. Create one!</p>}
@@ -150,10 +186,13 @@ export function OptionsForm({
   options,
   onChange,
   disabled,
+  players,
 }: {
   options: Partial<GameOptions>;
   onChange: (o: Partial<GameOptions>) => void;
   disabled?: boolean;
+  /** Players seated so far (in a lobby); the preview's starting armies use it. Defaults to the seat count. */
+  players?: number;
 }) {
   const map = MAPS[options.map ?? 'classic'];
   const maxSeats = map.maxPlayers;
@@ -178,6 +217,7 @@ export function OptionsForm({
           ))}
         </select>
       </label>
+      <MapPreview mapId={options.map ?? 'classic'} players={players ?? options.maxPlayers} />
       <label>
         Max players
         <select disabled={disabled} value={Math.min(options.maxPlayers ?? maxSeats, maxSeats)} onChange={(e) => onChange({ maxPlayers: Number(e.target.value) })}>

@@ -197,6 +197,65 @@ input[type='range'] {
   grid-template-columns: 1fr 1fr;
   gap: 0 12px;
 }
+.map-preview {
+  grid-column: 1 / -1;
+  margin: 2px 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: #0b1b2b;
+}
+.map-preview svg {
+  display: block;
+  width: 100%;
+  max-height: 260px;
+}
+.preview-territory {
+  stroke: rgba(10, 16, 28, 0.9);
+  stroke-width: 1;
+  stroke-linejoin: round;
+  fill-opacity: 0.85;
+  transition: fill-opacity 0.2s;
+}
+.preview-territory.faded {
+  fill-opacity: 0.15;
+}
+@media (prefers-reduced-motion: reduce) {
+  .preview-territory { transition: none; }
+}
+.map-preview figcaption {
+  padding: 8px 10px;
+  border-top: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.18);
+  font-size: 0.82em;
+}
+.map-preview-stats {
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+.map-preview-stats strong {
+  color: var(--text);
+}
+.map-preview-regions {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+.map-preview-regions li {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: default;
+  white-space: nowrap;
+}
+.map-preview-regions .swatch {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+}
 .game-list {
   list-style: none;
   padding: 0;
@@ -833,6 +892,25 @@ footer {
 }
 .log-line.turn_started {
   color: var(--accent);
+}
+/* One line per attack: headline, then start → end armies and losses for each side (rolls on hover). */
+.log-line.battle-summary {
+  cursor: help;
+}
+.battle-stats {
+  font-weight: 400;
+  color: var(--muted);
+}
+.battle-stats b {
+  color: var(--text);
+  font-weight: 600;
+}
+.battle-side {
+  white-space: nowrap;
+}
+.battle-loss {
+  color: #ff8a8a;
+  font-weight: 600;
 }
 .chat {
   flex: 1;
@@ -1583,3 +1661,110 @@ label.check input {
 .dice-vs { display: flex; flex-direction: column; align-items: center; gap: 2px; }
 .dice-blitz { font-size: 10px; font-weight: 800; letter-spacing: 1px; color: #ffd166; white-space: nowrap; }
 .dice-balanced { font-size: 10px; font-weight: 700; letter-spacing: 0.5px; color: #9ad1ff; white-space: nowrap; text-transform: uppercase; }
+
+/* Blitz planner: commit slider, live odds (random and balanced), armies needed for common win chances. */
+.blitz-planner {
+  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+}
+.blitz-planner input[type='range'] {
+  width: 160px;
+}
+.blitz-odds {
+  display: inline-flex;
+  gap: 12px;
+  align-items: baseline;
+}
+.blitz-odds .active b {
+  color: var(--accent);
+  font-size: 1.1em;
+}
+.blitz-odds .muted b {
+  font-weight: 600;
+}
+.blitz-needs {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+.blitz-needs .need {
+  padding: 1px 7px;
+  font-size: 0.85em;
+}
+.blitz-needs .need.on {
+  outline: 1px solid var(--accent);
+}
+.blitz-needs .need.none {
+  opacity: 0.6;
+}
+
+/* ---- tournaments ---- */
+.tournament .champion {
+  text-align: center;
+  border-color: #d9a520;
+  margin-bottom: 16px;
+}
+.entrants {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.entrant {
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 0.9em;
+}
+.entrant.playing,
+.entrant.waiting {
+  border-color: var(--accent);
+}
+.entrant.champion {
+  border-color: #d9a520;
+  color: #f2c94c;
+}
+.entrant.out {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+.tables {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+}
+.table-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.table-card.playing {
+  border-color: var(--accent);
+}
+.table-card .table-head {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+.table-card ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.table-card li.winner {
+  color: var(--ok);
+  font-weight: 600;
+}
+.table-card li.out {
+  color: var(--muted);
+}

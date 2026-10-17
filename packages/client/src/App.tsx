@@ -3,7 +3,20 @@ import { api } from './api';
 import { Home } from './components/Home';
 import { Lobby } from './components/Lobby';
 import { Game } from './components/Game';
-import { clearSession, gameIdFromUrl, getName, getSession, saveSession, setGameInUrl, setName as persistName, spectateFromUrl, type Session } from './session';
+import { Tournament } from './components/Tournament';
+import {
+  clearSession,
+  gameIdFromUrl,
+  getName,
+  getSession,
+  saveSession,
+  setGameInUrl,
+  setName as persistName,
+  setTournamentInUrl,
+  spectateFromUrl,
+  tournamentIdFromUrl,
+  type Session,
+} from './session';
 import { useGame } from './useGame';
 
 export function App() {
@@ -12,10 +25,15 @@ export function App() {
   // ?spectate=1 opens a game as a spectator even when a session exists for it.
   const [spectating, setSpectating] = useState(() => !!gameId && spectateFromUrl());
   const [name, setNameState] = useState(getName());
+  // The tournament being followed: leaving one of its games comes back to its bracket.
+  const [tournamentId, setTournamentId] = useState<string | null>(() => tournamentIdFromUrl());
 
   useEffect(() => {
     setGameInUrl(gameId, spectating);
   }, [gameId, spectating]);
+  useEffect(() => {
+    setTournamentInUrl(tournamentId);
+  }, [tournamentId]);
 
   const setName = (n: string) => {
     setNameState(n);
@@ -36,8 +54,17 @@ export function App() {
     setSpectating(false);
   };
 
+  const watch = (id: string) => {
+    setGameId(id);
+    setSpectating(true);
+  };
+
+  if (!gameId && tournamentId) {
+    return <Tournament id={tournamentId} name={name} setName={setName} onPlay={enter} onWatch={watch} onBack={() => setTournamentId(null)} />;
+  }
+
   if (!gameId) {
-    return <Home name={name} setName={setName} onEnter={enter} onSpectate={(id) => { setGameId(id); setSpectating(true); }} />;
+    return <Home name={name} setName={setName} onEnter={enter} onSpectate={watch} onOpenTournament={setTournamentId} />;
   }
 
   if (spectating) {

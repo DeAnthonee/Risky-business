@@ -65,8 +65,8 @@ npm test
 
 ## Maps
 
-Nine boards. Eight are drawn from real geography (Natural Earth countries or US Census states, cut into
-territories and projected to SVG); Realms of Halvaren is an original fantasy world drawn by hand:
+Ten boards. Eight are drawn from real geography (Natural Earth countries or US Census states, cut into
+territories and projected to SVG); Realms of Halvaren and Four Crowns are original worlds drawn by hand:
 
 | map | territories | regions | players | notes |
 | --- | --- | --- | --- | --- |
@@ -79,6 +79,7 @@ territories and projected to SVG); Realms of Halvaren is an original fantasy wor
 | **USA** | 45 | 8 | 2–10 | US states (small north-eastern ones merged); Alaska and Hawaii as insets reached by sea; bonuses 3–6 |
 | **Asia** | 49 | 7 | 2–8 | Middle East to Japan, Siberia to Java; bonuses 4–6 |
 | **Realms of Halvaren** (`fantasy`) | 87 | 16 | 2–10 | original fantasy world: rival kingdoms around an Inner Sea, the lawless Grimward Wastes across the north (+7, borders almost everyone), a cursed swamp, a desert, mountain passes and island chains linked by sea lanes; bonuses 2–7; 83 armies each for 2 players, 25 for 10 |
+| **Four Crowns** (`skirmish`) | 24 | 6 | 2–4 | small, fast original board: four corner kingdoms (+2 each: one gate to the Heartland, two harbours) ring the Heartland (+4); four lone Waystone isles (+3) carry the sea lanes between neighbouring kingdoms; 17 armies each for 4 players |
 
 Every map except Classic starts each player with the classic numbers scaled by map size (territories ÷ 42; above 6 players an equal share of the 6-player total)
 (`STARTING_ARMIES` in `packages/engine/src/maps.ts`; the exact table per player count is in the rules text).
@@ -109,8 +110,8 @@ Host-selectable options:
 
 | option        | values                        | default     |
 | ------------- | ----------------------------- | ----------- |
-| `map`         | `classic` \| `world` \| `world_large` \| `europe` \| `greater_europe` \| `europe_classic` \| `usa` \| `asia` \| `fantasy` | `classic` |
-| `maxPlayers`  | 2–6 (classic, europe_classic) / 2–8 (europe, asia) / 2–10 (world, world_large, greater_europe, usa, fantasy) | 6 |
+| `map`         | `classic` \| `world` \| `world_large` \| `europe` \| `greater_europe` \| `europe_classic` \| `usa` \| `asia` \| `fantasy` \| `skirmish` | `classic` |
+| `maxPlayers`  | 2–4 (skirmish) / 2–6 (classic, europe_classic) / 2–8 (europe, asia) / 2–10 (world, world_large, greater_europe, usa, fantasy) | 6 |
 | `setupBatch`  | armies placed per setup turn  | 1 (classic) |
 | `fortifyMode` | `connected` \| `adjacent`     | `connected` |
 | `randomDeal`  | `true` (deal) \| `false` (claim one by one) | `true` |

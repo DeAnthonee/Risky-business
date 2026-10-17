@@ -218,6 +218,38 @@ describe('game lifecycle over HTTP', () => {
     }
   });
 
+  it('creates a game with blizzards over HTTP and backfills them for older saves', async () => {
+    const created = await api('/games', { method: 'POST', body: JSON.stringify({ playerName: 'Ice', options: { blizzards: 4, setupBatch: 40 } }) });
+    expect(created.status).toBe(201);
+    expect(created.body.state.options.blizzards).toBe(4);
+    const tooMany = await api('/games', { method: 'POST', body: JSON.stringify({ playerName: 'Ice', options: { blizzards: 30 } }) });
+    expect(tooMany.status).toBe(400);
+    const bot = await api(`/games/${created.body.gameId}/bots`, { method: 'POST', body: '{}' }, created.body.token);
+    expect(bot.status).toBeLessThan(300);
+    const started = await api(`/games/${created.body.gameId}/start`, { method: 'POST', body: '{}' }, created.body.token);
+    expect(started.status).toBe(200);
+    expect(started.body.state.blizzards).toHaveLength(4);
+    for (const t of started.body.state.blizzards) expect(started.body.state.territories[t].owner).toBeNull();
+
+    risk.store.save();
+    const saved = JSON.parse(readFileSync(join(dir, 'games.json'), 'utf8')) as any[];
+    for (const g of saved) {
+      delete g.state.options.blizzards;
+      delete g.state.blizzards;
+    }
+    const file = join(dir, 'pre-blizzard.json');
+    const { writeFileSync } = await import('node:fs');
+    writeFileSync(file, JSON.stringify(saved));
+    const legacy = await startServer(file);
+    try {
+      const room = legacy.risk.store.get(gameId)!;
+      expect(room.state.options.blizzards).toBe(0);
+      expect(room.state.blizzards).toEqual([]);
+    } finally {
+      await legacy.risk.shutdown('test');
+    }
+  });
+
   it('shuts down gracefully and releases long-poll waiters', async () => {
     const third = await startServer(null);
     const created = await fetch(`${third.base}/api/games`, {

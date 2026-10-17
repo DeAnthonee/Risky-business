@@ -47,6 +47,7 @@ export function formatState(view: GameView, gameName?: string): string {
         : `Card values: progressive, next set is worth ${tradeBonus(view.tradeCount)} (+2 on an owned traded territory)`,
     );
     if (view.options.fogOfWar) lines.push('Fog of war is ON: you only see your territories and their neighbours.');
+    if (view.blizzards?.length) lines.push(`Blizzards: ${view.blizzards.join(', ')} are impassable (cannot be attacked, entered or crossed).`);
     if (view.options.capitals) lines.push('Capital Conquest is ON: +2 armies per capital held; capturing a capital takes over that player.');
   }
 
@@ -61,10 +62,15 @@ export function formatState(view: GameView, gameName?: string): string {
         lines.push(`  ${t}: ? (fog)`);
         continue;
       }
+      if (view.blizzards?.includes(t)) {
+        lines.push(`  ${t}: BLIZZARD (impassable)`);
+        continue;
+      }
       const cap = Object.entries(view.capitals ?? {}).find(([, ct]) => ct === t);
       const nbrs = map.adjacency[t].map((n) => {
         const ns = view.territories[n];
         if (ns.hidden) return `${n}?(fog)`;
+        if (view.blizzards?.includes(n)) return `${n}(blizzard)`;
         const mark = ns.owner === ts.owner ? '' : '*';
         return `${n}${mark}(${short(name(ns.owner))} ${ns.armies})`;
       });
@@ -160,6 +166,9 @@ export function formatEvents(events: GameEvent[], view: GameView): string {
         break;
       case 'eliminated':
         out.push(e.by ? `${name(e.player)} was eliminated by ${name(e.by)}` : `${name(e.player)} surrendered`);
+        break;
+      case 'blizzards':
+        out.push(`Blizzards froze ${e.territories.map(t).join(', ')} (impassable all game)`);
         break;
       case 'capitals_assigned':
         out.push(`Capitals: ${Object.entries(e.capitals).map(([p, t]) => `${name(p)} -> ${t}`).join(', ')}`);

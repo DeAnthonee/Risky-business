@@ -313,6 +313,7 @@ export function sanitizeOptions(raw: unknown): Partial<GameOptions> {
   if (o.cardValues !== undefined) out.cardValues = o.cardValues as GameOptions['cardValues'];
   if (o.fogOfWar !== undefined) out.fogOfWar = o.fogOfWar === true || o.fogOfWar === 'true';
   if (o.capitals !== undefined) out.capitals = o.capitals === true || o.capitals === 'true';
+  if (o.blizzards !== undefined) out.blizzards = Number(o.blizzards);
   if (o.maxPlayers !== undefined) out.maxPlayers = Number(o.maxPlayers);
   if (o.map !== undefined) out.map = o.map as GameOptions['map'];
   return out;

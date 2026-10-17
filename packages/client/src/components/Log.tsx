@@ -23,6 +23,8 @@ export function describe(e: GameEvent, view: GameView): string | null {
       const cards = (e.cards ?? []).map((c) => (c.kind === 'wild' ? 'Wild' : `${c.kind} ${c.territory ? shortName(c.territory) : ''}`.trim())).join(', ');
       return `${name(e.player)} traded ${cards || 'a card set'} for ${e.armies} armies${e.bonusTerritory ? ` (+2 on ${shortName(e.bonusTerritory)})` : ''}`;
     }
+    case 'blizzards':
+      return `❄ Blizzards: ${e.territories.map(shortName).join(', ')} are impassable`;
     case 'capitals_assigned':
       return `Capitals: ${Object.entries(e.capitals).map(([p, t]) => `${name(p)} → ${shortName(t)}`).join(', ')}`;
     case 'capital_captured':

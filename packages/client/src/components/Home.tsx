@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { MAPS, MAP_IDS, type GameOptions } from '@risk/engine';
+import { MAPS, MAP_IDS, maxBlizzards, type GameOptions } from '@risk/engine';
 import { api, type GameSummary } from '../api';
 import type { Session } from '../session';
 
@@ -214,6 +214,14 @@ export function OptionsForm({
       <label className="check">
         <input type="checkbox" disabled={disabled} checked={!!options.fogOfWar} onChange={(e) => onChange({ fogOfWar: e.target.checked })} /> Fog of war
         <span className="muted small">see only your territories and their neighbours</span>
+      </label>
+      <label>
+        Blizzards
+        <select disabled={disabled} value={options.blizzards ?? 0} onChange={(e) => onChange({ blizzards: Number(e.target.value) })}>
+          {[0, 2, 3, 4, 5, 6, 8, 10, 12].filter((n) => n <= maxBlizzards(MAPS[options.map ?? 'classic'])).map((n) => (
+            <option key={n} value={n}>{n === 0 ? 'Off' : `${n} frozen territories`}</option>
+          ))}
+        </select>
       </label>
       <label className="check">
         <input type="checkbox" disabled={disabled} checked={!!options.capitals} onChange={(e) => onChange({ capitals: e.target.checked })} /> Capital Conquest

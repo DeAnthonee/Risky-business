@@ -54,6 +54,12 @@ Option "cardValues": "progressive" (default) escalates for the whole game: 4, 6,
 completes the most valuable set it can.
 If a traded card shows a territory you own, 2 extra armies are placed there automatically (once per trade).
 
+OPTION: BLIZZARDS
+"blizzards" (a number, 0 = off, at most a sixth of the map): that many random territories are frozen at game start and
+stay impassable all game. Nobody owns them; they cannot be attacked, entered, claimed or fortified through. They are
+chosen so the open territories stay connected and every continent keeps at least two open territories. To control a
+continent you need all of its open (non-blizzard) territories. Blizzards are visible to everyone, even under fog.
+
 OPTIONS: FOG OF WAR AND CAPITALS
 "fogOfWar": you only see territories you own and those adjacent to them; everything else shows as hidden
 (owner and armies unknown) and events there are reported as "fogged". Spectators always see the whole board.

@@ -1,5 +1,5 @@
 import { getMap, type MapDef } from './maps.js';
-import { armiesOf, continentsOf, legalMoves, territoriesOf, type LegalMoves } from './engine.js';
+import { armiesOf, continentsOf, controlsContinent, isBlizzard, legalMoves, territoriesOf, type LegalMoves } from './engine.js';
 import type { Card, GameEvent, GameState, Player, PlayerId, TerritoryId, TerritoryState } from './types.js';
 
 /**
@@ -109,13 +109,19 @@ export function viewFor(state: GameState, viewer: PlayerId | null): GameView {
   }));
   const continentOwners: Record<string, PlayerId | null> = {};
   for (const c of getMap(state.options.map).continents) {
-    const owner = state.territories[c.territories[0]].owner;
-    continentOwners[c.id] = owner && c.territories.every((t) => state.territories[t].owner === owner) ? owner : null;
+    const first = c.territories.find((t) => !isBlizzard(state, t));
+    const owner = first ? state.territories[first].owner : null;
+    continentOwners[c.id] = owner && controlsContinent(state, c.territories, owner) ? owner : null;
   }
   const { deck, discard, rngState, seed, players: _p, ...rest } = state;
   const map = getMap(state.options.map);
   const fogged = !!state.options.fogOfWar && !!viewer && state.players.some((p) => p.id === viewer);
-  const territories = fogged ? fogTerritories(state.territories, visibleTerritories(state.territories, viewer!, map)) : state.territories;
+  let territories = fogged ? fogTerritories(state.territories, visibleTerritories(state.territories, viewer!, map)) : state.territories;
+  // Blizzards are public knowledge, fog or not.
+  if (fogged && state.blizzards?.length) {
+    territories = { ...territories };
+    for (const t of state.blizzards) territories[t] = { owner: null, armies: 0 };
+  }
   const capitals = fogged ? Object.fromEntries(Object.entries(state.capitals).filter(([, t]) => !territories[t].hidden)) : state.capitals;
   return {
     ...rest,

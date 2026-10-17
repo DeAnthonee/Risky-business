@@ -60,6 +60,7 @@ export function createGame(id: string, options: Partial<GameOptions> = {}, seed?
     tradeCount: 0,
     pendingConquest: null,
     capitals: {},
+    blizzards: [],
     fortifiedThisTurn: false,
     winner: null,
     seed: s,
@@ -78,6 +79,9 @@ export function validateOptions(o: GameOptions): void {
   if (!isMapId(o.map)) throw new RuleError(`Unknown map "${String(o.map)}"`);
   if (o.cardValues !== 'progressive' && o.cardValues !== 'fixed') throw new RuleError("cardValues must be 'progressive' or 'fixed'");
   const map = getMap(o.map);
+  const maxBliz = maxBlizzards(map);
+  if (!Number.isInteger(o.blizzards) || o.blizzards < 0 || o.blizzards > maxBliz)
+    throw new RuleError(`blizzards must be an integer between 0 and ${maxBliz} on the ${map.name} map`);
   if (!Number.isInteger(o.maxPlayers) || o.maxPlayers < 2 || o.maxPlayers > map.maxPlayers)
     throw new RuleError(`maxPlayers must be between 2 and ${map.maxPlayers} on the ${map.name} map`);
 }
@@ -89,6 +93,9 @@ export function setOptions(state: GameState, options: Partial<GameOptions>): Gam
   // Switching maps: clamp maxPlayers to the new map's limit rather than rejecting.
   if (options.map && options.map !== state.options.map && options.maxPlayers === undefined) {
     next.options.maxPlayers = Math.min(next.options.maxPlayers, getMap(options.map).maxPlayers);
+  }
+  if (options.map && options.map !== state.options.map && options.blizzards === undefined) {
+    next.options.blizzards = Math.min(next.options.blizzards ?? 0, maxBlizzards(getMap(options.map)));
   }
   validateOptions(next.options);
   if (next.players.length > next.options.maxPlayers) throw new RuleError('maxPlayers is below the current player count');
@@ -192,11 +199,17 @@ export function startGame(state: GameState): ActionResult {
   next.deck = shuffle(rng, buildDeck(map));
   next.discard = [];
 
+  // Blizzards: block some territories for the whole game before anything is dealt.
+  next.blizzards = pickBlizzards(map, next.options.blizzards, rng);
+  for (const t of next.blizzards) next.territories[t] = { owner: null, armies: 0 };
+  if (next.blizzards.length) events.push({ type: 'blizzards', territories: [...next.blizzards] });
+  const playable = map.territoryIds.filter((t) => !next.blizzards.includes(t));
+
   // Deal territories round-robin in turn order (neutral included for 2p).
   const dealOrder = [...order, ...next.players.filter((p) => p.isNeutral).map((p) => p.id)];
   const randomDeal = next.options.randomDeal || next.options.autoSetup;
   if (randomDeal) {
-    const shuffledTerritories = shuffle(rng, map.territoryIds);
+    const shuffledTerritories = shuffle(rng, playable);
     shuffledTerritories.forEach((t, i) => {
       const owner = dealOrder[i % dealOrder.length];
       next.territories[t] = { owner, armies: 1 };
@@ -204,7 +217,7 @@ export function startGame(state: GameState): ActionResult {
     });
   } else {
     // Claiming phase: nobody owns anything yet; players claim one per setup turn.
-    for (const t of map.territoryIds) next.territories[t] = { owner: null, armies: 0 };
+    for (const t of playable) next.territories[t] = { owner: null, armies: 0 };
   }
 
   // Neutral player: auto-distribute all remaining armies evenly.
@@ -340,8 +353,60 @@ export function armiesOf(state: GameState, id: PlayerId): number {
   return territoriesOf(state, id).reduce((n, t) => n + state.territories[t].armies, 0);
 }
 
+/** True if the territory is an impassable blizzard (blizzards option). */
+export function isBlizzard(state: Pick<GameState, 'blizzards'>, t: TerritoryId): boolean {
+  return (state.blizzards ?? []).includes(t);
+}
+
+/** A player controls a continent when they own every non-blizzard territory in it. */
+export function controlsContinent(state: Pick<GameState, 'territories' | 'blizzards'>, territories: TerritoryId[], id: PlayerId): boolean {
+  const open = territories.filter((t) => !isBlizzard(state, t));
+  return open.length > 0 && open.every((t) => state.territories[t].owner === id);
+}
+
+function unclaimedTerritories(state: GameState): TerritoryId[] {
+  return mapOf(state).territoryIds.filter((t) => state.territories[t].owner === null && !isBlizzard(state, t));
+}
+
+/** Most blizzards a map allows: a sixth of its territories (7 on classic). */
+export function maxBlizzards(map: MapDef): number {
+  return Math.floor(map.territoryIds.length / 6);
+}
+
+/**
+ * Pick `count` random blizzard territories. A territory is only frozen if the open territories stay one
+ * connected network and every continent keeps at least two open territories, so the game stays winnable
+ * and every continent bonus stays reachable.
+ */
+export function pickBlizzards(map: MapDef, count: number, rng: Rng): TerritoryId[] {
+  if (count <= 0) return [];
+  const chosen = new Set<TerritoryId>();
+  const continentOf = new Map<TerritoryId, TerritoryId[]>();
+  for (const c of map.continents) for (const t of c.territories) continentOf.set(t, c.territories);
+  for (const t of shuffle(rng, map.territoryIds)) {
+    if (chosen.size >= count) break;
+    const cont = continentOf.get(t) ?? [];
+    if (cont.filter((x) => x !== t && !chosen.has(x)).length < 2) continue;
+    chosen.add(t);
+    if (!openNetworkConnected(map, chosen)) chosen.delete(t);
+  }
+  return map.territoryIds.filter((t) => chosen.has(t));
+}
+
+function openNetworkConnected(map: MapDef, blocked: Set<TerritoryId>): boolean {
+  const open = map.territoryIds.filter((t) => !blocked.has(t));
+  if (open.length === 0) return false;
+  const seen = new Set<TerritoryId>([open[0]]);
+  const queue = [open[0]];
+  while (queue.length) {
+    const t = queue.pop()!;
+    for (const n of map.adjacency[t]) if (!blocked.has(n) && !seen.has(n)) (seen.add(n), queue.push(n));
+  }
+  return seen.size === open.length;
+}
+
 export function continentsOf(state: GameState, id: PlayerId) {
-  return mapOf(state).continents.filter((c) => c.territories.every((t) => state.territories[t].owner === id));
+  return mapOf(state).continents.filter((c) => controlsContinent(state, c.territories, id));
 }
 
 export function capitalsHeldBy(state: GameState, id: PlayerId): TerritoryId[] {
@@ -412,7 +477,7 @@ function doPlace(state: GameState, playerId: PlayerId, action: PlaceAction, even
 
   if (state.phase === 'setup') {
     const limit = Math.min(player.armiesToPlace, state.options.setupBatch);
-    const unclaimed = mapOf(state).territoryIds.filter((t) => state.territories[t].owner === null);
+    const unclaimed = unclaimedTerritories(state);
     if (unclaimed.length > 0) {
       // Claiming phase: exactly one army on one unclaimed territory.
       if (entries.length !== 1 || total !== 1) throw new RuleError('Claim exactly one unclaimed territory with one army');
@@ -451,7 +516,7 @@ function advanceSetup(state: GameState, events: GameEvent[]): void {
   const order = state.turnOrder;
   // Neutral armies for claim mode: once all territories are claimed, drop neutral's leftover armies evenly.
   const neutral = state.players.find((p) => p.isNeutral);
-  if (neutral && neutral.armiesToPlace > 0 && mapOf(state).territoryIds.every((t) => state.territories[t].owner !== null)) {
+  if (neutral && neutral.armiesToPlace > 0 && unclaimedTerritories(state).length === 0) {
     const rng = rngOf(state);
     distributeEvenly(state, neutral, rng);
     saveRng(state, rng);
@@ -584,6 +649,7 @@ function doAttack(state: GameState, playerId: PlayerId, action: AttackAction, ev
   const to = state.territories[action.to];
   if (from.owner !== playerId) throw new RuleError(`You do not own ${action.from}`);
   if (to.owner === playerId) throw new RuleError(`You already own ${action.to}`);
+  if (isBlizzard(state, action.to)) throw new RuleError(`${action.to} is a blizzard: it cannot be attacked or entered`);
   if (!mapOf(state).isAdjacent(action.from, action.to)) throw new RuleError(`${action.from} is not adjacent to ${action.to}`);
   if (from.armies < 2) throw new RuleError('You need at least 2 armies to attack');
   if (action.dice !== undefined && (!Number.isInteger(action.dice) || action.dice < 1 || action.dice > 3))
@@ -854,7 +920,7 @@ export function legalMoves(state: GameState, playerId: PlayerId): LegalMoves {
   }
 
   if (state.phase === 'setup') {
-    const unclaimed = mapOf(state).territoryIds.filter((t) => state.territories[t].owner === null);
+    const unclaimed = unclaimedTerritories(state);
     if (unclaimed.length > 0) {
       lm.canPlaceOn = unclaimed;
       lm.placeLimit = 1;
@@ -885,7 +951,7 @@ export function legalMoves(state: GameState, playerId: PlayerId): LegalMoves {
       const armies = state.territories[t].armies;
       if (armies < 2) continue;
       for (const n of adjacency[t]) {
-        if (state.territories[n].owner !== playerId) lm.attacks.push({ from: t, to: n, maxDice: Math.min(3, armies - 1) });
+        if (state.territories[n].owner !== playerId && !isBlizzard(state, n)) lm.attacks.push({ from: t, to: n, maxDice: Math.min(3, armies - 1) });
       }
     }
     lm.canEndAttack = true;

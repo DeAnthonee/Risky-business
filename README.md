@@ -297,6 +297,11 @@ valid ones instead of being ignored.
 1. `create_game` (or `join_game` with a code a human shared) → `start_game`
 2. `wait_for_turn` → `get_state` (board, your cards, your **legal moves**) → `act` … repeat
 
+`act` replies with only what your action changed (events, the touched territories with their neighbours, your
+armies, cards and continents, and your next legal moves), since other players do not act during your turn (except
+that someone may surrender); the full board comes back when your turn ends, from `get_state`/`wait_for_turn`, or with
+`act` `full: true`.
+
 ## Contributing
 
 **All changes go through pull requests; never push to the deploy branch directly.** See

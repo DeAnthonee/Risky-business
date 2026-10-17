@@ -43,7 +43,8 @@ A TURN has three phases:
 
 1. REINFORCE
    You receive armies = max(3, floor(territories you own / 3)) + continent bonuses for every continent you fully control.
-   Cards: if you hold 5 or more cards at the start of your turn you MUST trade a set before placing.
+   Cards: if you hold 5 or more cards at the start of your turn the game trades a set in for you automatically
+   (the most armies, preferring a card for a territory you own and keeping wilds), until you hold 4 or fewer.
    You may trade any valid set during this phase. Place all armies on your own territories to move to the attack phase.
 
    Round 1 only ("firstRoundBonus", on by default): the Nth player in turn order receives at least N armies
@@ -56,7 +57,8 @@ A TURN has three phases:
    Highest dice are compared, then second highest. The loser of each comparison loses one army. Ties go to the defender.
    When the defender's last army falls you conquer the territory and must move in at least as many armies as dice you
    rolled (and at most all but one). You may send more. If that player has no territories left they are eliminated and
-   you take their cards; if that leaves you with 6+ cards you must trade immediately (armies go on the map at once).
+   you take their cards; if that leaves you with 5+ cards the game trades sets in for you right away, until you hold
+   4 or fewer (place those armies, then keep attacking).
    Conquering at least one territory this turn earns you one card at the end of your turn (max one per turn).
    "blitz" keeps rolling until the territory falls or you cannot continue.
 

@@ -74,6 +74,9 @@ export interface GameOptions {
 /** Reinforcements per capital held when the capitals option is on. */
 export const CAPITAL_BONUS = 2;
 
+/** Holding this many cards forces a trade: at the start of your turn, and right after an elimination hands you cards. */
+export const FORCED_TRADE_CARDS = 5;
+
 /** Dice a capital defends with when the capitals option is on (other territories defend with up to 2). */
 export const CAPITAL_DEFENSE_DICE = 3;
 
@@ -221,6 +224,8 @@ export interface ReinforcementBreakdown {
   /** Capitals held (capitals option) and the armies they add. */
   capitals: number;
   fromCapitals: number;
+  /** Set when fog of war hides this breakdown from the viewer (all numbers are then 0). */
+  hidden?: boolean;
   /** Round 1 only (firstRoundBonus): extra armies that lift later players to their turn position (4th gets 4, ...). */
   fromTurnOrder?: number;
   total: number;
@@ -231,7 +236,8 @@ export type GameEvent =
   | { type: 'phase'; phase: Phase; player: PlayerId | null }
   | { type: 'turn_started'; player: PlayerId; turnNumber: number; round: number; reinforcements: ReinforcementBreakdown }
   | { type: 'placed'; player: PlayerId; territory: TerritoryId; armies: number }
-  | { type: 'traded'; player: PlayerId; cardIds: number[]; cards: Card[]; armies: number; bonusTerritory: TerritoryId | null }
+  /** auto: the game traded this set itself because the player held 5 or more cards. */
+  | { type: 'traded'; player: PlayerId; cardIds: number[]; cards: Card[]; armies: number; bonusTerritory: TerritoryId | null; auto?: boolean }
   | {
       type: 'battle';
       attacker: PlayerId;

@@ -40,6 +40,45 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
   const [toast, setToast] = useState<string | null>(null);
   const [banner, setBanner] = useState<{ text: string; color: string } | null>(null);
   const [copiedWatch, setCopiedWatch] = useState(false);
+  // Draggable divider between the scoreboard and the log/chat (height remembered in this browser).
+  const sidebarRef = useRef<HTMLElement>(null);
+  const [playersHeight, setPlayersHeight] = useState<number | null>(() => {
+    try {
+      const v = Number(localStorage.getItem('risk.playersHeight'));
+      return v > 0 ? v : null;
+    } catch {
+      return null;
+    }
+  });
+  const savePlayersHeight = (h: number | null) => {
+    setPlayersHeight(h);
+    try {
+      if (h === null) localStorage.removeItem('risk.playersHeight');
+      else localStorage.setItem('risk.playersHeight', String(Math.round(h)));
+    } catch {
+      /* storage unavailable: keep it for this visit only */
+    }
+  };
+  const startResize = (e: React.PointerEvent<HTMLDivElement>) => {
+    const aside = sidebarRef.current;
+    const panel = aside?.querySelector<HTMLElement>('.players-panel');
+    if (!aside || !panel) return;
+    e.preventDefault();
+    const startY = e.clientY;
+    const startH = panel.getBoundingClientRect().height;
+    const maxH = aside.getBoundingClientRect().height - 140; // keep room for the tabs and a few lines of chat
+    const handle = e.currentTarget;
+    handle.setPointerCapture(e.pointerId);
+    const move = (ev: PointerEvent) => setPlayersHeight(Math.max(60, Math.min(maxH, startH + ev.clientY - startY)));
+    const up = (ev: PointerEvent) => {
+      handle.releasePointerCapture(ev.pointerId);
+      handle.removeEventListener('pointermove', move);
+      handle.removeEventListener('pointerup', up);
+      savePlayersHeight(Math.max(60, Math.min(maxH, startH + ev.clientY - startY)));
+    };
+    handle.addEventListener('pointermove', move);
+    handle.addEventListener('pointerup', up);
+  };
   const spectator = !me;
   // Spectator fog preview: follow the current player by default; click a player to pin, click again to see all.
   const fogOn = !!view.options.fogOfWar;
@@ -508,8 +547,8 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
       </div>
 
       {/* ---------- sidebar ---------- */}
-      <aside className="sidebar">
-        <div className="players-panel">
+      <aside className="sidebar" ref={sidebarRef}>
+        <div className="players-panel" style={playersHeight !== null ? { height: playersHeight, flex: 'none' } : undefined}>
           {[...view.players].sort((a, b) => a.order - b.order).map((p) => (
             <div
               key={p.id}
@@ -545,6 +584,15 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
             </div>
           )}
         </div>
+        <div
+          className="sidebar-splitter"
+          role="separator"
+          aria-orientation="horizontal"
+          aria-label="Resize scoreboard and chat"
+          title="Drag to resize · double-click to reset"
+          onPointerDown={startResize}
+          onDoubleClick={() => savePlayersHeight(null)}
+        />
         <div className="tabs">
           <button className={tab === 'log' ? 'active' : ''} onClick={() => setTab('log')}>
             Log

@@ -36,8 +36,8 @@ and no other player's seat sees the message. Spectators see every whisper, highl
 opened the spectator view). Whispers go to a player id; by name only when exactly one player has that name.
 Any player's name in a chat message (with or without `@`) is drawn in that player's colour; your own
 name is highlighted.
-Dice rolls, cards being earned, traded in (fanning out into "+N armies") or taken from an eliminated player
-all animate on the board. The sidebar lists players in turn order with their territories, armies, cards and income
+Dice rolls, troop placements ("+N" bursts that stay up longer for spectators), cards being earned, traded in
+(fanning out into "+N armies") or taken from an eliminated player all animate on the board. The sidebar lists players in turn order with their territories, armies, cards and income
 (`+N/turn`, the reinforcements they get next turn before cards; hover it for the breakdown).
 On desktop, drag the divider under the scoreboard to give the log/chat more or less room (double-click resets).
 Press **Bonuses** (on the map, in the spectator bar, or **B**) to see every region painted in its own colour with

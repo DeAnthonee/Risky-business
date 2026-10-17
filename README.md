@@ -27,7 +27,9 @@ npm start              # http://localhost:8080
 Open http://localhost:8080, enter a name, create a game, add a bot or share the 6-letter join code
 (or the invite link `?game=CODE`), and press **Start**. Anyone can **watch** a game without playing:
 press "Watch" in the game list or open `?game=CODE&spectate=1`. Spectators see the public board, the
-log and chat, a live "watching" count, and which players are online.
+log and chat, a live "watching" count, and which players are online. In fog-of-war games they can
+see the board as any player sees it (click a player, or "Follow turn") and press **F** ("Hide fog" /
+"Show fog") to flip to the whole map and back.
 
 Development with hot reload (server on :8080, Vite client on :5173 proxying `/api` and `/ws`):
 

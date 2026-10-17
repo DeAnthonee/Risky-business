@@ -1052,6 +1052,17 @@ label.check input {
   }
 }
 
+/* Spectator fog toggle */
+.fog-toggle kbd {
+  font: inherit;
+  font-size: 0.75em;
+  padding: 0 4px;
+  margin-left: 4px;
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  opacity: 0.7;
+}
+
 /* Spectator chat */
 .chat-msg.spectator { opacity: 0.85; font-style: italic; }
 .chat-msg.spectator .chat-spectator-name { color: #b9c3d6; font-style: normal; }

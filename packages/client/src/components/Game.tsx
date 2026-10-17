@@ -44,7 +44,20 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
   const fogOn = !!view.options.fogOfWar;
   const [fogPin, setFogPin] = useState<string | null>(null);
   const [followTurn, setFollowTurn] = useState(true);
-  const fogAs = spectator && fogOn ? (followTurn ? view.currentPlayer : fogPin) : null;
+  // "Hide fog" reveals the whole map at a glance without forgetting which fog view was chosen.
+  const [fogRevealed, setFogRevealed] = useState(false);
+  const fogAs = spectator && fogOn && !fogRevealed ? (followTurn ? view.currentPlayer : fogPin) : null;
+  useEffect(() => {
+    if (!spectator || !fogOn) return;
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (e.ctrlKey || e.metaKey || e.altKey) return; // leave Ctrl/Cmd+F (find in page) alone
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable)) return;
+      if (e.key === 'f' || e.key === 'F') setFogRevealed((r) => !r);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [spectator, fogOn]);
   const fogHidden = useMemo(() => {
     if (!fogAs) return undefined;
     const vis = visibleTerritories(view.territories, fogAs, map);
@@ -52,6 +65,7 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
   }, [fogAs, view.territories, map]);
   const pickFog = (pid: string) => {
     if (!spectator || !fogOn) return;
+    setFogRevealed(false);
     if (fogAs === pid) {
       setFollowTurn(false);
       setFogPin(null);
@@ -315,11 +329,16 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
                   ) : (
                     <strong>whole map</strong>
                   )}
-                  <button className={`small ${followTurn ? 'primary' : ''}`} onClick={() => { setFollowTurn(true); setFogPin(null); }}>
+                  <button className={`small ${followTurn && !fogRevealed ? 'primary' : ''}`} onClick={() => { setFogRevealed(false); setFollowTurn(true); setFogPin(null); }}>
                     Follow turn
                   </button>
-                  <button className="small" onClick={() => { setFollowTurn(false); setFogPin(null); }}>
-                    Whole map
+                  <button
+                    className={`small fog-toggle ${fogRevealed ? 'primary' : ''}`}
+                    aria-pressed={fogRevealed}
+                    title="Show the whole map, then switch back to the fog view you had (shortcut: F)"
+                    onClick={() => setFogRevealed((r) => !r)}
+                  >
+                    {fogRevealed ? '🌫 Show fog' : '👁 Hide fog'} <kbd>F</kbd>
                   </button>
                 </span>
               )}

@@ -21,6 +21,11 @@ export interface AppOptions {
   adminToken?: string | null;
   /** AI character profiles; defaults to the repo's AI/ folder with saves kept in memory. */
   characters?: CharacterStore;
+  /**
+   * TEMPORARY (testing): anyone may create and start tournaments, without the admin key (default true).
+   * Turn off before launch (RISK_TOURNAMENTS_OPEN=0) so only the host can.
+   */
+  openTournaments?: boolean;
   /** Sweep interval for idle rooms; 0 disables the automatic sweeper (tests). */
   sweepIntervalMs?: number;
 }
@@ -74,11 +79,11 @@ export function createRiskServer(store: Store, opts: AppOptions = {}): RiskServe
     next();
   });
   const characters = opts.characters ?? new CharacterStore(DEFAULT_AI_DIR, null);
-  app.use('/api', createApi(store, { adminToken: opts.adminToken, characters }));
+  app.use('/api', createApi(store, { adminToken: opts.adminToken, openTournaments: opts.openTournaments ?? true, characters }));
   if (opts.sweepIntervalMs !== 0) store.startSweeper(opts.sweepIntervalMs ?? 5 * 60_000);
 
   // Remote MCP endpoint for AI agents (claude.ai connectors, any Streamable HTTP MCP client).
-  const mcp = createMcpRouter(store, characters, opts.mcpLabel ?? 'Risky Business');
+  const mcp = createMcpRouter(store, characters, opts.mcpLabel ?? 'Risky Business', opts.adminToken ?? null, opts.openTournaments ?? true);
   app.use('/mcp', mcp.router);
 
   const health = (): HealthReport => {

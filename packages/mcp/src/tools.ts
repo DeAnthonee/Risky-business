@@ -1,7 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { DEFAULT_OPTIONS, MAP_IDS, OPTION_KEYS, OPTION_SPECS, describeOptions, getMap, globalMax, optionLimits, type Action, type GameOptions, type GameView } from '@risk/engine';
-import { GAME_OUTCOMES, RiskHttpError, type CharacterMemory, type IdentityStore, type RiskApi } from './api.js';
+import { GAME_OUTCOMES, RiskHttpError, type CharacterMemory, type IdentityStore, type RiskApi, type TournamentInfo } from './api.js';
 import { formatActResult, formatEvents, formatState } from './format.js';
 
 export interface RiskMcpOptions {
@@ -91,6 +91,27 @@ export function formatMemory(m: CharacterMemory): string {
   return lines.join('\n');
 }
 
+const tournamentIdSchema = z.string().min(4).max(12).describe('Tournament code, e.g. "TAB12C"');
+
+/** A bracket as text: entrants, every round's tables and, with an entrant token, where you stand. */
+export function formatTournament(t: TournamentInfo): string {
+  const lines = [`TOURNAMENT ${t.id} "${t.name}" - ${t.status.toUpperCase()} - map ${t.map}, tables of up to ${t.groupSize}${t.fillBots ? ', round 1 filled with bots' : ''}`];
+  lines.push(`Entrants (${t.entrants.length}/${t.maxEntrants}): ${t.entrants.map((e) => `${e.name}${e.isBot ? ' [bot]' : ''} (${e.status})`).join(', ') || 'none yet'}`);
+  for (const r of t.rounds) {
+    lines.push(`Round ${r.round}:`);
+    r.matches.forEach((m, i) => {
+      const who = m.players.map((p) => (p.entrantId === m.winner ? `*${p.name}*` : p.name)).join(', ');
+      lines.push(`  ${m.gameId ? `table ${i + 1}, game ${m.gameId}` : 'bye'} [${m.status}]: ${who}`);
+    });
+  }
+  if (t.champion) lines.push(`CHAMPION: ${t.champion.name}`);
+  if (t.you) {
+    lines.push(`You: ${t.you.name} (${t.you.entrantId}) - ${t.you.status}`);
+    if (t.you.match) lines.push(`YOUR TABLE: game ${t.you.match.gameId} (round ${t.you.match.round}). Seat token: ${t.you.match.token} <- pass it as "token" to wait_for_turn / get_state / act for that game.`);
+  }
+  return lines.join('\n');
+}
+
 function text(s: string) {
   return { content: [{ type: 'text' as const, text: s }] };
 }
@@ -107,6 +128,7 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
       instructions: [
         'You can play the board game Risk (classic world domination rules) against humans, bots and other agents.',
         'Typical flow: rules -> game_options (see every setting) -> create_game with the settings you want (or join_game with a code a human shared) -> optionally set_options / add_bot -> start_game -> loop { wait_for_turn -> get_state -> act }.',
+        'Tournaments: join_tournament with a code, then wait_for_match -> play your table like any game -> wait_for_match again until you are out or the champion.',
         'get_state returns your legal moves; act takes one JSON action. Attacking with blitz:true and occupy:"max" resolves a whole battle in one call. Under fog of war leave out occupy: a conquest reveals what lies beyond it, and you then choose how many armies to move in.',
         'IMPORTANT: create_game and join_game return a player token. Remember it and pass it as the "token" argument on every later call for that game: it is what identifies YOUR seat (several chats or agents can sit at the same table, each with its own token).',
         opts.identityNote ?? 'Seats are also remembered by this connection while it lasts; my_seats lists them and resume_game recovers one from a token.',
@@ -168,7 +190,7 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
     'map',
     {
       description: 'Return a static map: territories, continents with bonuses, and adjacency (which territories border which). Pass the map a game uses (get_state shows options.map).',
-      inputSchema: { map: z.enum(MAP_IDS as [string, ...string[]]).optional().describe(`Default classic. One of: ${MAP_IDS.join(', ')} (fantasy = Realms of Halvaren, an original fantasy world)`) },
+      inputSchema: { map: z.enum(MAP_IDS as [string, ...string[]]).optional().describe(`Default classic. One of: ${MAP_IDS.join(', ')} (fantasy = Realms of Halvaren, an original fantasy world; skirmish = Four Crowns, a small fast 4-player board)`) },
     },
     async ({ map }) => {
     try {
@@ -548,6 +570,137 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
         const g = await api.getGame(gameId.toUpperCase());
         if (format === 'json') return text(JSON.stringify(g.state));
         return text(`SPECTATING (no seat).\n${formatState(g.state, g.name)}\n\nTo follow: wait_for_turn {gameId:"${gameId.toUpperCase()}", sinceVersion:${g.state.version}}`);
+      } catch (e) {
+        return errorText(e);
+      }
+    },
+  );
+
+  // ---- tournaments ----
+  /** Entrant tokens this connection holds, by tournament id. */
+  const entrants = new Map<string, { token: string; name: string }>();
+  const entrantToken = (id: string, override?: string) => override ?? entrants.get(id)?.token;
+  /** Remember the seat at your current table so the game tools work without a token. */
+  const rememberTable = (t: TournamentInfo) => {
+    const m = t.you?.match;
+    if (m) identities.set({ gameId: m.gameId, playerId: m.playerId, token: m.token, name: t.you!.name });
+  };
+  const entrantTokenSchema = z.string().optional().describe('Your entrant token for this tournament (returned by join_tournament). Pass it to see your status and your table.');
+
+  server.registerTool('list_tournaments', { description: 'List tournaments on the server: code, name, status (registering / running / finished), map, entrants and champion.', inputSchema: {} }, async () => {
+    try {
+      return text(JSON.stringify(await api.listTournaments(), null, 1));
+    } catch (e) {
+      return errorText(e);
+    }
+  });
+
+  server.registerTool(
+    'join_tournament',
+    {
+      description:
+        'Enter a tournament while it is registering. Knockout format: each round seats the remaining entrants at tables of a few players, and each table\'s winner moves on until one champion is left. Returns your ENTRANT token: keep it. Once the host starts the tournament, call wait_for_match to be seated at your table.',
+      inputSchema: { tournamentId: tournamentIdSchema, playerName: z.string().max(24).optional().describe(`Your display name in the tournament (default "${DEFAULT_NAME}"); must be unique in it`) },
+    },
+    async ({ tournamentId, playerName }) => {
+      try {
+        const id = tournamentId.toUpperCase();
+        const name = playerName ?? DEFAULT_NAME;
+        const r = await api.joinTournament(id, name);
+        entrants.set(id, { token: r.token, name });
+        return text(`Joined tournament ${id} as ${name}. ENTRANT TOKEN: ${r.token}  <- pass it as "token" to tournament_status and wait_for_match.\n\n${formatTournament(r.tournament)}`);
+      } catch (e) {
+        return errorText(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    'tournament_status',
+    {
+      description: 'Show a tournament bracket: entrants, every round\'s tables and winners, the champion. With your entrant token it also shows your status and, while you are playing, your table and seat token.',
+      inputSchema: { tournamentId: tournamentIdSchema, token: entrantTokenSchema },
+    },
+    async ({ tournamentId, token }) => {
+      try {
+        const id = tournamentId.toUpperCase();
+        const { tournament } = await api.getTournament(id, entrantToken(id, token));
+        rememberTable(tournament);
+        return text(formatTournament(tournament));
+      } catch (e) {
+        return errorText(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    'wait_for_match',
+    {
+      description:
+        'Block until you have a table to play in this tournament (or you are out, or it is over), up to timeoutSeconds. When it returns YOUR TABLE, play that game with wait_for_turn / get_state / act and the seat token it gives; when that game ends, call wait_for_match again for the next round. Call again if it times out.',
+      inputSchema: { tournamentId: tournamentIdSchema, token: entrantTokenSchema, timeoutSeconds: z.number().min(1).max(110).optional().describe('Default 60') },
+    },
+    async ({ tournamentId, token, timeoutSeconds }) => {
+      try {
+        const id = tournamentId.toUpperCase();
+        const tok = entrantToken(id, token);
+        if (!tok) throw new RiskHttpError('No entrant token for this tournament on this connection: pass "token" (from join_tournament)', 401);
+        const deadline = Date.now() + (timeoutSeconds ?? 60) * 1000;
+        let { tournament: t } = await api.getTournament(id, tok);
+        while (!t.you?.match && t.status !== 'finished' && t.you?.status !== 'out' && Date.now() < deadline) {
+          t = (await api.waitTournament(id, tok, t.version, Math.max(0, deadline - Date.now()))).tournament;
+        }
+        rememberTable(t);
+        const header = t.you?.match
+          ? 'Your table is ready.'
+          : t.status === 'finished'
+            ? 'The tournament is over.'
+            : t.you?.status === 'out'
+              ? 'You are out of the tournament.'
+              : 'Timed out: no table for you yet. Call wait_for_match again.';
+        return text(`${header}\n\n${formatTournament(t)}`);
+      } catch (e) {
+        return errorText(e);
+      }
+    },
+  );
+
+  // TEMPORARY (testing): create/start in the MCP, and no admin key needed while the server has tournaments open.
+  // Before launch: remove these two tools (and turn RISK_TOURNAMENTS_OPEN off) so only the host creates tournaments.
+  const adminKeySchema = z
+    .string()
+    .min(1)
+    .optional()
+    .describe("Not needed while tournaments are open for testing. Otherwise the server's admin key (RISK_ADMIN_TOKEN), which only the host has.");
+  server.registerTool(
+    'create_tournament',
+    {
+      description: 'Create a tournament that players and agents can join (open to anyone while tournaments are being tested; later host only). Settings: map and other game options for every table, seats per table (groupSize), entrant cap, and whether to fill round 1 with bots.',
+      inputSchema: {
+        adminKey: adminKeySchema,
+        name: z.string().max(60).optional(),
+        options: optionsSchema,
+        groupSize: z.number().int().min(2).max(10).optional().describe('Players per table (default 4, or the map maximum if smaller)'),
+        maxEntrants: z.number().int().min(2).max(256).optional().describe('Default 64'),
+        fillBots: z.boolean().optional().describe('Fill round 1 with bots so every table is full (default true)'),
+      },
+    },
+    async ({ adminKey, name, options, groupSize, maxEntrants, fillBots }) => {
+      try {
+        const { tournament } = await api.createTournament(adminKey, { name, options: options as Partial<GameOptions> | undefined, groupSize, maxEntrants, fillBots });
+        return text(`Created tournament ${tournament.id}. Share the code: players join with join_tournament (agents) or on the website; start it with start_tournament.\n\n${formatTournament(tournament)}`);
+      } catch (e) {
+        return errorText(e);
+      }
+    },
+  );
+  server.registerTool(
+    'start_tournament',
+    { description: 'Close registration and seat round 1 of a tournament (open to anyone while tournaments are being tested; later host only).', inputSchema: { adminKey: adminKeySchema, tournamentId: tournamentIdSchema } },
+    async ({ adminKey, tournamentId }) => {
+      try {
+        const { tournament } = await api.startTournament(adminKey, tournamentId.toUpperCase());
+        return text(`Tournament started.\n\n${formatTournament(tournament)}`);
       } catch (e) {
         return errorText(e);
       }

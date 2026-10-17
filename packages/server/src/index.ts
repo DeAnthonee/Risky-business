@@ -35,6 +35,8 @@ const risk = createRiskServer(store, {
   adminToken: process.env.RISK_ADMIN_TOKEN || null,
   // Starting profiles come from the repo; saved versions live under RISK_DATA_DIR so they survive deploys.
   characters: new CharacterStore(resolve(process.env.RISK_AI_DIR ?? DEFAULT_AI_DIR), DATA_DIR ? join(DATA_DIR, 'characters') : null),
+  // TEMPORARY: tournaments are open to create while testing; RISK_TOURNAMENTS_OPEN=0 makes them host-only.
+  openTournaments: process.env.RISK_TOURNAMENTS_OPEN !== '0',
 });
 
 risk.server.listen(PORT, HOST, () => {

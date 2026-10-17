@@ -15,6 +15,9 @@ type Mode = 'idle' | 'capital' | 'place' | 'attack' | 'fortify';
 const BATTLE_ROLL_MS = 420;
 const BATTLE_SHOW_MS = 650;
 const BATTLE_LINGER_MS = 2200;
+/** Faster timings while the same attack keeps rolling (a blitz, or repeated single rolls on one border). */
+const BLITZ_ROLL_MS = 170;
+const BLITZ_SHOW_MS = 230;
 
 export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameConnection; gameId: string; session: Session | null; onLeave: () => void; onJoin?: () => void }) {
   const view = conn.view!;
@@ -349,7 +352,7 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
         />
 
         {anim.battle && (
-          <DicePanel battle={anim.battle.ev} rolling={anim.battle.rolling} attackerColor={colorOf(anim.battle.ev.attacker)} defenderColor={colorOf(anim.battle.ev.defender)} names={names} mapId={view.options.map} />
+          <DicePanel battle={anim.battle.ev} rolling={anim.battle.rolling} streak={anim.battle.streak} attackerColor={colorOf(anim.battle.ev.attacker)} defenderColor={colorOf(anim.battle.ev.defender)} names={names} mapId={view.options.map} />
         )}
 
         {anim.cardFx && <CardFxPanel key={anim.cardFx.id} fx={anim.cardFx} names={names} mapId={view.options.map} />}
@@ -695,7 +698,8 @@ function PhaseSteps({ phase }: { phase: GameView['phase'] }) {
 // ---------------------------------------------------------------------------
 
 interface AnimState {
-  battle: { ev: BattleEvent; rolling: boolean } | null;
+  /** streak: how many rolls in a row this attack (same from → to) has made; above 1 it plays as a blitz. */
+  battle: { ev: BattleEvent; rolling: boolean; streak: number } | null;
   attackArrow: { from: string; to: string } | null;
   flashes: Record<string, number>;
   moves: MoveAnim[];
@@ -731,6 +735,12 @@ function useAnimations(
   }, []);
   const seen = useRef(0);
   const queue = useRef<BattleEvent[]>([]);
+  const lastBattle = useRef<BattleEvent | null>(null);
+  const streak = useRef(0);
+  // Battles that start a new streak: the attack changed, or a conquest or turn change came in between.
+  // Marked when queued, so a replay that lags behind the live board still counts streaks correctly.
+  const streakBreaks = useRef(new WeakSet<BattleEvent>());
+  const lastQueued = useRef<BattleEvent | null>(null);
   const running = useRef(false);
   const ids = useRef(0);
 
@@ -742,19 +752,30 @@ function useAnimations(
       return;
     }
     running.current = true;
-    setState((s) => ({ ...s, battle: { ev: next, rolling: true }, attackArrow: { from: next.from, to: next.to } }));
-    setTimeout(() => {
-      setState((s) => ({ ...s, battle: { ev: next, rolling: false } }));
-      const more = queue.current.length > 0;
-      setTimeout(
-        () => {
-          running.current = false;
-          if (!more) setState((s) => (s.battle?.ev === next ? { ...s, battle: null, attackArrow: null } : s));
-          pumpBattles();
-        },
-        more ? BATTLE_SHOW_MS : BATTLE_LINGER_MS,
-      );
-    }, BATTLE_ROLL_MS);
+    // Same attack as the last roll (or the next one): play it as a quick blitz instead of roll-by-roll.
+    const sameAsLast = !streakBreaks.current.has(next) && lastBattle.current && lastBattle.current.from === next.from && lastBattle.current.to === next.to && lastBattle.current.attacker === next.attacker;
+    streak.current = sameAsLast ? streak.current + 1 : 1;
+    lastBattle.current = next;
+    const peek = queue.current[0];
+    const continues = !!peek && !streakBreaks.current.has(peek) && peek.from === next.from && peek.to === next.to && peek.attacker === next.attacker;
+    const fast = streak.current > 1 || continues;
+    const n = streak.current;
+    setState((s) => ({ ...s, battle: { ev: next, rolling: true, streak: n }, attackArrow: { from: next.from, to: next.to } }));
+    setTimeout(
+      () => {
+        setState((s) => ({ ...s, battle: { ev: next, rolling: false, streak: n } }));
+        const more = queue.current.length > 0;
+        setTimeout(
+          () => {
+            running.current = false;
+            if (!more) setState((s) => (s.battle?.ev === next ? { ...s, battle: null, attackArrow: null } : s));
+            pumpBattles();
+          },
+          more ? (fast ? BLITZ_SHOW_MS : BATTLE_SHOW_MS) : BATTLE_LINGER_MS,
+        );
+      },
+      fast ? BLITZ_ROLL_MS : BATTLE_ROLL_MS,
+    );
   }, []);
 
   useEffect(() => {
@@ -778,11 +799,16 @@ function useAnimations(
       }
       for (const e of b.events as GameEvent[]) {
         switch (e.type) {
-          case 'battle':
+          case 'battle': {
+            const prev = lastQueued.current;
+            if (!prev || prev.from !== e.from || prev.to !== e.to || prev.attacker !== e.attacker) streakBreaks.current.add(e);
+            lastQueued.current = e;
             queue.current.push(e);
             newBattles++;
             break;
+          }
           case 'conquered':
+            lastQueued.current = null;
             flashes[e.to] = Date.now();
             sweeps.push({ id: ++ids.current, territory: e.to, from: e.from, color: colorOf(e.player) });
             break;
@@ -809,6 +835,7 @@ function useAnimations(
             if (e.count > 0) newCards.push({ id: ++ids.current, kind: 'taken', player: e.player, from: e.from, color: colorOf(e.player), fromColor: colorOf(e.from), count: e.count });
             break;
           case 'turn_started':
+            lastQueued.current = null;
             setBanner({ text: `${view.players.find((p) => p.id === e.player)?.name ?? 'Someone'}'s turn`, color: colorOf(e.player) });
             break;
           case 'eliminated':

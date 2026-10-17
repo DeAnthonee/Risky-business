@@ -390,6 +390,7 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
     {
       description:
         'Perform one game action on your turn. Returns the resulting events (dice rolls, conquests...) and the new state with your next legal moves. ' +
+        'Attack with blitz:true (one call resolves the whole battle) unless you deliberately want to stop after a single roll; spectators watch every call. ' +
         'Examples: {"type":"place","placements":{"alaska":3}} · {"type":"attack","from":"alaska","to":"kamchatka","blitz":true,"occupy":"max"} · {"type":"end_attack"} · {"type":"fortify","from":"peru","to":"brazil","armies":2} · {"type":"end_turn"}',
       inputSchema: { gameId: gameIdSchema, action: actionSchema, token: tokenSchema, as: asSchema },
     },

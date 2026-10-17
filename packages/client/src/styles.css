@@ -1467,3 +1467,7 @@ label.check input {
     transform: translateY(0);
   }
 }
+
+/* Blitz counter in the dice panel */
+.dice-vs { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.dice-blitz { font-size: 10px; font-weight: 800; letter-spacing: 1px; color: #ffd166; white-space: nowrap; }

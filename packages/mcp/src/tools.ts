@@ -32,7 +32,7 @@ const optionsSchema = z
     autoSetup: z.boolean().optional().describe('true = skip the army placement phase: starting armies are scattered randomly and turn 1 starts at once'),
     cardValues: z.enum(['progressive', 'fixed']).optional().describe('progressive (4,6,8,10,12,15,+5...) or fixed (infantry 4, cavalry 6, artillery 8, one of each 10)'),
     fogOfWar: z.boolean().optional().describe('true = players only see their territories and adjacent ones; hidden territories show as "?"'),
-    capitals: z.boolean().optional().describe('Capital Conquest: each player gets a capital (+2 armies per capital held per turn); capturing a capital takes over that player'),
+    capitals: z.boolean().optional().describe('Capital Conquest: each player gets a capital (+2 armies per capital held per turn; capitals defend with up to 3 dice); capturing a capital takes over that player'),
   })
   .optional();
 

@@ -47,7 +47,7 @@ export function formatState(view: GameView, gameName?: string): string {
         : `Card values: progressive, next set is worth ${tradeBonus(view.tradeCount)} (+2 on an owned traded territory)`,
     );
     if (view.options.fogOfWar) lines.push('Fog of war is ON: you only see your territories and their neighbours.');
-    if (view.options.capitals) lines.push('Capital Conquest is ON: +2 armies per capital held; capturing a capital takes over that player.');
+    if (view.options.capitals) lines.push('Capital Conquest is ON: +2 armies per capital held; capitals defend with up to 3 dice; capturing a capital takes over that player.');
   }
 
   lines.push('');

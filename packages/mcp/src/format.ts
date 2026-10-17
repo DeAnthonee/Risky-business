@@ -95,7 +95,7 @@ export function formatState(view: GameView, gameName?: string): string {
     if (lm.pendingConquest) {
       const pc = lm.pendingConquest;
       lines.push(`  You conquered ${pc.to} from ${pc.from}. You MUST occupy: {"type":"occupy","armies":N} with ${pc.minArmies} <= N <= ${pc.maxArmies}`);
-      lines.push(`  (The board above already shows what ${pc.to} lets you see. Check its neighbours, capitals included, before you choose N: move in more if you will attack on from there.)`);
+      if (view.options.fogOfWar) lines.push(`  (The board above already shows what ${pc.to} lets you see. Check its neighbours, capitals included, before you choose N: move in more if you will attack on from there.)`);
     } else {
       if (lm.mustTrade) lines.push('  You MUST trade a card set now: {"type":"trade","cardIds":[a,b,c]}');
       if (lm.tradeableSets.length) {
@@ -216,7 +216,6 @@ export function formatEvents(events: GameEvent[], view: GameView): string {
   return out.join('\n');
 }
 
-/** Territories an event touches (placements, battles, conquests, moves, capitals). */
 /**
  * Under fog of war: territories the viewer can see only because of a conquest in these events, i.e. that
  * were fogged before. Recomputed from the view by handing the conquered territories back to their
@@ -231,9 +230,11 @@ export function revealedByConquests(events: GameEvent[], view: GameView): string
   const before: Record<string, { owner: string | null }> = { ...view.territories };
   for (const c of conquests) before[c.to] = { owner: c.previousOwner };
   const was = visibleTerritories(before, view.you, map);
-  return map.territoryIds.filter((t) => now.has(t) && !was.has(t));
+  // Blizzards are public under fog, so a conquest never reveals one.
+  return map.territoryIds.filter((t) => now.has(t) && !was.has(t) && !view.blizzards?.includes(t));
 }
 
+/** Territories an event touches (placements, battles, conquests, moves, capitals). */
 function touchedTerritories(events: GameEvent[]): string[] {
   const out = new Set<string>();
   for (const e of events) {

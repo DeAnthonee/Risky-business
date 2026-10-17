@@ -32,7 +32,8 @@ see the board as any player sees it (click a player, or "Follow turn") and press
 "Show fog") to flip to the whole map and back. Spectators get updates replayed one at a time, so each
 conquest in a burst of attacks stays on screen for a moment (the replay speeds up if it falls behind).
 Players can **whisper**: pick a player in the chat's "To" menu (or tap a whisper you got to answer it)
-and only the two of you see the message. Spectators see every whisper, highlighted in purple.
+and no other player's seat sees the message. Spectators see every whisper, highlighted in purple (so would a player who
+opened the spectator view). Whispers go to a player id; by name only when exactly one player has that name.
 Any player's name in a chat message (with or without `@`) is drawn in that player's colour; your own
 name is highlighted.
 The sidebar lists players in turn order with their territories, armies, cards and income
@@ -192,7 +193,7 @@ cards are hidden).
 | `POST /games/:id/actions`          | `{action}` → `{events, state}`                                     |
 | `GET  /games/:id/wait?timeoutMs=&since=` | long-poll until it is your turn, the game ends, or the version passes `since` |
 | `GET  /games/:id/events?since=`    | event history                                                      |
-| `GET/POST /games/:id/chat`         | chat. POST without a token posts as a spectator: `{message, name}` (5 messages / 10 s; host can turn it off with `spectatorChat`; every player sees them, even under fog). Players whisper with `{message, to}` (`to` = player name or id): only the two players and spectators can read it; the message carries `to` and `toName` |
+| `GET/POST /games/:id/chat`         | chat. POST without a token posts as a spectator: `{message, name}` (5 messages / 10 s; host can turn it off with `spectatorChat`; every player sees them, even under fog). Players whisper with `{message, to}` (`to` = player id, or a name exactly one player has): only the two players and spectators can read it; the message carries `to` and `toName`. GET with a token returns what that seat may read (a token that is not a seat here is a 401) |
 
 ### WebSocket
 

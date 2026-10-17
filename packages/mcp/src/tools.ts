@@ -426,11 +426,11 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
     'send_chat',
     {
       description:
-        'Send a chat message to everyone in the game (table talk, alliances, trash talk). Pass "to" with a player name to WHISPER instead: only you and that player read it (other players never see it), but spectators see every whisper.',
+        'Send a chat message to everyone in the game (table talk, alliances, trash talk). Pass "to" with a player id (or a name only one player has) to WHISPER instead: the other players\' seats never see it, but spectators see every whisper, and so would anyone at the table who opened the spectator view.',
       inputSchema: {
         gameId: gameIdSchema,
         message: z.string().min(1).max(500),
-        to: z.string().min(1).optional().describe('Whisper to this player (name or id) instead of the whole table.'),
+        to: z.string().min(1).optional().describe('Whisper to this player instead of the whole table: their player id, or a name only one player has.'),
         token: tokenSchema,
         as: asSchema,
       },
@@ -462,7 +462,10 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
         reader = undefined; // not seated here: read as a spectator
       }
       const { messages } = await api.chat(id, sinceId ?? 0, reader);
-      return text(messages.map((m) => `#${m.id} ${m.name}${m.spectator ? ' [spectator]' : ''}${m.to ? ` [whisper -> ${m.toName ?? m.to}]` : ''}: ${m.message}`).join('\n') || 'No messages.');
+      const lines = messages.map((m) => `#${m.id} ${m.name}${m.spectator ? ' [spectator]' : ''}${m.to ? ` [whisper -> ${m.toName ?? m.to}]` : ''}: ${m.message}`);
+      // Without a seat this is the spectator view, which includes every whisper: say so.
+      const header = reader ? '' : '(Reading as a spectator: no seat in this game on this connection, so all whispers are shown. Pass your token to read as your player.)\n';
+      return text(header + (lines.join('\n') || 'No messages.'));
     } catch (e) {
       return errorText(e);
     }

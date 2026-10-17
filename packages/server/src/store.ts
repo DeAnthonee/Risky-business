@@ -337,12 +337,21 @@ export class GameRoom extends EventEmitter {
     return msg;
   }
 
-  /** The player a whisper goes to, given as a player id or name (any case). */
+  /**
+   * The player a whisper goes to: an exact player id, or else a name (any case) that exactly one player has.
+   * Ids win so nobody can intercept whispers by naming themselves after another player's id.
+   */
   private whisperTarget(from: PlayerId | null, to: unknown) {
     if (!from) throw new RuleError('Only seated players can whisper');
-    const key = String(to).trim().toLowerCase();
-    const target = this.state.players.find((p) => !p.isNeutral && (p.id.toLowerCase() === key || p.name.toLowerCase() === key));
-    if (!target) throw new RuleError(`No player "${String(to).slice(0, 40)}" to whisper to`);
+    const raw = String(to).trim();
+    const seated = this.state.players.filter((p) => !p.isNeutral);
+    let target = seated.find((p) => p.id === raw);
+    if (!target) {
+      const named = seated.filter((p) => p.name.toLowerCase() === raw.toLowerCase());
+      if (named.length > 1) throw new RuleError(`More than one player is called "${raw.slice(0, 40)}": whisper by player id instead`);
+      target = named[0];
+    }
+    if (!target) throw new RuleError(`No player "${raw.slice(0, 40)}" to whisper to`);
     if (target.id === from) throw new RuleError("You can't whisper to yourself");
     return target;
   }

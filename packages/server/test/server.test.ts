@@ -326,6 +326,34 @@ describe('game lifecycle over HTTP', () => {
     expect(off.body.error).toMatch(/turned off/);
   });
 
+  it('routes whispers by id first, rejects ambiguous names, and refuses unknown tokens on read', async () => {
+    const created = await api('/games', { method: 'POST', body: JSON.stringify({ playerName: 'Ann' }) });
+    const g = created.body.gameId;
+    const ann = created.body.token;
+    const bobJoin = (await api(`/games/${g}/join`, { method: 'POST', body: JSON.stringify({ playerName: 'Bob' }) })).body;
+    const bob = bobJoin.token;
+    const bobId = bobJoin.playerId;
+    // Ann sits before Bob and renames herself to Bob's id to try to intercept whispers meant for Bob.
+    const mal = (await api(`/games/${g}/join`, { method: 'POST', body: JSON.stringify({ playerName: 'Mal' }) })).body.token;
+    expect((await api(`/games/${g}/name`, { method: 'POST', body: JSON.stringify({ name: bobId }) }, ann)).status).toBeLessThan(300);
+    const w = await api(`/games/${g}/chat`, { method: 'POST', body: JSON.stringify({ message: 'for Bob only', to: bobId }) }, mal);
+    expect(w.status).toBe(201);
+    expect(w.body.message.to).toBe(bobId);
+    const annRead = await api(`/games/${g}/chat`, {}, ann);
+    expect(annRead.body.messages.some((m: any) => m.message === 'for Bob only')).toBe(false);
+
+    // Two players with the same name: a whisper by that name is ambiguous.
+    expect((await api(`/games/${g}/name`, { method: 'POST', body: JSON.stringify({ name: 'Bob' }) }, mal)).status).toBeLessThan(300);
+    const amb = await api(`/games/${g}/chat`, { method: 'POST', body: JSON.stringify({ message: 'which Bob?', to: 'bob' }) }, ann);
+    expect(amb.status).toBe(400);
+    expect(amb.body.error).toMatch(/player id/);
+
+    // A token that is not a seat here does not silently read the spectator view (which shows all whispers).
+    const bad = await api(`/games/${g}/chat`, {}, 'not-a-real-token');
+    expect(bad.status).toBe(401);
+    expect((await api(`/games/${g}/chat`, {}, bob)).body.messages.some((m: any) => m.message === 'for Bob only')).toBe(true);
+  });
+
   it('delivers whispers to the two players and spectators only', async () => {
     const created = await api('/games', { method: 'POST', body: JSON.stringify({ playerName: 'Ann' }) });
     const g = created.body.gameId;

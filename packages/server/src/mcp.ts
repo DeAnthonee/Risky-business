@@ -5,6 +5,7 @@ import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import { MemoryIdentityStore, createRiskMcpServer } from '@risk/mcp';
 import { LocalRiskApi } from './local-api.js';
 import type { Store } from './store.js';
+import type { CharacterStore } from './characters.js';
 
 interface McpSession {
   transport: StreamableHTTPServerTransport;
@@ -19,9 +20,9 @@ const SESSION_IDLE_MS = Number(process.env.RISK_MCP_SESSION_IDLE_MS ?? 6 * 3600_
  * its game identities live in memory for the life of the session; tools also accept an explicit
  * token, and resume_game recovers a seat after a reconnect.
  */
-export function createMcpRouter(store: Store, label: string, adminToken: string | null = null, openTournaments = true) {
+export function createMcpRouter(store: Store, characters: CharacterStore, label: string, adminToken: string | null = null, openTournaments = true) {
   const router = express.Router();
-  const api = new LocalRiskApi(store, adminToken, openTournaments);
+  const api = new LocalRiskApi(store, characters, adminToken, openTournaments);
   const sessions = new Map<string, McpSession>();
 
   router.use(express.json({ limit: '1mb' }));

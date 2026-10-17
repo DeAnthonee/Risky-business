@@ -1,13 +1,15 @@
 import { RULES_TEXT, RuleError, getMap, redactEvents, type Action, type GameOptions } from '@risk/engine';
-import type { RiskApi } from '@risk/mcp';
+import type { CharacterUpdate, DiaryInput, RelationshipInput, RiskApi } from '@risk/mcp';
 import { RiskHttpError } from '@risk/mcp';
 import { checkAdmin, mapInfo, parseTournamentSpec, sanitizeOptions } from './http.js';
 import type { GameRoom, Store } from './store.js';
+import type { CharacterStore } from './characters.js';
 
 /** RiskApi implemented directly over the in-memory store (for the embedded /mcp endpoint). */
 export class LocalRiskApi implements RiskApi {
   constructor(
     private store: Store,
+    private characters: CharacterStore,
     private adminToken: string | null = null,
     /** TEMPORARY (testing): creating/starting tournaments needs no admin key. */
     private openTournaments = false,
@@ -164,6 +166,33 @@ export class LocalRiskApi implements RiskApi {
       room.act(me, { type: 'surrender' });
     }
     return { ok: true };
+  }
+  async listCharacters() {
+    return { characters: this.characters.list() };
+  }
+  async getCharacter(id: string, version?: number) {
+    return this.characters.get(id, version);
+  }
+  async characterHistory(id: string) {
+    return this.characters.history(id);
+  }
+  async updateCharacter(id: string, update: CharacterUpdate) {
+    return this.characters.update(id, update);
+  }
+  async modelInfo() {
+    return this.characters.modelInfo();
+  }
+  async characterMemory(id: string) {
+    return this.characters.memorySummary(id);
+  }
+  async readDiary(id: string, limit?: number, gameId?: string) {
+    return this.characters.readDiary(id, limit, gameId);
+  }
+  async addDiaryEntry(id: string, entry: DiaryInput) {
+    return this.characters.addDiaryEntry(id, entry);
+  }
+  async updateRelationship(id: string, update: RelationshipInput) {
+    return this.characters.updateRelationship(id, update);
   }
 }
 

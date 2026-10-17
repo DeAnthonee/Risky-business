@@ -1,13 +1,14 @@
 # General model info
 
-Docs that apply to **every** AI model and **every** character. Character-specific material belongs in
-`../characters/<universe>/<character>.md`, not here.
+Docs about the AI models themselves (setup, local models, comparisons). Strategy for every player — the
+playbook, ways to win and findings — lives in `../general-player/`. Character-specific material belongs in
+`../characters/<universe>/<character>.md` (and its diary and relationships files).
 
 ## Files
 
 | File | Topic |
 | ---- | ----- |
-| _(none yet)_ | |
+| `local-models.md` | Plan for running our own models on the Mac mini, and open questions for infrastructure |
 
 ## Adding a doc
 

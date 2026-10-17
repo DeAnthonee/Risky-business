@@ -241,7 +241,7 @@ export function OptionsForm({
       </label>
       <label className="check">
         <input type="checkbox" disabled={disabled} checked={options.spectatorChat !== false} onChange={(e) => onChange({ spectatorChat: e.target.checked })} /> Spectator chat
-        <span className="muted small">watchers can talk; under fog only other watchers see it</span>
+        <span className="muted small">watchers can talk, and every player sees it (even under fog)</span>
       </label>
       <label className="check">
         <input type="checkbox" disabled={disabled} checked={!!options.capitals} onChange={(e) => onChange({ capitals: e.target.checked })} /> Capital Conquest

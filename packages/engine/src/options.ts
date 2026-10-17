@@ -101,7 +101,7 @@ export const OPTION_SPECS: { [K in OptionKey]: OptionSpec } = {
   spectatorChat: {
     kind: 'boolean',
     label: 'Spectator chat',
-    description: 'true (default): people watching can post in the game chat, marked as spectators. Under fog of war their messages are shown only to other spectators so they cannot reveal hidden positions to players. false: only seated players can chat.',
+    description: 'true (default): people watching can post in the game chat, marked as spectators. Every player sees them, even under fog of war, so watchers can cheer, heckle and tip players off. false: only seated players can chat.',
   },
   capitals: {
     kind: 'boolean',

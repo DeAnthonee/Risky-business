@@ -54,7 +54,7 @@ export interface GameOptions {
   cardValues: 'progressive' | 'fixed';
   /** Fog of war: players only see their own territories and the ones adjacent to them. Spectators see everything. */
   fogOfWar: boolean;
-  /** Spectators may chat. Under fog of war their messages reach only other spectators, so they cannot leak hidden positions to players. */
+  /** Spectators may chat. Every player sees their messages, even under fog of war. */
   spectatorChat: boolean;
   /** Capital Conquest: each player gets a capital after setup; capturing one takes over that player, every capital held pays +CAPITAL_BONUS per turn. */
   capitals: boolean;

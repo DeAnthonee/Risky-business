@@ -1647,6 +1647,15 @@ describe('blitz with stopAt, and blitz odds', () => {
     expect(blitzOdds(30, 8, 2, 30 - n).win).toBeGreaterThanOrEqual(0.9);
     expect(blitzOdds(30, 8, 2, 30 - (n - 1)).win).toBeLessThan(0.9);
     expect(commitForOdds(5, 40, 2, 0.5)).toBeNull();
+    // Committing N armies fights exactly like an all-in blitz from N + 1.
+    expect(blitzOdds(25, 12, 2, 15)).toEqual(blitzOdds(11, 12, 2, 1));
+    // Huge late-game stacks stay fast: estimated on a scaled-down battle and flagged as approximate.
+    const t0 = Date.now();
+    const huge = blitzOdds(3000, 3000, 2);
+    commitForOdds(3000, 3000, 2, 0.9);
+    expect(Date.now() - t0).toBeLessThan(2000);
+    expect(huge.exact).toBe(false);
+    expect(blitzOdds(200, 200, 2).exact).toBe(true);
   });
 });
 

@@ -106,6 +106,41 @@ describe('setup', () => {
     expect(neutralArmies).toBe(40);
     expect(state.turnOrder).not.toContain(NEUTRAL_ID);
   });
+  it('neutral territories for 3+ players: set aside with a fixed garrison, players keep full armies', () => {
+    const { state } = setup(4, { neutrals: 10, neutralArmies: 3 });
+    const neutral = state.players.find((p) => p.isNeutral)!;
+    expect(neutral.id).toBe(NEUTRAL_ID);
+    expect(state.turnOrder).not.toContain(NEUTRAL_ID);
+    const held = territoriesOf(state, NEUTRAL_ID);
+    expect(held).toHaveLength(10);
+    for (const t of held) expect(state.territories[t].armies).toBe(3);
+    expect(neutral.armiesToPlace).toBe(0);
+    // The other 32 territories are dealt 8 each and players keep the classic 30 starting armies.
+    for (const p of state.players.filter((x) => !x.isNeutral)) {
+      expect(territoriesOf(state, p.id)).toHaveLength(8);
+      expect(p.armiesToPlace).toBe(30 - 8);
+    }
+    expect(TERRITORY_IDS.every((t) => state.territories[t].owner !== null)).toBe(true);
+    // Setup finishes and Neutral never gets a turn.
+    let s = finishSetup(state);
+    for (let i = 0; i < 8; i++) {
+      expect(s.currentPlayer).not.toBe(NEUTRAL_ID);
+      const me = s.currentPlayer!;
+      const lm = legalMoves(s, me);
+      if (lm.armiesToPlace) s = applyAction(s, me, { type: 'place', placements: { [lm.canPlaceOn[0]]: lm.armiesToPlace } }).state;
+      s = applyAction(s, me, { type: 'end_turn' }).state;
+    }
+  });
+  it('neutral territories: off by default, ignored for 2 players, validated, work in claim mode', () => {
+    expect(setup(3).state.players.some((p) => p.isNeutral)).toBe(false);
+    const two = setup(2, { neutrals: 10 }).state;
+    expect(territoriesOf(two, NEUTRAL_ID)).toHaveLength(14); // classic 2-player Neutral, unchanged
+    expect(() => createGame('x', { neutrals: 15 })).toThrow(RuleError);
+    expect(() => createGame('x', { neutralArmies: 0 })).toThrow(RuleError);
+    const claim = setup(3, { neutrals: 6, randomDeal: false }).state;
+    expect(territoriesOf(claim, NEUTRAL_ID)).toHaveLength(6);
+    expect(legalMoves(claim, claim.currentPlayer!).canPlaceOn).toHaveLength(36);
+  });
   it('enforces setup batch and advances to first turn', () => {
     let { state } = setup(3, { setupBatch: 5 });
     const me = state.currentPlayer!;

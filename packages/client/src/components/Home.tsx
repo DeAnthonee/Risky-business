@@ -215,6 +215,22 @@ export function OptionsForm({
         <input type="checkbox" disabled={disabled} checked={!!options.fogOfWar} onChange={(e) => onChange({ fogOfWar: e.target.checked })} /> Fog of war
         <span className="muted small">see only your territories and their neighbours</span>
       </label>
+      <label>
+        Neutral territories
+        <select disabled={disabled} value={options.neutrals ?? 0} onChange={(e) => onChange({ neutrals: Number(e.target.value) })}>
+          {[0, 4, 6, 8, 10, 12, 14, 18, 24].filter((n) => n <= Math.floor(MAPS[options.map ?? 'classic'].territoryIds.length / 3)).map((n) => (
+            <option key={n} value={n}>{n === 0 ? 'Off (2 players always get a Neutral)' : `${n} territories`}</option>
+          ))}
+        </select>
+      </label>
+      <label>
+        Neutral armies each
+        <select disabled={disabled || !options.neutrals} value={options.neutralArmies ?? 2} onChange={(e) => onChange({ neutralArmies: Number(e.target.value) })}>
+          {[1, 2, 3, 4, 5].map((n) => (
+            <option key={n} value={n}>{n}</option>
+          ))}
+        </select>
+      </label>
       <label className="check">
         <input type="checkbox" disabled={disabled} checked={!!options.capitals} onChange={(e) => onChange({ capitals: e.target.checked })} /> Capital Conquest
         <span className="muted small">+2 per capital held; capture a capital to take that player over</span>

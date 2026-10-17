@@ -53,6 +53,12 @@ Option "cardValues": "progressive" (default) escalates for the whole game: 4, 6,
 completes the most valuable set it can.
 If a traded card shows a territory you own, 2 extra armies are placed there automatically (once per trade).
 
+OPTION: NEUTRAL TERRITORIES
+"neutrals" (a number, 0 = off, at most a third of the map) applies to games of 3 or more players: that many random
+territories start held by a grey Neutral army with "neutralArmies" armies each (default 2). The rest are dealt to the
+players as usual and players keep their normal starting armies. Neutral never attacks, reinforces or moves; you
+conquer its territories like any other (it has no cards). Two-player games always use the classic Neutral above.
+
 OPTIONS: FOG OF WAR AND CAPITALS
 "fogOfWar": you only see territories you own and those adjacent to them; everything else shows as hidden
 (owner and armies unknown) and events there are reported as "fogged". Spectators always see the whole board.

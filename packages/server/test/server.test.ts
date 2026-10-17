@@ -218,6 +218,38 @@ describe('game lifecycle over HTTP', () => {
     }
   });
 
+  it('creates a 3-player game with neutral territories over HTTP and backfills older saves', async () => {
+    const created = await api('/games', { method: 'POST', body: JSON.stringify({ playerName: 'N', options: { neutrals: 6, neutralArmies: 4 } }) });
+    expect(created.status).toBe(201);
+    expect(created.body.state.options.neutrals).toBe(6);
+    const bad = await api('/games', { method: 'POST', body: JSON.stringify({ playerName: 'N', options: { neutrals: 99 } }) });
+    expect(bad.status).toBe(400);
+    for (let i = 0; i < 2; i++) await api(`/games/${created.body.gameId}/bots`, { method: 'POST', body: '{}' }, created.body.token);
+    const started = await api(`/games/${created.body.gameId}/start`, { method: 'POST', body: '{}' }, created.body.token);
+    expect(started.status).toBe(200);
+    const terr = Object.values(started.body.state.territories) as any[];
+    expect(terr.filter((t) => t.owner === 'neutral')).toHaveLength(6);
+    expect(terr.filter((t) => t.owner === 'neutral').every((t) => t.armies === 4)).toBe(true);
+
+    risk.store.save();
+    const saved = JSON.parse(readFileSync(join(dir, 'games.json'), 'utf8')) as any[];
+    for (const g of saved) {
+      delete g.state.options.neutrals;
+      delete g.state.options.neutralArmies;
+    }
+    const file = join(dir, 'pre-neutrals.json');
+    const { writeFileSync } = await import('node:fs');
+    writeFileSync(file, JSON.stringify(saved));
+    const legacy = await startServer(file);
+    try {
+      const room = legacy.risk.store.get(gameId)!;
+      expect(room.state.options.neutrals).toBe(0);
+      expect(room.state.options.neutralArmies).toBe(2);
+    } finally {
+      await legacy.risk.shutdown('test');
+    }
+  });
+
   it('shuts down gracefully and releases long-poll waiters', async () => {
     const third = await startServer(null);
     const created = await fetch(`${third.base}/api/games`, {

@@ -77,6 +77,11 @@ export function validateOptions(o: GameOptions): void {
   if (!isMapId(o.map)) throw new RuleError(`Unknown map "${String(o.map)}"`);
   if (o.cardValues !== 'progressive' && o.cardValues !== 'fixed') throw new RuleError("cardValues must be 'progressive' or 'fixed'");
   const map = getMap(o.map);
+  const maxNeutrals = Math.floor(map.territoryIds.length / 3);
+  if (!Number.isInteger(o.neutrals) || o.neutrals < 0 || o.neutrals > maxNeutrals)
+    throw new RuleError(`neutrals must be an integer between 0 and ${maxNeutrals} on the ${map.name} map`);
+  if (!Number.isInteger(o.neutralArmies) || o.neutralArmies < 1 || o.neutralArmies > 10)
+    throw new RuleError('neutralArmies must be an integer between 1 and 10');
   if (!Number.isInteger(o.maxPlayers) || o.maxPlayers < 2 || o.maxPlayers > map.maxPlayers)
     throw new RuleError(`maxPlayers must be between 2 and ${map.maxPlayers} on the ${map.name} map`);
 }
@@ -159,8 +164,9 @@ export function startGame(state: GameState): ActionResult {
   const events: GameEvent[] = [];
   const armies = map.startingArmies(humansAndBots.length);
 
-  // Two-player games use a neutral third army (classic rules).
-  if (humansAndBots.length === 2) {
+  // Two-player games use a neutral third army (classic rules); larger games get one when the neutrals option is on.
+  const neutralTerritories = humansAndBots.length === 2 ? 0 : Math.min(next.options.neutrals ?? 0, map.territoryIds.length - humansAndBots.length);
+  if (humansAndBots.length === 2 || neutralTerritories > 0) {
     next.players.push({
       id: NEUTRAL_ID,
       name: 'Neutral',
@@ -183,7 +189,7 @@ export function startGame(state: GameState): ActionResult {
   next.turnOrder = order;
   next.players.forEach((p) => {
     p.order = p.isNeutral ? order.length : order.indexOf(p.id);
-    p.armiesToPlace = armies;
+    p.armiesToPlace = p.isNeutral && neutralTerritories > 0 ? 0 : armies;
     p.cards = [];
     p.alive = true;
   });
@@ -191,11 +197,19 @@ export function startGame(state: GameState): ActionResult {
   next.deck = shuffle(rng, buildDeck(map));
   next.discard = [];
 
+  // Neutral territories (3+ players): set aside at random before the deal, each with a fixed garrison.
+  let dealable = map.territoryIds;
+  if (neutralTerritories > 0) {
+    const picked = shuffle(rng, map.territoryIds).slice(0, neutralTerritories);
+    for (const t of picked) next.territories[t] = { owner: NEUTRAL_ID, armies: next.options.neutralArmies };
+    dealable = map.territoryIds.filter((t) => !picked.includes(t));
+  }
+
   // Deal territories round-robin in turn order (neutral included for 2p).
-  const dealOrder = [...order, ...next.players.filter((p) => p.isNeutral).map((p) => p.id)];
+  const dealOrder = [...order, ...(neutralTerritories > 0 ? [] : next.players.filter((p) => p.isNeutral).map((p) => p.id))];
   const randomDeal = next.options.randomDeal || next.options.autoSetup;
   if (randomDeal) {
-    const shuffledTerritories = shuffle(rng, map.territoryIds);
+    const shuffledTerritories = shuffle(rng, dealable);
     shuffledTerritories.forEach((t, i) => {
       const owner = dealOrder[i % dealOrder.length];
       next.territories[t] = { owner, armies: 1 };
@@ -203,7 +217,7 @@ export function startGame(state: GameState): ActionResult {
     });
   } else {
     // Claiming phase: nobody owns anything yet; players claim one per setup turn.
-    for (const t of map.territoryIds) next.territories[t] = { owner: null, armies: 0 };
+    for (const t of dealable) next.territories[t] = { owner: null, armies: 0 };
   }
 
   // Neutral player: auto-distribute all remaining armies evenly.

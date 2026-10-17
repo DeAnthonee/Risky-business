@@ -61,6 +61,9 @@ export interface GameOptions {
 /** Reinforcements per capital held when the capitals option is on. */
 export const CAPITAL_BONUS = 2;
 
+/** Dice a capital defends with when the capitals option is on (other territories defend with up to 2). */
+export const CAPITAL_DEFENSE_DICE = 3;
+
 export const DEFAULT_OPTIONS: GameOptions = {
   setupBatch: 1,
   fortifyMode: 'connected',

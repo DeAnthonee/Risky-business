@@ -97,6 +97,17 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
   const [followTurn, setFollowTurn] = useState(true);
   // "Hide fog" reveals the whole map at a glance without forgetting which fog view was chosen.
   const [fogRevealed, setFogRevealed] = useState(false);
+  // Bonuses view: regions colour-coded with their bonuses, no armies (toggle with B or the buttons).
+  const [bonusView, setBonusView] = useState(false);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable)) return;
+      if ((e.key === 'b' || e.key === 'B') && !e.metaKey && !e.ctrlKey && !e.altKey) setBonusView((v) => !v);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
   const fogAs = spectator && fogOn && !fogRevealed ? (followTurn ? view.currentPlayer : fogPin) : null;
   useEffect(() => {
     if (!spectator || !fogOn) return;
@@ -391,6 +402,8 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
           sweeps={anim.sweeps}
           onTerritoryClick={onTerritoryClick}
           dimOthers={dimOthers}
+          bonusView={bonusView}
+          onToggleBonusView={() => setBonusView((v) => !v)}
         />
 
         {anim.battle && (
@@ -452,6 +465,9 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
                   </button>
                 </span>
               )}
+              <button className={`small ${bonusView ? 'primary' : ''}`} aria-pressed={bonusView} title="Show region bonuses, colour-coded, without armies (shortcut: B)" onClick={() => setBonusView((v) => !v)}>
+                {bonusView ? 'Back to board' : 'Bonuses'} <kbd>B</kbd>
+              </button>
               <span className="spacer" />
               <button className="small" onClick={copyWatchLink}>
                 {copiedWatch ? 'Copied!' : 'Copy watch link'}

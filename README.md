@@ -40,6 +40,8 @@ Dice rolls, cards being earned, traded in (fanning out into "+N armies") or take
 all animate on the board. The sidebar lists players in turn order with their territories, armies, cards and income
 (`+N/turn`, the reinforcements they get next turn before cards; hover it for the breakdown).
 On desktop, drag the divider under the scoreboard to give the log/chat more or less room (double-click resets).
+Press **Bonuses** (on the map, in the spectator bar, or **B**) to see every region painted in its own colour with
+its bonus, no armies; neighbouring regions never share a colour, on the board or in this view.
 
 Development with hot reload (server on :8080, Vite client on :5173 proxying `/api` and `/ws`):
 

@@ -1087,7 +1087,8 @@ label.check input {
 }
 
 /* Spectator fog toggle */
-.fog-toggle kbd {
+.fog-toggle kbd,
+.action-group button kbd {
   font: inherit;
   font-size: 0.75em;
   padding: 0 4px;
@@ -1513,6 +1514,18 @@ label.check input {
     transform: translateY(0);
   }
 }
+
+/* Bonuses view: regions colour-coded with their bonus, no armies */
+.territory.bonus-fill { stroke: rgba(10, 16, 28, 0.55); stroke-width: 0.8; fill-opacity: 0.88; cursor: default; }
+.continent-outline.bonus { stroke-width: 4; stroke-opacity: 1; stroke: #0a101c !important; fill: none; }
+.bonus-labels text { pointer-events: none; paint-order: stroke; stroke: rgba(8, 12, 22, 0.9); stroke-linejoin: round; fill: #fff; }
+.bonus-labels .bonus-value { font-size: 30px; font-weight: 900; stroke-width: 6px; }
+.bonus-labels .bonus-name { font-size: 12px; font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase; stroke-width: 4px; }
+.bonus-labels .bonus-count { font-size: 10px; font-weight: 600; opacity: 0.85; stroke-width: 3px; }
+.map.dense .bonus-labels .bonus-value { font-size: 22px; }
+.map.dense .bonus-labels .bonus-name { font-size: 10px; letter-spacing: 1px; }
+.map-controls .bonus-toggle { width: auto; padding: 0 10px; font-size: 13px; }
+.map-controls .bonus-toggle.active { background: var(--accent, #3b82f6); color: #fff; }
 
 /* Blitz counter in the dice panel */
 .dice-vs { display: flex; flex-direction: column; align-items: center; gap: 2px; }

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { getMap, visibleTerritories, type Card, type GameEvent, type GameView } from '@risk/engine';
+import { getMap, tradeBonus, visibleTerritories, type Card, type GameEvent, type GameView } from '@risk/engine';
 import { api } from '../api';
 import { CARD_FX_MS, CardFxPanel, type CardFx } from './CardFx';
 import { ScoreChart } from './ScoreChart';
@@ -418,6 +418,14 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
           </div>
           <PhaseSteps phase={view.phase} />
           <div className="topbar-right">
+            {view.phase !== 'lobby' && (view.options.cardValues ?? 'progressive') === 'progressive' && (
+              <span
+                className="set-value"
+                title={`Card sets are progressive: the next set traded in by anyone is worth ${tradeBonus(view.tradeCount)} armies, then ${tradeBonus(view.tradeCount + 1)}, then ${tradeBonus(view.tradeCount + 2)}. ${view.tradeCount} set${view.tradeCount === 1 ? '' : 's'} traded so far.`}
+              >
+                <span aria-hidden="true">🂠</span> Next set <strong>{tradeBonus(view.tradeCount)}</strong>
+              </span>
+            )}
             {current && (
               <span className="turn-indicator">
                 <span className="swatch" style={{ background: current.color }} />

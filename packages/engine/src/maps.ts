@@ -4,10 +4,14 @@
  */
 import classicJson from './generated/classic.json' with { type: 'json' };
 import worldJson from './generated/world.json' with { type: 'json' };
+import worldLargeJson from './generated/world_large.json' with { type: 'json' };
+import europeJson from './generated/europe.json' with { type: 'json' };
+import usaJson from './generated/usa.json' with { type: 'json' };
+import asiaJson from './generated/asia.json' with { type: 'json' };
 import { RuleError } from './types.js';
 
-export type MapId = 'classic' | 'world';
-export const MAP_IDS: MapId[] = ['classic', 'world'];
+export type MapId = 'classic' | 'world' | 'world_large' | 'europe' | 'usa' | 'asia';
+export const MAP_IDS: MapId[] = ['classic', 'world', 'world_large', 'europe', 'usa', 'asia'];
 
 export interface TerritoryDef {
   id: string;
@@ -72,19 +76,32 @@ interface RawMap {
   seaLinks: SeaLink[];
 }
 
-/** Classic Hasbro table: 2 players 40 (plus Neutral), 3: 35, 4: 30, 5: 25, 6: 20. */
-function classicStartingArmies(players: number): number {
-  const table: Record<number, number> = { 2: 40, 3: 35, 4: 30, 5: 25, 6: 20 };
-  const n = table[players];
-  if (!n) throw new RuleError('The classic map supports 2-6 players');
-  return n;
-}
+/**
+ * How many armies each player starts with, per map. Either a fixed table by player count, or
+ * "scaled": about `perTerritory` armies per territory shared between the players, clamped to
+ * [min, max] each. Change a map's starting armies here.
+ */
+export type StartingArmiesRule = { table: Record<number, number> } | { perTerritory: number; min: number; max: number };
 
-/** Larger maps: roughly three armies per territory shared between the players, 20-60 each. */
-function scaledStartingArmies(territoryCount: number, maxPlayers: number) {
-  return (players: number) => {
-    if (players < 2 || players > maxPlayers) throw new RuleError(`This map supports 2-${maxPlayers} players`);
-    return Math.max(20, Math.min(60, Math.round((territoryCount * 3) / players)));
+export const STARTING_ARMIES: Record<MapId, StartingArmiesRule> = {
+  // Classic Hasbro table: 2 players 40 (plus Neutral), 3: 35, 4: 30, 5: 25, 6: 20.
+  classic: { table: { 2: 40, 3: 35, 4: 30, 5: 25, 6: 20 } },
+  world: { perTerritory: 3, min: 20, max: 60 },
+  world_large: { perTerritory: 3, min: 20, max: 60 },
+  europe: { perTerritory: 3, min: 20, max: 60 },
+  usa: { perTerritory: 3, min: 20, max: 60 },
+  asia: { perTerritory: 3, min: 20, max: 60 },
+};
+
+function startingArmiesFor(rule: StartingArmiesRule, territoryCount: number, maxPlayers: number) {
+  return (players: number): number => {
+    if (!Number.isInteger(players) || players < 2 || players > maxPlayers) throw new RuleError(`This map supports 2-${maxPlayers} players`);
+    if ('table' in rule) {
+      const n = rule.table[players];
+      if (!n) throw new RuleError(`No starting armies defined for ${players} players on this map`);
+      return n;
+    }
+    return Math.max(rule.min, Math.min(rule.max, Math.round((territoryCount * rule.perTerritory) / players)));
   };
 }
 
@@ -114,13 +131,17 @@ function wrap(raw: RawMap): MapDef {
     seaLinks: raw.seaLinks,
     isAdjacent: (a, b) => adjacency[a]?.includes(b) ?? false,
     isTerritory: (t) => t in territoryById,
-    startingArmies: id === 'classic' ? classicStartingArmies : scaledStartingArmies(territoryIds.length, raw.maxPlayers),
+    startingArmies: startingArmiesFor(STARTING_ARMIES[id], territoryIds.length, raw.maxPlayers),
   };
 }
 
 export const MAPS: Record<MapId, MapDef> = {
   classic: wrap(classicJson as RawMap),
   world: wrap(worldJson as RawMap),
+  world_large: wrap(worldLargeJson as RawMap),
+  europe: wrap(europeJson as RawMap),
+  usa: wrap(usaJson as RawMap),
+  asia: wrap(asiaJson as RawMap),
 };
 
 export function getMap(id: string | undefined): MapDef {

@@ -602,3 +602,40 @@ describe('MCP over HTTP (/mcp)', () => {
     }
   });
 });
+
+describe('new boards over HTTP', () => {
+  it('lists every board', async () => {
+    const r = await api('/maps');
+    expect(r.body.maps.map((m: any) => m.id)).toEqual(['classic', 'world', 'world_large', 'europe', 'usa', 'asia']);
+  });
+
+  for (const [id, territories, maxPlayers] of [
+    ['world_large', 104, 10],
+    ['europe', 44, 8],
+    ['usa', 45, 10],
+    ['asia', 49, 8],
+  ] as const) {
+    it(`creates, fills with bots and starts a ${maxPlayers}-player game on ${id}`, async () => {
+      const map = await api(`/map?map=${id}`);
+      expect(map.status).toBe(200);
+      expect(map.body.territories).toHaveLength(territories);
+      const created = await api('/games', { method: 'POST', body: JSON.stringify({ playerName: 'Host', options: { map: id, maxPlayers, autoSetup: true } }) });
+      expect(created.status).toBe(201);
+      expect(created.body.state.options.map).toBe(id);
+      const { gameId, token } = created.body;
+      for (let i = 1; i < maxPlayers; i++) expect((await api(`/games/${gameId}/bots`, { method: 'POST', body: '{}' }, token)).status).toBe(201);
+      expect((await api(`/games/${gameId}/bots`, { method: 'POST', body: '{}' }, token)).status).not.toBe(201);
+      const s = await api(`/games/${gameId}/start`, { method: 'POST', body: '{}' }, token);
+      expect(s.status).toBe(200);
+      expect(Object.keys(s.body.state.territories)).toHaveLength(territories);
+      expect(s.body.state.players.filter((p: any) => !p.isNeutral)).toHaveLength(maxPlayers);
+      expect(s.body.state.phase).not.toBe('lobby');
+    });
+  }
+
+  it('rejects too many seats for a board', async () => {
+    const r = await api('/games', { method: 'POST', body: JSON.stringify({ playerName: 'H', options: { map: 'europe', maxPlayers: 9 } }) });
+    expect(r.status).toBe(400);
+    expect(r.body.error).toMatch(/maxPlayers must be between 2 and 8/);
+  });
+});

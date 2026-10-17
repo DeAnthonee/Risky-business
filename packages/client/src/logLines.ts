@@ -44,6 +44,10 @@ export type LogItem = { key: string; e: GameEvent | BattleSummary | FoggedRun };
  */
 export function logItems(batches: { id: string | number; events: GameEvent[] }[], keep: (e: GameEvent) => boolean): LogItem[] {
   const out: LogItem[] = [];
+  // The conquest still waiting for its move-in. Capturing a capital or eliminating a player logs more events
+  // (capital_captured, eliminated, cards_taken, an auto-trade) between the conquest and the occupy, so the
+  // move-in is matched against this, not just the previous item.
+  let openConquest: BattleSummary | null = null;
   for (const b of batches) {
     b.events.forEach((e, i) => {
       const key = `${b.id}-${i}`;
@@ -64,6 +68,7 @@ export function logItems(batches: { id: string | number; events: GameEvent[] }[]
           last.battles.push(e);
           return;
         }
+        openConquest = null;
         out.push({
           key,
           e: {
@@ -88,12 +93,15 @@ export function logItems(batches: { id: string | number; events: GameEvent[] }[]
       }
       if (e.type === 'conquered' && last?.type === 'battle_summary' && !last.conquered && last.to === e.to && last.attacker === e.player) {
         last.conquered = e;
+        openConquest = last;
         return;
       }
-      if (e.type === 'moved' && last?.type === 'battle_summary' && last.conquered && last.movedIn === null && last.from === e.from && last.to === e.to) {
-        last.movedIn = e.armies;
+      if (e.type === 'moved' && openConquest && openConquest.from === e.from && openConquest.to === e.to) {
+        openConquest.movedIn = e.armies;
+        openConquest = null;
         return;
       }
+      if (e.type === 'turn_started') openConquest = null;
       if (e.type === 'fogged' && last?.type === 'fogged_run' && last.kind === e.kind) {
         last.count++;
         return;

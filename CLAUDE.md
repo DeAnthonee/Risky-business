@@ -69,3 +69,4 @@ Online multiplayer Risk with bots and an MCP server for AI agents. npm-workspace
 - Every state change goes through `GameRoom.commit` so WebSocket clients, long-poll waiters,
   bots and persistence all see it.
 - Add an engine test for every rules change and a server test for every API change.
+- AI character profiles and general model docs live in `AI/` (Markdown only); follow `AI/README.md` for where and how to save them.

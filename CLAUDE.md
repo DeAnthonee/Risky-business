@@ -12,7 +12,7 @@ Online multiplayer Risk with bots and an MCP server for AI agents. npm-workspace
 
 - `npm ci` — install (devDependencies are required to build).
 - `npm run build` — builds every package; writes `packages/server/dist/build-info.json`.
-- `npm run build:map` — regenerates `packages/engine/src/generated/{classic,world}.json` (territory shapes,
+- `npm run build:map` — regenerates `packages/engine/src/generated/<id>.json` for every map (territory shapes,
   anchors, adjacency, sea links) from `scripts/maps/*.mjs` + Natural Earth data. Commit the output.
 - `npm test` — the deploy gate: builds the engine (`pretest`), then typecheck + engine + server tests.
   Works on a fresh clone right after `npm ci`. No fixed ports, no browser.
@@ -57,7 +57,10 @@ Online multiplayer Risk with bots and an MCP server for AI agents. npm-workspace
   + a spec in `OPTION_SPECS` (+ map-dependent bounds in `validateOptions`); the compiler enforces the spec.
 - Maps are data: edit `scripts/maps/<id>.mjs` (country groupings, lon/lat boxes, edges, anchors), run
   `npm run build:map`, and read its warnings: every adjacency that does not touch on the map becomes a
-  drawn sea link, and it lists shapes that touch without being adjacent. Never edit the generated JSON.
+  drawn sea link, and it lists shapes that touch without being adjacent, badges that overlap and anchors
+  outside their shape. Never edit the generated JSON. A new map = `scripts/maps/<id>.mjs` + its id in
+  `MAP_NAMES` (build-map.mjs), `MAP_IDS`/`MAPS`/`STARTING_ARMIES` (engine `maps.ts`) and the `GameOptions['map']`
+  union; the option spec, MCP schemas and lobby derive from `MAP_IDS`.
 - MCP tools are defined once in `packages/mcp/src/tools.ts` over the `RiskApi` interface; the stdio CLI
   uses `HttpRiskApi`, the embedded `/mcp` endpoint uses the server's `LocalRiskApi`.
 - Every state change goes through `GameRoom.commit` so WebSocket clients, long-poll waiters,

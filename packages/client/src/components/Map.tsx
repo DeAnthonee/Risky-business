@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { getMap, type GameView, type MapDef } from '@risk/engine';
 
 export type Highlight = 'source' | 'target' | 'place' | 'selected' | 'pending-target';
@@ -191,7 +191,7 @@ export function GameMap(props: MapProps) {
   );
 
   return (
-    <div className="map-wrap">
+    <div className="map-wrap" style={{ '--map-aspect': `${W} / ${H}` } as CSSProperties}>
     <svg
       ref={svgRef}
       className={`map ${dense ? 'dense' : ''} ${zoomed ? 'zoomed' : ''} ${showNames ? 'show-names' : ''}`}

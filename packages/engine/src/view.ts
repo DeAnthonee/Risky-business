@@ -1,6 +1,6 @@
 import { getMap, type MapDef } from './maps.js';
-import { armiesOf, continentsOf, controlsContinent, isBlizzard, legalMoves, territoriesOf, type LegalMoves } from './engine.js';
-import type { Card, GameEvent, GameState, Player, PlayerId, TerritoryId, TerritoryState } from './types.js';
+import { armiesOf, continentsOf, controlsContinent, isBlizzard, legalMoves, reinforcementsFor, territoriesOf, type LegalMoves } from './engine.js';
+import type { Card, GameEvent, GameState, Player, PlayerId, ReinforcementBreakdown, TerritoryId, TerritoryState } from './types.js';
 
 /**
  * Territories a player can see under fog of war: everything they own plus every territory adjacent
@@ -82,6 +82,8 @@ export interface PlayerView extends Omit<Player, 'cards'> {
   territoryCount: number;
   armyCount: number;
   continents: string[];
+  /** Armies this player would receive at the start of their next turn, before cards (null for the Neutral). */
+  income: ReinforcementBreakdown | null;
 }
 
 export interface GameView extends Omit<GameState, 'players' | 'deck' | 'discard' | 'rngState' | 'seed'> {
@@ -106,6 +108,7 @@ export function viewFor(state: GameState, viewer: PlayerId | null): GameView {
     territoryCount: territoriesOf(state, p.id).length,
     armyCount: armiesOf(state, p.id),
     continents: continentsOf(state, p.id).map((c) => c.id),
+    income: p.isNeutral ? null : reinforcementsFor(state, p.id),
   }));
   const continentOwners: Record<string, PlayerId | null> = {};
   for (const c of getMap(state.options.map).continents) {

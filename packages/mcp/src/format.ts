@@ -1,10 +1,10 @@
-import { describeOptions, fixedSetValue, getMap, type GameEvent, type GameView } from '@risk/engine';
+import { describeOptions, boardOf, fixedSetValue, type GameEvent, type GameView } from '@risk/engine';
 
 /** A compact, LLM-friendly text rendering of the game as seen by one player. */
 export function formatState(view: GameView, gameName?: string): string {
   const name = (id: string | null | undefined) => view.players.find((p) => p.id === id)?.name ?? id ?? 'none';
   const me = view.players.find((p) => p.id === view.you);
-  const map = getMap(view.options.map);
+  const map = boardOf(view);
   const lines: string[] = [];
 
   lines.push(
@@ -130,7 +130,7 @@ function short(n: string): string {
 
 export function formatEvents(events: GameEvent[], view: GameView): string {
   const name = (id: string | null) => view.players.find((p) => p.id === id)?.name ?? id ?? '?';
-  const byId = getMap(view.options.map).territoryById;
+  const byId = boardOf(view).territoryById;
   const t = (id: string) => byId[id]?.name ?? id;
   const out: string[] = [];
   for (const e of events) {
@@ -223,7 +223,7 @@ export function formatActResult(events: GameEvent[], view: GameView): string {
     return lines.join('\n');
   }
   const name = (id: string | null | undefined) => view.players.find((p) => p.id === id)?.name ?? id ?? 'none';
-  const map = getMap(view.options.map);
+  const map = boardOf(view);
   const touched = touchedTerritories(events);
   const me = view.players.find((p) => p.id === view.you);
   lines.push('');

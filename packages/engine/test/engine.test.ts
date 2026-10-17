@@ -6,6 +6,7 @@ import {
   MAPS,
   MAP_IDS,
   NEUTRAL_ID,
+  PLAYER_COLORS,
   RuleError,
   TERRITORY_IDS,
   addPlayer,
@@ -559,11 +560,12 @@ describe('maps', () => {
     usa: { territories: 45, regions: 8, maxPlayers: 10 },
     asia: { territories: 49, regions: 7, maxPlayers: 8 },
     fantasy: { territories: 87, regions: 16, maxPlayers: 10 },
+    earth: { territories: 438, regions: 77, maxPlayers: 100 },
   };
 
   it('every map is well formed', async () => {
     const { MAPS, MAP_IDS } = await import('../src/index.js');
-    expect(MAP_IDS).toEqual(['classic', 'world', 'world_large', 'europe', 'europe_advanced', 'usa', 'asia', 'fantasy']);
+    expect(MAP_IDS).toEqual(['classic', 'world', 'world_large', 'europe', 'europe_advanced', 'usa', 'asia', 'fantasy', 'earth']);
     for (const id of MAP_IDS) {
       const m = MAPS[id];
       expect(m.territories.length).toBe(EXPECTED[id].territories);
@@ -603,7 +605,7 @@ describe('maps', () => {
       while (stack.length) for (const n of m.adjacency[stack.pop()!]) if (!seen.has(n)) (seen.add(n), stack.push(n));
       expect(seen.size).toBe(m.territoryIds.length);
       for (const l of m.seaLinks) expect(m.isAdjacent(l.a, l.b)).toBe(true);
-      if (id === 'classic' || id === 'world' || id === 'world_large') expect(m.seaLinks.some((l) => l.wrap)).toBe(true);
+      if (id === 'classic' || id === 'world' || id === 'world_large' || id === 'earth') expect(m.seaLinks.some((l) => l.wrap)).toBe(true);
       // starting armies: defined for every legal player count, enough to give each owned territory
       // an army (two-player games deal a third of the map to the Neutral), never more for more players
       let previous = Infinity;
@@ -694,6 +696,64 @@ describe('maps', () => {
     expect(state.blizzards).toHaveLength(limits.blizzards.max);
     for (const t of state.blizzards) expect(state.territories[t].owner).toBeNull();
     expect(m.territoryIds.filter((t) => state.territories[t].owner === NEUTRAL_ID)).toHaveLength(10);
+  });
+
+  it('splits the earth map into connected tournament arenas', async () => {
+    const { MAPS, getBoard } = await import('../src/index.js');
+    const m = MAPS.earth;
+    expect(m.arenas).toHaveLength(26);
+    // every territory in exactly one arena, arenas made of whole regions
+    expect(m.arenas.flatMap((a) => a.territories).sort()).toEqual([...m.territoryIds].sort());
+    for (const a of m.arenas) {
+      expect(a.territories.length).toBeGreaterThanOrEqual(13);
+      expect(a.territories.length).toBeLessThanOrEqual(21);
+      for (const c of a.continents) for (const t of m.continentById[c].territories) expect(m.arenaOf[t]).toBe(a.id);
+      // a table on one arena is a playable map on its own
+      const board = getBoard('earth', { arenas: [a.id] });
+      expect(board.territoryIds.sort()).toEqual([...a.territories].sort());
+      const seen = new Set([board.territoryIds[0]]);
+      const stack = [board.territoryIds[0]];
+      while (stack.length) for (const n of board.adjacency[stack.pop()!]) if (!seen.has(n)) (seen.add(n), stack.push(n));
+      expect(seen.size).toBe(board.territoryIds.length);
+      for (const [x, y] of board.edges) expect(board.territoryById[x] && board.territoryById[y]).toBeTruthy();
+      expect(board.viewBox[0]).toBeLessThan(m.viewBox[0]);
+    }
+    expect(getBoard('earth', { arenas: m.arenas.map((a) => a.id) })).toBe(m);
+    expect(() => getBoard('earth', { arenas: ['atlantis'] })).toThrow(RuleError);
+  });
+
+  it('plays a four player table on one arena of the earth map', async () => {
+    const { boardOf } = await import('../src/index.js');
+    let s = createGame('t', { map: 'earth', maxPlayers: 4, autoSetup: true }, 4, { arenas: ['nordic'] });
+    expect(s.board).toEqual({ arenas: ['nordic'] });
+    expect(Object.keys(s.territories)).toHaveLength(17);
+    for (let i = 0; i < 4; i++) s = addPlayer(s, `p${i}`, `P${i}`);
+    let state = startGame(s).state;
+    expect(state.phase).toBe('reinforce');
+    const board = boardOf(state);
+    for (const t of board.territoryIds) expect(state.territories[t].owner).not.toBeNull();
+    const view = viewFor(state, null);
+    expect(view.board).toEqual({ arenas: ['nordic'] });
+    expect(Object.keys(view.continentOwners).sort()).toEqual(['baltic', 'british_isles', 'scandinavia']);
+    // attacks never leave the arena
+    state = applyAction(state, state.currentPlayer!, { type: 'place', placements: { [legalMoves(state, state.currentPlayer!).canPlaceOn[0]]: legalMoves(state, state.currentPlayer!).placeLimit } }).state;
+    for (const a of legalMoves(state, state.currentPlayer!).attacks) {
+      expect(board.isTerritory(a.from)).toBe(true);
+      expect(board.isTerritory(a.to)).toBe(true);
+    }
+  });
+
+  it('seats 100 players on the earth map, each with their own colour', () => {
+    expect(new Set(PLAYER_COLORS).size).toBe(PLAYER_COLORS.length);
+    expect(PLAYER_COLORS.length).toBeGreaterThanOrEqual(100);
+    let s = createGame('e', { map: 'earth', maxPlayers: 100, autoSetup: true }, 8);
+    for (let i = 0; i < 100; i++) s = addPlayer(s, `p${i}`, `P${i}`);
+    expect(new Set(s.players.map((p) => p.color)).size).toBe(100);
+    const state = startGame(s).state;
+    expect(state.phase).toBe('reinforce');
+    const counts = state.players.map((p) => territoriesOf(state, p.id).length);
+    expect(Math.min(...counts)).toBeGreaterThanOrEqual(4);
+    expect(Math.max(...counts) - Math.min(...counts)).toBeLessThanOrEqual(1);
   });
 
   it('renames players in the lobby only', () => {
@@ -958,7 +1018,9 @@ describe('blizzards never trap territories or split the map', () => {
     const { MAPS, MAP_IDS, pickBlizzards, maxBlizzards, createRng } = await import('../src/index.js');
     for (const id of MAP_IDS) {
       const map = MAPS[id];
-      for (let seed = 1; seed <= 400; seed++) {
+      // 400 draws per map; the 438-territory earth map is ten times the work per draw, so it gets 40.
+      const seeds = map.territoryIds.length > 200 ? 40 : 400;
+      for (let seed = 1; seed <= seeds; seed++) {
         const blocked = new Set(pickBlizzards(map, maxBlizzards(map), createRng(seed)));
         const open = map.territoryIds.filter((t) => !blocked.has(t));
         // No open territory is walled in by blizzards...

@@ -397,6 +397,12 @@ function build(def) {
       ...(label ? { labelX: Math.round(lx * 10) / 10, labelY: Math.round(ly * 10) / 10 } : {}),
     };
   });
+  // Arena outlines (union of member regions) for tournament boards.
+  const arenas = (def.arenas ?? []).map((a) => {
+    const members = def.territories.filter((t) => a.regions.includes(t.continent)).map((t) => t.id);
+    const union = rewind(pc.union(...members.map((id) => geoms.get(id).coordinates)));
+    return { id: a.id, name: a.name, continents: a.regions, territories: members, outline: path({ type: 'MultiPolygon', coordinates: union }) };
+  });
 
   if (!def.edges) {
     // Derived adjacency: every pair of shapes that share a border, plus the declared sea lanes.
@@ -409,7 +415,7 @@ function build(def) {
     });
     def = { ...def, edges: [...land, ...lanes] };
   }
-  const out = finish(def, { viewBox: [WIDTH, height], territories, continents, touches, anchorWarnings });
+  const out = finish(def, { viewBox: [WIDTH, height], territories, continents, arenas, touches, anchorWarnings });
   if (def.continents.some((c) => c.bonus === undefined)) printBonuses(def, out);
   return out;
 }
@@ -448,7 +454,7 @@ function buildAuthoredMap(def) {
 }
 
 /** Shared tail: validate edges, derive sea links, warn about suspicious borders and badges, write the JSON. */
-function finish(def, { viewBox, territories, continents, touches, anchorWarnings = [] }) {
+function finish(def, { viewBox, territories, continents, arenas = [], touches, anchorWarnings = [] }) {
   const [WIDTH, height] = viewBox;
   const edgeKeys = new Set(def.edges.map((e) => [...e].sort().join('|')));
   const ids = new Set(def.territories.map((t) => t.id));
@@ -467,6 +473,29 @@ function finish(def, { viewBox, territories, continents, touches, anchorWarnings
   while (queue.length) for (const n of adj.get(queue.shift())) if (!seen.has(n)) seen.add(n), queue.push(n);
   if (seen.size !== ids.size) throw new Error(`${def.id}: map is not connected; unreachable: ${[...ids].filter((id) => !seen.has(id)).join(', ')}`);
 
+  // Arenas (tournament tables): every region in exactly one, each playable on its own (connected).
+  if (def.arenas) {
+    const regionArena = new Map();
+    for (const a of def.arenas)
+      for (const r of a.regions) {
+        if (!def.continents.some((c) => c.id === r)) throw new Error(`${def.id}: arena ${a.id} names unknown region ${r}`);
+        if (regionArena.has(r)) throw new Error(`${def.id}: region ${r} is in arenas ${regionArena.get(r)} and ${a.id}`);
+        regionArena.set(r, a.id);
+      }
+    const orphans = def.continents.filter((c) => !regionArena.has(c.id)).map((c) => c.id);
+    if (orphans.length) throw new Error(`${def.id}: regions in no arena: ${orphans.join(', ')}`);
+    const arenaOf = new Map(def.territories.map((t) => [t.id, regionArena.get(t.continent)]));
+    for (const a of arenas) {
+      const inside = new Set(a.territories);
+      const seenA = new Set([a.territories[0]]);
+      const q = [a.territories[0]];
+      while (q.length) for (const n of adj.get(q.shift())) if (inside.has(n) && !seenA.has(n)) seenA.add(n), q.push(n);
+      if (seenA.size !== inside.size) throw new Error(`${def.id}: arena ${a.id} is not connected; cut off: ${a.territories.filter((x) => !seenA.has(x)).join(', ')}`);
+      const neighbours = new Set();
+      for (const tid of a.territories) for (const n of adj.get(tid)) if (arenaOf.get(n) !== a.id) neighbours.add(arenaOf.get(n));
+      console.log(`  arena ${a.id}: ${a.territories.length} territories, ${a.continents.length} regions, borders ${[...neighbours].join(', ')}`);
+    }
+  }
   const bonusOf = new Map(suggestedBonuses(def, def.edges).map((b) => [b.c.id, b.c.bonus ?? b.suggested]));
   const out = {
     id: def.id,
@@ -475,6 +504,7 @@ function finish(def, { viewBox, territories, continents, touches, anchorWarnings
     viewBox: [WIDTH, height],
     territories,
     continents: continents.map((c) => ({ ...c, bonus: bonusOf.get(c.id) })),
+    ...(def.arenas ? { arenas } : {}),
     edges: def.edges,
     seaLinks,
   };

@@ -1,4 +1,5 @@
-// Earth: about 440 territories in 77 regions, made for games of up to 100 players.
+// Earth: 438 territories in 77 regions and 26 tournament arenas, made for tournaments of up to 100
+// players (docs/tournament.md).
 // Natural Earth 1:50m countries on a canvas three times as wide as the other world maps. Small
 // countries are one territory (crowded neighbours are merged), big ones are split into provinces:
 // `split` parts give every territory the Voronoi cell around its `site` (or `sites`) inside the
@@ -95,7 +96,7 @@ export default {
   name: 'Earth (440)',
   maxPlayers: 100,
   source: 'countries-50m',
-  simplify: 0.004,
+  simplify: 0.01,
   minArea: 0.5,
   width: 3000,
   densify: 1,
@@ -185,6 +186,38 @@ export default {
     { id: 'angola_zambia', name: 'Angola & Zambia' },
     { id: 'zambezi', name: 'Zambezi' },
     { id: 'southern_africa', name: 'Southern Africa' },
+  ],
+  /**
+   * Tournament arenas: round-one tables of about 4 players, each a group of neighbouring regions
+   * that plays as a game of its own. Later rounds join neighbouring arenas (docs/tournament.md).
+   */
+  arenas: [
+    { id: 'canada', name: 'Canada & the Arctic', regions: ['alaska_yukon', 'arctic', 'western_canada', 'eastern_canada'] },
+    { id: 'american_west', name: 'American West', regions: ['pacific_states', 'mountain_west', 'great_plains'] },
+    { id: 'american_east', name: 'American East', regions: ['midwest', 'northeast_us', 'south_us', 'southeast_us'] },
+    { id: 'mexico_caribbean', name: 'Mexico & Caribbean', regions: ['northern_mexico', 'southern_mexico', 'central_america', 'caribbean'] },
+    { id: 'andes_arena', name: 'Gran Colombia & Andes', regions: ['gran_colombia', 'andes'] },
+    { id: 'brazil', name: 'Brazil', regions: ['amazonia', 'brazil_northeast', 'central_brazil'] },
+    { id: 'southern_cone', name: 'Southern Cone', regions: ['rio_de_la_plata', 'argentina_chile', 'patagonia'] },
+    { id: 'nordic', name: 'Nordic', regions: ['british_isles', 'scandinavia', 'baltic'] },
+    { id: 'western_europe', name: 'Western Europe', regions: ['france_benelux', 'iberia', 'germany_alps'] },
+    { id: 'southern_europe', name: 'Southern Europe', regions: ['italy', 'balkans', 'eastern_europe'] },
+    { id: 'russia_west', name: 'European Russia', regions: ['ukraine_belarus', 'russian_north', 'central_russia'] },
+    { id: 'near_east', name: 'Near East', regions: ['caucasus', 'anatolia', 'levant', 'persia'] },
+    { id: 'central_asia', name: 'Central Asia', regions: ['urals', 'kazakhstan', 'turkestan'] },
+    { id: 'siberia_arena', name: 'Siberia', regions: ['siberia', 'yakutia', 'russian_far_east'] },
+    { id: 'china_north', name: 'Northern China & Mongolia', regions: ['mongolia', 'western_china', 'northern_china'] },
+    { id: 'china_south', name: 'Southern China & Japan', regions: ['central_china', 'south_china', 'japan_korea'] },
+    { id: 'india_west', name: 'India & Pakistan', regions: ['pakistan', 'north_india', 'south_india'] },
+    { id: 'bengal_indochina', name: 'Bengal & Indochina', regions: ['east_india', 'burma_siam', 'indochina'] },
+    { id: 'east_indies', name: 'East Indies', regions: ['sunda', 'philippines_moluccas'] },
+    { id: 'australasia', name: 'Australasia', regions: ['western_australia', 'eastern_australia', 'oceania'] },
+    { id: 'arabia_horn', name: 'Arabia & the Horn', regions: ['arabia', 'southern_arabia', 'horn_of_africa'] },
+    { id: 'north_africa', name: 'North Africa', regions: ['maghreb', 'sahara', 'nile'] },
+    { id: 'west_africa_arena', name: 'West Africa', regions: ['sahel', 'west_africa'] },
+    { id: 'central_africa', name: 'Central Africa', regions: ['nigeria_cameroon', 'equatorial_africa', 'congo'] },
+    { id: 'east_africa_arena', name: 'East Africa', regions: ['east_africa', 'zambezi'] },
+    { id: 'southern_africa_arena', name: 'Southern Africa', regions: ['angola_zambia', 'southern_africa'] },
   ],
   territories: [
     // ---- North America ----
@@ -370,15 +403,15 @@ export default {
 
     // ---- Europe ----
     ...UK('british_isles', [
-      ['scotland', 'Scotland', [-4.5, 57]],
+      ['scotland', 'Scotland', [-4.5, 57], { anchor: [-4.3, 57.4] }],
       ['northern_england', 'Northern England', [-2, 54.4], { anchor: [-2.3, 54.7] }],
       ['southern_england', 'Southern England', [-1, 51.7], { anchor: [-1.2, 51.6] }],
     ]),
     t('ireland', 'Ireland', 'british_isles', ['372', { c: '826', pick: [-8.5, -5.3, 53.9, 55.5] }]),
     t('iceland', 'Iceland', 'british_isles', ['352']),
     ...NORWAY('scandinavia', [
-      ['southern_norway', 'Southern Norway', [8.5, 60.5]],
-      ['trondelag', 'Trøndelag', [12, 64.5]],
+      ['southern_norway', 'Southern Norway', [8.5, 60.5], { anchor: [8.8, 60.6] }],
+      ['trondelag', 'Trøndelag', [12, 64.5], { anchor: [12.6, 65] }],
       ['northern_norway', 'Northern Norway', [20, 69]],
     ]),
     t('svalbard', 'Svalbard', 'scandinavia', [{ c: '578', box: [0, 35, 74, 81] }]),
@@ -876,7 +909,7 @@ export default {
     ['hokkaido', 'sakhalin'], ['hokkaido', 'tohoku'], ['kyushu', 'kansai'], ['kyushu', 'south_korea'], ['kansai', 'south_korea'],
     ['primorye', 'hokkaido'], ['kamchatka', 'hokkaido'],
     ['taiwan', 'fujian'], ['taiwan', 'luzon'], ['hainan', 'tonkin'],
-    ['shandong', 'manchuria'], ['shandong', 'south_korea'], ['visayas', 'mindanao'], ['luzon', 'guangdong'],
+    ['shandong', 'manchuria'], ['shandong', 'south_korea'], ['jiangsu', 'south_korea'], ['jiangsu', 'kyushu'], ['visayas', 'mindanao'], ['luzon', 'guangdong'],
     ['mindanao', 'sabah_sarawak'], ['mindanao', 'sulawesi'], ['mindanao', 'maluku'],
     ['aceh', 'malaya'], ['south_sumatra', 'malaya'], ['east_java', 'nusa_tenggara'],
     ['kalimantan', 'east_java'], ['kalimantan', 'malaya'], ['sulawesi', 'maluku'], ['sulawesi', 'nusa_tenggara'],

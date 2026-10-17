@@ -1,3 +1,5 @@
+import type { Board } from './maps.js';
+
 export type PlayerId = string;
 export type TerritoryId = string;
 
@@ -49,8 +51,8 @@ export interface GameOptions {
   autoSetup: boolean;
   /** Maximum players allowed in this game (2 up to the map's limit). */
   maxPlayers: number;
-  /** Which board to play on (see MAP_IDS in maps.ts and OPTION_SPECS.map): 'classic' (42 territories, 2-6 players), 'world' (74, 2-10), 'world_large' (104, 2-10), 'europe' (44, 2-8), 'europe_advanced' (Europe Advanced, 99, 2-6), 'usa' (45, 2-10), 'asia' (49, 2-8), 'fantasy' (Realms of Halvaren, 87, 2-10). */
-  map: 'classic' | 'world' | 'world_large' | 'europe' | 'europe_advanced' | 'usa' | 'asia' | 'fantasy';
+  /** Which board to play on (see MAP_IDS in maps.ts and OPTION_SPECS.map): 'classic' (42 territories, 2-6 players), 'world' (74, 2-10), 'world_large' (104, 2-10), 'europe' (44, 2-8), 'europe_advanced' (Europe Advanced, 99, 2-6), 'usa' (45, 2-10), 'asia' (49, 2-8), 'fantasy' (Realms of Halvaren, 87, 2-10), 'earth' (438, 2-100, tournament arenas). */
+  map: 'classic' | 'world' | 'world_large' | 'europe' | 'europe_advanced' | 'usa' | 'asia' | 'fantasy' | 'earth';
   /** Card set values: 'progressive' (4,6,8,10,12,15,+5...) or 'fixed' (infantry 4, cavalry 6, artillery 8, mixed 10). */
   cardValues: 'progressive' | 'fixed';
   /** Fog of war: players only see their own territories and the ones adjacent to them. Spectators see everything. */
@@ -136,6 +138,8 @@ export interface GameState {
   winner: PlayerId | null;
   seed: number;
   rngState: number;
+  /** Tournament tables only: the arenas of the map this game is played on (absent = the whole map). */
+  board?: Board | null;
   createdAt: number;
   startedAt: number | null;
   finishedAt: number | null;

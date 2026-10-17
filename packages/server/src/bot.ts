@@ -1,4 +1,4 @@
-import { getMap, isBlizzard, legalMoves, territoriesOf, type Action, type GameState, type PlayerId } from '@risk/engine';
+import { boardOf, isBlizzard, legalMoves, territoriesOf, type Action, type GameState, type PlayerId } from '@risk/engine';
 
 /**
  * A simple built-in computer player. It is not clever, but it plays legally and
@@ -53,7 +53,7 @@ export function chooseBotAction(state: GameState, me: PlayerId): Action | null {
 }
 
 function enemyNeighbours(state: GameState, me: PlayerId, t: string): string[] {
-  return getMap(state.options.map).adjacency[t].filter((n) => state.territories[n].owner !== me && !isBlizzard(state, n));
+  return boardOf(state).adjacency[t].filter((n) => state.territories[n].owner !== me && !isBlizzard(state, n));
 }
 
 function threat(state: GameState, me: PlayerId, t: string): number {
@@ -65,7 +65,7 @@ function bestPlacement(state: GameState, me: PlayerId, options: string[]): strin
   const unclaimed = options.filter((t) => state.territories[t].owner === null);
   if (unclaimed.length > 0) {
     const owned = new Set(territoriesOf(state, me));
-    const adjacency = getMap(state.options.map).adjacency;
+    const adjacency = boardOf(state).adjacency;
     const scored = unclaimed.map((t) => ({ t, s: adjacency[t].filter((n) => owned.has(n)).length + Math.random() }));
     scored.sort((a, b) => b.s - a.s);
     return scored[0].t;

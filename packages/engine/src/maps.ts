@@ -11,10 +11,11 @@ import europeAdvancedJson from './generated/europe_advanced.json' with { type: '
 import usaJson from './generated/usa.json' with { type: 'json' };
 import asiaJson from './generated/asia.json' with { type: 'json' };
 import fantasyJson from './generated/fantasy.json' with { type: 'json' };
+import earthJson from './generated/earth.json' with { type: 'json' };
 import { RuleError } from './types.js';
 
-export type MapId = 'classic' | 'world' | 'world_large' | 'europe' | 'europe_advanced' | 'usa' | 'asia' | 'fantasy';
-export const MAP_IDS: MapId[] = ['classic', 'world', 'world_large', 'europe', 'europe_advanced', 'usa', 'asia', 'fantasy'];
+export type MapId = 'classic' | 'world' | 'world_large' | 'europe' | 'europe_advanced' | 'usa' | 'asia' | 'fantasy' | 'earth';
+export const MAP_IDS: MapId[] = ['classic', 'world', 'world_large', 'europe', 'europe_advanced', 'usa', 'asia', 'fantasy', 'earth'];
 
 export interface TerritoryDef {
   id: string;
@@ -41,6 +42,21 @@ export interface ContinentDef {
   labelY?: number;
 }
 
+/** Tournament arena: a group of neighbouring regions that plays as a table of its own (docs/tournament.md). */
+export interface ArenaDef {
+  id: string;
+  name: string;
+  continents: string[];
+  territories: string[];
+  /** SVG path data for the arena outline (union of its territories). */
+  outline: string;
+}
+
+/** Which part of a map a game is played on: a set of arenas (tournament tables). */
+export interface Board {
+  arenas: string[];
+}
+
 export interface SeaLink {
   a: string;
   b: string;
@@ -53,6 +69,8 @@ export interface MapDef {
   name: string;
   maxPlayers: number;
   viewBox: [number, number];
+  /** Top-left corner of the drawing area (non-zero for a board cut out of a bigger map). */
+  viewOrigin: [number, number];
   territories: TerritoryDef[];
   territoryIds: string[];
   territoryById: Record<string, TerritoryDef>;
@@ -62,6 +80,13 @@ export interface MapDef {
   edges: [string, string][];
   /** Adjacent pairs that do not touch on the map and are drawn as link lines. */
   seaLinks: SeaLink[];
+  /** Tournament arenas (empty on maps without them). */
+  arenas: ArenaDef[];
+  arenaById: Record<string, ArenaDef>;
+  /** Arena of each territory (maps with arenas only). */
+  arenaOf: Record<string, string>;
+  /** The board's arena ids when this is a cut-out of a bigger map, else null. */
+  board: string[] | null;
   isAdjacent(a: string, b: string): boolean;
   isTerritory(id: string): boolean;
   /** Starting armies per player for a game with `players` players. */
@@ -77,6 +102,7 @@ interface RawMap {
   continents: ContinentDef[];
   edges: string[][];
   seaLinks: SeaLink[];
+  arenas?: ArenaDef[];
 }
 
 /**
@@ -101,6 +127,7 @@ export const STARTING_ARMIES: Record<MapId, StartingArmiesRule> = {
   usa: { classicScaled: true },
   asia: { classicScaled: true },
   fantasy: { classicScaled: true },
+  earth: { classicScaled: true },
 };
 
 /** Classic numbers scaled to a map with `territoryCount` territories (see StartingArmiesRule). */
@@ -126,32 +153,55 @@ function startingArmiesFor(rule: StartingArmiesRule, territoryCount: number, max
 }
 
 function wrap(raw: RawMap): MapDef {
-  const territoryIds = raw.territories.map((t) => t.id);
-  const territoryById = Object.fromEntries(raw.territories.map((t) => [t.id, t]));
+  const id = raw.id as MapId;
+  const arenas = raw.arenas ?? [];
+  return build(id, raw.name, raw.maxPlayers, [raw.viewBox[0], raw.viewBox[1]], [0, 0], raw.territories, raw.continents, raw.edges as [string, string][], raw.seaLinks, arenas, null);
+}
+
+function build(
+  id: MapId,
+  name: string,
+  maxPlayers: number,
+  viewBox: [number, number],
+  viewOrigin: [number, number],
+  territories: TerritoryDef[],
+  continents: ContinentDef[],
+  edges: [string, string][],
+  seaLinks: SeaLink[],
+  arenas: ArenaDef[],
+  board: string[] | null,
+): MapDef {
+  const territoryIds = territories.map((t) => t.id);
+  const territoryById = Object.fromEntries(territories.map((t) => [t.id, t]));
   const adjacency: Record<string, string[]> = Object.fromEntries(territoryIds.map((t) => [t, [] as string[]]));
-  const edges = raw.edges as [string, string][];
   for (const [a, b] of edges) {
-    if (!adjacency[a] || !adjacency[b]) throw new Error(`Map ${raw.id}: bad edge ${a}-${b}`);
+    if (!adjacency[a] || !adjacency[b]) throw new Error(`Map ${id}: bad edge ${a}-${b}`);
     adjacency[a].push(b);
     adjacency[b].push(a);
   }
-  const id = raw.id as MapId;
+  const arenaOf: Record<string, string> = {};
+  for (const a of arenas) for (const t of a.territories) arenaOf[t] = a.id;
   return {
     id,
-    name: raw.name,
-    maxPlayers: raw.maxPlayers,
-    viewBox: [raw.viewBox[0], raw.viewBox[1]],
-    territories: raw.territories,
+    name,
+    maxPlayers,
+    viewBox,
+    viewOrigin,
+    territories,
     territoryIds,
     territoryById,
-    continents: raw.continents,
-    continentById: Object.fromEntries(raw.continents.map((c) => [c.id, c])),
+    continents,
+    continentById: Object.fromEntries(continents.map((c) => [c.id, c])),
     adjacency,
     edges,
-    seaLinks: raw.seaLinks,
+    seaLinks,
+    arenas,
+    arenaById: Object.fromEntries(arenas.map((a) => [a.id, a])),
+    arenaOf,
+    board,
     isAdjacent: (a, b) => adjacency[a]?.includes(b) ?? false,
     isTerritory: (t) => t in territoryById,
-    startingArmies: startingArmiesFor(STARTING_ARMIES[id], territoryIds.length, raw.maxPlayers),
+    startingArmies: startingArmiesFor(STARTING_ARMIES[id], territoryIds.length, maxPlayers),
   };
 }
 
@@ -164,12 +214,57 @@ export const MAPS: Record<MapId, MapDef> = {
   usa: wrap(usaJson as RawMap),
   asia: wrap(asiaJson as RawMap),
   fantasy: wrap(fantasyJson as RawMap),
+  earth: wrap(earthJson as RawMap),
 };
 
 export function getMap(id: string | undefined): MapDef {
   const m = MAPS[(id ?? 'classic') as MapId];
   if (!m) throw new RuleError(`Unknown map "${id}"`);
   return m;
+}
+
+const boardCache = new Map<string, MapDef>();
+
+/**
+ * The part of a map a game is played on: the whole map, or (tournament tables) only the territories of
+ * some of its arenas, with the regions, edges and sea links inside them and a view box around them.
+ * Rules, views and the client all go through this, so a table plays exactly like a small map.
+ */
+export function getBoard(mapId: string | undefined, board?: Board | null): MapDef {
+  const map = getMap(mapId);
+  if (!board || !board.arenas?.length) return map;
+  const ids = [...new Set(board.arenas)].sort();
+  const key = `${map.id}:${ids.join(',')}`;
+  const cached = boardCache.get(key);
+  if (cached) return cached;
+  for (const a of ids) if (!map.arenaById[a]) throw new RuleError(`Unknown arena "${a}" on the ${map.name} map`);
+  if (ids.length === map.arenas.length) return map;
+  const arenas = ids.map((a) => map.arenaById[a]);
+  const inside = new Set(arenas.flatMap((a) => a.territories));
+  const territories = map.territories.filter((t) => inside.has(t.id));
+  const continents = map.continents.filter((c) => c.territories.every((t) => inside.has(t)));
+  const edges = map.edges.filter(([a, b]) => inside.has(a) && inside.has(b));
+  const seaLinks = map.seaLinks.filter((l) => inside.has(l.a) && inside.has(l.b) && !l.wrap);
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const t of territories) {
+    const [bx, by, bw, bh] = t.bbox;
+    x0 = Math.min(x0, bx);
+    y0 = Math.min(y0, by);
+    x1 = Math.max(x1, bx + bw);
+    y1 = Math.max(y1, by + bh);
+  }
+  const pad = Math.round(Math.max(x1 - x0, y1 - y0) * 0.04) + 20;
+  const origin: [number, number] = [Math.max(0, Math.floor(x0 - pad)), Math.max(0, Math.floor(y0 - pad))];
+  const size: [number, number] = [Math.min(map.viewBox[0], Math.ceil(x1 + pad)) - origin[0], Math.min(map.viewBox[1], Math.ceil(y1 + pad)) - origin[1]];
+  const name = arenas.length === 1 ? `${map.name.replace(/ \(\d+\)$/, '')}: ${arenas[0].name}` : `${map.name.replace(/ \(\d+\)$/, '')}: ${arenas.length} arenas`;
+  const def = build(map.id, name, map.maxPlayers, size, origin, territories, continents, edges, seaLinks, arenas, ids);
+  boardCache.set(key, def);
+  return def;
+}
+
+/** Board of a game state or view (the whole map unless the game is a tournament table). */
+export function boardOf(state: { options: { map: string }; board?: Board | null }): MapDef {
+  return getBoard(state.options.map, state.board);
 }
 
 export function isMapId(id: unknown): id is MapId {

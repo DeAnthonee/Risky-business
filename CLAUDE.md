@@ -62,6 +62,10 @@ Online multiplayer Risk with bots and an MCP server for AI agents. npm-workspace
   outside their shape. Never edit the generated JSON. A new map = `scripts/maps/<id>.mjs` + its id in
   `MAP_NAMES` (build-map.mjs), `MAP_IDS`/`MAPS`/`STARTING_ARMIES` (engine `maps.ts`) and the `GameOptions['map']`
   union; the option spec, MCP schemas and lobby derive from `MAP_IDS`.
+  Big real maps (`earth.mjs`) may omit `edges` (land adjacency from the shapes + `seaLanes`), split countries
+  into provinces with `split` parts and named `site`s, and group regions into tournament `arenas`; a game on
+  some arenas only is a *board* (`state.board`, `getBoard`/`boardOf` in `maps.ts`): rules, views, bots and
+  the client must look maps up through `boardOf(state)`, never `getMap(state.options.map)`.
   Fictional maps (`kind: 'authored'`, e.g. `fantasy.mjs`) are sketched landmasses + territory sites + `seaLanes`;
   their land adjacency is derived from shared borders. Keep fantasy content original (no franchise names).
 - MCP tools are defined once in `packages/mcp/src/tools.ts` over the `RiskApi` interface; the stdio CLI

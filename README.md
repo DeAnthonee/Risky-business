@@ -74,6 +74,8 @@ territories and projected to SVG); Realms of Halvaren is an original fantasy wor
 | **Asia** | 49 | 7 | 2–8 | Middle East to Japan, Siberia to Java; bonuses 4–6 |
 | **Realms of Halvaren** (`fantasy`) | 87 | 16 | 2–10 | original fantasy world: rival kingdoms around an Inner Sea, the lawless Grimward Wastes across the north (+7, borders almost everyone), a cursed swamp, a desert, mountain passes and island chains linked by sea lanes; bonuses 2–7; 83 armies each for 2 players, 25 for 10 |
 
+| **Earth** (`earth`) | 438 | 77 | 2–100 | the tournament board: Natural Earth 1:50m on a canvas three times as wide, big countries split into provinces; grouped into 26 **arenas** of 13–21 territories that serve as the round-one tables of a 100-player tournament (see `docs/tournament.md`); 13 armies each at 100 players |
+
 Every map except Classic starts each player with the classic numbers scaled by map size (territories ÷ 42; above 6 players an equal share of the 6-player total)
 (`STARTING_ARMIES` in `packages/engine/src/maps.ts`; the exact table per player count is in the rules text).
 
@@ -84,6 +86,10 @@ A map with `kind: 'authored'` (the fantasy board) has no real geography: it is d
 as hand-sketched landmasses whose coasts are roughened deterministically, split into territories by a seeded
 Voronoi partition of per-territory sites with wiggly shared borders (`scripts/authored-map.mjs`, `d3-delaunay`).
 Its land adjacency comes from shared borders, plus the `seaLanes` it lists.
+Real-geography maps can do the same: Earth leaves out `edges` (land borders come from the shapes, crossings from
+`seaLanes`), splits big countries with `split` parts (each province is the Voronoi cell around a named `site`
+inside the country) and leaves region bonuses to the generator's suggestion. Maps with `arenas` group their
+regions into tournament tables; a game can be played on some arenas only (`getBoard` in `maps.ts`).
 
 ## Rules implemented
 
@@ -97,8 +103,8 @@ Host-selectable options:
 
 | option        | values                        | default     |
 | ------------- | ----------------------------- | ----------- |
-| `map`         | `classic` \| `world` \| `world_large` \| `europe` \| `europe_advanced` \| `usa` \| `asia` \| `fantasy` | `classic` |
-| `maxPlayers`  | 2–6 (classic, europe_advanced) / 2–8 (europe, asia) / 2–10 (world, world_large, usa, fantasy) | 6 |
+| `map`         | `classic` \| `world` \| `world_large` \| `europe` \| `europe_advanced` \| `usa` \| `asia` \| `fantasy` \| `earth` | `classic` |
+| `maxPlayers`  | 2–6 (classic, europe_advanced) / 2–8 (europe, asia) / 2–10 (world, world_large, usa, fantasy) / 2–100 (earth) | 6 |
 | `setupBatch`  | armies placed per setup turn  | 1 (classic) |
 | `fortifyMode` | `connected` \| `adjacent`     | `connected` |
 | `randomDeal`  | `true` (deal) \| `false` (claim one by one) | `true` |

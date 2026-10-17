@@ -1,4 +1,4 @@
-import { getMap, isMapId, type MapDef } from './maps.js';
+import { boardOf, getBoard, getMap, isMapId, type Board, type MapDef } from './maps.js';
 import { buildDeck, findSets, isValidSet, setValue } from './cards.js';
 import { createRng, nextInt, rollDie, shuffle, type Rng } from './rng.js';
 import {
@@ -23,7 +23,24 @@ import {
   type TradeAction,
 } from './types.js';
 
-export const PLAYER_COLORS = ['#e63946', '#2a9d8f', '#457bd9', '#f4a261', '#9b5de5', '#f9c74f', '#06d6a0', '#ff70a6', '#b5651d', '#00b4d8'];
+/** The classic ten seat colours, then generated ones up to 100 seats (Earth tournaments). */
+const BASE_COLORS = ['#e63946', '#2a9d8f', '#457bd9', '#f4a261', '#9b5de5', '#f9c74f', '#06d6a0', '#ff70a6', '#b5651d', '#00b4d8'];
+
+function hslHex(h: number, s: number, l: number): string {
+  const a = s * Math.min(l, 1 - l);
+  const f = (n: number) => {
+    const k = (n + h / 30) % 12;
+    const c = l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+    return Math.round(c * 255).toString(16).padStart(2, '0');
+  };
+  return `#${f(0)}${f(8)}${f(4)}`;
+}
+
+/** Hues walk the golden angle so consecutive seats differ; lightness and saturation cycle in three bands. */
+export const PLAYER_COLORS = [
+  ...BASE_COLORS,
+  ...Array.from({ length: 90 }, (_, i) => hslHex((i * 137.508 + 20) % 360, [0.75, 0.55, 0.9][i % 3], [0.6, 0.45, 0.72][Math.floor(i / 3) % 3])),
+];
 export const NEUTRAL_COLOR = '#8d8d8d';
 export const NEUTRAL_ID = 'neutral';
 
@@ -33,17 +50,18 @@ export function startingArmies(playerCount: number, mapId: string = 'classic'): 
 }
 
 function mapOf(state: GameState): MapDef {
-  return getMap(state.options.map);
+  return boardOf(state);
 }
 
 // ------------------------------------------------------------------
 // Game creation / lobby
 // ------------------------------------------------------------------
 
-export function createGame(id: string, options: Partial<GameOptions> = {}, seed?: number): GameState {
+/** `board` restricts the game to some arenas of the map (tournament tables). */
+export function createGame(id: string, options: Partial<GameOptions> = {}, seed?: number, board?: Board | null): GameState {
   const opts: GameOptions = { ...DEFAULT_OPTIONS, ...options };
   validateOptions(opts);
-  const map = getMap(opts.map);
+  const map = getBoard(opts.map, board);
   const s = seed ?? ((Math.random() * 0xffffffff) >>> 0);
   return {
     id,
@@ -64,6 +82,7 @@ export function createGame(id: string, options: Partial<GameOptions> = {}, seed?
     blizzards: [],
     fortifiedThisTurn: false,
     winner: null,
+    ...(map.board ? { board: { arenas: map.board } } : {}),
     seed: s,
     rngState: s >>> 0,
     createdAt: Date.now(),
@@ -109,6 +128,7 @@ export function setOptions(state: GameState, options: Partial<GameOptions>): Gam
   validateOptions(next.options);
   if (next.players.length > next.options.maxPlayers) throw new RuleError('maxPlayers is below the current player count');
   if (options.map && options.map !== state.options.map) {
+    if (next.board) delete next.board; // a table's arenas belong to its map
     next.territories = Object.fromEntries(getMap(next.options.map).territoryIds.map((t) => [t, { owner: null, armies: 0 }]));
   }
   next.version++;

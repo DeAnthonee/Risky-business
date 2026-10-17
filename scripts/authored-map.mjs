@@ -304,5 +304,10 @@ export function buildAuthored(def) {
     return { ...rest, territories: members, outline: pathOf(union), ...(label ? { labelX: label[0], labelY: label[1] } : {}) };
   });
 
-  return { viewBox: [W, H], territories, continents, landEdges, touches, warnings };
+  const arenas = (def.arenas ?? []).map((a) => {
+    const members = def.territories.filter((t) => a.regions.includes(t.continent)).map((t) => t.id);
+    return { id: a.id, name: a.name, continents: a.regions, territories: members, outline: pathOf(pc.union(...members.map((id) => geoms.get(id)))) };
+  });
+
+  return { viewBox: [W, H], territories, continents, arenas, landEdges, touches, warnings };
 }

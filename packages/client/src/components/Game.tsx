@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { getMap, visibleTerritories, type Card, type GameEvent, type GameView } from '@risk/engine';
+import { boardOf, getMap, visibleTerritories, type Card, type GameEvent, type GameView } from '@risk/engine';
 import { api } from '../api';
 import { CARD_FX_MS, CardFxPanel, type CardFx } from './CardFx';
 import { ScoreChart } from './ScoreChart';
@@ -31,7 +31,7 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
   const myTurn = !!legal?.yourTurn;
   const current = view.players.find((p) => p.id === view.currentPlayer) ?? null;
   const names = useMemo(() => Object.fromEntries(view.players.map((p) => [p.id, p.name])), [view.players]);
-  const map = getMap(view.options.map);
+  const map = boardOf(view);
   const shortName = (id: string) => territoryName(map, id);
   const colorOf = useCallback((pid: string | null | undefined) => view.players.find((p) => p.id === pid)?.color ?? '#888', [view.players]);
 
@@ -371,7 +371,7 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
                 {p.income && p.alive && view.phase !== 'lobby' && (
                   <>
                     {' · '}
-                    <span className="income" title={incomeTitle(p.income, getMap(view.options.map))}>
+                    <span className="income" title={incomeTitle(p.income, boardOf(view))}>
                       +{p.income.total}/turn
                     </span>
                   </>
@@ -776,7 +776,7 @@ function reinforcementPreview(view: GameView, pid: string): number {
   const p = view.players.find((x) => x.id === pid);
   if (!p) return 0;
   if (p.income) return p.income.total;
-  const map = getMap(view.options.map);
+  const map = boardOf(view);
   const base = Math.max(3, Math.floor(p.territoryCount / 3));
   const caps = view.options.capitals ? Object.values(view.capitals ?? {}).filter((t) => view.territories[t]?.owner === pid).length * 2 : 0;
   return base + p.continents.reduce((n, c) => n + (map.continentById[c]?.bonus ?? 0), 0) + caps;

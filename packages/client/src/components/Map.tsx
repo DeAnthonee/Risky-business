@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import { getMap, type GameView, type MapDef } from '@risk/engine';
+import { boardOf, type GameView, type MapDef } from '@risk/engine';
 
 export type Highlight = 'source' | 'target' | 'place' | 'selected' | 'pending-target';
 
@@ -131,30 +131,35 @@ export function GameMap(props: MapProps) {
   const isHidden = (id: string) => !bonusView && !!(hidden?.has(id) || view.territories[id]?.hidden);
   const isFrozen = (id: string) => !!view.blizzards?.includes(id);
   const capitalOwner = (id: string) => Object.entries(view.capitals ?? {}).find(([, t]) => t === id)?.[0];
-  const map = getMap(view.options.map);
+  const map = boardOf(view);
   const [W, H] = map.viewBox;
+  // A tournament table is cut out of a bigger map: its drawing area starts at viewOrigin.
+  const [OX, OY] = map.viewOrigin;
+  // Wide boards (hundreds of territories) draw badges at the same size in map units, so the overview is
+  // further out: names, zoom limits and label sizes are measured against a 1000-unit wide board.
+  const unit = Math.max(1, W / 1000);
   const colorOf = (pid: string | null) => view.players.find((p) => p.id === pid)?.color ?? null;
   const anchor = (id: string) => map.territoryById[id];
   const now = Date.now();
   const dense = map.territories.length > 50;
 
   // ---- zoom & pan (viewBox manipulation; wheel, drag, pinch, buttons) ----
-  const [vb, setVb] = useState({ x: 0, y: 0, w: W, h: H });
-  useEffect(() => setVb({ x: 0, y: 0, w: W, h: H }), [W, H]);
+  const [vb, setVb] = useState({ x: OX, y: OY, w: W, h: H });
+  useEffect(() => setVb({ x: OX, y: OY, w: W, h: H }), [OX, OY, W, H]);
   const svgRef = useRef<SVGSVGElement>(null);
   const pointers = useRef(new Map<number, { x: number; y: number }>());
   const gesture = useRef<{ moved: boolean; last: { x: number; y: number } | null; pinch: number | null }>({ moved: false, last: null, pinch: null });
   const scale = W / vb.w;
   const MIN_SCALE = 1;
-  const MAX_SCALE = 6;
+  const MAX_SCALE = 6 * unit;
 
   const clampVb = useCallback(
     (v: { x: number; y: number; w: number; h: number }) => {
       const w = Math.min(W, Math.max(W / MAX_SCALE, v.w));
       const h = (w * H) / W;
-      return { x: Math.min(Math.max(v.x, 0), W - w), y: Math.min(Math.max(v.y, 0), H - h), w, h };
+      return { x: Math.min(Math.max(v.x, OX), OX + W - w), y: Math.min(Math.max(v.y, OY), OY + H - h), w, h };
     },
-    [W, H],
+    [OX, OY, W, H],
   );
 
   /** Convert a client point to viewBox coordinates. */
@@ -238,9 +243,9 @@ export function GameMap(props: MapProps) {
     if (gesture.current.moved) return;
     onTerritoryClick(id, shift);
   };
-  const resetView = () => setVb({ x: 0, y: 0, w: W, h: H });
+  const resetView = () => setVb({ x: OX, y: OY, w: W, h: H });
   const zoomed = scale > 1.05;
-  const showNames = !dense || scale >= 1.7;
+  const showNames = !dense || scale / unit >= 1.7;
 
   const continentLabels = useMemo(
     () =>
@@ -305,8 +310,8 @@ export function GameMap(props: MapProps) {
       </defs>
 
       {/* Ocean (oversized so panning never shows the page background) */}
-      <rect x={-W} y={-H} width={3 * W} height={3 * H} className="ocean" />
-      <rect x={-W} y={-H} width={3 * W} height={3 * H} fill="url(#ocean-grid)" />
+      <rect x={OX - W} y={OY - H} width={3 * W} height={3 * H} className="ocean" />
+      <rect x={OX - W} y={OY - H} width={3 * W} height={3 * H} fill="url(#ocean-grid)" />
 
       {/* Continent outlines give the board its regions */}
       <g className="continents" filter="url(#land-shadow)">
@@ -327,8 +332,8 @@ export function GameMap(props: MapProps) {
             const right = A.x < B.x ? B : A;
             return (
               <g key={`${l.a}-${l.b}`}>
-                <line x1={left.x} y1={left.y} x2={0} y2={left.y} />
-                <line x1={right.x} y1={right.y} x2={W} y2={right.y} />
+                <line x1={left.x} y1={left.y} x2={OX} y2={left.y} />
+                <line x1={right.x} y1={right.y} x2={OX + W} y2={right.y} />
               </g>
             );
           }

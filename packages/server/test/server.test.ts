@@ -782,7 +782,7 @@ describe('MCP act replies', () => {
 describe('new boards over HTTP', () => {
   it('lists every board', async () => {
     const r = await api('/maps');
-    expect(r.body.maps.map((m: any) => m.id)).toEqual(['classic', 'world', 'world_large', 'europe', 'europe_advanced', 'usa', 'asia', 'fantasy']);
+    expect(r.body.maps.map((m: any) => m.id)).toEqual(['classic', 'world', 'world_large', 'europe', 'europe_advanced', 'usa', 'asia', 'fantasy', 'earth']);
   });
 
   for (const [id, territories, maxPlayers] of [

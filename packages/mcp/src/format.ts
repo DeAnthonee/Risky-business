@@ -1,4 +1,21 @@
-import { describeOptions, fixedSetValue, getMap, type GameEvent, type GameView } from '@risk/engine';
+import { describeOptions, fixedSetValue, getMap, visibleTerritories, type GameEvent, type GameView } from '@risk/engine';
+
+/** The player whose capital this territory is (capitals the viewer can see), if any. */
+function capitalOwnerOf(view: GameView, t: string): string | undefined {
+  return Object.entries(view.capitals ?? {}).find(([, ct]) => ct === t)?.[0];
+}
+
+/**
+ * One neighbour as listed next to a territory: `id(owner armies)`, `*` when the owner differs, and a
+ * CAPITAL tag so a weakly held capital next door is never mistaken for an ordinary territory.
+ */
+function formatNeighbour(view: GameView, n: string, ownerOfT: string | null, name: (id: string | null | undefined) => string): string {
+  const ns = view.territories[n];
+  if (ns.hidden) return `${n}?(fog)`;
+  if (view.blizzards?.includes(n)) return `${n}(blizzard)`;
+  const cap = capitalOwnerOf(view, n);
+  return `${n}${ns.owner === ownerOfT ? '' : '*'}(${short(name(ns.owner))} ${ns.armies}${cap ? `, CAPITAL of ${short(name(cap))}` : ''})`;
+}
 
 /** A compact, LLM-friendly text rendering of the game as seen by one player. */
 export function formatState(view: GameView, gameName?: string): string {
@@ -62,15 +79,9 @@ export function formatState(view: GameView, gameName?: string): string {
         lines.push(`  ${t}: BLIZZARD (impassable)`);
         continue;
       }
-      const cap = Object.entries(view.capitals ?? {}).find(([, ct]) => ct === t);
-      const nbrs = map.adjacency[t].map((n) => {
-        const ns = view.territories[n];
-        if (ns.hidden) return `${n}?(fog)`;
-        if (view.blizzards?.includes(n)) return `${n}(blizzard)`;
-        const mark = ns.owner === ts.owner ? '' : '*';
-        return `${n}${mark}(${short(name(ns.owner))} ${ns.armies})`;
-      });
-      lines.push(`  ${t}: ${short(name(ts.owner))} ${ts.armies}${cap ? ` [CAPITAL of ${short(name(cap[0]))}]` : ''} — ${nbrs.join(', ')}`);
+      const cap = capitalOwnerOf(view, t);
+      const nbrs = map.adjacency[t].map((n) => formatNeighbour(view, n, ts.owner, name));
+      lines.push(`  ${t}: ${short(name(ts.owner))} ${ts.armies}${cap ? ` [CAPITAL of ${short(name(cap))}]` : ''} — ${nbrs.join(', ')}`);
     }
   }
   lines.push('(* marks a neighbour with a different owner)');
@@ -84,6 +95,7 @@ export function formatState(view: GameView, gameName?: string): string {
     if (lm.pendingConquest) {
       const pc = lm.pendingConquest;
       lines.push(`  You conquered ${pc.to} from ${pc.from}. You MUST occupy: {"type":"occupy","armies":N} with ${pc.minArmies} <= N <= ${pc.maxArmies}`);
+      if (view.options.fogOfWar) lines.push(`  (The board above already shows what ${pc.to} lets you see. Check its neighbours, capitals included, before you choose N: move in more if you will attack on from there.)`);
     } else {
       if (lm.mustTrade) lines.push('  You MUST trade a card set now: {"type":"trade","cardIds":[a,b,c]}');
       if (lm.tradeableSets.length) {
@@ -105,8 +117,13 @@ export function formatState(view: GameView, gameName?: string): string {
       }
       if (lm.attacks.length) {
         lines.push(`  Attacks available (from -> to, max dice): ${lm.attacks.map((a) => `${a.from}->${a.to} (${a.maxDice})`).join('; ')}`);
-        lines.push('    Blitz by default: {"type":"attack","from":"..","to":"..","blitz":true,"occupy":"max"} fights the whole battle in ONE call (rolls until the territory falls or you run down to 1 army).');
+        if (view.options.fogOfWar)
+          lines.push('    Blitz by default: {"type":"attack","from":"..","to":"..","blitz":true} fights the whole battle in ONE call. Fog of war is ON, so leave out "occupy": a conquest reveals the territories beyond it, and you then choose how many armies to move in knowing what is there (a weak capital next door, a big stack about to hit back).');
+        else
+          lines.push('    Blitz by default: {"type":"attack","from":"..","to":"..","blitz":true,"occupy":"max"} fights the whole battle in ONE call (rolls until the territory falls or you run down to 1 army).');
         lines.push('    Single rolls ("dice":1-3, no blitz) are only for stopping partway on purpose; rolling one at a time is slow for everyone watching. "occupy" may be a number, "min" or "max".');
+        if (view.options.balancedBlitz)
+          lines.push('    Balanced blitz is ON: a blitz lands near the expected odds (a strong attack almost never collapses), while single rolls are pure luck. Blitz when you have the numbers.');
       }
       if (lm.canEndAttack) lines.push('  {"type":"end_attack"} to move to fortify phase');
       if (lm.fortifies.length) {
@@ -199,6 +216,24 @@ export function formatEvents(events: GameEvent[], view: GameView): string {
   return out.join('\n');
 }
 
+/**
+ * Under fog of war: territories the viewer can see only because of a conquest in these events, i.e. that
+ * were fogged before. Recomputed from the view by handing the conquered territories back to their
+ * previous owners, so it needs no earlier snapshot.
+ */
+export function revealedByConquests(events: GameEvent[], view: GameView): string[] {
+  if (!view.options.fogOfWar || !view.you) return [];
+  const conquests = events.filter((e): e is Extract<GameEvent, { type: 'conquered' }> => e.type === 'conquered' && e.player === view.you);
+  if (conquests.length === 0) return [];
+  const map = getMap(view.options.map);
+  const now = visibleTerritories(view.territories, view.you, map);
+  const before: Record<string, { owner: string | null }> = { ...view.territories };
+  for (const c of conquests) before[c.to] = { owner: c.previousOwner };
+  const was = visibleTerritories(before, view.you, map);
+  // Blizzards are public under fog, so a conquest never reveals one.
+  return map.territoryIds.filter((t) => now.has(t) && !was.has(t) && !view.blizzards?.includes(t));
+}
+
 /** Territories an event touches (placements, battles, conquests, moves, capitals). */
 function touchedTerritories(events: GameEvent[]): string[] {
   const out = new Set<string>();
@@ -241,14 +276,14 @@ export function formatActResult(events: GameEvent[], view: GameView): string {
     for (const t of touched) {
       const ts = view.territories[t];
       if (!ts || ts.hidden) continue;
-      const nbrs = map.adjacency[t].map((n) => {
-        const ns = view.territories[n];
-        if (ns.hidden) return `${n}?(fog)`;
-        if (view.blizzards?.includes(n)) return `${n}(blizzard)`;
-        return `${n}${ns.owner === ts.owner ? '' : '*'}(${short(name(ns.owner))} ${ns.armies})`;
-      });
-      lines.push(`  ${t}: ${short(name(ts.owner))} ${ts.armies} — ${nbrs.join(', ')}`);
+      const cap = capitalOwnerOf(view, t);
+      const nbrs = map.adjacency[t].map((n) => formatNeighbour(view, n, ts.owner, name));
+      lines.push(`  ${t}: ${short(name(ts.owner))} ${ts.armies}${cap ? ` [CAPITAL of ${short(name(cap))}]` : ''} — ${nbrs.join(', ')}`);
     }
+  }
+  const revealed = revealedByConquests(events, view);
+  if (revealed.length) {
+    lines.push(`Revealed by your conquest (was fogged): ${revealed.map((n) => formatNeighbour(view, n, view.you, name)).join(', ')}`);
   }
   const legal = full.indexOf('\nYOUR LEGAL MOVES:');
   if (legal >= 0) lines.push(full.slice(legal));

@@ -50,14 +50,14 @@ export const OPTION_SPECS: { [K in OptionKey]: OptionSpec } = {
       }),
     ),
     description:
-      'Which board to play on: classic (the Hasbro board), world (finer world), world_large (Grand World, the biggest board, made for 8-10 players), europe, europe_advanced (Europe Advanced: 99 smaller territories, made for 4-6 players), usa (US states), asia or fantasy (Realms of Halvaren, an original fantasy world). Changing it clamps maxPlayers, neutrals and blizzards to the new map.',
+      'Which board to play on: classic (the Hasbro board), world (finer world), world_large (Grand World, the biggest board, made for 8-10 players), europe, greater_europe (Greater Europe: 116 smaller territories, up to 10 players), europe_classic (Europe Advanced: 84 territories in 14 regions such as the Russian Empire and the Orient, 2-6 players), usa (US states), asia or fantasy (Realms of Halvaren, an original fantasy world). Changing it clamps maxPlayers, neutrals and blizzards to the new map.',
   },
   maxPlayers: {
     kind: 'int',
     label: 'Seats',
     min: 2,
     max: (m) => m.maxPlayers,
-    description: 'Number of seats, counting bots and agents (classic and europe_advanced up to 6, europe and asia up to 8, world, world_large, usa and fantasy up to 10).',
+    description: 'Number of seats, counting bots and agents (classic and europe_classic up to 6, europe and asia up to 8, world, world_large, greater_europe, usa and fantasy up to 10).',
   },
   autoSetup: {
     kind: 'boolean',
@@ -107,6 +107,11 @@ export const OPTION_SPECS: { [K in OptionKey]: OptionSpec } = {
     kind: 'boolean',
     label: 'Late-turn bonus (round 1)',
     description: 'true (default): in round 1 only, the Nth player in turn order receives at least N armies (1st-3rd get their normal 3+, 4th at least 4, 5th at least 5, up to 10th at least 10), offsetting the disadvantage of going later. false: everyone gets the normal reinforcements.',
+  },
+  balancedBlitz: {
+    kind: 'boolean',
+    label: 'Balanced blitz',
+    description: 'true: a blitz attack is rolled 5 times with real dice and the middle outcome is the one that happens, so blitzes land close to the odds (strong attacks rarely collapse, long shots rarely come off). Single rolls (no blitz) stay fully random. false (default): every roll is pure luck.',
   },
   capitals: {
     kind: 'boolean',
@@ -221,7 +226,7 @@ export function parseOptions(raw: unknown): Partial<GameOptions> {
 export function describeOptions(o: GameOptions, tradeCount = 0): string[] {
   const map = getMap(o.map);
   const lines = [
-    `Map: ${OPTION_SPECS.map.kind === 'enum' ? (OPTION_SPECS.map as EnumSpec).valueLabels[o.map] : o.map}`,
+    `Map: ${(OPTION_SPECS.map as EnumSpec).valueLabels[o.map] ?? `${map.name}: ${map.territoryIds.length} territories, 2-${map.maxPlayers} players (legacy board, not offered for new games)`}`,
     `Seats: ${o.maxPlayers}`,
     o.autoSetup
       ? 'Setup: skipped; starting armies are scattered randomly and turn 1 starts at once'
@@ -230,6 +235,7 @@ export function describeOptions(o: GameOptions, tradeCount = 0): string[] {
     o.cardValues === 'fixed'
       ? `Cards: fixed values (${(OPTION_SPECS.cardValues as EnumSpec).valueLabels.fixed})`
       : `Cards: progressive, next set worth ${tradeBonus(tradeCount)} (then ${[1, 2, 3].map((i) => tradeBonus(tradeCount + i)).join(', ')}...)`,
+    `Balanced blitz: ${o.balancedBlitz ? 'on (a blitz plays out the middle of 5 real blitzes, close to the odds; single rolls stay random)' : 'off (every roll is pure luck)'}`,
     `Fog of war: ${o.fogOfWar ? "on (players see only their territories and neighbours; nothing else about opponents except card counts, not even their troop or territory counts)" : 'off'}`,
     `Capital Conquest: ${o.capitals ? `on (+2 per capital held, capitals defend with 3 dice, hold every capital to win; ${o.chooseCapitals ? 'players choose their capitals before turn 1' : 'capital = most garrisoned territory after setup'})` : 'off'}`,
     `Neutral territories: ${o.neutrals > 0 ? `${o.neutrals} with ${o.neutralArmies} arm${o.neutralArmies === 1 ? 'y' : 'ies'} each (games of 3+ players)` : 'off'}`,

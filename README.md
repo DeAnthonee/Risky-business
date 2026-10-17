@@ -44,12 +44,14 @@ Dice rolls, troop placements ("+N" bursts that stay up longer for spectators), c
 (`+N/turn`, the reinforcements they get next turn before cards; hover it for the breakdown).
 Picking a map (when creating a game, and in the lobby) shows a preview of the board: every territory in its region's
 colour, sea links, the region bonuses (hover one to pick it out) and the starting armies for the player count.
-On desktop, drag the divider under the scoreboard to give the log/chat more or less room (double-click resets).
+On desktop, drag the divider under the scoreboard to give the log/chat more or less room (double-click resets). The log shows each attack as one entry: who took (or failed to take) which territory, each side's armies at the start and end with the losses, the number of rolls and the armies moved in; hover it for the individual dice rolls. Runs of fogged events collapse into one line with a count.
 Press **Bonuses** (on the map, in the spectator bar, or **B**) to see every region painted in its own colour with
 its bonus, no armies; neighbouring regions never share a colour, on the board or in this view.
 Switch the scoreboard to **Who's winning** for a bar chart: each living player's power is 40% their share of all
 players' armies + 30% of territories + 30% of income (bars add up to 100%; the Neutral is left out), split into
-those three parts; hover a bar for the numbers.
+those three parts; hover a bar for the numbers. Each row also shows the player's card count (yellow at 3, a set is
+possible; orange at 4+). Card counts are public, so under fog of war a seated player still gets the card-count list.
+In a progressive-cards game the top bar shows what the **next set** is worth (hover for the next three values).
 
 Development with hot reload (server on :8080, Vite client on :5173 proxying `/api` and `/ws`):
 
@@ -65,7 +67,7 @@ npm test
 
 ## Maps
 
-Eight boards. Seven are drawn from real geography (Natural Earth countries or US Census states, cut into
+Nine boards. Eight are drawn from real geography (Natural Earth countries or US Census states, cut into
 territories and projected to SVG); Realms of Halvaren is an original fantasy world drawn by hand:
 
 | map | territories | regions | players | notes |
@@ -74,13 +76,20 @@ territories and projected to SVG); Realms of Halvaren is an original fantasy wor
 | **World** | 74 | 14 | 2–10 | finer regions (Caribbean, Russia, Middle East, Central/South/East/Southeast Asia, Oceania, three African regions); region bonuses 2–7; starting armies scale with the player count (21 each for 10 players) |
 | **Grand World** (`world_large`) | 104 | 20 | 2–10 | the big board for 8–10 players: the US in ten, Russia in nine, Africa in eighteen; bonuses 2–7; 30 armies each at 10 players |
 | **Europe** | 44 | 8 | 2–8 | countries and halves of countries, with western Russia, Anatolia and the Maghreb as edge regions; bonuses 2–6 |
-| **Europe Advanced** (`europe_advanced`) | 99 | 14 | 2–6 | a large, detailed Europe for 4–6 players: Iceland to the Urals, historical regions and provinces (Brittany, Bavaria, Lapland, Wallachia, Cappadocia ...), North Africa, Anatolia, the Levant and the Caucasus; sea crossings over the Channel, North Sea, Baltic, Gibraltar, Sicily–Tunisia, Corsica/Sardinia, the Aegean, the Bosporus and Kerch; bonuses 3–6; 94 armies each for 2 players, 47 for 6 |
+| **Greater Europe** (`greater_europe`) | 116 | 15 | 2–10 | a large, detailed Europe for up to 10 players: Iceland to the Urals, historical regions and provinces (Brittany, Bavaria, Lapland, Wallachia, Galatia ...), the Maghreb, Libya and Egypt, Anatolia, the Levant and the Caucasus; sea crossings over the Channel, North Sea, Baltic, Gibraltar, Sicily–Tunisia, Corsica/Sardinia, the Aegean, the Bosporus and Kerch; bonuses 2–7; 110 armies each for 2 players, 55 for 6, 33 for 10 |
+| **Europe Advanced** (`europe_classic`) | 84 | 14 | 2–6 | the region layout, territory counts and bonuses of the "Europe Advanced" board: Iceland (3, +2), British Empire (4, +3), Scandinavia (5, +3), Western Europe (5, +4), Central Europe (6, +5), Dinaric Alps (3, +4), Southern Europe (5, +4), South Western Europe (6, +4), South Eastern Europe (4, +4), Eastern Europe (8, +8), Russian Empire (9, +7), Orient (11, +6), West Africa (10, +6), North Africa (5, +3); our own shapes on a flat (equirectangular) projection; 80 armies each for 2 players, 40 for 6 |
 | **USA** | 45 | 8 | 2–10 | US states (small north-eastern ones merged); Alaska and Hawaii as insets reached by sea; bonuses 3–6 |
 | **Asia** | 49 | 7 | 2–8 | Middle East to Japan, Siberia to Java; bonuses 4–6 |
 | **Realms of Halvaren** (`fantasy`) | 87 | 16 | 2–10 | original fantasy world: rival kingdoms around an Inner Sea, the lawless Grimward Wastes across the north (+7, borders almost everyone), a cursed swamp, a desert, mountain passes and island chains linked by sea lanes; bonuses 2–7; 83 armies each for 2 players, 25 for 10 |
 
 Every map except Classic starts each player with the classic numbers scaled by map size (territories ÷ 42; above 6 players an equal share of the 6-player total)
 (`STARTING_ARMIES` in `packages/engine/src/maps.ts`; the exact table per player count is in the rules text).
+
+Legacy board: `europe_advanced` (the 99-territory "Europe Advanced" for 2–6 players, now shown as
+"Europe (legacy, 99)") is no longer offered for new games and is not listed by `GET /api/maps`, but stays
+registered so games saved on it keep loading and playing. A map id never changes its territories under saved
+games: a reworked board gets a new id (Greater Europe replaced it as `greater_europe`) and the old one moves to
+`LEGACY_MAP_IDS` in `packages/engine/src/maps.ts`.
 
 Territory shapes, label anchors, sea links and continent outlines are generated by `npm run build:map`
 from `scripts/maps/*.mjs`; the output in `packages/engine/src/generated/` is committed, so the host
@@ -102,8 +111,8 @@ Host-selectable options:
 
 | option        | values                        | default     |
 | ------------- | ----------------------------- | ----------- |
-| `map`         | `classic` \| `world` \| `world_large` \| `europe` \| `europe_advanced` \| `usa` \| `asia` \| `fantasy` | `classic` |
-| `maxPlayers`  | 2–6 (classic, europe_advanced) / 2–8 (europe, asia) / 2–10 (world, world_large, usa, fantasy) | 6 |
+| `map`         | `classic` \| `world` \| `world_large` \| `europe` \| `greater_europe` \| `europe_classic` \| `usa` \| `asia` \| `fantasy` | `classic` |
+| `maxPlayers`  | 2–6 (classic, europe_classic) / 2–8 (europe, asia) / 2–10 (world, world_large, greater_europe, usa, fantasy) | 6 |
 | `setupBatch`  | armies placed per setup turn  | 1 (classic) |
 | `fortifyMode` | `connected` \| `adjacent`     | `connected` |
 | `randomDeal`  | `true` (deal) \| `false` (claim one by one) | `true` |
@@ -113,8 +122,9 @@ Host-selectable options:
 | `spectatorChat` | watchers can post in the game chat (marked as spectators, 5 messages / 10 s); every player sees them, even under fog of war | `true` |
 | `neutrals`    | games of 3+ players: this many random territories start held by a Neutral army that never attacks (0 = off, max a third of the map); 2-player games always have the classic Neutral | `0` |
 | `neutralArmies` | armies on each neutral territory when `neutrals` is on (1–10) | `2` |
-| `blizzards`   | number of random territories frozen for the whole game (0 = off, max 8, or a sixth of the map on bigger boards: 12 world, 14 fantasy, 16 europe advanced, 17 grand world); nobody can own, attack or cross them; the rest of the map stays connected and continents only need their open territories | `0` |
+| `blizzards`   | number of random territories frozen for the whole game (0 = off, max 8, or a sixth of the map on bigger boards: 12 world, 14 fantasy, 14 europe advanced, 17 grand world, 19 greater europe); nobody can own, attack or cross them; the rest of the map stays connected and continents only need their open territories | `0` |
 | `firstRoundBonus` | round 1 only: the Nth player in turn order receives at least N armies (4th at least 4, ... 10th at least 10) to offset going later; games saved before this option keep it off | `true` |
+| `balancedBlitz` | a blitz is rolled 5 times with real dice and the middle outcome happens, so blitzes land close to the odds (strong attacks rarely collapse, long shots rarely come off); single rolls stay fully random, and the dice panel marks balanced rolls | `false` |
 | `capitals`    | Capital Conquest: each player's most garrisoned territory after setup becomes a capital (★) and gets 3 extra armies; +2 armies per capital held each turn; capitals defend with up to 3 dice; losing your capital does not knock you out; holding every capital at once wins the game | `false` |
 | `chooseCapitals` | Capital Conquest only: after setup each player, in turn order, picks one of their own territories as their capital (under fog of war only players who can see it learn the pick); off = most garrisoned territory becomes the capital | `false` |
 
@@ -223,9 +233,9 @@ or `{"ok":false,"error":"…"}`.
 {"type":"place","placements":{"alaska":3,"peru":1}}   // setup / reinforce / forced placement
 {"type":"choose_capital","territory":"brazil"}        // capitals phase (chooseCapitals): pick your capital, +3 armies there
 {"type":"trade","cardIds":[3,17,42]}
-{"type":"attack","from":"alaska","to":"kamchatka","blitz":true,"occupy":"max"} // fight to the end, move in (what agents should normally send)
+{"type":"attack","from":"alaska","to":"kamchatka","blitz":true,"occupy":"max"} // fight to the end, move in (what agents should normally send; under fog of war leave out "occupy")
 {"type":"attack","from":"alaska","to":"kamchatka","dice":3}              // one roll
-{"type":"occupy","armies":4}                          // after a conquest without "occupy"
+{"type":"occupy","armies":4}                          // after a conquest without "occupy" (under fog the conquest has already revealed its neighbours, capitals tagged)
 {"type":"end_attack"}
 {"type":"fortify","from":"peru","to":"brazil","armies":2}  // also ends the turn
 {"type":"end_turn"}
@@ -307,6 +317,28 @@ valid ones instead of being ignored.
 armies, cards and continents, and your next legal moves), since other players do not act during your turn (except
 that someone may surrender); the full board comes back when your turn ends, from `get_state`/`wait_for_turn`, or with
 `act` `full: true`.
+
+## AI characters & model info (`AI/`)
+
+AI players can play *as* a character. Their profiles live in [`AI/`](AI/README.md), which has the full table
+of contents. Where to save things:
+
+| You are saving... | Save it to | File name |
+| ----------------- | ---------- | --------- |
+| A Marvel character | `AI/characters/marvel/` | `<character>.md`, lowercase kebab-case (`iron-man.md`) |
+| A DC character | `AI/characters/dc/` | `<character>.md` (`batman.md`) |
+| A character from another universe | `AI/characters/<universe>/` (create the folder, lowercase) | `<character>.md` |
+| Info that applies to every model | `AI/general-model-info/` | `<topic>.md` (`playing-via-mcp.md`) |
+
+Rules for agents saving character info:
+
+1. Start from [`AI/characters/_TEMPLATE.md`](AI/characters/_TEMPLATE.md) and keep its headings: universe,
+   aliases, **preferred AI model**, personality, strategy, skills, weaknesses, history, grudges & rivals,
+   allies, and game rules for the character.
+2. One character = one file. If the file exists, edit it; never make a duplicate under another name.
+3. Anything true for all models goes in `AI/general-model-info/`, never in a character file.
+4. Add every new file to the tree in [`AI/README.md`](AI/README.md) (and new general docs to
+   `AI/general-model-info/README.md`).
 
 ## Contributing
 

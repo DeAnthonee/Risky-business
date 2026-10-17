@@ -627,6 +627,20 @@ describe('MCP game settings', () => {
   });
 });
 
+describe('balanced blitz over HTTP', () => {
+  it('accepts the setting, lists it in the catalog and rejects bad values', async () => {
+    const created = await api('/games', { method: 'POST', body: JSON.stringify({ playerName: 'B', options: { balancedBlitz: true } }) });
+    expect(created.status).toBe(201);
+    expect(created.body.state.options.balancedBlitz).toBe(true);
+    const plain = await api('/games', { method: 'POST', body: JSON.stringify({ playerName: 'P' }) });
+    expect(plain.body.state.options.balancedBlitz).toBe(false);
+    const bad = await api('/games', { method: 'POST', body: JSON.stringify({ playerName: 'X', options: { balancedBlitz: 'sometimes' } }) });
+    expect(bad.status).toBe(400);
+    const cat = await api('/options');
+    expect(JSON.stringify(cat.body)).toContain('balancedBlitz');
+  });
+});
+
 describe('MCP seats', () => {
   it('lets one connection hold several players in a game and resolves them by name or token', async () => {
     const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
@@ -792,16 +806,60 @@ describe('MCP act replies', () => {
   });
 });
 
+describe('MCP conquest under fog of war', () => {
+  it('reveals what a conquest uncovers, tags capitals, before the occupy decision', async () => {
+    const { createGame, addPlayer, startGame, applyAction, viewFor, getMap } = await import('@risk/engine');
+    const { formatActResult, formatState } = await import('@risk/mcp');
+    let s = createGame('FOGCAP', { fogOfWar: true, capitals: true, autoSetup: true, maxPlayers: 3 }, 7);
+    s = addPlayer(s, 'a', 'Alice');
+    s = addPlayer(s, 'b', 'Bob');
+    s = addPlayer(s, 'c', 'Carl');
+    s = startGame(s).state;
+    // Rig the board: Alice attacks Northwest Territory from Alaska; Bob's capital Greenland (2 armies)
+    // is only visible once Northwest Territory falls.
+    for (const t of getMap('classic').territoryIds) s.territories[t] = { owner: 'c', armies: 3 };
+    s.territories.alaska = { owner: 'a', armies: 20 };
+    s.territories.kamchatka = { owner: 'a', armies: 1 };
+    s.territories.northwest_territory = { owner: 'b', armies: 1 };
+    s.territories.greenland = { owner: 'b', armies: 2 };
+    s.capitals = { a: 'kamchatka', b: 'greenland', c: 'brazil' };
+    s.currentPlayer = 'a';
+    s.phase = 'attack';
+    s.players.find((p) => p.id === 'a')!.armiesToPlace = 0;
+    expect(viewFor(s, 'a').territories.greenland.hidden).toBe(true);
+    // Under fog the attack advice no longer tells agents to occupy blind.
+    const before = formatState(viewFor(s, 'a'));
+    expect(before).toContain('Fog of war is ON, so leave out "occupy"');
+    expect(before).not.toContain('"blitz":true,"occupy":"max"');
+
+    const r = applyAction(s, 'a', { type: 'attack', from: 'alaska', to: 'northwest_territory', blitz: true });
+    expect(r.state.pendingConquest?.to).toBe('northwest_territory');
+    const view = viewFor(r.state, 'a');
+    // The fog has already cleared while the occupy decision is pending.
+    expect(view.territories.greenland.hidden).toBeFalsy();
+    expect(view.capitals.b).toBe('greenland');
+    const text = formatActResult(r.events, view);
+    expect(text).toContain('Revealed by your conquest (was fogged): ');
+    expect(text).toMatch(/Revealed by your conquest[^\n]*greenland\*\(Bob 2, CAPITAL of Bob\)/);
+    expect(text).toMatch(/northwest_territory: Alice 0 — [^\n]*greenland\*\(Bob 2, CAPITAL of Bob\)/);
+    // Alberta was already visible from Alaska, so it is not "revealed".
+    expect(text).not.toMatch(/Revealed by your conquest[^\n]*alberta/);
+    expect(text).toContain('You MUST occupy');
+    expect(text.indexOf('Revealed by your conquest')).toBeLessThan(text.indexOf('You MUST occupy'));
+  });
+});
+
 describe('new boards over HTTP', () => {
   it('lists every board', async () => {
     const r = await api('/maps');
-    expect(r.body.maps.map((m: any) => m.id)).toEqual(['classic', 'world', 'world_large', 'europe', 'europe_advanced', 'usa', 'asia', 'fantasy']);
+    expect(r.body.maps.map((m: any) => m.id)).toEqual(['classic', 'world', 'world_large', 'europe', 'greater_europe', 'europe_classic', 'usa', 'asia', 'fantasy']);
   });
 
   for (const [id, territories, maxPlayers] of [
     ['world_large', 104, 10],
     ['europe', 44, 8],
-    ['europe_advanced', 99, 6],
+    ['greater_europe', 116, 10],
+    ['europe_classic', 84, 6],
     ['usa', 45, 10],
     ['asia', 49, 8],
   ] as const) {
@@ -827,18 +885,91 @@ describe('new boards over HTTP', () => {
     const r = await api('/games', { method: 'POST', body: JSON.stringify({ playerName: 'H', options: { map: 'europe', maxPlayers: 9 } }) });
     expect(r.status).toBe(400);
     expect(r.body.error).toMatch(/maxPlayers must be between 2 and 8/);
-    const ea = await api('/games', { method: 'POST', body: JSON.stringify({ playerName: 'H', options: { map: 'europe_advanced', maxPlayers: 7 } }) });
+    const ea = await api('/games', { method: 'POST', body: JSON.stringify({ playerName: 'H', options: { map: 'greater_europe', maxPlayers: 11 } }) });
     expect(ea.status).toBe(400);
-    expect(ea.body.error).toMatch(/maxPlayers must be between 2 and 6/);
+    expect(ea.body.error).toMatch(/maxPlayers must be between 2 and 10/);
   });
 
-  it('serves Europe Advanced with its regions and cross-water adjacency', async () => {
+  it('serves Europe Advanced (europe_classic) with the reference regions and rejects a 7th seat', async () => {
     const maps = await api('/maps');
-    expect(maps.body.maps).toContainEqual(expect.objectContaining({ id: 'europe_advanced', territories: 99, maxPlayers: 6 }));
-    const map = await api('/map?map=europe_advanced');
+    expect(maps.body.maps).toContainEqual(expect.objectContaining({ id: 'europe_classic', name: 'Europe Advanced (84)', territories: 84, maxPlayers: 6 }));
+    const map = await api('/map?map=europe_classic');
     expect(map.body.continents).toHaveLength(14);
+    expect(map.body.continents.find((c: any) => c.id === 'eastern_europe')).toMatchObject({ name: 'Eastern Europe', bonus: 8 });
+    expect(map.body.adjacency.corsica_sardinia).toContain('constantine');
+    const r = await api('/games', { method: 'POST', body: JSON.stringify({ playerName: 'H', options: { map: 'europe_classic', maxPlayers: 7 } }) });
+    expect(r.status).toBe(400);
+    expect(r.body.error).toMatch(/maxPlayers must be between 2 and 6/);
+  });
+
+  it('serves Greater Europe with its regions and cross-water adjacency', async () => {
+    const maps = await api('/maps');
+    expect(maps.body.maps).toContainEqual(expect.objectContaining({ id: 'greater_europe', name: 'Greater Europe (116)', territories: 116, maxPlayers: 10 }));
+    const map = await api('/map?map=greater_europe');
+    expect(map.body.continents).toHaveLength(15);
     expect(map.body.adjacency.southern_england).toContain('ile_de_france');
-    expect(map.body.adjacency.morocco).toContain('andalusia');
+    expect(map.body.adjacency.fez).toContain('andalusia');
+  });
+
+  it('no longer offers the legacy 99-territory europe_advanced board for new games', async () => {
+    const maps = await api('/maps');
+    expect(maps.body.maps.map((m: any) => m.id)).not.toContain('europe_advanced');
+    const created = await api('/games', { method: 'POST', body: JSON.stringify({ playerName: 'H', options: { map: 'europe_advanced' } }) });
+    expect(created.status).toBe(400);
+    expect(created.body.error).toMatch(/map must be one of/);
+    const options = await api('/options');
+    expect(options.body.options.find((o: any) => o.key === 'map').values).not.toContain('europe_advanced');
+    // its geometry is still served, for spectators of saved games
+    const legacy = await api('/map?map=europe_advanced');
+    expect(legacy.status).toBe(200);
+    expect(legacy.body.territories).toHaveLength(99);
+  });
+
+  it('loads saved games on the legacy europe_advanced board with its 99 territory ids', async () => {
+    const { addPlayer, createGame, startGame } = await import('@risk/engine');
+    const snap = (id: string, state: any, tokens: Record<string, string>) => ({ id, name: id, hostId: 'a', state, tokens, chat: [], history: [], updatedAt: Date.now() });
+    // a running game, dealt and set up on the 99-territory board as the build before Greater Europe did
+    let g = createGame('LEGACYEA', { map: 'europe_advanced', maxPlayers: 3, autoSetup: true }, 17);
+    for (const id of ['a', 'b', 'c']) g = addPlayer(g, id, id.toUpperCase());
+    const running = startGame(g).state;
+    expect(Object.keys(running.territories)).toHaveLength(99);
+    expect(running.territories.morocco).toBeDefined();
+    // and a lobby on it
+    const lobby = addPlayer(createGame('LOBBYEA', { map: 'europe_advanced', maxPlayers: 6 }, 3), 'a', 'A');
+    const file = join(dir, 'europe-advanced-99.json');
+    const { writeFileSync } = await import('node:fs');
+    writeFileSync(file, JSON.stringify([snap('LEGACYEA', running, { tokA: 'a', tokB: 'b', tokC: 'c' }), snap('LOBBYEA', lobby, { tokL: 'a' })]));
+    const legacy = await startServer(file);
+    const call = async (path: string, init: RequestInit = {}, token?: string) => {
+      const res = await fetch(`${legacy.base}/api${path}`, { ...init, headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) } });
+      return { status: res.status, body: (await res.json()) as any };
+    };
+    try {
+      const spectator = await call('/games/LEGACYEA');
+      expect(spectator.status).toBe(200);
+      expect(spectator.body.state.options.map).toBe('europe_advanced');
+      expect(Object.keys(spectator.body.state.territories)).toHaveLength(99);
+      const current = running.currentPlayer!;
+      const token = { a: 'tokA', b: 'tokB', c: 'tokC' }[current]!;
+      const seen = await call('/games/LEGACYEA', {}, token);
+      expect(seen.status).toBe(200);
+      const legal = seen.body.state.legal;
+      expect(legal.yourTurn).toBe(true);
+      expect(legal.canPlaceOn.length).toBeGreaterThan(0);
+      for (const t of legal.canPlaceOn) expect(t in running.territories).toBe(true);
+      const placed = await call('/games/LEGACYEA/actions', { method: 'POST', body: JSON.stringify({ action: { type: 'place', placements: { [legal.canPlaceOn[0]]: legal.armiesToPlace } } }) }, token);
+      expect(placed.status).toBe(200);
+      expect(placed.body.state.phase).toBe('attack');
+      expect(placed.body.state.legal.canEndAttack).toBe(true);
+      // the saved lobby keeps its board and can still change other settings
+      const opts = await call('/games/LOBBYEA/options', { method: 'POST', body: JSON.stringify({ options: { maxPlayers: 4, fogOfWar: true } }) }, 'tokL');
+      expect(opts.status).toBe(200);
+      expect(opts.body.state.options).toMatchObject({ map: 'europe_advanced', maxPlayers: 4, fogOfWar: true });
+      const back = await call('/games/LOBBYEA/options', { method: 'POST', body: JSON.stringify({ options: { map: 'europe_advanced' } }) }, 'tokL');
+      expect(back.status).toBe(400);
+    } finally {
+      await legacy.risk.shutdown('test');
+    }
   });
 });
 

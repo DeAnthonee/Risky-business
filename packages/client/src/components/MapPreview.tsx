@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { memo, useState } from 'react';
 import { MAPS, type MapId } from '@risk/engine';
 import { continentColor } from './Map';
 
@@ -6,7 +6,7 @@ import { continentColor } from './Map';
  * A small, static picture of a board for choosing one: every territory in its region's colour, sea links
  * dashed, and a legend of regions with their bonuses. Hover a region in the legend to pick it out on the map.
  */
-export function MapPreview({ mapId, players }: { mapId: MapId; players?: number }) {
+export const MapPreview = memo(function MapPreview({ mapId, players }: { mapId: MapId; players?: number }) {
   const map = MAPS[mapId] ?? MAPS.classic;
   const [focus, setFocus] = useState<string | null>(null);
   const [W, H] = map.viewBox;
@@ -73,4 +73,4 @@ export function MapPreview({ mapId, players }: { mapId: MapId; players?: number 
       </figcaption>
     </figure>
   );
-}
+});

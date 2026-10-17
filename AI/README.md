@@ -14,7 +14,8 @@ AI/
 │   └── dc/
 │       └── batman.md
 └── general-model-info/           ← docs that apply to ALL models, not one character
-    └── README.md
+    ├── README.md
+    └── risk-learnings.md         ← lessons from every past game (read before playing)
 ```
 
 | Folder | What goes in it | What does NOT go in it |

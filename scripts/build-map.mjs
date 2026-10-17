@@ -12,7 +12,7 @@
  * Map definition fields (scripts/maps/<id>.mjs):
  *   source      'countries-110m' (default) | 'countries-50m' (Natural Earth, world-atlas) |
  *               'us-states' (US states, us-atlas). Parts name a feature by id or by name.
- *   projection  { type: 'naturalEarth1' | 'conicEqualArea', rotate, parallels } (default
+ *   projection  { type: 'naturalEarth1' | 'conicEqualArea' | 'equirectangular', rotate, parallels } (default
  *               Natural Earth I rotated [-10, 0])
  *   minArea     drop islets smaller than this many deg² (default 0.6)
  *   simplify    simplify the source topology first: drop points whose triangle is under this many
@@ -33,7 +33,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { feature } from 'topojson-client';
 import { presimplify, simplify } from 'topojson-simplify';
-import { geoPath, geoArea, geoContains, geoNaturalEarth1, geoConicEqualArea } from 'd3-geo';
+import { geoPath, geoArea, geoContains, geoNaturalEarth1, geoConicEqualArea, geoEquirectangular } from 'd3-geo';
 import pc from 'polygon-clipping';
 import polylabel from 'polylabel';
 import { buildAuthored } from './authored-map.mjs';
@@ -194,6 +194,7 @@ function makeProjection(spec = {}) {
   const type = spec.type ?? 'naturalEarth1';
   if (type === 'naturalEarth1') return geoNaturalEarth1().rotate(spec.rotate ?? [-10, 0]);
   if (type === 'conicEqualArea') return geoConicEqualArea().rotate(spec.rotate ?? [0, 0]).parallels(spec.parallels ?? [30, 60]);
+  if (type === 'equirectangular') return geoEquirectangular().rotate(spec.rotate ?? [0, 0]);
   throw new Error(`Unknown projection ${type}`);
 }
 
@@ -431,7 +432,7 @@ function finish(def, { viewBox, territories, continents, touches, anchorWarnings
   return out;
 }
 
-const MAP_NAMES = ['classic', 'world', 'world_large', 'europe', 'europe_advanced','usa', 'asia', 'fantasy'];
+const MAP_NAMES = ['classic', 'world', 'world_large', 'europe', 'europe_advanced', 'europe_classic', 'usa', 'asia', 'fantasy'];
 const wanted = process.argv.slice(2);
 for (const name of MAP_NAMES) {
   if (wanted.length && !wanted.includes(name)) continue;

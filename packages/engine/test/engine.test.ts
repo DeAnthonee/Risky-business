@@ -556,6 +556,7 @@ describe('maps', () => {
     world_large: { territories: 104, regions: 20, maxPlayers: 10 },
     europe: { territories: 44, regions: 8, maxPlayers: 8 },
     europe_advanced: { territories: 116, regions: 15, maxPlayers: 10 },
+    europe_classic: { territories: 84, regions: 14, maxPlayers: 6 },
     usa: { territories: 45, regions: 8, maxPlayers: 10 },
     asia: { territories: 49, regions: 7, maxPlayers: 8 },
     fantasy: { territories: 87, regions: 16, maxPlayers: 10 },
@@ -563,7 +564,7 @@ describe('maps', () => {
 
   it('every map is well formed', async () => {
     const { MAPS, MAP_IDS } = await import('../src/index.js');
-    expect(MAP_IDS).toEqual(['classic', 'world', 'world_large', 'europe', 'europe_advanced', 'usa', 'asia', 'fantasy']);
+    expect(MAP_IDS).toEqual(['classic', 'world', 'world_large', 'europe', 'europe_advanced', 'europe_classic', 'usa', 'asia', 'fantasy']);
     for (const id of MAP_IDS) {
       const m = MAPS[id];
       expect(m.territories.length).toBe(EXPECTED[id].territories);
@@ -649,12 +650,13 @@ describe('maps', () => {
     expect(table('world_large')).toEqual([99, 87, 74, 62, 50, 42, 37, 33, 30]);
     expect(table('europe')).toEqual([42, 37, 31, 26, 21, 18, 16]);
     expect(table('europe_advanced')).toEqual([110, 97, 83, 69, 55, 47, 41, 37, 33]);
+    expect(table('europe_classic')).toEqual([80, 70, 60, 50, 40]);
     expect(table('usa')).toEqual([43, 38, 32, 27, 21, 18, 16, 14, 13]);
     expect(table('asia')).toEqual([47, 41, 35, 29, 23, 20, 18]);
     expect(table('fantasy')).toEqual([83, 73, 62, 52, 41, 36, 31, 28, 25]);
   });
 
-  for (const id of ['world_large', 'europe', 'europe_advanced', 'usa', 'asia'] as const) {
+  for (const id of ['world_large', 'europe', 'europe_advanced', 'europe_classic', 'usa', 'asia'] as const) {
     it(`deals and plays the first turn of a full ${id} game`, async () => {
       const { MAPS } = await import('../src/index.js');
       const m = MAPS[id];
@@ -717,6 +719,108 @@ describe('maps', () => {
     s = setOptions(s, { maxPlayers: 10 });
     s = setOptions(s, { map: 'classic' });
     expect(s.options.maxPlayers).toBe(6);
+  });
+});
+
+describe('Europe Advanced map (europe_classic)', () => {
+  const m = MAPS.europe_classic;
+  // name: [territories, bonus], as on the reference board
+  const REGIONS: Record<string, [string, number, number]> = {
+    iceland: ['Iceland', 3, 2],
+    british_empire: ['British Empire', 4, 3],
+    scandinavia: ['Scandinavia', 5, 3],
+    western_europe: ['Western Europe', 5, 4],
+    central_europe: ['Central Europe', 6, 5],
+    dinaric_alps: ['Dinaric Alps', 3, 4],
+    southern_europe: ['Southern Europe', 5, 4],
+    south_western_europe: ['South Western Europe', 6, 4],
+    south_eastern_europe: ['South Eastern Europe', 4, 4],
+    eastern_europe: ['Eastern Europe', 8, 8],
+    russian_empire: ['Russian Empire', 9, 7],
+    orient: ['Orient', 11, 6],
+    west_africa: ['West Africa', 10, 6],
+    north_africa: ['North Africa', 5, 3],
+  };
+
+  it('is registered as "Europe Advanced" with 84 territories in 14 regions for 2-6 players', async () => {
+    const { classicScaledArmies } = await import('../src/index.js');
+    expect(MAP_IDS).toContain('europe_classic');
+    expect(m.name).toMatch(/^Europe Advanced/);
+    expect(m.territories).toHaveLength(84);
+    expect(m.maxPlayers).toBe(6);
+    for (let n = 2; n <= 6; n++) expect(m.startingArmies(n)).toBe(classicScaledArmies(84, n));
+    expect([2, 3, 4, 5, 6].map((n) => m.startingArmies(n))).toEqual([80, 70, 60, 50, 40]);
+    expect(() => m.startingArmies(7)).toThrow(RuleError);
+  });
+
+  it('has exactly the reference regions, territory counts and bonuses', () => {
+    expect(m.continents.map((c) => c.id).sort()).toEqual(Object.keys(REGIONS).sort());
+    for (const c of m.continents) {
+      const [name, count, bonus] = REGIONS[c.id];
+      expect(c.name).toBe(name);
+      expect(c.territories, c.id).toHaveLength(count);
+      expect(c.bonus, c.id).toBe(bonus);
+    }
+    const counts = new Map<string, number>();
+    for (const c of m.continents) for (const t of c.territories) counts.set(t, (counts.get(t) ?? 0) + 1);
+    for (const t of m.territoryIds) expect(counts.get(t)).toBe(1);
+  });
+
+  it('has symmetric, connected adjacency and the reference sea crossings', () => {
+    for (const t of m.territoryIds) {
+      expect(m.adjacency[t].length).toBeGreaterThan(0);
+      expect(new Set(m.adjacency[t]).size).toBe(m.adjacency[t].length);
+      for (const n of m.adjacency[t]) {
+        expect(n).not.toBe(t);
+        expect(m.adjacency[n]).toContain(t);
+      }
+    }
+    const seen = new Set([m.territoryIds[0]]);
+    const stack = [m.territoryIds[0]];
+    while (stack.length) for (const n of m.adjacency[stack.pop()!]) if (!seen.has(n)) (seen.add(n), stack.push(n));
+    expect(seen.size).toBe(84);
+    for (const [a, b] of [
+      ['northern_iceland', 'scotland'],
+      ['southern_iceland', 'ireland'],
+      ['scotland', 'southern_norway'],
+      ['southern_england', 'normandy'],
+      ['southern_sweden', 'finland'],
+      ['corsica_sardinia', 'constantine'],
+      ['corsica_sardinia', 'naples'],
+      ['naples', 'greece'],
+      ['greece', 'cyrenaica'],
+      ['andalusia', 'morocco'],
+    ])
+      expect(m.isAdjacent(a, b), `${a}~${b}`).toBe(true);
+    expect(m.seaLinks.some((l) => l.wrap)).toBe(false);
+  });
+
+  it('deals and completes setup for six players, also with blizzards and neutrals at their limits', async () => {
+    const { optionLimits, maxBlizzards } = await import('../src/index.js');
+    let s = createGame('ec', { map: 'europe_classic', maxPlayers: 6, setupBatch: 40 }, 8);
+    for (let i = 0; i < 6; i++) s = addPlayer(s, `p${i}`, `P${i}`);
+    expect(() => addPlayer(s, 'extra', 'X')).toThrow(/full/);
+    let state = startGame(s).state;
+    const counts = state.players.map((p) => territoriesOf(state, p.id).length);
+    expect(counts.reduce((a, b) => a + b, 0)).toBe(84);
+    expect(Math.max(...counts) - Math.min(...counts)).toBeLessThanOrEqual(1);
+    for (const p of state.players) expect(p.armiesToPlace).toBe(40 - territoriesOf(state, p.id).length);
+    state = finishSetup(state);
+    expect(state.phase).toBe('reinforce');
+    for (const t of m.territoryIds) expect(state.territories[t].owner).not.toBeNull();
+
+    const limits = optionLimits('europe_classic');
+    expect(limits.blizzards.max).toBe(maxBlizzards(m));
+    let b = createGame('ecb', { map: 'europe_classic', maxPlayers: 6, autoSetup: true, blizzards: limits.blizzards.max, neutrals: 6 }, 3);
+    for (let i = 0; i < 6; i++) b = addPlayer(b, `p${i}`, `P${i}`);
+    const frozen = startGame(b).state;
+    expect(frozen.phase).toBe('reinforce');
+    expect(frozen.blizzards).toHaveLength(limits.blizzards.max);
+    const open = m.territoryIds.filter((t) => !frozen.blizzards.includes(t));
+    const reach = new Set([open[0]]);
+    const queue = [open[0]];
+    while (queue.length) for (const n of m.adjacency[queue.pop()!]) if (!frozen.blizzards.includes(n) && !reach.has(n)) (reach.add(n), queue.push(n));
+    expect(reach.size).toBe(open.length);
   });
 });
 
@@ -1110,7 +1214,7 @@ describe('capital placement bonus and 8 blizzards', () => {
 describe('rules text', () => {
   it('lists the same starting armies as the engine for every scaled map', async () => {
     const { RULES_TEXT } = await import('../src/rules.js');
-    const labels: Record<string, string> = { world: 'World', world_large: 'Grand World', europe: 'Europe', europe_advanced: 'Greater Europe', usa: 'USA', asia: 'Asia', fantasy: 'Realms of Halvaren' };
+    const labels: Record<string, string> = { world: 'World', world_large: 'Grand World', europe: 'Europe', europe_advanced: 'Greater Europe', europe_classic: 'Europe Advanced', usa: 'USA', asia: 'Asia', fantasy: 'Realms of Halvaren' };
     const section = RULES_TEXT.slice(RULES_TEXT.indexOf('PLAYERS & STARTING ARMIES'), RULES_TEXT.indexOf('SETUP'));
     for (const [id, label] of Object.entries(labels)) {
       const m = MAPS[id as keyof typeof MAPS];

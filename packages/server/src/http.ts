@@ -13,13 +13,16 @@ export function mapInfo(m: MapDef) {
     adjacency: m.adjacency,
   };
 }
+import { RiskHttpError } from '@risk/mcp';
 import type { GameRoom, Store } from './store.js';
+import type { CharacterStore } from './characters.js';
 
 type Req = Request & { room?: GameRoom; playerId?: string | null };
 
 export interface ApiOptions {
   /** Enables /api/admin/* when set (Authorization: Bearer <token>). */
   adminToken?: string | null;
+  characters?: CharacterStore;
 }
 
 export function createApi(store: Store, opts: ApiOptions = {}) {
@@ -64,6 +67,36 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
   });
   api.get('/options', (_req, res) => res.json(optionCatalogue()));
   api.get('/maps', (_req, res) => res.json({ maps: MAP_IDS.map((id) => ({ id, name: getMap(id).name, territories: getMap(id).territoryIds.length, maxPlayers: getMap(id).maxPlayers })) }));
+
+  // ---- AI character profiles (no auth, like /mcp: every save is a new version, so edits can be rolled back) ----
+  const characters = opts.characters;
+  if (characters) {
+    const cid = (req: Request) => `${req.params.universe}/${req.params.name}`;
+    api.get('/characters', (req, res) => {
+      const list = characters.list();
+      // ?full=1 includes each latest profile, for syncing saves back into the repo's AI/ folder.
+      res.json({ characters: req.query.full ? list.map((c) => characters.get(c.id)) : list });
+    });
+    api.get('/characters/:universe/:name', (req, res) => {
+      const v = req.query.version;
+      res.json(characters.get(cid(req), typeof v === 'string' && v !== '' ? Number(v) : undefined));
+    });
+    api.get('/characters/:universe/:name/history', (req, res) => res.json(characters.history(cid(req))));
+    api.post('/characters/:universe/:name', (req, res) => {
+      const b = req.body ?? {};
+      const str = (x: unknown) => (typeof x === 'string' ? x : undefined);
+      res.json(
+        characters.update(cid(req), {
+          markdown: str(b.markdown),
+          section: str(b.section),
+          content: str(b.content),
+          expectedVersion: typeof b.expectedVersion === 'number' ? b.expectedVersion : undefined,
+          note: str(b.note),
+        }),
+      );
+    });
+    api.get('/model-info', (_req, res) => res.json(characters.modelInfo()));
+  }
 
   // ---- games ----
   api.get('/games', (_req, res) => res.json({ games: store.list() }));
@@ -303,6 +336,7 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
   // ---- error handling ----
   api.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
     if (err instanceof RuleError) return res.status(400).json({ error: err.message });
+    if (err instanceof RiskHttpError) return res.status(err.status).json({ error: err.message });
     if (err instanceof SyntaxError) return res.status(400).json({ error: 'Invalid JSON' });
     console.error(err);
     res.status(500).json({ error: 'Internal error' });

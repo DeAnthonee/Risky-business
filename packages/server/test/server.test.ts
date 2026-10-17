@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, existsSync, readFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
@@ -1006,5 +1006,120 @@ describe('fantasy map over HTTP', () => {
     } finally {
       await own.risk.shutdown('test');
     }
+  });
+});
+
+describe('AI character profiles', () => {
+  const profile = (name: string, grudges = 'None yet.') => `# ${name}\n\n- **Universe:** Test\n\n## Strategy\n\nHold Australia.\n\n## Grudges & rivals\n\n${grudges}\n\n## Allies\n\nNone yet.\n`;
+
+  async function withCharacters(fn: (base: string, aiDir: string, dataDir: string) => Promise<void>) {
+    const { CharacterStore } = await import('../src/characters.js');
+    const root = mkdtempSync(join(tmpdir(), 'risk-ai-'));
+    const aiDir = join(root, 'AI');
+    const dataDir = join(root, 'data', 'characters');
+    mkdirSync(join(aiDir, 'characters', 'marvel'), { recursive: true });
+    mkdirSync(join(aiDir, 'general-model-info'), { recursive: true });
+    writeFileSync(join(aiDir, 'characters', '_TEMPLATE.md'), '# <Character Name>\n');
+    writeFileSync(join(aiDir, 'characters', 'marvel', 'iron-man.md'), profile('Iron Man'));
+    writeFileSync(join(aiDir, 'general-model-info', 'README.md'), '# index\n');
+    writeFileSync(join(aiDir, 'general-model-info', 'table-talk.md'), '# Table talk\n\nBe polite.\n');
+    const start = async () => {
+      const r = createRiskServer(new Store(null), { clientDir: null, sweepIntervalMs: 0, characters: new CharacterStore(aiDir, dataDir) });
+      await new Promise<void>((resolve) => r.server.listen(0, '127.0.0.1', resolve));
+      return { r, url: `http://127.0.0.1:${(r.server.address() as AddressInfo).port}` };
+    };
+    let s = await start();
+    try {
+      await fn(s.url, aiDir, dataDir);
+      // Saves survive a restart (they live under the data dir, not the repo).
+      await s.r.shutdown('test');
+      s = await start();
+      const res = await (await fetch(`${s.url}/api/characters/marvel/iron-man`)).json();
+      expect(res.source).toBe('saved');
+      expect(res.markdown).toContain('dc/batman');
+    } finally {
+      await s.r.shutdown('test');
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+
+  const req = async (url: string, path: string, body?: unknown) => {
+    const res = await fetch(`${url}/api${path}`, body === undefined ? {} : { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    return { status: res.status, body: (await res.json()) as any };
+  };
+
+  it('serves repo profiles, saves sections as new versions, keeps history and rejects stale or bad saves over HTTP', async () => {
+    await withCharacters(async (url, aiDir) => {
+      const list = await req(url, '/characters');
+      expect(list.body.characters).toEqual([{ id: 'marvel/iron-man', universe: 'marvel', name: 'Iron Man', version: 0, updatedAt: null, source: 'repo' }]);
+      const v0 = await req(url, '/characters/marvel/iron-man');
+      expect(v0.body.version).toBe(0);
+
+      const saved = await req(url, '/characters/marvel/iron-man', { section: 'grudges & rivals', content: '- **Batman** (`dc/batman.md`): beat him in game ABC123.', expectedVersion: 0, note: 'lost to batman' });
+      expect(saved.status).toBe(200);
+      expect(saved.body.version).toBe(1);
+      expect(saved.body.markdown).toContain('## Grudges & rivals\n\n- **Batman**');
+      expect(saved.body.markdown).toContain('## Strategy\n\nHold Australia.');
+      expect(saved.body.markdown).toContain('## Allies\n\nNone yet.');
+      expect(saved.body.markdown).not.toContain('None yet.\n\n## Allies');
+      // The repo file is never touched.
+      expect(readFileSync(join(aiDir, 'characters', 'marvel', 'iron-man.md'), 'utf8')).toBe(profile('Iron Man'));
+
+      const stale = await req(url, '/characters/marvel/iron-man', { section: 'Strategy', content: 'x', expectedVersion: 0 });
+      expect(stale.status).toBe(409);
+      const added = await req(url, '/characters/marvel/iron-man', { section: 'Weaknesses', content: 'Overconfident.' });
+      expect(added.body.version).toBe(2);
+      expect(added.body.markdown.trimEnd().endsWith('## Weaknesses\n\nOverconfident.')).toBe(true);
+
+      const history = await req(url, '/characters/marvel/iron-man/history');
+      expect(history.body.versions.map((v: any) => v.version)).toEqual([0, 1, 2]);
+      expect(history.body.versions[1].note).toBe('lost to batman');
+      expect((await req(url, '/characters/marvel/iron-man?version=0')).body.markdown).toBe(profile('Iron Man'));
+
+      expect((await req(url, '/characters/marvel/Iron Man', { markdown: profile('x') })).status).toBe(400);
+      expect((await req(url, '/characters/dc/batman', { section: 'Strategy', content: 'x' })).status).toBe(404);
+      expect((await req(url, '/characters/dc/batman', { markdown: 'no heading' })).status).toBe(400);
+      const created = await req(url, '/characters/dc/batman', { markdown: profile('Batman') });
+      expect(created.body).toMatchObject({ id: 'dc/batman', version: 1, source: 'saved' });
+      expect((await req(url, '/characters/dc/robin')).status).toBe(404);
+
+      const full = await req(url, '/characters?full=1');
+      expect(full.body.characters.map((c: any) => [c.id, c.version])).toEqual([['dc/batman', 1], ['marvel/iron-man', 2]]);
+      expect(full.body.characters[1].markdown).toContain('Overconfident.');
+
+      const info = await req(url, '/model-info');
+      expect(info.body.docs.map((d: any) => d.file)).toEqual(['general-model-info/table-talk.md', 'characters/_TEMPLATE.md']);
+    });
+  });
+
+  it('lets an agent read and update its profile through MCP', async () => {
+    await withCharacters(async (url) => {
+      const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+      const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
+      const client = new Client({ name: 'character-agent', version: '0' });
+      await client.connect(new StreamableHTTPClientTransport(new URL(`${url}/mcp`)));
+      const call = async (name: string, args: Record<string, unknown> = {}) => {
+        const r = (await client.callTool({ name, arguments: args })) as { content: { text: string }[]; isError?: boolean };
+        return { text: r.content.map((c) => c.text).join('\n'), isError: !!r.isError };
+      };
+      try {
+        expect(client.getInstructions()).toContain('get_character');
+        expect((await call('list_characters')).text).toContain('marvel/iron-man: Iron Man (v0');
+        const info = await call('general_model_info');
+        expect(info.text).toContain('Be polite.');
+        expect(info.text).not.toContain('# index');
+        const got = await call('get_character', { id: 'marvel/iron-man' });
+        expect(got.text).toContain('expectedVersion:0');
+        expect(got.text).toContain('## Strategy');
+        const saved = await call('update_character', { id: 'marvel/iron-man', section: 'Grudges & rivals', content: 'dc/batman', expectedVersion: 0 });
+        expect(saved.text).toBe('Saved marvel/iron-man as v1.');
+        const stale = await call('update_character', { id: 'marvel/iron-man', section: 'Strategy', content: 'x', expectedVersion: 0 });
+        expect(stale.isError).toBe(true);
+        expect(stale.text).toContain('version 1');
+        expect((await call('get_character', { id: 'marvel/iron-man', history: true })).text).toMatch(/v0[\s\S]*v1/);
+      } finally {
+        await client.close();
+      }
+    });
   });
 });

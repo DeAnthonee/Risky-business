@@ -84,6 +84,7 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
         'get_state returns your legal moves; act takes one JSON action. Attacking with blitz:true and occupy:"max" resolves a whole battle in one call. Under fog of war leave out occupy: a conquest reveals what lies beyond it, and you then choose how many armies to move in.',
         'IMPORTANT: create_game and join_game return a player token. Remember it and pass it as the "token" argument on every later call for that game: it is what identifies YOUR seat (several chats or agents can sit at the same table, each with its own token).',
         opts.identityNote ?? 'Seats are also remembered by this connection while it lasts; my_seats lists them and resume_game recovers one from a token.',
+        'CHARACTERS: you may be asked to play as a character (e.g. "marvel/iron-man"). Call general_model_info once (docs for every model plus the profile template), then get_character for your profile: personality, strategy, grudges, preferred model. Stay in character all game; the rules tool always wins over a profile. After the game, save what you learned (new grudges, lessons, strategy changes) with update_character, one section at a time, so the next game starts from the latest version.',
         `Server: ${label}`,
       ].join(' '),
     },
@@ -532,6 +533,92 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
     if (!seats.length) return text('No seats on this connection. Use create_game, join_game, or resume_game with a token.');
     return text(seats.map(seatLine).join('\n'));
   });
+
+  // ---- character profiles ----
+  const characterIdSchema = z.string().min(3).max(80).describe('Character id "<universe>/<name>" in lowercase kebab-case, e.g. "marvel/iron-man" or "dc/batman". list_characters shows them all.');
+
+  server.registerTool(
+    'list_characters',
+    { description: 'List every character profile AI players can play as, grouped by universe, with each one\'s latest version and when it was last saved.', inputSchema: {} },
+    async () => {
+      try {
+        const { characters } = await api.listCharacters();
+        if (!characters.length) return text('No characters yet. Create one with update_character (whole profile as markdown; see general_model_info for the template).');
+        const lines: string[] = [];
+        let universe = '';
+        for (const c of characters) {
+          if (c.universe !== universe) lines.push(`${lines.length ? '\n' : ''}${(universe = c.universe).toUpperCase()}`);
+          lines.push(`- ${c.id}: ${c.name} (v${c.version}, ${c.updatedAt ? `saved ${c.updatedAt}` : 'starting profile from the repo'})`);
+        }
+        return text(lines.join('\n'));
+      } catch (e) {
+        return errorText(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    'get_character',
+    {
+      description:
+        'Read a character profile (Markdown): personality, strategy, skills, weaknesses, history, grudges, allies, preferred AI model and rules for playing them. Returns the latest saved version; pass version to read an older one, or history:true to list all versions.',
+      inputSchema: {
+        id: characterIdSchema,
+        version: z.number().int().min(0).optional().describe('Read this version instead of the latest (0 = the repo\'s starting profile)'),
+        history: z.boolean().optional().describe('List the saved versions (number, time, note) instead of reading the profile'),
+      },
+    },
+    async ({ id, version, history }) => {
+      try {
+        if (history) {
+          const h = await api.characterHistory(id);
+          return text(`Versions of ${h.id} (oldest first):\n` + h.versions.map((v) => `- v${v.version}${v.at ? ` ${v.at}` : ''}${v.note ? `: ${v.note}` : ''}`).join('\n'));
+        }
+        const c = await api.getCharacter(id, version);
+        return text(`${c.id} v${c.version} (${c.updatedAt ? `saved ${c.updatedAt}` : 'starting profile from the repo'}). To save changes: update_character {id:"${c.id}", expectedVersion:${c.version}, ...}\n\n${c.markdown}`);
+      } catch (e) {
+        return errorText(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    'update_character',
+    {
+      description:
+        'Save a character profile as a new version (older versions are kept and can be read back with get_character). Prefer updating one section: section = a "## " heading such as "Grudges & rivals", "Strategy" or "History & background", content = that section\'s new full text (it replaces the old text, so include what should stay). A missing section is added. To create a character or rewrite everything, pass markdown = the whole profile instead, starting with "# <Name>" and following the template from general_model_info. Pass expectedVersion (from get_character) so you never overwrite a save made since you read it.',
+      inputSchema: {
+        id: characterIdSchema,
+        section: z.string().max(80).optional().describe('The "## " heading to replace, e.g. "Grudges & rivals"'),
+        content: z.string().max(16_000).optional().describe('New full text of that section (Markdown, without the heading)'),
+        markdown: z.string().max(32_000).optional().describe('The whole profile, to create a character or rewrite it; use instead of section + content'),
+        expectedVersion: z.number().int().min(0).optional().describe('The version you read; the save is rejected if someone saved since'),
+        note: z.string().max(200).optional().describe('Short note on what changed, e.g. "grudge against dc/batman after game ABC123"'),
+      },
+    },
+    async ({ id, ...update }) => {
+      try {
+        const c = await api.updateCharacter(id, update);
+        return text(`Saved ${c.id} as v${c.version}.`);
+      } catch (e) {
+        return errorText(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    'general_model_info',
+    { description: 'Docs that apply to every AI model and every character (read once before playing), plus the template a character profile follows.', inputSchema: {} },
+    async () => {
+      try {
+        const { docs } = await api.modelInfo();
+        if (!docs.length) return text('No general model docs yet.');
+        return text(docs.map((d) => `===== ${d.file} =====\n${d.markdown.trim()}`).join('\n\n'));
+      } catch (e) {
+        return errorText(e);
+      }
+    },
+  );
 
   return server;
 }

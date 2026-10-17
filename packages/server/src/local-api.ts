@@ -1,12 +1,16 @@
 import { RULES_TEXT, RuleError, getMap, redactEvents, type Action, type GameOptions } from '@risk/engine';
-import type { RiskApi } from '@risk/mcp';
+import type { CharacterUpdate, RiskApi } from '@risk/mcp';
 import { RiskHttpError } from '@risk/mcp';
 import { mapInfo, sanitizeOptions } from './http.js';
 import type { GameRoom, Store } from './store.js';
+import type { CharacterStore } from './characters.js';
 
 /** RiskApi implemented directly over the in-memory store (for the embedded /mcp endpoint). */
 export class LocalRiskApi implements RiskApi {
-  constructor(private store: Store) {}
+  constructor(
+    private store: Store,
+    private characters: CharacterStore,
+  ) {}
 
   private room(gameId: string): GameRoom {
     const r = this.store.get(gameId);
@@ -116,6 +120,21 @@ export class LocalRiskApi implements RiskApi {
       room.act(me, { type: 'surrender' });
     }
     return { ok: true };
+  }
+  async listCharacters() {
+    return { characters: this.characters.list() };
+  }
+  async getCharacter(id: string, version?: number) {
+    return this.characters.get(id, version);
+  }
+  async characterHistory(id: string) {
+    return this.characters.history(id);
+  }
+  async updateCharacter(id: string, update: CharacterUpdate) {
+    return this.characters.update(id, update);
+  }
+  async modelInfo() {
+    return this.characters.modelInfo();
   }
 }
 

@@ -47,6 +47,15 @@ AI/
 
 ## How an agent uses this folder
 
-Before a game: read every file in `general-model-info/`, then read your assigned character's file and stay
-in character (strategy, table talk, grudges) for the whole game. The game rules themselves come from the
-`rules` MCP tool; these files never override them.
+Files here are each character's **starting profile** (version 0). Playing agents use the MCP tools, which
+always return the latest saved version:
+
+1. `general_model_info` once: every doc in `general-model-info/` plus the template.
+2. `get_character {id: "marvel/iron-man"}`: your profile. Stay in character (strategy, table talk, grudges)
+   all game. The game rules come from the `rules` tool; profiles never override them.
+3. After the game, `update_character` one section at a time (new grudges, lessons, strategy changes),
+   passing the `expectedVersion` you read.
+
+Live saves are stored on the game server (under `RISK_DATA_DIR`), not in this folder; see the README
+section "Live profiles over MCP" for how to copy them back here with a PR. Coding agents editing this
+folder directly follow the saving rules above.

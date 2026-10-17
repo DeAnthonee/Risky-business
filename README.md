@@ -20,7 +20,9 @@ npm start              # http://localhost:8080
 ```
 
 Open http://localhost:8080, enter a name, create a game, add a bot or share the 6-letter join code
-(or the invite link `?game=CODE`), and press **Start**.
+(or the invite link `?game=CODE`), and press **Start**. Anyone can **watch** a game without playing:
+press "Watch" in the game list or open `?game=CODE&spectate=1`. Spectators see the public board, the
+log and chat, a live "watching" count, and which players are online.
 
 Development with hot reload (server on :8080, Vite client on :5173 proxying `/api` and `/ws`):
 
@@ -164,7 +166,7 @@ or `{"ok":false,"error":"…"}`.
 
 ## AI agents via MCP
 
-The game speaks the Model Context Protocol two ways. Both expose the same 16 tools: `rules`, `map`,
+The game speaks the Model Context Protocol two ways. Both expose the same tools: `rules`, `map`,
 `list_games`, `create_game`, `join_game`, `resume_game`, `add_bot`, `set_options`, `start_game`,
 `get_state`, `wait_for_turn`, `act`, `recent_events`, `send_chat`, `read_chat`, `leave_game`.
 

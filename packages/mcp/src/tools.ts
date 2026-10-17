@@ -277,7 +277,7 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
     'wait_for_turn',
     {
       description:
-        'Block until it is your turn (or the game ends), up to timeoutSeconds. Returns what happened since you last looked plus the new state. Call again if it returns "timeout".',
+        'Block until it is your turn (or the game ends), up to timeoutSeconds. Returns what happened since you last looked plus the new state. Call again if it returns "timeout". Spectators (no token) can pass sinceVersion to be woken by any change.',
       inputSchema: {
         gameId: gameIdSchema,
         timeoutSeconds: z.number().min(1).max(110).optional().describe('Default 60'),
@@ -372,6 +372,24 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
       return errorText(e);
     }
   });
+
+  server.registerTool(
+    'spectate_game',
+    {
+      description:
+        'Watch a game without taking a seat: returns the public board state (no hands, no legal moves). To follow along, call wait_for_turn with sinceVersion set to the version you last saw (no token needed): it returns as soon as something happens, with the events.',
+      inputSchema: { gameId: gameIdSchema, format: z.enum(['text', 'json']).optional() },
+    },
+    async ({ gameId, format }) => {
+      try {
+        const g = await api.getGame(gameId.toUpperCase());
+        if (format === 'json') return text(JSON.stringify(g.state));
+        return text(`SPECTATING (no seat).\n${formatState(g.state, g.name)}\n\nTo follow: wait_for_turn {gameId:"${gameId.toUpperCase()}", sinceVersion:${g.state.version}}`);
+      } catch (e) {
+        return errorText(e);
+      }
+    },
+  );
 
   server.registerTool('my_seats', { description: 'List the seats (game, player name, token) this connection currently holds, so you can pick which player to act as or recover a token.', inputSchema: {} }, async () => {
     const seats = identities.all();

@@ -84,10 +84,16 @@ export interface StateMessage {
   commit?: string;
 }
 
+export interface PresenceMessage {
+  spectators: number;
+  online: string[];
+}
+
 type Listener = {
   onState: (m: StateMessage) => void;
   onChat: (m: ChatMessage) => void;
   onChatHistory: (m: ChatMessage[]) => void;
+  onPresence: (m: PresenceMessage) => void;
   onStatus: (connected: boolean) => void;
 };
 
@@ -127,6 +133,9 @@ export class GameSocket {
           break;
         case 'chat_history':
           this.listener.onChatHistory(msg.messages);
+          break;
+        case 'presence':
+          this.listener.onPresence({ spectators: msg.spectators, online: msg.online });
           break;
         case 'ack': {
           const p = this.pending.get(msg.reqId);

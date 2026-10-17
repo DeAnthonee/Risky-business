@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Action, GameEvent, GameView } from '@risk/engine';
-import { GameSocket, type ChatMessage, type StateMessage } from './api';
+import { GameSocket, type ChatMessage, type PresenceMessage, type StateMessage } from './api';
 
 export interface EventBatch {
   id: number;
@@ -22,6 +22,8 @@ export interface GameConnection {
   clearError: () => void;
   /** True when the server is running a newer build than this page. */
   updateAvailable: boolean;
+  /** Who is connected right now. */
+  presence: PresenceMessage;
 }
 
 export function useGame(gameId: string | null, token: string | undefined): GameConnection {
@@ -34,6 +36,7 @@ export function useGame(gameId: string | null, token: string | undefined): GameC
   const [chat, setChat] = useState<ChatMessage[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [updateAvailable, setUpdateAvailable] = useState(false);
+  const [presence, setPresence] = useState<PresenceMessage>({ spectators: 0, online: [] });
   const sockRef = useRef<GameSocket | null>(null);
   const seq = useRef(0);
 
@@ -50,6 +53,7 @@ export function useGame(gameId: string | null, token: string | undefined): GameC
       },
       onChat: (m) => setChat((c) => [...c.slice(-200), m]),
       onChatHistory: (ms) => setChat(ms),
+      onPresence: setPresence,
       onStatus: setConnected,
     });
     sockRef.current = sock;
@@ -73,5 +77,5 @@ export function useGame(gameId: string | null, token: string | undefined): GameC
     await sockRef.current?.chat(msg);
   }, []);
 
-  return { view, host, name, you, connected, batches, chat, act, sendChat, error, clearError: () => setError(null), updateAvailable };
+  return { view, host, name, you, connected, batches, chat, act, sendChat, error, clearError: () => setError(null), updateAvailable, presence };
 }

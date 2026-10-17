@@ -3,18 +3,19 @@ import { api } from './api';
 import { Home } from './components/Home';
 import { Lobby } from './components/Lobby';
 import { Game } from './components/Game';
-import { clearSession, gameIdFromUrl, getName, getSession, saveSession, setGameInUrl, setName as persistName, type Session } from './session';
+import { clearSession, gameIdFromUrl, getName, getSession, saveSession, setGameInUrl, setName as persistName, spectateFromUrl, type Session } from './session';
 import { useGame } from './useGame';
 
 export function App() {
   const [gameId, setGameId] = useState<string | null>(() => gameIdFromUrl());
   const [session, setSession] = useState<Session | null>(() => (gameId ? getSession(gameId) : null));
-  const [spectating, setSpectating] = useState(false);
+  // ?spectate=1 opens a game as a spectator even when a session exists for it.
+  const [spectating, setSpectating] = useState(() => !!gameId && spectateFromUrl());
   const [name, setNameState] = useState(getName());
 
   useEffect(() => {
-    setGameInUrl(gameId);
-  }, [gameId]);
+    setGameInUrl(gameId, spectating);
+  }, [gameId, spectating]);
 
   const setName = (n: string) => {
     setNameState(n);
@@ -39,7 +40,11 @@ export function App() {
     return <Home name={name} setName={setName} onEnter={enter} onSpectate={(id) => { setGameId(id); setSpectating(true); }} />;
   }
 
-  if (!session && !spectating) {
+  if (spectating) {
+    return <Connected gameId={gameId} session={null} spectating onLeave={leaveToHome} onJoin={() => setSpectating(false)} />;
+  }
+
+  if (!session) {
     return (
       <JoinPrompt
         gameId={gameId}
@@ -55,8 +60,20 @@ export function App() {
   return <Connected gameId={gameId} session={session} onLeave={leaveToHome} />;
 }
 
-function Connected({ gameId, session, onLeave }: { gameId: string; session: Session | null; onLeave: () => void }) {
-  const conn = useGame(gameId, session?.token);
+function Connected({
+  gameId,
+  session,
+  spectating = false,
+  onLeave,
+  onJoin,
+}: {
+  gameId: string;
+  session: Session | null;
+  spectating?: boolean;
+  onLeave: () => void;
+  onJoin?: () => void;
+}) {
+  const conn = useGame(gameId, spectating ? undefined : session?.token);
   if (!conn.view) {
     return (
       <div className="center">
@@ -68,8 +85,8 @@ function Connected({ gameId, session, onLeave }: { gameId: string; session: Sess
       </div>
     );
   }
-  if (conn.view.phase === 'lobby') return <Lobby conn={conn} gameId={gameId} session={session} onLeave={onLeave} />;
-  return <Game conn={conn} gameId={gameId} session={session} onLeave={onLeave} />;
+  if (conn.view.phase === 'lobby') return <Lobby conn={conn} gameId={gameId} session={spectating ? null : session} onLeave={onLeave} onJoin={onJoin} />;
+  return <Game conn={conn} gameId={gameId} session={spectating ? null : session} onLeave={onLeave} onJoin={onJoin} />;
 }
 
 function JoinPrompt({

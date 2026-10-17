@@ -903,3 +903,33 @@ footer {
   gap: 8px;
   align-items: center;
 }
+
+/* ---------- Spectating / presence ---------- */
+.spectator-badge {
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(255, 209, 102, 0.18);
+  color: #ffd166;
+  font-size: 0.85em;
+  font-weight: 700;
+}
+.spectate-note {
+  background: rgba(255, 209, 102, 0.1);
+  border: 1px solid rgba(255, 209, 102, 0.35);
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+.online-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #4a5568;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+.online-dot.on {
+  background: var(--ok);
+  box-shadow: 0 0 6px var(--ok);
+}

@@ -135,6 +135,37 @@ describe('game lifecycle over HTTP', () => {
     await new Promise((r) => setTimeout(r, 50));
   });
 
+  it('reports spectators and online players over WebSocket', async () => {
+    const open = (token?: string) =>
+      new Promise<{ ws: WebSocket; messages: any[] }>((resolve, reject) => {
+        const ws = new WebSocket(`${base.replace('http', 'ws')}/ws`);
+        const messages: any[] = [];
+        ws.on('message', (raw) => messages.push(JSON.parse(String(raw))));
+        ws.on('open', () => {
+          ws.send(JSON.stringify({ type: 'subscribe', gameId, token }));
+          setTimeout(() => resolve({ ws, messages }), 150);
+        });
+        ws.on('error', reject);
+      });
+    const player = await open(token);
+    const watcher = await open();
+    await new Promise((r) => setTimeout(r, 150));
+    const last = (ms: any[]) => [...ms].reverse().find((m) => m.type === 'presence');
+    expect(last(player.messages)).toEqual({ type: 'presence', spectators: 1, online: [playerId] });
+    expect(last(watcher.messages)).toEqual({ type: 'presence', spectators: 1, online: [playerId] });
+    // Spectators get a redacted view and cannot act.
+    const view = [...watcher.messages].reverse().find((m) => m.type === 'state');
+    expect(view.you).toBeNull();
+    watcher.ws.send(JSON.stringify({ type: 'action', reqId: 'x', action: { type: 'end_turn' } }));
+    await new Promise((r) => setTimeout(r, 100));
+    expect(watcher.messages.find((m) => m.type === 'ack' && m.reqId === 'x')?.ok).toBe(false);
+    watcher.ws.close();
+    await new Promise((r) => setTimeout(r, 150));
+    expect(last(player.messages)).toEqual({ type: 'presence', spectators: 0, online: [playerId] });
+    player.ws.close();
+    await new Promise((r) => setTimeout(r, 50));
+  });
+
   it('persists games to disk and restores them after a restart', async () => {
     risk.store.save();
     const file = join(dir, 'games.json');

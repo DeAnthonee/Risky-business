@@ -2,10 +2,11 @@ import { useState } from 'react';
 import { api } from '../api';
 import type { Session } from '../session';
 import type { GameConnection } from '../useGame';
+import { spectateLink } from '../session';
 import { OptionsForm } from './Home';
 import { Chat } from './Chat';
 
-export function Lobby({ conn, gameId, session, onLeave }: { conn: GameConnection; gameId: string; session: Session | null; onLeave: () => void }) {
+export function Lobby({ conn, gameId, session, onLeave, onJoin }: { conn: GameConnection; gameId: string; session: Session | null; onLeave: () => void; onJoin?: () => void }) {
   const view = conn.view!;
   const isHost = !!session && conn.host === session.playerId;
   const [err, setErr] = useState<string | null>(null);
@@ -38,9 +39,22 @@ export function Lobby({ conn, gameId, session, onLeave }: { conn: GameConnection
           Join code <code className="code">{gameId}</code>{' '}
           <button className="small" onClick={copy}>
             {copied ? 'Copied!' : 'Copy invite link'}
+          </button>{' '}
+          <button className="small" onClick={() => navigator.clipboard?.writeText(spectateLink(gameId)).catch(() => {})} title="Link that opens the game as a spectator">
+            Copy watch link
           </button>
         </p>
         {!conn.connected && <p className="error">Reconnecting…</p>}
+        {!session && (
+          <p className="spectate-note">
+            👁 You are watching this lobby{conn.presence.spectators > 1 ? ` with ${conn.presence.spectators - 1} other${conn.presence.spectators > 2 ? 's' : ''}` : ''}.{' '}
+            {view.players.length < view.options.maxPlayers && onJoin && (
+              <button className="small primary" onClick={onJoin}>
+                Join this game
+              </button>
+            )}
+          </p>
+        )}
 
         <h2>
           Players ({view.players.length}/{view.options.maxPlayers})
@@ -51,6 +65,7 @@ export function Lobby({ conn, gameId, session, onLeave }: { conn: GameConnection
               <span className="swatch" style={{ background: p.color }} />
               <span>
                 {p.name} {p.isBot && '🤖'} {p.id === conn.host && '👑'} {p.id === session?.playerId && <em>(you)</em>}
+                {!p.isBot && <span className={`online-dot ${conn.presence.online.includes(p.id) ? 'on' : ''}`} title={conn.presence.online.includes(p.id) ? 'online' : 'offline'} />}
               </span>
               {isHost && p.id !== session?.playerId && (
                 <button className="small" onClick={() => run(() => api.kick(gameId, session!.token, p.id))}>

@@ -118,13 +118,14 @@ export function Home({
                   </div>
                 </div>
                 <div className="row">
-                  {g.joinable ? (
+                  {g.joinable && (
                     <button className="primary" disabled={busy} onClick={() => join(g.id)}>
                       Join
                     </button>
-                  ) : (
-                    <button onClick={() => onSpectate(g.id)}>Spectate</button>
                   )}
+                  <button onClick={() => onSpectate(g.id)} title="Watch this game without playing">
+                    👁 Watch
+                  </button>
                 </div>
               </li>
             ))}

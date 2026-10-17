@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getMap, type GameEvent, type GameView } from '@risk/engine';
 import { api } from '../api';
-import type { Session } from '../session';
+import { spectateLink, type Session } from '../session';
 import type { EventBatch, GameConnection } from '../useGame';
 import { CardsPanel } from './Cards';
 import { Chat } from './Chat';
@@ -15,7 +15,7 @@ const BATTLE_ROLL_MS = 420;
 const BATTLE_SHOW_MS = 650;
 const BATTLE_LINGER_MS = 2200;
 
-export function Game({ conn, gameId, session, onLeave }: { conn: GameConnection; gameId: string; session: Session | null; onLeave: () => void }) {
+export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameConnection; gameId: string; session: Session | null; onLeave: () => void; onJoin?: () => void }) {
   const view = conn.view!;
   const you = conn.you;
   const me = view.players.find((p) => p.id === you) ?? null;
@@ -38,6 +38,17 @@ export function Game({ conn, gameId, session, onLeave }: { conn: GameConnection;
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [banner, setBanner] = useState<{ text: string; color: string } | null>(null);
+  const [copiedWatch, setCopiedWatch] = useState(false);
+  const spectator = !me;
+  const copyWatchLink = async () => {
+    try {
+      await navigator.clipboard.writeText(spectateLink(gameId));
+      setCopiedWatch(true);
+      setTimeout(() => setCopiedWatch(false), 1500);
+    } catch {
+      /* ignore */
+    }
+  };
 
   const pendingTotal = Object.values(pending).reduce((a, b) => a + b, 0);
   const mode: Mode = !myTurn
@@ -206,6 +217,13 @@ export function Game({ conn, gameId, session, onLeave }: { conn: GameConnection;
         <div className="topbar">
           <div className="topbar-left">
             <strong>{conn.name}</strong> <code className="code small">{gameId}</code>
+            {spectator && <span className="spectator-badge">👁 Spectating</span>}
+            {conn.presence.spectators > 0 && (
+              <span className="muted small" title="people watching this game">
+                {' '}
+                · 👁 {conn.presence.spectators} watching
+              </span>
+            )}
             {!conn.connected && <span className="error"> · reconnecting…</span>}
           </div>
           <PhaseSteps phase={view.phase} />
@@ -258,7 +276,23 @@ export function Game({ conn, gameId, session, onLeave }: { conn: GameConnection;
               <button onClick={leaveSpectate}>Back to lobby list</button>
             </div>
           ) : !me ? (
-            <div className="action-group muted">Spectating · {current ? `${current.name} is playing` : ''}</div>
+            <div className="action-group">
+              <span className="muted">
+                👁 You are watching. {current ? `${current.name} is playing (${view.phase}).` : ''}
+              </span>
+              <span className="spacer" />
+              <button className="small" onClick={copyWatchLink}>
+                {copiedWatch ? 'Copied!' : 'Copy watch link'}
+              </button>
+              {view.phase === 'lobby' && onJoin && (
+                <button className="small primary" onClick={onJoin}>
+                  Join
+                </button>
+              )}
+              <button className="small" onClick={onLeave}>
+                Leave
+              </button>
+            </div>
           ) : !me.alive ? (
             <div className="action-group muted">
               You were eliminated. <button onClick={leaveSpectate}>Leave</button>
@@ -400,6 +434,7 @@ export function Game({ conn, gameId, session, onLeave }: { conn: GameConnection;
                 {p.name}
                 {p.isBot && ' 🤖'}
                 {p.id === you && ' (you)'}
+                {!p.isBot && !p.isNeutral && <span className={`online-dot ${conn.presence.online.includes(p.id) ? 'on' : ''}`} title={conn.presence.online.includes(p.id) ? 'online' : 'offline'} />}
               </span>
               <span className="pstats" title="territories · armies · cards">
                 {p.territoryCount}t · {p.armyCount}a · {p.cardCount}c

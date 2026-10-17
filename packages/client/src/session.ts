@@ -55,9 +55,20 @@ export function gameIdFromUrl(): string | null {
   return g ? g.toUpperCase() : null;
 }
 
-export function setGameInUrl(gameId: string | null) {
+export function spectateFromUrl(): boolean {
+  const v = new URL(window.location.href).searchParams.get('spectate');
+  return v === '1' || v === 'true';
+}
+
+export function setGameInUrl(gameId: string | null, spectate = false) {
   const u = new URL(window.location.href);
   if (gameId) u.searchParams.set('game', gameId);
   else u.searchParams.delete('game');
+  if (gameId && spectate) u.searchParams.set('spectate', '1');
+  else u.searchParams.delete('spectate');
   window.history.replaceState({}, '', u.toString());
+}
+
+export function spectateLink(gameId: string): string {
+  return `${window.location.origin}${window.location.pathname}?game=${gameId}&spectate=1`;
 }

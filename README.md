@@ -42,6 +42,9 @@ all animate on the board. The sidebar lists players in turn order with their ter
 On desktop, drag the divider under the scoreboard to give the log/chat more or less room (double-click resets).
 Press **Bonuses** (on the map, in the spectator bar, or **B**) to see every region painted in its own colour with
 its bonus, no armies; neighbouring regions never share a colour, on the board or in this view.
+Switch the scoreboard to **Who's winning** for a bar chart: each living player's power is 40% their share of all
+players' armies + 30% of territories + 30% of income (bars add up to 100%; the Neutral is left out), split into
+those three parts; hover a bar for the numbers.
 
 Development with hot reload (server on :8080, Vite client on :5173 proxying `/api` and `/ws`):
 

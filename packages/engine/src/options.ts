@@ -101,12 +101,12 @@ export const OPTION_SPECS: { [K in OptionKey]: OptionSpec } = {
   spectatorChat: {
     kind: 'boolean',
     label: 'Spectator chat',
-    description: 'true (default): people watching can post in the game chat, marked as spectators. Under fog of war their messages are shown only to other spectators so they cannot reveal hidden positions to players. false: only seated players can chat.',
+    description: 'true (default): people watching can post in the game chat, marked as spectators. Every player sees them, even under fog of war, so watchers can cheer, heckle and tip players off. false: only seated players can chat.',
   },
   capitals: {
     kind: 'boolean',
     label: 'Capital Conquest',
-    description: 'true: after setup each player\'s most garrisoned territory becomes their capital. +2 armies per capital held each turn, a capital defends with up to 3 dice, and capturing a player\'s capital takes over all their territories, troops and cards.',
+    description: 'true: after setup each player\'s most garrisoned territory becomes their capital. +2 armies per capital held each turn and a capital defends with up to 3 dice. Losing your capital does not knock you out. Holding every capital at once wins the game (eliminating everyone else still wins too).',
   },
   neutrals: {
     kind: 'int',
@@ -221,7 +221,7 @@ export function describeOptions(o: GameOptions, tradeCount = 0): string[] {
       ? `Cards: fixed values (${(OPTION_SPECS.cardValues as EnumSpec).valueLabels.fixed})`
       : `Cards: progressive, next set worth ${tradeBonus(tradeCount)} (then ${[1, 2, 3].map((i) => tradeBonus(tradeCount + i)).join(', ')}...)`,
     `Fog of war: ${o.fogOfWar ? 'on (players see only their territories and neighbours)' : 'off'}`,
-    `Capital Conquest: ${o.capitals ? 'on (+2 per capital held, capitals defend with 3 dice, capture a capital to take that player over)' : 'off'}`,
+    `Capital Conquest: ${o.capitals ? 'on (+2 per capital held, capitals defend with 3 dice, hold every capital to win)' : 'off'}`,
     `Neutral territories: ${o.neutrals > 0 ? `${o.neutrals} with ${o.neutralArmies} arm${o.neutralArmies === 1 ? 'y' : 'ies'} each (games of 3+ players)` : 'off'}`,
     `Blizzards: ${o.blizzards > 0 ? `${o.blizzards} frozen territories (max ${maxBlizzards(map)} on this map)` : 'off'}`,
   ];

@@ -365,28 +365,58 @@ describe('turn flow', () => {
     expect(redactEvents(state, null, events)).toEqual(events);
   });
 
-  it('capital conquest: capitals pay a bonus and capturing one takes the player over', () => {
+  it('capital conquest: losing your capital does not knock you out', () => {
     let state = finishSetup(setup(3, { setupBatch: 40, capitals: true }).state);
     expect(Object.keys(state.capitals)).toHaveLength(3);
     const me = state.currentPlayer!;
     const meP = state.players.find((x) => x.id === me)!;
     expect(meP.armiesToPlace).toBe(Math.max(3, Math.floor(14 / 3)) + 2);
-    // Hand the current player a strong army next to a rival's capital.
     const rival = state.turnOrder.find((id) => id !== me)!;
     const cap = state.capitals[rival];
-    const from = ADJACENCY[cap][0];
+    const from = ADJACENCY[cap].find((t) => !Object.values(state.capitals).includes(t))!;
     state.territories[from] = { owner: me, armies: 80 };
     state.territories[cap].armies = 1;
-    state.players.find((x) => x.id === rival)!.cards = state.deck.splice(0, 2);
     const rivalTerritories = territoriesOf(state, rival).length;
     state = applyAction(state, me, { type: 'place', placements: { [territoriesOf(state, me)[0]]: meP.armiesToPlace } }).state;
     const res = applyAction(state, me, { type: 'attack', from, to: cap, blitz: true, occupy: 'min' });
     expect(res.events.some((e) => e.type === 'capital_captured')).toBe(true);
-    expect(res.events.some((e) => e.type === 'eliminated' && e.player === rival)).toBe(true);
-    expect(territoriesOf(res.state, rival)).toHaveLength(0);
-    expect(territoriesOf(res.state, me).length).toBeGreaterThanOrEqual(rivalTerritories + 1);
-    expect(res.state.players.find((x) => x.id === me)!.cards.length).toBe(2);
+    // The rival keeps everything else and stays in the game.
+    expect(res.events.some((e) => e.type === 'eliminated')).toBe(false);
+    expect(territoriesOf(res.state, rival)).toHaveLength(rivalTerritories - 1);
+    expect(res.state.players.find((x) => x.id === rival)!.alive).toBe(true);
     expect(capitalsHeldBy(res.state, me)).toContain(cap);
+    expect(res.state.phase).not.toBe('finished');
+  });
+
+  it('capital conquest: holding every capital wins, including eliminated players\' capitals', () => {
+    let state = finishSetup(setup(4, { setupBatch: 40, capitals: true }).state);
+    const me = state.currentPlayer!;
+    const meP = state.players.find((x) => x.id === me)!;
+    state = applyAction(state, me, { type: 'place', placements: { [territoriesOf(state, me)[0]]: meP.armiesToPlace } }).state;
+    const others = state.turnOrder.filter((id) => id !== me);
+    // Give me every capital but one; that last one belongs to a rival and sits next to my stack.
+    const [last, ...rest] = others;
+    for (const id of rest) state.territories[state.capitals[id]] = { owner: me, armies: 3 };
+    const target = state.capitals[last];
+    const from = ADJACENCY[target].find((t) => !Object.values(state.capitals).includes(t))!;
+    state.territories[from] = { owner: me, armies: 60 };
+    state.territories[target].armies = 1;
+    // Mark one rival eliminated: its capital (already mine) still counts.
+    const gone = rest[0];
+    for (const t of territoriesOf(state, gone)) state.territories[t] = { owner: me, armies: 1 };
+    state.players.find((p) => p.id === gone)!.alive = false;
+    expect(state.phase).toBe('attack');
+    const res = applyAction(state, me, { type: 'attack', from, to: target, blitz: true, occupy: 'min' });
+    expect(res.state.phase).toBe('finished');
+    expect(res.state.winner).toBe(me);
+    expect(res.events.find((e) => e.type === 'game_over')).toMatchObject({ winner: me, reason: 'capitals' });
+    // The other players are still alive: this is a capitals win, not a domination win.
+    expect(res.state.players.filter((p) => p.alive && p.id !== me).length).toBeGreaterThan(0);
+  });
+
+  it('capital conquest off: holding several capitals means nothing', () => {
+    const state = finishSetup(setup(3, { setupBatch: 40 }).state);
+    expect(state.capitals).toEqual({});
   });
 
   it('blizzards: frozen territories are unowned, impassable and keep the map connected', () => {

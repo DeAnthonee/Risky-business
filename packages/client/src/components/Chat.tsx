@@ -59,7 +59,7 @@ export function Chat({ conn, canSend, spectator }: { conn: GameConnection; canSe
         ))}
       </div>
       {spectator && !spectatorChatOn && <div className="muted small chat-note">The host turned spectator chat off for this game.</div>}
-      {spectator && spectatorChatOn && fog && <div className="muted small chat-note">Fog of war: only other spectators see your messages.</div>}
+      {spectator && spectatorChatOn && fog && <div className="muted small chat-note">Fog of war: you see the whole board and every player reads chat. Choose wisely.</div>}
       {canPost && (
         <form
           className="chat-form"

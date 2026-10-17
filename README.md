@@ -29,7 +29,8 @@ Open http://localhost:8080, enter a name, create a game, add a bot or share the 
 press "Watch" in the game list or open `?game=CODE&spectate=1`. Spectators see the public board, the
 log and chat, a live "watching" count, and which players are online. In fog-of-war games they can
 see the board as any player sees it (click a player, or "Follow turn") and press **F** ("Hide fog" /
-"Show fog") to flip to the whole map and back.
+"Show fog") to flip to the whole map and back. Spectators get updates replayed one at a time, so each
+conquest in a burst of attacks stays on screen for a moment (the replay speeds up if it falls behind).
 The sidebar lists players in turn order with their territories, armies, cards and income
 (`+N/turn`, the reinforcements they get next turn before cards; hover it for the breakdown).
 
@@ -91,11 +92,11 @@ Host-selectable options:
 | `autoSetup`   | `true` skips the placement phase: starting armies are scattered randomly, turn 1 starts at once | `false` |
 | `cardValues`  | `progressive` (4, 6, 8, 10, 12, 15, +5…) \| `fixed` (3 infantry 4, 3 cavalry 6, 3 artillery 8, one of each 10; a wild completes the best set) | `progressive` |
 | `fogOfWar`    | players see only their territories and adjacent ones; events elsewhere are reported as fogged; spectators see everything and can preview any player's fog | `false` |
-| `spectatorChat` | watchers can post in the game chat (marked as spectators, 5 messages / 10 s); under fog of war only other spectators see their messages | `true` |
+| `spectatorChat` | watchers can post in the game chat (marked as spectators, 5 messages / 10 s); every player sees them, even under fog of war | `true` |
 | `neutrals`    | games of 3+ players: this many random territories start held by a Neutral army that never attacks (0 = off, max a third of the map); 2-player games always have the classic Neutral | `0` |
 | `neutralArmies` | armies on each neutral territory when `neutrals` is on (1–10) | `2` |
 | `blizzards`   | number of random territories frozen for the whole game (0 = off, max a sixth of the map: 7 classic, 12 world, 14 fantasy); nobody can own, attack or cross them; the rest of the map stays connected and continents only need their open territories | `0` |
-| `capitals`    | Capital Conquest: each player's most garrisoned territory after setup becomes a capital (★); +2 armies per capital held each turn; capitals defend with up to 3 dice; capturing a player's capital takes over all their territories, troops and cards | `false` |
+| `capitals`    | Capital Conquest: each player's most garrisoned territory after setup becomes a capital (★); +2 armies per capital held each turn; capitals defend with up to 3 dice; losing your capital does not knock you out; holding every capital at once wins the game | `false` |
 
 ## Hosting (production)
 
@@ -185,7 +186,7 @@ cards are hidden).
 | `POST /games/:id/actions`          | `{action}` → `{events, state}`                                     |
 | `GET  /games/:id/wait?timeoutMs=&since=` | long-poll until it is your turn, the game ends, or the version passes `since` |
 | `GET  /games/:id/events?since=`    | event history                                                      |
-| `GET/POST /games/:id/chat`         | chat. POST without a token posts as a spectator: `{message, name}` (5 messages / 10 s; host can turn it off with `spectatorChat`; under fog, players do not see spectator messages) |
+| `GET/POST /games/:id/chat`         | chat. POST without a token posts as a spectator: `{message, name}` (5 messages / 10 s; host can turn it off with `spectatorChat`; every player sees them, even under fog) |
 
 ### WebSocket
 

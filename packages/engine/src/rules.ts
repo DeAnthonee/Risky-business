@@ -83,6 +83,8 @@ OPTIONS: FOG OF WAR AND CAPITALS
 (owner and armies unknown) and events there are reported as "fogged". Spectators always see the whole board.
 "capitals" (Capital Conquest): after setup each player's most garrisoned territory becomes their capital (shown with a
 star). At the start of your turn you get +2 armies for every capital you hold. A capital defends with up to 3 dice
-instead of 2 (all three pairs are compared). Capturing a player's own capital takes
-over that player: all their territories, troops and cards become yours and they are out. Hold every capital to win.
+instead of 2 (all three pairs are compared). A captured capital becomes
+yours like any territory (with its +2 and its 3-dice defence); losing your capital does not knock you out, you
+keep playing with what you hold. The game ends as soon as one player holds every capital, including the capitals
+of eliminated players. Eliminating everyone else still wins too.
 `.trim();

@@ -54,9 +54,9 @@ export interface GameOptions {
   cardValues: 'progressive' | 'fixed';
   /** Fog of war: players only see their own territories and the ones adjacent to them. Spectators see everything. */
   fogOfWar: boolean;
-  /** Spectators may chat. Under fog of war their messages reach only other spectators, so they cannot leak hidden positions to players. */
+  /** Spectators may chat. Every player sees their messages, even under fog of war. */
   spectatorChat: boolean;
-  /** Capital Conquest: each player gets a capital after setup; capturing one takes over that player, every capital held pays +CAPITAL_BONUS per turn. */
+  /** Capital Conquest: each player gets a capital after setup; every capital held pays +CAPITAL_BONUS per turn and defends with 3 dice; holding all capitals wins. */
   capitals: boolean;
   /** Neutral territories in games of 3+ players: this many territories go to a Neutral army that never attacks (0 = off). Two-player games always have the classic Neutral. */
   neutrals: number;
@@ -235,7 +235,8 @@ export type GameEvent =
   /** A fogged-out event the viewer is not allowed to see in detail. */
   | { type: 'fogged'; kind: GameEvent['type'] }
   | { type: 'turn_ended'; player: PlayerId }
-  | { type: 'game_over'; winner: PlayerId };
+  /** reason: 'domination' = last player standing; 'capitals' = held every capital (Capital Conquest). Older logs omit it. */
+  | { type: 'game_over'; winner: PlayerId; reason?: 'domination' | 'capitals' };
 
 export interface ActionResult {
   state: GameState;

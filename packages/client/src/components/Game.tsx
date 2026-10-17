@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getMap, visibleTerritories, type Card, type GameEvent, type GameView } from '@risk/engine';
 import { api } from '../api';
+import { CARD_FX_MS, CardFxPanel, type CardFx } from './CardFx';
 import { spectateLink, type Session } from '../session';
 import type { EventBatch, GameConnection } from '../useGame';
 import { CardsPanel } from './Cards';
@@ -288,6 +289,8 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
         {anim.battle && (
           <DicePanel battle={anim.battle.ev} rolling={anim.battle.rolling} attackerColor={colorOf(anim.battle.ev.attacker)} defenderColor={colorOf(anim.battle.ev.defender)} names={names} mapId={view.options.map} />
         )}
+
+        {anim.cardFx && <CardFxPanel key={anim.cardFx.id} fx={anim.cardFx} names={names} mapId={view.options.map} />}
 
         {banner && (
           <div className="banner" key={banner.text} style={{ borderColor: banner.color }}>
@@ -614,6 +617,7 @@ interface AnimState {
   moves: MoveAnim[];
   floats: FloatAnim[];
   sweeps: SweepAnim[];
+  cardFx: CardFx | null;
 }
 
 function useAnimations(
@@ -622,7 +626,25 @@ function useAnimations(
   colorOf: (pid: string | null | undefined) => string,
   setBanner: (b: { text: string; color: string } | null) => void,
 ) {
-  const [state, setState] = useState<AnimState>({ battle: null, attackArrow: null, flashes: {}, moves: [], floats: [], sweeps: [] });
+  const [state, setState] = useState<AnimState>({ battle: null, attackArrow: null, flashes: {}, moves: [], floats: [], sweeps: [], cardFx: null });
+  const cardQueue = useRef<CardFx[]>([]);
+  const cardRunning = useRef(false);
+
+  // Card animations play one at a time; the backlog is capped so they never lag far behind the game.
+  const pumpCards = useCallback(() => {
+    if (cardRunning.current) return;
+    const next = cardQueue.current.shift();
+    if (!next) {
+      setState((s) => ({ ...s, cardFx: null }));
+      return;
+    }
+    cardRunning.current = true;
+    setState((s) => ({ ...s, cardFx: next }));
+    setTimeout(() => {
+      cardRunning.current = false;
+      pumpCards();
+    }, CARD_FX_MS[next.kind]);
+  }, []);
   const seen = useRef(0);
   const queue = useRef<BattleEvent[]>([]);
   const running = useRef(false);
@@ -660,6 +682,7 @@ function useAnimations(
     const floats: FloatAnim[] = [];
     const sweeps: SweepAnim[] = [];
     let newBattles = 0;
+    const newCards: CardFx[] = [];
     const myId = view.you;
     for (const b of fresh) {
       const battles = (b.events as GameEvent[]).filter((e): e is BattleEvent => e.type === 'battle');
@@ -685,6 +708,18 @@ function useAnimations(
           case 'placed':
             floats.push({ id: ++ids.current, territory: e.territory, text: `+${e.armies}`, color: colorOf(e.player) });
             break;
+          case 'card_drawn': {
+            // The drawer's hand is visible to themselves and to spectators: show the new card face up.
+            const hand = view.players.find((p) => p.id === e.player)?.cards;
+            newCards.push({ id: ++ids.current, kind: 'draw', player: e.player, color: colorOf(e.player), card: hand && hand.length ? hand[hand.length - 1] : null });
+            break;
+          }
+          case 'traded':
+            newCards.push({ id: ++ids.current, kind: 'trade', player: e.player, color: colorOf(e.player), cards: e.cards, armies: e.armies, bonusTerritory: e.bonusTerritory });
+            break;
+          case 'cards_taken':
+            if (e.count > 0) newCards.push({ id: ++ids.current, kind: 'taken', player: e.player, from: e.from, color: colorOf(e.player), fromColor: colorOf(e.from), count: e.count });
+            break;
           case 'turn_started':
             setBanner({ text: `${view.players.find((p) => p.id === e.player)?.name ?? 'Someone'}'s turn`, color: colorOf(e.player) });
             break;
@@ -692,7 +727,7 @@ function useAnimations(
             setBanner({ text: `${view.players.find((p) => p.id === e.player)?.name ?? 'Someone'} is out!`, color: colorOf(e.player) });
             break;
           case 'game_over':
-            setBanner({ text: `🏆 ${view.players.find((p) => p.id === e.winner)?.name ?? 'Someone'} wins!`, color: colorOf(e.winner) });
+            setBanner({ text: `🏆 ${view.players.find((p) => p.id === e.winner)?.name ?? 'Someone'} ${e.reason === 'capitals' ? 'holds every capital and wins!' : 'wins!'}`, color: colorOf(e.winner) });
             break;
         }
       }
@@ -709,6 +744,10 @@ function useAnimations(
       }, 1600);
     }
     if (newBattles) pumpBattles();
+    if (newCards.length) {
+      cardQueue.current = [...cardQueue.current, ...newCards].slice(-3);
+      pumpCards();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [batches]);
 

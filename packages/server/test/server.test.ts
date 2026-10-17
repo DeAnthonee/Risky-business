@@ -300,7 +300,7 @@ describe('game lifecycle over HTTP', () => {
     for (let i = 0; i < 3; i++) expect((await api(`/games/${g}/chat`, { method: 'POST', body: JSON.stringify({ message: `m${i}`, name: 'Fan' }) })).status).toBe(201);
     expect((await api(`/games/${g}/chat`, { method: 'POST', body: JSON.stringify({ message: 'too many', name: 'Fan' }) })).status).toBe(400);
 
-    // Fog of war: players don't receive spectator chat; spectators still see everything.
+    // Fog of war: spectators are still heard by every player (they're meant to stir things up).
     const fogGame = await api('/games', { method: 'POST', body: JSON.stringify({ playerName: 'P', options: { fogOfWar: true } }) });
     const fg = fogGame.body.gameId;
     const ws = new WebSocket(`${base.replace('http', 'ws')}/ws`);
@@ -315,7 +315,7 @@ describe('game lifecycle over HTTP', () => {
     expect(wsMsgs.some((m) => m.type === 'chat' && m.message.name === 'Leaky' && m.message.spectator)).toBe(true);
     ws.close();
     const asPlayer = await api(`/games/${fg}/chat`, {}, fogGame.body.token);
-    expect(asPlayer.body.messages.some((m: any) => m.spectator)).toBe(false);
+    expect(asPlayer.body.messages.some((m: any) => m.spectator && m.name === 'Leaky')).toBe(true);
     const asWatcher = await api(`/games/${fg}/chat`);
     expect(asWatcher.body.messages.some((m: any) => m.name === 'Leaky')).toBe(true);
 

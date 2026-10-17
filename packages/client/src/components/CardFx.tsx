@@ -59,7 +59,7 @@ export function CardFxPanel({ fx, names, mapId }: { fx: CardFx; names: Record<st
           </div>
         </div>
         <div className="fx-caption">
-          <strong style={{ color: fx.color }}>{who(fx.player)}</strong> {fx.auto ? 'auto-traded (5 cards)' : 'traded in a set'} for <strong>{fx.armies}</strong> armies
+          <strong style={{ color: fx.color }}>{who(fx.player)}</strong> {fx.auto ? 'auto-traded (5+ cards)' : 'traded in a set'} for <strong>{fx.armies}</strong> armies
           {fx.bonusTerritory && <span className="muted"> · +2 on {shortName(fx.bonusTerritory)}</span>}
         </div>
       </div>

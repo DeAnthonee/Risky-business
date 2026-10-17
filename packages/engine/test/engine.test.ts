@@ -1191,7 +1191,3 @@ describe('rules text', () => {
     }
   });
 });
-
-function isBlizzardTest(state: GameState, t: string): boolean {
-  return (state.blizzards ?? []).includes(t);
-}

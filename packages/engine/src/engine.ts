@@ -487,7 +487,7 @@ function doPlace(state: GameState, playerId: PlayerId, action: PlaceAction, even
     throw new RuleError('Cannot place armies now');
   if (state.phase === 'attack' && player.armiesToPlace === 0) throw new RuleError('No armies to place');
   if (state.phase === 'reinforce' && mustTrade(state, playerId))
-    throw new RuleError('You hold 5 or more cards and must trade a set first');
+    throw new RuleError(`You hold ${FORCED_TRADE_CARDS} or more cards and must trade a set first`);
 
   const entries = Object.entries(action.placements ?? {});
   if (entries.length === 0) throw new RuleError('No placements given');

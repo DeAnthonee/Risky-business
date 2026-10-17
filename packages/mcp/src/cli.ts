@@ -5,6 +5,7 @@
  *   RISK_SERVER_URL        base URL of the game server (default http://localhost:8080)
  *   RISK_PLAYER_NAME       default display name for this agent (default "Agent")
  *   RISK_MCP_SESSION_FILE  where per-game identities are persisted (default ~/.risk-mcp/sessions.json)
+ *   RISK_CHARACTERS_KEY    the server's characters write key, so this agent can save profiles, diaries, relationships
  *
  * (Hosted servers also expose the same tools remotely at <server>/mcp for claude.ai connectors.)
  */
@@ -13,7 +14,7 @@ import { FileIdentityStore, HttpRiskApi, defaultSessionFile } from './api.js';
 import { createRiskMcpServer } from './tools.js';
 
 const SERVER_URL = (process.env.RISK_SERVER_URL ?? 'http://localhost:8080').replace(/\/+$/, '');
-const api = new HttpRiskApi(SERVER_URL);
+const api = new HttpRiskApi(SERVER_URL, process.env.RISK_CHARACTERS_KEY || undefined);
 const server = createRiskMcpServer({
   api,
   identities: new FileIdentityStore(SERVER_URL, defaultSessionFile()),

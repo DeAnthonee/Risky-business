@@ -13,7 +13,7 @@ export function mapInfo(m: MapDef) {
     adjacency: m.adjacency,
   };
 }
-import { RiskHttpError } from '@risk/mcp';
+import { CHARACTER_DATA_NOTICE, RiskHttpError } from '@risk/mcp';
 import type { GameRoom, Store } from './store.js';
 import type { CharacterStore } from './characters.js';
 import type { CreateTournamentSpec } from './tournaments.js';
@@ -100,10 +100,15 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
   const characters = opts.characters;
   if (characters) {
     const cid = (req: Request) => `${req.params.universe}/${req.params.name}`;
+    const writeKey = (req: Request) => {
+      const k = req.headers['x-characters-key'];
+      return typeof k === 'string' ? k : undefined;
+    };
     api.get('/characters', (req, res) => {
       const list = characters.list();
       // ?full=1 includes each latest profile, for syncing saves back into the repo's AI/ folder.
-      res.json({ characters: req.query.full ? list.map((c) => characters.get(c.id)) : list });
+      // Saved text is untrusted: review it by hand before it goes into the repo.
+      res.json(req.query.full ? { notice: CHARACTER_DATA_NOTICE, characters: list.map((c) => characters.get(c.id)) } : { characters: list });
     });
     api.get('/characters/:universe/:name', (req, res) => {
       const v = req.query.version;
@@ -120,7 +125,7 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
           content: str(b.content),
           expectedVersion: typeof b.expectedVersion === 'number' ? b.expectedVersion : undefined,
           note: str(b.note),
-        }),
+        }, writeKey(req)),
       );
     });
     api.get('/characters/:universe/:name/memory', (req, res) => res.json(characters.memorySummary(cid(req))));
@@ -128,8 +133,8 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
       const limit = typeof req.query.limit === 'string' ? Number(req.query.limit) : undefined;
       res.json(characters.readDiary(cid(req), Number.isFinite(limit) ? limit : undefined, typeof req.query.gameId === 'string' ? req.query.gameId : undefined));
     });
-    api.post('/characters/:universe/:name/diary', (req, res) => res.status(201).json(characters.addDiaryEntry(cid(req), req.body ?? {})));
-    api.post('/characters/:universe/:name/relationships', (req, res) => res.json(characters.updateRelationship(cid(req), req.body ?? {})));
+    api.post('/characters/:universe/:name/diary', (req, res) => res.status(201).json(characters.addDiaryEntry(cid(req), req.body ?? {}, writeKey(req))));
+    api.post('/characters/:universe/:name/relationships', (req, res) => res.json(characters.updateRelationship(cid(req), req.body ?? {}, writeKey(req))));
     api.get('/model-info', (_req, res) => res.json(characters.modelInfo()));
   }
 

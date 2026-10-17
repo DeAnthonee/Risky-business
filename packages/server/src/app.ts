@@ -34,6 +34,7 @@ export interface RiskServer {
   app: express.Express;
   server: Server;
   store: Store;
+  characters: CharacterStore;
   startedAt: number;
   /** Connected WebSocket clients. */
   connections(): number;
@@ -187,6 +188,7 @@ export function createRiskServer(store: Store, opts: AppOptions = {}): RiskServe
     app,
     server,
     store,
+    characters,
     startedAt,
     connections: () => wss.clients.size,
     health,

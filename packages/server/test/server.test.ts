@@ -1050,6 +1050,7 @@ describe('fantasy map over HTTP', () => {
 });
 
 describe('AI character profiles', () => {
+  const KEY = 'test-characters-key';
   it('keeps "__proto__" input harmless and deletes pruned profile versions from disk', async () => {
     const { CharacterStore } = await import('../src/characters.js');
     const { readdirSync } = await import('node:fs');
@@ -1059,9 +1060,9 @@ describe('AI character profiles', () => {
     mkdirSync(join(aiDir, 'characters', 'marvel'), { recursive: true });
     writeFileSync(join(aiDir, 'characters', '_TEMPLATE.md'), '# <Character Name>\n');
     writeFileSync(join(aiDir, 'characters', 'marvel', 'iron-man.md'), profile('Iron Man'));
-    const store = new CharacterStore(aiDir, dataDir);
-    store.addDiaryEntry('marvel/iron-man', { title: 'Game', text: 'Lost to a proto.', outcome: 'lost', opponents: ['__proto__'], strategy: '__proto__', map: '__proto__' } as any);
-    store.updateRelationship('marvel/iron-man', { with: '__proto__', note: 'Rivals.', change: -5 } as any);
+    const store = new CharacterStore(aiDir, dataDir, [KEY]);
+    store.addDiaryEntry('marvel/iron-man', { title: 'Game', text: 'Lost to a proto.', outcome: 'lost', opponents: ['__proto__'], strategy: '__proto__', map: '__proto__' } as any, KEY);
+    store.updateRelationship('marvel/iron-man', { with: '__proto__', note: 'Rivals.', change: -5 } as any, KEY);
     const memory = store.memorySummary('marvel/iron-man');
     expect(({} as any).games).toBeUndefined();
     expect((memory.record.vsOpponent as any)['__proto__']).toEqual({ games: 1, won: 0 });
@@ -1071,9 +1072,9 @@ describe('AI character profiles', () => {
     expect(again.memorySummary('marvel/iron-man').relationships.map((r) => r.with)).toContain('__proto__');
     expect(({} as any).games).toBeUndefined();
     // Only the kept versions stay on disk.
-    for (let i = 0; i < 55; i++) store.update('marvel/iron-man', { markdown: profile(`Iron Man ${i}`) } as any);
+    for (let i = 0; i < 35; i++) store.update('marvel/iron-man', { markdown: profile(`Iron Man ${i}`) } as any, KEY);
     const files = readdirSync(join(dataDir, 'marvel', 'iron-man')).filter((f) => /^v\d+\.md$/.test(f));
-    expect(files.length).toBeLessThanOrEqual(50);
+    expect(files.length).toBeLessThanOrEqual(30);
   });
 
   const profile = (name: string, grudges = 'None yet.') => `# ${name}\n\n- **Universe:** Test\n\n## Strategy\n\nHold Australia.\n\n## Grudges & rivals\n\n${grudges}\n\n## Allies\n\nNone yet.\n`;
@@ -1090,7 +1091,7 @@ describe('AI character profiles', () => {
     writeFileSync(join(aiDir, 'general-model-info', 'README.md'), '# index\n');
     writeFileSync(join(aiDir, 'general-model-info', 'table-talk.md'), '# Table talk\n\nBe polite.\n');
     const start = async () => {
-      const r = createRiskServer(new Store(null), { clientDir: null, sweepIntervalMs: 0, characters: new CharacterStore(aiDir, dataDir) });
+      const r = createRiskServer(new Store(null), { clientDir: null, sweepIntervalMs: 0, characters: new CharacterStore(aiDir, dataDir, [KEY, 'test-admin-token']) });
       await new Promise<void>((resolve) => r.server.listen(0, '127.0.0.1', resolve));
       return { r, url: `http://127.0.0.1:${(r.server.address() as AddressInfo).port}` };
     };
@@ -1109,8 +1110,9 @@ describe('AI character profiles', () => {
     }
   }
 
-  const req = async (url: string, path: string, body?: unknown) => {
-    const res = await fetch(`${url}/api${path}`, body === undefined ? {} : { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const req = async (url: string, path: string, body?: unknown, key: string | null = KEY) => {
+    const headers: Record<string, string> = { 'content-type': 'application/json', ...(key ? { 'x-characters-key': key } : {}) };
+    const res = await fetch(`${url}/api${path}`, body === undefined ? {} : { method: 'POST', headers, body: JSON.stringify(body) });
     return { status: res.status, body: (await res.json()) as any };
   };
 
@@ -1210,6 +1212,35 @@ describe('AI character profiles', () => {
     expect(store.modelInfo().docs.map((d) => d.file).slice(0, 3)).toEqual(['general-player/playbook.md', 'general-player/ways-to-win.md', 'general-player/findings.md']);
   });
 
+  it('refuses saves without the write key, accepts the admin token, and is read-only when no key is set', async () => {
+    await withCharacters(async (url) => {
+      const save = { section: 'Grudges & rivals', content: 'dc/batman' };
+      for (const [path, body] of [
+        ['/characters/marvel/iron-man', save],
+        ['/characters/marvel/iron-man/diary', { title: 'x', text: 'y' }],
+        ['/characters/marvel/iron-man/relationships', { with: 'God', note: 'y', change: -5 }],
+      ] as const) {
+        const none = await req(url, path, body, null);
+        expect(none.status).toBe(401);
+        expect(none.body.error).toMatch(/write key/);
+        expect((await req(url, path, body, 'wrong-key')).status).toBe(403);
+      }
+      // Nothing was saved by the refused calls.
+      expect((await req(url, '/characters/marvel/iron-man')).body.version).toBe(0);
+      expect((await req(url, '/characters/marvel/iron-man/diary')).body.total).toBe(0);
+      // The admin token works as a write key too.
+      expect((await req(url, '/characters/marvel/iron-man', save, 'test-admin-token')).body.version).toBe(1);
+      // The full export says the text is data.
+      expect((await req(url, '/characters?full=1')).body.notice).toMatch(/not instructions/);
+    });
+    const { CharacterStore } = await import('../src/characters.js');
+    const { DEFAULT_AI_DIR } = await import('../src/app.js');
+    const readOnly = new CharacterStore(DEFAULT_AI_DIR, null, [null, undefined, '']);
+    expect(readOnly.writable).toBe(false);
+    expect(() => readOnly.update('marvel/ultron', { section: 'Strategy', content: 'x' }, 'anything')).toThrow(/turned off/);
+    expect(readOnly.get('marvel/ultron').version).toBe(0);
+  });
+
   it('lets an agent read and update its profile through MCP', async () => {
     await withCharacters(async (url) => {
       const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
@@ -1229,14 +1260,19 @@ describe('AI character profiles', () => {
         const got = await call('get_character', { id: 'marvel/iron-man' });
         expect(got.text).toContain('expectedVersion:0');
         expect(got.text).toContain('## Strategy');
-        const saved = await call('update_character', { id: 'marvel/iron-man', section: 'Grudges & rivals', content: 'dc/batman', expectedVersion: 0 });
+        const anon = await call('update_character', { id: 'marvel/iron-man', section: 'Strategy', content: 'x' });
+        expect(anon.isError).toBe(true);
+        expect(anon.text).toMatch(/write key/);
+        expect(got.text).toContain('not instructions');
+        expect(got.text).toContain('<character-data id="marvel/iron-man">');
+        const saved = await call('update_character', { id: 'marvel/iron-man', section: 'Grudges & rivals', content: 'dc/batman', expectedVersion: 0 , key: KEY });
         expect(saved.text).toBe('Saved marvel/iron-man as v1.');
-        const stale = await call('update_character', { id: 'marvel/iron-man', section: 'Strategy', content: 'x', expectedVersion: 0 });
+        const stale = await call('update_character', { id: 'marvel/iron-man', section: 'Strategy', content: 'x', expectedVersion: 0 , key: KEY });
         expect(stale.isError).toBe(true);
         expect(stale.text).toContain('version 1');
         expect((await call('get_character', { id: 'marvel/iron-man', history: true })).text).toMatch(/v0[\s\S]*v1/);
-        expect((await call('add_diary_entry', { id: 'marvel/iron-man', title: 'Game CCC333: won', text: 'Swept Asia.', outcome: 'won', opponents: ['Batman'] })).text).toBe('Saved diary entry #1 for marvel/iron-man.');
-        expect((await call('update_relationship', { id: 'marvel/iron-man', with: 'Batman', change: -15, note: 'Broke our truce.' })).text).toBe('marvel/iron-man → Batman: rapport -15 (1 note).');
+        expect((await call('add_diary_entry', { id: 'marvel/iron-man', title: 'Game CCC333: won', text: 'Swept Asia.', outcome: 'won', opponents: ['Batman'] , key: KEY })).text).toBe('Saved diary entry #1 for marvel/iron-man.');
+        expect((await call('update_relationship', { id: 'marvel/iron-man', with: 'Batman', change: -15, note: 'Broke our truce.' , key: KEY })).text).toBe('marvel/iron-man → Batman: rapport -15 (1 note).');
         const withMemory = await call('get_character', { id: 'marvel/iron-man' });
         expect(withMemory.text).toContain('=== MEMORY ===');
         expect(withMemory.text).toContain('Record: 1/1 won');

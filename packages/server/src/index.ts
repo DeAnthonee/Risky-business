@@ -34,7 +34,10 @@ const risk = createRiskServer(store, {
   mcpLabel: process.env.RISK_PUBLIC_URL ?? 'Risky Business',
   adminToken: process.env.RISK_ADMIN_TOKEN || null,
   // Starting profiles come from the repo; saved versions live under RISK_DATA_DIR so they survive deploys.
-  characters: new CharacterStore(resolve(process.env.RISK_AI_DIR ?? DEFAULT_AI_DIR), DATA_DIR ? join(DATA_DIR, 'characters') : null),
+  characters: new CharacterStore(resolve(process.env.RISK_AI_DIR ?? DEFAULT_AI_DIR), DATA_DIR ? join(DATA_DIR, 'characters') : null, [
+    process.env.RISK_CHARACTERS_KEY,
+    process.env.RISK_ADMIN_TOKEN,
+  ]),
   // TEMPORARY: tournaments are open to create while testing; RISK_TOURNAMENTS_OPEN=0 makes them host-only.
   openTournaments: process.env.RISK_TOURNAMENTS_OPEN !== '0',
 });
@@ -46,6 +49,7 @@ risk.server.listen(PORT, HOST, () => {
   console.log(`  websocket: ws://localhost:${PORT}/ws`);
   console.log(`  mcp:       http://localhost:${PORT}/mcp (Streamable HTTP)`);
   console.log(`  data dir:  ${DATA_DIR ?? '(persistence disabled)'}`);
+  console.log(`  characters: ${risk.characters.writable ? 'saves need the write key' : 'read-only (set RISK_CHARACTERS_KEY to allow saves)'}`);
   console.log(`  client:    ${CLIENT_DIR}`);
 });
 

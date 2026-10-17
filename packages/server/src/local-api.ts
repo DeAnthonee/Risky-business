@@ -90,13 +90,15 @@ export class LocalRiskApi implements RiskApi {
   }
   async chat(gameId: string, since: number, token?: string) {
     const room = this.room(gameId);
-    return { messages: room.chatFor(token ? room.playerForToken(token) : null, since) };
+    const viewer = token ? room.playerForToken(token) : null;
+    if (token && !viewer) throw new RuleError('Unknown token for this game');
+    return { messages: room.chatFor(viewer, since) };
   }
-  async sendChat(gameId: string, token: string, message: string) {
+  async sendChat(gameId: string, token: string, message: string, to?: string) {
     const room = this.room(gameId);
     const me = this.player(room, token);
     const p = room.state.players.find((x) => x.id === me);
-    return room.addChat(me, p?.name ?? 'Unknown', message);
+    return room.addChat(me, p?.name ?? 'Unknown', message, to);
   }
   async closeGame(gameId: string, token: string) {
     const room = this.room(gameId);

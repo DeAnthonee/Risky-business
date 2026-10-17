@@ -12,6 +12,8 @@ interface ClientMsg {
   message?: string;
   /** Display name for a spectator's chat message. */
   name?: string;
+  /** Whisper recipient (player id or name); seated players only. */
+  to?: string;
 }
 
 let socketSeq = 0;
@@ -22,7 +24,8 @@ let socketSeq = 0;
  *  server -> {type:'state', state, events, version}
  *  server -> {type:'chat', message}
  *  client -> {type:'action', reqId, action}  server -> {type:'ack', reqId, ok, error?}
- *  client -> {type:'chat', message, name?}   (name: display name when chatting as a spectator)
+ *  client -> {type:'chat', message, name?, to?}   (name: display name when chatting as a spectator;
+ *                                              to: whisper to one player, seated players only)
  */
 /** Who is connected to each room over WebSocket: player ids and anonymous spectators. */
 interface Presence {
@@ -137,11 +140,12 @@ export function attachWebSocket(server: Server, store: Store, commit: () => stri
             const text = String(msg.message ?? '').trim();
             if (!text) return;
             if (!playerId) {
+              if (msg.to) return send({ type: 'ack', reqId: msg.reqId, ok: false, error: 'Only seated players can whisper' });
               room.addSpectatorChat(socketKey, msg.name, text);
               return send({ type: 'ack', reqId: msg.reqId, ok: true });
             }
             const p = room.state.players.find((x) => x.id === playerId);
-            room.addChat(playerId, p?.name ?? 'Unknown', text);
+            room.addChat(playerId, p?.name ?? 'Unknown', text, msg.to);
             return send({ type: 'ack', reqId: msg.reqId, ok: true });
           }
           default:

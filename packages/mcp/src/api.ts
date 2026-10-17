@@ -38,7 +38,8 @@ export interface EventsResult {
 }
 
 export interface ChatResult {
-  messages: { id: number; name: string; message: string; at: number; spectator?: boolean }[];
+  /** `to`/`toName`: a whisper, readable only by its two players and spectators. */
+  messages: { id: number; name: string; message: string; at: number; spectator?: boolean; to?: string; toName?: string }[];
 }
 
 /**
@@ -61,7 +62,8 @@ export interface RiskApi {
   events(gameId: string, since: number, token?: string): Promise<EventsResult>;
   /** Pass the reader's token so fog-of-war games hide spectator messages from players. */
   chat(gameId: string, since: number, token?: string): Promise<ChatResult>;
-  sendChat(gameId: string, token: string, message: string): Promise<unknown>;
+  /** `to`: whisper to one player (name or id) instead of posting to everyone. */
+  sendChat(gameId: string, token: string, message: string, to?: string): Promise<unknown>;
   leave(gameId: string, token: string): Promise<unknown>;
   closeGame(gameId: string, token: string): Promise<unknown>;
 }
@@ -230,8 +232,8 @@ export class HttpRiskApi implements RiskApi {
   chat(gameId: string, since: number, token?: string) {
     return this.request<ChatResult>(`/games/${gameId}/chat?since=${since}`, {}, token);
   }
-  sendChat(gameId: string, token: string, message: string) {
-    return this.request(`/games/${gameId}/chat`, { method: 'POST', body: JSON.stringify({ message }) }, token);
+  sendChat(gameId: string, token: string, message: string, to?: string) {
+    return this.request(`/games/${gameId}/chat`, { method: 'POST', body: JSON.stringify({ message, to }) }, token);
   }
   leave(gameId: string, token: string) {
     return this.request(`/games/${gameId}/leave`, { method: 'POST', body: '{}' }, token);

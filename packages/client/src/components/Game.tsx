@@ -367,7 +367,7 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
               </span>
               <span className="pstats" title="territories · armies · cards">
                 {p.territoryCount ?? '?'}t · {p.armyCount ?? '?'}a · {p.cardCount ?? '?'}c
-                {view.options.capitals && ` · ${Object.values(view.capitals ?? {}).filter((t) => view.territories[t]?.owner === p.id).length}★`}
+                {view.options.capitals && ` · ${p.territoryCount === null ? '?' : Object.values(view.capitals ?? {}).filter((t) => view.territories[t]?.owner === p.id).length}★`}
                 {p.income && p.alive && view.phase !== 'lobby' && (
                   <>
                     {' · '}

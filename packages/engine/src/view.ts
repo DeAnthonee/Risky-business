@@ -65,8 +65,19 @@ function eventPlayers(e: GameEvent): PlayerId[] {
  * Under fog, a player only learns about events they took part in or that touched a territory they can
  * see; everything else is replaced by a bare {type:'fogged'} marker. Spectators (viewer null) see all.
  */
+/**
+ * Whether fog applies to this viewer: a seated player who is still in a running game. Spectators, players
+ * who have been eliminated and everyone once the game is over see the whole board.
+ */
+function foggedFor(state: GameState, viewer: PlayerId | null): boolean {
+  if (!state.options.fogOfWar || !viewer || state.phase === 'finished') return false;
+  const p = state.players.find((x) => x.id === viewer);
+  return !!p && p.alive;
+}
+
 export function redactEvents(state: GameState, viewer: PlayerId | null, events: GameEvent[]): GameEvent[] {
-  if (!state.options.fogOfWar || !viewer) return events;
+  if (!foggedFor(state, viewer)) return events;
+  viewer = viewer!;
   const map = getMap(state.options.map);
   const visible = visibleTerritories(state.territories, viewer, map);
   return events.map((e) => {
@@ -114,7 +125,7 @@ export interface GameView extends Omit<GameState, 'players' | 'deck' | 'discard'
  */
 export function viewFor(state: GameState, viewer: PlayerId | null): GameView {
   const map = getMap(state.options.map);
-  const fogged = !!state.options.fogOfWar && !!viewer && state.players.some((p) => p.id === viewer);
+  const fogged = foggedFor(state, viewer);
   const visible = fogged ? visibleTerritories(state.territories, viewer!, map) : null;
   // Under fog a player learns nothing about another player beyond the territories they can see and their
   // card count: their territory and army counts, income and continents are only shown if every territory
@@ -134,6 +145,8 @@ export function viewFor(state: GameState, viewer: PlayerId | null): GameView {
         .filter((c) => open || continentVisible(c.territories))
         .map((c) => c.id),
       income: p.isNeutral || !open ? null : reinforcementsFor(state, p.id),
+      // While they reinforce, the armies left to place would give away their hidden income.
+      armiesToPlace: open ? p.armiesToPlace : 0,
     };
   });
   const continentOwners: Record<string, PlayerId | null> = {};
@@ -150,8 +163,12 @@ export function viewFor(state: GameState, viewer: PlayerId | null): GameView {
     for (const t of state.blizzards) territories[t] = { owner: null, armies: 0 };
   }
   const capitals = fogged ? Object.fromEntries(Object.entries(state.capitals).filter(([, t]) => !territories[t].hidden)) : state.capitals;
+  // Another player's pending occupy names both ends of the conquest and the size of the attacking stack.
+  const pc = state.pendingConquest;
+  const pendingConquest = fogged && pc && state.currentPlayer !== viewer && (territories[pc.from]?.hidden || territories[pc.to]?.hidden) ? null : pc;
   return {
     ...rest,
+    pendingConquest,
     territories,
     capitals,
     players,

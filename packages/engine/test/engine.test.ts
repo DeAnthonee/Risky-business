@@ -1257,4 +1257,38 @@ describe('fog of war hides everything a player cannot see', () => {
     // Spectators get everything as is.
     expect(redactEvents(state, null, events)).toEqual(events);
   });
+
+  it('hides another player\'s armies to place and pending occupy behind the fog', () => {
+    const state = finishSetup(setup(4, { setupBatch: 40, fogOfWar: true }).state);
+    const [first, me] = state.turnOrder;
+    expect(state.currentPlayer).toBe(first);
+    const hiddenFromMe = (t: string) => viewFor(state, me).territories[t].hidden;
+    expect(territoriesOf(state, first).some(hiddenFromMe)).toBe(true);
+    // `first` is reinforcing: their armies to place equal their (hidden) income.
+    expect(state.players.find((p) => p.id === first)!.armiesToPlace).toBeGreaterThan(0);
+    expect(viewFor(state, me).players.find((p) => p.id === first)!.armiesToPlace).toBe(0);
+    expect(viewFor(state, null).players.find((p) => p.id === first)!.armiesToPlace).toBeGreaterThan(0);
+    // A pending occupy between two territories `me` cannot see.
+    const to = territoriesOf(state, first).find(hiddenFromMe)!;
+    const from = ADJACENCY[to].find(hiddenFromMe) ?? to;
+    state.pendingConquest = { from, to, minArmies: 3, maxArmies: 29 };
+    expect(viewFor(state, me).pendingConquest).toBeNull();
+    expect(viewFor(state, first).pendingConquest).toEqual(state.pendingConquest);
+    expect(viewFor(state, null).pendingConquest).toEqual(state.pendingConquest);
+  });
+
+  it('lifts the fog for eliminated players and once the game is over', () => {
+    const state = finishSetup(setup(4, { setupBatch: 40, fogOfWar: true }).state);
+    const [, me, other] = state.turnOrder;
+    const hidden = (s: GameState) => Object.values(viewFor(s, me).territories).filter((t) => t.hidden).length;
+    expect(hidden(state)).toBeGreaterThan(0);
+    const events: GameEvent[] = [{ type: 'traded', player: other, cardIds: [1, 2, 3], cards: [], armies: 4, bonusTerritory: null }];
+    expect(redactEvents(state, me, events)[0].type).toBe('fogged');
+    const out = { ...state, players: state.players.map((p) => (p.id === me ? { ...p, alive: false } : p)) };
+    expect(hidden(out)).toBe(0);
+    expect(viewFor(out, me).players.find((p) => p.id === other)!.armyCount).not.toBeNull();
+    expect(redactEvents(out, me, events)).toEqual(events);
+    const over = { ...state, phase: 'finished' as const };
+    expect(hidden(over)).toBe(0);
+  });
 });

@@ -40,6 +40,8 @@ const PACE = {
   battleBaseMs: 450,
   battlePerRollMs: 120,
   battleMaxMs: 1400,
+  /** A dice-only commit continuing the previous commit's attack (an AI rolling one die-set at a time). */
+  continuedRollMs: 260,
   /** Placements, phase changes and other quiet commits. */
   quietMs: 140,
   /** Backlog size at which pacing starts speeding up (proportionally to the backlog). */
@@ -56,9 +58,19 @@ function hurriedWait(base: number, backlog: number, conquest: boolean): number {
   return conquest ? Math.max(PACE.minConquestMs, scaled) : scaled;
 }
 
-function paceFor(events: GameEvent[]): number {
+function lastAttack(events: GameEvent[]): string | null {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i];
+    if (e.type === 'battle') return `${e.attacker}:${e.from}>${e.to}`;
+  }
+  return null;
+}
+
+function paceFor(events: GameEvent[], previous: GameEvent[] | null): number {
   if (events.some((e) => e.type === 'conquered')) return PACE.conquestMs;
   const rolls = events.filter((e) => e.type === 'battle').length;
+  // Slow-rolled attacks (one roll per commit on the same border) replay like a blitz.
+  if (rolls && previous && lastAttack(events) === lastAttack(previous)) return PACE.continuedRollMs;
   if (rolls) return Math.min(PACE.battleMaxMs, PACE.battleBaseMs + rolls * PACE.battlePerRollMs);
   return events.length ? PACE.quietMs : 0;
 }
@@ -77,7 +89,7 @@ export function useGame(gameId: string | null, token: string | undefined): GameC
   const [closedReason, setClosedReason] = useState<string | null>(null);
   const sockRef = useRef<GameSocket | null>(null);
   const seq = useRef(0);
-  const playback = useRef<{ queue: StateMessage[]; timer: ReturnType<typeof setTimeout> | null }>({ queue: [], timer: null });
+  const playback = useRef<{ queue: StateMessage[]; timer: ReturnType<typeof setTimeout> | null; previous: GameEvent[] | null }>({ queue: [], timer: null, previous: null });
 
   useEffect(() => {
     if (!gameId) return;
@@ -100,7 +112,8 @@ export function useGame(gameId: string | null, token: string | undefined): GameC
       const next = pb.queue.shift();
       if (!next) return;
       apply(next);
-      const wait = hurriedWait(paceFor(next.events), pb.queue.length, next.events.some((e) => e.type === 'conquered'));
+      const wait = hurriedWait(paceFor(next.events, pb.previous), pb.queue.length, next.events.some((e) => e.type === 'conquered'));
+      if (next.events.length) pb.previous = next.events;
       if (pb.queue.length) pb.timer = setTimeout(pump, wait);
       else if (wait) pb.timer = setTimeout(pump, wait); // hold the last frame before the next arrival
     };

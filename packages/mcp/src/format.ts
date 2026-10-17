@@ -105,7 +105,8 @@ export function formatState(view: GameView, gameName?: string): string {
       }
       if (lm.attacks.length) {
         lines.push(`  Attacks available (from -> to, max dice): ${lm.attacks.map((a) => `${a.from}->${a.to} (${a.maxDice})`).join('; ')}`);
-        lines.push('    {"type":"attack","from":"..","to":"..","blitz":true,"occupy":"max"}  (or "dice":1-3 for a single roll; "occupy" may be a number, "min" or "max")');
+        lines.push('    Blitz by default: {"type":"attack","from":"..","to":"..","blitz":true,"occupy":"max"} fights the whole battle in ONE call (rolls until the territory falls or you run down to 1 army).');
+        lines.push('    Single rolls ("dice":1-3, no blitz) are only for stopping partway on purpose; rolling one at a time is slow for everyone watching. "occupy" may be a number, "min" or "max".');
       }
       if (lm.canEndAttack) lines.push('  {"type":"end_attack"} to move to fortify phase');
       if (lm.fortifies.length) {

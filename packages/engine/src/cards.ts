@@ -43,3 +43,25 @@ export function tradeBonus(tradeIndex: number): number {
   if (tradeIndex < table.length) return table[tradeIndex];
   return 15 + 5 * (tradeIndex - table.length + 1);
 }
+
+const FIXED: Record<Exclude<CardKind, 'wild'>, number> = { infantry: 4, cavalry: 6, artillery: 8 };
+const FIXED_MIXED = 10;
+
+/**
+ * Fixed values (RISK: Global Domination "fixed" cards): three infantry 4, three cavalry 6, three
+ * artillery 8, one of each 10. A wild stands in for the missing card: wild + two of a kind is that
+ * kind's value, wild + two different kinds completes one-of-each (10), two wilds complete the best set.
+ */
+export function fixedSetValue(cards: Card[]): number {
+  const kinds = cards.filter((c) => c.kind !== 'wild').map((c) => c.kind as Exclude<CardKind, 'wild'>);
+  const distinct = new Set(kinds);
+  const wilds = cards.length - kinds.length;
+  if (wilds >= 2) return FIXED_MIXED;
+  if (distinct.size === 1) return FIXED[kinds[0]];
+  return FIXED_MIXED;
+}
+
+/** Value of a traded set under the given rule. */
+export function setValue(cards: Card[], mode: 'progressive' | 'fixed', tradeIndex: number): number {
+  return mode === 'fixed' ? fixedSetValue(cards) : tradeBonus(tradeIndex);
+}

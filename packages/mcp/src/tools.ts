@@ -30,6 +30,9 @@ const optionsSchema = z
     fortifyMode: z.enum(['adjacent', 'connected']).optional().describe('Fortify rule: adjacent (classic) or any connected path'),
     randomDeal: z.boolean().optional().describe('true = territories dealt randomly (default); false = players claim them one by one'),
     autoSetup: z.boolean().optional().describe('true = skip the army placement phase: starting armies are scattered randomly and turn 1 starts at once'),
+    cardValues: z.enum(['progressive', 'fixed']).optional().describe('progressive (4,6,8,10,12,15,+5...) or fixed (infantry 4, cavalry 6, artillery 8, one of each 10)'),
+    fogOfWar: z.boolean().optional().describe('true = players only see their territories and adjacent ones; hidden territories show as "?"'),
+    capitals: z.boolean().optional().describe('Capital Conquest: each player gets a capital (+2 armies per capital held per turn); capturing a capital takes over that player'),
   })
   .optional();
 
@@ -333,8 +336,9 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
     async ({ gameId, sinceVersion }) => {
       try {
         const id = gameId.toUpperCase();
-        const g = await api.getGame(id, identities.seats(id)[0]?.token);
-        const r = await api.events(id, sinceVersion ?? 0);
+        const tok = identities.seats(id)[0]?.token;
+        const g = await api.getGame(id, tok);
+        const r = await api.events(id, sinceVersion ?? 0, tok);
         const entries = sinceVersion === undefined ? r.entries.slice(-30) : r.entries;
         return text(entries.map((e) => `v${e.version}: ${formatEvents(e.events, g.state as GameView) || JSON.stringify(e.events)}`).join('\n') || 'No events yet.');
       } catch (e) {

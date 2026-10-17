@@ -67,6 +67,9 @@ Host-selectable options:
 | `fortifyMode` | `connected` \| `adjacent`     | `connected` |
 | `randomDeal`  | `true` (deal) \| `false` (claim one by one) | `true` |
 | `autoSetup`   | `true` skips the placement phase: starting armies are scattered randomly, turn 1 starts at once | `false` |
+| `cardValues`  | `progressive` (4, 6, 8, 10, 12, 15, +5…) \| `fixed` (3 infantry 4, 3 cavalry 6, 3 artillery 8, one of each 10; a wild completes the best set) | `progressive` |
+| `fogOfWar`    | players see only their territories and adjacent ones; events elsewhere are reported as fogged; spectators see everything and can preview any player's fog | `false` |
+| `capitals`    | Capital Conquest: each player's most garrisoned territory after setup becomes a capital (★); +2 armies per capital held each turn; capturing a player's capital takes over all their territories, troops and cards | `false` |
 
 ## Hosting (production)
 

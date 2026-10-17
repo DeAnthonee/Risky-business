@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { getMap, type GameEvent, type GameView } from '@risk/engine';
+import { getMap, visibleTerritories, type Card, type GameEvent, type GameView } from '@risk/engine';
 import { api } from '../api';
 import { spectateLink, type Session } from '../session';
 import type { EventBatch, GameConnection } from '../useGame';
@@ -40,6 +40,26 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
   const [banner, setBanner] = useState<{ text: string; color: string } | null>(null);
   const [copiedWatch, setCopiedWatch] = useState(false);
   const spectator = !me;
+  // Spectator fog preview: follow the current player by default; click a player to pin, click again to see all.
+  const fogOn = !!view.options.fogOfWar;
+  const [fogPin, setFogPin] = useState<string | null>(null);
+  const [followTurn, setFollowTurn] = useState(true);
+  const fogAs = spectator && fogOn ? (followTurn ? view.currentPlayer : fogPin) : null;
+  const fogHidden = useMemo(() => {
+    if (!fogAs) return undefined;
+    const vis = visibleTerritories(view.territories, fogAs, map);
+    return new Set(map.territoryIds.filter((t) => !vis.has(t)));
+  }, [fogAs, view.territories, map]);
+  const pickFog = (pid: string) => {
+    if (!spectator || !fogOn) return;
+    if (fogAs === pid) {
+      setFollowTurn(false);
+      setFogPin(null);
+    } else {
+      setFollowTurn(false);
+      setFogPin(pid);
+    }
+  };
   const copyWatchLink = async () => {
     try {
       await navigator.clipboard.writeText(spectateLink(gameId));
@@ -239,6 +259,7 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
 
         <GameMap
           view={view}
+          hidden={fogHidden}
           highlights={highlights}
           pendingPlacements={pending}
           attackArrow={anim.attackArrow}
@@ -280,6 +301,22 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
               <span className="muted">
                 👁 You are watching. {current ? `${current.name} is playing (${view.phase}).` : ''}
               </span>
+              {fogOn && (
+                <span className="fog-controls">
+                  Fog view:{' '}
+                  {fogAs ? (
+                    <strong style={{ color: colorOf(fogAs) }}>{names[fogAs]}</strong>
+                  ) : (
+                    <strong>whole map</strong>
+                  )}
+                  <button className={`small ${followTurn ? 'primary' : ''}`} onClick={() => { setFollowTurn(true); setFogPin(null); }}>
+                    Follow turn
+                  </button>
+                  <button className="small" onClick={() => { setFollowTurn(false); setFogPin(null); }}>
+                    Whole map
+                  </button>
+                </span>
+              )}
               <span className="spacer" />
               <button className="small" onClick={copyWatchLink}>
                 {copiedWatch ? 'Copied!' : 'Copy watch link'}
@@ -428,7 +465,12 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
       <aside className="sidebar">
         <div className="players-panel">
           {view.players.map((p) => (
-            <div key={p.id} className={`player-row ${p.id === view.currentPlayer ? 'active' : ''} ${!p.alive ? 'dead' : ''}`}>
+            <div
+              key={p.id}
+              className={`player-row ${p.id === view.currentPlayer ? 'active' : ''} ${!p.alive ? 'dead' : ''} ${fogAs === p.id ? 'fog-as' : ''} ${spectator && fogOn && !p.isNeutral ? 'clickable' : ''}`}
+              onClick={() => !p.isNeutral && pickFog(p.id)}
+              title={spectator && fogOn ? `Click to see the board as ${p.name} sees it` : undefined}
+            >
               <span className="swatch" style={{ background: p.color }} />
               <span className="pname">
                 {p.name}
@@ -438,7 +480,9 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
               </span>
               <span className="pstats" title="territories · armies · cards">
                 {p.territoryCount}t · {p.armyCount}a · {p.cardCount}c
+                {view.options.capitals && ` · ${Object.values(view.capitals ?? {}).filter((t) => view.territories[t]?.owner === p.id).length}★`}
               </span>
+              {spectator && p.cards && p.cards.length > 0 && <HandSummary cards={p.cards} shortName={shortName} />}
             </div>
           ))}
           {me && (
@@ -461,6 +505,7 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
       {showCards && me && (
         <CardsPanel
           mapId={view.options.map}
+          cardValues={view.options.cardValues}
           cards={me.cards ?? []}
           tradeCount={view.tradeCount}
           canTrade={myTurn && (view.phase === 'reinforce' || !!legal?.mustTrade)}
@@ -473,12 +518,27 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
   );
 }
 
+const CARD_ICON: Record<Card['kind'], string> = { infantry: '🪖', cavalry: '🐎', artillery: '💣', wild: '🃏' };
+
+function HandSummary({ cards, shortName }: { cards: Card[]; shortName: (id: string) => string }) {
+  return (
+    <div className="hand-summary" onClick={(e) => e.stopPropagation()}>
+      {cards.map((c) => (
+        <span key={c.id} className={`hand-card ${c.kind}`} title={c.kind === 'wild' ? 'Wild' : `${c.kind} · ${shortName(c.territory!)}`}>
+          {CARD_ICON[c.kind]} {c.kind === 'wild' ? 'Wild' : shortName(c.territory!)}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 function reinforcementPreview(view: GameView, pid: string): number {
   const p = view.players.find((x) => x.id === pid);
   if (!p) return 0;
   const map = getMap(view.options.map);
   const base = Math.max(3, Math.floor(p.territoryCount / 3));
-  return base + p.continents.reduce((n, c) => n + (map.continentById[c]?.bonus ?? 0), 0);
+  const caps = view.options.capitals ? Object.values(view.capitals ?? {}).filter((t) => view.territories[t]?.owner === pid).length * 2 : 0;
+  return base + p.continents.reduce((n, c) => n + (map.continentById[c]?.bonus ?? 0), 0) + caps;
 }
 
 function PhaseSteps({ phase }: { phase: GameView['phase'] }) {

@@ -1,5 +1,5 @@
 import express, { type Request, type Response, type NextFunction } from 'express';
-import { MAP_IDS, RULES_TEXT, RuleError, getMap, type Action, type GameOptions, type MapDef } from '@risk/engine';
+import { MAP_IDS, RULES_TEXT, RuleError, getMap, redactEvents, type Action, type GameOptions, type MapDef } from '@risk/engine';
 
 /** Static map description for agents: no SVG paths, which are only useful to the web client. */
 export function mapInfo(m: MapDef) {
@@ -177,7 +177,7 @@ export function createApi(store: Store) {
       if (!action || typeof action !== 'object' || typeof action.type !== 'string')
         return res.status(400).json({ error: 'Body must be an action object with a "type"' });
       const { events } = room.act(req.playerId!, action);
-      res.json({ ok: true, events, state: room.view(req.playerId!) });
+      res.json({ ok: true, events: redactEvents(room.state, req.playerId!, events), state: room.view(req.playerId!) });
     }),
   );
 
@@ -186,7 +186,8 @@ export function createApi(store: Store) {
     loadRoom,
     wrap((req, res) => {
       const since = Number(req.query.since ?? 0);
-      res.json({ version: req.room!.state.version, entries: req.room!.eventsSince(since) });
+      const room = req.room!;
+      res.json({ version: room.state.version, entries: room.eventsSince(since).map((h) => ({ ...h, events: redactEvents(room.state, req.playerId ?? null, h.events) })) });
     }),
   );
 
@@ -202,7 +203,7 @@ export function createApi(store: Store) {
         reason,
         yourTurn: !!req.playerId && room.state.currentPlayer === req.playerId,
         state: room.view(req.playerId ?? null),
-        events: since !== undefined ? room.eventsSince(since) : [],
+        events: since !== undefined ? room.eventsSince(since).map((h) => ({ ...h, events: redactEvents(room.state, req.playerId ?? null, h.events) })) : [],
       });
     }),
   );
@@ -250,6 +251,9 @@ export function sanitizeOptions(raw: unknown): Partial<GameOptions> {
   if (o.fortifyMode !== undefined) out.fortifyMode = o.fortifyMode as GameOptions['fortifyMode'];
   if (o.randomDeal !== undefined) out.randomDeal = o.randomDeal === true || o.randomDeal === 'true';
   if (o.autoSetup !== undefined) out.autoSetup = o.autoSetup === true || o.autoSetup === 'true';
+  if (o.cardValues !== undefined) out.cardValues = o.cardValues as GameOptions['cardValues'];
+  if (o.fogOfWar !== undefined) out.fogOfWar = o.fogOfWar === true || o.fogOfWar === 'true';
+  if (o.capitals !== undefined) out.capitals = o.capitals === true || o.capitals === 'true';
   if (o.maxPlayers !== undefined) out.maxPlayers = Number(o.maxPlayers);
   if (o.map !== undefined) out.map = o.map as GameOptions['map'];
   return out;

@@ -1,6 +1,6 @@
 import type { Server } from 'node:http';
 import { WebSocketServer, WebSocket } from 'ws';
-import { RuleError, type Action } from '@risk/engine';
+import { RuleError, redactEvents, type Action } from '@risk/engine';
 import type { ChangeMessage, ChatMessage, GameRoom, Store } from './store.js';
 
 interface ClientMsg {
@@ -97,7 +97,7 @@ export function attachWebSocket(server: Server, store: Store, commit: () => stri
             if (!r) return send({ type: 'error', error: 'Game not found', reqId: msg.reqId });
             room = r;
             playerId = r.playerForToken(msg.token);
-            onChange = (m) => send({ type: 'state', state: r.view(playerId), events: m.events, version: m.version, host: r.hostId, name: r.name, you: playerId, commit: commit() });
+            onChange = (m) => send({ type: 'state', state: r.view(playerId), events: redactEvents(m.state, playerId, m.events), version: m.version, host: r.hostId, name: r.name, you: playerId, commit: commit() });
             onChat = (m) => send({ type: 'chat', message: m });
             onPresence = (m) => send({ type: 'presence', ...m });
             r.on('change', onChange);

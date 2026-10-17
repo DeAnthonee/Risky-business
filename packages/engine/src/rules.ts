@@ -45,17 +45,18 @@ A TURN has three phases:
    neighbouring territories. Fortifying ends your turn. You may also simply end your turn.
 
 CARDS
-44 cards: 42 territory cards (Infantry, Cavalry, Artillery) + 2 wilds. A set is three of a kind, one of each, or any
-two plus a wild. Set bonuses escalate for the whole game: 4, 6, 8, 10, 12, 15, then +5 each (20, 25, ...).
+One card per territory (Infantry, Cavalry or Artillery) + 2 wilds (44 on the classic map, 76 on World). You earn
+one card at the end of any turn in which you conquered at least one territory, and you take all of a player's
+cards when you eliminate them. A set is three of a kind, one of each, or any two plus a wild.
+Option "cardValues": "progressive" (default) escalates for the whole game: 4, 6, 8, 10, 12, 15, then +5 each
+(20, 25, ...). "fixed": three Infantry = 4, three Cavalry = 6, three Artillery = 8, one of each = 10; a wild
+completes the most valuable set it can.
 If a traded card shows a territory you own, 2 extra armies are placed there automatically (once per trade).
 
-ACTIONS (JSON)
-  {"type":"place","placements":{"<territory>":n,...}}      setup / reinforce / forced placement after a mid-attack trade
-  {"type":"trade","cardIds":[a,b,c]}
-  {"type":"attack","from":"<t>","to":"<t>","dice"?:1-3,"blitz"?:true,"occupy"?:n|"min"|"max"}
-  {"type":"occupy","armies":n}                            after a conquest when "occupy" was not given
-  {"type":"end_attack"}                                   move to fortify
-  {"type":"fortify","from":"<t>","to":"<t>","armies":n}   also ends the turn
-  {"type":"end_turn"}
-  {"type":"surrender"}
+OPTIONS: FOG OF WAR AND CAPITALS
+"fogOfWar": you only see territories you own and those adjacent to them; everything else shows as hidden
+(owner and armies unknown) and events there are reported as "fogged". Spectators always see the whole board.
+"capitals" (Capital Conquest): after setup each player's most garrisoned territory becomes their capital (shown with a
+star). At the start of your turn you get +2 armies for every capital you hold. Capturing a player's own capital takes
+over that player: all their territories, troops and cards become yours and they are out. Hold every capital to win.
 `.trim();

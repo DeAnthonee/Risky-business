@@ -14,12 +14,21 @@ export function describe(e: GameEvent, view: GameView): string | null {
     case 'turn_started': {
       const r = e.reinforcements;
       const cont = r.continents.length ? ` + ${r.continents.map((c) => `${c.id.replace('_', ' ')} ${c.bonus}`).join(', ')}` : '';
-      return `Turn ${e.turnNumber}: ${name(e.player)} receives ${r.total} armies (${r.fromTerritories} for ${r.territories} territories${cont})`;
+      const caps = r.fromCapitals ? ` + ${r.fromCapitals} for ${r.capitals} capital${r.capitals === 1 ? '' : 's'}` : '';
+      return `Turn ${e.turnNumber}: ${name(e.player)} receives ${r.total} armies (${r.fromTerritories} for ${r.territories} territories${cont}${caps})`;
     }
     case 'placed':
       return `${name(e.player)} placed ${e.armies} on ${shortName(e.territory)}`;
-    case 'traded':
-      return `${name(e.player)} traded a card set for ${e.armies} armies${e.bonusTerritory ? ` (+2 on ${shortName(e.bonusTerritory)})` : ''}`;
+    case 'traded': {
+      const cards = (e.cards ?? []).map((c) => (c.kind === 'wild' ? 'Wild' : `${c.kind} ${c.territory ? shortName(c.territory) : ''}`.trim())).join(', ');
+      return `${name(e.player)} traded ${cards || 'a card set'} for ${e.armies} armies${e.bonusTerritory ? ` (+2 on ${shortName(e.bonusTerritory)})` : ''}`;
+    }
+    case 'capitals_assigned':
+      return `Capitals: ${Object.entries(e.capitals).map(([p, t]) => `${name(p)} → ${shortName(t)}`).join(', ')}`;
+    case 'capital_captured':
+      return `★ ${name(e.player)} captured ${name(e.previousOwner)}'s capital ${shortName(e.territory)}`;
+    case 'fogged':
+      return `… something happened in the fog (${e.kind.replace('_', ' ')})`;
     case 'battle':
       return `${name(e.attacker)} ${shortName(e.from)} [${e.attackerDice.join(' ')}] vs ${name(e.defender)} ${shortName(e.to)} [${e.defenderDice.join(' ')}] → att −${e.attackerLosses}, def −${e.defenderLosses}`;
     case 'conquered':

@@ -20,6 +20,8 @@ export interface FloatAnim {
 
 export interface MapProps {
   view: GameView;
+  /** Territories to draw as fogged (spectator fog preview or a player's own fogged view). */
+  hidden?: Set<string>;
   highlights: Record<string, Highlight>;
   pendingPlacements: Record<string, number>;
   attackArrow: { from: string; to: string } | null;
@@ -52,7 +54,9 @@ function shortLabel(name: string): string {
 }
 
 export function GameMap(props: MapProps) {
-  const { view, highlights, pendingPlacements, attackArrow, flashes, moves, floats, onTerritoryClick, dimOthers } = props;
+  const { view, highlights, pendingPlacements, attackArrow, flashes, moves, floats, onTerritoryClick, dimOthers, hidden } = props;
+  const isHidden = (id: string) => !!(hidden?.has(id) || view.territories[id]?.hidden);
+  const capitalOwner = (id: string) => Object.entries(view.capitals ?? {}).find(([, t]) => t === id)?.[0];
   const map = getMap(view.options.map);
   const [W, H] = map.viewBox;
   const colorOf = (pid: string | null) => view.players.find((p) => p.id === pid)?.color ?? null;
@@ -246,20 +250,21 @@ export function GameMap(props: MapProps) {
         {map.territories.map((t) => {
           const ts = view.territories[t.id];
           const hl = highlights[t.id];
-          const owner = colorOf(ts?.owner ?? null);
-          const flashing = flashes[t.id] && now - flashes[t.id] < 1200;
+          const fog = isHidden(t.id);
+          const owner = fog ? null : colorOf(ts?.owner ?? null);
+          const flashing = !fog && flashes[t.id] && now - flashes[t.id] < 1200;
           const dim = dimOthers && !hl;
-          const cls = ['territory', hl ? `hl-${hl}` : '', flashing ? 'flash' : '', dim ? 'dim' : '', hl ? 'clickable' : '', owner ? '' : 'unowned'].filter(Boolean).join(' ');
+          const cls = ['territory', hl ? `hl-${hl}` : '', flashing ? 'flash' : '', dim ? 'dim' : '', hl ? 'clickable' : '', owner ? '' : 'unowned', fog ? 'fog' : ''].filter(Boolean).join(' ');
           return (
             <path
               key={t.id}
               d={t.path}
               className={cls}
-              fill={owner ?? continentColor(map, t.continent)}
+              fill={fog ? '#2a3140' : (owner ?? continentColor(map, t.continent))}
               onClick={(e) => click(t.id, e.shiftKey)}
             >
               <title>
-                {t.name} — {view.players.find((p) => p.id === ts?.owner)?.name ?? 'unowned'}, {ts?.armies ?? 0} armies
+                {fog ? `${t.name} — hidden by fog` : `${t.name} — ${view.players.find((p) => p.id === ts?.owner)?.name ?? 'unowned'}, ${ts?.armies ?? 0} armies`}
               </title>
             </path>
           );
@@ -291,15 +296,22 @@ export function GameMap(props: MapProps) {
           const ts = view.territories[t.id];
           const hl = highlights[t.id];
           const pending = pendingPlacements[t.id] ?? 0;
-          const owner = colorOf(ts?.owner ?? null) ?? '#555';
+          const fog = isHidden(t.id);
+          const owner = fog ? '#3a4152' : (colorOf(ts?.owner ?? null) ?? '#555');
           const dim = dimOthers && !hl;
-          const cls = ['badge', hl ? `hl-${hl}` : '', dim ? 'dim' : '', hl ? 'clickable' : ''].filter(Boolean).join(' ');
+          const cap = capitalOwner(t.id);
+          const cls = ['badge', hl ? `hl-${hl}` : '', dim ? 'dim' : '', hl ? 'clickable' : '', fog ? 'fog' : '', cap ? 'capital' : ''].filter(Boolean).join(' ');
           return (
             <g key={t.id} className={cls} transform={`translate(${t.x},${t.y})`} onClick={(e) => click(t.id, e.shiftKey)}>
               <circle className="ring" r={dense ? 15 : 19} />
               <circle className="body" r={dense ? 11 : 14} fill={owner} />
+              {cap && !fog && (
+                <text className="capital-star" y={dense ? -13 : -16} textAnchor="middle" fill={colorOf(cap) ?? '#ffd166'}>
+                  ★
+                </text>
+              )}
               <text key={(ts?.armies ?? 0) + pending} className="armies" textAnchor="middle" dominantBaseline="central">
-                {(ts?.armies ?? 0) + pending}
+                {fog ? '?' : (ts?.armies ?? 0) + pending}
               </text>
               {pending > 0 && (
                 <text className="pending" x={dense ? 14 : 18} y={-10} textAnchor="middle">

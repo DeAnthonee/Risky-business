@@ -107,12 +107,14 @@ describe('game lifecycle over HTTP', () => {
     expect(typeof bad.body.error).toBe('string');
   });
 
-  it('hides other players cards from spectators', async () => {
+  it('gives spectators every hand but no legal moves; players see only their own hand', async () => {
     const r = await api(`/games/${gameId}`);
     expect(r.status).toBe(200);
     expect(r.body.playerId).toBeNull();
-    for (const p of r.body.state.players) expect(p.cards).toBeNull();
+    for (const p of r.body.state.players) expect(Array.isArray(p.cards)).toBe(true);
     expect(r.body.state.legal).toBeNull();
+    const mine = await api(`/games/${gameId}`, {}, token);
+    for (const p of mine.body.state.players) expect(p.cards === null || p.id === playerId).toBe(true);
   });
 
   it('serves state over WebSocket and acks actions', async () => {

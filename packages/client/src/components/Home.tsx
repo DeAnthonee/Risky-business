@@ -205,6 +205,21 @@ export function OptionsForm({
         </select>
       </label>
       <label>
+        Card values
+        <select disabled={disabled} value={options.cardValues ?? 'progressive'} onChange={(e) => onChange({ cardValues: e.target.value as GameOptions['cardValues'] })}>
+          <option value="progressive">Progressive (4, 6, 8, 10, 12, 15, +5…)</option>
+          <option value="fixed">Fixed (4 / 6 / 8, mixed 10)</option>
+        </select>
+      </label>
+      <label className="check">
+        <input type="checkbox" disabled={disabled} checked={!!options.fogOfWar} onChange={(e) => onChange({ fogOfWar: e.target.checked })} /> Fog of war
+        <span className="muted small">see only your territories and their neighbours</span>
+      </label>
+      <label className="check">
+        <input type="checkbox" disabled={disabled} checked={!!options.capitals} onChange={(e) => onChange({ capitals: e.target.checked })} /> Capital Conquest
+        <span className="muted small">+2 per capital held; capture a capital to take that player over</span>
+      </label>
+      <label>
         Fortify
         <select disabled={disabled} value={options.fortifyMode ?? 'connected'} onChange={(e) => onChange({ fortifyMode: e.target.value as GameOptions['fortifyMode'] })}>
           <option value="connected">Connected path</option>

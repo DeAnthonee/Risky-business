@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { isValidSet, tradeBonus, type Card } from '@risk/engine';
+import { fixedSetValue, isValidSet, tradeBonus, type Card } from '@risk/engine';
 import { getMap } from '@risk/engine';
 import { territoryName } from './Map';
 
@@ -13,8 +13,10 @@ export function CardsPanel({
   onTrade,
   onClose,
   mapId,
+  cardValues = 'progressive',
 }: {
   mapId: string;
+  cardValues?: 'progressive' | 'fixed';
   cards: Card[];
   tradeCount: number;
   canTrade: boolean;
@@ -36,7 +38,22 @@ export function CardsPanel({
         <h2>Your cards</h2>
         {mustTrade && <p className="error">You must trade a set before continuing.</p>}
         <p className="muted small">
-          Sets: three of a kind, one of each, or two + wild. Next set is worth <strong>{tradeBonus(tradeCount)}</strong> armies.
+          Sets: three of a kind, one of each, or two + wild.{' '}
+          {cardValues === 'fixed' ? (
+            <>
+              Fixed values: 🪖🪖🪖 4 · 🐎🐎🐎 6 · 💣💣💣 8 · one of each 10.
+              {valid && (
+                <>
+                  {' '}
+                  Selected set: <strong>{fixedSetValue(chosen)}</strong> armies.
+                </>
+              )}
+            </>
+          ) : (
+            <>
+              Next set is worth <strong>{tradeBonus(tradeCount)}</strong> armies.
+            </>
+          )}
         </p>
         {cards.length === 0 && <p className="muted">No cards yet. Conquer a territory to earn one at the end of your turn.</p>}
         <div className="card-grid">

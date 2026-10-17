@@ -58,7 +58,7 @@ export interface RiskApi {
   getGame(gameId: string, token?: string): Promise<GameInfo>;
   act(gameId: string, token: string, action: Action): Promise<{ events: GameEvent[]; state: GameView }>;
   wait(gameId: string, token: string | undefined, since: number | undefined, timeoutMs: number): Promise<WaitResult>;
-  events(gameId: string, since: number): Promise<EventsResult>;
+  events(gameId: string, since: number, token?: string): Promise<EventsResult>;
   chat(gameId: string, since: number): Promise<ChatResult>;
   sendChat(gameId: string, token: string, message: string): Promise<unknown>;
   leave(gameId: string, token: string): Promise<unknown>;
@@ -222,8 +222,8 @@ export class HttpRiskApi implements RiskApi {
     if (since !== undefined) q.set('since', String(since));
     return this.request<WaitResult>(`/games/${gameId}/wait?${q}`, {}, token);
   }
-  events(gameId: string, since: number) {
-    return this.request<EventsResult>(`/games/${gameId}/events?since=${since}`);
+  events(gameId: string, since: number, token?: string) {
+    return this.request<EventsResult>(`/games/${gameId}/events?since=${since}`, {}, token);
   }
   chat(gameId: string, since: number) {
     return this.request<ChatResult>(`/games/${gameId}/chat?since=${since}`);

@@ -33,6 +33,8 @@ export interface Player {
 export interface TerritoryState {
   owner: PlayerId | null;
   armies: number;
+  /** Set in a fogged view: the viewer cannot see this territory (owner/armies are blanked). */
+  hidden?: boolean;
 }
 
 export interface GameOptions {
@@ -48,7 +50,16 @@ export interface GameOptions {
   maxPlayers: number;
   /** Which board to play on: 'classic' (42 territories, 2-6 players) or 'world' (74 territories, 2-10). */
   map: 'classic' | 'world';
+  /** Card set values: 'progressive' (4,6,8,10,12,15,+5...) or 'fixed' (infantry 4, cavalry 6, artillery 8, mixed 10). */
+  cardValues: 'progressive' | 'fixed';
+  /** Fog of war: players only see their own territories and the ones adjacent to them. Spectators see everything. */
+  fogOfWar: boolean;
+  /** Capital Conquest: each player gets a capital after setup; capturing one takes over that player, every capital held pays +CAPITAL_BONUS per turn. */
+  capitals: boolean;
 }
+
+/** Reinforcements per capital held when the capitals option is on. */
+export const CAPITAL_BONUS = 2;
 
 export const DEFAULT_OPTIONS: GameOptions = {
   setupBatch: 1,
@@ -57,6 +68,9 @@ export const DEFAULT_OPTIONS: GameOptions = {
   autoSetup: false,
   maxPlayers: 6,
   map: 'classic',
+  cardValues: 'progressive',
+  fogOfWar: false,
+  capitals: false,
 };
 
 export interface PendingConquest {
@@ -86,6 +100,8 @@ export interface GameState {
   /** Number of card sets traded so far (drives escalating bonus). */
   tradeCount: number;
   pendingConquest: PendingConquest | null;
+  /** Capital territory per player (capitals option). */
+  capitals: Record<PlayerId, TerritoryId>;
   /** Set once the player has fortified this turn. */
   fortifiedThisTurn: boolean;
   winner: PlayerId | null;
@@ -166,6 +182,9 @@ export interface ReinforcementBreakdown {
   territories: number;
   fromTerritories: number;
   continents: { id: string; bonus: number }[];
+  /** Capitals held (capitals option) and the armies they add. */
+  capitals: number;
+  fromCapitals: number;
   total: number;
 }
 
@@ -174,7 +193,7 @@ export type GameEvent =
   | { type: 'phase'; phase: Phase; player: PlayerId | null }
   | { type: 'turn_started'; player: PlayerId; turnNumber: number; round: number; reinforcements: ReinforcementBreakdown }
   | { type: 'placed'; player: PlayerId; territory: TerritoryId; armies: number }
-  | { type: 'traded'; player: PlayerId; cardIds: number[]; armies: number; bonusTerritory: TerritoryId | null }
+  | { type: 'traded'; player: PlayerId; cardIds: number[]; cards: Card[]; armies: number; bonusTerritory: TerritoryId | null }
   | {
       type: 'battle';
       attacker: PlayerId;
@@ -193,6 +212,10 @@ export type GameEvent =
   | { type: 'card_drawn'; player: PlayerId }
   | { type: 'cards_taken'; player: PlayerId; from: PlayerId; count: number }
   | { type: 'eliminated'; player: PlayerId; by: PlayerId | null }
+  | { type: 'capitals_assigned'; capitals: Record<PlayerId, TerritoryId> }
+  | { type: 'capital_captured'; player: PlayerId; territory: TerritoryId; previousOwner: PlayerId }
+  /** A fogged-out event the viewer is not allowed to see in detail. */
+  | { type: 'fogged'; kind: GameEvent['type'] }
   | { type: 'turn_ended'; player: PlayerId }
   | { type: 'game_over'; winner: PlayerId };
 

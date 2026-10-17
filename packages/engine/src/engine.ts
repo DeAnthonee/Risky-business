@@ -1,7 +1,8 @@
 import { getMap, isMapId, type MapDef } from './maps.js';
-import { buildDeck, findSets, isValidSet, tradeBonus } from './cards.js';
+import { buildDeck, findSets, isValidSet, setValue } from './cards.js';
 import { createRng, nextInt, rollDie, shuffle, type Rng } from './rng.js';
 import {
+  CAPITAL_BONUS,
   DEFAULT_OPTIONS,
   RuleError,
   type Action,
@@ -57,6 +58,7 @@ export function createGame(id: string, options: Partial<GameOptions> = {}, seed?
     discard: [],
     tradeCount: 0,
     pendingConquest: null,
+    capitals: {},
     fortifiedThisTurn: false,
     winner: null,
     seed: s,
@@ -73,6 +75,7 @@ export function validateOptions(o: GameOptions): void {
   if (o.fortifyMode !== 'adjacent' && o.fortifyMode !== 'connected')
     throw new RuleError("fortifyMode must be 'adjacent' or 'connected'");
   if (!isMapId(o.map)) throw new RuleError(`Unknown map "${String(o.map)}"`);
+  if (o.cardValues !== 'progressive' && o.cardValues !== 'fixed') throw new RuleError("cardValues must be 'progressive' or 'fixed'");
   const map = getMap(o.map);
   if (!Number.isInteger(o.maxPlayers) || o.maxPlayers < 2 || o.maxPlayers > map.maxPlayers)
     throw new RuleError(`maxPlayers must be between 2 and ${map.maxPlayers} on the ${map.name} map`);
@@ -340,12 +343,18 @@ export function continentsOf(state: GameState, id: PlayerId) {
   return mapOf(state).continents.filter((c) => c.territories.every((t) => state.territories[t].owner === id));
 }
 
+export function capitalsHeldBy(state: GameState, id: PlayerId): TerritoryId[] {
+  return Object.values(state.capitals).filter((t) => state.territories[t]?.owner === id);
+}
+
 export function reinforcementsFor(state: GameState, id: PlayerId): ReinforcementBreakdown {
   const owned = territoriesOf(state, id).length;
   const fromTerritories = Math.max(3, Math.floor(owned / 3));
   const continents = continentsOf(state, id).map((c) => ({ id: c.id, bonus: c.bonus }));
-  const total = fromTerritories + continents.reduce((n, c) => n + c.bonus, 0);
-  return { territories: owned, fromTerritories, continents, total };
+  const capitals = state.options.capitals ? capitalsHeldBy(state, id).length : 0;
+  const fromCapitals = capitals * CAPITAL_BONUS;
+  const total = fromTerritories + continents.reduce((n, c) => n + c.bonus, 0) + fromCapitals;
+  return { territories: owned, fromTerritories, continents, capitals, fromCapitals, total };
 }
 
 /** Does the player have to trade cards right now before doing anything else? */
@@ -465,9 +474,23 @@ function advanceSetup(state: GameState, events: GameEvent[]): void {
 function beginFirstTurn(state: GameState, events: GameEvent[]): void {
   state.turnNumber = 0;
   state.round = 1;
+  if (state.options.capitals && Object.keys(state.capitals).length === 0) assignCapitals(state, events);
   const first = state.turnOrder.find((id) => playerOf(state, id).alive);
   if (!first) return;
   beginTurn(state, first, events);
+}
+
+/** Each player's capital: their most heavily garrisoned territory after setup (ties: first by map order). */
+function assignCapitals(state: GameState, events: GameEvent[]): void {
+  for (const p of state.players) {
+    if (p.isNeutral || !p.alive) continue;
+    const owned = territoriesOf(state, p.id);
+    if (!owned.length) continue;
+    let best = owned[0];
+    for (const t of owned) if (state.territories[t].armies > state.territories[best].armies) best = t;
+    state.capitals[p.id] = best;
+  }
+  events.push({ type: 'capitals_assigned', capitals: { ...state.capitals } });
 }
 
 function beginTurn(state: GameState, playerId: PlayerId, events: GameEvent[]): void {
@@ -505,7 +528,7 @@ function doTrade(state: GameState, playerId: PlayerId, action: TradeAction, even
   }
   if (!isValidSet(cards)) throw new RuleError('Those cards do not form a set (3 of a kind, 1 of each, or with a wild)');
 
-  const armies = tradeBonus(state.tradeCount);
+  const armies = setValue(cards, state.options.cardValues ?? 'progressive', state.tradeCount);
   state.tradeCount += 1;
   player.cards = player.cards.filter((c) => !cards.includes(c));
   state.discard.push(...cards);
@@ -523,7 +546,7 @@ function doTrade(state: GameState, playerId: PlayerId, action: TradeAction, even
     state.territories[bonusTerritory].armies += 2;
     events.push({ type: 'placed', player: playerId, territory: bonusTerritory, armies: 2 });
   }
-  events.push({ type: 'traded', player: playerId, cardIds: ids, armies, bonusTerritory });
+  events.push({ type: 'traded', player: playerId, cardIds: ids, cards: cards.map((c) => ({ ...c })), armies, bonusTerritory });
 }
 
 function drawCard(state: GameState, player: Player, events: GameEvent[]): void {
@@ -608,8 +631,16 @@ function doAttack(state: GameState, playerId: PlayerId, action: AttackAction, ev
     const maxArmies = from.armies - 1;
     state.pendingConquest = { from: action.from, to: action.to, minArmies: Math.max(1, minArmies), maxArmies };
 
-    // Elimination check.
+    // Capital Conquest: taking a player's own capital takes over everything they hold.
     const defender = playerOf(state, defenderId);
+    if (state.options.capitals && state.capitals[defenderId] === action.to && !defender.isNeutral) {
+      events.push({ type: 'capital_captured', player: playerId, territory: action.to, previousOwner: defenderId });
+      for (const t of territoriesOf(state, defenderId)) state.territories[t].owner = playerId;
+    } else if (state.options.capitals && Object.values(state.capitals).includes(action.to)) {
+      events.push({ type: 'capital_captured', player: playerId, territory: action.to, previousOwner: defenderId });
+    }
+
+    // Elimination check.
     if (territoriesOf(state, defenderId).length === 0) {
       defender.alive = false;
       defender.eliminatedBy = playerId;

@@ -1,4 +1,4 @@
-import { getMap, type GameEvent, type GameView } from '@risk/engine';
+import { fixedSetValue, getMap, tradeBonus, type GameEvent, type GameView } from '@risk/engine';
 
 /** A compact, LLM-friendly text rendering of the game as seen by one player. */
 export function formatState(view: GameView, gameName?: string): string {
@@ -40,6 +40,14 @@ export function formatState(view: GameView, gameName?: string): string {
       lines.push('Your cards: none');
     }
     if (me.armiesToPlace > 0) lines.push(`Armies to place: ${me.armiesToPlace}`);
+    const mode = view.options.cardValues ?? 'progressive';
+    lines.push(
+      mode === 'fixed'
+        ? 'Card values: fixed (3 infantry 4, 3 cavalry 6, 3 artillery 8, one of each 10; +2 on an owned traded territory)'
+        : `Card values: progressive, next set is worth ${tradeBonus(view.tradeCount)} (+2 on an owned traded territory)`,
+    );
+    if (view.options.fogOfWar) lines.push('Fog of war is ON: you only see your territories and their neighbours.');
+    if (view.options.capitals) lines.push('Capital Conquest is ON: +2 armies per capital held; capturing a capital takes over that player.');
   }
 
   lines.push('');
@@ -49,12 +57,18 @@ export function formatState(view: GameView, gameName?: string): string {
     lines.push(`${c.name.toUpperCase()} (+${c.bonus})${owner ? ` — controlled by ${name(owner)}` : ''}`);
     for (const t of c.territories) {
       const ts = view.territories[t];
+      if (ts.hidden) {
+        lines.push(`  ${t}: ? (fog)`);
+        continue;
+      }
+      const cap = Object.entries(view.capitals ?? {}).find(([, ct]) => ct === t);
       const nbrs = map.adjacency[t].map((n) => {
         const ns = view.territories[n];
+        if (ns.hidden) return `${n}?(fog)`;
         const mark = ns.owner === ts.owner ? '' : '*';
         return `${n}${mark}(${short(name(ns.owner))} ${ns.armies})`;
       });
-      lines.push(`  ${t}: ${short(name(ts.owner))} ${ts.armies} — ${nbrs.join(', ')}`);
+      lines.push(`  ${t}: ${short(name(ts.owner))} ${ts.armies}${cap ? ` [CAPITAL of ${short(name(cap[0]))}]` : ''} — ${nbrs.join(', ')}`);
     }
   }
   lines.push('(* marks a neighbour with a different owner)');
@@ -70,7 +84,12 @@ export function formatState(view: GameView, gameName?: string): string {
       lines.push(`  You conquered ${pc.to} from ${pc.from}. You MUST occupy: {"type":"occupy","armies":N} with ${pc.minArmies} <= N <= ${pc.maxArmies}`);
     } else {
       if (lm.mustTrade) lines.push('  You MUST trade a card set now: {"type":"trade","cardIds":[a,b,c]}');
-      if (lm.tradeableSets.length) lines.push(`  Tradeable sets (card ids): ${lm.tradeableSets.map((s) => `[${s.join(',')}]`).join(' ')}`);
+      if (lm.tradeableSets.length) {
+        const cardsById = new Map((me?.cards ?? []).map((c) => [c.id, c]));
+        const label = (set: number[]) =>
+          view.options.cardValues === 'fixed' ? `[${set.join(',')}]=${fixedSetValue(set.map((id) => cardsById.get(id)!).filter(Boolean))}` : `[${set.join(',')}]`;
+        lines.push(`  Tradeable sets (card ids): ${lm.tradeableSets.map(label).join(' ')}`);
+      }
       if (lm.canPlaceOn.length && !lm.mustTrade) {
         const unclaimed = lm.canPlaceOn.some((t) => view.territories[t].owner === null);
         lines.push(
@@ -141,6 +160,15 @@ export function formatEvents(events: GameEvent[], view: GameView): string {
         break;
       case 'eliminated':
         out.push(e.by ? `${name(e.player)} was eliminated by ${name(e.by)}` : `${name(e.player)} surrendered`);
+        break;
+      case 'capitals_assigned':
+        out.push(`Capitals: ${Object.entries(e.capitals).map(([p, t]) => `${name(p)} -> ${t}`).join(', ')}`);
+        break;
+      case 'capital_captured':
+        out.push(`${name(e.player)} captured the capital ${t(e.territory)} of ${name(e.previousOwner)}`);
+        break;
+      case 'fogged':
+        out.push(`(something happened in the fog: ${e.kind})`);
         break;
       case 'turn_ended':
         out.push(`${name(e.player)} ended their turn`);

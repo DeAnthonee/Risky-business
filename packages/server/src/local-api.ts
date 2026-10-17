@@ -1,4 +1,4 @@
-import { RULES_TEXT, RuleError, getMap, type Action, type GameOptions } from '@risk/engine';
+import { RULES_TEXT, RuleError, getMap, redactEvents, type Action, type GameOptions } from '@risk/engine';
 import type { RiskApi } from '@risk/mcp';
 import { RiskHttpError } from '@risk/mcp';
 import { mapInfo, sanitizeOptions } from './http.js';
@@ -70,7 +70,7 @@ export class LocalRiskApi implements RiskApi {
     const room = this.room(gameId);
     const me = this.player(room, token);
     const { events } = room.act(me, action);
-    return { events, state: room.view(me) };
+    return { events: redactEvents(room.state, me, events), state: room.view(me) };
   }
   async wait(gameId: string, token: string | undefined, since: number | undefined, timeoutMs: number) {
     const room = this.room(gameId);
@@ -80,12 +80,13 @@ export class LocalRiskApi implements RiskApi {
       reason,
       yourTurn: !!playerId && room.state.currentPlayer === playerId,
       state: room.view(playerId),
-      events: since !== undefined ? room.eventsSince(since).map((h) => ({ version: h.version, events: h.events, playerId: h.playerId })) : [],
+      events: since !== undefined ? room.eventsSince(since).map((h) => ({ version: h.version, events: redactEvents(room.state, playerId, h.events), playerId: h.playerId })) : [],
     };
   }
-  async events(gameId: string, since: number) {
+  async events(gameId: string, since: number, token?: string) {
     const room = this.room(gameId);
-    return { version: room.state.version, entries: room.eventsSince(since) };
+    const viewer = room.playerForToken(token);
+    return { version: room.state.version, entries: room.eventsSince(since).map((h) => ({ ...h, events: redactEvents(room.state, viewer, h.events) })) };
   }
   async chat(gameId: string, since: number) {
     return { messages: this.room(gameId).chat.filter((m) => m.id > since) };

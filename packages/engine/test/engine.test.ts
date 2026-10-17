@@ -8,10 +8,12 @@ import {
   TERRITORY_IDS,
   addPlayer,
   applyAction,
+  capitalsHeldBy,
   createGame,
   findSets,
   isValidSet,
   legalMoves,
+  redactEvents,
   renamePlayer,
   setOptions,
   startGame,
@@ -49,6 +51,18 @@ describe('cards', () => {
     expect(isValidSet([c(1, 'infantry'), c(2, 'infantry'), c(3, 'cavalry')])).toBe(false);
     expect(findSets([c(1, 'infantry'), c(2, 'infantry'), c(3, 'cavalry'), c(4, 'wild')])).toHaveLength(3);
   });
+  it('values fixed sets like RISK: Global Domination', async () => {
+    const { fixedSetValue } = await import('../src/index.js');
+    const c = (id: number, kind: any) => ({ id, kind, territory: null });
+    expect(fixedSetValue([c(1, 'infantry'), c(2, 'infantry'), c(3, 'infantry')])).toBe(4);
+    expect(fixedSetValue([c(1, 'cavalry'), c(2, 'cavalry'), c(3, 'cavalry')])).toBe(6);
+    expect(fixedSetValue([c(1, 'artillery'), c(2, 'artillery'), c(3, 'artillery')])).toBe(8);
+    expect(fixedSetValue([c(1, 'infantry'), c(2, 'cavalry'), c(3, 'artillery')])).toBe(10);
+    expect(fixedSetValue([c(1, 'infantry'), c(2, 'infantry'), c(3, 'wild')])).toBe(4);
+    expect(fixedSetValue([c(1, 'infantry'), c(2, 'cavalry'), c(3, 'wild')])).toBe(10);
+    expect(fixedSetValue([c(1, 'infantry'), c(2, 'wild'), c(3, 'wild')])).toBe(10);
+  });
+
   it('escalates trade bonus', () => {
     expect([0, 1, 2, 3, 4, 5, 6, 7].map(tradeBonus)).toEqual([4, 6, 8, 10, 12, 15, 20, 25]);
   });
@@ -236,6 +250,97 @@ describe('turn flow', () => {
     expect(res.state.players.find((x) => x.id === me)!.cards).toHaveLength(2);
   });
 
+  it('dice ties go to the defender', () => {
+    // Force a 3v2 battle and check every comparison: equal dice cost the attacker.
+    let state = finishSetup(setup(3, { setupBatch: 40 }).state);
+    const me = state.currentPlayer!;
+    const from = legalMoves(state, me).canPlaceOn[0];
+    state = applyAction(state, me, { type: 'place', placements: { [from]: state.players.find((x) => x.id === me)!.armiesToPlace } }).state;
+    state.territories[from].armies = 200;
+    const to = ADJACENCY[from].find((n) => state.territories[n].owner !== me)!;
+    state.territories[to].armies = 200;
+    let ties = 0;
+    for (let i = 0; i < 60; i++) {
+      const res = applyAction(state, me, { type: 'attack', from, to, dice: 3 });
+      const b = res.events.find((e) => e.type === 'battle') as Extract<GameEvent, { type: 'battle' }>;
+      let aLoss = 0;
+      let dLoss = 0;
+      for (let k = 0; k < Math.min(b.attackerDice.length, b.defenderDice.length); k++) {
+        if (b.attackerDice[k] === b.defenderDice[k]) ties++;
+        if (b.attackerDice[k] > b.defenderDice[k]) dLoss++;
+        else aLoss++;
+      }
+      expect(b.attackerLosses).toBe(aLoss);
+      expect(b.defenderLosses).toBe(dLoss);
+      state = res.state;
+    }
+    expect(ties).toBeGreaterThan(0);
+  });
+
+  it('fixed card values are paid out when the option is on', () => {
+    let state = finishSetup(setup(3, { setupBatch: 40, cardValues: 'fixed' }).state);
+    const me = state.currentPlayer!;
+    const p = state.players.find((x) => x.id === me)!;
+    const inf = state.deck.filter((c) => c.kind === 'infantry').slice(0, 3);
+    state.deck = state.deck.filter((c) => !inf.includes(c));
+    p.cards = inf;
+    const before = p.armiesToPlace;
+    const res = applyAction(state, me, { type: 'trade', cardIds: inf.map((c) => c.id) });
+    const bonusT = inf.find((c) => c.territory && state.territories[c.territory].owner === me);
+    expect(res.state.players.find((x) => x.id === me)!.armiesToPlace).toBe(before + 4);
+    if (bonusT) expect(res.state.territories[bonusT.territory!].armies).toBe(state.territories[bonusT.territory!].armies + 2);
+  });
+
+  it('fog of war hides unseen territories and events for players but not spectators', () => {
+    const state = finishSetup(setup(4, { setupBatch: 40, fogOfWar: true }).state);
+    const me = state.turnOrder[0];
+    const v = viewFor(state, me);
+    const hidden = Object.entries(v.territories).filter(([, t]) => t.hidden).map(([id]) => id);
+    expect(hidden.length).toBeGreaterThan(0);
+    for (const [id, t] of Object.entries(v.territories)) {
+      const mine = state.territories[id].owner === me;
+      const adjacentToMine = ADJACENCY[id].some((n) => state.territories[n].owner === me);
+      expect(!!t.hidden).toBe(!(mine || adjacentToMine));
+      if (t.hidden) expect(t.owner).toBeNull();
+    }
+    const spectator = viewFor(state, null);
+    expect(Object.values(spectator.territories).some((t) => t.hidden)).toBe(false);
+    const far = hidden[0];
+    const other = state.territories[far].owner!;
+    const events: GameEvent[] = [
+      { type: 'placed', player: other, territory: far, armies: 3 },
+      { type: 'turn_started', player: other, turnNumber: 2, round: 1, reinforcements: { territories: 1, fromTerritories: 3, continents: [], capitals: 0, fromCapitals: 0, total: 3 } },
+    ];
+    const red = redactEvents(state, me, events);
+    expect(red[0]).toEqual({ type: 'fogged', kind: 'placed' });
+    expect(red[1].type).toBe('turn_started');
+    expect(redactEvents(state, null, events)).toEqual(events);
+  });
+
+  it('capital conquest: capitals pay a bonus and capturing one takes the player over', () => {
+    let state = finishSetup(setup(3, { setupBatch: 40, capitals: true }).state);
+    expect(Object.keys(state.capitals)).toHaveLength(3);
+    const me = state.currentPlayer!;
+    const meP = state.players.find((x) => x.id === me)!;
+    expect(meP.armiesToPlace).toBe(Math.max(3, Math.floor(14 / 3)) + 2);
+    // Hand the current player a strong army next to a rival's capital.
+    const rival = state.turnOrder.find((id) => id !== me)!;
+    const cap = state.capitals[rival];
+    const from = ADJACENCY[cap][0];
+    state.territories[from] = { owner: me, armies: 80 };
+    state.territories[cap].armies = 1;
+    state.players.find((x) => x.id === rival)!.cards = state.deck.splice(0, 2);
+    const rivalTerritories = territoriesOf(state, rival).length;
+    state = applyAction(state, me, { type: 'place', placements: { [territoriesOf(state, me)[0]]: meP.armiesToPlace } }).state;
+    const res = applyAction(state, me, { type: 'attack', from, to: cap, blitz: true, occupy: 'min' });
+    expect(res.events.some((e) => e.type === 'capital_captured')).toBe(true);
+    expect(res.events.some((e) => e.type === 'eliminated' && e.player === rival)).toBe(true);
+    expect(territoriesOf(res.state, rival)).toHaveLength(0);
+    expect(territoriesOf(res.state, me).length).toBeGreaterThanOrEqual(rivalTerritories + 1);
+    expect(res.state.players.find((x) => x.id === me)!.cards.length).toBe(2);
+    expect(capitalsHeldBy(res.state, me)).toContain(cap);
+  });
+
   it('eliminating a player transfers cards and ends the game when one remains', () => {
     let state = finishSetup(setup(2, { setupBatch: 40 }).state);
     const me = state.currentPlayer!;
@@ -269,6 +374,10 @@ describe('turn flow', () => {
     expect(v.players[1].cardCount).toBe(2);
     expect((v as any).deck).toBeUndefined();
     expect(v.legal!.yourTurn).toBe(state.players[0].id === me);
+    // spectators see every hand
+    const sv = viewFor(state, null);
+    expect(sv.players[0].cards).toHaveLength(2);
+    expect(sv.players[1].cards).toHaveLength(2);
   });
 
   it('surrender during setup skips the dead player for the first turn', () => {

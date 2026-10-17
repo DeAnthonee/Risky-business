@@ -63,6 +63,8 @@ export interface GameOptions {
   chooseCapitals: boolean;
   /** Round 1 only: the Nth player in turn order receives at least N armies (offsets going later). */
   firstRoundBonus: boolean;
+  /** Balanced blitz: a blitz is rolled several times with real dice and the median outcome happens (fewer upsets). Single rolls stay random. */
+  balancedBlitz: boolean;
   /** Neutral territories in games of 3+ players: this many territories go to a Neutral army that never attacks (0 = off). Two-player games always have the classic Neutral. */
   neutrals: number;
   /** Armies on each neutral territory when `neutrals` is on. */
@@ -95,6 +97,7 @@ export const DEFAULT_OPTIONS: GameOptions = {
   capitals: false,
   chooseCapitals: false,
   firstRoundBonus: true,
+  balancedBlitz: false,
   neutrals: 0,
   neutralArmies: 2,
   blizzards: 0,
@@ -244,6 +247,8 @@ export type GameEvent =
       defenderLosses: number;
       fromArmies: number;
       toArmies: number;
+      /** Part of a balanced blitz: the median of several real blitzes (see the balancedBlitz option). */
+      balanced?: boolean;
     }
   | { type: 'conquered'; player: PlayerId; from: TerritoryId; to: TerritoryId; previousOwner: PlayerId }
   | { type: 'moved'; player: PlayerId; from: TerritoryId; to: TerritoryId; armies: number }

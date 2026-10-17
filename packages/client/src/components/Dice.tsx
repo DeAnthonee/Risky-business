@@ -98,6 +98,11 @@ export function DicePanel({
       <div className="dice-vs">
         ⚔️
         {streak > 1 && <div className="dice-blitz">BLITZ ×{streak}</div>}
+        {battle.balanced && (
+          <div className="dice-balanced" title="Balanced blitz: the middle of 5 real blitzes">
+            ⚖ balanced
+          </div>
+        )}
       </div>
       <div className="dice-side">
         <div className="dice-name" style={{ color: defenderColor }}>

@@ -59,6 +59,8 @@ A TURN has three phases:
    you take their cards; if that leaves you with 6+ cards you must trade immediately (armies go on the map at once).
    Conquering at least one territory this turn earns you one card at the end of your turn (max one per turn).
    "blitz" keeps rolling until the territory falls or you cannot continue.
+   Balanced blitz ("balancedBlitz" setting, off by default): a blitz is rolled 5 times with real dice and the middle
+   outcome happens, so blitzes land close to the odds. Single rolls are never balanced.
 
 3. FORTIFY (optional, once)
    Move any number of armies from one of your territories to another, leaving at least 1 behind. Default option

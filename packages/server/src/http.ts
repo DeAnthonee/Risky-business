@@ -274,6 +274,9 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
     loadRoom,
     wrap((req, res) => {
       const since = Number(req.query.since ?? 0);
+      // A token that is not a seat here is an error, not a silent downgrade to the spectator view
+      // (which would show the caller every whisper between other players).
+      if (tokenOf(req) && !req.playerId) return res.status(401).json({ error: 'Unknown token for this game' });
       res.json({ messages: req.room!.chatFor(req.playerId ?? null, since) });
     }),
   );
@@ -285,10 +288,14 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
       const room = req.room!;
       const message = String(req.body?.message ?? '').trim();
       if (!message) return res.status(400).json({ error: 'Empty message' });
-      // No seat: post as a spectator under the given name (flood-guarded per IP).
-      if (!req.playerId) return res.status(201).json({ message: room.addSpectatorChat(`ip:${req.ip}`, req.body?.name, message) });
+      const to = req.body?.to;
+      // No seat: post as a spectator under the given name (flood-guarded per IP). Spectators can't whisper.
+      if (!req.playerId) {
+        if (to) return res.status(400).json({ error: 'Only seated players can whisper' });
+        return res.status(201).json({ message: room.addSpectatorChat(`ip:${req.ip}`, req.body?.name, message) });
+      }
       const player = room.state.players.find((p) => p.id === req.playerId);
-      const msg = room.addChat(req.playerId!, player?.name ?? 'Unknown', message);
+      const msg = room.addChat(req.playerId!, player?.name ?? 'Unknown', message, to);
       res.status(201).json({ message: msg });
     }),
   );

@@ -50,14 +50,14 @@ export const OPTION_SPECS: { [K in OptionKey]: OptionSpec } = {
       }),
     ),
     description:
-      'Which board to play on: classic (the Hasbro board), world (finer world), world_large (Grand World, the biggest board, made for 8-10 players), europe, usa (US states), asia or fantasy (Realms of Halvaren, an original fantasy world). Changing it clamps maxPlayers, neutrals and blizzards to the new map.',
+      'Which board to play on: classic (the Hasbro board), world (finer world), world_large (Grand World, the biggest board, made for 8-10 players), europe, europe_advanced (Europe Advanced: 99 smaller territories, made for 4-6 players), usa (US states), asia or fantasy (Realms of Halvaren, an original fantasy world). Changing it clamps maxPlayers, neutrals and blizzards to the new map.',
   },
   maxPlayers: {
     kind: 'int',
     label: 'Seats',
     min: 2,
     max: (m) => m.maxPlayers,
-    description: 'Number of seats, counting bots and agents (classic up to 6, europe and asia up to 8, world, world_large, usa and fantasy up to 10).',
+    description: 'Number of seats, counting bots and agents (classic and europe_advanced up to 6, europe and asia up to 8, world, world_large, usa and fantasy up to 10).',
   },
   autoSetup: {
     kind: 'boolean',
@@ -111,12 +111,12 @@ export const OPTION_SPECS: { [K in OptionKey]: OptionSpec } = {
   capitals: {
     kind: 'boolean',
     label: 'Capital Conquest',
-    description: 'true: after setup each player\'s most garrisoned territory becomes their capital. +2 armies per capital held each turn and a capital defends with up to 3 dice. Losing your capital does not knock you out. Holding every capital at once wins the game (eliminating everyone else still wins too).',
+    description: 'true: after setup each player\'s most garrisoned territory becomes their capital and gets 3 extra armies on the spot. +2 armies per capital held each turn and a capital defends with up to 3 dice. Losing your capital does not knock you out. Holding every capital at once wins the game (eliminating everyone else still wins too).',
   },
   chooseCapitals: {
     kind: 'boolean',
     label: 'Choose capitals',
-    description: 'Capital Conquest only. true: after setup (even with random deal and random placement), each player in turn order picks one of their own territories as their capital before turn 1, and 2 extra armies are placed there. false (default): each player\'s most garrisoned territory becomes their capital automatically.',
+    description: 'Capital Conquest only. true: after setup (even with random deal and random placement), each player in turn order picks one of their own territories as their capital before turn 1. false (default): each player\'s most garrisoned territory becomes their capital automatically. Either way every capital gets 3 extra armies when it is set.',
   },
   neutrals: {
     kind: 'int',
@@ -137,7 +137,7 @@ export const OPTION_SPECS: { [K in OptionKey]: OptionSpec } = {
     label: 'Blizzards',
     min: 0,
     max: (m) => maxBlizzards(m),
-    description: 'This many random territories are frozen for the whole game (0 = off; at most a sixth of the map): nobody owns, attacks, enters or crosses them, and continents count only their open territories. Visible to everyone, even under fog.',
+    description: 'This many random territories are frozen for the whole game (0 = off; up to 8, or a sixth of the map on bigger boards): nobody owns, attacks, enters or crosses them, and continents count only their open territories. Visible to everyone, even under fog.',
   },
 };
 

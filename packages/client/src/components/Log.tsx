@@ -27,7 +27,7 @@ export function describe(e: GameEvent, view: GameView): string | null {
     case 'blizzards':
       return `❄ Blizzards: ${e.territories.map(shortName).join(', ')} are impassable`;
     case 'capital_chosen':
-      return `★ ${name(e.player)} chose ${shortName(e.territory)} as their capital (+${e.armies})`;
+      return e.auto ? `★ ${name(e.player)}'s capital is ${shortName(e.territory)} (+${e.armies})` : `★ ${name(e.player)} chose ${shortName(e.territory)} as their capital (+${e.armies})`;
     case 'capitals_assigned':
       return `Capitals: ${Object.entries(e.capitals).map(([p, t]) => `${name(p)} → ${shortName(t)}`).join(', ')}`;
     case 'capital_captured':

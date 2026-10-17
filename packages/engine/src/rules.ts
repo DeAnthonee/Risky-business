@@ -11,6 +11,8 @@ World: 74 territories in 14 regions (2-10 players), bonuses 2-7 per region.
 Grand World (world_large): 104 territories in 20 regions (2-10 players), bonuses 2-7 per region.
 Europe: 44 territories in 8 regions (2-8 players), bonuses 2-6. USA: 45 territories (US states, small
 north-eastern ones merged) in 8 regions (2-10 players), bonuses 3-6; Alaska and Hawaii reach the mainland by sea.
+Europe Advanced (europe_advanced): 99 smaller territories in 14 regions (2-6 players), bonuses 3-6; Iceland to the
+Urals, North Africa to the Caucasus, with sea crossings over the Channel, North Sea, Baltic and Mediterranean.
 Asia: 49 territories in 7 regions (2-8 players), bonuses 4-6.
 Realms of Halvaren ("fantasy"): an original fantasy world, 87 territories in 16 regions (2-10 players), bonuses
 2-7 per region. The Grimward Wastes (+7) span the north and border almost everyone; the Inner Sea is crossed via
@@ -25,6 +27,7 @@ Every other map: the classic numbers scaled by map size (territories / 42); abov
 share of the 6-player total (120 armies per 42 territories). Never fewer than 1.5 armies per territory you are dealt.
   World: 2 players 70, 3: 62, 4: 53, 5: 44, 6: 35, 7: 30, 8: 26, 9: 23, 10: 21.
   Grand World: 2: 99, 3: 87, 4: 74, 5: 62, 6: 50, 7: 42, 8: 37, 9: 33, 10: 30.
+  Europe Advanced: 2: 94, 3: 83, 4: 71, 5: 59, 6: 47.
   Europe: 2: 42, 3: 37, 4: 31, 5: 26, 6: 21, 7: 18, 8: 16. USA: 2: 43, 3: 38, 4: 32, 5: 27, 6: 21, 7: 18, 8: 16, 9: 14, 10: 13.
   Asia: 2: 47, 3: 41, 4: 35, 5: 29, 6: 23, 7: 20, 8: 18.
   Realms of Halvaren: 2: 83, 3: 73, 4: 62, 5: 52, 6: 41, 7: 36, 8: 31, 9: 28, 10: 25.
@@ -78,7 +81,7 @@ players as usual and players keep their normal starting armies. Neutral never at
 conquer its territories like any other (it has no cards). Two-player games always use the classic Neutral above.
 
 OPTION: BLIZZARDS
-"blizzards" (a number, 0 = off, at most a sixth of the map): that many random territories are frozen at game start and
+"blizzards" (a number, 0 = off, up to 8, or a sixth of the map on bigger boards): that many random territories are frozen at game start and
 stay impassable all game. Nobody owns them; they cannot be attacked, entered, claimed or fortified through. They are
 chosen so the open territories stay connected and every continent keeps at least two open territories. To control a
 continent you need all of its open (non-blizzard) territories. Blizzards are visible to everyone, even under fog.
@@ -87,13 +90,13 @@ OPTIONS: FOG OF WAR AND CAPITALS
 "fogOfWar": you only see territories you own and those adjacent to them; everything else shows as hidden
 (owner and armies unknown) and events there are reported as "fogged". Spectators always see the whole board.
 "capitals" (Capital Conquest): after setup each player's most garrisoned territory becomes their capital (shown with a
-star). At the start of your turn you get +2 armies for every capital you hold. A capital defends with up to 3 dice
+star) and 3 extra armies are placed on it. At the start of your turn you get +2 armies for every capital you hold. A capital defends with up to 3 dice
 instead of 2 (all three pairs are compared). A captured capital becomes
 yours like any territory (with its +2 and its 3-dice defence); losing your capital does not knock you out, you
 keep playing with what you hold. The game ends as soon as one player holds every capital, including the capitals
 of eliminated players. Eliminating everyone else still wins too.
 With "chooseCapitals" on, there is a short capitals phase after setup (whatever the deal and placement settings):
 each player in turn order picks one of their own territories with {"type":"choose_capital","territory":"<id>"}.
-The chosen capital gets 2 extra armies on the spot (1 army becomes 3). Picks are public, except under fog of war,
+The chosen capital gets 3 extra armies on the spot (1 army becomes 4). Picks are public, except under fog of war,
 where you only learn of capitals you can see. Then turn 1 begins.
 `.trim();

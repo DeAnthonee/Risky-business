@@ -629,6 +629,14 @@ function beginTurn(state: GameState, playerId: PlayerId, events: GameEvent[]): v
   state.fortifiedThisTurn = false;
   player.conqueredThisTurn = false;
   const reinforcements = reinforcementsFor(state, playerId);
+  // Round 1: going later is a disadvantage, so the Nth player in turn order gets at least N armies.
+  if (state.round === 1 && state.options.firstRoundBonus) {
+    const position = state.turnOrder.indexOf(playerId) + 1;
+    if (position > reinforcements.total) {
+      reinforcements.fromTurnOrder = position - reinforcements.total;
+      reinforcements.total = position;
+    }
+  }
   player.armiesToPlace = reinforcements.total;
   events.push({ type: 'turn_started', player: playerId, turnNumber: state.turnNumber, round: state.round, reinforcements });
   events.push({ type: 'phase', phase: 'reinforce', player: playerId });

@@ -103,6 +103,11 @@ export const OPTION_SPECS: { [K in OptionKey]: OptionSpec } = {
     label: 'Spectator chat',
     description: 'true (default): people watching can post in the game chat, marked as spectators. Every player sees them, even under fog of war, so watchers can cheer, heckle and tip players off. false: only seated players can chat.',
   },
+  firstRoundBonus: {
+    kind: 'boolean',
+    label: 'Late-turn bonus (round 1)',
+    description: 'true (default): in round 1 only, the Nth player in turn order receives at least N armies (1st-3rd get their normal 3+, 4th at least 4, 5th at least 5, up to 10th at least 10), offsetting the disadvantage of going later. false: everyone gets the normal reinforcements.',
+  },
   capitals: {
     kind: 'boolean',
     label: 'Capital Conquest',

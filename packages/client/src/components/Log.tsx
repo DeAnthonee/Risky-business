@@ -15,7 +15,8 @@ export function describe(e: GameEvent, view: GameView): string | null {
       const r = e.reinforcements;
       const cont = r.continents.length ? ` + ${r.continents.map((c) => `${c.id.replace('_', ' ')} ${c.bonus}`).join(', ')}` : '';
       const caps = r.fromCapitals ? ` + ${r.fromCapitals} for ${r.capitals} capital${r.capitals === 1 ? '' : 's'}` : '';
-      return `Turn ${e.turnNumber}: ${name(e.player)} receives ${r.total} armies (${r.fromTerritories} for ${r.territories} territories${cont}${caps})`;
+      const late = r.fromTurnOrder ? ` + ${r.fromTurnOrder} late-turn bonus` : '';
+      return `Turn ${e.turnNumber}: ${name(e.player)} receives ${r.total} armies (${r.fromTerritories} for ${r.territories} territories${cont}${caps}${late})`;
     }
     case 'placed':
       return `${name(e.player)} placed ${e.armies} on ${shortName(e.territory)}`;

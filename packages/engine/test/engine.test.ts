@@ -617,8 +617,8 @@ describe('maps', () => {
       expect(() => m.startingArmies(m.maxPlayers + 1)).toThrow(RuleError);
     }
     expect(MAPS.world.maxPlayers).toBe(10);
-    expect(MAPS.world.startingArmies(10)).toBe(22);
-    expect(MAPS.world.startingArmies(2)).toBe(60);
+    expect(MAPS.world.startingArmies(10)).toBe(21);
+    expect(MAPS.world.startingArmies(2)).toBe(70);
     expect(() => MAPS.classic.startingArmies(7)).toThrow(RuleError);
   });
 
@@ -640,13 +640,16 @@ describe('maps', () => {
     for (const t of lm.canPlaceOn) expect(t in state.territories).toBe(true);
   });
 
-  it('scales starting armies on the new maps like the World map', async () => {
+  it('scales the classic starting armies by map size (equal share of the 6-player total above 6)', async () => {
     const { MAPS } = await import('../src/index.js');
     const table = (id: keyof typeof MAPS) => Array.from({ length: MAPS[id].maxPlayers - 1 }, (_, i) => MAPS[id].startingArmies(i + 2));
-    expect(table('world_large')).toEqual([60, 60, 60, 60, 52, 45, 39, 35, 31]);
-    expect(table('europe')).toEqual([60, 44, 33, 26, 22, 20, 20]);
-    expect(table('usa')).toEqual([60, 45, 34, 27, 23, 20, 20, 20, 20]);
-    expect(table('asia')).toEqual([60, 49, 37, 29, 25, 21, 20]);
+    expect(table('classic')).toEqual([40, 35, 30, 25, 20]);
+    expect(table('world')).toEqual([70, 62, 53, 44, 35, 30, 26, 23, 21]);
+    expect(table('world_large')).toEqual([99, 87, 74, 62, 50, 42, 37, 33, 30]);
+    expect(table('europe')).toEqual([42, 37, 31, 26, 21, 18, 16]);
+    expect(table('usa')).toEqual([43, 38, 32, 27, 21, 18, 16, 14, 13]);
+    expect(table('asia')).toEqual([47, 41, 35, 29, 23, 20, 18]);
+    expect(table('fantasy')).toEqual([83, 73, 62, 52, 41, 36, 31, 28, 25]);
   });
 
   for (const id of ['world_large', 'europe', 'usa', 'asia'] as const) {
@@ -770,8 +773,8 @@ describe('fantasy map (Realms of Halvaren)', () => {
     for (const c of m.continents) expect(c.territories.some((t) => m.adjacency[t].some((n) => m.territoryById[n].continent !== c.id))).toBe(true);
   });
 
-  it('scales starting armies with the player count (3 per territory shared out, 20-60)', () => {
-    const expected: Record<number, number> = { 2: 60, 3: 60, 4: 60, 5: 52, 6: 44, 7: 37, 8: 33, 9: 29, 10: 26 };
+  it('scales starting armies with the player count (classic numbers scaled by map size)', () => {
+    const expected: Record<number, number> = { 2: 83, 3: 73, 4: 62, 5: 52, 6: 41, 7: 36, 8: 31, 9: 28, 10: 25 };
     for (let n = 2; n <= 10; n++) {
       const armies = m.startingArmies(n);
       expect(armies).toBe(expected[n]);
@@ -797,7 +800,7 @@ describe('fantasy map (Realms of Halvaren)', () => {
     expect(state.phase).toBe('reinforce');
     for (const p of state.players) {
       const total = territoriesOf(state, p.id).reduce((sum, t) => sum + state.territories[t].armies, 0);
-      expect(total).toBe(26);
+      expect(total).toBe(25);
     }
     const lm = legalMoves(state, state.currentPlayer!);
     expect(lm.canPlaceOn.length).toBeGreaterThan(0);
@@ -877,6 +880,41 @@ describe('blizzards never trap territories or split the map', () => {
         expect(seen.size, `${id} seed ${seed}: map split by blizzards`).toBe(open.length);
       }
     }
+  });
+});
+
+describe('round-1 late-turn bonus', () => {
+  it('the Nth player in turn order gets at least N armies in round 1 only', () => {
+    let state = setup(6, { autoSetup: true }).state;
+    const order = state.turnOrder;
+    const got: number[] = [];
+    for (let i = 0; i < order.length; i++) {
+      const pid = state.currentPlayer!;
+      expect(pid).toBe(order[i]);
+      const p = state.players.find((x) => x.id === pid)!;
+      got.push(p.armiesToPlace);
+      expect(p.armiesToPlace).toBeGreaterThanOrEqual(Math.max(3, i + 1));
+      state = applyAction(state, pid, { type: 'place', placements: { [territoriesOf(state, pid)[0]]: p.armiesToPlace } }).state;
+      state = applyAction(state, pid, { type: 'end_turn' }).state;
+    }
+    // 7 territories each, no continents at random: 3, 3, 3, 4, 5, 6.
+    expect(got.slice(3)).toEqual([4, 5, 6].map((n, k) => Math.max(n, got[3 + k])));
+    // Round 2: back to normal reinforcements.
+    const p = state.players.find((x) => x.id === state.currentPlayer)!;
+    expect(state.round).toBe(2);
+    expect(p.armiesToPlace).toBe(viewFor(state, null).players.find((x) => x.id === p.id)!.income!.total);
+  });
+
+  it('can be turned off', () => {
+    let state = setup(6, { autoSetup: true, firstRoundBonus: false }).state;
+    for (let i = 0; i < 5; i++) {
+      const pid = state.currentPlayer!;
+      const p = state.players.find((x) => x.id === pid)!;
+      state = applyAction(state, pid, { type: 'place', placements: { [territoriesOf(state, pid)[0]]: p.armiesToPlace } }).state;
+      state = applyAction(state, pid, { type: 'end_turn' }).state;
+    }
+    const last = state.players.find((x) => x.id === state.currentPlayer)!;
+    expect(last.armiesToPlace).toBe(viewFor(state, null).players.find((x) => x.id === last.id)!.income!.total);
   });
 });
 
@@ -971,6 +1009,22 @@ describe('capital placement bonus and 8 blizzards', () => {
       const q = [open[0]];
       while (q.length) for (const n of ADJACENCY[q.pop()!]) if (!b.has(n) && !seen.has(n)) (seen.add(n), q.push(n));
       expect(seen.size).toBe(open.length);
+    }
+  });
+});
+
+describe('rules text', () => {
+  it('lists the same starting armies as the engine for every scaled map', async () => {
+    const { RULES_TEXT } = await import('../src/rules.js');
+    const labels: Record<string, string> = { world: 'World', world_large: 'Grand World', europe: 'Europe', usa: 'USA', asia: 'Asia', fantasy: 'Realms of Halvaren' };
+    const section = RULES_TEXT.slice(RULES_TEXT.indexOf('PLAYERS & STARTING ARMIES'), RULES_TEXT.indexOf('SETUP'));
+    for (const [id, label] of Object.entries(labels)) {
+      const m = MAPS[id as keyof typeof MAPS];
+      const line = section.match(new RegExp(`(?:\\n  |\\. )${label}: (?:2 players )?([^A-Z\\n]*)`))?.[1] ?? '';
+      const listed = Object.fromEntries([...line.matchAll(/(\d+): (\d+)/g)].map((x) => [Number(x[1]), Number(x[2])]));
+      const two = line.match(/^(\d+),/);
+      if (two) listed[2] = Number(two[1]);
+      for (let p = 2; p <= m.maxPlayers; p++) expect(listed[p], `${label} ${p} players`).toBe(m.startingArmies(p));
     }
   });
 });

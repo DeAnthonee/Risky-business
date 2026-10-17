@@ -138,7 +138,7 @@ export function formatEvents(events: GameEvent[], view: GameView): string {
         out.push(`Game started. Turn order: ${e.turnOrder.map(name).join(' -> ')}`);
         break;
       case 'turn_started':
-        out.push(`Turn ${e.turnNumber}: ${name(e.player)} gets ${e.reinforcements.total} armies`);
+        out.push(`Turn ${e.turnNumber}: ${name(e.player)} gets ${e.reinforcements.total} armies${e.reinforcements.fromTurnOrder ? ` (incl. ${e.reinforcements.fromTurnOrder} round-1 late-turn bonus)` : ''}`);
         break;
       case 'placed':
         out.push(`${name(e.player)} placed ${e.armies} on ${t(e.territory)}`);

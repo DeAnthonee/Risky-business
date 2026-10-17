@@ -475,7 +475,7 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
       {/* ---------- sidebar ---------- */}
       <aside className="sidebar">
         <div className="players-panel">
-          {view.players.map((p) => (
+          {[...view.players].sort((a, b) => a.order - b.order).map((p) => (
             <div
               key={p.id}
               className={`player-row ${p.id === view.currentPlayer ? 'active' : ''} ${!p.alive ? 'dead' : ''} ${fogAs === p.id ? 'fog-as' : ''} ${spectator && fogOn && !p.isNeutral ? 'clickable' : ''}`}
@@ -492,6 +492,14 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
               <span className="pstats" title="territories · armies · cards">
                 {p.territoryCount}t · {p.armyCount}a · {p.cardCount}c
                 {view.options.capitals && ` · ${Object.values(view.capitals ?? {}).filter((t) => view.territories[t]?.owner === p.id).length}★`}
+                {p.income && p.alive && view.phase !== 'lobby' && (
+                  <>
+                    {' · '}
+                    <span className="income" title={incomeTitle(p.income, getMap(view.options.map))}>
+                      +{p.income.total}/turn
+                    </span>
+                  </>
+                )}
               </span>
               {spectator && p.cards && p.cards.length > 0 && <HandSummary cards={p.cards} shortName={shortName} />}
             </div>
@@ -543,9 +551,18 @@ function HandSummary({ cards, shortName }: { cards: Card[]; shortName: (id: stri
   );
 }
 
+/** Hover text explaining a player's income: territories, each continent bonus, capitals. */
+function incomeTitle(income: NonNullable<GameView['players'][number]['income']>, map: ReturnType<typeof getMap>): string {
+  const parts = [`${income.fromTerritories} from ${income.territories} territories${income.fromTerritories === 3 && income.territories < 9 ? ' (minimum 3)' : ''}`];
+  for (const c of income.continents) parts.push(`${c.bonus} for ${map.continentById[c.id]?.name ?? c.id}`);
+  if (income.fromCapitals) parts.push(`${income.fromCapitals} for ${income.capitals} capital${income.capitals === 1 ? '' : 's'}`);
+  return `Income next turn, before cards: ${income.total}\n${parts.join('\n')}`;
+}
+
 function reinforcementPreview(view: GameView, pid: string): number {
   const p = view.players.find((x) => x.id === pid);
   if (!p) return 0;
+  if (p.income) return p.income.total;
   const map = getMap(view.options.map);
   const base = Math.max(3, Math.floor(p.territoryCount / 3));
   const caps = view.options.capitals ? Object.values(view.capitals ?? {}).filter((t) => view.territories[t]?.owner === pid).length * 2 : 0;

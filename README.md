@@ -90,9 +90,9 @@ Its land adjacency comes from shared borders, plus the `seaLanes` it lists.
 ## Rules implemented
 
 Classic Hasbro world-domination rules on the classic board: 42 territories / 6 continents, 2–6 players (2-player games get the
-40-army Neutral), random territory deal, escalating card sets (4, 6, 8, 10, 12, 15, +5…), forced trade at 5+
+40-army Neutral), random territory deal, escalating card sets (4, 6, 8, 10, 12, 15, +5…), automatic trade at 5+
 cards, +2 bonus for a traded card showing a territory you own, 3v2 dice with ties to the defender, minimum
-move-in equal to dice rolled, card capture on elimination (forced trade at 6+), one card per turn for a
+move-in equal to dice rolled, card capture on elimination (automatic trade at 5+, right away; a house rule, classic Hasbro forces it only at 6+), one card per turn for a
 conquest, one fortify per turn. The complete text is served at `GET /api/rules` and by the MCP `rules` tool.
 
 Host-selectable options:
@@ -106,7 +106,7 @@ Host-selectable options:
 | `randomDeal`  | `true` (deal) \| `false` (claim one by one) | `true` |
 | `autoSetup`   | `true` skips the placement phase: starting armies are scattered randomly, turn 1 starts at once | `false` |
 | `cardValues`  | `progressive` (4, 6, 8, 10, 12, 15, +5…) \| `fixed` (3 infantry 4, 3 cavalry 6, 3 artillery 8, one of each 10; a wild completes the best set) | `progressive` |
-| `fogOfWar`    | players see only their territories and adjacent ones; events elsewhere are reported as fogged; spectators see everything and can preview any player's fog | `false` |
+| `fogOfWar`    | players see only their territories and adjacent ones; events elsewhere are reported as fogged; opponents' territory and army counts, income, armies left to place, continents and the details of their card trades are hidden unless every territory that opponent holds is visible (card counts and the number of sets traded so far stay public); spectators, eliminated players and everyone once the game is over see everything, and spectators can preview any player's fog | `false` |
 | `spectatorChat` | watchers can post in the game chat (marked as spectators, 5 messages / 10 s); every player sees them, even under fog of war | `true` |
 | `neutrals`    | games of 3+ players: this many random territories start held by a Neutral army that never attacks (0 = off, max a third of the map); 2-player games always have the classic Neutral | `0` |
 | `neutralArmies` | armies on each neutral territory when `neutrals` is on (1–10) | `2` |

@@ -4,6 +4,7 @@ import { createRng, nextInt, rollDie, shuffle, type Rng } from './rng.js';
 import {
   CAPITAL_BONUS,
   CAPITAL_DEFENSE_DICE,
+  CHOSEN_CAPITAL_ARMIES,
   DEFAULT_OPTIONS,
   RuleError,
   type Action,
@@ -318,6 +319,9 @@ export function applyAction(state: GameState, playerId: PlayerId, action: Action
     case 'trade':
       doTrade(next, playerId, action, events);
       break;
+    case 'choose_capital':
+      doChooseCapital(next, playerId, action.territory, events);
+      break;
     case 'attack':
       doAttack(next, playerId, action, events);
       break;
@@ -557,16 +561,54 @@ function advanceSetup(state: GameState, events: GameEvent[]): void {
 function beginFirstTurn(state: GameState, events: GameEvent[]): void {
   state.turnNumber = 0;
   state.round = 1;
-  if (state.options.capitals && Object.keys(state.capitals).length === 0) assignCapitals(state, events);
+  if (state.options.capitals && Object.keys(state.capitals).length === 0) {
+    if (state.options.chooseCapitals) {
+      // Players pick their own capitals, in turn order, before anyone takes a turn.
+      const picker = nextCapitalPicker(state);
+      if (picker) {
+        state.phase = 'capitals';
+        state.currentPlayer = picker;
+        events.push({ type: 'phase', phase: 'capitals', player: picker });
+        return;
+      }
+    }
+    assignCapitals(state, events);
+  }
   const first = state.turnOrder.find((id) => playerOf(state, id).alive);
   if (!first) return;
   beginTurn(state, first, events);
 }
 
+/** Next player (in turn order) who still has to choose a capital, if any. */
+function nextCapitalPicker(state: GameState): PlayerId | undefined {
+  return state.turnOrder.find((id) => {
+    const p = playerOf(state, id);
+    return p.alive && !state.capitals[id] && territoriesOf(state, id).length > 0;
+  });
+}
+
+function doChooseCapital(state: GameState, playerId: PlayerId, territory: TerritoryId, events: GameEvent[]): void {
+  if (state.phase !== 'capitals') throw new RuleError('Capitals are chosen only before the first turn');
+  requireTerritory(state, territory);
+  if (state.territories[territory].owner !== playerId) throw new RuleError(`You do not own ${territory}`);
+  if (Object.values(state.capitals).includes(territory)) throw new RuleError(`${territory} is already a capital`);
+  state.capitals[playerId] = territory;
+  state.territories[territory].armies += CHOSEN_CAPITAL_ARMIES;
+  events.push({ type: 'capital_chosen', player: playerId, territory, armies: CHOSEN_CAPITAL_ARMIES });
+  const next = nextCapitalPicker(state);
+  if (next) {
+    state.currentPlayer = next;
+    events.push({ type: 'phase', phase: 'capitals', player: next });
+    return;
+  }
+  events.push({ type: 'capitals_assigned', capitals: { ...state.capitals } });
+  beginFirstTurn(state, events);
+}
+
 /** Each player's capital: their most heavily garrisoned territory after setup (ties: first by map order). */
 function assignCapitals(state: GameState, events: GameEvent[]): void {
   for (const p of state.players) {
-    if (p.isNeutral || !p.alive) continue;
+    if (p.isNeutral || !p.alive || state.capitals[p.id]) continue;
     const owned = territoriesOf(state, p.id);
     if (!owned.length) continue;
     let best = owned[0];
@@ -823,6 +865,7 @@ function doFortify(state: GameState, playerId: PlayerId, action: FortifyAction, 
 
 function doEndTurn(state: GameState, playerId: PlayerId, events: GameEvent[]): void {
   if (state.phase === 'setup') throw new RuleError('Place your armies to finish your setup turn');
+  if (state.phase === 'capitals') throw new RuleError('Choose your capital first: {"type":"choose_capital","territory":"<one of yours>"}');
   if (state.phase === 'reinforce') throw new RuleError('Place all your reinforcements before ending your turn');
   if (state.pendingConquest) throw new RuleError('You must occupy the conquered territory first');
   if (mustTrade(state, playerId)) throw new RuleError('You hold too many cards and must trade first');
@@ -883,6 +926,15 @@ function surrender(state: GameState, playerId: PlayerId): ActionResult {
     next.pendingConquest = null;
     if (next.phase === 'setup') {
       advanceSetup(next, events);
+    } else if (next.phase === 'capitals') {
+      const picker = nextCapitalPicker(next);
+      if (picker) {
+        next.currentPlayer = picker;
+        events.push({ type: 'phase', phase: 'capitals', player: picker });
+      } else {
+        events.push({ type: 'capitals_assigned', capitals: { ...next.capitals } });
+        beginFirstTurn(next, events);
+      }
     } else {
       nextTurn(next, playerId, events);
     }
@@ -910,6 +962,8 @@ export interface LegalMoves {
   canEndAttack: boolean;
   fortifies: { from: TerritoryId; to: TerritoryId; maxArmies: number }[];
   canEndTurn: boolean;
+  /** Capitals phase: territories you may choose as your capital. */
+  capitalChoices: TerritoryId[];
 }
 
 export function legalMoves(state: GameState, playerId: PlayerId): LegalMoves {
@@ -926,6 +980,7 @@ export function legalMoves(state: GameState, playerId: PlayerId): LegalMoves {
     canEndAttack: false,
     fortifies: [],
     canEndTurn: false,
+    capitalChoices: [],
   };
   const player = state.players.find((p) => p.id === playerId);
   if (!player || !player.alive || state.currentPlayer !== playerId || state.phase === 'finished' || state.phase === 'lobby')
@@ -938,6 +993,12 @@ export function legalMoves(state: GameState, playerId: PlayerId): LegalMoves {
   lm.mustTrade = mustTrade(state, playerId);
   if ((state.phase === 'reinforce' || (state.phase === 'attack' && lm.mustTrade))) {
     lm.tradeableSets = findSets(player.cards);
+  }
+
+  if (state.phase === 'capitals') {
+    const taken = new Set(Object.values(state.capitals));
+    lm.capitalChoices = owned.filter((t) => !taken.has(t));
+    return lm;
   }
 
   if (state.phase === 'setup') {

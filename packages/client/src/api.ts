@@ -54,6 +54,7 @@ export const api = {
   getGame: (gameId: string, token?: string) =>
     request<{ state: GameView; host: string; name: string; playerId: string | null }>(`/games/${gameId}`, {}, token),
   addBot: (gameId: string, token: string) => request(`/games/${gameId}/bots`, { method: 'POST', body: '{}' }, token),
+  closeGame: (gameId: string, token: string) => request(`/games/${gameId}/close`, { method: 'POST', body: '{}' }, token),
   kick: (gameId: string, token: string, playerId: string) =>
     request(`/games/${gameId}/kick`, { method: 'POST', body: JSON.stringify({ playerId }) }, token),
   leave: (gameId: string, token: string) => request(`/games/${gameId}/leave`, { method: 'POST', body: '{}' }, token),
@@ -95,6 +96,7 @@ type Listener = {
   onChat: (m: ChatMessage) => void;
   onChatHistory: (m: ChatMessage[]) => void;
   onPresence: (m: PresenceMessage) => void;
+  onClosed: (reason: string) => void;
   onStatus: (connected: boolean) => void;
 };
 
@@ -137,6 +139,12 @@ export class GameSocket {
           break;
         case 'presence':
           this.listener.onPresence({ spectators: msg.spectators, online: msg.online });
+          break;
+        case 'closed':
+          // The room is gone for good: stop reconnecting.
+          this.closed = true;
+          this.listener.onClosed(msg.reason);
+          this.ws?.close();
           break;
         case 'ack': {
           const p = this.pending.get(msg.reqId);

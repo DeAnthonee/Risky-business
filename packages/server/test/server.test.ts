@@ -12,9 +12,9 @@ let dir: string;
 let risk: RiskServer;
 let base: string;
 
-async function startServer(file: string | null, clientDir?: string) {
+async function startServer(file: string | null, clientDir?: string, adminToken?: string) {
   const store = new Store(file);
-  const r = createRiskServer(store, { clientDir: clientDir ?? null });
+  const r = createRiskServer(store, { clientDir: clientDir ?? null, adminToken, sweepIntervalMs: 0 });
   await new Promise<void>((resolve) => r.server.listen(0, '127.0.0.1', resolve));
   const { port } = r.server.address() as AddressInfo;
   return { risk: r, base: `http://127.0.0.1:${port}` };
@@ -232,6 +232,89 @@ describe('game lifecycle over HTTP', () => {
     expect(Date.now() - t0).toBeLessThan(5000);
     const res = await waiter.then((r) => r.json()).catch(() => ({ reason: 'disconnected' }));
     expect(['timeout', 'disconnected']).toContain(res.reason);
+  });
+});
+
+describe('room cleanup', () => {
+  it('sweeps idle rooms by phase and keeps watched ones', async () => {
+    const { Store, DEFAULT_RETENTION } = await import('../src/store.js');
+    const store = new Store(null);
+    const now = Date.now();
+    const lobby = store.create('lobby', {}, 'A').room;
+    const watched = store.create('watched', {}, 'B').room;
+    const fresh = store.create('fresh', {}, 'C').room;
+    const botsOnly = store.create('bots', { setupBatch: 40 }, 'D').room;
+    botsOnly.join('Bot', true);
+    botsOnly.join('Bot2', true);
+    botsOnly.start();
+    botsOnly.stopBot();
+    botsOnly.act(botsOnly.state.players.find((p) => !p.isBot)!.id, { type: 'surrender' });
+    expect(botsOnly.botsOnly()).toBe(true);
+
+    const old = now - DEFAULT_RETENTION.lobby - 60_000;
+    lobby.lastActivity = old;
+    watched.lastActivity = old;
+    watched.connections = 1;
+    botsOnly.lastActivity = now - DEFAULT_RETENTION.botsOnly - 60_000;
+    const removed = store.sweep(now).map((r) => r.id).sort();
+    expect(removed).toEqual([botsOnly.id, lobby.id].sort());
+    expect(store.get(watched.id)).toBeDefined();
+    expect(store.get(fresh.id)).toBeDefined();
+    // The hard cap applies even while someone is connected.
+    watched.lastActivity = now - DEFAULT_RETENTION.max - 1;
+    expect(store.sweep(now).map((r) => r.id)).toEqual([watched.id]);
+    store.stopTimers();
+  });
+
+  it('lets the host close a room and notifies connected clients', async () => {
+    const created = await api('/games', { method: 'POST', body: JSON.stringify({ playerName: 'Host' }) });
+    const id = created.body.gameId;
+    const joined = await api(`/games/${id}/join`, { method: 'POST', body: JSON.stringify({ playerName: 'Guest' }) });
+    const notHost = await api(`/games/${id}/close`, { method: 'POST', body: '{}' }, joined.body.token);
+    expect(notHost.status).toBe(403);
+    const ws = new WebSocket(`${base.replace('http', 'ws')}/ws`);
+    const msgs: any[] = [];
+    await new Promise<void>((resolve) => {
+      ws.on('message', (raw) => msgs.push(JSON.parse(String(raw))));
+      ws.on('open', () => {
+        ws.send(JSON.stringify({ type: 'subscribe', gameId: id }));
+        setTimeout(resolve, 100);
+      });
+    });
+    const ok = await api(`/games/${id}/close`, { method: 'POST', body: '{}' }, created.body.token);
+    expect(ok.status).toBe(200);
+    await new Promise((r) => setTimeout(r, 100));
+    expect(msgs.find((m) => m.type === 'closed')?.reason).toBe('host');
+    expect((await api(`/games/${id}`)).status).toBe(404);
+    ws.close();
+  });
+
+  it('deletes a lobby when the last person leaves, even with bots in it', async () => {
+    const created = await api('/games', { method: 'POST', body: JSON.stringify({ playerName: 'Solo' }) });
+    const id = created.body.gameId;
+    await api(`/games/${id}/bots`, { method: 'POST', body: '{}' }, created.body.token);
+    await api(`/games/${id}/leave`, { method: 'POST', body: '{}' }, created.body.token);
+    expect((await api(`/games/${id}`)).status).toBe(404);
+  });
+
+  it('exposes admin cleanup only with the admin token', async () => {
+    const plain = await startServer(null);
+    const admin = await startServer(null, undefined, 'secret-admin');
+    try {
+      expect((await fetch(`${plain.base}/api/admin/games`)).status).toBe(404);
+      expect((await fetch(`${admin.base}/api/admin/games`, { headers: { authorization: 'Bearer nope' } })).status).toBe(401);
+      const g = await fetch(`${admin.base}/api/games`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ playerName: 'X' }) }).then((r) => r.json());
+      const list = await fetch(`${admin.base}/api/admin/games`, { headers: { authorization: 'Bearer secret-admin' } }).then((r) => r.json());
+      expect(list.games.some((x: any) => x.id === g.gameId && x.wouldSweep === null)).toBe(true);
+      const del = await fetch(`${admin.base}/api/admin/games/${g.gameId}`, { method: 'DELETE', headers: { authorization: 'Bearer secret-admin' } });
+      expect(del.status).toBe(200);
+      expect((await fetch(`${admin.base}/api/games/${g.gameId}`)).status).toBe(404);
+      const sweep = await fetch(`${admin.base}/api/admin/sweep`, { method: 'POST', headers: { authorization: 'Bearer secret-admin' } }).then((r) => r.json());
+      expect(Array.isArray(sweep.removed)).toBe(true);
+    } finally {
+      await plain.risk.shutdown('test');
+      await admin.risk.shutdown('test');
+    }
   });
 });
 

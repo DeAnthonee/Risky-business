@@ -135,6 +135,9 @@ export function Lobby({ conn, gameId, session, onLeave, onJoin }: { conn: GameCo
               <button className="primary" disabled={view.players.length < 2} onClick={() => run(() => api.start(gameId, session!.token))}>
                 Start game
               </button>
+              <button className="danger" onClick={() => confirm('Close this room for everyone?') && run(() => api.closeGame(gameId, session!.token))}>
+                Close room
+              </button>
             </>
           )}
           {!isHost && <span className="muted">Waiting for the host to start…</span>}

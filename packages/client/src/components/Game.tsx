@@ -296,6 +296,11 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
             <div className="action-group">
               <strong>🏆 {names[view.winner ?? ''] ?? 'Someone'} wins!</strong>
               <button onClick={leaveSpectate}>Back to lobby list</button>
+              {session && conn.host === session.playerId && (
+                <button className="small danger" onClick={() => confirm('Close this room for everyone?') && api.closeGame(gameId, session.token).catch(() => {})}>
+                  Close room
+                </button>
+              )}
             </div>
           ) : !me ? (
             <div className="action-group">
@@ -344,6 +349,11 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
               <button className="small danger" onClick={surrender}>
                 Surrender
               </button>
+              {session && conn.host === session.playerId && (
+                <button className="small" onClick={() => confirm('Close this room for everyone? The game ends.') && api.closeGame(gameId, session.token).catch(() => {})}>
+                  Close room
+                </button>
+              )}
             </div>
           ) : legal!.pendingConquest ? (
             <div className="action-group">

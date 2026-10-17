@@ -436,7 +436,7 @@ describe('game lifecycle over HTTP', () => {
     const asPlayer = await api(`/games/${g}`, {}, created.body.token);
     const me = asPlayer.body.state.you;
     const others = asPlayer.body.state.players.filter((p: any) => p.id !== me && !p.isNeutral);
-    expect(others.some((p: any) => p.armyCount === null && p.territoryCount === null && p.cardCount === null && p.income === null)).toBe(true);
+    expect(others.some((p: any) => p.armyCount === null && p.territoryCount === null && typeof p.cardCount === 'number' && p.income === null)).toBe(true);
     const asSpectator = await api(`/games/${g}`);
     expect(asSpectator.body.state.players.every((p: any) => p.isNeutral || typeof p.armyCount === 'number')).toBe(true);
   });

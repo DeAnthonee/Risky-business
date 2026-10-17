@@ -1134,7 +1134,7 @@ describe('fog of war hides everything a player cannot see', () => {
       if (allVisible) continue;
       expect(pv.armyCount).toBeNull();
       expect(pv.territoryCount).toBeNull();
-      expect(pv.cardCount).toBeNull();
+      expect(pv.cardCount).toBe(state.players.find((p) => p.id === o)!.cards.length); // card counts stay public
       expect(pv.income).toBeNull();
       expect(pv.cards).toBeNull();
     }
@@ -1178,7 +1178,7 @@ describe('fog of war hides everything a player cannot see', () => {
     // With 4 players on 42 territories, `other` always holds something `me` cannot see.
     expect(territoriesOf(state, other).some((t) => viewFor(state, me).territories[t].hidden)).toBe(true);
     expect(out[0]).toMatchObject({ type: 'turn_started', player: other, reinforcements: { hidden: true, total: 0 } });
-    expect(out[1]).toEqual({ type: 'fogged', kind: 'card_drawn' });
+    expect(out[1]).toEqual(events[1]); // card draws are public, like card counts
     expect(out[2]).toEqual({ type: 'fogged', kind: 'traded' });
     expect(out[3]).toEqual(events[3]);
     // Spectators get everything as is.

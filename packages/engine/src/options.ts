@@ -230,7 +230,7 @@ export function describeOptions(o: GameOptions, tradeCount = 0): string[] {
     o.cardValues === 'fixed'
       ? `Cards: fixed values (${(OPTION_SPECS.cardValues as EnumSpec).valueLabels.fixed})`
       : `Cards: progressive, next set worth ${tradeBonus(tradeCount)} (then ${[1, 2, 3].map((i) => tradeBonus(tradeCount + i)).join(', ')}...)`,
-    `Fog of war: ${o.fogOfWar ? "on (players see only their territories and neighbours; nothing else about opponents, not even their troop or territory counts)" : 'off'}`,
+    `Fog of war: ${o.fogOfWar ? "on (players see only their territories and neighbours; nothing else about opponents except card counts, not even their troop or territory counts)" : 'off'}`,
     `Capital Conquest: ${o.capitals ? `on (+2 per capital held, capitals defend with 3 dice, hold every capital to win; ${o.chooseCapitals ? 'players choose their capitals before turn 1' : 'capital = most garrisoned territory after setup'})` : 'off'}`,
     `Neutral territories: ${o.neutrals > 0 ? `${o.neutrals} with ${o.neutralArmies} arm${o.neutralArmies === 1 ? 'y' : 'ies'} each (games of 3+ players)` : 'off'}`,
     `Blizzards: ${o.blizzards > 0 ? `${o.blizzards} frozen territories (max ${maxBlizzards(map)} on this map)` : 'off'}`,

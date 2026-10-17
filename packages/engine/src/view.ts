@@ -77,7 +77,8 @@ export function redactEvents(state: GameState, viewer: PlayerId | null, events: 
         if (e.type === 'capitals_assigned') return { type: 'capitals_assigned', capitals: Object.fromEntries(Object.entries(e.capitals).filter(([, t]) => visible.has(t))) };
     if (eventPlayers(e).includes(viewer)) return e;
     // Another player's card activity says something about them (they conquered, they traded): hide it.
-    if (e.type === 'card_drawn' || e.type === 'traded' || e.type === 'cards_taken') return { type: 'fogged', kind: e.type };
+    // A trade shows which cards (territories) and how many armies: hide it. Draws stay public, like card counts.
+    if (e.type === 'traded') return { type: 'fogged', kind: e.type };
     const ts = eventTerritories(e);
     if (ts.length === 0) return e; // turn/phase/game-level events are public
     return ts.some((t) => visible.has(t)) ? e : { type: 'fogged', kind: e.type };
@@ -86,8 +87,8 @@ export function redactEvents(state: GameState, viewer: PlayerId | null, events: 
 
 export interface PlayerView extends Omit<Player, 'cards'> {
   cards: Card[] | null;
-  /** null under fog of war when the viewer cannot see every territory this player holds. */
-  cardCount: number | null;
+  /** Always visible, fog or not. */
+  cardCount: number;
   /** null under fog of war when the viewer cannot see every territory this player holds. */
   territoryCount: number | null;
   /** null under fog of war when the viewer cannot see every territory this player holds. */
@@ -115,9 +116,9 @@ export function viewFor(state: GameState, viewer: PlayerId | null): GameView {
   const map = getMap(state.options.map);
   const fogged = !!state.options.fogOfWar && !!viewer && state.players.some((p) => p.id === viewer);
   const visible = fogged ? visibleTerritories(state.territories, viewer!, map) : null;
-  // Under fog a player learns nothing about another player beyond the territories they can see: their
-  // territory, army and card counts, income and continents are only shown if every territory that player
-  // holds is visible (e.g. they border all of it).
+  // Under fog a player learns nothing about another player beyond the territories they can see and their
+  // card count: their territory and army counts, income and continents are only shown if every territory
+  // that player holds is visible (e.g. they border all of it).
   const seesAllOf = (pid: PlayerId) => !visible || pid === viewer || territoriesOf(state, pid).every((t) => visible.has(t));
   const continentVisible = (territories: TerritoryId[]) => !visible || territories.every((t) => isBlizzard(state, t) || visible.has(t));
   const players: PlayerView[] = state.players.map((p) => {
@@ -125,7 +126,8 @@ export function viewFor(state: GameState, viewer: PlayerId | null): GameView {
     return {
       ...p,
       cards: viewer === null || p.id === viewer ? p.cards : null,
-      cardCount: open ? p.cards.length : null,
+      // Card counts are public at the table, fog or not.
+      cardCount: p.cards.length,
       territoryCount: open ? territoriesOf(state, p.id).length : null,
       armyCount: open ? armiesOf(state, p.id) : null,
       continents: continentsOf(state, p.id)

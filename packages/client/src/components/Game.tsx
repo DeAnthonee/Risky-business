@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { getMap, tradeBonus, visibleTerritories, type Card, type GameEvent, type GameView } from '@risk/engine';
+import { CAPITAL_DEFENSE_DICE, getMap, tradeBonus, visibleTerritories, type Card, type GameEvent, type GameView } from '@risk/engine';
 import { api } from '../api';
 import { CARD_FX_MS, CardFxPanel, type CardFx } from './CardFx';
 import { ScoreChart } from './ScoreChart';
@@ -44,6 +44,9 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
   const [moveArmies, setMoveArmies] = useState(1);
   // Blitz commitment: armies thrown at the target; the rest stay home (sent as stopAt). Defaults to all in.
   const [commit, setCommit] = useState(Infinity);
+  // A partial blitz shrinks the stack: start the next commitment from "all in" rather than an old count.
+  const sourceArmies = selected ? view.territories[selected]?.armies : undefined;
+  useEffect(() => setCommit(Infinity), [sourceArmies]);
   const [showCards, setShowCards] = useState(false);
   const [tab, setTab] = useState<'log' | 'chat'>('log');
   // Phones/narrow screens: the board fills the screen; panels open underneath it so the map stays visible.
@@ -301,7 +304,7 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
     const stopAt = blitz && c < fromArmies - 1 ? fromArmies - c : undefined;
     return run(() => conn.act({ type: 'attack', from: selected, to: target, dice: blitz ? undefined : dice, blitz, ...(stopAt ? { stopAt } : {}) }));
   };
-  const defenseLimitOf = (t: string) => (view.options.capitals && Object.values(view.capitals ?? {}).includes(t) ? 3 : 2);
+  const defenseLimitOf = (t: string) => (view.options.capitals && Object.values(view.capitals ?? {}).includes(t) ? CAPITAL_DEFENSE_DICE : 2);
   const occupy = () => run(() => conn.act({ type: 'occupy', armies: moveArmies }));
   const fortify = () => selected && target && run(() => conn.act({ type: 'fortify', from: selected, to: target, armies: moveArmies }));
   const endAttack = () => run(() => conn.act({ type: 'end_attack' }));
@@ -679,14 +682,6 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
                     Move & end turn
                   </button>
                   <button onClick={() => setTarget(null)}>Cancel</button>
-                  <BlitzPlanner
-                    fromArmies={view.territories[selected!].armies}
-                    toArmies={view.territories[target!].armies}
-                    defenseLimit={defenseLimitOf(target!)}
-                    balancedOn={!!view.options.balancedBlitz}
-                    commit={commit}
-                    onCommit={setCommit}
-                  />
                 </>
               ) : selected ? (
                 <strong>Fortify from {shortName(selected)}: choose a destination</strong>

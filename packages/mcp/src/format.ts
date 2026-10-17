@@ -1,4 +1,4 @@
-import { blitzOdds, describeOptions, fixedSetValue, getMap, visibleTerritories, type GameEvent, type GameView } from '@risk/engine';
+import { CAPITAL_DEFENSE_DICE, blitzOdds, describeOptions, fixedSetValue, getMap, visibleTerritories, type GameEvent, type GameView } from '@risk/engine';
 
 /** The player whose capital this territory is (capitals the viewer can see), if any. */
 function capitalOwnerOf(view: GameView, t: string): string | undefined {
@@ -119,10 +119,10 @@ export function formatState(view: GameView, gameName?: string): string {
         // The chance an all-in blitz takes each target, in the mode this game rolls (balanced or random).
         const balanced = !!view.options.balancedBlitz;
         const chance = (from: string, to: string) => {
-          const limit = view.options.capitals && Object.values(view.capitals ?? {}).includes(to) ? 3 : 2;
+          const limit = view.options.capitals && Object.values(view.capitals ?? {}).includes(to) ? CAPITAL_DEFENSE_DICE : 2;
           const o = blitzOdds(view.territories[from].armies, view.territories[to].armies, limit);
           const p = balanced ? o.balancedWin : o.win;
-          return p >= 0.995 ? '99%+' : p < 0.01 ? '<1%' : `${Math.round(p * 100)}%`;
+          return (o.exact ? '' : '~') + (p >= 0.995 ? '99%+' : p < 0.01 ? '<1%' : `${Math.round(p * 100)}%`);
         };
         lines.push(
           `  Attacks available (from -> to, max dice, chance an all-in blitz takes it${balanced ? ', balanced' : ''}): ${lm.attacks

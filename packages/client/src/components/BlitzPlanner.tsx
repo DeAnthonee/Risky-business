@@ -28,6 +28,8 @@ export function BlitzPlanner({
   const max = fromArmies - 1;
   const c = Math.max(1, Math.min(commit, max));
   const odds = useMemo(() => blitzOdds(fromArmies, toArmies, defenseLimit, fromArmies - c), [fromArmies, toArmies, defenseLimit, c]);
+  // Huge stacks are estimated on a scaled-down battle (see MAX_ODDS_CELLS in the engine).
+  const approx = odds.exact ? '' : '≈';
   // How many armies each win chance needs, for the mode this game uses.
   // Computed just after render: on very large stacks the search takes a moment and must not block the click.
   const [needed, setNeeded] = useState<{ t: number; n: number | null }[] | null>(null);
@@ -48,10 +50,10 @@ export function BlitzPlanner({
       </label>
       <span className="blitz-odds">
         <span className={balancedOn ? 'muted' : 'active'} title="Chance to take it with ordinary random dice">
-          Random <b>{pct(odds.win)}</b>
+          Random <b>{approx}{pct(odds.win)}</b>
         </span>
         <span className={balancedOn ? 'active' : 'muted'} title="Chance to take it with balanced blitz (the middle of 5 real blitzes is played out)">
-          Balanced <b>{pct(odds.balancedWin)}</b>
+          Balanced <b>{approx}{pct(odds.balancedWin)}</b>
         </span>
         <span className="muted small" title="Average losses with ordinary dice">
           avg loss: you {odds.expectedAttackerLosses.toFixed(1)} · them {odds.expectedDefenderLosses.toFixed(1)}

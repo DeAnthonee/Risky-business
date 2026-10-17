@@ -149,4 +149,24 @@ describe('exportDataset', () => {
     writeFileSync(join(old, 'meta.json'), JSON.stringify({ v: 1 }));
     await expect(exportDataset([old], join(tmp, 'out-v1'))).rejects.toThrow(/format v1/);
   });
+
+  it('refuses an old record next to a new meta.json, and a non-empty output folder', async () => {
+    const mixed = join(tmp, 'mixed');
+    mkdirSync(mixed, { recursive: true });
+    writeFileSync(join(mixed, 'meta.json'), JSON.stringify({ v: 2 }));
+    writeFileSync(join(mixed, 'decisions-0-1.jsonl'), JSON.stringify({ v: 1, map: 'classic', choice: 0 }) + '\n');
+    await expect(exportDataset([mixed], join(tmp, 'out-mixed'))).rejects.toThrow(/record in log format v1/);
+    const full = join(tmp, 'out-full');
+    mkdirSync(full, { recursive: true });
+    writeFileSync(join(full, 'old.txt'), 'x');
+    await expect(exportDataset([mixed], full)).rejects.toThrow(/not empty/);
+  });
+
+  it('leaves fog-of-war games out (the encoder sees the whole board)', async () => {
+    const logDir = join(tmp, 'log-fog');
+    await runBatch({ games: 1, seed: 7, seats: () => [{ agent: riskyBot }, { agent: riskyBot }], logDir, options: { fogOfWar: true } });
+    const [result] = await exportDataset([logDir], join(tmp, 'out-fog'));
+    expect(result.decisions).toBe(0);
+    expect(result.fogSkipped).toBeGreaterThan(0);
+  });
 });

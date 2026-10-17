@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { parseArgs } from 'node:util';
-import { parseOptions, type GameOptions } from '@risk/engine';
+import { MAPS, parseOptions, type GameOptions } from '@risk/engine';
 import { knownAgents, resolveAgent } from './agents.js';
 import { exportDataset } from './export.js';
 import { DEFAULT_PROMOTION, loadLadder, promotionDecision, recordMatch, runMatch, saveLadder } from './ladder.js';
@@ -69,13 +69,16 @@ async function main() {
       'no-gzip': { type: 'boolean' },
       out: { type: 'string' },
       maps: { type: 'string' },
+      force: { type: 'boolean' },
     },
   });
 
   if (cmd === 'export') {
     if (!values.log || !values.out) fail('export needs --log and --out');
     const t0 = Date.now();
-    const results = await exportDataset(values.log.split(','), values.out, values.maps ? { maps: values.maps.split(',') } : {});
+    const maps = values.maps?.split(',').map((m) => m.trim());
+    for (const m of maps ?? []) if (!(m in MAPS)) fail(`--maps: unknown map "${m}" (known: ${Object.keys(MAPS).join(', ')})`);
+    const results = await exportDataset(values.log.split(','), values.out, { ...(maps ? { maps } : {}), force: !!values.force });
     console.log(JSON.stringify({ out: values.out, maps: results, seconds: (Date.now() - t0) / 1000 }, null, 2));
     return;
   }

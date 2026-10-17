@@ -4,7 +4,7 @@ import { createInterface } from 'node:readline';
 import { createGunzip } from 'node:zlib';
 import { getMap } from '@risk/engine';
 import { CANDIDATE_FEATURES, encodeDecision, ENCODER_VERSION, GLOBAL_FEATURES, TERRITORY_FEATURES } from './encode.js';
-import { LOG_VERSION, type DecisionRecord } from './log.js';
+import { LOG_VERSION, RULE_KEYS, type DecisionRecord } from './log.js';
 import { NpyWriter } from './npy.js';
 
 /**
@@ -22,7 +22,9 @@ import { NpyWriter } from './npy.js';
  *   seat.npy        int32   [N]
  *   features.json                         feature names, the map's territory order and adjacency, counts
  *
- * Decisions an agent played outside the candidate list (choice -1) are skipped and counted.
+ * Decisions an agent played outside the candidate list (choice -1) are skipped and counted. So are decisions
+ * from fog-of-war games: the encoder sees the full board, so a net trained on them would learn from hidden
+ * information (fog games need a seat-perspective encoder first).
  */
 export interface ExportResult {
   map: string;
@@ -30,6 +32,8 @@ export interface ExportResult {
   candidates: number;
   games: number;
   skipped: number;
+  /** Decisions left out because the game was played with fog of war. */
+  fogSkipped: number;
 }
 
 interface MapWriters {
@@ -46,6 +50,7 @@ interface MapWriters {
   candidates: number;
   games: Map<string, number>;
   skipped: number;
+  fogSkipped: number;
 }
 
 /** Decision shards of a log directory, in order. */
@@ -56,7 +61,10 @@ export function decisionShards(logDir: string): string[] {
     .map((f) => join(logDir, f));
 }
 
-export async function exportDataset(logDirs: string[], outDir: string, opts: { maps?: string[] } = {}): Promise<ExportResult[]> {
+export async function exportDataset(logDirs: string[], outDir: string, opts: { maps?: string[]; force?: boolean } = {}): Promise<ExportResult[]> {
+  // Arrays are rewritten from scratch, and map folders from an earlier export with other --maps would linger.
+  if (!opts.force && existsSync(outDir) && readdirSync(outDir).length > 0) throw new Error(`${outDir} is not empty (pass force / --force to overwrite)`);
+  const FOG = RULE_KEYS.indexOf('fogOfWar');
   const writers = new Map<string, MapWriters>();
   const open = (mapId: string): MapWriters => {
     let w = writers.get(mapId);
@@ -80,6 +88,7 @@ export async function exportDataset(logDirs: string[], outDir: string, opts: { m
       candidates: 0,
       games: new Map(),
       skipped: 0,
+      fogSkipped: 0,
     };
     w.candOffset.append(new BigInt64Array([0n]));
     writers.set(mapId, w);
@@ -96,8 +105,14 @@ export async function exportDataset(logDirs: string[], outDir: string, opts: { m
       for await (const line of createInterface({ input, crlfDelay: Infinity })) {
         if (!line) continue;
         const rec = JSON.parse(line) as DecisionRecord;
+        // A run continued after an upgrade can leave older shards next to a newer meta.json.
+        if (rec.v !== LOG_VERSION) throw new Error(`${shard}: record in log format v${rec.v}; export reads v${LOG_VERSION} (re-run the games)`);
         if (opts.maps && !opts.maps.includes(rec.map)) continue;
         const w = open(rec.map);
+        if (rec.rules?.[FOG]) {
+          w.fogSkipped++;
+          continue;
+        }
         if (rec.choice < 0) {
           w.skipped++;
           continue;
@@ -125,7 +140,7 @@ export async function exportDataset(logDirs: string[], outDir: string, opts: { m
     for (const k of ['territory', 'global', 'cand', 'candFrom', 'candTo', 'candOffset', 'choice', 'z', 'game', 'seat'] as const) w[k].close();
     const map = getMap(mapId);
     const idx = new Map(map.territoryIds.map((t, i) => [t, i]));
-    const result: ExportResult = { map: mapId, decisions: w.choice.length, candidates: w.candidates, games: w.games.size, skipped: w.skipped };
+    const result: ExportResult = { map: mapId, decisions: w.choice.length, candidates: w.candidates, games: w.games.size, skipped: w.skipped, fogSkipped: w.fogSkipped };
     writeFileSync(
       join(outDir, mapId, 'features.json'),
       JSON.stringify(

@@ -88,7 +88,9 @@ python3 packages/selfplay/python/risky_dataset.py data/export-01/classic     # c
 ```
 
 `export` runs every logged step through the board encoder (`src/encode.ts`) and writes NumPy arrays, one folder
-per map, loadable with `np.load(..., mmap_mode='r')`:
+per map, loadable with `np.load(..., mmap_mode='r')`. It refuses a non-empty `--out` (add `--force` to overwrite),
+unknown `--maps` ids and any record in another log format, and it leaves out fog-of-war games (counted as
+`fogSkipped`): the encoder sees the whole board, so training on them would learn from hidden information.
 
 | array | shape | contents |
 | --- | --- | --- |

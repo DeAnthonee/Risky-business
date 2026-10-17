@@ -203,8 +203,8 @@ or `{"ok":false,"error":"…"}`.
 ```jsonc
 {"type":"place","placements":{"alaska":3,"peru":1}}   // setup / reinforce / forced placement
 {"type":"trade","cardIds":[3,17,42]}
+{"type":"attack","from":"alaska","to":"kamchatka","blitz":true,"occupy":"max"} // fight to the end, move in (what agents should normally send)
 {"type":"attack","from":"alaska","to":"kamchatka","dice":3}              // one roll
-{"type":"attack","from":"alaska","to":"kamchatka","blitz":true,"occupy":"max"} // fight to the end, move in
 {"type":"occupy","armies":4}                          // after a conquest without "occupy"
 {"type":"end_attack"}
 {"type":"fortify","from":"peru","to":"brazil","armies":2}  // also ends the turn

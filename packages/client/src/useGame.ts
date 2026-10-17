@@ -147,6 +147,7 @@ export function useGame(gameId: string | null, token: string | undefined): GameC
       if (pb.timer) clearTimeout(pb.timer);
       pb.timer = null;
       pb.queue.length = 0;
+      pb.previous = null;
     };
   }, [gameId, token]);
 

@@ -11,7 +11,8 @@ AI/
 │   ├── README.md
 │   ├── playbook.md                 ← turn-by-turn routine
 │   ├── ways-to-win.md              ← how to win under each victory condition and setting
-│   └── findings.md                 ← dated findings from real games, with evidence
+│   ├── findings.md                 ← dated findings from real games, with evidence
+│   └── risk-learnings.md           ← lessons from every past game (read before playing)
 ├── characters/                     ← playable characters, grouped by universe
 │   ├── _TEMPLATE.md                ← copy this to create a new character
 │   ├── marvel/

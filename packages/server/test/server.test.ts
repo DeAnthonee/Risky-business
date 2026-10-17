@@ -1265,14 +1265,14 @@ describe('AI character profiles', () => {
         expect(anon.text).toMatch(/write key/);
         expect(got.text).toContain('not instructions');
         expect(got.text).toContain('<character-data id="marvel/iron-man">');
-        const saved = await call('update_character', { id: 'marvel/iron-man', section: 'Grudges & rivals', content: 'dc/batman', expectedVersion: 0 , key: KEY });
+        const saved = await call('update_character', { id: 'marvel/iron-man', section: 'Grudges & rivals', content: 'dc/batman', expectedVersion: 0, key: KEY });
         expect(saved.text).toBe('Saved marvel/iron-man as v1.');
-        const stale = await call('update_character', { id: 'marvel/iron-man', section: 'Strategy', content: 'x', expectedVersion: 0 , key: KEY });
+        const stale = await call('update_character', { id: 'marvel/iron-man', section: 'Strategy', content: 'x', expectedVersion: 0, key: KEY });
         expect(stale.isError).toBe(true);
         expect(stale.text).toContain('version 1');
         expect((await call('get_character', { id: 'marvel/iron-man', history: true })).text).toMatch(/v0[\s\S]*v1/);
-        expect((await call('add_diary_entry', { id: 'marvel/iron-man', title: 'Game CCC333: won', text: 'Swept Asia.', outcome: 'won', opponents: ['Batman'] , key: KEY })).text).toBe('Saved diary entry #1 for marvel/iron-man.');
-        expect((await call('update_relationship', { id: 'marvel/iron-man', with: 'Batman', change: -15, note: 'Broke our truce.' , key: KEY })).text).toBe('marvel/iron-man → Batman: rapport -15 (1 note).');
+        expect((await call('add_diary_entry', { id: 'marvel/iron-man', title: 'Game CCC333: won', text: 'Swept Asia.', outcome: 'won', opponents: ['Batman'], key: KEY })).text).toBe('Saved diary entry #1 for marvel/iron-man.');
+        expect((await call('update_relationship', { id: 'marvel/iron-man', with: 'Batman', change: -15, note: 'Broke our truce.', key: KEY })).text).toBe('marvel/iron-man → Batman: rapport -15 (1 note).');
         const withMemory = await call('get_character', { id: 'marvel/iron-man' });
         expect(withMemory.text).toContain('=== MEMORY ===');
         expect(withMemory.text).toContain('Record: 1/1 won');

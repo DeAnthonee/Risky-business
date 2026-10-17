@@ -86,7 +86,7 @@ Online multiplayer Risk with bots and an MCP server for AI agents. npm-workspace
   live under `RISK_DATA_DIR/characters/` via `packages/server/src/characters.ts`, never written back into the repo.
   Every save needs the write key (`RISK_CHARACTERS_KEY` or the admin token; none set = read-only), and everything
   served is framed as data, not instructions (`CHARACTER_DATA_NOTICE` in `packages/mcp/src/tools.ts`).
-- Known gaps left open on purpose (open tournaments, fog spectating, ...) are tracked in
-  `docs/hardening.md`. Read it before touching those features; remove an item only in the PR that fixes it.
   Characters build on the general player in `AI/general-player/` (playbook, ways to win, findings) unless their profile
   names another base.
+- Known gaps left open on purpose (open tournaments, fog spectating, ...) are tracked in
+  `docs/hardening.md`. Read it before touching those features; remove an item only in the PR that fixes it.

@@ -745,7 +745,10 @@ describe('MCP act replies', () => {
       expect(placed.text).toContain(`${territory}:`);
       expect(placed.text).toContain('YOUR LEGAL MOVES');
       expect(placed.text).not.toContain('Territories (owner armies) with neighbours:');
-      expect(placed.text.length).toBeLessThan(board.text.length / 2);
+      // Compare without the legal moves (both carry them in full, and their length depends on the deal):
+      // the compact reply lists one touched territory, the board all of them.
+      const boardPart = (t: string) => t.split('\nYOUR LEGAL MOVES:')[0];
+      expect(boardPart(placed.text).length).toBeLessThan(boardPart(board.text).length / 3);
       // full:true still gives the whole board.
       const end = await call('act', { gameId, action: { type: 'end_attack' }, full: true });
       expect(end.text).toContain('Territories (owner armies) with neighbours:');

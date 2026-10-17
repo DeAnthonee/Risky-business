@@ -16,6 +16,10 @@ export interface FloatAnim {
   territory: string;
   text: string;
   color: string;
+  /** Troops landing: pops in big with a glow (like the card-trade "+N"), holds, then drifts up. */
+  burst?: boolean;
+  /** How long it stays on screen, in ms (longer for spectators). */
+  durationMs?: number;
 }
 
 /** A conquest: the new owner's colour sweeps across the territory from the attacker's side. */
@@ -520,7 +524,15 @@ export function GameMap(props: MapProps) {
       {floats.map((f) => {
         const T = anchor(f.territory);
         return (
-          <text key={f.id} className="float" x={T.x} y={T.y - 22} textAnchor="middle" fill={f.color}>
+          <text
+            key={f.id}
+            className={`float ${f.burst ? 'burst' : ''}`}
+            x={T.x}
+            y={T.y - 22}
+            textAnchor="middle"
+            fill={f.color}
+            style={f.durationMs ? { animationDuration: `${f.durationMs}ms` } : undefined}
+          >
             {f.text}
           </text>
         );

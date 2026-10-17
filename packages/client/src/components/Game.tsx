@@ -16,6 +16,9 @@ type Mode = 'idle' | 'capital' | 'place' | 'attack' | 'fortify';
 const BATTLE_ROLL_MS = 420;
 const BATTLE_SHOW_MS = 650;
 const BATTLE_LINGER_MS = 2200;
+/** How long a "+N troops" pop-up stays on the board. */
+const FLOAT_PLAYER_MS = 1800;
+const FLOAT_SPECTATOR_MS = 3200;
 /** Faster timings while the same attack keeps rolling (a blitz, or repeated single rolls on one border). */
 const BLITZ_ROLL_MS = 170;
 const BLITZ_SHOW_MS = 230;
@@ -889,6 +892,8 @@ function useAnimations(
     const floats: FloatAnim[] = [];
     const sweeps: SweepAnim[] = [];
     let newBattles = 0;
+    // Troop pop-ups linger longer for spectators, who are watching rather than acting.
+    const floatMs = view.you ? FLOAT_PLAYER_MS : FLOAT_SPECTATOR_MS;
     const newCards: CardFx[] = [];
     const myId = view.you;
     for (const b of fresh) {
@@ -918,11 +923,11 @@ function useAnimations(
             moves.push({ id: ++ids.current, from: e.from, to: e.to, armies: e.armies, color: colorOf(e.player) });
             break;
           case 'capital_chosen':
-            floats.push({ id: ++ids.current, territory: e.territory, text: `★ +${e.armies}`, color: colorOf(e.player) });
+            floats.push({ id: ++ids.current, territory: e.territory, text: `★ +${e.armies}`, color: colorOf(e.player), burst: true, durationMs: floatMs });
             flashes[e.territory] = Date.now();
             break;
           case 'placed':
-            floats.push({ id: ++ids.current, territory: e.territory, text: `+${e.armies}`, color: colorOf(e.player) });
+            floats.push({ id: ++ids.current, territory: e.territory, text: `+${e.armies}`, color: colorOf(e.player), burst: true, durationMs: floatMs });
             break;
           case 'card_drawn': {
             // The drawer's hand is visible to themselves and to spectators: show the new card face up.
@@ -958,7 +963,7 @@ function useAnimations(
           floats: s.floats.filter((f) => !floats.includes(f)),
           sweeps: s.sweeps.filter((f) => !sweeps.includes(f)),
         }));
-      }, 1600);
+      }, Math.max(1600, floatMs + 200));
     }
     if (newBattles) pumpBattles();
     if (newCards.length) {

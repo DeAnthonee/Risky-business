@@ -218,7 +218,7 @@ export function OptionsForm({
       <label>
         Blizzards
         <select disabled={disabled} value={options.blizzards ?? 0} onChange={(e) => onChange({ blizzards: Number(e.target.value) })}>
-          {[0, 2, 3, 4, 5, 6, 8, 10, 12].filter((n) => n <= maxBlizzards(MAPS[options.map ?? 'classic'])).map((n) => (
+          {[0, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 17].filter((n) => n <= maxBlizzards(MAPS[options.map ?? 'classic'])).map((n) => (
             <option key={n} value={n}>{n === 0 ? 'Off' : `${n} frozen territories`}</option>
           ))}
         </select>
@@ -249,7 +249,7 @@ export function OptionsForm({
       </label>
       <label className="check">
         <input type="checkbox" disabled={disabled || !options.capitals} checked={!!options.chooseCapitals} onChange={(e) => onChange({ chooseCapitals: e.target.checked })} /> Players choose their capital
-        <span className="muted small">pick it before turn 1 (+2 armies there), even with random setup</span>
+        <span className="muted small">pick it before turn 1, even with random setup</span>
       </label>
       <label>
         Fortify

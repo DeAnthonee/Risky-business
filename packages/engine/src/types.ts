@@ -75,8 +75,10 @@ export const CAPITAL_BONUS = 2;
 /** Dice a capital defends with when the capitals option is on (other territories defend with up to 2). */
 export const CAPITAL_DEFENSE_DICE = 3;
 
-/** Extra armies placed on a capital when a player chooses it (chooseCapitals option). */
-export const CHOSEN_CAPITAL_ARMIES = 2;
+/** Extra armies placed on every capital when it is set, whether a player chose it or it was assigned automatically. */
+export const CAPITAL_PLACEMENT_ARMIES = 3;
+/** @deprecated use CAPITAL_PLACEMENT_ARMIES */
+export const CHOSEN_CAPITAL_ARMIES = CAPITAL_PLACEMENT_ARMIES;
 
 export const DEFAULT_OPTIONS: GameOptions = {
   setupBatch: 1,
@@ -244,7 +246,8 @@ export type GameEvent =
   | { type: 'cards_taken'; player: PlayerId; from: PlayerId; count: number }
   | { type: 'eliminated'; player: PlayerId; by: PlayerId | null }
   | { type: 'capitals_assigned'; capitals: Record<PlayerId, TerritoryId> }
-  | { type: 'capital_chosen'; player: PlayerId; territory: TerritoryId; armies: number }
+  /** auto: assigned automatically (most garrisoned territory) rather than picked by the player. */
+  | { type: 'capital_chosen'; player: PlayerId; territory: TerritoryId; armies: number; auto?: boolean }
   | { type: 'blizzards'; territories: TerritoryId[] }
   | { type: 'capital_captured'; player: PlayerId; territory: TerritoryId; previousOwner: PlayerId }
   /** A fogged-out event the viewer is not allowed to see in detail. */

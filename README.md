@@ -95,9 +95,9 @@ Host-selectable options:
 | `spectatorChat` | watchers can post in the game chat (marked as spectators, 5 messages / 10 s); every player sees them, even under fog of war | `true` |
 | `neutrals`    | games of 3+ players: this many random territories start held by a Neutral army that never attacks (0 = off, max a third of the map); 2-player games always have the classic Neutral | `0` |
 | `neutralArmies` | armies on each neutral territory when `neutrals` is on (1–10) | `2` |
-| `blizzards`   | number of random territories frozen for the whole game (0 = off, max a sixth of the map: 7 classic, 12 world, 14 fantasy); nobody can own, attack or cross them; the rest of the map stays connected and continents only need their open territories | `0` |
-| `capitals`    | Capital Conquest: each player's most garrisoned territory after setup becomes a capital (★); +2 armies per capital held each turn; capitals defend with up to 3 dice; losing your capital does not knock you out; holding every capital at once wins the game | `false` |
-| `chooseCapitals` | Capital Conquest only: after setup each player, in turn order, picks one of their own territories as their capital and gets 2 extra armies there (under fog of war only players who can see it learn the pick); off = most garrisoned territory becomes the capital | `false` |
+| `blizzards`   | number of random territories frozen for the whole game (0 = off, max 8, or a sixth of the map on bigger boards: 12 world, 14 fantasy, 17 grand world); nobody can own, attack or cross them; the rest of the map stays connected and continents only need their open territories | `0` |
+| `capitals`    | Capital Conquest: each player's most garrisoned territory after setup becomes a capital (★) and gets 3 extra armies; +2 armies per capital held each turn; capitals defend with up to 3 dice; losing your capital does not knock you out; holding every capital at once wins the game | `false` |
+| `chooseCapitals` | Capital Conquest only: after setup each player, in turn order, picks one of their own territories as their capital (under fog of war only players who can see it learn the pick); off = most garrisoned territory becomes the capital | `false` |
 
 ## Hosting (production)
 

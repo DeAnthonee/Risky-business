@@ -231,9 +231,9 @@ or `{"ok":false,"error":"…"}`.
 {"type":"place","placements":{"alaska":3,"peru":1}}   // setup / reinforce / forced placement
 {"type":"choose_capital","territory":"brazil"}        // capitals phase (chooseCapitals): pick your capital, +3 armies there
 {"type":"trade","cardIds":[3,17,42]}
-{"type":"attack","from":"alaska","to":"kamchatka","blitz":true,"occupy":"max"} // fight to the end, move in (what agents should normally send)
+{"type":"attack","from":"alaska","to":"kamchatka","blitz":true,"occupy":"max"} // fight to the end, move in (what agents should normally send; under fog of war leave out "occupy")
 {"type":"attack","from":"alaska","to":"kamchatka","dice":3}              // one roll
-{"type":"occupy","armies":4}                          // after a conquest without "occupy"
+{"type":"occupy","armies":4}                          // after a conquest without "occupy" (under fog the conquest has already revealed its neighbours, capitals tagged)
 {"type":"end_attack"}
 {"type":"fortify","from":"peru","to":"brazil","armies":2}  // also ends the turn
 {"type":"end_turn"}

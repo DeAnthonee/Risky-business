@@ -27,7 +27,13 @@ export interface ChatMessage {
   name: string;
   message: string;
   at: number;
+  /** Posted by someone watching, not a seated player. */
+  spectator?: boolean;
 }
+
+/** Spectator chat flood guard: at most this many messages per sender per window. */
+const SPECTATOR_CHAT_LIMIT = 5;
+const SPECTATOR_CHAT_WINDOW_MS = 10_000;
 
 export interface HistoryEntry {
   version: number;
@@ -123,6 +129,7 @@ export class GameRoom extends EventEmitter {
   state: GameState;
   tokens = new Map<string, PlayerId>();
   chat: ChatMessage[] = [];
+  private spectatorPosts = new Map<string, number[]>();
   history: HistoryEntry[] = [];
   updatedAt = Date.now();
   lastActivity = Date.now();
@@ -291,6 +298,47 @@ export class GameRoom extends EventEmitter {
     return msg;
   }
 
+  /**
+   * Post a message from someone watching. `key` identifies the sender for the flood guard (a socket or an
+   * IP). The name is trimmed to 24 characters and may not pose as a seated player.
+   */
+  addSpectatorChat(key: string, rawName: unknown, message: string): ChatMessage {
+    if (this.state.options.spectatorChat === false) throw new RuleError('Spectator chat is turned off in this game');
+    const now = Date.now();
+    const recent = (this.spectatorPosts.get(key) ?? []).filter((t) => now - t < SPECTATOR_CHAT_WINDOW_MS);
+    if (recent.length >= SPECTATOR_CHAT_LIMIT) throw new RuleError('Slow down: spectators can send 5 messages every 10 seconds');
+    recent.push(now);
+    this.spectatorPosts.set(key, recent);
+    if (this.spectatorPosts.size > 1000) this.spectatorPosts.clear();
+    let name = String(rawName ?? '').replace(/\s+/g, ' ').trim().slice(0, 24) || 'Spectator';
+    if (this.state.players.some((p) => p.name.toLowerCase() === name.toLowerCase())) name = `${name.slice(0, 20)} (fan)`;
+    const msg: ChatMessage = {
+      id: (this.chat.at(-1)?.id ?? 0) + 1,
+      playerId: null,
+      name,
+      message: message.slice(0, 500),
+      at: now,
+      spectator: true,
+    };
+    this.chat.push(msg);
+    if (this.chat.length > MAX_CHAT) this.chat.splice(0, this.chat.length - MAX_CHAT);
+    this.updatedAt = now;
+    this.emit('chat', msg);
+    return msg;
+  }
+
+  /** Whether a viewer (a seated player, or null for a spectator) may read a chat message. */
+  canReadChat(msg: ChatMessage, viewer: PlayerId | null): boolean {
+    if (!msg.spectator) return true;
+    if (!this.state.options.fogOfWar) return true;
+    return !viewer || !this.state.players.some((p) => p.id === viewer);
+  }
+
+  /** Chat as a given viewer may see it. */
+  chatFor(viewer: PlayerId | null, since = 0): ChatMessage[] {
+    return this.chat.filter((m) => m.id > since && this.canReadChat(m, viewer));
+  }
+
   eventsSince(version: number): HistoryEntry[] {
     return this.history.filter((h) => h.version > version);
   }
@@ -414,6 +462,8 @@ export class Store {
           // Games saved before blizzards existed have none.
           if (snap.state.options.blizzards === undefined) snap.state.options.blizzards = 0;
           if (!snap.state.blizzards) snap.state.blizzards = [];
+          // Spectator chat arrived later; on by default.
+          if (snap.state.options.spectatorChat === undefined) snap.state.options.spectatorChat = true;
           const room = new GameRoom(snap);
           this.attach(room);
         }

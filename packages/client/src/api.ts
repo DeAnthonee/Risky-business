@@ -72,6 +72,8 @@ export interface ChatMessage {
   name: string;
   message: string;
   at: number;
+  /** Posted by someone watching, not a seated player. */
+  spectator?: boolean;
 }
 
 export interface StateMessage {
@@ -184,8 +186,9 @@ export class GameSocket {
     return this.send({ type: 'action', action });
   }
 
-  chat(message: string) {
-    return this.send({ type: 'chat', message });
+  /** `name` is used only when this socket is watching rather than seated. */
+  chat(message: string, name?: string) {
+    return this.send({ type: 'chat', message, name });
   }
 
   close() {

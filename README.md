@@ -167,11 +167,12 @@ cards are hidden).
 | `POST /games/:id/actions`          | `{action}` → `{events, state}`                                     |
 | `GET  /games/:id/wait?timeoutMs=&since=` | long-poll until it is your turn, the game ends, or the version passes `since` |
 | `GET  /games/:id/events?since=`    | event history                                                      |
-| `GET/POST /games/:id/chat`         | chat                                                               |
+| `GET/POST /games/:id/chat`         | chat. POST without a token posts as a spectator: `{message, name}` (5 messages / 10 s; host can turn it off with `spectatorChat`; under fog, players do not see spectator messages) |
 
 ### WebSocket
 
-Connect to `/ws` and send `{"type":"subscribe","gameId":"ABC123","token":"…"}`. The server pushes
+Connect to `/ws` and send `{"type":"subscribe","gameId":"ABC123","token":"…"}` (omit the token to watch).
+Spectators chat with `{"type":"chat","message":"…","name":"Your name"}`. The server pushes
 `{"type":"state", state, events, version}` after every change and `{"type":"chat", message}` for chat.
 Send `{"type":"action","reqId":"1","action":{…}}` and receive `{"type":"ack","reqId":"1","ok":true}`
 or `{"ok":false,"error":"…"}`.

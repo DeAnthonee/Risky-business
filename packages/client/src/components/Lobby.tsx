@@ -143,7 +143,7 @@ export function Lobby({ conn, gameId, session, onLeave, onJoin }: { conn: GameCo
           {!isHost && <span className="muted">Waiting for the host to start…</span>}
           <button onClick={leave}>Leave</button>
         </div>
-        <Chat conn={conn} canSend={!!session} />
+        <Chat conn={conn} canSend={!!session} spectator={!conn.you} />
       </div>
     </div>
   );

@@ -10,7 +10,11 @@ interface ClientMsg {
   token?: string;
   action?: Action;
   message?: string;
+  /** Display name for a spectator's chat message. */
+  name?: string;
 }
+
+let socketSeq = 0;
 
 /**
  * WebSocket protocol (JSON):
@@ -18,7 +22,7 @@ interface ClientMsg {
  *  server -> {type:'state', state, events, version}
  *  server -> {type:'chat', message}
  *  client -> {type:'action', reqId, action}  server -> {type:'ack', reqId, ok, error?}
- *  client -> {type:'chat', message}
+ *  client -> {type:'chat', message, name?}   (name: display name when chatting as a spectator)
  */
 /** Who is connected to each room over WebSocket: player ids and anonymous spectators. */
 interface Presence {
@@ -66,6 +70,7 @@ export function attachWebSocket(server: Server, store: Store, commit: () => stri
     let onPresence: ((m: { spectators: number; online: string[] }) => void) | null = null;
     let onClosed: ((reason: string) => void) | null = null;
     let alive = true;
+    const socketKey = `ws:${++socketSeq}`;
 
     const send = (obj: unknown) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
@@ -104,7 +109,9 @@ export function attachWebSocket(server: Server, store: Store, commit: () => stri
             room = r;
             playerId = r.playerForToken(msg.token);
             onChange = (m) => send({ type: 'state', state: r.view(playerId), events: redactEvents(m.state, playerId, m.events), version: m.version, host: r.hostId, name: r.name, you: playerId, commit: commit() });
-            onChat = (m) => send({ type: 'chat', message: m });
+            onChat = (m) => {
+              if (r.canReadChat(m, playerId)) send({ type: 'chat', message: m });
+            };
             onPresence = (m) => send({ type: 'presence', ...m });
             r.on('change', onChange);
             r.on('chat', onChat);
@@ -116,7 +123,7 @@ export function attachWebSocket(server: Server, store: Store, commit: () => stri
             r.on('closed', onClosed);
             enter(r, playerId);
             send({ type: 'state', state: r.view(playerId), events: [], version: r.state.version, host: r.hostId, name: r.name, you: playerId, commit: commit(), reqId: msg.reqId });
-            send({ type: 'chat_history', messages: r.chat.slice(-100) });
+            send({ type: 'chat_history', messages: r.chatFor(playerId).slice(-100) });
             return;
           }
           case 'action': {
@@ -126,9 +133,13 @@ export function attachWebSocket(server: Server, store: Store, commit: () => stri
             return send({ type: 'ack', reqId: msg.reqId, ok: true });
           }
           case 'chat': {
-            if (!room || !playerId) return send({ type: 'ack', reqId: msg.reqId, ok: false, error: 'Not subscribed as a player' });
+            if (!room) return send({ type: 'ack', reqId: msg.reqId, ok: false, error: 'Not subscribed to a game' });
             const text = String(msg.message ?? '').trim();
             if (!text) return;
+            if (!playerId) {
+              room.addSpectatorChat(socketKey, msg.name, text);
+              return send({ type: 'ack', reqId: msg.reqId, ok: true });
+            }
             const p = room.state.players.find((x) => x.id === playerId);
             room.addChat(playerId, p?.name ?? 'Unknown', text);
             return send({ type: 'ack', reqId: msg.reqId, ok: true });

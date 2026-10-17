@@ -56,6 +56,7 @@ function shortLabel(name: string): string {
 export function GameMap(props: MapProps) {
   const { view, highlights, pendingPlacements, attackArrow, flashes, moves, floats, onTerritoryClick, dimOthers, hidden } = props;
   const isHidden = (id: string) => !!(hidden?.has(id) || view.territories[id]?.hidden);
+  const isFrozen = (id: string) => !!view.blizzards?.includes(id);
   const capitalOwner = (id: string) => Object.entries(view.capitals ?? {}).find(([, t]) => t === id)?.[0];
   const map = getMap(view.options.map);
   const [W, H] = map.viewBox;
@@ -211,6 +212,10 @@ export function GameMap(props: MapProps) {
         <pattern id="ocean-grid" width="40" height="40" patternUnits="userSpaceOnUse">
           <path d="M40 0H0V40" fill="none" stroke="rgba(255,255,255,0.045)" strokeWidth="1" />
         </pattern>
+        <pattern id="blizzard" width="10" height="10" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+          <rect width="10" height="10" fill="#dfe8f2" />
+          <line x1="0" y1="0" x2="0" y2="10" stroke="#b3c4d6" strokeWidth="4" />
+        </pattern>
       </defs>
 
       {/* Ocean (oversized so panning never shows the page background) */}
@@ -254,7 +259,14 @@ export function GameMap(props: MapProps) {
           const owner = fog ? null : colorOf(ts?.owner ?? null);
           const flashing = !fog && flashes[t.id] && now - flashes[t.id] < 1200;
           const dim = dimOthers && !hl;
-          const cls = ['territory', hl ? `hl-${hl}` : '', flashing ? 'flash' : '', dim ? 'dim' : '', hl ? 'clickable' : '', owner ? '' : 'unowned', fog ? 'fog' : ''].filter(Boolean).join(' ');
+          const frozen = isFrozen(t.id);
+          const cls = ['territory', hl ? `hl-${hl}` : '', flashing ? 'flash' : '', dim ? 'dim' : '', hl ? 'clickable' : '', owner ? '' : 'unowned', fog ? 'fog' : '', frozen ? 'blizzard' : ''].filter(Boolean).join(' ');
+          if (frozen)
+            return (
+              <path key={t.id} d={t.path} className="territory blizzard" fill="url(#blizzard)">
+                <title>{`${t.name} — blizzard: impassable`}</title>
+              </path>
+            );
           return (
             <path
               key={t.id}
@@ -300,6 +312,19 @@ export function GameMap(props: MapProps) {
           const owner = fog ? '#3a4152' : (colorOf(ts?.owner ?? null) ?? '#555');
           const dim = dimOthers && !hl;
           const cap = capitalOwner(t.id);
+          if (isFrozen(t.id))
+            return (
+              <g key={t.id} className="badge blizzard" transform={`translate(${t.x},${t.y})`}>
+                <g className="blizzard-icon">
+                  {[0, 60, 120].map((a) => (
+                    <line key={a} x1={0} y1={-9} x2={0} y2={9} transform={`rotate(${a})`} />
+                  ))}
+                </g>
+                <text className="label" y={dense ? 22 : 26} textAnchor="middle">
+                  {shortLabel(t.name)}
+                </text>
+              </g>
+            );
           const cls = ['badge', hl ? `hl-${hl}` : '', dim ? 'dim' : '', hl ? 'clickable' : '', fog ? 'fog' : '', cap ? 'capital' : ''].filter(Boolean).join(' ');
           return (
             <g key={t.id} className={cls} transform={`translate(${t.x},${t.y})`} onClick={(e) => click(t.id, e.shiftKey)}>

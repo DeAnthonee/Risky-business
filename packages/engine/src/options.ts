@@ -50,14 +50,14 @@ export const OPTION_SPECS: { [K in OptionKey]: OptionSpec } = {
       }),
     ),
     description:
-      'Which board to play on: classic (the Hasbro board), world (finer world), world_large (Grand World, the biggest board, made for 8-10 players), europe, europe_advanced (Europe Advanced: 99 smaller territories, made for 4-6 players), usa (US states), asia or fantasy (Realms of Halvaren, an original fantasy world). Changing it clamps maxPlayers, neutrals and blizzards to the new map.',
+      'Which board to play on: classic (the Hasbro board), world (finer world), world_large (Grand World, the biggest board, made for 8-10 players), europe, greater_europe (Greater Europe: 116 smaller territories, up to 10 players), usa (US states), asia or fantasy (Realms of Halvaren, an original fantasy world). Changing it clamps maxPlayers, neutrals and blizzards to the new map.',
   },
   maxPlayers: {
     kind: 'int',
     label: 'Seats',
     min: 2,
     max: (m) => m.maxPlayers,
-    description: 'Number of seats, counting bots and agents (classic and europe_advanced up to 6, europe and asia up to 8, world, world_large, usa and fantasy up to 10).',
+    description: 'Number of seats, counting bots and agents (classic up to 6, europe and asia up to 8, world, world_large, greater_europe, usa and fantasy up to 10).',
   },
   autoSetup: {
     kind: 'boolean',
@@ -226,7 +226,7 @@ export function parseOptions(raw: unknown): Partial<GameOptions> {
 export function describeOptions(o: GameOptions, tradeCount = 0): string[] {
   const map = getMap(o.map);
   const lines = [
-    `Map: ${OPTION_SPECS.map.kind === 'enum' ? (OPTION_SPECS.map as EnumSpec).valueLabels[o.map] : o.map}`,
+    `Map: ${(OPTION_SPECS.map as EnumSpec).valueLabels[o.map] ?? `${map.name}: ${map.territoryIds.length} territories, 2-${map.maxPlayers} players (legacy board, not offered for new games)`}`,
     `Seats: ${o.maxPlayers}`,
     o.autoSetup
       ? 'Setup: skipped; starting armies are scattered randomly and turn 1 starts at once'

@@ -1,4 +1,7 @@
-// Europe Advanced: a large, detailed Europe for up to 6 players. Natural Earth 1:50m countries, the
+// LEGACY board (id europe_advanced, shown as "Europe (legacy, 99)"): kept only so games saved on it keep
+// loading. It is no longer offered for new games (not in MAP_IDS); its successor is greater_europe. Do not
+// change its territory ids or adjacency: saved games reference them.
+// Formerly "Europe Advanced": a large, detailed Europe for up to 6 players. Natural Earth 1:50m countries, the
 // big ones cut into historical regions and provinces with lon/lat boxes; Iceland to the Urals, the
 // Maghreb and Egypt along the bottom, Anatolia, the Levant and the Caucasus in the south-east.
 // Our own partition, names and bonuses. Bonuses follow the generator's suggestion for authored maps
@@ -12,7 +15,7 @@ const ru = (boxes) => ({ c: RU, boxes });
 
 export default {
   id: 'europe_advanced',
-  name: 'Europe Advanced (99)',
+  name: 'Europe (legacy, 99)',
   maxPlayers: 6,
   source: 'countries-50m',
   simplify: 0.002,

@@ -217,7 +217,7 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
   }, [conn.error]);
 
   // ---------- animations ----------
-  const anim = useAnimations(conn.batches, view, colorOf, setBanner);
+  const anim = useAnimations(conn.batches, view, colorOf, setBanner, conn.fastForward);
 
   // ---------- actions ----------
   const run = async (fn: () => Promise<void>) => {
@@ -501,6 +501,14 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
                   </button>
                 </span>
               )}
+              <button
+                className={`small ${conn.fastForward ? 'primary' : ''}`}
+                aria-pressed={conn.fastForward}
+                title="Skip animations and the replay: show every move the moment it happens"
+                onClick={() => conn.setFastForward(!conn.fastForward)}
+              >
+                {conn.fastForward ? '⏸ Normal speed' : '⏩ Fast-forward'}
+              </button>
               <button className={`small ${bonusView ? 'primary' : ''}`} aria-pressed={bonusView} title="Show region bonuses, colour-coded, without armies (shortcut: B)" onClick={() => setBonusView((v) => !v)}>
                 {bonusView ? 'Back to board' : 'Bonuses'} <kbd>B</kbd>
               </button>
@@ -818,9 +826,17 @@ function useAnimations(
   view: GameView,
   colorOf: (pid: string | null | undefined) => string,
   setBanner: (b: { text: string; color: string } | null) => void,
+  /** Fast-forward: skip every animation (dice, cards, pop-ups, banners) and just show the board. */
+  skip = false,
 ) {
   const [state, setState] = useState<AnimState>({ battle: null, attackArrow: null, flashes: {}, moves: [], floats: [], sweeps: [], cardFx: null });
   const cardQueue = useRef<CardFx[]>([]);
+  useEffect(() => {
+    if (!skip) return;
+    queue.current = [];
+    cardQueue.current = [];
+    setState((s) => ({ ...s, battle: null, attackArrow: null, cardFx: null, moves: [], floats: [], sweeps: [] }));
+  }, [skip]);
   const cardRunning = useRef(false);
 
   // Card animations play one at a time; the backlog is capped so they never lag far behind the game.
@@ -887,6 +903,7 @@ function useAnimations(
     const fresh = batches.filter((b) => b.id > seen.current);
     if (fresh.length === 0) return;
     seen.current = batches[batches.length - 1].id;
+    if (skip) return; // fast-forward: board only
     const flashes: Record<string, number> = {};
     const moves: MoveAnim[] = [];
     const floats: FloatAnim[] = [];

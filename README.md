@@ -31,6 +31,8 @@ log and chat, a live "watching" count, and which players are online. In fog-of-w
 see the board as any player sees it (click a player, or "Follow turn") and press **F** ("Hide fog" /
 "Show fog") to flip to the whole map and back. Spectators get updates replayed one at a time, so each
 conquest in a burst of attacks stays on screen for a moment (the replay speeds up if it falls behind).
+Press **Fast-forward** in the spectator bar to drop the replay and all animations and see every move the moment it
+happens (handy for long all-AI games); press it again for normal speed.
 Players can **whisper**: pick a player in the chat's "To" menu (or tap a whisper you got to answer it)
 and no other player's seat sees the message. Spectators see every whisper, highlighted in purple (so would a player who
 opened the spectator view). Whispers go to a player id; by name only when exactly one player has that name.

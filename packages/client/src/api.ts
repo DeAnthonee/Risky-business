@@ -57,6 +57,7 @@ export const api = {
   kick: (gameId: string, token: string, playerId: string) =>
     request(`/games/${gameId}/kick`, { method: 'POST', body: JSON.stringify({ playerId }) }, token),
   leave: (gameId: string, token: string) => request(`/games/${gameId}/leave`, { method: 'POST', body: '{}' }, token),
+  rename: (gameId: string, token: string, name: string) => request(`/games/${gameId}/name`, { method: 'POST', body: JSON.stringify({ name }) }, token),
   setOptions: (gameId: string, token: string, options: Partial<GameOptions>) =>
     request(`/games/${gameId}/options`, { method: 'POST', body: JSON.stringify({ options }) }, token),
   start: (gameId: string, token: string) => request(`/games/${gameId}/start`, { method: 'POST', body: '{}' }, token),

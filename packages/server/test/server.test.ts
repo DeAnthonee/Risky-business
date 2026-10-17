@@ -70,6 +70,14 @@ describe('game lifecycle over HTTP', () => {
     expect(res.headers.get('cache-control')).toBe('no-store');
   });
 
+  it('lets a player rename themselves in the lobby', async () => {
+    const r = await api(`/games/${gameId}/name`, { method: 'POST', body: JSON.stringify({ name: 'Dean' }) }, token);
+    expect(r.status).toBe(200);
+    expect(r.body.state.players.find((p: any) => p.id === playerId).name).toBe('Dean');
+    const anon = await api(`/games/${gameId}/name`, { method: 'POST', body: JSON.stringify({ name: 'X' }) });
+    expect(anon.status).toBe(401);
+  });
+
   it('rejects host-only actions without the host token', async () => {
     const r = await api(`/games/${gameId}/bots`, { method: 'POST', body: '{}' });
     expect(r.status).toBe(403);

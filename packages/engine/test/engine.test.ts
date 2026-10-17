@@ -12,6 +12,7 @@ import {
   findSets,
   isValidSet,
   legalMoves,
+  renamePlayer,
   setOptions,
   startGame,
   territoriesOf,
@@ -329,6 +330,17 @@ describe('maps', () => {
     const lm = legalMoves(state, me);
     expect(lm.canPlaceOn.length).toBeGreaterThan(0);
     for (const t of lm.canPlaceOn) expect(t in state.territories).toBe(true);
+  });
+
+  it('renames players in the lobby only', () => {
+    let s = createGame('r');
+    s = addPlayer(s, 'a', 'Player');
+    s = renamePlayer(s, 'a', '  Dean  ');
+    expect(s.players[0].name).toBe('Dean');
+    expect(() => renamePlayer(s, 'a', '   ')).toThrow(RuleError);
+    s = addPlayer(s, 'b', 'B');
+    const started = startGame(s).state;
+    expect(() => renamePlayer(started, 'a', 'X')).toThrow(/lobby/);
   });
 
   it('rejects more players than the map allows and unknown maps', () => {

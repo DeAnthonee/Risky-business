@@ -119,6 +119,18 @@ export function addPlayer(state: GameState, id: PlayerId, name: string, isBot = 
   return next;
 }
 
+export function renamePlayer(state: GameState, id: PlayerId, name: string): GameState {
+  if (state.phase !== 'lobby') throw new RuleError('Names can only be changed in the lobby');
+  const clean = name.trim().slice(0, 24);
+  if (!clean) throw new RuleError('Name cannot be empty');
+  const next = clone(state);
+  const p = next.players.find((x) => x.id === id);
+  if (!p) throw new RuleError('Unknown player');
+  p.name = clean;
+  next.version++;
+  return next;
+}
+
 export function removePlayer(state: GameState, id: PlayerId): GameState {
   if (state.phase !== 'lobby') throw new RuleError('Cannot leave a game in progress; surrender instead');
   const next = clone(state);

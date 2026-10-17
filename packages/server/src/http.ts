@@ -135,6 +135,17 @@ export function createApi(store: Store) {
   );
 
   api.post(
+    '/games/:id/name',
+    loadRoom,
+    requirePlayer,
+    wrap((req, res) => {
+      const room = req.room!;
+      room.rename(req.playerId!, String(req.body?.name ?? ''));
+      res.json({ state: room.view(req.playerId!) });
+    }),
+  );
+
+  api.post(
     '/games/:id/options',
     loadRoom,
     requireHost,

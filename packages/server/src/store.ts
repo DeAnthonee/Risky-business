@@ -8,6 +8,7 @@ import {
   applyAction,
   createGame,
   removePlayer,
+  renamePlayer,
   setOptions,
   startGame,
   viewFor,
@@ -177,6 +178,11 @@ export class GameRoom extends EventEmitter {
       if (nextHost) this.hostId = nextHost.id;
     }
     this.commit(next, [], playerId, { type: 'system', note: `${playerId} left` });
+  }
+
+  rename(playerId: PlayerId, name: string) {
+    const next = renamePlayer(this.state, playerId, name);
+    this.commit(next, [], playerId, { type: 'system', note: `${playerId} renamed to ${name}` });
   }
 
   setOptions(options: Partial<GameOptions>) {

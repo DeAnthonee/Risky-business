@@ -933,3 +933,17 @@ footer {
   background: var(--ok);
   box-shadow: 0 0 6px var(--ok);
 }
+
+button.link {
+  background: transparent;
+  border: 0;
+  color: var(--accent);
+  padding: 0 4px;
+  text-decoration: underline;
+}
+.inline-form {
+  display: inline-flex;
+}
+.inline-form input {
+  padding: 4px 8px;
+}

@@ -11,6 +11,18 @@ export function Lobby({ conn, gameId, session, onLeave, onJoin }: { conn: GameCo
   const isHost = !!session && conn.host === session.playerId;
   const [err, setErr] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const me = view.players.find((p) => p.id === session?.playerId);
+  const [newName, setNewName] = useState(me?.name ?? '');
+  const saveName = async () => {
+    if (!session) return;
+    const n = newName.trim();
+    if (!n || n === me?.name) return setEditing(false);
+    await run(async () => {
+      await api.rename(gameId, session.token, n);
+      setEditing(false);
+    });
+  };
   const link = `${window.location.origin}${window.location.pathname}?game=${gameId}`;
 
   const run = (fn: () => Promise<unknown>) =>
@@ -64,7 +76,41 @@ export function Lobby({ conn, gameId, session, onLeave, onJoin }: { conn: GameCo
             <li key={p.id}>
               <span className="swatch" style={{ background: p.color }} />
               <span>
-                {p.name} {p.isBot && '🤖'} {p.id === conn.host && '👑'} {p.id === session?.playerId && <em>(you)</em>}
+                {p.id === session?.playerId && editing ? (
+                  <form
+                    className="row inline-form"
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      saveName();
+                    }}
+                  >
+                    <input autoFocus value={newName} onChange={(e) => setNewName(e.target.value)} maxLength={24} style={{ width: 160 }} />
+                    <button type="submit" className="small primary">
+                      Save
+                    </button>
+                    <button type="button" className="small" onClick={() => setEditing(false)}>
+                      Cancel
+                    </button>
+                  </form>
+                ) : (
+                  <>
+                    {p.name} {p.isBot && '🤖'} {p.id === conn.host && '👑'}{' '}
+                    {p.id === session?.playerId && (
+                      <>
+                        <em>(you)</em>{' '}
+                        <button
+                          className="small link"
+                          onClick={() => {
+                            setNewName(p.name);
+                            setEditing(true);
+                          }}
+                        >
+                          rename
+                        </button>
+                      </>
+                    )}
+                  </>
+                )}
                 {!p.isBot && <span className={`online-dot ${conn.presence.online.includes(p.id) ? 'on' : ''}`} title={conn.presence.online.includes(p.id) ? 'online' : 'offline'} />}
               </span>
               {isHost && p.id !== session?.playerId && (

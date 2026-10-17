@@ -50,13 +50,13 @@ export function Home({
 
   const create = () =>
     guard(async () => {
-      const r = await api.createGame(name || 'Player', gameName, options);
+      const r = await api.createGame(name.trim(), gameName, options);
       onEnter({ gameId: r.gameId, playerId: r.playerId, token: r.token, name });
     });
 
   const join = (id: string) =>
     guard(async () => {
-      const r = await api.joinGame(id.trim().toUpperCase(), name || 'Player');
+      const r = await api.joinGame(id.trim().toUpperCase(), name.trim());
       onEnter({ gameId: r.gameId, playerId: r.playerId, token: r.token, name });
     });
 
@@ -71,30 +71,37 @@ export function Home({
 
       <div className="home-grid">
         <section className="card">
-          <h2>You</h2>
+          <h2>Join a game</h2>
           <label>
-            Name
-            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Commander" maxLength={24} />
+            Your player name
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Dean" maxLength={24} />
           </label>
-          <h2>Join with a code</h2>
-          <div className="row">
-            <input value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} placeholder="ABC123" maxLength={6} style={{ textTransform: 'uppercase' }} />
-            <button className="primary" disabled={busy || code.length < 4} onClick={() => join(code)}>
-              Join
-            </button>
-          </div>
+          <label>
+            Join code
+            <div className="row">
+              <input value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} placeholder="ABC123" maxLength={6} style={{ textTransform: 'uppercase' }} />
+              <button className="primary" disabled={busy || code.length < 4 || !name.trim()} onClick={() => join(code)}>
+                Join
+              </button>
+            </div>
+          </label>
+          {!name.trim() && <p className="muted small">Enter your player name first.</p>}
           {err && <p className="error">{err}</p>}
         </section>
 
         <section className="card">
           <h2>Create a game</h2>
           <label>
-            Game name
-            <input value={gameName} onChange={(e) => setGameName(e.target.value)} placeholder={`${name || 'Player'}'s game`} maxLength={40} />
+            Your player name
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Dean" maxLength={24} />
+          </label>
+          <label>
+            Game name <span className="muted">(what others see in the list)</span>
+            <input value={gameName} onChange={(e) => setGameName(e.target.value)} placeholder={`${name.trim() || 'Your'}'s game`} maxLength={40} />
           </label>
           <OptionsForm options={options} onChange={(o) => setOptions({ ...options, ...o })} />
-          <button className="primary" disabled={busy} onClick={create}>
-            Create game
+          <button className="primary" disabled={busy || !name.trim()} onClick={create}>
+            Create game as {name.trim() || '…'}
           </button>
         </section>
 
@@ -119,7 +126,7 @@ export function Home({
                 </div>
                 <div className="row">
                   {g.joinable && (
-                    <button className="primary" disabled={busy} onClick={() => join(g.id)}>
+                    <button className="primary" disabled={busy || !name.trim()} title={name.trim() ? '' : 'Enter your player name first'} onClick={() => join(g.id)}>
                       Join
                     </button>
                   )}

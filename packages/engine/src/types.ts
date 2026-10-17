@@ -179,6 +179,12 @@ export interface AttackAction {
    * 'min' = the minimum required, 'max' = everything but one.
    */
   occupy?: number | 'min' | 'max';
+  /**
+   * Blitz, but stop once the attacking stack is down to this many armies (at least 1, below the stack).
+   * The attacker never rolls more dice than it can lose without going below it, so the stack always keeps
+   * at least stopAt armies. Implies blitz. With occupy 'max', everything above stopAt moves in.
+   */
+  stopAt?: number;
 }
 
 export interface OccupyAction {

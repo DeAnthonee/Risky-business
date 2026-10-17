@@ -1,4 +1,4 @@
-import { describeOptions, fixedSetValue, getMap, visibleTerritories, type GameEvent, type GameView } from '@risk/engine';
+import { CAPITAL_DEFENSE_DICE, blitzOdds, describeOptions, fixedSetValue, getMap, visibleTerritories, type GameEvent, type GameView } from '@risk/engine';
 
 /** The player whose capital this territory is (capitals the viewer can see), if any. */
 function capitalOwnerOf(view: GameView, t: string): string | undefined {
@@ -116,12 +116,24 @@ export function formatState(view: GameView, gameName?: string): string {
         );
       }
       if (lm.attacks.length) {
-        lines.push(`  Attacks available (from -> to, max dice): ${lm.attacks.map((a) => `${a.from}->${a.to} (${a.maxDice})`).join('; ')}`);
+        // The chance an all-in blitz takes each target, in the mode this game rolls (balanced or random).
+        const balanced = !!view.options.balancedBlitz;
+        const chance = (from: string, to: string) => {
+          const limit = view.options.capitals && Object.values(view.capitals ?? {}).includes(to) ? CAPITAL_DEFENSE_DICE : 2;
+          const o = blitzOdds(view.territories[from].armies, view.territories[to].armies, limit);
+          const p = balanced ? o.balancedWin : o.win;
+          return (o.exact ? '' : '~') + (p >= 0.995 ? '99%+' : p < 0.01 ? '<1%' : `${Math.round(p * 100)}%`);
+        };
+        lines.push(
+          `  Attacks available (from -> to, max dice, chance an all-in blitz takes it${balanced ? ', balanced' : ''}): ${lm.attacks
+            .map((a) => `${a.from}->${a.to} (${a.maxDice}, ${chance(a.from, a.to)})`)
+            .join('; ')}`,
+        );
         if (view.options.fogOfWar)
           lines.push('    Blitz by default: {"type":"attack","from":"..","to":"..","blitz":true} fights the whole battle in ONE call. Fog of war is ON, so leave out "occupy": a conquest reveals the territories beyond it, and you then choose how many armies to move in knowing what is there (a weak capital next door, a big stack about to hit back).');
         else
           lines.push('    Blitz by default: {"type":"attack","from":"..","to":"..","blitz":true,"occupy":"max"} fights the whole battle in ONE call (rolls until the territory falls or you run down to 1 army).');
-        lines.push('    Single rolls ("dice":1-3, no blitz) are only for stopping partway on purpose; rolling one at a time is slow for everyone watching. "occupy" may be a number, "min" or "max".');
+        lines.push('    To risk only part of a stack, add "stopAt":N (blitz implied): it rolls in ONE call but stops once the attacking stack is down to N, so N always stay home. Use it instead of single rolls; rolling one at a time is slow for everyone watching and costs you a call per roll. "occupy" may be a number, "min" or "max" ("max" with stopAt moves in everything above N).');
         if (view.options.balancedBlitz)
           lines.push('    Balanced blitz is ON: a blitz lands near the expected odds (a strong attack almost never collapses), while single rolls are pure luck. Blitz when you have the numbers.');
       }

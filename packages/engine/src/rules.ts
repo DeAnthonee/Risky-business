@@ -69,6 +69,9 @@ A TURN has three phases:
    4 or fewer (place those armies, then keep attacking).
    Conquering at least one territory this turn earns you one card at the end of your turn (max one per turn).
    "blitz" keeps rolling until the territory falls or you cannot continue.
+   "stopAt": N (implies blitz) keeps rolling but stops once the attacking stack is down to N armies; it never
+   rolls more dice than it can lose without going below N, so N armies always stay behind. With occupy "max",
+   everything above N moves in. Example: from 25 armies, stopAt 15 commits 10 armies to the attack.
    Balanced blitz ("balancedBlitz" setting, off by default): a blitz is rolled 5 times with real dice and the middle
    outcome happens, so blitzes land close to the odds. Single rolls are never balanced.
 

@@ -834,6 +834,25 @@ footer {
 .log-line.turn_started {
   color: var(--accent);
 }
+/* One line per attack: headline, then start → end armies and losses for each side (rolls on hover). */
+.log-line.battle-summary {
+  cursor: help;
+}
+.battle-stats {
+  font-weight: 400;
+  color: var(--muted);
+}
+.battle-stats b {
+  color: var(--text);
+  font-weight: 600;
+}
+.battle-side {
+  white-space: nowrap;
+}
+.battle-loss {
+  color: #ff8a8a;
+  font-weight: 600;
+}
 .chat {
   flex: 1;
   display: flex;

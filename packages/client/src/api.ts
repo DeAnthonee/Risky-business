@@ -74,6 +74,9 @@ export interface ChatMessage {
   at: number;
   /** Posted by someone watching, not a seated player. */
   spectator?: boolean;
+  /** Whisper recipient: only the sender, this player and spectators receive the message. */
+  to?: string;
+  toName?: string;
 }
 
 export interface StateMessage {
@@ -186,9 +189,9 @@ export class GameSocket {
     return this.send({ type: 'action', action });
   }
 
-  /** `name` is used only when this socket is watching rather than seated. */
-  chat(message: string, name?: string) {
-    return this.send({ type: 'chat', message, name });
+  /** `name` is used only when this socket is watching rather than seated; `to` whispers to one player. */
+  chat(message: string, name?: string, to?: string) {
+    return this.send({ type: 'chat', message, name, to });
   }
 
   close() {

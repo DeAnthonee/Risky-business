@@ -326,6 +326,108 @@ describe('game lifecycle over HTTP', () => {
     expect(off.body.error).toMatch(/turned off/);
   });
 
+  it('routes whispers by id first, rejects ambiguous names, and refuses unknown tokens on read', async () => {
+    const created = await api('/games', { method: 'POST', body: JSON.stringify({ playerName: 'Ann' }) });
+    const g = created.body.gameId;
+    const ann = created.body.token;
+    const bobJoin = (await api(`/games/${g}/join`, { method: 'POST', body: JSON.stringify({ playerName: 'Bob' }) })).body;
+    const bob = bobJoin.token;
+    const bobId = bobJoin.playerId;
+    // Ann sits before Bob and renames herself to Bob's id to try to intercept whispers meant for Bob.
+    const mal = (await api(`/games/${g}/join`, { method: 'POST', body: JSON.stringify({ playerName: 'Mal' }) })).body.token;
+    expect((await api(`/games/${g}/name`, { method: 'POST', body: JSON.stringify({ name: bobId }) }, ann)).status).toBeLessThan(300);
+    const w = await api(`/games/${g}/chat`, { method: 'POST', body: JSON.stringify({ message: 'for Bob only', to: bobId }) }, mal);
+    expect(w.status).toBe(201);
+    expect(w.body.message.to).toBe(bobId);
+    const annRead = await api(`/games/${g}/chat`, {}, ann);
+    expect(annRead.body.messages.some((m: any) => m.message === 'for Bob only')).toBe(false);
+
+    // Two players with the same name: a whisper by that name is ambiguous.
+    expect((await api(`/games/${g}/name`, { method: 'POST', body: JSON.stringify({ name: 'Bob' }) }, mal)).status).toBeLessThan(300);
+    const amb = await api(`/games/${g}/chat`, { method: 'POST', body: JSON.stringify({ message: 'which Bob?', to: 'bob' }) }, ann);
+    expect(amb.status).toBe(400);
+    expect(amb.body.error).toMatch(/player id/);
+
+    // A token that is not a seat here does not silently read the spectator view (which shows all whispers).
+    const bad = await api(`/games/${g}/chat`, {}, 'not-a-real-token');
+    expect(bad.status).toBe(401);
+    expect((await api(`/games/${g}/chat`, {}, bob)).body.messages.some((m: any) => m.message === 'for Bob only')).toBe(true);
+  });
+
+  it('delivers whispers to the two players and spectators only', async () => {
+    const created = await api('/games', { method: 'POST', body: JSON.stringify({ playerName: 'Ann' }) });
+    const g = created.body.gameId;
+    const ann = created.body.token;
+    const bob = (await api(`/games/${g}/join`, { method: 'POST', body: JSON.stringify({ playerName: 'Bob' }) })).body.token;
+    const cat = (await api(`/games/${g}/join`, { method: 'POST', body: JSON.stringify({ playerName: 'Cat' }) })).body.token;
+
+    // Cat (a third player) and a spectator listen over WebSocket.
+    const listen = async (token?: string) => {
+      const ws = new WebSocket(`${base.replace('http', 'ws')}/ws`);
+      const msgs: any[] = [];
+      ws.on('message', (raw) => msgs.push(JSON.parse(String(raw))));
+      await new Promise<void>((resolve) => ws.on('open', () => resolve()));
+      ws.send(JSON.stringify({ type: 'subscribe', gameId: g, token }));
+      await new Promise((r) => setTimeout(r, 100));
+      return { ws, chats: () => msgs.filter((m) => m.type === 'chat').map((m) => m.message.message), msgs };
+    };
+    const catWs = await listen(cat);
+    const fanWs = await listen();
+
+    // By name (any case) over HTTP; by id over WebSocket.
+    const w = await api(`/games/${g}/chat`, { method: 'POST', body: JSON.stringify({ message: 'ally vs Cat?', to: 'bob' }) }, ann);
+    expect(w.status).toBe(201);
+    expect(w.body.message).toMatchObject({ to: expect.any(String), toName: 'Bob' });
+    const bobId = w.body.message.to;
+    const annWs = await listen(ann);
+    annWs.ws.send(JSON.stringify({ type: 'chat', message: 'deal?', to: bobId, reqId: 'w2' }));
+    await api(`/games/${g}/chat`, { method: 'POST', body: JSON.stringify({ message: 'hello all' }) }, bob);
+    await new Promise((r) => setTimeout(r, 150));
+    expect(annWs.msgs.find((m) => m.reqId === 'w2')?.ok).toBe(true);
+
+    const read = async (token?: string) => (await api(`/games/${g}/chat`, {}, token)).body.messages.map((m: any) => m.message);
+    expect(await read(ann)).toEqual(['ally vs Cat?', 'deal?', 'hello all']);
+    expect(await read(bob)).toEqual(['ally vs Cat?', 'deal?', 'hello all']);
+    expect(await read(cat)).toEqual(['hello all']);
+    expect(await read()).toEqual(['ally vs Cat?', 'deal?', 'hello all']);
+    expect(catWs.chats()).toEqual(['hello all']);
+    expect(fanWs.chats()).toEqual(['ally vs Cat?', 'deal?', 'hello all']);
+
+    // Chat history on (re)connect is filtered the same way.
+    const catAgain = await listen(cat);
+    const history = catAgain.msgs.find((m) => m.type === 'chat_history').messages.map((m: any) => m.message);
+    expect(history).toEqual(['hello all']);
+
+    // Spectators can't whisper; nobody whispers to themselves or to a stranger.
+    expect((await api(`/games/${g}/chat`, { method: 'POST', body: JSON.stringify({ message: 'psst', name: 'Fan', to: 'Ann' }) })).status).toBe(400);
+    fanWs.ws.send(JSON.stringify({ type: 'chat', message: 'psst', name: 'Fan', to: 'Ann', reqId: 'f1' }));
+    expect((await api(`/games/${g}/chat`, { method: 'POST', body: JSON.stringify({ message: 'me', to: 'Ann' }) }, ann)).body.error).toMatch(/yourself/);
+    expect((await api(`/games/${g}/chat`, { method: 'POST', body: JSON.stringify({ message: 'x', to: 'Zed' }) }, ann)).body.error).toMatch(/No player/);
+    await new Promise((r) => setTimeout(r, 100));
+    expect(fanWs.msgs.find((m) => m.reqId === 'f1')?.error).toMatch(/seated players/);
+    for (const l of [catWs, fanWs, annWs, catAgain]) l.ws.close();
+
+    // MCP: send_chat with "to" whispers; read_chat labels it and hides it from the third player.
+    const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+    const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
+    const agent = new Client({ name: 'agent', version: '0' });
+    await agent.connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`)));
+    const call = async (name: string, args: Record<string, unknown>) => {
+      const r = (await agent.callTool({ name, arguments: args })) as { content: { text: string }[]; isError?: boolean };
+      return { text: r.content.map((x) => x.text).join('\n'), isError: !!r.isError };
+    };
+    try {
+      const sent = await call('send_chat', { gameId: g, token: cat, message: 'Bob, Ann is plotting', to: 'Bob' });
+      expect(sent).toEqual({ text: 'Whispered to Bob.', isError: false });
+      expect((await call('read_chat', { gameId: g, token: bob })).text).toContain('Cat [whisper -> Bob]: Bob, Ann is plotting');
+      const annView = (await call('read_chat', { gameId: g, token: ann })).text;
+      expect(annView).toContain('Ann [whisper -> Bob]: ally vs Cat?');
+      expect(annView).not.toContain('plotting');
+    } finally {
+      await agent.close();
+    }
+  });
+
   it('shuts down gracefully and releases long-poll waiters', async () => {
     const third = await startServer(null);
     const created = await fetch(`${third.base}/api/games`, {
@@ -634,6 +736,40 @@ describe('MCP act replies', () => {
       // full:true still gives the whole board.
       const end = await call('act', { gameId, action: { type: 'end_attack' }, full: true });
       expect(end.text).toContain('Territories (owner armies) with neighbours:');
+    } finally {
+      await client.close();
+    }
+  });
+
+  it('under fog of war the compact reply shows nothing the fogged board hides, and lists your cards', async () => {
+    const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+    const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
+    const { viewFor } = await import('@risk/engine');
+    const client = new Client({ name: 'fog-agent', version: '0' });
+    await client.connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`)));
+    try {
+      const call = async (name: string, args: Record<string, unknown> = {}) => {
+        const r = (await client.callTool({ name, arguments: args })) as { content: { text: string }[]; isError?: boolean };
+        return { text: r.content.map((c) => c.text).join('\n'), isError: !!r.isError };
+      };
+      const created = await call('create_game', { playerName: 'Foggy', options: { autoSetup: true, fogOfWar: true } });
+      const gameId = created.text.match(/Created game (\w+)/)![1];
+      await call('add_bot', { gameId });
+      await call('add_bot', { gameId });
+      await call('start_game', { gameId });
+      expect((await call('wait_for_turn', { gameId, timeoutSeconds: 15 })).text).toMatch(/^It is your turn/);
+      const room = risk.store.get(gameId)!;
+      const me = room.state.players.find((p) => p.name === 'Foggy')!;
+      me.cards = room.state.deck.splice(0, 2);
+      const board = await call('get_state', { gameId });
+      const toPlace = Number(board.text.match(/YOUR LEGAL MOVES:[\s\S]*?Place up to (\d+) armies/)![1]);
+      const territory = Object.entries(room.state.territories).find(([, t]) => t.owner === me.id)![0];
+      const placed = await call('act', { gameId, action: { type: 'place', placements: { [territory]: toPlace } } });
+      expect(placed.isError).toBe(false);
+      expect(placed.text).toContain(`Your cards: #${me.cards[0].id}`);
+      const hidden = Object.entries(viewFor(room.state, me.id).territories).filter(([, t]) => t.hidden).map(([id]) => id);
+      expect(hidden.length).toBeGreaterThan(0);
+      for (const t of hidden) expect(placed.text).not.toMatch(new RegExp(`\\b${t}\\*?\\((?!fog)`));
     } finally {
       await client.close();
     }

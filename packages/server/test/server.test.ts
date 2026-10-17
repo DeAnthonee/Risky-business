@@ -627,6 +627,20 @@ describe('MCP game settings', () => {
   });
 });
 
+describe('balanced blitz over HTTP', () => {
+  it('accepts the setting, lists it in the catalog and rejects bad values', async () => {
+    const created = await api('/games', { method: 'POST', body: JSON.stringify({ playerName: 'B', options: { balancedBlitz: true } }) });
+    expect(created.status).toBe(201);
+    expect(created.body.state.options.balancedBlitz).toBe(true);
+    const plain = await api('/games', { method: 'POST', body: JSON.stringify({ playerName: 'P' }) });
+    expect(plain.body.state.options.balancedBlitz).toBe(false);
+    const bad = await api('/games', { method: 'POST', body: JSON.stringify({ playerName: 'X', options: { balancedBlitz: 'sometimes' } }) });
+    expect(bad.status).toBe(400);
+    const cat = await api('/options');
+    expect(JSON.stringify(cat.body)).toContain('balancedBlitz');
+  });
+});
+
 describe('MCP seats', () => {
   it('lets one connection hold several players in a game and resolves them by name or token', async () => {
     const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');

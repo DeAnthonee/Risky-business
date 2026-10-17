@@ -1582,3 +1582,4 @@ label.check input {
 /* Blitz counter in the dice panel */
 .dice-vs { display: flex; flex-direction: column; align-items: center; gap: 2px; }
 .dice-blitz { font-size: 10px; font-weight: 800; letter-spacing: 1px; color: #ffd166; white-space: nowrap; }
+.dice-balanced { font-size: 10px; font-weight: 700; letter-spacing: 0.5px; color: #9ad1ff; white-space: nowrap; text-transform: uppercase; }

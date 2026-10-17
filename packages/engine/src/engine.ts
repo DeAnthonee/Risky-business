@@ -747,6 +747,56 @@ export function defenseDiceLimit(state: GameState, territory: TerritoryId): numb
   return state.options.capitals && Object.values(state.capitals).includes(territory) ? CAPITAL_DEFENSE_DICE : 2;
 }
 
+/** How many full blitzes a balanced blitz rolls before playing out the middle one. Odd, so there is a median. */
+export const BALANCED_BLITZ_RUNS = 5;
+
+interface Roll {
+  attackerDice: number[];
+  defenderDice: number[];
+  attackerLosses: number;
+  defenderLosses: number;
+}
+interface BattleRun {
+  rolls: Roll[];
+  fromArmies: number;
+  toArmies: number;
+  balanced?: boolean;
+}
+
+/** Roll one attack (or a whole blitz) on copies of the army counts. */
+function rollBattle(rng: Rng, fromArmies: number, toArmies: number, defenseLimit: number, dice: number | undefined, blitz: boolean): BattleRun {
+  const rolls: Roll[] = [];
+  for (;;) {
+    const maxDice = Math.min(3, fromArmies - 1);
+    if (maxDice < 1) break;
+    const aDiceCount = Math.min(dice ?? 3, maxDice);
+    const dDiceCount = Math.min(defenseLimit, toArmies);
+    const attackerDice = Array.from({ length: aDiceCount }, () => rollDie(rng)).sort((a, b) => b - a);
+    const defenderDice = Array.from({ length: dDiceCount }, () => rollDie(rng)).sort((a, b) => b - a);
+    let attackerLosses = 0;
+    let defenderLosses = 0;
+    for (let i = 0; i < Math.min(attackerDice.length, defenderDice.length); i++) {
+      if (attackerDice[i] > defenderDice[i]) defenderLosses++;
+      else attackerLosses++;
+    }
+    fromArmies -= attackerLosses;
+    toArmies -= defenderLosses;
+    rolls.push({ attackerDice, defenderDice, attackerLosses, defenderLosses });
+    if (toArmies === 0 || !blitz) break;
+  }
+  return { rolls, fromArmies, toArmies };
+}
+
+/**
+ * The middle run by how well it went for the attacker: a conquest beats a failed attack, a conquest with
+ * more armies left beats one with fewer, and a failed attack that left fewer defenders beats one that left more.
+ */
+function medianRun(runs: BattleRun[]): BattleRun {
+  const score = (r: BattleRun) => (r.toArmies === 0 ? 1_000_000 + r.fromArmies : -r.toArmies);
+  const sorted = [...runs].sort((a, b) => score(a) - score(b));
+  return { ...sorted[Math.floor(sorted.length / 2)], balanced: true };
+}
+
 function doAttack(state: GameState, playerId: PlayerId, action: AttackAction, events: GameEvent[]): void {
   const player = playerOf(state, playerId);
   if (state.phase !== 'attack') throw new RuleError('Not in attack phase');
@@ -765,44 +815,37 @@ function doAttack(state: GameState, playerId: PlayerId, action: AttackAction, ev
   if (action.dice !== undefined && (!Number.isInteger(action.dice) || action.dice < 1 || action.dice > 3))
     throw new RuleError('dice must be 1, 2 or 3');
 
+  if (action.dice !== undefined && !action.blitz && action.dice > Math.min(3, from.armies - 1))
+    throw new RuleError(`You can roll at most ${Math.min(3, from.armies - 1)} dice from ${action.from}`);
+
   const rng = rngOf(state);
   const defenderId = to.owner!;
+  const defenseLimit = defenseDiceLimit(state, action.to);
+  const roll = () => rollBattle(rng, from.armies, to.armies, defenseLimit, action.dice, !!action.blitz);
+  // Balanced blitz: roll the whole blitz BALANCED_BLITZ_RUNS times with real dice and play out the median
+  // run, so blitzes land close to the odds (fewer freak wins and collapses). Single rolls stay fully random.
+  const result = action.blitz && state.options.balancedBlitz ? medianRun(Array.from({ length: BALANCED_BLITZ_RUNS }, roll)) : roll();
+  saveRng(state, rng);
   let lastAttackerDice = 0;
-  for (;;) {
-    const maxDice = Math.min(3, from.armies - 1);
-    if (maxDice < 1) break;
-    const aDiceCount = Math.min(action.dice ?? 3, maxDice);
-    if (action.dice !== undefined && action.dice > maxDice && !action.blitz)
-      throw new RuleError(`You can roll at most ${maxDice} dice from ${action.from}`);
-    const dDiceCount = Math.min(defenseDiceLimit(state, action.to), to.armies);
-    const aDice = Array.from({ length: aDiceCount }, () => rollDie(rng)).sort((a, b) => b - a);
-    const dDice = Array.from({ length: dDiceCount }, () => rollDie(rng)).sort((a, b) => b - a);
-    let aLoss = 0;
-    let dLoss = 0;
-    for (let i = 0; i < Math.min(aDice.length, dDice.length); i++) {
-      if (aDice[i] > dDice[i]) dLoss++;
-      else aLoss++;
-    }
-    from.armies -= aLoss;
-    to.armies -= dLoss;
-    lastAttackerDice = aDiceCount;
+  for (const r of result.rolls) {
+    from.armies -= r.attackerLosses;
+    to.armies -= r.defenderLosses;
+    lastAttackerDice = r.attackerDice.length;
     events.push({
       type: 'battle',
       attacker: playerId,
       defender: defenderId,
       from: action.from,
       to: action.to,
-      attackerDice: aDice,
-      defenderDice: dDice,
-      attackerLosses: aLoss,
-      defenderLosses: dLoss,
+      attackerDice: r.attackerDice,
+      defenderDice: r.defenderDice,
+      attackerLosses: r.attackerLosses,
+      defenderLosses: r.defenderLosses,
       fromArmies: from.armies,
       toArmies: to.armies,
+      ...(result.balanced ? { balanced: true } : {}),
     });
-    if (to.armies === 0) break;
-    if (!action.blitz) break;
   }
-  saveRng(state, rng);
 
   if (to.armies === 0) {
     // Conquered.

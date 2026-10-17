@@ -1051,3 +1051,14 @@ label.check input {
     stroke-opacity: 0;
   }
 }
+
+/* Spectator fog toggle */
+.fog-toggle kbd {
+  font: inherit;
+  font-size: 0.75em;
+  padding: 0 4px;
+  margin-left: 4px;
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  opacity: 0.7;
+}

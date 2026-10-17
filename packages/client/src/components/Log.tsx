@@ -3,6 +3,7 @@ import type { GameEvent, GameView } from '@risk/engine';
 import type { EventBatch } from '../useGame';
 import { getMap } from '@risk/engine';
 import { territoryName } from './Map';
+import { logItems, type BattleSummary } from '../logLines';
 
 export function describe(e: GameEvent, view: GameView): string | null {
   const name = (id: string | null) => view.players.find((p) => p.id === id)?.name ?? id ?? '?';
@@ -56,20 +57,57 @@ export function describe(e: GameEvent, view: GameView): string | null {
   }
 }
 
+function BattleLine({ b, view }: { b: BattleSummary; view: GameView }) {
+  const name = (id: string | null) => view.players.find((p) => p.id === id)?.name ?? id ?? '?';
+  const map = getMap(view.options.map);
+  const t = (id: string) => territoryName(map, id);
+  const head = b.conquered
+    ? `⚑ ${name(b.attacker)} took ${t(b.to)} from ${name(b.defender)}${b.movedIn !== null ? `, moved ${b.movedIn} in` : ''}`
+    : `⚔ ${name(b.attacker)} attacked ${t(b.to)} (${name(b.defender)})${b.fromEnd <= 1 ? ', ran out of armies' : ''}`;
+  const side = (label: string, start: number, end: number, lost: number) => (
+    <span className="battle-side">
+      {label} <b>{start}</b> → <b>{end}</b> <span className="battle-loss">−{lost}</span>
+    </span>
+  );
+  // Every roll stays available on hover.
+  const rolls = b.battles.map((e) => `[${e.attackerDice.join(' ')}] vs [${e.defenderDice.join(' ')}] → att −${e.attackerLosses}, def −${e.defenderLosses}`).join('\n');
+  return (
+    <div className={`log-line battle-summary ${b.conquered ? 'conquered' : 'battle'}`} title={rolls}>
+      <div>{head}</div>
+      <div className="battle-stats">
+        {side(t(b.from), b.fromStart, b.fromEnd, b.attackerLosses)}
+        <span className="muted"> vs </span>
+        {side(t(b.to), b.toStart, b.toEnd, b.defenderLosses)}
+        <span className="muted"> · {b.rolls} roll{b.rolls === 1 ? '' : 's'}</span>
+      </div>
+    </div>
+  );
+}
+
 export function Log({ batches, view }: { batches: EventBatch[]; view: GameView }) {
   const ref = useRef<HTMLDivElement>(null);
+  const items = logItems(batches, (e) => describe(e, view) !== null);
+  // Scroll on new lines and as a running battle's summary grows.
+  const tail = batches.length ? batches[batches.length - 1].id : null;
   useEffect(() => {
     ref.current?.scrollTo({ top: ref.current.scrollHeight });
-  }, [batches.length]);
-  const lines = batches.flatMap((b) => b.events.map((e, i) => ({ key: `${b.id}-${i}`, text: describe(e, view), e }))).filter((l) => l.text);
+  }, [items.length, tail]);
   return (
     <div className="log" ref={ref}>
-      {lines.length === 0 && <div className="muted small">The log will appear here.</div>}
-      {lines.map((l) => (
-        <div key={l.key} className={`log-line ${l.e.type}`}>
-          {l.text}
-        </div>
-      ))}
+      {items.length === 0 && <div className="muted small">The log will appear here.</div>}
+      {items.map(({ key, e }) =>
+        e.type === 'battle_summary' ? (
+          <BattleLine key={key} b={e} view={view} />
+        ) : e.type === 'fogged_run' ? (
+          <div key={key} className="log-line fogged">
+            … something happened in the fog ({e.kind.replace('_', ' ')}{e.count > 1 ? ` ×${e.count}` : ''})
+          </div>
+        ) : (
+          <div key={key} className={`log-line ${e.type}`}>
+            {describe(e, view)}
+          </div>
+        ),
+      )}
     </div>
   );
 }

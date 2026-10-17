@@ -123,7 +123,7 @@ export function Lobby({ conn, gameId, session, onLeave, onJoin }: { conn: GameCo
         </ul>
 
         <h2>Options</h2>
-        <OptionsForm options={view.options} disabled={!isHost} onChange={(o) => isHost && run(() => api.setOptions(gameId, session!.token, o))} />
+        <OptionsForm options={view.options} players={Math.max(2, view.players.filter((p) => !p.isNeutral).length)} disabled={!isHost} onChange={(o) => isHost && run(() => api.setOptions(gameId, session!.token, o))} />
 
         {err && <p className="error">{err}</p>}
         <div className="row">

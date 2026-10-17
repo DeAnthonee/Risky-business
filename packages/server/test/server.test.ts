@@ -788,7 +788,7 @@ describe('new boards over HTTP', () => {
   for (const [id, territories, maxPlayers] of [
     ['world_large', 104, 10],
     ['europe', 44, 8],
-    ['europe_advanced', 99, 6],
+    ['europe_advanced', 116, 10],
     ['usa', 45, 10],
     ['asia', 49, 8],
   ] as const) {
@@ -814,18 +814,18 @@ describe('new boards over HTTP', () => {
     const r = await api('/games', { method: 'POST', body: JSON.stringify({ playerName: 'H', options: { map: 'europe', maxPlayers: 9 } }) });
     expect(r.status).toBe(400);
     expect(r.body.error).toMatch(/maxPlayers must be between 2 and 8/);
-    const ea = await api('/games', { method: 'POST', body: JSON.stringify({ playerName: 'H', options: { map: 'europe_advanced', maxPlayers: 7 } }) });
+    const ea = await api('/games', { method: 'POST', body: JSON.stringify({ playerName: 'H', options: { map: 'europe_advanced', maxPlayers: 11 } }) });
     expect(ea.status).toBe(400);
-    expect(ea.body.error).toMatch(/maxPlayers must be between 2 and 6/);
+    expect(ea.body.error).toMatch(/maxPlayers must be between 2 and 10/);
   });
 
-  it('serves Europe Advanced with its regions and cross-water adjacency', async () => {
+  it('serves Greater Europe with its regions and cross-water adjacency', async () => {
     const maps = await api('/maps');
-    expect(maps.body.maps).toContainEqual(expect.objectContaining({ id: 'europe_advanced', territories: 99, maxPlayers: 6 }));
+    expect(maps.body.maps).toContainEqual(expect.objectContaining({ id: 'europe_advanced', territories: 116, maxPlayers: 10 }));
     const map = await api('/map?map=europe_advanced');
-    expect(map.body.continents).toHaveLength(14);
+    expect(map.body.continents).toHaveLength(15);
     expect(map.body.adjacency.southern_england).toContain('ile_de_france');
-    expect(map.body.adjacency.morocco).toContain('andalusia');
+    expect(map.body.adjacency.fez).toContain('andalusia');
   });
 });
 

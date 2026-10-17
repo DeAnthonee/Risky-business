@@ -69,7 +69,7 @@ territories and projected to SVG); Realms of Halvaren is an original fantasy wor
 | **World** | 74 | 14 | 2–10 | finer regions (Caribbean, Russia, Middle East, Central/South/East/Southeast Asia, Oceania, three African regions); region bonuses 2–7; starting armies scale with the player count (21 each for 10 players) |
 | **Grand World** (`world_large`) | 104 | 20 | 2–10 | the big board for 8–10 players: the US in ten, Russia in nine, Africa in eighteen; bonuses 2–7; 30 armies each at 10 players |
 | **Europe** | 44 | 8 | 2–8 | countries and halves of countries, with western Russia, Anatolia and the Maghreb as edge regions; bonuses 2–6 |
-| **Europe Advanced** (`europe_advanced`) | 99 | 14 | 2–6 | a large, detailed Europe for 4–6 players: Iceland to the Urals, historical regions and provinces (Brittany, Bavaria, Lapland, Wallachia, Cappadocia ...), North Africa, Anatolia, the Levant and the Caucasus; sea crossings over the Channel, North Sea, Baltic, Gibraltar, Sicily–Tunisia, Corsica/Sardinia, the Aegean, the Bosporus and Kerch; bonuses 3–6; 94 armies each for 2 players, 47 for 6 |
+| **Greater Europe** (`europe_advanced`) | 116 | 15 | 2–10 | a large, detailed Europe for up to 10 players: Iceland to the Urals, historical regions and provinces (Brittany, Bavaria, Lapland, Wallachia, Cappadocia ...), the Maghreb, Libya and Egypt, Anatolia, the Levant and the Caucasus; sea crossings over the Channel, North Sea, Baltic, Gibraltar, Sicily–Tunisia, Corsica/Sardinia, the Aegean, the Bosporus and Kerch; bonuses 2–7; 110 armies each for 2 players, 55 for 6, 33 for 10 |
 | **USA** | 45 | 8 | 2–10 | US states (small north-eastern ones merged); Alaska and Hawaii as insets reached by sea; bonuses 3–6 |
 | **Asia** | 49 | 7 | 2–8 | Middle East to Japan, Siberia to Java; bonuses 4–6 |
 | **Realms of Halvaren** (`fantasy`) | 87 | 16 | 2–10 | original fantasy world: rival kingdoms around an Inner Sea, the lawless Grimward Wastes across the north (+7, borders almost everyone), a cursed swamp, a desert, mountain passes and island chains linked by sea lanes; bonuses 2–7; 83 armies each for 2 players, 25 for 10 |
@@ -98,7 +98,7 @@ Host-selectable options:
 | option        | values                        | default     |
 | ------------- | ----------------------------- | ----------- |
 | `map`         | `classic` \| `world` \| `world_large` \| `europe` \| `europe_advanced` \| `usa` \| `asia` \| `fantasy` | `classic` |
-| `maxPlayers`  | 2–6 (classic, europe_advanced) / 2–8 (europe, asia) / 2–10 (world, world_large, usa, fantasy) | 6 |
+| `maxPlayers`  | 2–6 (classic) / 2–8 (europe, asia) / 2–10 (world, world_large, europe_advanced, usa, fantasy) | 6 |
 | `setupBatch`  | armies placed per setup turn  | 1 (classic) |
 | `fortifyMode` | `connected` \| `adjacent`     | `connected` |
 | `randomDeal`  | `true` (deal) \| `false` (claim one by one) | `true` |
@@ -108,7 +108,7 @@ Host-selectable options:
 | `spectatorChat` | watchers can post in the game chat (marked as spectators, 5 messages / 10 s); every player sees them, even under fog of war | `true` |
 | `neutrals`    | games of 3+ players: this many random territories start held by a Neutral army that never attacks (0 = off, max a third of the map); 2-player games always have the classic Neutral | `0` |
 | `neutralArmies` | armies on each neutral territory when `neutrals` is on (1–10) | `2` |
-| `blizzards`   | number of random territories frozen for the whole game (0 = off, max 8, or a sixth of the map on bigger boards: 12 world, 14 fantasy, 16 europe advanced, 17 grand world); nobody can own, attack or cross them; the rest of the map stays connected and continents only need their open territories | `0` |
+| `blizzards`   | number of random territories frozen for the whole game (0 = off, max 8, or a sixth of the map on bigger boards: 12 world, 14 fantasy, 17 grand world, 19 greater europe); nobody can own, attack or cross them; the rest of the map stays connected and continents only need their open territories | `0` |
 | `firstRoundBonus` | round 1 only: the Nth player in turn order receives at least N armies (4th at least 4, ... 10th at least 10) to offset going later; games saved before this option keep it off | `true` |
 | `capitals`    | Capital Conquest: each player's most garrisoned territory after setup becomes a capital (★) and gets 3 extra armies; +2 armies per capital held each turn; capitals defend with up to 3 dice; losing your capital does not knock you out; holding every capital at once wins the game | `false` |
 | `chooseCapitals` | Capital Conquest only: after setup each player, in turn order, picks one of their own territories as their capital (under fog of war only players who can see it learn the pick); off = most garrisoned territory becomes the capital | `false` |

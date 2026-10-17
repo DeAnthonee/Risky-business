@@ -1,7 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { DEFAULT_OPTIONS, MAP_IDS, OPTION_KEYS, OPTION_SPECS, describeOptions, getMap, globalMax, optionLimits, type Action, type GameOptions, type GameView } from '@risk/engine';
-import { RiskHttpError, type IdentityStore, type RiskApi, type TournamentInfo } from './api.js';
+import { GAME_OUTCOMES, RiskHttpError, type CharacterMemory, type IdentityStore, type RiskApi, type TournamentInfo } from './api.js';
 import { formatActResult, formatEvents, formatState } from './format.js';
 
 export interface RiskMcpOptions {
@@ -66,6 +66,32 @@ const actionSchema = z
   })
   .describe('A single game action. See the rules tool for the full list.');
 
+const checkId = (id: string) => id.trim().toLowerCase();
+
+const pct = (r: { games: number; won: number }) => `${r.won}/${r.games} won`;
+
+/** The memory block shown under a profile: record, rapport, latest diary titles. */
+export function formatMemory(m: CharacterMemory): string {
+  const lines = ['=== MEMORY ==='];
+  lines.push(`Record: ${m.record.games ? pct(m.record) : 'no recorded games yet'}`);
+  const group = (label: string, rec: Record<string, { games: number; won: number }>) => {
+    const parts = Object.entries(rec).map(([k, r]) => `${k} ${pct(r)}`);
+    if (parts.length) lines.push(`  ${label}: ${parts.join('; ')}`);
+  };
+  group('by strategy', m.record.byStrategy);
+  group('by map', m.record.byMap);
+  group('vs opponent', m.record.vsOpponent);
+  if (m.relationships.length) {
+    lines.push('Relationships (rapport -100 enemy .. 100 ally):');
+    for (const r of m.relationships) lines.push(`- ${r.with}: ${r.rapport}${r.notes.length ? ` — ${r.notes[r.notes.length - 1].note}` : ''}`);
+  } else lines.push('Relationships: none yet');
+  if (m.recentDiary.length) {
+    lines.push(`Diary (${m.diaryEntries} entries; read_diary for the text):`);
+    for (const e of m.recentDiary) lines.push(`- #${e.n} ${e.title}${e.outcome ? ` [${e.outcome}]` : ''}`);
+  } else lines.push('Diary: empty');
+  return lines.join('\n');
+}
+
 const tournamentIdSchema = z.string().min(4).max(12).describe('Tournament code, e.g. "TAB12C"');
 
 /** A bracket as text: entrants, every round's tables and, with an entrant token, where you stand. */
@@ -107,6 +133,7 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
         'get_state returns your legal moves; act takes one JSON action. Attacking with blitz:true and occupy:"max" resolves a whole battle in one call. Under fog of war leave out occupy: a conquest reveals what lies beyond it, and you then choose how many armies to move in.',
         'IMPORTANT: create_game and join_game return a player token. Remember it and pass it as the "token" argument on every later call for that game: it is what identifies YOUR seat (several chats or agents can sit at the same table, each with its own token).',
         opts.identityNote ?? 'Seats are also remembered by this connection while it lasts; my_seats lists them and resume_game recovers one from a token.',
+        'CHARACTERS: you may be asked to play as a character (e.g. "marvel/iron-man"). Call general_model_info once (the general player every character builds on, plus the profile template), then get_character: the profile (personality, strategy, grudges, lessons, base and preferred model) and its memory (record, rapport with other players, latest diary titles; read_diary for the full entries). Stay in character all game; the rules tool always wins over a profile. After the game: add_diary_entry with the outcome and what decided it, update_relationship for each player who mattered, and update_character for lessons that should change how you play, so the next game starts from the latest version.',
         `Server: ${label}`,
       ].join(' '),
     },
@@ -686,6 +713,174 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
     if (!seats.length) return text('No seats on this connection. Use create_game, join_game, or resume_game with a token.');
     return text(seats.map(seatLine).join('\n'));
   });
+
+  // ---- character profiles ----
+  const characterIdSchema = z.string().min(3).max(80).describe('Character id "<universe>/<name>" in lowercase kebab-case, e.g. "marvel/iron-man" or "dc/batman". list_characters shows them all.');
+
+  server.registerTool(
+    'list_characters',
+    { description: 'List every character profile AI players can play as, grouped by universe, with each one\'s latest version and when it was last saved.', inputSchema: {} },
+    async () => {
+      try {
+        const { characters } = await api.listCharacters();
+        if (!characters.length) return text('No characters yet. Create one with update_character (whole profile as markdown; see general_model_info for the template).');
+        const lines: string[] = [];
+        let universe = '';
+        for (const c of characters) {
+          if (c.universe !== universe) lines.push(`${lines.length ? '\n' : ''}${(universe = c.universe).toUpperCase()}`);
+          lines.push(`- ${c.id}: ${c.name} (v${c.version}, ${c.updatedAt ? `saved ${c.updatedAt}` : 'starting profile from the repo'})`);
+        }
+        return text(lines.join('\n'));
+      } catch (e) {
+        return errorText(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    'get_character',
+    {
+      description:
+        'Read a character profile (Markdown): personality, strategy, skills, weaknesses, history, grudges, allies, lessons, base and preferred AI model and rules for playing them, followed by its memory: win/loss record (by strategy, map and opponent), rapport with other players and the latest diary titles. Returns the latest saved version; pass version to read an older one, or history:true to list all versions.',
+      inputSchema: {
+        id: characterIdSchema,
+        version: z.number().int().min(0).optional().describe('Read this version instead of the latest (0 = the repo\'s starting profile)'),
+        history: z.boolean().optional().describe('List the saved versions (number, time, note) instead of reading the profile'),
+      },
+    },
+    async ({ id, version, history }) => {
+      try {
+        if (history) {
+          const h = await api.characterHistory(id);
+          return text(`Versions of ${h.id} (oldest first):\n` + h.versions.map((v) => `- v${v.version}${v.at ? ` ${v.at}` : ''}${v.note ? `: ${v.note}` : ''}`).join('\n'));
+        }
+        const c = await api.getCharacter(id, version);
+        const memory = version === undefined ? `\n\n${formatMemory(await api.characterMemory(c.id))}` : '';
+        return text(`${c.id} v${c.version} (${c.updatedAt ? `saved ${c.updatedAt}` : 'starting profile from the repo'}). To save changes: update_character {id:"${c.id}", expectedVersion:${c.version}, ...}\n\n${c.markdown}${memory}`);
+      } catch (e) {
+        return errorText(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    'update_character',
+    {
+      description:
+        'Save a character profile as a new version (older versions are kept and can be read back with get_character). Prefer updating one section: section = a "## " heading such as "Grudges & rivals", "Strategy" or "History & background", content = that section\'s new full text (it replaces the old text, so include what should stay). A missing section is added. To create a character or rewrite everything, pass markdown = the whole profile instead, starting with "# <Name>" and following the template from general_model_info. Pass expectedVersion (from get_character) so you never overwrite a save made since you read it.',
+      inputSchema: {
+        id: characterIdSchema,
+        section: z.string().max(80).optional().describe('The "## " heading to replace, e.g. "Grudges & rivals"'),
+        content: z.string().max(16_000).optional().describe('New full text of that section (Markdown, without the heading)'),
+        markdown: z.string().max(32_000).optional().describe('The whole profile, to create a character or rewrite it; use instead of section + content'),
+        expectedVersion: z.number().int().min(0).optional().describe('The version you read; the save is rejected if someone saved since'),
+        note: z.string().max(200).optional().describe('Short note on what changed, e.g. "grudge against dc/batman after game ABC123"'),
+      },
+    },
+    async ({ id, ...update }) => {
+      try {
+        const c = await api.updateCharacter(id, update);
+        return text(`Saved ${c.id} as v${c.version}.`);
+      } catch (e) {
+        return errorText(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    'read_diary',
+    {
+      description: "Read a character's diary: one entry per game (outcome, decisive moves, agreements, lessons) plus other moments worth remembering. Returns the latest entries, oldest first; pass gameId for one game's entries.",
+      inputSchema: {
+        id: characterIdSchema,
+        limit: z.number().int().min(1).max(50).optional().describe('How many of the latest entries (default 5)'),
+        gameId: z.string().max(12).optional().describe('Only the entries about this game code'),
+      },
+    },
+    async ({ id, limit, gameId }) => {
+      try {
+        const d = await api.readDiary(id, limit, gameId);
+        if (!d.entries.length) return text(`${d.id} has ${d.total ? 'no matching' : 'no'} diary entries.${d.total ? '' : ' Write one after your next game with add_diary_entry.'}`);
+        const head = (e: (typeof d.entries)[number]) =>
+          [`#${e.n} ${e.title}`, e.at?.slice(0, 10), e.gameId && `game ${e.gameId}`, e.outcome, e.map && `map ${e.map}`, e.strategy && `strategy: ${e.strategy}`, e.winner && `winner: ${e.winner}`].filter(Boolean).join(' · ');
+        return text(
+          `${d.id} diary: showing ${d.entries.length} of ${d.total} entries.\n\n` +
+            d.entries.map((e) => `${head(e)}${e.opponents?.length ? `\nOpponents: ${e.opponents.join(', ')}` : ''}\n${e.text}`).join('\n\n-----\n\n'),
+        );
+      } catch (e) {
+        return errorText(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    'add_diary_entry',
+    {
+      description:
+        "Write a diary entry for a character, normally once after each game. Record observed facts (outcome, decisive moves, agreements made and kept or broken, relevant chat) separately from accusations and opinions, and end with a concrete lesson that changes how the next game is played. Set outcome, map, opponents and strategy for a finished game: they build the character's win/loss record.",
+      inputSchema: {
+        id: characterIdSchema,
+        title: z.string().min(1).max(120).describe('e.g. "Game 3ZP4C4: lost to Wonder Woman on capitals"'),
+        text: z.string().min(1).max(8000).describe('The entry (Markdown)'),
+        gameId: z.string().max(12).optional().describe('Game code'),
+        outcome: z.enum(GAME_OUTCOMES).optional().describe('For a finished game: how it ended for this character'),
+        map: z.string().max(40).optional().describe('Map id, e.g. "europe"'),
+        opponents: z.array(z.string().max(80)).max(12).optional().describe('The other players (display names or character ids)'),
+        strategy: z.string().max(80).optional().describe('Your plan in a few words, e.g. "eastern bonus, capital raids"'),
+        winner: z.string().max(80).optional().describe('Who won, if not you'),
+      },
+    },
+    async ({ id, ...entry }) => {
+      try {
+        const e = await api.addDiaryEntry(id, entry);
+        return text(`Saved diary entry #${e.n} for ${checkId(id)}.`);
+      } catch (e) {
+        return errorText(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    'update_relationship',
+    {
+      description:
+        "Record how a moment changed a character's relationship with another player, so rapport builds across games: rapport runs from -100 (sworn enemy) to 100 (trusted ally). Pass change (e.g. -25 for a broken truce, +10 for useful intelligence) or rapport to set it outright, and a note on what happened.",
+      inputSchema: {
+        id: characterIdSchema,
+        with: z.string().min(1).max(80).describe("The other player: display name (e.g. \"God\") or character id (e.g. \"dc/wonder-woman\")"),
+        change: z.number().int().min(-200).max(200).optional().describe('Add this to rapport'),
+        rapport: z.number().int().min(-100).max(100).optional().describe('Or set rapport to this'),
+        note: z.string().min(1).max(1000).describe('What happened, as observed'),
+        gameId: z.string().max(12).optional().describe('Game code'),
+      },
+    },
+    async ({ id, ...update }) => {
+      try {
+        const r = await api.updateRelationship(id, update);
+        return text(`${checkId(id)} → ${r.with}: rapport ${r.rapport} (${r.notes.length} note${r.notes.length === 1 ? '' : 's'}).`);
+      } catch (e) {
+        return errorText(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    'general_model_info',
+    {
+      description:
+        'Docs that apply to every AI model and every character (read once before playing): the general player every character is built on unless its profile picks another base (playbook, ways to win under each setting, findings from past games), model docs, and the template a character profile follows.',
+      inputSchema: {},
+    },
+    async () => {
+      try {
+        const { docs } = await api.modelInfo();
+        if (!docs.length) return text('No general model docs yet.');
+        return text(docs.map((d) => `===== ${d.file} =====\n${d.markdown.trim()}`).join('\n\n'));
+      } catch (e) {
+        return errorText(e);
+      }
+    },
+  );
 
   return server;
 }

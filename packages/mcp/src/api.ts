@@ -66,6 +66,107 @@ export interface ChatResult {
   messages: { id: number; name: string; message: string; at: number; spectator?: boolean; to?: string; toName?: string }[];
 }
 
+/** A character profile an AI player can play as ("marvel/iron-man"). Version 0 is the repo's starting profile. */
+export interface CharacterSummary {
+  id: string;
+  universe: string;
+  name: string;
+  version: number;
+  /** When the latest version was saved; null for the repo's starting profile. */
+  updatedAt: string | null;
+  source: 'repo' | 'saved';
+}
+
+export interface CharacterProfile extends CharacterSummary {
+  markdown: string;
+}
+
+export interface CharacterVersion {
+  version: number;
+  at: string | null;
+  note?: string;
+}
+
+/** Either the whole profile (markdown) or one "## " section (section + content). */
+export interface CharacterUpdate {
+  markdown?: string;
+  section?: string;
+  content?: string;
+  /** Reject the save if the profile changed since this version was read. */
+  expectedVersion?: number;
+  note?: string;
+}
+
+export interface ModelInfoDoc {
+  file: string;
+  markdown: string;
+}
+
+export const GAME_OUTCOMES = ['won', 'lost', 'eliminated', 'surrendered', 'abandoned'] as const;
+export type GameOutcome = (typeof GAME_OUTCOMES)[number];
+
+/** What an agent writes after a game (or about any moment worth remembering). */
+export interface DiaryInput {
+  title: string;
+  text: string;
+  gameId?: string;
+  /** Set for a finished game, so it counts in the character's record. */
+  outcome?: GameOutcome;
+  map?: string;
+  /** Other players in that game (names or character ids). */
+  opponents?: string[];
+  /** The plan in a few words, e.g. "hold Australia, late card sweep"; the record groups results by it. */
+  strategy?: string;
+  /** Who won, when it was not this character. */
+  winner?: string;
+}
+
+/** n counts from 1 over the whole diary (repo entries first). at is null for undated repo entries. */
+export interface DiaryEntry extends DiaryInput {
+  n: number;
+  at: string | null;
+  source: 'repo' | 'saved';
+}
+
+export interface RelationshipNote {
+  at: string | null;
+  gameId?: string;
+  /** How much this moment moved rapport. */
+  change: number;
+  note: string;
+}
+
+/** How a character feels about another player: rapport from -100 (enemy) to 100 (trusted ally). */
+export interface Relationship {
+  with: string;
+  rapport: number;
+  notes: RelationshipNote[];
+}
+
+export interface RelationshipInput {
+  with: string;
+  /** Add to rapport (e.g. -20 after a betrayal). */
+  change?: number;
+  /** Or set rapport outright. */
+  rapport?: number;
+  note: string;
+  gameId?: string;
+}
+
+export interface RecordLine {
+  games: number;
+  won: number;
+}
+
+/** Everything a character remembers beyond its profile, summarised for the start of a game. */
+export interface CharacterMemory {
+  id: string;
+  record: RecordLine & { byStrategy: Record<string, RecordLine>; byMap: Record<string, RecordLine>; vsOpponent: Record<string, RecordLine> };
+  relationships: Relationship[];
+  diaryEntries: number;
+  recentDiary: { n: number; at: string | null; title: string; outcome?: GameOutcome }[];
+}
+
 /**
  * Everything the MCP tools need from a Risk game server. Implemented over HTTP by
  * `HttpRiskApi` (stdio MCP talking to a remote server) and directly over the in-memory
@@ -90,6 +191,19 @@ export interface RiskApi {
   sendChat(gameId: string, token: string, message: string, to?: string): Promise<unknown>;
   leave(gameId: string, token: string): Promise<unknown>;
   closeGame(gameId: string, token: string): Promise<unknown>;
+  listCharacters(): Promise<{ characters: CharacterSummary[] }>;
+  /** Latest version unless `version` is given. */
+  getCharacter(id: string, version?: number): Promise<CharacterProfile>;
+  characterHistory(id: string): Promise<{ id: string; versions: CharacterVersion[] }>;
+  updateCharacter(id: string, update: CharacterUpdate): Promise<CharacterProfile>;
+  /** Docs that apply to every model (AI/general-model-info) plus the character template. */
+  modelInfo(): Promise<{ docs: ModelInfoDoc[] }>;
+  /** Record, relationships and the latest diary titles. */
+  characterMemory(id: string): Promise<CharacterMemory>;
+  /** The latest `limit` entries (oldest first), or one game's entries. */
+  readDiary(id: string, limit?: number, gameId?: string): Promise<{ id: string; total: number; entries: DiaryEntry[] }>;
+  addDiaryEntry(id: string, entry: DiaryInput): Promise<DiaryEntry>;
+  updateRelationship(id: string, update: RelationshipInput): Promise<Relationship>;
 
   listTournaments(): Promise<{ tournaments: unknown[] }>;
   /** Pass your entrant token to get `you` (your status and your current table's seat). */
@@ -276,6 +390,36 @@ export class HttpRiskApi implements RiskApi {
   closeGame(gameId: string, token: string) {
     return this.request(`/games/${gameId}/close`, { method: 'POST', body: '{}' }, token);
   }
+  listCharacters() {
+    return this.request<{ characters: CharacterSummary[] }>('/characters');
+  }
+  getCharacter(id: string, version?: number) {
+    return this.request<CharacterProfile>(`/characters/${characterPath(id)}${version !== undefined ? `?version=${version}` : ''}`);
+  }
+  characterHistory(id: string) {
+    return this.request<{ id: string; versions: CharacterVersion[] }>(`/characters/${characterPath(id)}/history`);
+  }
+  updateCharacter(id: string, update: CharacterUpdate) {
+    return this.request<CharacterProfile>(`/characters/${characterPath(id)}`, { method: 'POST', body: JSON.stringify(update) });
+  }
+  modelInfo() {
+    return this.request<{ docs: ModelInfoDoc[] }>('/model-info');
+  }
+  characterMemory(id: string) {
+    return this.request<CharacterMemory>(`/characters/${characterPath(id)}/memory`);
+  }
+  readDiary(id: string, limit?: number, gameId?: string) {
+    const q = new URLSearchParams();
+    if (limit !== undefined) q.set('limit', String(limit));
+    if (gameId) q.set('gameId', gameId);
+    return this.request<{ id: string; total: number; entries: DiaryEntry[] }>(`/characters/${characterPath(id)}/diary${q.size ? `?${q}` : ''}`);
+  }
+  addDiaryEntry(id: string, entry: DiaryInput) {
+    return this.request<DiaryEntry>(`/characters/${characterPath(id)}/diary`, { method: 'POST', body: JSON.stringify(entry) });
+  }
+  updateRelationship(id: string, update: RelationshipInput) {
+    return this.request<Relationship>(`/characters/${characterPath(id)}/relationships`, { method: 'POST', body: JSON.stringify(update) });
+  }
   listTournaments() {
     return this.request<{ tournaments: unknown[] }>('/tournaments');
   }
@@ -297,3 +441,6 @@ export class HttpRiskApi implements RiskApi {
     return this.request<{ tournament: TournamentInfo }>(`${adminKey ? '/admin' : ''}/tournaments/${tournamentId}/start`, { method: 'POST', body: '{}' }, adminKey);
   }
 }
+
+/** URL-encodes each part of "universe/name"; the slash stays a path separator. */
+const characterPath = (id: string) => id.split('/').map(encodeURIComponent).join('/');

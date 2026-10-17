@@ -510,7 +510,7 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
             Chat {conn.chat.length ? `(${conn.chat.length})` : ''}
           </button>
         </div>
-        {tab === 'log' ? <Log batches={conn.batches} view={view} /> : <Chat conn={conn} canSend={!!session} />}
+        {tab === 'log' ? <Log batches={conn.batches} view={view} /> : <Chat conn={conn} canSend={!!session} spectator={spectator} />}
       </aside>
 
       {showCards && me && (

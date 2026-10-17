@@ -1051,3 +1051,11 @@ label.check input {
     stroke-opacity: 0;
   }
 }
+
+/* Spectator chat */
+.chat-msg.spectator { opacity: 0.85; font-style: italic; }
+.chat-msg.spectator .chat-spectator-name { color: #b9c3d6; font-style: normal; }
+.chat-note { padding: 4px 2px; }
+.chat-form { display: flex; flex-direction: column; gap: 6px; }
+.chat-form .chat-name { width: 100%; }
+.chat-error { color: #ff7a7a; }

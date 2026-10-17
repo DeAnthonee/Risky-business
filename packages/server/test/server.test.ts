@@ -282,6 +282,50 @@ describe('game lifecycle over HTTP', () => {
     }
   });
 
+  it('lets spectators chat over HTTP and WebSocket, guarded and hidden from players under fog', async () => {
+    const created = await api('/games', { method: 'POST', body: JSON.stringify({ playerName: 'Host', options: { setupBatch: 40 } }) });
+    const g = created.body.gameId;
+    const hostToken = created.body.token;
+
+    // HTTP: no token = spectator, marked, and cannot pose as a player.
+    const fan = await api(`/games/${g}/chat`, { method: 'POST', body: JSON.stringify({ message: 'go host!', name: 'Fan' }) });
+    expect(fan.status).toBe(201);
+    expect(fan.body.message).toMatchObject({ spectator: true, playerId: null, name: 'Fan' });
+    const poser = await api(`/games/${g}/chat`, { method: 'POST', body: JSON.stringify({ message: 'hi', name: 'host' }) });
+    expect(poser.body.message.name).toBe('host (fan)');
+    const player = await api(`/games/${g}/chat`, { method: 'POST', body: JSON.stringify({ message: 'thanks' }) }, hostToken);
+    expect(player.body.message.spectator).toBeUndefined();
+
+    // Flood guard: 5 per 10 s per sender (two already sent from this IP).
+    for (let i = 0; i < 3; i++) expect((await api(`/games/${g}/chat`, { method: 'POST', body: JSON.stringify({ message: `m${i}`, name: 'Fan' }) })).status).toBe(201);
+    expect((await api(`/games/${g}/chat`, { method: 'POST', body: JSON.stringify({ message: 'too many', name: 'Fan' }) })).status).toBe(400);
+
+    // Fog of war: players don't receive spectator chat; spectators still see everything.
+    const fogGame = await api('/games', { method: 'POST', body: JSON.stringify({ playerName: 'P', options: { fogOfWar: true } }) });
+    const fg = fogGame.body.gameId;
+    const ws = new WebSocket(`${base.replace('http', 'ws')}/ws`);
+    const wsMsgs: any[] = [];
+    ws.on('message', (raw) => wsMsgs.push(JSON.parse(String(raw))));
+    await new Promise<void>((resolve) => ws.on('open', () => resolve()));
+    ws.send(JSON.stringify({ type: 'subscribe', gameId: fg, reqId: 's' }));
+    await new Promise((r) => setTimeout(r, 100));
+    ws.send(JSON.stringify({ type: 'chat', message: 'Alaska is empty!', name: 'Leaky', reqId: 'c1' }));
+    await new Promise((r) => setTimeout(r, 150));
+    expect(wsMsgs.find((m) => m.type === 'ack' && m.reqId === 'c1')?.ok).toBe(true);
+    expect(wsMsgs.some((m) => m.type === 'chat' && m.message.name === 'Leaky' && m.message.spectator)).toBe(true);
+    ws.close();
+    const asPlayer = await api(`/games/${fg}/chat`, {}, fogGame.body.token);
+    expect(asPlayer.body.messages.some((m: any) => m.spectator)).toBe(false);
+    const asWatcher = await api(`/games/${fg}/chat`);
+    expect(asWatcher.body.messages.some((m: any) => m.name === 'Leaky')).toBe(true);
+
+    // Host can turn it off.
+    const quiet = await api('/games', { method: 'POST', body: JSON.stringify({ playerName: 'Q', options: { spectatorChat: false } }) });
+    const off = await api(`/games/${quiet.body.gameId}/chat`, { method: 'POST', body: JSON.stringify({ message: 'hello', name: 'X' }) });
+    expect(off.status).toBe(400);
+    expect(off.body.error).toMatch(/turned off/);
+  });
+
   it('shuts down gracefully and releases long-poll waiters', async () => {
     const third = await startServer(null);
     const created = await fetch(`${third.base}/api/games`, {

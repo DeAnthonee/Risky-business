@@ -91,6 +91,11 @@ export const OPTION_SPECS: { [K in OptionKey]: OptionSpec } = {
     label: 'Fog of war',
     description: 'true: each player sees only their own territories and the ones next to them; events elsewhere are reported as "fogged". Spectators always see everything.',
   },
+  spectatorChat: {
+    kind: 'boolean',
+    label: 'Spectator chat',
+    description: 'true (default): people watching can post in the game chat, marked as spectators. Under fog of war their messages are shown only to other spectators so they cannot reveal hidden positions to players. false: only seated players can chat.',
+  },
   capitals: {
     kind: 'boolean',
     label: 'Capital Conquest',

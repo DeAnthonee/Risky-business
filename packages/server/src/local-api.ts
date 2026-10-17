@@ -88,8 +88,9 @@ export class LocalRiskApi implements RiskApi {
     const viewer = room.playerForToken(token);
     return { version: room.state.version, entries: room.eventsSince(since).map((h) => ({ ...h, events: redactEvents(room.state, viewer, h.events) })) };
   }
-  async chat(gameId: string, since: number) {
-    return { messages: this.room(gameId).chat.filter((m) => m.id > since) };
+  async chat(gameId: string, since: number, token?: string) {
+    const room = this.room(gameId);
+    return { messages: room.chatFor(token ? room.playerForToken(token) : null, since) };
   }
   async sendChat(gameId: string, token: string, message: string) {
     const room = this.room(gameId);

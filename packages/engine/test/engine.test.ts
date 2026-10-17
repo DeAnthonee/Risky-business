@@ -621,3 +621,23 @@ describe('game settings catalogue', () => {
     expect(optionCatalogue().options.map((o) => o.key).sort()).toEqual([...OPTION_KEYS].sort());
   });
 });
+
+describe('blizzards never trap territories or split the map', () => {
+  it('on every map, at the maximum count, every open territory can reach every other', async () => {
+    const { MAPS, MAP_IDS, pickBlizzards, maxBlizzards, createRng } = await import('../src/index.js');
+    for (const id of MAP_IDS) {
+      const map = MAPS[id];
+      for (let seed = 1; seed <= 400; seed++) {
+        const blocked = new Set(pickBlizzards(map, maxBlizzards(map), createRng(seed)));
+        const open = map.territoryIds.filter((t) => !blocked.has(t));
+        // No open territory is walled in by blizzards...
+        for (const t of open) expect(map.adjacency[t].some((n) => !blocked.has(n)), `${id} seed ${seed}: ${t} is walled in`).toBe(true);
+        // ...and the open territories form one network (no side of the map cut off from the other).
+        const seen = new Set([open[0]]);
+        const queue = [open[0]];
+        while (queue.length) for (const n of map.adjacency[queue.pop()!]) if (!blocked.has(n) && !seen.has(n)) (seen.add(n), queue.push(n));
+        expect(seen.size, `${id} seed ${seed}: map split by blizzards`).toBe(open.length);
+      }
+    }
+  });
+});

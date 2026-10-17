@@ -9,6 +9,7 @@ packages/
   server/   Node game server: REST + WebSocket API, lobbies, bots, JSON persistence, serves the web client
   client/   React + Vite web client: SVG map, animations, cards, chat, log
   mcp/      Model Context Protocol server (stdio) that lets any MCP-capable agent play
+  selfplay/ headless self-play, rating ladder and decision logs for training AI players (never loaded by the server)
 ```
 
 > **Contribution rule: every change lands through a pull request.** Nobody pushes directly to the deploy
@@ -372,6 +373,22 @@ Rules for agents saving character info:
 3. Anything true for all models goes in `AI/general-model-info/`, never in a character file.
 4. Add every new file to the tree in [`AI/README.md`](AI/README.md) (and new general docs to
    `AI/general-model-info/README.md`).
+
+## Self-play (training AI players)
+
+`packages/selfplay` plays games headless on the engine (no server, no sockets), seeded and deterministic, at
+roughly a dozen two-player games per second per core. It rates player versions on a ladder (mirrored pairs,
+promotion only after ~200 games with a clear margin) and logs every decision as gzipped JSON lines a Python
+trainer can read. It is its own entry point and never runs inside the game server.
+
+```bash
+npm run selfplay -- play --agents risky@1,risky@1 --games 1000 --seed 1 --log runs/night-01
+npm run selfplay -- ladder --file runs/ladder.json --best risky@1 --candidate random@1 --games 200
+```
+
+The log format, ladder rules and how to add a player version are in
+[packages/selfplay/README.md](packages/selfplay/README.md). The built-in bot lives in the engine
+(`chooseBotAction`) so the server and self-play run the same code.
 
 ## Contributing
 

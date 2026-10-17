@@ -12,6 +12,9 @@ import {
   addPlayer,
   applyAction,
   bestSet,
+  chooseBotAction,
+  createRng,
+  nextFloat,
   describeOptions,
   capitalsHeldBy,
   createGame,
@@ -1562,5 +1565,32 @@ describe('fog of war hides everything a player cannot see', () => {
     expect(redactEvents(out, me, events)).toEqual(events);
     const over = { ...state, phase: 'finished' as const };
     expect(hidden(over)).toBe(0);
+  });
+});
+
+describe('built-in bot', () => {
+  function seeded(seed: number) {
+    const rng = createRng(seed);
+    return () => nextFloat(rng);
+  }
+
+  function botGame(seed: number) {
+    let s = createGame('b', {}, 99);
+    s = addPlayer(s, 'a', 'A', true);
+    s = addPlayer(s, 'b', 'B', true);
+    s = startGame(s).state;
+    const random = seeded(seed);
+    const actions: unknown[] = [];
+    while (s.phase !== 'finished' && actions.length < 400) {
+      const action = chooseBotAction(s, s.currentPlayer!, random)!;
+      actions.push(action);
+      s = applyAction(s, s.currentPlayer!, action).state;
+    }
+    return actions;
+  }
+
+  it('plays the same moves for the same random source (self-play depends on it)', () => {
+    expect(botGame(1)).toEqual(botGame(1));
+    expect(botGame(1)).not.toEqual(botGame(2));
   });
 });

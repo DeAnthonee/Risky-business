@@ -11,12 +11,12 @@ function makeView(turn = 1): GameView {
   return { ...viewFor(s, 'a'), turnNumber: turn };
 }
 
-const fakeLlm = (reply: string) => {
+const fakeLlm = (...replies: string[]) => {
   const calls: string[] = [];
   const llm: Llm = {
     async chat(messages) {
       calls.push(messages.map((m) => m.content).join('\n'));
-      return reply;
+      return replies[Math.min(calls.length - 1, replies.length - 1)];
     },
   };
   return { llm, calls };
@@ -73,13 +73,19 @@ describe('Diplomat', () => {
   });
 
   it('replies only to mentions or whispers, never to itself', async () => {
-    const { llm, calls } = fakeLlm('{"say":"ok","to":null}');
-    const { d } = diplomat(llm);
+    const { llm, calls } = fakeLlm('{"say":"first reply to batman","to":null}', '{"say":"second reply to the whole table","to":null}', '{"say":"third reply to spectator","to":null}');
+    const { d } = diplomat(llm, { maxPerTurn: 5 });
     const v = makeView();
     expect(await d.onMessages([msg('Batman', 'nice weather')], v)).toBeNull();
     expect(await d.onMessages([msg('Ultron', 'Ultron talking to myself')], v)).toBeNull();
     expect(await d.onMessages([msg('Batman', 'Hey ULTRON!')], v)).not.toBeNull();
     expect(calls).toHaveLength(1);
+    expect(await d.onMessages([msg('Ultron', '@all talking to myself')], v)).toBeNull();
+    expect(await d.onMessages([msg('Batman', 'Hey @all look at Tony!')], makeView(2))).not.toBeNull();
+    expect(calls).toHaveLength(2);
+    expect(await d.onMessages([msg('SpectatorJoe', 'hey everyone what is the plan?', { spectator: true })], makeView(3))).not.toBeNull();
+    expect(calls).toHaveLength(3);
+    expect(cleanChat('Listen @all and @everyone — attack now!')).toBe('Listen all and everyone, attack now!');
   });
 
   it('whispers back to a whisper', async () => {

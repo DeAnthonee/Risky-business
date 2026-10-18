@@ -1187,6 +1187,7 @@ label.check input {
 /* A player named in a chat message, in that player's colour; your own name stands out more */
 .chat-msg .mention { font-weight: 700; font-style: normal; }
 .chat-msg .mention-you { background: rgba(255, 255, 255, 0.14); border-radius: 3px; padding: 0 3px; }
+.chat-msg .mention-all { color: #f6c453; background: rgba(246, 196, 83, 0.18); border-radius: 3px; padding: 0 3px; }
 .chat-note { padding: 4px 2px; }
 .chat-form { display: flex; flex-direction: column; gap: 6px; }
 .chat-form .chat-name { width: 100%; }

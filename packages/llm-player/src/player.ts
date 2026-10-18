@@ -2,7 +2,7 @@ import type { Action, GameView } from '@risk/engine';
 import { RiskHttpError, type ChatResult, type GameOutcome, type RiskApi } from '@risk/mcp';
 import type { ChatModel } from './model.js';
 import { buildDecision } from './options.js';
-import { chatLines, decisionMessages, loadContext, parseChoice, parseReflection, reflectionMessages, type PlayerContext } from './prompt.js';
+import { chatLines, decisionMessages, loadContext, parseChoice, parseReflection, reflectionMessages, watchersFromChat, type PlayerContext } from './prompt.js';
 
 export interface PlayOptions {
   api: RiskApi;
@@ -244,7 +244,10 @@ async function reflect(o: PlayOptions, ctx: PlayerContext, view: GameView, outco
     log('no characters write key: the diary and relationships are not saved');
     return none;
   }
-  const opponents = view.players.filter((p) => p.id !== view.you && !p.isNeutral).map((p) => p.name);
+  const opponents = [
+    ...view.players.filter((p) => p.id !== view.you && !p.isNeutral).map((p) => p.name),
+    ...watchersFromChat(chat),
+  ];
   let reflection = null;
   try {
     reflection = parseReflection(await o.model.chat(reflectionMessages(ctx, view, `${outcome}${winner && outcome !== 'won' ? ` (winner: ${winner})` : ''}`, chat), { maxTokens: 900 }), opponents);

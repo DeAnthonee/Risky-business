@@ -38,7 +38,11 @@ export class GameMemory {
   private attacks = new Map<string, AttackRecord>();
   private incidents: string[] = [];
   private notices: Notice[] = [];
-  constructor(private me: string, private deals: () => Deal[] = () => []) {}
+  constructor(
+    private me: string,
+    private deals: () => Deal[] = () => [],
+    private onCommitment?: (attackerId: string, defenderId: string, armies: number) => void,
+  ) {}
 
   onMessages(messages: ChatResult['messages'], view: GameView) {
     for (const message of messages) {
@@ -66,6 +70,7 @@ export class GameMemory {
       if (event.type==='conquered') owners.set(event.to,event.previousOwner);
     }
     let round:number|undefined;
+    const pendingOccupy = new Map<string, string>();
     for (const batch of ordered) {
       this.seen.add(batch.version);
       const battleOrders=new Set<string>();
@@ -73,6 +78,9 @@ export class GameMemory {
         if (event.type==='turn_started') round=event.round;
         const observed=round ?? view.round;
         const when=round===undefined ? `Observed by round ${observed}` : `Round ${observed}`;
+        if (event.type==='battle') {
+          this.onCommitment?.(event.attacker, event.defender, event.attackerLosses + event.defenderLosses);
+        }
         if (event.type==='battle' && event.defender===this.me) {
           const stats=this.attacks.get(event.attacker) ?? {attacks:0,armiesLost:0,lostTerritories:0,brokenBonuses:0};
           const key=`${event.attacker}:${event.from}:${event.to}`;
@@ -89,6 +97,7 @@ export class GameMemory {
           this.attacks.set(event.attacker,stats);
         }
         if (event.type==='conquered') {
+          pendingOccupy.set(`${event.player}:${event.from}:${event.to}`, event.previousOwner);
           const region=map.continentById[map.territoryById[event.to]?.continent];
           const brokeBonus=event.previousOwner===this.me && region && region.territories.filter(t=>!view.blizzards?.includes(t)).every(t=>owners.get(t)===this.me);
           owners.set(event.to,event.player);
@@ -98,6 +107,13 @@ export class GameMemory {
             if (brokeBonus) stats.brokenBonuses++;
             this.attacks.set(event.player,stats);
             this.incidents.push(`${when}: ${name(event.player)} took ${map.territoryById[event.to]?.name ?? event.to}${brokeBonus ? ` and broke my ${region.name} bonus (+${region.bonus}/turn)` : ''}.`);
+          }
+        }
+        if (event.type==='moved') {
+          const prevOwner = pendingOccupy.get(`${event.player}:${event.from}:${event.to}`);
+          if (prevOwner) {
+            pendingOccupy.delete(`${event.player}:${event.from}:${event.to}`);
+            this.onCommitment?.(event.player, prevOwner, event.armies);
           }
         }
       }
@@ -114,7 +130,9 @@ export class GameMemory {
     if (assessment.leader) lines.push(`${assessment.partial ? 'Largest observable territory holder (global leader uncertain under fog)' : 'Largest territory holder'}: ${assessment.leader.name}, ${assessment.leader.territoryCount} territories${assessment.leader.income ? `, +${assessment.leader.income.total}/turn` : ''}.`);
     if (assessment.armyLeader) lines.push(`Largest observable army: ${assessment.armyLeader.name}, ${assessment.armyLeader.armyCount} armies.`);
     if (assessment.incomeLeader) lines.push(`Highest reinforcement income${assessment.partial ? ' (public under fog; primary way to gauge who is ahead alongside visible border stacks)' : ''}: ${assessment.incomeLeader.name}, +${assessment.incomeLeader.income?.total ?? 0}/turn (${living.map(p=>`${p.name} +${p.income?.total ?? 0}`).join(', ')}).`);
-    if (assessment.needsCoalition) lines.push(`Coalition assessment: ${assessment.threat!.name} holds at least 40% of observable land, 45% of observable armies, or a dominant reinforcement income (+${assessment.threat!.income?.total ?? '?'}/turn). Consider a time-limited coalition against them with ${assessment.partners.map(p=>p.name).join(', ') || 'available opponents'}. ${assessment.partial ? 'This is a visible-threat estimate, not proof of global dominance. ' : ''}Check borders, willingness and existing agreements; do not automatically ally or betray.`);
+    const cardHolders = living.filter(p => p.id !== this.me && p.cardCount >= 3).sort((a, b) => b.cardCount - a.cardCount);
+    if (cardHolders.length) lines.push(`Card watch (card counts are public even under fog): ${cardHolders.map(p => `${p.name} holds ${p.cardCount} cards${p.cardCount >= 4 ? ' (imminent/forced trade threat)' : ' (can hold a tradeable set)'}`).join('; ')}.`);
+    if (assessment.needsCoalition) lines.push(`Coalition assessment: ${assessment.threat!.name} holds at least 40% of observable land, 45% of observable armies, or a dominant reinforcement income (+${assessment.threat!.income?.total ?? '?'}/turn). Consider a time-limited coalition or concrete troop-commitment joint_attack deal against them with ${assessment.partners.map(p=>p.name).join(', ') || 'available opponents'}. ${assessment.partial ? 'This is a visible-threat estimate, not proof of global dominance. ' : ''}Check borders, willingness and existing agreements; do not automatically ally or betray.`);
     else lines.push('Coalition assessment: no clear dominant rival at these thresholds. Reassess each turn; do not manufacture a coalition.');
     lines.push('Attacks against me this game (attempts include failed attacks; totals persist even if land is retaken):');
     for (const [id,s] of this.attacks) lines.push(`${name(id)}: ${s.attacks} observed attack orders, ${s.armiesLost} defending armies lost, ${s.lostTerritories} territories taken, ${s.brokenBonuses} bonuses broken.`);

@@ -22,6 +22,10 @@ export interface Deal {
   /** Joint attack: both attack `target` from this round. */
   startRound?: number;
   target?: string;
+  /** Joint attack: minimum number of troops each party commits to attack `target`. */
+  commitArmies?: number;
+  /** Joint attack: armies committed so far against `target` by each party name. */
+  committedArmies?: Record<string, number>;
   /** Border: player name to the territory ids that player keeps (nobody attacks across them). */
   territories?: Record<string, string[]>;
   status: DealStatus;
@@ -111,13 +115,36 @@ export class DealLedger {
   private expire() {
     for (const d of this.deals.values()) {
       if (d.status !== 'proposed' && d.status !== 'active') continue;
-      const over = d.untilRound !== undefined && this.round > d.untilRound;
+      const commitDeadline = d.kind === 'joint_attack' && d.commitArmies !== undefined ? (d.untilRound ?? (d.startRound ?? d.proposedRound) + 1) : undefined;
+      const over = (d.untilRound !== undefined && this.round > d.untilRound) || (commitDeadline !== undefined && this.round > commitDeadline);
       const targetGone = d.kind === 'joint_attack' && d.status === 'active' && d.target !== undefined && this.alive.size > 0 && !this.alive.has(lc(d.target));
       if (!over && !targetGone) continue;
       const was = d.status;
+      if (was === 'active' && !targetGone && d.kind === 'joint_attack' && d.commitArmies !== undefined) {
+        const partner = this.other(d);
+        const partnerDone = this.committedBy(d, partner);
+        const myDone = this.committedBy(d, this.me);
+        if (partnerDone < d.commitArmies) {
+          d.status = 'broken';
+          d.brokenBy = partner;
+          this.emit(`${partner} BROKE ${d.id} by failing to commit ${d.commitArmies} troops vs ${d.target} (committed ${partnerDone}/${d.commitArmies}): ${this.describe(d)}`);
+          continue;
+        }
+        if (myDone < d.commitArmies) {
+          d.status = 'broken';
+          d.brokenBy = this.me;
+          this.emit(`we BROKE ${d.id} by failing to commit ${d.commitArmies} troops vs ${d.target} (committed ${myDone}/${d.commitArmies}): ${this.describe(d)}`);
+          continue;
+        }
+      }
       d.status = 'expired';
       if (was === 'active') this.emit(`deal ${d.id} ${targetGone && !over ? 'done (target gone)' : 'kept to the end'}: ${this.describe(d)}`);
     }
+  }
+
+  /** Armies `party` has committed so far toward a joint_attack deal. */
+  committedBy(d: Deal, party: string): number {
+    return Object.entries(d.committedArmies ?? {}).find(([k]) => lc(k) === lc(party))?.[1] ?? 0;
   }
 
   get(id: string): Deal | undefined {
@@ -146,7 +173,7 @@ export class DealLedger {
     const [a, b] = d.parties;
     const until = d.untilRound !== undefined ? ` until round ${d.untilRound}` : '';
     if (d.kind === 'truce') return `truce ${a}+${b}${until}`;
-    if (d.kind === 'joint_attack') return `joint attack ${a}+${b} on ${d.target} from round ${d.startRound}${until}`;
+    if (d.kind === 'joint_attack') return `joint attack ${a}+${b} on ${d.target}${d.commitArmies ? ` (commit ${d.commitArmies} troops)` : ''} from round ${d.startRound}${until}`;
     const keeps = Object.entries(d.territories ?? {})
       .map(([p, ts]) => `${p} keeps ${ts.join(', ')}`)
       .join('; ');
@@ -158,7 +185,7 @@ export class DealLedger {
     const [a, b] = d.parties.map(tagName);
     let body: string;
     if (d.kind === 'truce') body = `truce ${a}+${b} until round ${d.untilRound}`;
-    else if (d.kind === 'joint_attack') body = `joint_attack ${a}+${b} vs ${tagName(d.target!)} from round ${d.startRound}${d.untilRound !== undefined ? ` until round ${d.untilRound}` : ''}`;
+    else if (d.kind === 'joint_attack') body = `joint_attack ${a}+${b} vs ${tagName(d.target!)}${d.commitArmies ? ` commit ${d.commitArmies}` : ''} from round ${d.startRound}${d.untilRound !== undefined ? ` until round ${d.untilRound}` : ''}`;
     else {
       const keeps = Object.entries(d.territories ?? {})
         .filter(([, ts]) => ts.length > 0)
@@ -191,8 +218,21 @@ export class DealLedger {
     return typeof n === 'number' && Number.isInteger(n) && n >= 0 && n <= this.round + MAX_AHEAD ? n : undefined;
   }
 
+  private commitNum(v: unknown, text: string): number | undefined {
+    const n = typeof v === 'string' ? Number(v) : v;
+    if (typeof n === 'number' && Number.isInteger(n) && n >= 1 && n <= 500) return n;
+    const m =
+      /\b(?:commit(?:ting)?|send(?:ing)?|throw(?:ing)?|put(?:ting)?|pledg(?:e|ing))\s+(\d+)\s+(?:troops?|armies)\b/i.exec(text) ??
+      /\b(\d+)\s+(?:troops?|armies)\s+(?:into|against|at|on)\b/i.exec(text);
+    if (m) {
+      const parsed = Number(m[1]);
+      if (Number.isInteger(parsed) && parsed >= 1 && parsed <= 500) return parsed;
+    }
+    return undefined;
+  }
+
   /**
-   * Validate a model's proposal (`{kind, with, untilRound, startRound, target, territories}`) against the board
+   * Validate a model's proposal (`{kind, with, untilRound, startRound, target, commitArmies, territories}`) against the board
    * and record it as proposed by this seat. Null when it is not a concrete, legal deal.
    * `exceptId`: a deal being countered (does not block its replacement).
    */
@@ -232,6 +272,11 @@ export class DealLedger {
       deal.target = target;
       deal.startRound = from;
       if (until !== undefined) deal.untilRound = until;
+      const commit = this.commitNum(r.commitArmies ?? r.commit ?? r.troops ?? r.armies, text);
+      if (commit !== undefined) {
+        deal.commitArmies = commit;
+        deal.committedArmies = { [this.me]: 0, [partner]: 0 };
+      }
     }
     if (kind === 'border') {
       const map = getMap(view.options.map);
@@ -327,9 +372,14 @@ export class DealLedger {
       const t = /\bvs (\S+)/.exec(rest);
       const target = t ? this.resolveKnown(t[1]) : null;
       const from2 = num(/\bfrom round (\d+)/);
+      const commit = num(/\bcommit (\d+)(?:\s+(?:troops?|armies))?/);
       if (!target || from2 === undefined || lc(target) === lc(a) || lc(target) === lc(b)) return null;
       deal.target = target;
       deal.startRound = from2;
+      if (commit !== undefined && commit >= 1 && commit <= 500) {
+        deal.commitArmies = commit;
+        deal.committedArmies = { [a]: 0, [b]: 0 };
+      }
     } else if (until === undefined) return null;
     if (deal.kind === 'border') {
       const terr: Record<string, string[]> = {};
@@ -385,6 +435,26 @@ export class DealLedger {
 
   // ---------- breaking and counting ----------
 
+  /** Record `armies` committed by `attacker` into attacks against `target` toward any active joint_attack deal. */
+  noteCommitment(attacker: string, target: string, armies: number): Deal[] {
+    if (armies <= 0) return [];
+    const updated: Deal[] = [];
+    for (const d of this.active()) {
+      if (d.kind !== 'joint_attack' || !d.target || lc(d.target) !== lc(target)) continue;
+      const party = d.parties.find((p) => lc(p) === lc(attacker));
+      if (!party) continue;
+      d.committedArmies ??= { [d.parties[0]]: 0, [d.parties[1]]: 0 };
+      const before = d.committedArmies[party] ?? 0;
+      const after = before + armies;
+      d.committedArmies[party] = after;
+      updated.push(d);
+      if (d.commitArmies !== undefined && before < d.commitArmies && after >= d.commitArmies) {
+        this.emit(`${party} honored troop commitment on ${d.id} (${after}/${d.commitArmies} troops vs ${d.target})`);
+      }
+    }
+    return updated;
+  }
+
   /** `attacker` took territory from this seat: every active deal with them is broken by them. */
   noteHit(attacker: string, observedIds?: Set<string>): Deal[] {
     const hit: Deal[] = [];
@@ -427,7 +497,13 @@ export class DealLedger {
   summary(): string {
     const lines: string[] = [];
     for (const d of this.pendingForMe()) lines.push(`- ${d.id}: OFFER TO YOU from ${d.proposedBy}, waiting for your answer: ${this.describe(d)}`);
-    for (const d of this.active()) lines.push(`- ${d.id}: ACTIVE ${this.describe(d)}`);
+    for (const d of this.active()) {
+      const progress =
+        d.kind === 'joint_attack' && d.commitArmies !== undefined
+          ? ` [${d.parties.map((p) => `${p} committed ${this.committedBy(d, p)}/${d.commitArmies}`).join(', ')}]`
+          : '';
+      lines.push(`- ${d.id}: ACTIVE ${this.describe(d)}${progress}`);
+    }
     for (const d of this.all()) if (d.status === 'proposed' && lc(d.proposedBy) === lc(this.me)) lines.push(`- ${d.id}: you offered ${this.other(d)}, no answer yet: ${this.describe(d)}`);
     for (const d of this.all().filter((x) => x.status === 'broken').slice(-3)) lines.push(`- ${d.id}: BROKEN by ${d.brokenBy}: ${this.describe(d)}`);
     return lines.length > 0 ? lines.join('\n') : '(none)';

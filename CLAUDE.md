@@ -14,7 +14,8 @@ Online multiplayer Risk with bots and an MCP server for AI agents. npm-workspace
 `packages/selfplay` (headless self-play, rating ladder, decision logs for training; never imported by the server),
 `packages/llm-player` (a seat played by a local OpenAI-compatible model as an `AI/` character, over the HTTP API; a separate
 process, never imported by the server),
-`packages/runner` (standalone bot runner: several seats over the HTTP API, plan-aware bot moves steered by an Ollama commander, table talk, post-game learnings; never imported by the server).
+`packages/runner` (standalone bot runner: several seats over the HTTP API, plan-aware bot moves steered by an Ollama commander, table talk, post-game learnings; never imported by the server),
+`packages/delove` (Delove, our base model: a no-personality player trained on self-play, starting from the hand-coded `delove-teacher@1`; plugs into selfplay, never imported by the server or the character code; plan in `docs/delove.md`).
 
 ## Commands
 

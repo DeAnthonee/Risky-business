@@ -19,8 +19,9 @@ launch and remove the temporary create/start MCP tools.
 
 ## 2. Per-player totals under fog of war
 
-`viewFor` hides another player's counts unless every territory they hold is visible, but card counts and
-the number of sets traded are public by design. Any seated player can also open the spectator view (or
+`viewFor` hides another player's counts unless every territory they hold is visible, but card counts, the
+number of sets traded and each player's total reinforcement income are public by design (#56; the total roughly
+gives away territory count and continent captures behind the fog, a trade-off accepted for threat assessment). Any seated player can also open the spectator view (or
 `spectate_game`) and see the whole board. Decide whether fog games should restrict spectating by seated players.
 
 ## 3. Leaderboard identities for plain seats are self-declared

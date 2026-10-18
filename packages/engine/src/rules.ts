@@ -105,7 +105,8 @@ continent you need all of its open (non-blizzard) territories. Blizzards are vis
 
 OPTIONS: FOG OF WAR AND CAPITALS
 "fogOfWar": you only see territories you own and those adjacent to them; everything else shows as hidden
-(owner and armies unknown) and events there are reported as "fogged". Spectators always see the whole board.
+(owner and armies unknown) and events there are reported as "fogged". Each opponent's card count, sets traded and
+total reinforcement income stay public (not its breakdown). Spectators always see the whole board.
 "capitals" (Capital Conquest): after setup each player's most garrisoned territory becomes their capital (shown with a
 star) and 3 extra armies are placed on it. At the start of your turn you get +2 armies for every capital you hold. A capital defends with up to 3 dice
 instead of 2 (all three pairs are compared). A captured capital becomes

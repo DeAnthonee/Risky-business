@@ -20,8 +20,19 @@ AI/
 │   │   ├── ultron.md               ← profile
 │   │   ├── ultron.diary.md         ← match history (one entry per game)
 │   │   └── ultron.relationships.md ← rapport with other players
-│   └── dc/
-│       └── batman.md
+│   ├── dc/
+│   │   └── batman.md
+│   └── league/                     ← League of Legends (local qwen3:14b)
+│       ├── shen.md                 ← each has a <name>.relationships.md beside it
+│       ├── shaco.md
+│       ├── tryndamere.md
+│       ├── teemo.md
+│       ├── leona.md
+│       ├── ahri.md
+│       ├── jinx.md
+│       ├── thresh.md
+│       ├── darius.md
+│       └── lux.md
 └── general-model-info/             ← docs about the models themselves (setup, local models)
     ├── README.md
     └── local-models.md             ← running our own models on the Mac mini (player: packages/llm-player)

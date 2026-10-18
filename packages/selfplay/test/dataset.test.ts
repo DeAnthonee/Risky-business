@@ -139,7 +139,7 @@ describe('exportDataset', () => {
     expect([...(load('cand').data as Float32Array).subarray(offsets[k] * CF, offsets[k + 1] * CF)]).toEqual([...f.cand]);
 
     const info = JSON.parse(readFileSync(join(out, 'classic', 'features.json'), 'utf8'));
-    expect(info).toMatchObject({ encoderVersion: 1, logVersion: 2, decisions: N });
+    expect(info).toMatchObject({ encoderVersion: 2, logVersion: 2, decisions: N });
     expect(info.territoryFeatures).toEqual([...TERRITORY_FEATURES]);
   });
 

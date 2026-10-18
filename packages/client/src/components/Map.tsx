@@ -377,6 +377,16 @@ export function GameMap(props: MapProps) {
         })}
       </g>
 
+      {/* Region outlines above territory fills reveal inland bonus boundaries too.
+          Clip each stroke inside its own region so adjacent regions both retain their colour. */}
+      <defs>{map.continents.map(c => <clipPath key={c.id} id={`bonus-region-${c.id}`}><path d={c.outline} /></clipPath>)}</defs>
+      <g className="bonus-boundaries" pointerEvents="none" aria-hidden="true">
+        {map.continents.map(c => <g key={c.id} clipPath={`url(#bonus-region-${c.id})`}>
+          <path d={c.outline} fill="none" stroke="#07131f" strokeWidth="8" strokeLinejoin="round" />
+          <path d={c.outline} fill="none" stroke={continentColor(map,c.id)} strokeWidth="5" strokeLinejoin="round" />
+        </g>)}
+      </g>
+
       {/* Capture sweeps: a clipped band of the new owner's colour wipes across the shape */}
       <g className="sweeps">
         {sweeps.map((sw) => {

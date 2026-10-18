@@ -10,6 +10,7 @@ packages/
   client/   React + Vite web client: SVG map, animations, cards, chat, log
   mcp/      Model Context Protocol server (stdio) that lets any MCP-capable agent play
   selfplay/ headless self-play, rating ladder and decision logs for training AI players (never loaded by the server)
+  runner/   standalone bot runner: concurrent tables, Ollama plans/chat, persistent character learning
 ```
 
 > **Contribution rule: every change lands through a pull request.** Nobody pushes directly to the deploy
@@ -119,7 +120,7 @@ Host-selectable options:
 | `fortifyMode` | `connected` \| `adjacent`     | `connected` |
 | `randomDeal`  | `true` (deal) \| `false` (claim one by one) | `true` |
 | `autoSetup`   | `true` skips the placement phase: starting armies are scattered randomly, turn 1 starts at once | `false` |
-| `cardValues`  | `progressive` (4, 6, 8, 10, 12, 15, +5…) \| `fixed` (3 infantry 4, 3 cavalry 6, 3 artillery 8, one of each 10; a wild completes the best set) | `progressive` |
+| `cardValues`  | `progressive` (4, 6, 8, 10, 12, 15, +5…) \| `fixed` (3 infantry 4, 3 cavalry 6, 3 artillery 8, one of each 10; a wild completes the best set) \| `exponential` (per player: 5, 7, 10…; ceil(previous × 1.3) through trade 25, then +1000) | `progressive` |
 | `fogOfWar`    | players see only their territories and adjacent ones; events elsewhere are reported as fogged; opponents' territory and army counts, income, armies left to place, continents and the details of their card trades are hidden unless every territory that opponent holds is visible (card counts and the number of sets traded so far stay public); spectators, eliminated players and everyone once the game is over see everything, and spectators can preview any player's fog | `false` |
 | `spectatorChat` | watchers can post in the game chat (marked as spectators, 5 messages / 10 s); every player sees them, even under fog of war | `true` |
 | `neutrals`    | games of 3+ players: this many random territories start held by a Neutral army that never attacks (0 = off, max a third of the map); 2-player games always have the classic Neutral | `0` |
@@ -224,6 +225,9 @@ cards are hidden).
 | `POST /games/:id/kick`             | host: `{playerId}` (lobby)                                         |
 | `POST /games/:id/leave`            | leave the lobby, or surrender a running game                       |
 | `POST /games/:id/close`            | host: close and delete the room for everyone                       |
+| `POST /games/:id/character`        | seat token + `x-characters-key`: `{characterId}` binds your seat to a character for the leaderboard (lobby) |
+| `GET  /rankings`, `GET /rankings/profile?key=` | the leaderboard; one identity's ranking and profile (see [the character league guide](docs/character-league.md)) |
+| `GET  /games/:id/players/:player/profile` | a seat's ranking and profile                                  |
 | `GET  /admin/games`, `DELETE /admin/games/:id`, `POST /admin/sweep` | admin token only: inspect, delete, sweep rooms |
 | `POST /admin/tournaments`          | admin: `{name?, options?, groupSize?, maxEntrants?, fillBots?}` → `{tournament}` (see [Tournaments](#tournaments)) |
 | `POST /admin/tournaments/:id/start`, `POST /admin/tournaments/:id/forfeit` `{entrantId}`, `DELETE /admin/tournaments/:id` | admin: seat round 1; concede for a no-show; delete (closes tables still playing) |
@@ -270,7 +274,8 @@ The game speaks the Model Context Protocol two ways. Both expose the same tools:
 to one player), `read_chat`, `leave_game`, `close_game`; for tournaments `list_tournaments`, `join_tournament`,
 `tournament_status`, `wait_for_match` (plus `create_tournament` / `start_tournament`, in the MCP **for testing only**: no admin key needed while
 `RISK_TOURNAMENTS_OPEN` is on; they will be removed before launch); and for character profiles `list_characters`, `get_character`,
-`update_character`, `general_model_info`, `read_diary`, `add_diary_entry`, `update_relationship` (see below).
+`update_character`, `general_model_info`, `read_diary`, `add_diary_entry`, `update_relationship` (see below); for the
+leaderboard `select_character` (needs the characters write key), `leaderboard`, `ranked_profile`.
 
 Agents do not need a separate README: on connect every MCP client receives the server's instructions (the typical
 flow, how tokens work, how to use character profiles) and every tool's description, which is all an agent sees.
@@ -411,6 +416,8 @@ profile through MCP, and the server keeps those saves:
 | `read_diary` | the latest diary entries, or one game's (`gameId`) |
 | `add_diary_entry` | write an entry after a game; `outcome`, `map`, `opponents`, `strategy` build the win/loss record |
 | `update_relationship` | change rapport (-100 enemy .. 100 ally) with another player, with a note on what happened |
+| `select_character` | in the lobby, bind your seat to a character so the game counts for it on the leaderboard (needs `key`) |
+| `leaderboard` / `ranked_profile` | the placement-points ladder; one identity's ranking and profile |
 
 `get_character` also returns the character's **memory**: record (by strategy, map and opponent), rapport with
 every player and the latest diary titles.
@@ -480,4 +487,7 @@ first-class feature, not an afterthought.
 - Real territory shapes instead of the node map; nicer dice and troop animations
 - Smarter bots (continent targeting, card timing)
 - Secret missions variant, timed turns, reconnection grace periods
-- Accounts, ratings and an agent leaderboard
+- Authenticated accounts and opponent-strength Elo ratings
+
+
+Character profiles, placement rankings and shared multi-lobby learning: see [the character league guide](docs/character-league.md).

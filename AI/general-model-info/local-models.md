@@ -1,7 +1,9 @@
 # Local models
 
-Status: the player is built (`packages/llm-player`). What is left needs the Mac mini: pick the model and point
-the player at it.
+Status: two player processes are built. `packages/llm-player` plays one seat as an `AI/` character on any
+OpenAI-compatible model (it picks among the engine's legal moves). `packages/runner` (the character league) plays
+many seats with plan-aware bot moves steered by an Ollama commander. What is left needs the Mac mini: pick the
+model and point the player at it. Model training remains future work.
 
 ## Goal
 
@@ -35,3 +37,16 @@ RISK_SERVER_URL=http://127.0.0.1:8080 RISK_CHARACTERS_KEY=... LOCAL_MODEL=<model
 2. Which models are installed, and their sizes? A 7-14B instruct model should be enough to pick from numbered options; try it with `--check` and a game against bots.
 3. How much memory does the mini have, and how much do the other project's models use?
 4. Does the runtime stay up permanently alongside the game server?
+
+## Phase 1: `packages/runner`
+
+`@risk/runner` joins multiple tables over the HTTP API. An Ollama commander sets per-turn plans, a
+validated move chooser executes legal actions, and a diplomat writes character dialogue. All lobbies
+share one local model queue (`qwen3:14b`, port 11434). Planning waits are bounded; chat refreshes queued
+board context and rejects expired offers.
+
+Each character remembers its own lessons, evolving tactics, relationships, head-to-head history and
+private tactical events. Completed games update shared advice and placement rankings. Local memory
+needs no server write key; publishing server diaries/relationships remains opt-in.
+
+Run instructions: `packages/runner/README.md`. Profiles, ratings and persistence: `docs/character-league.md`.

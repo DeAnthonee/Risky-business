@@ -438,7 +438,7 @@ describe('game lifecycle over HTTP', () => {
     }
   });
 
-  it('under fog of war, a player gets no counts for opponents it cannot fully see; spectators get them all', async () => {
+  it('under fog of war, a player gets no troop/territory counts or income breakdown for opponents it cannot fully see, while total income stays public; spectators get them all', async () => {
     const created = await api('/games', { method: 'POST', body: JSON.stringify({ playerName: 'Fogged', options: { fogOfWar: true, autoSetup: true } }) });
     const g = created.body.gameId;
     for (let i = 0; i < 3; i++) await api(`/games/${g}/bots`, { method: 'POST', body: '{}' }, created.body.token);
@@ -446,7 +446,7 @@ describe('game lifecycle over HTTP', () => {
     const asPlayer = await api(`/games/${g}`, {}, created.body.token);
     const me = asPlayer.body.state.you;
     const others = asPlayer.body.state.players.filter((p: any) => p.id !== me && !p.isNeutral);
-    expect(others.some((p: any) => p.armyCount === null && p.territoryCount === null && typeof p.cardCount === 'number' && p.income === null)).toBe(true);
+    expect(others.some((p: any) => p.armyCount === null && p.territoryCount === null && typeof p.cardCount === 'number' && p.income?.hidden === true && typeof p.income?.total === 'number')).toBe(true);
     const asSpectator = await api(`/games/${g}`);
     expect(asSpectator.body.state.players.every((p: any) => p.isNeutral || typeof p.armyCount === 'number')).toBe(true);
   });

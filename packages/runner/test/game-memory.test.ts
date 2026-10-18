@@ -76,5 +76,22 @@ describe('private game-local tactical memory',()=>{
     expect(summary).toContain('global leader uncertain under fog');
     expect(summary).toContain('not proof of global dominance');
     expect(summary).toContain('current round 10');
+
+    // Under full fog of war where all rivals have hidden territory/army counts, public reinforcement income identifies who is ahead.
+    const fogged: GameView = {
+      ...view,
+      players: view.players.map((p) =>
+        p.id === 'a'
+          ? { ...p, territoryCount: 6, armyCount: 14, income: { territories: 6, fromTerritories: 3, continents: [], capitals: 0, fromCapitals: 0, total: 3 } }
+          : p.id === 'b'
+            ? { ...p, territoryCount: null, armyCount: null, income: { territories: 0, fromTerritories: 0, continents: [], capitals: 0, fromCapitals: 0, total: 10, hidden: true } }
+            : { ...p, territoryCount: null, armyCount: null, income: { territories: 0, fromTerritories: 0, continents: [], capitals: 0, fromCapitals: 0, total: 3, hidden: true } },
+      ),
+    };
+    const fogLeader = assessLeader(fogged, 'a');
+    expect(fogLeader.incomeLeader?.name).toBe('Ahri');
+    expect(fogLeader.threat?.name).toBe('Ahri');
+    expect(fogLeader.needsCoalition).toBe(true);
+    expect(new GameMemory('a').summary(fogged)).toContain('Highest reinforcement income (public under fog; primary way to gauge who is ahead alongside visible border stacks): Ahri, +10/turn');
   });
 });

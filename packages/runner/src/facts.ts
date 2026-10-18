@@ -56,12 +56,6 @@ export function boardFacts(view: GameView, me: PlayerId): string {
     );
   }
 
-  const known = living.filter((p) => p.territoryCount !== null);
-  if (known.length > 0) {
-    const top = [...known].sort((a, b) => b.territoryCount! - a.territoryCount! || (b.armyCount ?? 0) - (a.armyCount ?? 0))[0];
-    lines.push(`Leader: ${top.name} (${top.territoryCount} territories).`);
-  }
-
   // Opponents on my borders and the armies they hold there; my biggest stack by name.
   const border = new Map<PlayerId, number>();
   const seen = new Set<string>();
@@ -77,6 +71,35 @@ export function boardFacts(view: GameView, me: PlayerId): string {
       border.set(ts.owner, (border.get(ts.owner) ?? 0) + ts.armies);
     }
   }
+
+  const allCountsVisible = living.length > 0 && living.every((p) => p.territoryCount !== null && p.armyCount !== null);
+  if (allCountsVisible) {
+    const top = [...living].sort(
+      (a, b) =>
+        b.territoryCount! - a.territoryCount! ||
+        (b.armyCount ?? 0) - (a.armyCount ?? 0) ||
+        (b.income?.total ?? 0) - (a.income?.total ?? 0),
+    )[0];
+    const armyTop = [...living].sort((a, b) => (b.armyCount ?? 0) - (a.armyCount ?? 0) || (b.income?.total ?? 0) - (a.income?.total ?? 0))[0];
+    const incTop = [...living].sort((a, b) => (b.income?.total ?? 0) - (a.income?.total ?? 0) || (b.armyCount ?? 0) - (a.armyCount ?? 0))[0];
+    const extras = [
+      armyTop && armyTop.id !== top.id ? `most troops: ${armyTop.name} (${armyTop.armyCount} armies, +${q(armyTop.income?.total)}/turn)` : null,
+      incTop && incTop.id !== top.id && incTop.id !== armyTop?.id ? `highest income: ${incTop.name} (+${q(incTop.income?.total)}/turn, ${incTop.armyCount} armies)` : null,
+    ].filter(Boolean);
+    lines.push(`Leader: ${top.name} (${top.territoryCount} territories, ${top.armyCount} armies, +${q(top.income?.total)}/turn)${extras.length ? `; ${extras.join('; ')}` : ''}.`);
+  } else if (living.length > 0) {
+    const top = [...living].sort(
+      (a, b) =>
+        (b.income?.total ?? 0) - (a.income?.total ?? 0) ||
+        (border.get(b.id) ?? b.armyCount ?? 0) - (border.get(a.id) ?? a.armyCount ?? 0) ||
+        b.cardCount - a.cardCount,
+    )[0];
+    const borderTop = [...border.entries()].sort((a, b) => b[1] - a[1])[0];
+    lines.push(
+      `Leader (by income under fog): ${top.name} (+${q(top.income?.total)}/turn, ${top.cardCount} cards)${borderTop ? `; biggest border threat: ${nameOf(borderTop[0])} (${borderTop[1]} visible armies, +${q(living.find((p) => p.id === borderTop[0])?.income?.total)}/turn)` : ''}.`,
+    );
+  }
+
   if (border.size > 0) {
     lines.push(`Borders you: ${[...border].map(([id, armies]) => `${nameOf(id)} (${armies} armies)`).join(', ')}.`);
   }
@@ -130,10 +153,44 @@ export function commanderFacts(view: GameView, me: PlayerId): string {
     const conts = p.continents.map((c) => map.continentById[c]?.name ?? c).join(', ') || 'none';
     lines.push(`${p.name}${p.id === me ? ' (you)' : ''}: ${q(p.territoryCount)} territories, ${q(p.armyCount)} armies, income ${q(p.income?.total)}, ${p.cardCount} cards, bonuses: ${conts}`);
   }
-  const known = living.filter((p) => p.id !== me && p.territoryCount !== null);
-  if (known.length > 0) {
-    const top = [...known].sort((a, b) => b.territoryCount! - a.territoryCount! || (b.income?.total ?? 0) - (a.income?.total ?? 0))[0];
-    lines.push(`Leader among rivals: ${top.name}, ${top.territoryCount} territories, income ${q(top.income?.total)}, ${top.cardCount} cards.`);
+  const borderArmies = new Map<PlayerId, number>();
+  const seenBorder = new Set<string>();
+  for (const t of mineList) {
+    for (const n of hostileNeighbours(t)) {
+      if (seenBorder.has(n)) continue;
+      seenBorder.add(n);
+      const owner = ts(n).owner!;
+      borderArmies.set(owner, (borderArmies.get(owner) ?? 0) + ts(n).armies);
+    }
+  }
+  const rivals = living.filter((p) => p.id !== me);
+  if (rivals.length > 0 && rivals.every((p) => p.territoryCount !== null && p.armyCount !== null)) {
+    const top = [...rivals].sort(
+      (a, b) =>
+        b.territoryCount! - a.territoryCount! ||
+        (b.income?.total ?? 0) - (a.income?.total ?? 0) ||
+        (b.armyCount ?? 0) - (a.armyCount ?? 0),
+    )[0];
+    const armyTop = [...rivals].sort((a, b) => (b.armyCount ?? 0) - (a.armyCount ?? 0) || (b.income?.total ?? 0) - (a.income?.total ?? 0))[0];
+    const incTop = [...rivals].sort((a, b) => (b.income?.total ?? 0) - (a.income?.total ?? 0) || (b.armyCount ?? 0) - (a.armyCount ?? 0))[0];
+    const extras = [
+      armyTop && armyTop.id !== top.id ? `most troops: ${armyTop.name} (${armyTop.armyCount} armies, income ${q(armyTop.income?.total)})` : null,
+      incTop && incTop.id !== top.id && incTop.id !== armyTop?.id ? `highest income: ${incTop.name} (income ${q(incTop.income?.total)}, ${incTop.armyCount} armies)` : null,
+    ].filter(Boolean);
+    lines.push(
+      `Leader among rivals: ${top.name}, ${top.territoryCount} territories, ${top.armyCount} armies, income ${q(top.income?.total)}, ${top.cardCount} cards${extras.length ? `; ${extras.join('; ')}` : ''}.`,
+    );
+  } else if (rivals.length > 0) {
+    const top = [...rivals].sort(
+      (a, b) =>
+        (b.income?.total ?? 0) - (a.income?.total ?? 0) ||
+        (borderArmies.get(b.id) ?? 0) - (borderArmies.get(a.id) ?? 0) ||
+        b.cardCount - a.cardCount,
+    )[0];
+    const borderTop = [...borderArmies.entries()].sort((a, b) => b[1] - a[1])[0];
+    lines.push(
+      `Leader among rivals (by reinforcement income under fog): ${top.name}, income ${q(top.income?.total)}/turn, ${top.cardCount} cards, ${borderArmies.get(top.id) ?? 0} armies visible on your borders${borderTop && borderTop[0] !== top.id ? `; biggest visible border threat: ${nameOf(borderTop[0])} (${borderTop[1]} border armies, income ${q(rivals.find((r) => r.id === borderTop[0])?.income?.total)}/turn)` : ''}.`,
+    );
   }
 
   // Capitals.

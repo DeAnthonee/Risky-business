@@ -1470,7 +1470,7 @@ describe('rules text', () => {
 });
 
 describe('fog of war hides everything a player cannot see', () => {
-  it('hides other players\' counts, income and continents unless all their territories are visible', () => {
+  it('hides other players\' counts, income breakdown and continents unless all their territories are visible, while keeping total reinforcement income public', () => {
     const state = finishSetup(setup(4, { setupBatch: 40, fogOfWar: true }).state);
     const [me, ...others] = state.turnOrder;
     const v = viewFor(state, me);
@@ -1478,6 +1478,7 @@ describe('fog of war hides everything a player cannot see', () => {
     expect(mine.armyCount).not.toBeNull();
     expect(mine.territoryCount).not.toBeNull();
     expect(mine.income).not.toBeNull();
+    expect(mine.income?.hidden).toBeUndefined();
     for (const o of others) {
       const pv = v.players.find((p) => p.id === o)!;
       const allVisible = territoriesOf(state, o).every((t) => !v.territories[t].hidden);
@@ -1485,7 +1486,15 @@ describe('fog of war hides everything a player cannot see', () => {
       expect(pv.armyCount).toBeNull();
       expect(pv.territoryCount).toBeNull();
       expect(pv.cardCount).toBe(state.players.find((p) => p.id === o)!.cards.length); // card counts stay public
-      expect(pv.income).toBeNull();
+      expect(pv.income).toEqual({
+        territories: 0,
+        fromTerritories: 0,
+        continents: [],
+        capitals: 0,
+        fromCapitals: 0,
+        total: viewFor(state, null).players.find((p) => p.id === o)!.income!.total,
+        hidden: true,
+      });
       expect(pv.cards).toBeNull();
     }
     // Spectators see everything.
@@ -1513,9 +1522,10 @@ describe('fog of war hides everything a player cannot see', () => {
     const pv = viewFor(state, me).players.find((p) => p.id === other)!;
     expect(pv.territoryCount).toBe(1);
     expect(pv.armyCount).toBe(4);
+    expect(pv.income?.hidden).toBeUndefined();
   });
 
-  it('redacts other players\' income, card draws and trades from the event stream', () => {
+  it('redacts other players\' income breakdown and trades from the event stream while keeping total reinforcement income and card draws public', () => {
     const state = finishSetup(setup(4, { setupBatch: 40, fogOfWar: true }).state);
     const [me, other] = state.turnOrder;
     const events: GameEvent[] = [
@@ -1527,7 +1537,7 @@ describe('fog of war hides everything a player cannot see', () => {
     const out = redactEvents(state, me, events);
     // With 4 players on 42 territories, `other` always holds something `me` cannot see.
     expect(territoriesOf(state, other).some((t) => viewFor(state, me).territories[t].hidden)).toBe(true);
-    expect(out[0]).toMatchObject({ type: 'turn_started', player: other, reinforcements: { hidden: true, total: 0 } });
+    expect(out[0]).toMatchObject({ type: 'turn_started', player: other, reinforcements: { hidden: true, total: 3, territories: 0, continents: [] } });
     expect(out[1]).toEqual(events[1]); // card draws are public, like card counts
     expect(out[2]).toEqual({ type: 'fogged', kind: 'traded' });
     expect(out[3]).toEqual(events[3]);

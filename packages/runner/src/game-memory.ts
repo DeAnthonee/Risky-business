@@ -6,19 +6,28 @@ export interface ObservedBatch { version: number; events: GameEvent[]; playerId?
 interface AttackRecord { attacks: number; armiesLost: number; lostTerritories: number; brokenBonuses: number }
 interface Notice { player: string; round: number; receivedVersion: number; text: string }
 
-/** Estimates use only this seat's visible counts, never a spectator view. */
+/** Estimates use only this seat's visible counts and public reinforcement income, never a spectator view. */
 export function assessLeader(view: GameView, me: string) {
   const living = view.players.filter(p => p.alive && !p.isNeutral);
   const known = living.filter(p => p.territoryCount !== null);
-  const leader = [...known].sort((a,b) => b.territoryCount! - a.territoryCount! || (b.armyCount ?? 0) - (a.armyCount ?? 0))[0];
-  const armyLeader = [...living.filter(p=>p.armyCount!==null)].sort((a,b)=>(b.armyCount??0)-(a.armyCount??0))[0];
+  const armyKnown = living.filter(p => p.armyCount !== null);
+  const incomeKnown = living.filter(p => p.income?.total !== undefined && p.income?.total !== null);
+  const leader = [...known].sort((a,b) => b.territoryCount! - a.territoryCount! || (b.armyCount ?? 0) - (a.armyCount ?? 0) || (b.income?.total ?? 0) - (a.income?.total ?? 0))[0];
+  const armyLeader = [...armyKnown].sort((a,b)=>(b.armyCount??0)-(a.armyCount??0) || (b.income?.total??0)-(a.income?.total??0))[0];
+  const byIncome = [...incomeKnown].sort((a,b)=>(b.income?.total??0)-(a.income?.total??0) || (b.armyCount??0)-(a.armyCount??0) || (b.territoryCount??0)-(a.territoryCount??0));
+  const incomeLeader = byIncome[0];
+  const secondIncome = byIncome[1]?.income?.total ?? 0;
   const totalLand = known.reduce((n,p)=>n+(p.territoryCount??0),0);
-  const totalArmy = living.reduce((n,p)=>n+(p.armyCount??0),0);
+  const totalArmy = armyKnown.reduce((n,p)=>n+(p.armyCount??0),0);
+  const totalIncome = incomeKnown.reduce((n,p)=>n+(p.income?.total??0),0);
   const partial = known.length !== living.length || living.some(p=>p.armyCount===null);
-  const threat = armyLeader && (armyLeader.armyCount??0) / Math.max(1,totalArmy) >= 0.45 ? armyLeader : leader;
-  const needsCoalition = !!threat && threat.id !== me && living.length >= 3 &&
-    ((threat.territoryCount??0) / Math.max(1,totalLand) >= 0.4 || (threat.armyCount??0) / Math.max(1,totalArmy) >= 0.45);
-  return { leader, armyLeader, threat, partial, needsCoalition, partners: living.filter(p=>p.id!==me && p.id!==threat?.id) };
+  const armyDom = armyKnown.length >= 2 && !!armyLeader && (armyLeader.armyCount??0) / Math.max(1,totalArmy) >= 0.45;
+  const landDom = known.length >= 2 && !!leader && (leader.territoryCount??0) / Math.max(1,totalLand) >= 0.4;
+  const incomeDom = incomeKnown.length >= 2 && !!incomeLeader && (incomeLeader.income?.total??0) >= 5 &&
+    ((incomeLeader.income?.total??0) / Math.max(1,totalIncome) >= 0.38 || (incomeLeader.income?.total??0) >= secondIncome + 3);
+  const threat = armyDom ? armyLeader : landDom ? leader : incomeDom ? incomeLeader : known.length >= 2 ? leader : (incomeLeader ?? leader);
+  const needsCoalition = !!threat && threat.id !== me && living.length >= 3 && (landDom || armyDom || incomeDom);
+  return { leader, armyLeader, incomeLeader, threat, partial, needsCoalition, partners: living.filter(p=>p.id!==me && p.id!==threat?.id) };
 }
 
 /** One character's memory of one game. Private plans and other seats' hidden observations never enter it. */
@@ -99,11 +108,13 @@ export class GameMemory {
 
   summary(view: GameView): string {
     const name=(id:string)=>view.players.find(p=>p.id===id)?.name ?? id;
+    const living=view.players.filter(p=>p.alive && !p.isNeutral);
     const assessment=assessLeader(view,this.me);
     const lines=[`THIS GAME ONLY — current round ${view.round}, individual turn ${view.turnNumber}.`];
-    if (assessment.leader) lines.push(`${assessment.partial ? 'Largest observable territory holder (global leader uncertain under fog)' : 'Largest territory holder'}: ${assessment.leader.name}, ${assessment.leader.territoryCount} territories.`);
+    if (assessment.leader) lines.push(`${assessment.partial ? 'Largest observable territory holder (global leader uncertain under fog)' : 'Largest territory holder'}: ${assessment.leader.name}, ${assessment.leader.territoryCount} territories${assessment.leader.income ? `, +${assessment.leader.income.total}/turn` : ''}.`);
     if (assessment.armyLeader) lines.push(`Largest observable army: ${assessment.armyLeader.name}, ${assessment.armyLeader.armyCount} armies.`);
-    if (assessment.needsCoalition) lines.push(`Coalition assessment: ${assessment.threat!.name} holds at least 40% of observable land or 45% of observable armies. Consider a time-limited coalition against them with ${assessment.partners.map(p=>p.name).join(', ') || 'available opponents'}. ${assessment.partial ? 'This is a visible-threat estimate, not proof of global dominance. ' : ''}Check borders, willingness and existing agreements; do not automatically ally or betray.`);
+    if (assessment.incomeLeader) lines.push(`Highest reinforcement income${assessment.partial ? ' (public under fog; primary way to gauge who is ahead alongside visible border stacks)' : ''}: ${assessment.incomeLeader.name}, +${assessment.incomeLeader.income?.total ?? 0}/turn (${living.map(p=>`${p.name} +${p.income?.total ?? 0}`).join(', ')}).`);
+    if (assessment.needsCoalition) lines.push(`Coalition assessment: ${assessment.threat!.name} holds at least 40% of observable land, 45% of observable armies, or a dominant reinforcement income (+${assessment.threat!.income?.total ?? '?'}/turn). Consider a time-limited coalition against them with ${assessment.partners.map(p=>p.name).join(', ') || 'available opponents'}. ${assessment.partial ? 'This is a visible-threat estimate, not proof of global dominance. ' : ''}Check borders, willingness and existing agreements; do not automatically ally or betray.`);
     else lines.push('Coalition assessment: no clear dominant rival at these thresholds. Reassess each turn; do not manufacture a coalition.');
     lines.push('Attacks against me this game (attempts include failed attacks; totals persist even if land is retaken):');
     for (const [id,s] of this.attacks) lines.push(`${name(id)}: ${s.attacks} observed attack orders, ${s.armiesLost} defending armies lost, ${s.lostTerritories} territories taken, ${s.brokenBonuses} bonuses broken.`);

@@ -259,10 +259,28 @@ class Chooser {
     }
     this.conquered = view.players.find((p) => p.id === me)?.conqueredThisTurn ?? false;
     this.balanced = !!view.options.balancedBlitz;
-    let best = -1;
-    for (const p of view.players) {
-      if (!p.alive || p.isNeutral || p.id === me || p.territoryCount === null) continue;
-      if (p.territoryCount > best) ((best = p.territoryCount), (this.leader = p.id));
+    const borderArmies = new Map<PlayerId, number>();
+    for (const t of this.map.territoryIds) {
+      if (view.territories[t]?.owner !== me) continue;
+      for (const n of this.map.adjacency[t]) {
+        const ts = view.territories[n];
+        if (!ts || ts.hidden || !ts.owner || ts.owner === me || this.blizzards.has(n)) continue;
+        borderArmies.set(ts.owner, (borderArmies.get(ts.owner) ?? 0) + ts.armies);
+      }
+    }
+    const rivals = view.players.filter((p) => p.alive && !p.isNeutral && p.id !== me);
+    if (rivals.length > 0 && rivals.every((p) => p.territoryCount !== null)) {
+      let best = -1;
+      for (const p of rivals) {
+        const score = (p.territoryCount ?? 0) * 1000 + (p.income?.total ?? 0) * 20 + (p.armyCount ?? 0);
+        if (score > best) ((best = score), (this.leader = p.id));
+      }
+    } else if (rivals.length > 0) {
+      let best = -1;
+      for (const p of rivals) {
+        const score = (p.income?.total ?? 0) * 100 + (borderArmies.get(p.id) ?? 0);
+        if (score > best) ((best = score), (this.leader = p.id));
+      }
     }
   }
 

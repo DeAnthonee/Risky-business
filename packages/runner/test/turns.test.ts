@@ -31,11 +31,15 @@ describe('commanderFacts: cheapest bonuses', () => {
     expect(missing).toEqual([...missing].sort((a, b) => a - b));
   });
 
-  it('marks hidden territories as unseen under fog and stays within the facts limit', () => {
+  it('marks hidden territories as unseen under fog, reports rival leader by income and border stacks, and stays within the facts limit', () => {
     const f = commanderFacts({ ...makeView({ fog: true }), phase: 'reinforce' }, 'a');
     expect(f).toContain('Cheapest bonuses for you');
     expect(f).toContain('unseen');
+    expect(f).toContain('Leader among rivals (by reinforcement income under fog):');
+    expect(f).toContain('armies visible on your borders');
     expect(f.length).toBeLessThanOrEqual(6500);
+    const open = commanderFacts({ ...makeView({ fog: false }), phase: 'reinforce' }, 'a');
+    expect(open).toMatch(/Leader among rivals: (Shaco|Teemo), \d+ territories, \d+ armies, income \d+/);
   });
 });
 

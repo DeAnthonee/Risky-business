@@ -171,7 +171,7 @@ export function formatEvents(events: GameEvent[], view: GameView): string {
         break;
       case 'turn_started':
         if (e.reinforcements.hidden) {
-          out.push(`Turn ${e.turnNumber}: ${name(e.player)}'s turn (reinforcements hidden by fog)`);
+          out.push(`Turn ${e.turnNumber}: ${name(e.player)} gets ${e.reinforcements.total} armies (breakdown hidden by fog)`);
           break;
         }
         out.push(`Turn ${e.turnNumber}: ${name(e.player)} gets ${e.reinforcements.total} armies${e.reinforcements.fromTurnOrder ? ` (incl. ${e.reinforcements.fromTurnOrder} round-1 late-turn bonus)` : ''}`);

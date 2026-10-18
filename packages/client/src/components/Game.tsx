@@ -800,6 +800,7 @@ function HandSummary({ cards, shortName }: { cards: Card[]; shortName: (id: stri
 
 /** Hover text explaining a player's income: territories, each continent bonus, capitals. */
 function incomeTitle(income: NonNullable<GameView['players'][number]['income']>, map: ReturnType<typeof getMap>): string {
+  if (income.hidden) return `Income next turn, before cards: ${income.total} (breakdown hidden by fog)`;
   const parts = [`${income.fromTerritories} from ${income.territories} territories${income.fromTerritories === 3 && income.territories < 9 ? ' (minimum 3)' : ''}`];
   for (const c of income.continents) parts.push(`${c.bonus} for ${map.continentById[c.id]?.name ?? c.id}`);
   if (income.fromCapitals) parts.push(`${income.fromCapitals} for ${income.capitals} capital${income.capitals === 1 ? '' : 's'}`);

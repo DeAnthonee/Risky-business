@@ -206,8 +206,13 @@ export class Diplomat {
         neighbours.set(s.owner, (neighbours.get(s.owner) ?? 0) + s.armies);
       }
     }
-    const known = others.filter((p) => p.territoryCount !== null);
-    const leader = known.length > 0 ? [...known].sort((a, b) => b.territoryCount! - a.territoryCount!)[0] : null;
+    const known = others.filter((p) => p.territoryCount !== null && p.armyCount !== null);
+    const leader =
+      known.length === others.length && known.length > 0
+        ? [...known].sort((a, b) => b.territoryCount! - a.territoryCount! || (b.income?.total ?? 0) - (a.income?.total ?? 0) || (b.armyCount ?? 0) - (a.armyCount ?? 0))[0]
+        : others.length > 0
+          ? [...others].sort((a, b) => (b.income?.total ?? 0) - (a.income?.total ?? 0) || (neighbours.get(b.id) ?? 0) - (neighbours.get(a.id) ?? 0))[0]
+          : null;
     const pickOf = <T,>(xs: T[]) => xs[Math.min(xs.length - 1, Math.floor(this.random() * xs.length))];
     const r = this.random();
     const border = others.filter((p) => neighbours.has(p.id));
@@ -216,7 +221,12 @@ export class Diplomat {
       const p = pickOf(border);
       return { name: p.name, why: `shares a border with you, ${neighbours.get(p.id)} armies there` };
     }
-    if (r < 0.7 && leader) return { name: leader.name, why: `the leader with ${leader.territoryCount} territories` };
+    if (r < 0.7 && leader) {
+      return {
+        name: leader.name,
+        why: leader.territoryCount !== null ? `the leader with ${leader.territoryCount} territories (${leader.armyCount ?? '?'} armies, +${leader.income?.total ?? '?'}/turn)` : `the income leader under fog with +${leader.income?.total ?? '?'}/turn`,
+      };
+    }
     if (distant.length > 0) return { name: pickOf(distant).name, why: 'no border with you yet, a possible ally' };
     const p = pickOf(others);
     return { name: p.name, why: 'sits at your table' };

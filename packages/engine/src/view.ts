@@ -82,8 +82,20 @@ export function redactEvents(state: GameState, viewer: PlayerId | null, events: 
   const visible = visibleTerritories(state.territories, viewer, map);
   return events.map((e) => {
     if (e.type === 'turn_started' && e.player !== viewer && !territoriesOf(state, e.player).every((t) => visible.has(t))) {
-      // Someone else's income would reveal what they hold behind the fog.
-      return { ...e, reinforcements: { territories: 0, fromTerritories: 0, continents: [], capitals: 0, fromCapitals: 0, total: 0, hidden: true } };
+      // Total reinforcement income is public even under fog; only the breakdown behind the fog is hidden.
+      return {
+        ...e,
+        reinforcements: {
+          territories: 0,
+          fromTerritories: 0,
+          continents: [],
+          capitals: 0,
+          fromCapitals: 0,
+          ...(e.reinforcements.fromTurnOrder !== undefined ? { fromTurnOrder: e.reinforcements.fromTurnOrder } : {}),
+          total: e.reinforcements.total,
+          hidden: true,
+        },
+      };
     }
         if (e.type === 'capitals_assigned') return { type: 'capitals_assigned', capitals: Object.fromEntries(Object.entries(e.capitals).filter(([, t]) => visible.has(t))) };
     if (eventPlayers(e).includes(viewer)) return e;
@@ -105,7 +117,7 @@ export interface PlayerView extends Omit<Player, 'cards'> {
   /** null under fog of war when the viewer cannot see every territory this player holds. */
   armyCount: number | null;
   continents: string[];
-  /** Armies this player would receive at the start of their next turn, before cards (null for the Neutral, and under fog when hidden). */
+  /** Armies this player would receive at the start of their next turn, before cards (null for the Neutral; under fog total is visible and breakdown is hidden). */
   income: ReinforcementBreakdown | null;
 }
 
@@ -127,26 +139,39 @@ export function viewFor(state: GameState, viewer: PlayerId | null): GameView {
   const map = getMap(state.options.map);
   const fogged = foggedFor(state, viewer);
   const visible = fogged ? visibleTerritories(state.territories, viewer!, map) : null;
-  // Under fog a player learns nothing about another player beyond the territories they can see and their
-  // card count: their territory and army counts, income and continents are only shown if every territory
-  // that player holds is visible (e.g. they border all of it).
+  // Under fog a player sees another player's card count and total reinforcement income, plus any
+  // territories they border; territory/army counts, income breakdown and continents are only shown
+  // if every territory that player holds is visible.
   const seesAllOf = (pid: PlayerId) => !visible || pid === viewer || territoriesOf(state, pid).every((t) => visible.has(t));
   const continentVisible = (territories: TerritoryId[]) => !visible || territories.every((t) => isBlizzard(state, t) || visible.has(t));
   const players: PlayerView[] = state.players.map((p) => {
     const open = seesAllOf(p.id);
+    const rawIncome = p.isNeutral ? null : reinforcementsFor(state, p.id);
     return {
       ...p,
       tradesMade: p.tradesMade ?? 0,
       cards: viewer === null || p.id === viewer ? p.cards : null,
-      // Card counts are public at the table, fog or not.
+      // Card counts and total reinforcement income are public at the table, fog or not.
       cardCount: p.cards.length,
       territoryCount: open ? territoriesOf(state, p.id).length : null,
       armyCount: open ? armiesOf(state, p.id) : null,
       continents: continentsOf(state, p.id)
         .filter((c) => open || continentVisible(c.territories))
         .map((c) => c.id),
-      income: p.isNeutral || !open ? null : reinforcementsFor(state, p.id),
-      // While they reinforce, the armies left to place would give away their hidden income.
+      income: !rawIncome
+        ? null
+        : open
+          ? rawIncome
+          : {
+              territories: 0,
+              fromTerritories: 0,
+              continents: [],
+              capitals: 0,
+              fromCapitals: 0,
+              total: rawIncome.total,
+              hidden: true,
+            },
+      // While they reinforce, the armies left to place would give away hidden card trades.
       armiesToPlace: open ? p.armiesToPlace : 0,
     };
   });

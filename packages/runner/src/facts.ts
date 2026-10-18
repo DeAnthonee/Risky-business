@@ -95,8 +95,12 @@ export function boardFacts(view: GameView, me: PlayerId): string {
         b.cardCount - a.cardCount,
     )[0];
     const borderTop = [...border.entries()].sort((a, b) => b[1] - a[1])[0];
+    const cardWatch = [...living]
+      .filter((p) => p.id !== me && p.cardCount >= 3)
+      .sort((a, b) => b.cardCount - a.cardCount)
+      .map((p) => `${p.name} (${p.cardCount} cards)`);
     lines.push(
-      `Leader (by income under fog): ${top.name} (+${q(top.income?.total)}/turn, ${top.cardCount} cards)${borderTop ? `; biggest border threat: ${nameOf(borderTop[0])} (${borderTop[1]} visible armies, +${q(living.find((p) => p.id === borderTop[0])?.income?.total)}/turn)` : ''}.`,
+      `Leader (by income under fog): ${top.name} (+${q(top.income?.total)}/turn, ${top.cardCount} cards)${borderTop ? `; biggest border threat: ${nameOf(borderTop[0])} (${borderTop[1]} visible armies, +${q(living.find((p) => p.id === borderTop[0])?.income?.total)}/turn)` : ''}${cardWatch.length ? `; card trade watch: ${cardWatch.join(', ')}` : ''}.`,
     );
   }
 
@@ -145,7 +149,11 @@ export function commanderFacts(view: GameView, me: PlayerId): string {
   // Cards.
   const next = o.cardValues === 'fixed' ? 'fixed 4-10 by set type' : o.cardValues === 'exponential' ? `${nextTradeValue('exponential', 0, view.players.find(p => p.id === me)?.tradesMade ?? 0)} armies (your personal exponential sequence)` : `${tradeBonus(view.tradeCount)} armies (progressive, ${view.tradeCount} sets traded so far)`;
   const sets = view.legal?.tradeableSets.length ?? 0;
-  lines.push(`Next card set is worth ${next}. You hold ${meP?.cardCount ?? 0} cards${sets ? ` (${sets} tradeable set${sets > 1 ? 's' : ''})` : ''}.`);
+  const oppCards = living
+    .filter((p) => p.id !== me)
+    .map((p) => `${p.name} ${p.cardCount}${p.cardCount >= 4 ? ' (forced trade soon)' : p.cardCount >= 3 ? ' (can hold a set)' : ''}`)
+    .join(', ');
+  lines.push(`Next card set is worth ${next}. You hold ${meP?.cardCount ?? 0} cards${sets ? ` (${sets} tradeable set${sets > 1 ? 's' : ''})` : ''}.${o.fogOfWar && oppCards ? ` Opponent card counts (public under fog): ${oppCards}.` : ''}`);
   lines.push(...cardMath(view, me), ...eliminationScouting(view, me));
 
   // Players.

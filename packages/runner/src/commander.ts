@@ -28,6 +28,8 @@ export interface CommanderPlan extends Plan {
   fortify: boolean | undefined;
   stallPressure: boolean | undefined;
   cardChance: number | undefined;
+  /** Armies to commit against `target` (from an active troop-commitment deal or commander override). */
+  commitArmies?: number;
   /** Ids of active deals this seat deliberately breaks. */
   breakDeals: string[];
   skipCard: boolean;
@@ -134,6 +136,7 @@ export function parsePlanReply(raw: string, view: GameView, me: PlayerId): Comma
   const choices = (view.legal?.capitalChoices ?? []).map((id) => ({ id, name: map.territoryById[id]?.name ?? id }));
   const capital = resolve(obj.capital, choices) ?? null;
   const garrison = clampNum(obj.capitalGarrison, 1, 60);
+  const commitArmies = clampNum(obj.commitArmies, 1, 500);
   const bool = (v: unknown) => (typeof v === 'boolean' ? v : v === 'true' ? true : v === 'false' ? false : undefined);
   const skipCardReason = clip(obj.skipCardReason, 200);
   let winPath = WIN_PATHS.find((w) => w === lower(typeof obj.winPath === 'string' ? obj.winPath : '')) ?? null;
@@ -155,6 +158,7 @@ export function parsePlanReply(raw: string, view: GameView, me: PlayerId): Comma
     fortify: bool(obj.fortify),
     stallPressure: bool(obj.stallPressure),
     cardChance: clampNum(obj.cardChance, 0.3, 0.95),
+    ...(commitArmies !== undefined ? { commitArmies: Math.round(commitArmies) } : {}),
     breakDeals: [...new Set((Array.isArray(obj.breakDeals) ? obj.breakDeals : typeof obj.breakDeals === 'string' ? [obj.breakDeals] : []).map((x) => clip(x, 20)).filter(Boolean))].slice(0, 5),
     // Skipping the card needs a stated reason.
     skipCard: bool(obj.skipCard) === true && skipCardReason.length > 0,
@@ -172,8 +176,8 @@ const SCHEMA = `{"winPath": "diplomacy"|"bonuses"|"cards"|"capitals"|"kills"|"ho
 
 /** Optional knobs the commander may add to its JSON; each line says what it does and the default. */
 const KNOBS = [
-  'Threat and leader assessment: every player\'s reinforcement income (+N/turn) is public at all times. Without fog of war, weigh everyone\'s troop count, territory count, and reinforcement income to know who is ahead and who is a threat. Under fog of war, opponents\' total troop and territory counts are hidden, so reinforcement income (+N/turn) alongside the stacks visible on your borders is the primary way to gauge who holds uncontested bonuses/capitals behind the fog, who is pulling ahead, and who must be pressured or coalitioned against.',
-  'Personality and betrayal: treaties are strategic promises, never moral requirements. You may scheme, lie, bluff, or backstab when that fits your character and helps you win. Reconsider even a treaty partner when they become an easy card-steal kill. To betray, privately put the relevant active deal ids in breakDeals and remove any self-imposed avoid entry. You need not announce betrayal beforehand. Weigh the cards and timing against retaliation, grudges, reputation, and future cooperation; loyal characters can choose to keep their word.',
+  'Threat, income, and card count assessment: every player\'s reinforcement income (+N/turn) and card count (how many cards they hold, though not which cards) are public at all times, even under fog of war. Without fog of war, weigh everyone\'s troop count, territory count, reinforcement income, and card count to know who is ahead and who is a threat. Under fog of war, opponents\' total troop and territory counts are hidden, so reinforcement income (+N/turn), card counts (3+ can hold a set, 4+ is an imminent trade), and visible border stacks are how you gauge who holds bonuses/capitals behind the fog, who is ahead, and who is a threat.',
+  'Concrete troop-commitment alliances and betrayal: this is a free-for-all where you may scheme, lie, bluff, or backstab whenever betrayal serves your win path. Players can make joint_attack deals committing a specific number of troops against an enemy (e.g. "I will commit 20 troops against X"). Honoring that troop commitment is how you keep your end of the alliance; failing to commit those troops (or putting the deal id in breakDeals) is a backstab, which is totally allowed. When a stalemate is detected, use concrete troop-commitment deals and focused commitments to progress the game state and break the deadlock.',
   'Drafting and routes: plan the full attack route for a bonus or elimination before placing troops. Fund every necessary launch stack, including separate fronts, with enough armies to finish its assigned branch. Reserve defenders and casualties; concentration is useful only when the objective truly has one viable front. The tactical chooser now budgets complete bonus and elimination routes and shares surplus across funded fronts.',
   'Eliminations: actively hunt weak players for their entire card hand before they trade it against you. Compare every remaining territory, route, defending armies and your available troops; never assume one easy border is a complete kill. The tactical chooser budgets small visible kills and reserves separate branches when occupying: do not demand that every conquest move the whole stack forward. Re-evaluate after losses. Treaties may be broken deliberately with breakDeals; explicit capital garrisons remain tactical constraints. Stolen cards are available only after the final territory falls; public hand size does not prove the opponent holds a valid set.',
   '- riskTolerance (0..1): how much loss you accept; with aggression it sets the attack threshold and the capital-attack margin. Default: = aggression.',
@@ -184,7 +188,8 @@ const KNOBS = [
   '- fortify (true/false): false stops voluntary fortifying. Default true.',
   '- stallPressure (true/false): false stops attack thresholds loosening when nobody has conquered for a while (and the late-game push). Default true.',
   '- cardChance (0.3..0.95): win chance the guaranteed card attack needs. Default 0.6.',
-  '- breakDeals (deal ids, e.g. ["S3"]): break these ACTIVE deals on purpose (a betrayal; the other side will know). Without it every active truce and border is kept and every joint attack is carried out. Default: [].',
+  '- commitArmies (1..500): commit this many troops into attacks against target this turn (automatically set when an active joint_attack deal has a troop commitment, unless broken with breakDeals).',
+  '- breakDeals (deal ids, e.g. ["S3"]): break these ACTIVE deals on purpose (a betrayal; the other side will know). Without it every active truce and border is kept and every joint attack (including its troop commitment) is carried out. Default: [].',
   '- skipCard (true) + skipCardReason (a sentence): skip the card attack this turn. Ignored without a reason; the reason goes in your log. Default: with progressive cards you take a card every turn.',
 ];
 
@@ -192,6 +197,8 @@ const KNOBS = [
 export class Commander {
   private gameMemory: (view: GameView) => string = () => '';
   setGameMemory(provider: (view: GameView) => string) { this.gameMemory=provider; }
+  private getStall: () => number = () => 0;
+  setStall(provider: () => number) { this.getStall = provider; }
   private o: CommanderOptions;
   private plan: CommanderPlan | null = null;
   private planTurn = -1;
@@ -219,12 +226,12 @@ export class Commander {
 
   /**
    * What the active deals demand of the move chooser: truces avoid the other party, borders put the other
-   * party's listed territories off limits, a joint attack that has started names its target. Code carries out
-   * what was agreed; the commander escapes it only through `breakDeals` (which breaks the deal in the ledger).
+   * party's listed territories off limits, a joint attack that has started names its target (and remaining troop commitment).
+   * Code carries out what was agreed; the commander escapes it only through `breakDeals` (which breaks the deal in the ledger).
    */
-  private dealEffects(): { avoid: PlayerId[]; noAttack: string[]; target: PlayerId | null } {
+  private dealEffects(): { avoid: PlayerId[]; noAttack: string[]; target: PlayerId | null; commitArmies: number } {
     const view = this.lastView;
-    const out = { avoid: [] as PlayerId[], noAttack: [] as string[], target: null as PlayerId | null };
+    const out = { avoid: [] as PlayerId[], noAttack: [] as string[], target: null as PlayerId | null, commitArmies: 0 };
     if (!view) return out;
     const idOf = (name: string) => view.players.find((p) => p.alive && !p.isNeutral && p.id !== this.o.playerId && p.name.toLowerCase() === name.toLowerCase())?.id;
     for (const d of this.ledger.active()) {
@@ -235,9 +242,13 @@ export class Commander {
       } else if (d.kind === 'border') {
         const theirs = Object.entries(d.territories ?? {}).find(([who]) => who.toLowerCase() === other.toLowerCase())?.[1] ?? [];
         out.noAttack.push(...theirs);
-      } else if (d.kind === 'joint_attack' && !out.target && (d.startRound ?? 0) <= this.ledger.round) {
+      } else if (d.kind === 'joint_attack' && (d.startRound ?? 0) <= this.ledger.round) {
         const id = d.target ? idOf(d.target) : undefined;
-        if (id) out.target = id;
+        if (id && !out.target) out.target = id;
+        if (id && id === out.target && d.commitArmies !== undefined) {
+          const rem = Math.max(0, d.commitArmies - this.ledger.committedBy(d, this.o.seatName));
+          out.commitArmies = Math.max(out.commitArmies, rem);
+        }
       }
     }
     return out;
@@ -250,7 +261,14 @@ export class Commander {
     const base = this.plan ?? ({} as Partial<CommanderPlan>);
     const target = fx.target && base.winPath !== 'hopeless' ? fx.target : (base.target ?? null);
     const avoid = [...new Set([...(base.avoid ?? []).filter((p) => !this.hitUs.has(p)), ...fx.avoid])].filter((p) => p !== target);
-    return { ...base, avoid, target, noAttack: fx.noAttack };
+    const commitArmies = Math.max(base.commitArmies ?? 0, target && target === fx.target ? fx.commitArmies : 0);
+    return {
+      ...base,
+      avoid,
+      target,
+      noAttack: fx.noAttack,
+      ...(commitArmies > 0 ? { commitArmies } : {}),
+    };
   }
 
   /** The ledger for prompts: the round and the seat's deals. */
@@ -265,7 +283,7 @@ export class Commander {
     const name = (id: string | null) => view?.players.find((x) => x.id === id)?.name ?? id;
     const bits = [p.plan];
     if (p.winPlan) bits.push(`how I win: ${p.winPlan}`);
-    if (p.target) bits.push(`pressure ${name(p.target)}`);
+    if (p.target) bits.push(`pressure ${name(p.target)}${p.commitArmies ? ` (commit ${p.commitArmies} troops)` : ''}`);
     if (p.avoid.length > 0) bits.push(`avoid attacking ${p.avoid.map(name).join(', ')}`);
     return bits.filter(Boolean).join('; ').slice(0, 500) || null;
   }
@@ -348,7 +366,7 @@ export class Commander {
     if (p.winPath) bits.push(`winPath ${p.winPath}${p.winPlan ? `: ${p.winPlan}` : ''}`);
     if (p.skipCard) bits.push(`skipping the card: ${p.skipCardReason}`);
     if (p.note) bits.push(`note: ${p.note}`);
-    if (p.target) bits.push(`target ${name(p.target)}`);
+    if (p.target) bits.push(`target ${name(p.target)}${p.commitArmies ? ` (commit ${p.commitArmies})` : ''}`);
     if (p.avoid.length) bits.push(`avoiding ${p.avoid.map(name).join(', ')}`);
     if (p.capital) bits.push(`capital ${p.capital}`);
     this.entries.push(`- ${bits.join(' | ')}`);
@@ -411,6 +429,7 @@ export class Commander {
     const me = this.o.playerId;
     const players = view.players.filter((p) => p.alive && !p.isNeutral && p.id !== me).map((p) => p.name);
     const chat = this.chat.map((m) => `${m.spectator ? '[spectator] ' : ''}${m.name}${m.to !== undefined ? ` (whisper to ${m.toName ?? '?'})` : ''}: ${m.message}`).join('\n');
+    const stall = this.getStall();
     const system = [
       `You are the commander of the Risk player "${this.o.seatName}". You decide this seat's plan; a move chooser then plays it out turn by turn.`,
       this.o.profile ? `Your character (play to its strengths and temperament):\n${this.o.profile}` : 'You are a sharp, patient Risk strategist.',
@@ -434,12 +453,13 @@ export class Commander {
       ...KNOBS,
       `- capital: ${kind === 'capital' ? 'REQUIRED now: one of the CAPITAL CHOICES (name or id): a well-garrisoned doorway with an exit toward enemies; not a deep pocket, not behind another capital' : 'null'}.`,
       '- note: one line (at most 15 words) for your private log: what you learned or expect.',
-      'Deals: the user message lists your deals. Active truces and borders are kept for you and joint attacks are carried out, because a broken promise is remembered at the table. You decide whether that still serves your win path: to betray one, put its id in breakDeals. A player who attacks you during a truce has broken it. Do not list a truce partner in "avoid" just to repeat the deal.',
+      'Deals: the user message lists your deals. Active truces and borders are kept for you and joint attacks (including troop commitments) are carried out, because a broken promise is remembered at the table. You decide whether that still serves your win path: to betray one, put its id in breakDeals. A player who attacks you during a truce or fails to commit their promised troops has broken the deal. Do not list a truce partner in "avoid" just to repeat the deal.',
       'Use only ids and names that appear in the board facts. Anything unknown is ignored.',
       "Check who holds a territory in the board facts (the 'next to ... held by' lines) before naming a focus or target: aim at the player who really owns what you want to take.",
     ].join('\n');
     const user = [
       kind === 'capital' ? 'It is the capitals phase: choose your capital.' : 'Your turn is starting (reinforce phase). Set the plan.',
+      ...(stall >= 2 ? [`STALEMATE DETECTED (${stall} of your turns without a conquest): use concrete troop-commitment alliances (joint_attack with commitArmies) or set target + commitArmies to break the deadlock.`] : []),
       '',
       this.dealsText(),
       '',

@@ -1,0 +1,5 @@
+# Install PyTorch with CUDA first (RTX 40xx): pip install torch --index-url https://download.pytorch.org/whl/cu128
+torch>=2.7
+numpy>=2.0
+onnx>=1.17
+onnxscript>=0.2

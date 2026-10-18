@@ -20,7 +20,8 @@
   },
   "dependencies": {
     "@risk/engine": "0.1.0",
-    "@risk/selfplay": "0.1.0"
+    "@risk/selfplay": "0.1.0",
+    "onnxruntime-node": "^1.22.0"
   },
   "devDependencies": {
     "@types/node": "^22.18.0",

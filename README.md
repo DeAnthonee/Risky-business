@@ -46,6 +46,9 @@ keep the deploy pipeline working are in those files.
      feature it lists.
    - [packages/selfplay/README.md](packages/selfplay/README.md): self-play, the log format and the encoder
      versioning rules.
+   - [packages/runner/README.md](packages/runner/README.md) and [docs/character-league.md](docs/character-league.md):
+     the character league runner, rankings and shared learnings.
+   - [packages/llm-player/README.md](packages/llm-player/README.md): the local-model player.
    - [AI/README.md](AI/README.md): where AI character profiles and model docs live and how to save them.
    - [.github/pull_request_template.md](.github/pull_request_template.md) and
      [.github/workflows/ci.yml](.github/workflows/ci.yml): what a PR needs and what CI runs.

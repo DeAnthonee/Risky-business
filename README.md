@@ -29,12 +29,15 @@ keep the deploy pipeline working are in those files.
    - `CLAUDE.md` (Claude Code; **this is the main one here**: commands, branch rule, hosting invariants,
      conventions)
    - `AGENTS.md` (Codex and other agents that follow the AGENTS.md convention)
-   - `GEMINI.md`, `.github/copilot-instructions.md`, `.cursorrules`, `.cursor/rules/*`, `.windsurfrules`,
-     `.clinerules`, `CONVENTIONS.md`
-   - `.claude/` (settings and skills, for example `.claude/skills/*/SKILL.md`)
+   - `GEMINI.md` (Gemini CLI), `.github/copilot-instructions.md` (GitHub Copilot),
+     `.cursor/rules/read-project-context.mdc` (Cursor), `.windsurf/rules/read-project-context.md` (Windsurf),
+     `.clinerules` (Cline)
+   - `.claude/` (settings and skills, for example `.claude/skills/*/SKILL.md`), if present
+   - any other agent file that shows up later, such as `.cursorrules`, `.windsurfrules` or `CONVENTIONS.md`
 
-   A file that does not exist yet just means nobody has written it. Do not skip the ones that do exist. A file
-   inside a package applies on top of the root files for work in that package.
+   The files for the other tools are short pointers back to this section and `CLAUDE.md`. They are kept that way
+   on purpose: new instructions go in `CLAUDE.md` or the docs, so the agent files never drift apart. A file inside
+   a package applies on top of the root files for work in that package.
 2. **Then read the project docs**:
    - [CONTRIBUTING.md](CONTRIBUTING.md): how to branch, add a feature end to end (engine → server/API → MCP →
      client → docs → `npm test`) and the hosting invariants. It is written so an agent can follow it unaided.

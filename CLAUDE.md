@@ -4,6 +4,10 @@
 `ccr-63b8112a-e2uk2g`; feature branch + PR), the standard path for adding a feature (engine → server/API →
 MCP tools → client → docs → `npm test`), and the hosting invariants. This file is the condensed reference.
 
+This file is the one source of agent instructions. `AGENTS.md`, `GEMINI.md`, `.github/copilot-instructions.md`,
+`.cursor/rules/`, `.windsurf/rules/` and `.clinerules` only point other tools here and to the README section
+"For AI coding agents: read this first". Put new instructions here or in the docs, never in those pointers.
+
 Online multiplayer Risk with bots and an MCP server for AI agents. npm-workspaces monorepo:
 `packages/engine` (pure rules, tested), `packages/server` (Express + ws, persistence, bots),
 `packages/client` (React + Vite), `packages/mcp` (MCP tools; stdio CLI, and embedded in the server at `/mcp`),

@@ -142,7 +142,7 @@ describe('playGame', () => {
       expect(rec.state.armies).toHaveLength(t);
       expect(rec.state.seats).toHaveLength(2);
       expect([...rec.state.order].sort()).toEqual([0, 1]);
-      expect(rec.rules).toEqual([0, 0, 0, 0, 0]);
+      expect(rec.rules).toEqual([0, 0, 0, 0, 0, 0]);
       expect(rec.choice).toBeGreaterThanOrEqual(0);
       expect(rec.choice).toBeLessThan(rec.cands.length);
       expect(rec.traits).toHaveLength(TRAIT_KEYS.length);

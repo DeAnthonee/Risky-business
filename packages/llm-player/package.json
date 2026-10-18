@@ -1,0 +1,30 @@
+{
+  "name": "@risk/llm-player",
+  "version": "0.1.0",
+  "description": "A Risk player driven by a local LLM (any OpenAI-compatible endpoint: Ollama, LM Studio, llama.cpp, MLX), playing as a character with its profile, diary and relationships. A separate process; never loaded by the game server.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "risk-llm-player": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@risk/engine": "0.1.0",
+    "@risk/mcp": "0.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.0",
+    "vitest": "^3.2.4"
+  }
+}

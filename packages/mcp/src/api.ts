@@ -174,8 +174,14 @@ export interface CharacterMemory {
  */
 export interface RiskApi {
   rules(): Promise<{ rules: string }>;
+  /** Optional for adapters; HTTP servers advertise supported modes in their options catalogue. */
+  cardModes?(): Promise<GameOptions['cardValues'][]>;
   map(mapId?: string): Promise<unknown>;
   listGames(): Promise<{ games: unknown[] }>;
+  /** Needs the characters write key: binding credits the character on the leaderboard. */
+  setCharacter(gameId: string, token: string, characterId: string, key?: string): Promise<unknown>;
+  rankings(): Promise<{ rankings: import('@risk/engine').RankingRow[] }>;
+  rankedProfile(key: string): Promise<{ stats: import('@risk/engine').RankingRow; profile: string | null }>;
   createGame(playerName: string, gameName: string | undefined, options: Partial<GameOptions> | undefined): Promise<JoinResult>;
   joinGame(gameId: string, playerName: string): Promise<JoinResult>;
   addBot(gameId: string, token: string, name?: string): Promise<{ playerId: string }>;
@@ -352,6 +358,11 @@ export class HttpRiskApi implements RiskApi {
   map(mapId?: string) {
     return this.request<unknown>(`/map${mapId ? `?map=${encodeURIComponent(mapId)}` : ''}`);
   }
+  async cardModes(): Promise<GameOptions['cardValues'][]> {
+    const catalogue = await this.request<{ options: { key: string; values?: string[] }[] }>('/options', { signal: AbortSignal.timeout(10000) });
+    const values = catalogue.options.find(o => o.key === 'cardValues')?.values ?? [];
+    return (['progressive', 'fixed', 'exponential'] as const).filter(v => values.includes(v));
+  }
   listGames() {
     return this.request<{ games: unknown[] }>('/games');
   }
@@ -399,6 +410,11 @@ export class HttpRiskApi implements RiskApi {
   listCharacters() {
     return this.request<{ characters: CharacterSummary[] }>('/characters');
   }
+  setCharacter(gameId: string, token: string, characterId: string, key?: string) {
+    return this.request(`/games/${gameId}/character`, { method: 'POST', body: JSON.stringify({ characterId }) }, token, key ?? this.charactersKey);
+  }
+  rankings() { return this.request<{ rankings: import('@risk/engine').RankingRow[] }>('/rankings'); }
+  rankedProfile(key: string) { return this.request<{ stats: import('@risk/engine').RankingRow; profile: string | null }>(`/rankings/profile?key=${encodeURIComponent(key)}`); }
   getCharacter(id: string, version?: number) {
     return this.request<CharacterProfile>(`/characters/${characterPath(id)}${version !== undefined ? `?version=${version}` : ''}`);
   }

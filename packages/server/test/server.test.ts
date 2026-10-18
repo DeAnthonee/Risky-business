@@ -1573,3 +1573,14 @@ describe('tournaments', () => {
     }
   });
 });
+
+describe('exponential cards over HTTP', () => {
+  it('advertises the mode and accepts it when creating a game', async () => {
+    const catalogue = await api('/options');
+    expect(catalogue.body.options.find((o: any) => o.key === 'cardValues').values).toContain('exponential');
+    const created = await api('/games', { method: 'POST', body: JSON.stringify({ playerName: 'Exponential tester', options: { cardValues: 'exponential' } }) });
+    expect(created.status).toBe(201);
+    expect(created.body.state.options.cardValues).toBe('exponential');
+    expect(created.body.state.players[0].tradesMade).toBe(0);
+  });
+});

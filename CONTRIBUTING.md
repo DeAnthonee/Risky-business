@@ -24,6 +24,7 @@ npm ci && npm run build && npm test                            # must be green b
 | `packages/server` | Express + WebSocket game server: rooms, bots, persistence, `/api`, `/ws`, `/healthz`, embedded MCP at `/mcp` | any API change, bots, hosting behaviour |
 | `packages/client` | React + Vite web UI: lobby, SVG board, animations, cards, chat | anything players see |
 | `packages/mcp` | MCP tools for AI agents (used by the stdio CLI **and** by the server's `/mcp`) | anything agents can do |
+| `packages/llm-player` | a seat played by a local model as an `AI/` character, over the HTTP API (its own process) | how local models play |
 | `packages/selfplay` | headless self-play harness, rating ladder and decision logs for training AI players (not used by the server) | training tooling, new player versions |
 | `scripts/maps/*.mjs` + `scripts/build-map.mjs` | map definitions and the generator that turns real geography into `packages/engine/src/generated/*.json` | adding/changing territories, regions, adjacency |
 

@@ -8,7 +8,7 @@ playbook, ways to win and findings — lives in `../general-player/`. Character-
 
 | File | Topic |
 | ---- | ----- |
-| `local-models.md` | Plan for running our own models on the Mac mini, and open questions for infrastructure |
+| `local-models.md` | Running our own models on the Mac mini with `packages/llm-player`, and open questions for infrastructure |
 
 ## Adding a doc
 

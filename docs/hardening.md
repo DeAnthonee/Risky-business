@@ -23,6 +23,13 @@ launch and remove the temporary create/start MCP tools.
 the number of sets traded are public by design. Any seated player can also open the spectator view (or
 `spectate_game`) and see the whole board. Decide whether fog games should restrict spectating by seated players.
 
+## 3. Leaderboard identities for plain seats are self-declared
+
+**Where:** `packages/server/src/rankings.ts`, `GET /api/rankings`. Binding a seat to a character needs the
+characters write key, but a seat without a character is ranked as `player:<display name>`. Anyone can join under
+someone else's name, or play two seats against each other and surrender one, to move that name's record. Decide
+whether plain seats should be ranked at all (or only characters and signed-in accounts) before the ladder matters.
+
 ## Fixed
 
 - **Character profiles, diaries and relationships were writable by anyone.** Every save now needs the write key

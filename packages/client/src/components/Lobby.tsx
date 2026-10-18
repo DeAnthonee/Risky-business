@@ -4,6 +4,7 @@ import type { Session } from '../session';
 import type { GameConnection } from '../useGame';
 import { spectateLink } from '../session';
 import { OptionsForm } from './Home';
+import { CharacterName } from './Profiles';
 import { Chat } from './Chat';
 
 export function Lobby({ conn, gameId, session, onLeave, onJoin }: { conn: GameConnection; gameId: string; session: Session | null; onLeave: () => void; onJoin?: () => void }) {
@@ -94,7 +95,7 @@ export function Lobby({ conn, gameId, session, onLeave, onJoin }: { conn: GameCo
                   </form>
                 ) : (
                   <>
-                    {p.name} {p.isBot && '🤖'} {p.id === conn.host && '👑'}{' '}
+                    <CharacterName name={p.name} gameId={gameId} playerId={p.id} /> {p.isBot && '🤖'} {p.id === conn.host && '👑'}{' '}
                     {p.id === session?.playerId && (
                       <>
                         <em>(you)</em>{' '}

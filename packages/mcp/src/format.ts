@@ -1,4 +1,4 @@
-import { CAPITAL_DEFENSE_DICE, blitzOdds, describeOptions, fixedSetValue, getMap, visibleTerritories, type GameEvent, type GameView } from '@risk/engine';
+import { nextTradeValue, CAPITAL_DEFENSE_DICE, blitzOdds, describeOptions, fixedSetValue, getMap, visibleTerritories, type GameEvent, type GameView } from '@risk/engine';
 
 /** The player whose capital this territory is (capitals the viewer can see), if any. */
 function capitalOwnerOf(view: GameView, t: string): string | undefined {
@@ -34,6 +34,7 @@ export function formatState(view: GameView, gameName?: string): string {
         .join(', ')}`,
     );
     lines.push('Settings:', ...describeOptions(view.options, view.tradeCount).map((l) => `  ${l}`));
+    if (view.options.cardValues === 'exponential') lines.push('Personal next sets: ' + view.players.filter(p => !p.isNeutral).map(p => `${p.name}: ${nextTradeValue('exponential', 0, p.tradesMade ?? 0)} armies (${p.tradesMade ?? 0} traded)`).join('; '));
     lines.push('Waiting in lobby. The host must start the game.');
     return lines.join('\n');
   }
@@ -62,6 +63,7 @@ export function formatState(view: GameView, gameName?: string): string {
   // Every viewer (players and spectators) gets the full rule set this game is played with.
   lines.push('');
   lines.push('Settings:', ...describeOptions(view.options, view.tradeCount).map((l) => `  ${l}`));
+  if (view.options.cardValues === 'exponential') lines.push('Personal next sets: ' + view.players.filter(p => !p.isNeutral).map(p => `${p.name}: ${nextTradeValue('exponential', 0, p.tradesMade ?? 0)} armies (${p.tradesMade ?? 0} traded)`).join('; '));
   if (view.blizzards?.length) lines.push(`  Frozen territories: ${view.blizzards.join(', ')} (cannot be attacked, entered or crossed)`);
 
   lines.push('');

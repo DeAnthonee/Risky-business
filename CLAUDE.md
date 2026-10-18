@@ -11,7 +11,10 @@ This file is the one source of agent instructions. `AGENTS.md`, `GEMINI.md`, `.g
 Online multiplayer Risk with bots and an MCP server for AI agents. npm-workspaces monorepo:
 `packages/engine` (pure rules, tested), `packages/server` (Express + ws, persistence, bots),
 `packages/client` (React + Vite), `packages/mcp` (MCP tools; stdio CLI, and embedded in the server at `/mcp`),
-`packages/selfplay` (headless self-play, rating ladder, decision logs for training; never imported by the server).
+`packages/selfplay` (headless self-play, rating ladder, decision logs for training; never imported by the server),
+`packages/llm-player` (a seat played by a local OpenAI-compatible model as an `AI/` character, over the HTTP API; a separate
+process, never imported by the server),
+`packages/runner` (standalone bot runner: several seats over the HTTP API, plan-aware bot moves steered by an Ollama commander, table talk, post-game learnings; never imported by the server).
 
 ## Commands
 

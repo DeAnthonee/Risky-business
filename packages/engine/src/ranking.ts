@@ -1,0 +1,37 @@
+/** Placement points, not opponent-strength Elo. Six seats: +3,+2,+1,-1,-2,-3. */
+export function placementPoints(placement: number, players: number): number {
+  if (!Number.isInteger(players) || players < 2 || !Number.isInteger(placement) || placement < 1 || placement > players) throw new Error('Invalid placement');
+  const centered = (players + 1) / 2 - placement;
+  return Math.sign(centered) * Math.ceil(Math.abs(centered));
+}
+
+export interface RankedSeat { key: string; name: string; placement: number }
+export interface RankedGame { gameId: string; seats: RankedSeat[] }
+export interface RankingRow {
+  key: string; name: string; rank: number; points: number;
+  games: number; wins: number; losses: number; winRate: number; avgPlacement: number;
+}
+
+/** Input order is completion order. Rating floors at zero after each game; duplicate game IDs are ignored. */
+export function rankLeaderboard(results: readonly RankedGame[]): RankingRow[] {
+  const rows = new Map<string, RankingRow & { places: number }>();
+  const seen = new Set<string>();
+  for (const result of results) {
+    if (seen.has(result.gameId) || result.seats.length < 2) continue;
+    seen.add(result.gameId);
+    for (const seat of result.seats) {
+      const row = rows.get(seat.key) ?? { key: seat.key, name: seat.name, rank: 0, points: 0, games: 0, wins: 0, losses: 0, winRate: 0, avgPlacement: 0, places: 0 };
+      row.name = seat.name;
+      row.points = Math.max(0, row.points + placementPoints(seat.placement, result.seats.length));
+      row.games++;
+      row.wins += Number(seat.placement === 1);
+      row.losses = row.games - row.wins;
+      row.places += seat.placement;
+      row.avgPlacement = Math.round(row.places / row.games * 100) / 100;
+      row.winRate = Math.round(row.wins / row.games * 1000) / 10;
+      rows.set(seat.key, row);
+    }
+  }
+  return [...rows.values()].sort((a, b) => b.points - a.points || b.wins - a.wins || a.avgPlacement - b.avgPlacement || a.key.localeCompare(b.key))
+    .map(({ places: _places, ...row }, i) => ({ ...row, rank: i + 1 }));
+}

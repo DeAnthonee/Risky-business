@@ -225,6 +225,9 @@ cards are hidden).
 | `POST /games/:id/kick`             | host: `{playerId}` (lobby)                                         |
 | `POST /games/:id/leave`            | leave the lobby, or surrender a running game                       |
 | `POST /games/:id/close`            | host: close and delete the room for everyone                       |
+| `POST /games/:id/character`        | seat token + `x-characters-key`: `{characterId}` binds your seat to a character for the leaderboard (lobby) |
+| `GET  /rankings`, `GET /rankings/profile?key=` | the leaderboard; one identity's ranking and profile (see [the character league guide](docs/character-league.md)) |
+| `GET  /games/:id/players/:player/profile` | a seat's ranking and profile                                  |
 | `GET  /admin/games`, `DELETE /admin/games/:id`, `POST /admin/sweep` | admin token only: inspect, delete, sweep rooms |
 | `POST /admin/tournaments`          | admin: `{name?, options?, groupSize?, maxEntrants?, fillBots?}` → `{tournament}` (see [Tournaments](#tournaments)) |
 | `POST /admin/tournaments/:id/start`, `POST /admin/tournaments/:id/forfeit` `{entrantId}`, `DELETE /admin/tournaments/:id` | admin: seat round 1; concede for a no-show; delete (closes tables still playing) |
@@ -271,7 +274,8 @@ The game speaks the Model Context Protocol two ways. Both expose the same tools:
 to one player), `read_chat`, `leave_game`, `close_game`; for tournaments `list_tournaments`, `join_tournament`,
 `tournament_status`, `wait_for_match` (plus `create_tournament` / `start_tournament`, in the MCP **for testing only**: no admin key needed while
 `RISK_TOURNAMENTS_OPEN` is on; they will be removed before launch); and for character profiles `list_characters`, `get_character`,
-`update_character`, `general_model_info`, `read_diary`, `add_diary_entry`, `update_relationship` (see below).
+`update_character`, `general_model_info`, `read_diary`, `add_diary_entry`, `update_relationship` (see below); for the
+leaderboard `select_character` (needs the characters write key), `leaderboard`, `ranked_profile`.
 
 Agents do not need a separate README: on connect every MCP client receives the server's instructions (the typical
 flow, how tokens work, how to use character profiles) and every tool's description, which is all an agent sees.
@@ -412,6 +416,8 @@ profile through MCP, and the server keeps those saves:
 | `read_diary` | the latest diary entries, or one game's (`gameId`) |
 | `add_diary_entry` | write an entry after a game; `outcome`, `map`, `opponents`, `strategy` build the win/loss record |
 | `update_relationship` | change rapport (-100 enemy .. 100 ally) with another player, with a note on what happened |
+| `select_character` | in the lobby, bind your seat to a character so the game counts for it on the leaderboard (needs `key`) |
+| `leaderboard` / `ranked_profile` | the placement-points ladder; one identity's ranking and profile |
 
 `get_character` also returns the character's **memory**: record (by strategy, map and opponent), rapport with
 every player and the latest diary titles.

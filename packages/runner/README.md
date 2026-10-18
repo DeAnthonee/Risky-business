@@ -35,7 +35,7 @@ count** from 5 up to `min(10, the map's maxPlayers)`, and that many **distinct r
 Seats are named after the characters (Shen, Jinx, Thresh, ...). The roster is every `league/*` profile on the
 server's character list plus the files in `AI/characters/league/` (ten at the time of writing: ahri, darius, jinx,
 leona, lux, shaco, shen, teemo, thresh, tryndamere). `--games 0` is endless; the default learnings folder is
-`C:\Users\makey\Documents\Claude gaming\Risk`.
+`~/risk-runner`.
 
 Overrides: `--map <id>` (or `rotate`) fixes or cycles the map, `--players 8` fixes the count (within the map limit),
 and `--seats "Shen=league/shen,Shaco=league/shaco,..."` plays exactly those seats every game (the old fixed
@@ -250,8 +250,8 @@ engine bot (41-58) because it turtled, so the purpose requirement is deliberatel
 | `--max-game-minutes` | 120 | per-game time cap; past it all seats leave and the next game starts (0 = none) |
 | `--ai-dir` | found next to the package | the repo `AI/` folder, for profiles the server lacks |
 | `--options '<json>'` | none | overrides for the default settings preset |
-| `--learnings-dir` | `C:\Users\makey\Documents\Claude gaming\Risk` | shared learnings folder |
-| `--characters-key` | none | save diary entries and relationship updates (needs the server's characters key) |
+| `--learnings-dir` | `~/risk-runner` | shared learnings folder |
+| `--characters-key` | none | bind seats to their characters so games count on the leaderboard, and save diary entries and relationship updates (needs the server's characters key; without it seats play unranked as `player:<name>`) |
 | `--model` / `--ollama` | `qwen3:14b` / `http://localhost:11434` | the local model |
 | `--ctx` | 16384 | Ollama `num_ctx` |
 | `--llm-concurrency` | 2 | simultaneous model requests (all seats share one model) |

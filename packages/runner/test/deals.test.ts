@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addPlayer, createGame, getMap, startGame, viewFor, type GameView } from '@risk/engine';
+import { addPlayer, applyAction, chooseBotAction, createGame, getMap, startGame, viewFor, type GameView } from '@risk/engine';
 import { Commander } from '../src/commander.js';
 import { DealLedger, dealPrefixes } from '../src/deals.js';
 import { Diplomat, type ChatMsg } from '../src/diplomat.js';
@@ -242,17 +242,35 @@ describe('Commander and deals', () => {
 });
 
 describe('noAttack in the move chooser', () => {
+  /** A real attack phase for 'a': the engine bot places the reinforcements, so the legal moves include attacks. */
+  function attackView(): GameView {
+    for (let seed = 9; ; seed++) {
+      let s = createGame('NA', { ...DEFAULT_OPTIONS, maxPlayers: 3, map: 'classic', chooseCapitals: false, fogOfWar: false }, seed);
+      for (const [id, name] of [['a', 'Shen'], ['b', 'Lux'], ['c', 'Teemo']]) s = addPlayer(s, id, name, true);
+      s = startGame(s).state;
+      if (s.currentPlayer !== 'a') continue;
+      for (let i = 0; i < 50 && s.phase !== 'attack' && s.currentPlayer === 'a'; i++) {
+        const a = chooseBotAction(s, 'a', () => 0.5);
+        if (!a || a.type === 'attack') break;
+        s = applyAction(s, 'a', a).state;
+      }
+      if (s.phase === 'attack' && s.currentPlayer === 'a') return viewFor(s, 'a');
+    }
+  }
+
   it('never attacks a territory on the no-attack list unless it wins the game', () => {
-    const v = { ...makeView(4), phase: 'attack' as const };
+    const v = attackView();
+    let seed = 7;
+    const random = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
     const hits = new Set<string>();
     for (let i = 0; i < 40; i++) {
-      const a = choosePlannedAction(v, 'a', null, () => Math.random(), 0);
+      const a = choosePlannedAction(v, 'a', { aggression: 1 }, random, 0);
       if (a?.type === 'attack') hits.add(a.to);
     }
-    if (hits.size === 0) return; // nothing attackable on this board: nothing to prove
+    expect(hits.size).toBeGreaterThan(0);
     const blocked = [...hits];
     for (let i = 0; i < 40; i++) {
-      const a = choosePlannedAction(v, 'a', { noAttack: blocked, aggression: 1 }, () => Math.random(), 0);
+      const a = choosePlannedAction(v, 'a', { noAttack: blocked, aggression: 1 }, random, 0);
       if (a?.type === 'attack') expect(blocked).not.toContain(a.to);
     }
   });

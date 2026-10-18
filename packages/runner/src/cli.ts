@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 import { bootstrapCharacterHistory } from './history-bootstrap.js';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { MAPS, type GameOptions } from '@risk/engine';
 import { HttpRiskApi } from '@risk/mcp';
@@ -12,7 +14,7 @@ import { DEFAULT_SEATS, joinGame, leaveSeats, parseSeats } from './setup.js';
 import { SeatRunner } from './seat.js';
 import { Diplomat } from './diplomat.js';
 
-const DEFAULT_LEARNINGS_DIR = 'C:\\Users\\makey\\Documents\\Claude gaming\\Risk';
+const DEFAULT_LEARNINGS_DIR = join(homedir(), 'risk-runner');
 
 const USAGE = `risk-runner: plays Risk games back to back from one machine (plan-aware bot moves, a local Ollama model
 sets plans, talks, and writes up what it learned after every game)
@@ -27,7 +29,7 @@ sets plans, talks, and writes up what it learned after every game)
   --max-game-minutes N    give up on a game after N minutes: every seat leaves and the next game starts (default 120, 0 = no cap)
   --ai-dir DIR            the repo's AI folder, for profiles the server lacks (default: found next to this package)
   --learnings-dir DIR     shared learnings folder (default ${DEFAULT_LEARNINGS_DIR})
-  --characters-key KEY    also save diary entries and relationship updates through the server's characters API
+  --characters-key KEY    bind seats to their characters (leaderboard) and save diary entries and relationship updates
   --model NAME            Ollama model (default qwen3:14b)
   --ollama URL            Ollama base URL (default http://localhost:11434)
   --ctx N                 Ollama context window, num_ctx (default 20480)
@@ -119,7 +121,7 @@ async function main() {
 
   const server = v.server!.replace(/\/+$/, '');
   const log = (line: string) => console.log(`[${new Date().toLocaleTimeString()}] ${line}`);
-  const api = withRetry(new HttpRiskApi(server), { log });
+  const api = withRetry(new HttpRiskApi(server, v['characters-key']), { log });
   const learn = !v['no-learn'];
   const commander = !v['no-commander'];
   const chat = !v['no-chat'];

@@ -46,7 +46,8 @@ export async function createGame(api: RiskApi, seats: SeatSpec[], spec: CreateSp
     for (let i = 0; i < seats.length; i++) {
       if (!seats[i].characterId || !api.setCharacter) continue;
       try { await api.setCharacter(host.gameId, identities[i].token, seats[i].characterId!); }
-      catch (e) { if (!(e instanceof RiskHttpError) || e.status !== 404) throw e; /* older shared servers */ }
+      // 404: older servers; 401/403: no characters write key, so the seat plays without a ranked identity.
+      catch (e) { if (!(e instanceof RiskHttpError) || ![401, 403, 404].includes(e.status)) throw e; }
     }
     await api.start(host.gameId, host.token);
     return { gameId: host.gameId, identities };

@@ -160,6 +160,9 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
   api.post('/games/:id/character', loadRoom, requirePlayer, (req: Req, res) => {
     const id = String(req.body?.characterId ?? '');
     if (!characters) return res.status(404).json({ error: 'Characters unavailable' });
+    // Binding credits the character on the public leaderboard, so it needs the same write key as saves.
+    const key = req.headers['x-characters-key'];
+    characters.checkWrite(typeof key === 'string' ? key : undefined);
     const canonical = characters.get(id).id;
     req.room!.bindCharacter(req.playerId!, canonical);
     res.json({ ok: true });

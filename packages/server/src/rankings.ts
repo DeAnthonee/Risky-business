@@ -8,7 +8,16 @@ export class Rankings {
   private ids = new Set<string>();
   constructor(private file: string | null) {
     if (file && existsSync(file)) {
-      this.games = JSON.parse(readFileSync(file, 'utf8')) as RankedGame[];
+      try {
+        const saved = JSON.parse(readFileSync(file, 'utf8')) as unknown;
+        if (!Array.isArray(saved)) throw new Error('not a list of games');
+        this.games = saved.filter((g): g is RankedGame => !!g && typeof g.gameId === 'string' && Array.isArray(g.seats));
+      } catch (e) {
+        // A bad file must not keep the server from starting: set it aside and start empty.
+        console.error(`rankings: could not read ${file} (${(e as Error).message}); moved to ${file}.corrupt`);
+        try { renameSync(file, `${file}.corrupt`); } catch { /* keep going */ }
+        this.games = [];
+      }
       this.ids = new Set(this.games.map(g => g.gameId));
     }
   }
@@ -31,9 +40,14 @@ export class Rankings {
     const result = { gameId: state.id, seats: players.map((p, i) => ({ key: identities[p.id] ?? `${p.isBot ? 'bot' : 'player'}:${p.name.trim().toLowerCase()}`, name: p.name, placement: i + 1 })) };
     const next = [...this.games, result];
     if (this.file) {
-      mkdirSync(dirname(this.file), { recursive: true });
-      writeFileSync(`${this.file}.tmp`, JSON.stringify(next), 'utf8');
-      renameSync(`${this.file}.tmp`, this.file);
+      // Called from the room's change listener: a disk error is logged, never thrown into the move that finished the game.
+      try {
+        mkdirSync(dirname(this.file), { recursive: true });
+        writeFileSync(`${this.file}.tmp`, JSON.stringify(next), 'utf8');
+        renameSync(`${this.file}.tmp`, this.file);
+      } catch (e) {
+        console.error(`rankings: could not save ${this.file}: ${(e as Error).message}`);
+      }
     }
     this.games = next;
     this.ids.add(state.id);

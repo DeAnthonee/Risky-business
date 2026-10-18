@@ -897,8 +897,8 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
     },
   );
 
-  server.registerTool('select_character', { description: 'Bind your seat to a persistent character identity before the game starts. The same character may play in separate lobbies simultaneously.', inputSchema: { gameId: gameIdSchema, token: tokenSchema, as: asSchema, id: z.string().min(3).max(100) } }, async ({ gameId, token, as, id }) => {
-    try { await api.setCharacter(gameId, requireToken(gameId, token, as), id); return text('Character selected: ' + id); } catch (e) { return errorText(e); }
+  server.registerTool('select_character', { description: 'Bind your seat to a persistent character identity before the game starts, so the game counts for that character on the leaderboard. Needs the characters write key. The same character may play in separate lobbies simultaneously.', inputSchema: { gameId: gameIdSchema, token: tokenSchema, as: asSchema, id: z.string().min(3).max(100), key: characterKeySchema } }, async ({ gameId, token, as, id, key }) => {
+    try { await api.setCharacter(gameId, requireToken(gameId, token, as), id, key); return text('Character selected: ' + id); } catch (e) { return errorText(e); }
   });
   server.registerTool('leaderboard', { description: 'Completed-game rankings: placement points (floored at zero), wins, losses and average placement.', inputSchema: {} }, async () => {
     try { return text(JSON.stringify(await api.rankings(), null, 2)); } catch (e) { return errorText(e); }

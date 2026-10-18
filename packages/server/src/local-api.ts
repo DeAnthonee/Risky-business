@@ -53,9 +53,10 @@ export class LocalRiskApi implements RiskApi {
   async map(mapId?: string) {
     return mapInfo(getMap(mapId ?? 'classic'));
   }
-  async setCharacter(gameId: string, token: string, characterId: string) {
+  async setCharacter(gameId: string, token: string, characterId: string, key?: string) {
     const room = this.room(gameId);
     const player = this.player(room, token);
+    this.characters.checkWrite(key);
     const canonical = this.characters.get(characterId).id;
     room.bindCharacter(player, canonical);
     return { ok: true };

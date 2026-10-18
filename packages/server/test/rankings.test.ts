@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { Store } from '../src/store.js';
-import { createRiskServer, type RiskServer } from '../src/app.js';
+import { createRiskServer, DEFAULT_AI_DIR, type RiskServer } from '../src/app.js';
+import { CharacterStore } from '../src/characters.js';
+import { Rankings } from '../src/rankings.js';
 import { HttpRiskApi } from '@risk/mcp';
 
 let risk: RiskServer | undefined;
@@ -16,14 +18,18 @@ describe('persistent character rankings API',()=>{
     const dir=mkdtempSync(join(tmpdir(),'rankings-'));dirs.push(dir);
     const file=join(dir,'games.json');
     const store=new Store(file);
-    risk=createRiskServer(store,{clientDir:null,sweepIntervalMs:0});
+    risk=createRiskServer(store,{clientDir:null,sweepIntervalMs:0,characters:new CharacterStore(DEFAULT_AI_DIR,null,['league-key'])});
     await new Promise<void>(r=>risk!.server.listen(0,'127.0.0.1',r));
     const base=`http://127.0.0.1:${(risk.server.address() as AddressInfo).port}`;
-    const api=new HttpRiskApi(base);
+    const api=new HttpRiskApi(base,'league-key');
     expect((await api.rankings()).rankings).toEqual([]);
     const a=await api.createGame('Shen',undefined,{map:'classic',autoSetup:true,maxPlayers:2});
     const b=await api.joinGame(a.gameId,'Ahri');
     await expect(api.setCharacter(a.gameId,'invalid','league/shen')).rejects.toMatchObject({status:401});
+    // Binding credits the character on the public leaderboard, so it needs the characters write key.
+    const anon=new HttpRiskApi(base);
+    await expect(anon.setCharacter(a.gameId,a.token,'league/shen')).rejects.toMatchObject({status:401});
+    await expect(anon.setCharacter(a.gameId,a.token,'league/shen','wrong')).rejects.toMatchObject({status:403});
     await api.setCharacter(a.gameId,a.token,'league/shen');
     await expect(api.setCharacter(a.gameId,b.token,'league/shen')).rejects.toMatchObject({status:400});
     await api.setCharacter(a.gameId,b.token,'league/ahri');
@@ -53,5 +59,12 @@ describe('persistent character rankings API',()=>{
     restored.rankings.record(restored.get(c.gameId)!.state,restored.get(c.gameId)!.characterIds,[]);
     expect(restored.rankings.rows()).toEqual(rows);
     restored.stopTimers();
+  });
+  it('sets a corrupt rankings file aside instead of failing to start',()=>{
+    const dir=mkdtempSync(join(tmpdir(),'rankings-'));dirs.push(dir);
+    const file=join(dir,'rankings.json');
+    writeFileSync(file,'{not json');
+    expect(new Rankings(file).rows()).toEqual([]);
+    expect(existsSync(`${file}.corrupt`)).toBe(true);
   });
 });

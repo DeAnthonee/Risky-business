@@ -178,7 +178,8 @@ export interface RiskApi {
   cardModes?(): Promise<GameOptions['cardValues'][]>;
   map(mapId?: string): Promise<unknown>;
   listGames(): Promise<{ games: unknown[] }>;
-  setCharacter(gameId: string, token: string, characterId: string): Promise<unknown>;
+  /** Needs the characters write key: binding credits the character on the leaderboard. */
+  setCharacter(gameId: string, token: string, characterId: string, key?: string): Promise<unknown>;
   rankings(): Promise<{ rankings: import('@risk/engine').RankingRow[] }>;
   rankedProfile(key: string): Promise<{ stats: import('@risk/engine').RankingRow; profile: string | null }>;
   createGame(playerName: string, gameName: string | undefined, options: Partial<GameOptions> | undefined): Promise<JoinResult>;
@@ -409,8 +410,8 @@ export class HttpRiskApi implements RiskApi {
   listCharacters() {
     return this.request<{ characters: CharacterSummary[] }>('/characters');
   }
-  setCharacter(gameId: string, token: string, characterId: string) {
-    return this.request(`/games/${gameId}/character`, { method: 'POST', body: JSON.stringify({ characterId }) }, token);
+  setCharacter(gameId: string, token: string, characterId: string, key?: string) {
+    return this.request(`/games/${gameId}/character`, { method: 'POST', body: JSON.stringify({ characterId }) }, token, key ?? this.charactersKey);
   }
   rankings() { return this.request<{ rankings: import('@risk/engine').RankingRow[] }>('/rankings'); }
   rankedProfile(key: string) { return this.request<{ stats: import('@risk/engine').RankingRow; profile: string | null }>(`/rankings/profile?key=${encodeURIComponent(key)}`); }

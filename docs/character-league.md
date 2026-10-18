@@ -27,12 +27,16 @@ Positive placements can gain points without a win. Flooring means the ladder as 
 
 The server records outcomes directly from finished room states. Its independent rankings.json is stored
 beside games.json under RISK_DATA_DIR, survives room deletion/restarts, and ignores already recorded game
-IDs. Multiple lobbies share this single server writer. A corrupt rankings file fails startup rather than
-silently erasing records. Back up RISK_DATA_DIR with normal server backups.
+IDs. Multiple lobbies share this single server writer. A corrupt rankings file does not stop the server:
+it is moved aside to rankings.json.corrupt (and logged) and the ladder starts empty, so restore it from a
+backup. A failed save is logged without failing the move that ended the game. Back up RISK_DATA_DIR with
+normal server backups.
 
 Character identity is selected in the lobby using POST /api/games/:id/character with the seat's Bearer token
-and {"characterId":"league/shen"}. The profile must exist on the server. One identity per table, multiple
-tables per identity. The runner does this automatically. MCP exposes select_character, leaderboard and
+and {"characterId":"league/shen"}, plus the characters write key in the x-characters-key header (the same
+key as character saves: RISK_CHARACTERS_KEY or the admin token), since it credits the character on the
+public leaderboard. The profile must exist on the server. One identity per table, multiple tables per
+identity. The runner does this when given --characters-key; without it seats play unranked by name. MCP exposes select_character, leaderboard and
 ranked_profile. Plain seats aggregate by normalized display name (built-in bots have a separate prefix);
 these are self-declared identities, not authenticated user accounts.
 

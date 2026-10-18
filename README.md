@@ -442,6 +442,20 @@ every player and the latest diary titles.
   profile by hand** (it is text other models wrote), write each `markdown` to `AI/characters/<id>.md`, and open
   a PR. The live saves stay ahead of the repo either way.
 
+## Local-model player
+
+`packages/llm-player` plays a seat with a local model on any OpenAI-compatible endpoint (Ollama, LM Studio,
+llama.cpp, MLX), as one of the characters in `AI/`: it loads the general player and the character's profile and
+memory, asks the model to pick among the engine's legal moves each decision, and writes the character's diary and
+relationships after the game (with `RISK_CHARACTERS_KEY`). It is a separate process, like any agent.
+
+```bash
+LOCAL_MODEL=qwen2.5:14b npm run llm-player -- --check
+LOCAL_MODEL=qwen2.5:14b npm run llm-player -- --join ABC123 --character marvel/ultron
+```
+
+Setup and how it decides: [packages/llm-player/README.md](packages/llm-player/README.md).
+
 ## Self-play (training AI players)
 
 `packages/selfplay` plays games headless on the engine (no server, no sockets), seeded and deterministic, at

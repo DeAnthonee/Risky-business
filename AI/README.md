@@ -35,7 +35,7 @@ AI/
 │       └── lux.md
 └── general-model-info/             ← docs about the models themselves (setup, local models)
     ├── README.md
-    └── local-models.md             ← plan for running our own models on the Mac mini
+    └── local-models.md             ← running our own models on the Mac mini (player: packages/llm-player)
 ```
 
 | Path | What goes in it | What does NOT go in it |

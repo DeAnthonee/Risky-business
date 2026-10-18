@@ -24,8 +24,9 @@ npm run llm-player -- --create --bots 2 --options '{"map":"classic"}' --characte
 | save the diary | `RISK_CHARACTERS_KEY` | unset: nothing is saved |
 | hosted API key | `LOCAL_MODEL_API_KEY` | unset |
 
-Other flags: `--name`, `--game CODE --token TOKEN` (resume a seat), `--max-turns N`, `--timeout S` (per answer,
-default 120), `--no-chat`, `--no-reflect`. It prints the token when it joins: keep it to resume.
+Other flags: `--name`, `--game CODE --token TOKEN` (resume a seat), `--max-turns N` (surrender after N of your
+turns), `--timeout S` (per answer, at least 1, default 120), `--no-chat`, `--no-reflect`. When it joins on a terminal
+it prints the seat token (keep it to resume); in a non-interactive log the token is withheld.
 
 ## How it plays
 
@@ -37,8 +38,9 @@ default 120), `--no-chat`, `--no-reflect`. It prints the token when it joins: ke
    `{"choice": n, "say": "..."}`. Only legal moves are offered, so any pick is valid; small models handle a
    numbered pick far better than writing action JSON.
 3. **Fallbacks.** A timeout, an error or an unusable answer plays option 1, so a slow or broken model never stalls
-   the table. Single-option steps (like ending the turn after a fortify) skip the model. After 40 model calls in
-   one turn the rest of the turn plays option 1.
+   the table. Single-option steps (like ending the turn after a fortify) skip the model. After 3 failures in a row,
+   or 40 model calls, in one turn the rest of the turn plays option 1. A game server that is down (a deploy: network
+   errors, 5xx) is retried with backoff for up to 5 minutes; a game that is gone ends the run as abandoned.
 4. **Chat.** At most one `say` line per turn goes to the table chat.
 5. **After the game.** As the character, the model writes a diary entry (outcome, map, opponents and strategy feed
    the record) and rapport changes for the players who mattered, saved with the write key. If the reflection is

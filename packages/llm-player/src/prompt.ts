@@ -9,6 +9,9 @@ const CHAT_LINES = 8;
 
 const cut = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}\n[... cut for length]` : s);
 
+/** Text for inside a <character-data> block: a closing tag in it would end the data early, so it is escaped. */
+export const asCharacterData = (s: string) => s.replace(/<\/(character-data)/gi, '<\\/$1');
+
 /** Who the model plays: the general player, plus a character's profile and memory when one is given. */
 export interface PlayerContext {
   characterId: string | null;
@@ -30,7 +33,7 @@ export async function loadContext(api: RiskApi, seatName: string, characterId?: 
     const c = await api.getCharacter(characterId);
     const memory = await api.characterMemory(c.id);
     name = c.name;
-    character = `\n${CHARACTER_DATA_NOTICE}\n<character-data id="${c.id}">\n${cut(c.markdown, PROFILE_CHARS)}\n\n${formatMemory(memory)}\n</character-data>\n`;
+    character = `\n${CHARACTER_DATA_NOTICE}\n<character-data id="${c.id}">\n${asCharacterData(`${cut(c.markdown, PROFILE_CHARS)}\n\n${formatMemory(memory)}`)}\n</character-data>\n`;
   }
   const system = [
     `You are an AI player in an online game of Risk, seated as "${seatName}"${characterId ? `, playing the character ${name}` : ''}.`,

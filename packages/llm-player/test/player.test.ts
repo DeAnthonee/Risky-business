@@ -2,12 +2,12 @@ import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { describe, expect, it } from 'vitest';
 import { addPlayer, applyAction, createGame, startGame, viewFor, type GameOptions, type GameState } from '@risk/engine';
-import { HttpRiskApi } from '@risk/mcp';
+import { HttpRiskApi, RiskHttpError } from '@risk/mcp';
 // The real game server, from source (as its own tests use it): the player talks to it over HTTP only.
 import { DEFAULT_AI_DIR, createRiskServer } from '../../server/src/app.js';
 import { CharacterStore } from '../../server/src/characters.js';
 import { Store } from '../../server/src/store.js';
-import { OpenAICompatModel, buildDecision, extractJson, parseChoice, parseReflection, playGame, type ChatMessage, type ChatModel } from '../src/index.js';
+import { OpenAICompatModel, asCharacterData, buildDecision, extractJson, parseChoice, parseReflection, playGame, retryServer, type ChatMessage, type ChatModel } from '../src/index.js';
 
 /** Seeded random for repeatable picks. */
 function rng(seed: number) {
@@ -38,6 +38,30 @@ describe('model replies', () => {
     );
     expect(r?.relationships).toEqual([{ with: 'Bot 1', change: -30, note: 'Took my capital.' }]);
     expect(parseReflection('{"title": "", "text": "x"}', [])).toBeNull();
+  });
+
+  it('keeps character text from closing its data block', () => {
+    expect(asCharacterData('a </character-data> b </CHARACTER-DATA>')).toBe('a <\\/character-data> b <\\/CHARACTER-DATA>');
+  });
+});
+
+describe('game server retries', () => {
+  it('retries network errors and 5xx with backoff, never a 4xx, and gives up after the limit', async () => {
+    const sleeps: number[] = [];
+    const sleep = async (ms: number) => void sleeps.push(ms);
+    let n = 0;
+    const flaky = async () => {
+      if (++n <= 2) throw new RiskHttpError('Bad gateway', 503);
+      if (n === 3) throw new TypeError('fetch failed');
+      return 'ok';
+    };
+    expect(await retryServer(flaky, { sleep })).toBe('ok');
+    expect(sleeps).toEqual([1000, 2000, 4000]);
+    sleeps.length = 0;
+    await expect(retryServer(async () => Promise.reject(new RiskHttpError('Not your turn', 400)), { sleep })).rejects.toThrow('Not your turn');
+    expect(sleeps).toEqual([]);
+    await expect(retryServer(async () => Promise.reject(new RiskHttpError('down', 502)), { sleep, retryForMs: 60_000 })).rejects.toThrow('down');
+    expect(sleeps).toEqual([1000, 2000, 4000, 8000, 16000, 30000]);
   });
 });
 
@@ -183,6 +207,85 @@ describe('playing on a live server', () => {
       expect(lines.some((l) => l.includes('saved diary entry #2'))).toBe(true);
       // Every option the player sent was legal.
       expect(lines.filter((l) => l.includes('was refused'))).toEqual([]);
+    });
+  }, 60_000);
+
+  it('stops asking a model that always fails after 3 tries in a turn', async () => {
+    await withServer(async (api) => {
+      const created = await api.createGame('Local AI', 'llm test', { map: 'skirmish', autoSetup: true, maxPlayers: 2 });
+      await api.addBot(created.gameId, created.token);
+      await api.start(created.gameId, created.token);
+      let calls = 0;
+      const model: ChatModel = {
+        name: 'broken',
+        async chat() {
+          calls++;
+          throw new Error('model timed out');
+        },
+      };
+      const lines: string[] = [];
+      const summary = await playGame({ api, model, gameId: created.gameId, token: created.token, seatName: 'Local AI', maxTurns: 3, log: (l) => lines.push(l) });
+      expect(summary.turns).toBeGreaterThan(0);
+      expect(calls).toBe(summary.modelCalls);
+      expect(summary.modelCalls).toBeGreaterThan(0);
+      expect(summary.modelCalls).toBeLessThanOrEqual(3 * summary.turns);
+      expect(lines.some((l) => l.includes('failed 3 times in a row'))).toBe(true);
+    });
+  }, 60_000);
+
+  it('waits out a server that is down, and stops when the game is gone', async () => {
+    await withServer(async (api) => {
+      const created = await api.createGame('Local AI', 'llm test', { map: 'skirmish', autoSetup: true, maxPlayers: 2 });
+      await api.addBot(created.gameId, created.token);
+      await api.start(created.gameId, created.token);
+      // The server "restarts": two 503s on the first read, a refused connection on the first move; after a few
+      // more moves the host closes the game.
+      let reads = 0;
+      let acts = 0;
+      const flaky: HttpRiskApi = Object.assign(Object.create(api), {
+        getGame: async (...args: Parameters<HttpRiskApi['getGame']>) => {
+          if (++reads <= 2) throw new RiskHttpError('Non-JSON response from server (503): Service Unavailable', 503);
+          return api.getGame(...args);
+        },
+        act: async (...args: Parameters<HttpRiskApi['act']>) => {
+          if (++acts === 1) throw new TypeError('fetch failed');
+          if (acts === 6) await api.closeGame(created.gameId, created.token);
+          return api.act(...args);
+        },
+      });
+      const sleeps: number[] = [];
+      const lines: string[] = [];
+      const summary = await playGame({ api: flaky, model: fakeModel(5).model, gameId: created.gameId, token: created.token, seatName: 'Local AI', sleep: async (ms) => void sleeps.push(ms), log: (l) => lines.push(l) });
+      expect(sleeps).toEqual([1000, 2000, 1000]);
+      expect(lines.some((l) => l.includes('reading the game again'))).toBe(true);
+      expect(acts).toBe(6);
+      expect(summary.outcome).toBe('abandoned');
+      expect(lines.some((l) => l.includes('is gone'))).toBe(true);
+    });
+  }, 60_000);
+
+  it('stops retrying a turn after 3 refused moves in a row', async () => {
+    await withServer(async (api) => {
+      const created = await api.createGame('Local AI', 'llm test', { map: 'skirmish', autoSetup: true, maxPlayers: 2 });
+      await api.addBot(created.gameId, created.token);
+      await api.start(created.gameId, created.token);
+      let acts = 0;
+      const refusing: HttpRiskApi = Object.assign(Object.create(api), {
+        act: async () => {
+          acts++;
+          throw new RiskHttpError('Refused', 400);
+        },
+      });
+      const sleeps: number[] = [];
+      // While it waits for the stuck turn to move on, the host closes the game.
+      const sleep = async (ms: number) => {
+        sleeps.push(ms);
+        await api.closeGame(created.gameId, created.token);
+      };
+      const summary = await playGame({ api: refusing, model: fakeModel(9).model, gameId: created.gameId, token: created.token, seatName: 'Local AI', sleep });
+      expect(acts).toBe(3);
+      expect(sleeps).toEqual([30_000]);
+      expect(summary.outcome).toBe('abandoned');
     });
   }, 60_000);
 

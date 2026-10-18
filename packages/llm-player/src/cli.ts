@@ -3,7 +3,7 @@ import { parseArgs } from 'node:util';
 import { parseOptions } from '@risk/engine';
 import { HttpRiskApi } from '@risk/mcp';
 import { OpenAICompatModel } from './model.js';
-import { playGame } from './player.js';
+import { playGame, retryServer } from './player.js';
 
 const USAGE = `risk-llm-player: play Risk with a local model (any OpenAI-compatible endpoint), optionally as a character
 
@@ -16,7 +16,7 @@ const USAGE = `risk-llm-player: play Risk with a local model (any OpenAI-compati
   --model NAME              model to ask (env LOCAL_MODEL), e.g. qwen2.5:14b
   --model-url URL           OpenAI-compatible base URL (env LOCAL_MODEL_URL, default http://127.0.0.1:11434/v1 = Ollama)
   --server URL              game server (env RISK_SERVER_URL, default http://localhost:8080)
-  --max-turns N             leave after N of your turns     --timeout S    seconds per model answer (default 120)
+  --max-turns N             surrender after N of your turns --timeout S    seconds per model answer (default 120)
   --no-chat                 never post to the table chat    --no-reflect   skip the after-game diary
   --check                   ask the model one question and exit (to test the setup)
 
@@ -61,11 +61,13 @@ const int = (v: string | undefined, name: string) => {
 };
 const modelName = a.model ?? process.env.LOCAL_MODEL;
 if (!modelName) fail('Say which model to use: --model NAME or LOCAL_MODEL');
+const timeout = int(a.timeout, 'timeout') ?? 120;
+if (timeout < 1) fail('--timeout must be at least 1 second');
 const model = new OpenAICompatModel({
   baseUrl: a['model-url'] ?? process.env.LOCAL_MODEL_URL ?? 'http://127.0.0.1:11434/v1',
   model: modelName,
   apiKey: process.env.LOCAL_MODEL_API_KEY || undefined,
-  timeoutMs: (int(a.timeout, 'timeout') ?? 120) * 1000,
+  timeoutMs: timeout * 1000,
 });
 const log = (line: string) => console.log(`[${new Date().toISOString()}] ${line}`);
 
@@ -78,7 +80,7 @@ if (a.check) {
 
 const charactersKey = process.env.RISK_CHARACTERS_KEY || undefined;
 const api = new HttpRiskApi(a.server ?? process.env.RISK_SERVER_URL ?? 'http://localhost:8080', charactersKey);
-const characterName = a.character ? (await api.getCharacter(a.character)).name : null;
+const characterName = a.character ? (await retryServer(() => api.getCharacter(a.character!))).name : null;
 const seatName = a.name ?? characterName ?? 'Local AI';
 
 let gameId: string;
@@ -93,7 +95,10 @@ if (a.create) {
   log(`created and started game ${gameId}`);
 } else if (a.join) {
   ({ gameId, token } = await api.joinGame(a.join.toUpperCase(), seatName));
-  log(`joined game ${gameId} as ${seatName}; token ${token} (keep it to resume with --game ${gameId} --token ...)`);
+  log(`joined game ${gameId} as ${seatName}`);
+  // The token is the seat: show it only on a terminal, never in a log file someone else may read.
+  if (process.stderr.isTTY) console.error(`seat token ${token} (keep it to resume with --game ${gameId} --token ...)`);
+  else log(`the seat token is withheld from non-interactive logs: run in a terminal to see it, resume with --game ${gameId} --token TOKEN`);
 } else if (a.game && a.token) {
   gameId = a.game.toUpperCase();
   token = a.token;

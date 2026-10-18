@@ -360,9 +360,10 @@ export class Diplomat {
     if (say.toLowerCase() === 'null') say = '';
     if (!say && !allowEmpty) return null;
     if (say.length > MAX_SAY) say = say.slice(0, MAX_SAY).trimEnd();
-    // A whisper is answered by whisper; otherwise honour a valid target from the model.
+    // A player's whisper is answered by whisper (a spectator's can't be: watchers have no seat to whisper to);
+    // otherwise honour a valid target from the model.
     let to: string | undefined;
-    if (trigger && trigger.to !== undefined) to = trigger.name;
+    if (trigger && trigger.to !== undefined && !trigger.spectator) to = trigger.name;
     else if (whisperTo) to = whisperTo;
     else if (parsed.to && parsed.to.toLowerCase() !== 'null') {
       const target = view.players.find((p) => p.alive && !p.isNeutral && p.id !== this.playerId && p.name.toLowerCase() === parsed.to!.toLowerCase());

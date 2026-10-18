@@ -398,13 +398,23 @@ describe('game lifecycle over HTTP', () => {
     const history = catAgain.msgs.find((m) => m.type === 'chat_history').messages.map((m: any) => m.message);
     expect(history).toEqual(['hello all']);
 
-    // Spectators can't whisper; nobody whispers to themselves or to a stranger.
-    expect((await api(`/games/${g}/chat`, { method: 'POST', body: JSON.stringify({ message: 'psst', name: 'Fan', to: 'Ann' }) })).status).toBe(400);
-    fanWs.ws.send(JSON.stringify({ type: 'chat', message: 'psst', name: 'Fan', to: 'Ann', reqId: 'f1' }));
+    // Spectators whisper too (HTTP and WebSocket): only the recipient's seat and spectators read it.
+    const sw = await api(`/games/${g}/chat`, { method: 'POST', body: JSON.stringify({ message: 'psst Ann', name: 'Fan', to: 'Ann' }) });
+    expect(sw.status).toBe(201);
+    expect(sw.body.message).toMatchObject({ spectator: true, playerId: null, toName: 'Ann', to: expect.any(String) });
+    fanWs.ws.send(JSON.stringify({ type: 'chat', message: 'psst Cat', name: 'Fan', to: 'Cat', reqId: 'f1' }));
+    expect((await api(`/games/${g}/chat`, { method: 'POST', body: JSON.stringify({ message: 'x', name: 'Fan', to: 'Zed' }) })).body.error).toMatch(/No player/);
+    // Nobody whispers to themselves or to a stranger.
     expect((await api(`/games/${g}/chat`, { method: 'POST', body: JSON.stringify({ message: 'me', to: 'Ann' }) }, ann)).body.error).toMatch(/yourself/);
     expect((await api(`/games/${g}/chat`, { method: 'POST', body: JSON.stringify({ message: 'x', to: 'Zed' }) }, ann)).body.error).toMatch(/No player/);
-    await new Promise((r) => setTimeout(r, 100));
-    expect(fanWs.msgs.find((m) => m.reqId === 'f1')?.error).toMatch(/seated players/);
+    await new Promise((r) => setTimeout(r, 150));
+    expect(fanWs.msgs.find((m) => m.reqId === 'f1')?.ok).toBe(true);
+    expect((await read(ann)).slice(3)).toEqual(['psst Ann']);
+    expect((await read(bob)).slice(3)).toEqual([]);
+    expect((await read(cat)).slice(1)).toEqual(['psst Cat']);
+    expect((await read()).slice(3)).toEqual(['psst Ann', 'psst Cat']);
+    expect(catAgain.chats()).toEqual(['psst Cat']);
+    expect(fanWs.chats().slice(3)).toEqual(['psst Ann', 'psst Cat']);
     for (const l of [catWs, fanWs, annWs, catAgain]) l.ws.close();
 
     // MCP: send_chat with "to" whispers; read_chat labels it and hides it from the third player.

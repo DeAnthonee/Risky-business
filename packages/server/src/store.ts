@@ -31,7 +31,7 @@ export interface ChatMessage {
   at: number;
   /** Posted by someone watching, not a seated player. */
   spectator?: boolean;
-  /** Whisper: only the sender, this player and spectators can read it. */
+  /** Whisper: only the sender, this player and spectators can read it (a spectator may whisper to a player too). */
   to?: PlayerId;
   /** Display name of the whisper's recipient. */
   toName?: string;
@@ -383,10 +383,12 @@ export class GameRoom extends EventEmitter {
 
   /**
    * Post a message from someone watching. `key` identifies the sender for the flood guard (a socket or an
-   * IP). The name is trimmed to 24 characters and may not pose as a seated player.
+   * IP). The name is trimmed to 24 characters and may not pose as a seated player. With `to` (a player id
+   * or name) it is a whisper to that player: only they and the other spectators can read it.
    */
-  addSpectatorChat(key: string, rawName: unknown, message: string): ChatMessage {
+  addSpectatorChat(key: string, rawName: unknown, message: string, to?: unknown): ChatMessage {
     if (this.state.options.spectatorChat === false) throw new RuleError('Spectator chat is turned off in this game');
+    const target = to === undefined || to === null || to === '' ? null : this.whisperTarget(null, to);
     const now = Date.now();
     const recent = (this.spectatorPosts.get(key) ?? []).filter((t) => now - t < SPECTATOR_CHAT_WINDOW_MS);
     if (recent.length >= SPECTATOR_CHAT_LIMIT) throw new RuleError('Slow down: spectators can send 5 messages every 10 seconds');
@@ -402,6 +404,7 @@ export class GameRoom extends EventEmitter {
       message: message.slice(0, 500),
       at: now,
       spectator: true,
+      ...(target ? { to: target.id, toName: target.name } : {}),
     };
     this.chat.push(msg);
     if (this.chat.length > MAX_CHAT) this.chat.splice(0, this.chat.length - MAX_CHAT);
@@ -412,10 +415,10 @@ export class GameRoom extends EventEmitter {
 
   /**
    * The player a whisper goes to: an exact player id, or else a name (any case) that exactly one player has.
-   * Ids win so nobody can intercept whispers by naming themselves after another player's id.
+   * Ids win so nobody can intercept whispers by naming themselves after another player's id. `from` is null
+   * for a spectator.
    */
   private whisperTarget(from: PlayerId | null, to: unknown) {
-    if (!from) throw new RuleError('Only seated players can whisper');
     const raw = String(to).trim();
     const seated = this.state.players.filter((p) => !p.isNeutral);
     let target = seated.find((p) => p.id === raw);
@@ -432,7 +435,8 @@ export class GameRoom extends EventEmitter {
   /** Whether a viewer (a seated player, or null for a spectator) may read a chat message. */
   canReadChat(msg: ChatMessage, viewer: PlayerId | null): boolean {
     // Public messages (spectators' included, fog or not) reach everyone: the crowd is meant to be heard.
-    // Whispers reach only their two players, plus spectators, who watch everything.
+    // Whispers reach only their sender and recipient, plus spectators, who watch everything. A spectator's
+    // whisper has no seated sender, so among the players only its recipient reads it.
     if (!msg.to || viewer === null) return true;
     return viewer === msg.playerId || viewer === msg.to;
   }

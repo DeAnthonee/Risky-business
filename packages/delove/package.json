@@ -1,0 +1,29 @@
+{
+  "name": "@risk/delove",
+  "version": "0.1.0",
+  "description": "Delove, our base model: a no-personality Risk player trained on self-play (teacher, network agent, trainer). Never loaded by the game server or the character code.",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./register": "./dist/register.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@risk/engine": "0.1.0",
+    "@risk/selfplay": "0.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.0",
+    "vitest": "^3.2.4"
+  }
+}

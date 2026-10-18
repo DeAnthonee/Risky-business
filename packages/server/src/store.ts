@@ -75,6 +75,10 @@ export interface RetentionPolicy {
   finished: number;
   /** Hard cap on idle time, even while someone is connected. */
   max: number;
+  /** Close a finished game this long after it ended (spectators may still be watching). 0 disables. */
+  finishedClose: number;
+  /** Close a lobby or running game once no seat has been present (socket or authenticated request) this long. 0 disables. */
+  abandonedClose: number;
 }
 
 export const DEFAULT_RETENTION: RetentionPolicy = {
@@ -83,6 +87,8 @@ export const DEFAULT_RETENTION: RetentionPolicy = {
   botsOnly: 30 * 60_000,
   finished: 2 * 3600_000,
   max: 7 * 24 * 3600_000,
+  finishedClose: 2 * 60_000,
+  abandonedClose: 2 * 60_000,
 };
 
 export type CloseReason = 'host' | 'admin' | 'idle' | 'empty';
@@ -143,6 +149,12 @@ export class GameRoom extends EventEmitter {
   /** WebSocket clients currently subscribed (players and spectators). */
   connections = 0;
   closed = false;
+  /** When the game ended (set by commit; derived from the history for restored rooms). */
+  finishedAt: number | null = null;
+  /** Last time a seat (non-bot, living player) was present: a socket, an authenticated request or a long-poll. */
+  lastSeatSeen = Date.now();
+  private seatSockets = new Map<PlayerId, number>();
+  private seatPolls = new Map<PlayerId, number>();
   /** Tournament that owns this table, if any. */
   tournamentId?: string;
   private botTimer: NodeJS.Timeout | null = null;
@@ -161,6 +173,7 @@ export class GameRoom extends EventEmitter {
     this.updatedAt = snapshot.updatedAt;
     this.lastActivity = snapshot.lastActivity ?? snapshot.updatedAt;
     this.tournamentId = snapshot.tournamentId;
+    if (this.state.phase === 'finished') this.finishedAt = this.history.at(-1)?.at ?? this.updatedAt;
   }
 
   snapshot(): RoomSnapshot {
@@ -181,6 +194,34 @@ export class GameRoom extends EventEmitter {
   /** Mark human/agent activity (keeps the room from being swept). */
   touch() {
     this.lastActivity = Date.now();
+  }
+
+  private isSeat(playerId: PlayerId): boolean {
+    const p = this.state.players.find((x) => x.id === playerId);
+    return !!p && !p.isBot && !p.isNeutral && p.alive;
+  }
+
+  /** At least one human/agent player is still in (not left, not eliminated). Bots-only games follow the bots-only rule. */
+  hasLivingSeats(): boolean {
+    return this.state.players.some((p) => this.isSeat(p.id));
+  }
+
+  /** A seat did something (any authenticated request): it counts as present now. */
+  markSeat(playerId: PlayerId | null) {
+    if (playerId && this.isSeat(playerId)) this.lastSeatSeen = Date.now();
+  }
+
+  seatSocket(playerId: PlayerId, delta: 1 | -1) {
+    const n = (this.seatSockets.get(playerId) ?? 0) + delta;
+    if (n > 0) this.seatSockets.set(playerId, n);
+    else this.seatSockets.delete(playerId);
+    this.markSeat(playerId);
+  }
+
+  /** Is any living human/agent seat attached over a WebSocket or a long-poll in progress? */
+  seatAttached(): boolean {
+    for (const m of [this.seatSockets, this.seatPolls]) for (const id of m.keys()) if (this.isSeat(id)) return true;
+    return false;
   }
 
   /** Is anyone attached right now: a WebSocket client or a long-poll waiter (agents)? */
@@ -226,7 +267,9 @@ export class GameRoom extends EventEmitter {
 
   playerForToken(token: string | undefined): PlayerId | null {
     if (!token) return null;
-    return this.tokens.get(token) ?? null;
+    const id = this.tokens.get(token) ?? null;
+    this.markSeat(id);
+    return id;
   }
 
   view(playerId: PlayerId | null): GameView {
@@ -236,6 +279,7 @@ export class GameRoom extends EventEmitter {
   private commit(next: GameState, events: GameEvent[], playerId: PlayerId | null, action: HistoryEntry['action']) {
     this.state = next;
     this.updatedAt = Date.now();
+    if (next.phase === 'finished' && this.finishedAt === null) this.finishedAt = this.updatedAt;
     this.history.push({ version: next.version, at: this.updatedAt, playerId, action, events });
     if (this.history.length > MAX_HISTORY) this.history.splice(0, this.history.length - MAX_HISTORY);
     const msg: ChangeMessage = { state: next, events, version: next.version, playerId };
@@ -250,7 +294,10 @@ export class GameRoom extends EventEmitter {
     const next = addPlayer(this.state, playerId, name, isBot);
     const token = newId(24);
     this.tokens.set(token, playerId);
-    if (!isBot) this.touch();
+    if (!isBot) {
+      this.touch();
+      this.lastSeatSeen = Date.now();
+    }
     this.commit(next, [], playerId, { type: 'system', note: `${name} joined` });
     return { playerId, token };
   }
@@ -385,7 +432,10 @@ export class GameRoom extends EventEmitter {
    * state version advances past `since`, or after `timeoutMs`.
    */
   waitFor(playerId: PlayerId | null, since: number | undefined, timeoutMs: number): Promise<'turn' | 'change' | 'timeout' | 'finished'> {
-    if (playerId) this.touch();
+    if (playerId) {
+      this.touch();
+      this.markSeat(playerId);
+    }
     const check = (): 'turn' | 'change' | 'finished' | null => {
       if (this.state.phase === 'finished') return 'finished';
       if (since !== undefined && this.state.version > since) return 'change';
@@ -410,7 +460,17 @@ export class GameRoom extends EventEmitter {
         cleanup();
         resolve('timeout');
       };
+      // A long-poll in progress keeps its seat present for its whole duration.
+      if (playerId) this.seatPolls.set(playerId, (this.seatPolls.get(playerId) ?? 0) + 1);
+      let ended = false;
       const cleanup = () => {
+        if (!ended && playerId) {
+          ended = true;
+          const n = (this.seatPolls.get(playerId) ?? 1) - 1;
+          if (n > 0) this.seatPolls.set(playerId, n);
+          else this.seatPolls.delete(playerId);
+          this.markSeat(playerId);
+        }
         clearTimeout(timer);
         this.off('change', onChange);
         this.waiters.delete(release);
@@ -615,10 +675,16 @@ export class Store {
     const idle = now - room.lastActivity;
     const r = this.retention;
     if (idle > r.max) return `idle ${fmt(idle)} (hard limit)`;
-    if (room.isWatched()) return null;
     // A table its tournament is still waiting on stays until it is decided, even with only bots at it.
     if (this.tournaments.isManagedTable(room)) return null;
     const phase = room.state.phase;
+    // Finished games close shortly after the end, even with spectators attached.
+    if (phase === 'finished' && r.finishedClose > 0 && room.finishedAt !== null && now - room.finishedAt > r.finishedClose) return `finished ${fmt(now - room.finishedAt)} ago`;
+    // Every seat gone (no socket, no request, no long-poll) for a while: lobbies and running games.
+    if (phase !== 'finished' && r.abandonedClose > 0 && room.hasLivingSeats() && !room.seatAttached() && now - room.lastSeatSeen > r.abandonedClose) {
+      return `every seat gone ${fmt(now - room.lastSeatSeen)}`;
+    }
+    if (room.isWatched()) return null;
     if (!room.hasHumans()) return 'no people or agents in the room';
     if (phase === 'lobby' && idle > r.lobby) return `lobby idle ${fmt(idle)}`;
     if (phase === 'finished' && idle > r.finished) return `finished, idle ${fmt(idle)}`;

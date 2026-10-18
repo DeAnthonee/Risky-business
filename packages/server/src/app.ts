@@ -81,7 +81,7 @@ export function createRiskServer(store: Store, opts: AppOptions = {}): RiskServe
   });
   const characters = opts.characters ?? new CharacterStore(DEFAULT_AI_DIR, null);
   app.use('/api', createApi(store, { adminToken: opts.adminToken, openTournaments: opts.openTournaments ?? true, characters }));
-  if (opts.sweepIntervalMs !== 0) store.startSweeper(opts.sweepIntervalMs ?? 5 * 60_000);
+  if (opts.sweepIntervalMs !== 0) store.startSweeper(opts.sweepIntervalMs ?? 30_000);
 
   // Remote MCP endpoint for AI agents (claude.ai connectors, any Streamable HTTP MCP client).
   const mcp = createMcpRouter(store, characters, opts.mcpLabel ?? 'Risky Business', opts.adminToken ?? null, opts.openTournaments ?? true);

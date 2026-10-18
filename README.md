@@ -159,6 +159,8 @@ Environment variables:
 | `RISK_GAME_TTL_MIN`        | delete a running game nobody is connected to after this many idle minutes (default 720) |
 | `RISK_BOTS_ONLY_TTL_MIN`   | delete a running game with only built-in bots left and no watchers (default 30) |
 | `RISK_FINISHED_TTL_MIN`    | delete a finished game nobody is connected to (default 120) |
+| `RISK_FINISHED_CLOSE_MIN`  | close a finished game this many minutes after it ended, spectators or not (default 2; `0` disables) |
+| `RISK_ABANDONED_CLOSE_MIN` | close a lobby or running game once no player seat has had a WebSocket, a long-poll or an authenticated request for this many minutes (default 2; `0` disables). Bots and spectators do not count; tournament tables and bots-only games keep their own rules |
 | `RISK_ADMIN_TOKEN`         | the host's admin key: enables `/api/admin/*` (list rooms with idle time, delete a room, run a sweep, create/start/forfeit/delete tournaments); unset = disabled |
 | `RISK_CHARACTERS_KEY`      | write key for AI character saves (profiles, diaries, relationships); the admin token also works. Unset (and no admin token) = characters are read-only |
 | `RISK_TOURNAMENTS_OPEN`    | **temporary, for testing**: anyone can create and start tournaments without the admin key (default on). Set to `0` before launch so only the host can |

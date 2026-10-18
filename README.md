@@ -84,7 +84,8 @@ opened the spectator view). Whispers go to a player id; by name only when exactl
 Spectators can whisper to any player too (same "To" menu, while spectator chat is on): only that player's seat and the
 other spectators see it. Everyone can also whisper from a player's details card: click their name in the scoreboard.
 Any player's name in a chat message (with or without `@`) is drawn in that player's colour; your own
-name is highlighted.
+name is highlighted. `@all` (or `@everyone`) pings the whole table and is highlighted for every player; "🔔 Ping all"
+in the "To" menu adds it for you.
 Dice rolls, troop placements ("+N" bursts that stay up longer for spectators), cards being earned, traded in
 (fanning out into "+N armies") or taken from an eliminated player all animate on the board. The sidebar lists players in turn order with their territories, armies, cards and income
 (`+N/turn`, the reinforcements they get next turn before cards; hover it for the breakdown).
@@ -165,7 +166,7 @@ Host-selectable options:
 | `randomDeal`  | `true` (deal) \| `false` (claim one by one) | `true` |
 | `autoSetup`   | `true` skips the placement phase: starting armies are scattered randomly, turn 1 starts at once | `false` |
 | `cardValues`  | `progressive` (4, 6, 8, 10, 12, 15, +5…) \| `fixed` (3 infantry 4, 3 cavalry 6, 3 artillery 8, one of each 10; a wild completes the best set) \| `exponential` (per player: 5, 7, 10…; ceil(previous × 1.3) through trade 25, then +1000) | `progressive` |
-| `fogOfWar`    | players see only their territories and adjacent ones; events elsewhere are reported as fogged; opponents' territory and army counts, income, armies left to place, continents and the details of their card trades are hidden unless every territory that opponent holds is visible (card counts and the number of sets traded so far stay public); spectators, eliminated players and everyone once the game is over see everything, and spectators can preview any player's fog | `false` |
+| `fogOfWar`    | players see only their territories and adjacent ones; events elsewhere are reported as fogged; opponents' territory and army counts, income breakdown, armies left to place, continents and the details of their card trades are hidden unless every territory that opponent holds is visible (card counts, the number of sets traded so far and each player's total reinforcement income stay public); spectators, eliminated players and everyone once the game is over see everything, and spectators can preview any player's fog | `false` |
 | `spectatorChat` | watchers can post in the game chat (marked as spectators, 5 messages / 10 s); every player sees them, even under fog of war | `true` |
 | `neutrals`    | games of 3+ players: this many random territories start held by a Neutral army that never attacks (0 = off, max a third of the map); 2-player games always have the classic Neutral | `0` |
 | `neutralArmies` | armies on each neutral territory when `neutrals` is on (1–10) | `2` |

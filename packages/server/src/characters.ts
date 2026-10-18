@@ -118,7 +118,7 @@ export class CharacterStore {
   }
   private seed(id: string): string | null {
     const p = this.seedPath(id);
-    return p && existsSync(p) ? readFileSync(p, 'utf8') : null;
+    return p && existsSync(p) ? readText(p) : null;
   }
   private seedIds(): string[] {
     if (!this.aiDir) return [];
@@ -134,7 +134,7 @@ export class CharacterStore {
     const s = this.saved.get(id);
     if (!s?.versions.some((v) => v.version === version)) return null;
     if (s.bodies.has(version)) return s.bodies.get(version)!;
-    return this.dataDir ? readFileSync(join(this.dataDir, id, `v${version}.md`), 'utf8') : null;
+    return this.dataDir ? readText(join(this.dataDir, id, `v${version}.md`)) : null;
   }
 
   private latest(id: string): CharacterVersion | null {
@@ -255,7 +255,7 @@ export class CharacterStore {
 
   private seedFile(id: string, kind: 'diary' | 'relationships'): string | null {
     const p = this.aiDir ? join(this.aiDir, 'characters', `${id}.${kind}.md`) : null;
-    return p && existsSync(p) ? readFileSync(p, 'utf8') : null;
+    return p && existsSync(p) ? readText(p) : null;
   }
 
   private diaryEntries(id: string): DiaryEntry[] {
@@ -370,10 +370,10 @@ export class CharacterStore {
       safeDir(join(this.aiDir!, folder))
         .filter((f) => f.endsWith('.md') && f !== 'README.md')
         .sort((a, b) => rank(a) - rank(b) || a.localeCompare(b))
-        .map((f) => ({ file: `${folder}/${f}`, markdown: readFileSync(join(this.aiDir!, folder, f), 'utf8') })),
+        .map((f) => ({ file: `${folder}/${f}`, markdown: readText(join(this.aiDir!, folder, f)) })),
     );
     const template = join(this.aiDir, 'characters', '_TEMPLATE.md');
-    if (existsSync(template)) docs.push({ file: 'characters/_TEMPLATE.md', markdown: readFileSync(template, 'utf8') });
+    if (existsSync(template)) docs.push({ file: 'characters/_TEMPLATE.md', markdown: readText(template) });
     return { docs };
   }
 }
@@ -384,6 +384,13 @@ const clamp = (n: number) => Math.max(-100, Math.min(100, n));
 function clean<T extends object>(o: T): T {
   return Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as T;
 }
+
+/** Markdown from disk with LF line endings: a Windows checkout (core.autocrlf) has CRLF, and the parsers split on "\n". */
+function readText(file: string): string {
+  return normalizeEol(readFileSync(file, 'utf8'));
+}
+
+const normalizeEol = (s: string) => s.replace(/\r\n?/g, '\n');
 
 function readJson<T>(file: string | null): T | null {
   if (!file || !existsSync(file)) return null;
@@ -404,7 +411,7 @@ function writeJson(file: string, data: unknown) {
  * set Game, Date, Outcome, Map, Opponents (comma-separated), Strategy and Winner; the rest is the text.
  */
 export function parseDiary(markdown: string): Omit<DiaryEntry, 'n'>[] {
-  const blocks = markdown.split(/^## /m).slice(1);
+  const blocks = normalizeEol(markdown).split(/^## /m).slice(1);
   return blocks.map((block) => {
     const [heading, ...lines] = block.split('\n');
     const fields: Record<string, string> = {};
@@ -435,7 +442,7 @@ export function parseDiary(markdown: string): Omit<DiaryEntry, 'n'>[] {
 /** A repo relationships file (<name>.relationships.md): a "| Player | Rapport | Notes |" table. */
 export function parseRelationships(markdown: string): Relationship[] {
   const out: Relationship[] = [];
-  for (const line of markdown.split('\n')) {
+  for (const line of normalizeEol(markdown).split('\n')) {
     const cells = line.trim().match(/^\|(.*)\|$/)?.[1].split('|').map((c) => c.trim());
     if (!cells || cells.length < 2 || !/^[-+]?\d+$/.test(cells[1])) continue;
     const rapport = clamp(Number(cells[1]));

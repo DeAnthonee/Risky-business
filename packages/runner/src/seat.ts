@@ -47,10 +47,22 @@ export class SeatRunner {
 
   constructor(private o: SeatOptions) {
     this.random = o.random ?? Math.random;
-    const ledger=o.commander?.ledger ?? o.diplomat?.ledger;
-    this.memory=new GameMemory(o.playerId,()=>ledger?.all() ?? []);
-    o.commander?.setGameMemory(view=>this.memory.summary(view));
-    o.diplomat?.setGameMemory(view=>this.memory.summary(view));
+    const ledger = o.commander?.ledger ?? o.diplomat?.ledger;
+    this.memory = new GameMemory(
+      o.playerId,
+      () => ledger?.all() ?? [],
+      (attackerId, defenderId, armies) => {
+        const v = this.latestView;
+        if (!v || !ledger) return;
+        const attacker = v.players.find((p) => p.id === attackerId)?.name;
+        const defender = v.players.find((p) => p.id === defenderId)?.name;
+        if (attacker && defender) ledger.noteCommitment(attacker, defender, armies);
+      },
+    );
+    o.commander?.setGameMemory((view) => this.memory.summary(view));
+    o.commander?.setStall(() => this.stall.stall);
+    o.diplomat?.setGameMemory((view) => this.memory.summary(view));
+    o.diplomat?.setStall(() => this.stall.stall);
     o.diplomat?.setViewRefresher(async () => {
       let timer: ReturnType<typeof setTimeout> | undefined;
       try {

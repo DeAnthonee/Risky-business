@@ -16,26 +16,35 @@ interface Mentionable {
 
 /**
  * Returns a function that splits a chat message so each player it names (whole word, any case, with or
- * without "@") can be drawn in that player's colour. Longer names win, so "Bot 12" isn't read as "Bot 1".
+ * without "@") can be drawn in that player's colour, and @all / @everyone / @everybody pings everyone.
+ * Longer names win, so "Bot 12" isn't read as "Bot 1".
  */
 function mentioner(players: Mentionable[], you: string | null): (text: string) => ReactNode[] {
   const named = players.filter((p) => p.name.trim()).sort((a, b) => b.name.length - a.name.length);
-  if (!named.length) return (text) => [text];
   const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const pattern = `(^|[^\\p{L}\\p{N}_])(@?(?:${named.map((p) => escape(p.name)).join('|')}))(?=$|[^\\p{L}\\p{N}_])`;
+  const allTokens = '@(?:all|everyone|everybody)';
+  const namesPart = named.length ? `@?(?:${named.map((p) => escape(p.name)).join('|')})|${allTokens}` : allTokens;
+  const pattern = `(^|[^\\p{L}\\p{N}_])(${namesPart})(?=$|[^\\p{L}\\p{N}_])`;
   return (text) => {
     const out: ReactNode[] = [];
     let last = 0;
     for (const m of text.matchAll(new RegExp(pattern, 'giu'))) {
       const word = m[2];
-      const p = named.find((x) => x.name.toLowerCase() === word.replace(/^@/, '').toLowerCase());
-      if (!p) continue;
+      const isAll = /^@(?:all|everyone|everybody)$/i.test(word);
+      const p = isAll ? null : named.find((x) => x.name.toLowerCase() === word.replace(/^@/, '').toLowerCase());
+      if (!isAll && !p) continue;
       const start = m.index! + m[1].length;
       if (start > last) out.push(text.slice(last, start));
       out.push(
-        <span key={start} className={`mention${p.id === you ? ' mention-you' : ''}`} style={{ color: p.color }}>
-          {word}
-        </span>,
+        isAll ? (
+          <span key={start} className={`mention mention-all${you ? ' mention-you' : ''}`} title="Pings every player at the table">
+            {word}
+          </span>
+        ) : (
+          <span key={start} className={`mention${p!.id === you ? ' mention-you' : ''}`} style={{ color: p!.color }}>
+            {word}
+          </span>
+        ),
       );
       last = start + word.length;
     }
@@ -56,6 +65,7 @@ export function Chat({ conn, canSend, spectator }: { conn: GameConnection; canSe
   const canPost = spectator ? spectatorChatOn : canSend;
   const others = (conn.view?.players ?? []).filter((p) => !p.isNeutral && p.id !== conn.you);
   const whisperTo = others.find((p) => p.id === to);
+  const pingAll = to === '@all';
 
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
@@ -72,8 +82,9 @@ export function Chat({ conn, canSend, spectator }: { conn: GameConnection; canSe
     setError(null);
     setText('');
     if (spectator) setName(name);
+    const payload = pingAll && !/(^|[^\p{L}\p{N}_])@(?:all|everyone|everybody)(?=$|[^\p{L}\p{N}_])/iu.test(t) ? `@all ${t}` : t;
     try {
-      await conn.sendChat(t, spectator ? name : undefined, whisperTo?.id);
+      await conn.sendChat(payload, spectator ? name : undefined, whisperTo?.id);
     } catch (e) {
       setError((e as Error).message);
       setText(t);
@@ -125,8 +136,9 @@ export function Chat({ conn, canSend, spectator }: { conn: GameConnection; canSe
           }}
         >
           {others.length > 0 && (
-            <select className="chat-name chat-to" value={whisperTo ? to : ''} onChange={(e) => setTo(e.target.value)} aria-label="Send to">
+            <select className="chat-name chat-to" value={whisperTo ? to : pingAll ? '@all' : ''} onChange={(e) => setTo(e.target.value)} aria-label="Send to">
               <option value="">📢 All</option>
+              <option value="@all">🔔 Ping all (@all)</option>
               {others.map((p) => (
                 <option key={p.id} value={p.id}>
                   🤫 {p.name}
@@ -145,7 +157,7 @@ export function Chat({ conn, canSend, spectator }: { conn: GameConnection; canSe
             />
           )}
           <div className="row">
-            <input value={text} onChange={(e) => setText(e.target.value)} placeholder={whisperTo ? `Whisper to ${whisperTo.name}…` : spectator ? 'Cheer, heckle, predict…' : 'Say something…'} maxLength={500} />
+            <input value={text} onChange={(e) => setText(e.target.value)} placeholder={whisperTo ? `Whisper to ${whisperTo.name}…` : pingAll ? 'Ping every player (@all)…' : spectator ? 'Cheer, heckle, predict…' : 'Say something…'} maxLength={500} />
             <button type="submit" disabled={!text.trim()}>
               Send
             </button>

@@ -124,6 +124,37 @@ describe('DealLedger', () => {
     expect(p.get('Shen')).not.toBe(p.get('Shaco'));
     expect(new Set(p.values()).size).toBe(4);
   });
+
+  it('tracks troop-commitment joint_attack deals and marks under-commitment by the deadline as a backstab', () => {
+    const v = makeView(3);
+    const ledger = new DealLedger({ me: 'Shen', idPrefix: 'S' });
+    const d = ledger.propose({ kind: 'joint_attack', with: 'Lux', target: 'Teemo', startRound: 4, untilRound: 5, commitArmies: 20 }, v, "I'll commit 20 troops against Teemo")!;
+    expect(d.commitArmies).toBe(20);
+    expect(ledger.tag(d)).toBe('[deal S1: joint_attack Shen+Lux vs Teemo commit 20 from round 4 until round 5]');
+    ledger.ingest([msg('Lux', 'Deal! [accept S1]')]);
+    expect(ledger.active()).toHaveLength(1);
+    ledger.noteCommitment('Lux', 'Teemo', 20);
+    ledger.noteCommitment('Shen', 'Teemo', 12);
+    expect(ledger.committedBy(d, 'Shen')).toBe(12);
+    expect(ledger.summary()).toContain('Shen committed 12/20');
+    // Shen only committed 12 of 20 promised troops by the end of round 5 -> backstab (broken by Shen)!
+    ledger.sync(makeView(6));
+    expect(ledger.get('S1')).toMatchObject({ status: 'broken', brokenBy: 'Shen' });
+    expect(ledger.history.join('\n')).toContain('failing to commit 20 troops vs Teemo');
+
+    // Also parses natural language troop commitment from proposal text and expires cleanly when honored
+    const l2 = new DealLedger({ me: 'Shen', idPrefix: 'S' });
+    l2.sync(makeView(3));
+    l2.ingest([
+      msg('Lux', "Let's hit Teemo — I'll commit 15 troops against Teemo [deal L1: joint_attack Lux+Shen vs Teemo commit 15 from round 4]"),
+      msg('Shen', 'In [accept L1]'),
+    ]);
+    expect(l2.get('L1')?.commitArmies).toBe(15);
+    l2.noteCommitment('Lux', 'Teemo', 15);
+    l2.noteCommitment('Shen', 'Teemo', 18);
+    l2.sync(makeView(6));
+    expect(l2.get('L1')).toMatchObject({ status: 'expired' });
+  });
 });
 
 describe('Diplomat deals', () => {

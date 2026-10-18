@@ -92,14 +92,26 @@ export interface Reflection {
   relationships: { with: string; change: number; note: string }[];
 }
 
+export function watchersFromChat(chat: string[]): string[] {
+  const seen = new Map<string, string>();
+  for (const line of chat) {
+    const m = /^([^:(]+?)\s*\(spectator\)/i.exec(line);
+    if (m && m[1].trim()) seen.set(m[1].trim().toLowerCase(), m[1].trim());
+  }
+  return [...seen.values()];
+}
+
 export function reflectionMessages(ctx: PlayerContext, view: GameView, outcome: string, chat: string[]): ChatMessage[] {
-  const others = view.players.filter((p) => p.id !== view.you && !p.isNeutral).map((p) => p.name);
+  const others = [
+    ...view.players.filter((p) => p.id !== view.you && !p.isNeutral).map((p) => p.name),
+    ...watchersFromChat(chat),
+  ];
   const user = [
     `The game ${view.id} is over for you: ${outcome}.`,
     `FINAL BOARD:\n${boardText(view)}`,
     chat.length ? `LAST TABLE CHAT:\n${chat.join('\n')}` : '',
     `Write your diary entry for this game as ${ctx.name}. Keep observed facts separate from opinions, and end the text with one concrete lesson for next game.`,
-    `Reply with ONE JSON object: {"title": "<short title>", "text": "<the entry, under 1500 characters>", "strategy": "<your plan in a few words>", "relationships": [{"with": "<one of: ${others.join(', ')}>", "change": <-30..30>, "note": "<what they did>"}]}`,
+    `Reply with ONE JSON object: {"title": "<short title>", "text": "<the entry, under 1500 characters>", "strategy": "<your plan in a few words>", "relationships": [{"with": "<one of: ${others.join(', ')}>", "change": <-30..30>, "note": "<what they did or said (including recognized Watchers/spectators)>"}]}`,
   ]
     .filter(Boolean)
     .join('\n\n');

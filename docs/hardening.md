@@ -19,8 +19,9 @@ launch and remove the temporary create/start MCP tools.
 
 ## 2. Per-player totals under fog of war
 
-`viewFor` hides another player's counts unless every territory they hold is visible, but card counts and
-the number of sets traded are public by design. Any seated player can also open the spectator view (or
+`viewFor` hides another player's counts unless every territory they hold is visible, but card counts, the
+number of sets traded and each player's total reinforcement income are public by design (#56; the total roughly
+gives away territory count and continent captures behind the fog, a trade-off accepted for threat assessment). Any seated player can also open the spectator view (or
 `spectate_game`) and see the whole board. Decide whether fog games should restrict spectating by seated players.
 
 ## 3. Leaderboard identities for plain seats are self-declared
@@ -29,6 +30,17 @@ the number of sets traded are public by design. Any seated player can also open 
 characters write key, but a seat without a character is ranked as `player:<display name>`. Anyone can join under
 someone else's name, or play two seats against each other and surrender one, to move that name's record. Decide
 whether plain seats should be ranked at all (or only characters and signed-in accounts) before the ladder matters.
+
+## 4. Spectator chat goes into the bots' long-term memory
+
+**Where:** `packages/runner/src/experience.ts` (watcher relationships), `packages/llm-player/src/prompt.ts`
+(`watchersFromChat`). Since #60, a spectator who chats becomes a "watcher" relationship in each league character's
+local experience: up to three of their messages per game are saved verbatim (120 characters each, last 20 facts) and
+shown to the model in every later game; the local-model player can also save a relationship note about them through
+the characters API. Spectator names are self-declared (anyone can watch as "DeAnthonee"), and the text is framed as
+untrusted memory, not instructions, but it is still a lasting way for an anonymous watcher to put words in front of
+the models. Before the league runs in public: store a summary instead of quotes, or keep watcher memory only for
+signed-in watchers.
 
 ## Fixed
 

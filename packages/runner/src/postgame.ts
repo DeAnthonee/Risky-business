@@ -298,15 +298,29 @@ function statsTable(r: GameResult): string {
     .join('\n');
 }
 
+export function extractWatchers(chat: SeatReport['chat']): { key: string; name: string; messages: string[] }[] {
+  const byKey = new Map<string, { key: string; name: string; messages: string[] }>();
+  for (const m of chat) {
+    if (!m.spectator) continue;
+    const name = m.name.trim();
+    if (!name) continue;
+    const key = `watcher:${name.toLowerCase()}`;
+    const entry = byKey.get(key) ?? { key, name, messages: [] };
+    entry.name = name;
+    if (m.message.trim()) entry.messages.push(`${m.to !== undefined ? '(whisper) ' : ''}${m.message.trim()}`);
+    byKey.set(key, entry);
+  }
+  return [...byKey.values()];
+}
+
 async function writeNote(llm: Llm | null, r: GameResult, seat: SeatReport, board: string, learningsDir: string, log: (l: string) => void): Promise<{ name: string; text: string; file: string }> {
   const row = r.seats.find((s) => s.name === seat.name);
   const result = row ? resultText(r, row) : `Game ${r.gameId} ended.`;
   let text = fallbackNote(seat.name, r.gameId, result, seat.privateLog);
   if (llm && row) {
     const chat = seat.chat
-      .filter((m) => !m.spectator)
       .slice(-30)
-      .map((m) => `${m.name}${m.to !== undefined ? ' (whisper)' : ''}: ${m.message}`)
+      .map((m) => `${m.spectator ? '[watcher] ' : ''}${m.name}${m.to !== undefined ? ' (whisper)' : ''}: ${m.message}`)
       .join('\n')
       .slice(-2000);
     try {
@@ -389,6 +403,10 @@ async function saveCharacter(api: RiskApi, key: string, r: GameResult, seat: Sea
     const rel: { with: string; change: number; note: string }[] = [];
     if (row.eliminatedBy) rel.push({ with: label(row.eliminatedBy), change: -15, note: `Eliminated me in round ${row.eliminatedRound} of ${r.gameId}.` });
     if (r.winner && r.winner !== seat.name && r.winner !== row.eliminatedBy) rel.push({ with: label(r.winner), change: -5, note: `Won ${r.gameId} (${r.reason}) while I placed ${row.placement}${ordinal(row.placement)}.` });
+    for (const w of extractWatchers(seat.chat)) {
+      const sample = w.messages.slice(-2).map((m) => m.slice(0, 100)).join(' | ');
+      rel.push({ with: w.key, change: 0, note: `Watched ${r.gameId} as spectator${sample ? `: "${sample}"` : '.'}`.slice(0, 300) });
+    }
     for (const u of rel) await api.updateRelationship(seat.characterId, { ...u, gameId: r.gameId }, key);
   } catch (e) {
     log(`${seat.name}: could not save diary/relationships (${(e as Error).message})`);
@@ -768,10 +786,11 @@ async function runPostGameLocked(i: PostGameInput): Promise<PostGameOutput> {
       await addPersonalityMemory(i.learningsDir, seat.characterId, i.gameId, note.text);
       const own = result.seats.find(s => s.character === seat.characterId)!;
       const opponents = result.seats.filter(s => s !== own).map(s => ({ key: s.character ?? 'player:' + s.name.toLowerCase(), name: s.name }));
+      const watchers = extractWatchers(seat.chat);
       await updateExperience({ dir: i.learningsDir, id: seat.characterId, name: seat.name, gameId: i.gameId, note: note.text,
         ownWon: own.placement === 1, myPlacement: own.placement,
         opponentResults: Object.fromEntries(result.seats.filter(s=>s!==own).map(s=>[s.character ?? 'player:' + s.name.toLowerCase(), {won:s.placement===1,placement:s.placement}])),
-        opponents, deals: seat.observedDeals ?? [], llm: i.llm, log: i.log });
+        opponents, watchers, deals: seat.observedDeals ?? [], llm: i.llm, log: i.log });
     }
   }
 

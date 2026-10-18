@@ -1,4 +1,4 @@
-import { findSets, getMap, setValue, tradeBonus, type Card, type GameState, type MapDef } from '@risk/engine';
+import { findSets, getMap, setValue, nextTradeValue, type Card, type GameState, type MapDef } from '@risk/engine';
 import { CANDIDATE_KINDS, territoryIndex, type Candidate } from './actions.js';
 import { CARD_KINDS, encodeRules, encodeState, OWNER_NEUTRAL, OWNER_NONE, PHASES, RULE_KEYS, type DecisionRecord } from './log.js';
 import { TRAIT_KEYS, traitVector, type Traits } from './traits.js';
@@ -17,7 +17,7 @@ import { TRAIT_KEYS, traitVector, type Traits } from './traits.js';
  *
  * Bump ENCODER_VERSION whenever a feature changes meaning; append-only changes too, since tensor widths change.
  */
-export const ENCODER_VERSION = 1;
+export const ENCODER_VERSION = 2;
 
 /** Seat slots (largest player count on any map). */
 export const MAX_SLOTS = 10;
@@ -205,12 +205,12 @@ export function encodeDecision(rec: EncoderInput): Features {
   g('to_place_log', log1(s.seats[me][2]));
   g('hand_size', hand.length / 5);
   CARD_KINDS.forEach((k) => g(`hand_${k}`, hand.filter((c) => c.kind === k).length / 3));
-  const mode = rec.rules[RULE_KEYS.indexOf('fixedCards')] ? 'fixed' : 'progressive';
+  const mode = rec.rules[RULE_KEYS.indexOf('fixedCards')] ? 'fixed' : rec.rules[RULE_KEYS.indexOf('exponentialCards')] ? 'exponential' : 'progressive';
   const byId = new Map(hand.map((c) => [c.id, c]));
-  const best = Math.max(0, ...findSets(hand).map((set) => setValue(set.map((id) => byId.get(id)!), mode, s.tradeCount)));
+  const best = Math.max(0, ...findSets(hand).map((set) => setValue(set.map((id) => byId.get(id)!), mode, s.tradeCount, s.personalTrades?.[me] ?? 0)));
   g('hand_set_value', log1(best));
   g('trade_count', log1(s.tradeCount));
-  g('next_trade_value', log1(mode === 'fixed' ? 10 : tradeBonus(s.tradeCount)));
+  g('next_trade_value', log1(nextTradeValue(mode, s.tradeCount, s.personalTrades?.[me] ?? 0)));
   g('conquered', s.conquered ? 1 : 0);
   g('fortified', s.fortified ? 1 : 0);
   g('turn', rec.turn / 100);

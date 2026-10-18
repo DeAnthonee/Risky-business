@@ -22,6 +22,8 @@ export interface Player {
   isNeutral: boolean;
   alive: boolean;
   cards: Card[];
+  /** Personal set turn-ins; missing in legacy saves means zero. Public in player views. */
+  tradesMade?: number;
   /** Armies waiting to be placed (setup or reinforce, or after a mid-attack trade). */
   armiesToPlace: number;
   conqueredThisTurn: boolean;
@@ -51,8 +53,8 @@ export interface GameOptions {
   maxPlayers: number;
   /** Which board to play on (see MAP_IDS in maps.ts and OPTION_SPECS.map): 'classic' (42 territories, 2-6 players), 'world' (74, 2-10), 'world_large' (104, 2-10), 'europe' (44, 2-8), 'greater_europe' (Greater Europe, 116, 2-10), 'europe_classic' (Europe Advanced, 84, 2-6), 'usa' (45, 2-10), 'asia' (49, 2-8), 'fantasy' (Realms of Halvaren, 87, 2-10), 'skirmish' (Four Crowns, 24, 2-4). 'europe_advanced' (Europe (legacy, 99), 2-6) is a legacy board: saved games on it still load, new games cannot pick it. */
   map: 'classic' | 'world' | 'world_large' | 'europe' | 'europe_advanced' | 'greater_europe' | 'europe_classic' | 'usa' | 'asia' | 'fantasy' | 'skirmish';
-  /** Card set values: 'progressive' (4,6,8,10,12,15,+5...) or 'fixed' (infantry 4, cavalry 6, artillery 8, mixed 10). */
-  cardValues: 'progressive' | 'fixed';
+  /** Card sets: progressive lobby-wide, fixed by set type, or exponential per player. */
+  cardValues: 'progressive' | 'fixed' | 'exponential';
   /** Fog of war: players only see their own territories and the ones adjacent to them. Spectators see everything. */
   fogOfWar: boolean;
   /** Spectators may chat. Every player sees their messages, even under fog of war. */

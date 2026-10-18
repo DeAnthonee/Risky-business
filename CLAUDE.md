@@ -7,7 +7,8 @@ MCP tools → client → docs → `npm test`), and the hosting invariants. This 
 Online multiplayer Risk with bots and an MCP server for AI agents. npm-workspaces monorepo:
 `packages/engine` (pure rules, tested), `packages/server` (Express + ws, persistence, bots),
 `packages/client` (React + Vite), `packages/mcp` (MCP tools; stdio CLI, and embedded in the server at `/mcp`),
-`packages/selfplay` (headless self-play, rating ladder, decision logs for training; never imported by the server).
+`packages/selfplay` (headless self-play, rating ladder, decision logs for training; never imported by the server),
+`packages/runner` (standalone bot runner: several seats over the HTTP API, plan-aware bot moves steered by an Ollama commander, table talk, post-game learnings; never imported by the server).
 
 ## Commands
 

@@ -1,6 +1,6 @@
 import type { MapDef } from './maps.js';
 import { CLASSIC } from './maps.js';
-import type { Card, CardKind } from './types.js';
+import type { Card, CardKind, GameOptions } from './types.js';
 
 /** One card per territory (infantry/cavalry/artillery in rotation) + 2 wilds. */
 export function buildDeck(map: MapDef = CLASSIC): Card[] {
@@ -44,6 +44,21 @@ export function tradeBonus(tradeIndex: number): number {
   return 15 + 5 * (tradeIndex - table.length + 1);
 }
 
+/** Personal trade sequence: 5, 7, 10, 13, ...; after trade 25 (3529), add 1000 each time.
+ * Integer arithmetic avoids floating point round-up errors on exact multiples of ten.
+ */
+export function exponentialTradeBonus(tradeIndex: number): number {
+  if (!Number.isSafeInteger(tradeIndex) || tradeIndex < 0) throw new RangeError('Invalid personal trade index');
+  let value = 5;
+  for (let i = 0; i < Math.min(tradeIndex, 24); i++) value = Math.ceil(value * 13 / 10);
+  return value + Math.max(0, tradeIndex - 24) * 1000;
+}
+
+/** Next set value (maximum set for fixed cards); exponential never uses the lobby trade counter. */
+export function nextTradeValue(mode: GameOptions['cardValues'], lobbyTrades: number, personalTrades = 0): number {
+  return mode === 'fixed' ? 10 : mode === 'exponential' ? exponentialTradeBonus(personalTrades) : tradeBonus(lobbyTrades);
+}
+
 const FIXED: Record<Exclude<CardKind, 'wild'>, number> = { infantry: 4, cavalry: 6, artillery: 8 };
 const FIXED_MIXED = 10;
 
@@ -62,6 +77,6 @@ export function fixedSetValue(cards: Card[]): number {
 }
 
 /** Value of a traded set under the given rule. */
-export function setValue(cards: Card[], mode: 'progressive' | 'fixed', tradeIndex: number): number {
-  return mode === 'fixed' ? fixedSetValue(cards) : tradeBonus(tradeIndex);
+export function setValue(cards: Card[], mode: GameOptions['cardValues'], tradeIndex: number, personalTrades = 0): number {
+  return mode === 'fixed' ? fixedSetValue(cards) : nextTradeValue(mode, tradeIndex, personalTrades);
 }

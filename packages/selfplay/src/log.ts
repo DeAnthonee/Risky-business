@@ -21,12 +21,13 @@ export const OWNER_NEUTRAL = -2;
 export const PHASES: Phase[] = ['lobby', 'setup', 'capitals', 'reinforce', 'attack', 'fortify', 'finished'];
 export const CARD_KINDS: CardKind[] = ['infantry', 'cavalry', 'artillery', 'wild'];
 /** Rule flags logged with every decision (0/1, in this order). Only append. */
-export const RULE_KEYS = ['capitals', 'fixedCards', 'adjacentFortify', 'fogOfWar', 'balancedBlitz'] as const;
+export const RULE_KEYS = ['capitals', 'fixedCards', 'adjacentFortify', 'fogOfWar', 'balancedBlitz', 'exponentialCards'] as const;
 
 export function encodeRules(o: GameOptions): number[] {
   const flags: Record<(typeof RULE_KEYS)[number], boolean> = {
     capitals: o.capitals,
     fixedCards: o.cardValues === 'fixed',
+    exponentialCards: o.cardValues === 'exponential',
     adjacentFortify: o.fortifyMode === 'adjacent',
     fogOfWar: o.fogOfWar,
     balancedBlitz: o.balancedBlitz,
@@ -43,6 +44,8 @@ export interface EncodedState {
   /** The deciding player's cards: [card id, kind index, territory index or -1 for wild]. */
   hand: [number, number, number][];
   tradeCount: number;
+  /** Personal trades by seat; absent in old decision logs means zero. */
+  personalTrades?: number[];
   /** [from, to, min, max] while an occupy decision is pending. */
   pending: [number, number, number, number] | null;
   /** Capital territory per seat (-1 = none). */
@@ -113,6 +116,7 @@ export function encodeState(state: GameState, seats: string[], me: string, forti
     }),
     hand: player.cards.map((c) => [c.id, CARD_KINDS.indexOf(c.kind), c.territory === null ? -1 : ti(c.territory)]),
     tradeCount: state.tradeCount,
+    personalTrades: seats.map(id => state.players.find(p => p.id === id)?.tradesMade ?? 0),
     pending: pc ? [ti(pc.from), ti(pc.to), pc.minArmies, pc.maxArmies] : null,
     capitals: seats.map((id) => (state.capitals[id] ? ti(state.capitals[id]) : -1)),
     blizzards: state.blizzards.map(ti),

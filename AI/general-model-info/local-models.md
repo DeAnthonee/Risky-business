@@ -1,6 +1,6 @@
 # Local models (plan)
 
-Status: planned. Nothing here runs yet; this records the agreed design so any agent can pick it up.
+Status: the local player process is implemented in `packages/runner`; model training and hosting migration remain future work.
 
 ## Goal
 
@@ -26,3 +26,16 @@ top of it, so characters play from their own profile, diary and relationships.
 2. Which models are installed, and their sizes?
 3. How much memory does the mini have, and how much do the other project's models use?
 4. Does the runtime stay up permanently alongside the game server?
+
+## Phase 1: `packages/runner`
+
+`@risk/runner` joins multiple tables over the HTTP API. An Ollama commander sets per-turn plans, a
+validated move chooser executes legal actions, and a diplomat writes character dialogue. All lobbies
+share one local model queue (`qwen3:14b`, port 11434). Planning waits are bounded; chat refreshes queued
+board context and rejects expired offers.
+
+Each character remembers its own lessons, evolving tactics, relationships, head-to-head history and
+private tactical events. Completed games update shared advice and placement rankings. Local memory
+needs no server write key; publishing server diaries/relationships remains opt-in.
+
+Run instructions: `packages/runner/README.md`. Profiles, ratings and persistence: `docs/character-league.md`.

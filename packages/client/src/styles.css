@@ -1768,3 +1768,23 @@ label.check input {
 .table-card li.out {
   color: var(--muted);
 }
+
+/* Character profiles stay over the live game; native dialogs manage focus and Escape. */
+.character-name { background: none; border: 0; padding: 0; color: inherit; font: inherit; text-align: inherit; cursor: pointer; text-decoration: underline; text-decoration-color: #ffffff44; text-underline-offset: 3px; }
+.character-name:hover { color: #ffd166; }
+.character-name:focus-visible { outline: 2px solid #ffd166; outline-offset: 4px; }
+.profile-dialog { color: #e4ecf5; background: #132337; border: 1px solid #39516d; border-radius: 16px; padding: 24px; width: min(680px, calc(100vw - 32px)); max-height: 85dvh; overflow-y: auto; box-sizing: border-box; }
+.profile-dialog::backdrop { background: #030a14b8; }
+.profile-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.profile-header h2 { margin: 0; }
+.profile-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 24px 0; }
+.profile-stats > div { padding: 14px; border-radius: 8px; background: #0a1728; }
+.profile-stats dt { color: #9db1c9; font-size: .8rem; }
+.profile-stats dd { font-size: 1.55rem; font-weight: 700; margin: 6px 0 0; }
+.profile-bio { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; margin-top: 16px; }
+.leaderboard { margin-bottom: 24px; }
+.leaderboard-scroll { overflow-x: auto; }
+.leaderboard table { width: 100%; border-collapse: collapse; text-align: left; font-variant-numeric: tabular-nums; }
+.leaderboard th, .leaderboard td { padding: 12px; border-bottom: 1px solid #ffffff18; white-space: nowrap; }
+.leaderboard th { color: #9db1c9; font-size: .8rem; }
+@media (max-width: 540px) { .profile-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } .profile-dialog { padding: 16px; } }

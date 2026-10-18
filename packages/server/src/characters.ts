@@ -91,7 +91,7 @@ export class CharacterStore {
   }
 
   /** Every save needs a write key: the endpoints have no other auth, and saved text is read by other models. */
-  private checkWrite(key: string | undefined) {
+  checkWrite(key: string | undefined) {
     if (!this.writable) throw new RiskHttpError('Saving characters is turned off on this server (no RISK_CHARACTERS_KEY set): profiles, diaries and relationships are read-only.', 403);
     if (!key) throw new RiskHttpError('Saving characters needs the write key: pass it as "key" (MCP) or the x-characters-key header (HTTP).', 401);
     const given = Buffer.from(key);

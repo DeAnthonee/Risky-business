@@ -1,7 +1,7 @@
 # Delove: our base model, a trained Risk player with no personality
 
-Status: plan. Nothing in this document is built yet except the self-play tooling it starts from
-(`packages/selfplay`).
+Status: Stage 0 done: `delove-teacher@1` is built (`packages/delove`) and beats `risky@1` on every setup tried
+(0.94 on Classic 2-player, 0.80-0.84 with 4-6 players; see `packages/delove/README.md`). Next: Stage 1.
 
 ## What it is, and what it is not
 
@@ -116,6 +116,7 @@ Small enough to train on an RTX 4060 (8 GB) in hours:
 
 ```
 packages/delove/          new package, never imported by the server or the character code
+  src/register.ts             registers Delove's players with the self-play CLI (`npm run delove -- ...`)
   src/net-agent.ts            loads an ONNX model and registers it as delove@N for self-play / ladder
   src/teacher.ts              delove-teacher@1
   python/train.py             distillation (Stage 1) and self-play training (Stage 2), PyTorch
@@ -134,7 +135,7 @@ export in batches and delete old exports once trained on. Python training runs i
 
 ## Milestones
 
-1. `delove-teacher@1` beats `risky@1` on the ladder.
+1. ✅ `delove-teacher@1` beats `risky@1` on the ladder.
 2. Training pipeline: export → `train.py` → ONNX → `delove@1` plays in self-play.
 3. `delove@1` matches `delove-teacher@1` and beats `risky@1`.
 4. The self-play loop promotes `delove@2` over `delove@1` on its own.

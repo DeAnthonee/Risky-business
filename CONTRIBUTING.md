@@ -26,6 +26,7 @@ npm ci && npm run build && npm test                            # must be green b
 | `packages/mcp` | MCP tools for AI agents (used by the stdio CLI **and** by the server's `/mcp`) | anything agents can do |
 | `packages/llm-player` | a seat played by a local model as an `AI/` character, over the HTTP API (its own process) | how local models play |
 | `packages/selfplay` | headless self-play harness, rating ladder and decision logs for training AI players (not used by the server) | training tooling, new player versions |
+| `packages/delove` | Delove, our base model: a no-personality player trained on self-play (teacher, network agent, trainer); never used by the server or the character code | Delove training |
 | `scripts/maps/*.mjs` + `scripts/build-map.mjs` | map definitions and the generator that turns real geography into `packages/engine/src/generated/*.json` | adding/changing territories, regions, adjacency |
 
 Data flows one way: **engine → server → client/MCP**. The server and the MCP never re-implement rules;

@@ -8,19 +8,21 @@
     "packages/server",
     "packages/client",
     "packages/mcp",
-    "packages/selfplay"
+    "packages/selfplay",
+    "packages/llm-player"
   ],
   "scripts": {
-    "build": "npm run build -w @risk/engine && npm run build -w @risk/mcp && npm run build -w @risk/client && npm run build -w @risk/server && npm run build -w @risk/selfplay",
+    "build": "npm run build -w @risk/engine && npm run build -w @risk/mcp && npm run build -w @risk/client && npm run build -w @risk/server && npm run build -w @risk/selfplay && npm run build -w @risk/llm-player",
     "dev": "npm run build -w @risk/engine && npm run build -w @risk/mcp && concurrently -n server,client -c blue,magenta \"npm run dev -w @risk/server\" \"npm run dev -w @risk/client\"",
     "start": "node packages/server/dist/index.js",
-    "pretest": "npm run build -w @risk/engine && npm run build -w @risk/mcp && npm run build -w @risk/selfplay",
-    "test": "npm run typecheck && npm run test -w @risk/engine && npm run test -w @risk/server && npm run test -w @risk/selfplay",
-    "test:unit": "npm run test -w @risk/engine && npm run test -w @risk/server && npm run test -w @risk/selfplay",
+    "pretest": "npm run build -w @risk/engine && npm run build -w @risk/mcp && npm run build -w @risk/selfplay && npm run build -w @risk/llm-player",
+    "test": "npm run typecheck && npm run test -w @risk/engine && npm run test -w @risk/server && npm run test -w @risk/selfplay && npm run test -w @risk/llm-player",
+    "test:unit": "npm run test -w @risk/engine && npm run test -w @risk/server && npm run test -w @risk/selfplay && npm run test -w @risk/llm-player",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "mcp": "node packages/mcp/dist/cli.js",
     "build:map": "node scripts/build-map.mjs",
-    "selfplay": "node packages/selfplay/dist/cli.js"
+    "selfplay": "node packages/selfplay/dist/cli.js",
+    "llm-player": "node packages/llm-player/dist/cli.js"
   },
   "devDependencies": {
     "concurrently": "^9.2.1",

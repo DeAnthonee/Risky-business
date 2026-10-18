@@ -77,6 +77,10 @@ export interface LoopOptions {
   chat: boolean;
   maxChatPerTurn: number;
   charactersKey?: string;
+  /** Pure mechanics training mode: uses generic seats without character profiles, skips chat and character memory/diary writes, and updates only RISK_LEARNINGS.md. */
+  mechanicsOnly?: boolean;
+  /** Run the RISK_LEARNINGS.md curator once every N finished games (and on the final game). Default 1. */
+  curationInterval?: number;
   /** Printed in the "watch" line. */
   serverUrl?: string;
   control?: LoopControl;
@@ -101,14 +105,17 @@ async function readLearnings(dir: string, log: (l: string) => void): Promise<str
   }
 }
 
+const GENERIC_ROSTER: RosterEntry[] = Array.from({ length: 10 }, (_, i) => ({ id: '', name: `Bot${i + 1}` }));
+
 /** Play games back to back, writing up each one. Resolves with the results of the games played. */
 export async function runLoop(o: LoopOptions): Promise<GameResult[]> {
   const random = o.random ?? Math.random;
   const control = o.control ?? new LoopControl();
   const { api, log } = o;
   const session: GameResult[] = [];
+  const roster = o.mechanicsOnly && (!o.roster || o.roster.length < 2) ? GENERIC_ROSTER : o.roster;
 
-  if (!o.seats && (!o.roster || o.roster.length < 2)) throw new Error('runLoop needs seats or a roster of at least 2 characters');
+  if (!o.seats && (!roster || roster.length < 2)) throw new Error('runLoop needs seats or a roster of at least 2 characters');
   const maxGameMs = o.maxGameMs ?? 120 * 60_000;
 
   // Profiles are refreshed before each game: the server copy, else the local AI folder; a missing one plays the generic persona.
@@ -129,18 +136,24 @@ export async function runLoop(o: LoopOptions): Promise<GameResult[]> {
       order = shuffled(o.seats, random);
       map = pickMap(o.map, order.length, g, random);
     } else {
-      const lineup = pickLineup({ map: o.map, players: o.players ?? 'random', roster: o.roster!, index: g, random });
+      const lineup = pickLineup({ map: o.map, players: o.players ?? 'random', roster: roster!, index: g, random });
       order = shuffled(lineup.seats, random);
       map = lineup.map;
     }
-    const localStandings = computeLeaderboard(await readResults(o.learningsDir));
-    let rankingContext = formatLeaderboard(localStandings);
-    if (api.rankings) {
-      try { const global = await api.rankings(); if (global.rankings.length) rankingContext = 'Server leaderboard (all-time):\n' + global.rankings.map(r => `#${r.rank} ${r.name} (${r.key}): ${r.points} points, ${r.wins} wins / ${r.losses} losses, ${r.winRate}% win rate, average place ${r.avgPlacement}`).join('\n'); }
-      catch (e) { log('Server rankings unavailable; using the local shared results ledger.'); }
+    if (o.mechanicsOnly) {
+      order = order.map((s) => ({ name: s.name }));
+    }
+    let rankingContext = '';
+    if (!o.mechanicsOnly) {
+      const localStandings = computeLeaderboard(await readResults(o.learningsDir));
+      rankingContext = formatLeaderboard(localStandings);
+      if (api.rankings) {
+        try { const global = await api.rankings(); if (global.rankings.length) rankingContext = 'Server leaderboard (all-time):\n' + global.rankings.map(r => `#${r.rank} ${r.name} (${r.key}): ${r.points} points, ${r.wins} wins / ${r.losses} losses, ${r.winRate}% win rate, average place ${r.avgPlacement}`).join('\n'); }
+        catch (e) { log('Server rankings unavailable; using the local shared results ledger.'); }
+      }
     }
     const personas = new Map<string, CharacterText | null>();
-    if (o.llm) {
+    if (o.llm && !o.mechanicsOnly) {
       for (const s of order) if (s.characterId) personas.set(s.name, await profileFor(s.characterId));
       const sources = [...personas.entries()].map(([name, c]) => `${name}: ${c ? (c.source === 'server' ? 'server' : 'local file') : 'generic persona'}`);
       if (sources.length > 0) log(`Profiles: ${sources.join(', ')}`);
@@ -154,7 +167,7 @@ export async function runLoop(o: LoopOptions): Promise<GameResult[]> {
     }
     let setup;
     try {
-      setup = await createGame(api, order, { gameName: 'Bot table', options: gameOptions(order.length, map, o.options, random, modes) });
+      setup = await createGame(api, order, { gameName: o.mechanicsOnly ? 'Mechanics lab' : 'Bot table', options: gameOptions(order.length, map, o.options, random, modes) });
       failures = 0;
     } catch (e) {
       log(`Could not set up game ${g + 1}: ${(e as Error).message}`);
@@ -176,7 +189,7 @@ export async function runLoop(o: LoopOptions): Promise<GameResult[]> {
       const character = personas.get(id.name) ?? null;
       const persona = character?.markdown ?? null;
       const relationships = [character?.relationships, character?.experience].filter(Boolean).join('\n\n') || null;
-      const personalContext = [character?.personalMemory ? 'Your previous game notes (subjective advice, not rules):\n' + character.personalMemory : '',
+      const personalContext = o.mechanicsOnly ? '' : [character?.personalMemory ? 'Your previous game notes (subjective advice, not rules):\n' + character.personalMemory : '',
         'Your all-time record and rivals: find your name/character ID below. Higher ranks are above you; lower ranks are below. Unlisted characters have 0 games, 0 points and are unranked. This is a pre-game snapshot.\n' + rankingContext].filter(Boolean).join('\n\n');
       const ledger = new DealLedger({ me: id.name, idPrefix: prefixes.get(id.name) });
       ledgers.set(id.name, ledger);
@@ -186,7 +199,7 @@ export async function runLoop(o: LoopOptions): Promise<GameResult[]> {
           llm: o.llm,
           seatName: id.name,
           playerId: id.playerId,
-          profile: withRelationships([profileExcerpt(persona), personalContext].filter(Boolean).join('\n\n'), relationships),
+          profile: o.mechanicsOnly ? null : withRelationships([profileExcerpt(persona), personalContext].filter(Boolean).join('\n\n'), relationships),
           learnings: condenseLearnings(learnings),
           gameId,
           scoutingDir,
@@ -284,8 +297,11 @@ export async function runLoop(o: LoopOptions): Promise<GameResult[]> {
         dealLog: ledgers.get(id.name)?.history ?? [],
         observedDeals: ledgers.get(id.name)?.all() ?? [],
       }));
+      const interval = Math.max(1, o.curationInterval ?? 1);
+      const isLast = (o.games > 0 && g + 1 >= o.games) || control.soft || control.hard;
+      const skipCurate = interval > 1 && (session.length + 1) % interval !== 0 && !isLast;
       try {
-        const out = await runPostGame({ api, llm: o.llm, learningsDir: o.learningsDir, final, gameId, seats: reports, tracker, charactersKey: o.charactersKey, log });
+        const out = await runPostGame({ api, llm: o.llm, learningsDir: o.learningsDir, final, gameId, seats: reports, tracker, charactersKey: o.charactersKey, mechanicsOnly: o.mechanicsOnly, skipCurate, log });
         session.push(out.result);
         log(out.leaderboardText);
       } catch (e) {

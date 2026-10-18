@@ -30,6 +30,12 @@ export interface CommanderPlan extends Plan {
   cardChance: number | undefined;
   /** Armies to commit against `target` (from an active troop-commitment deal or commander override). */
   commitArmies?: number;
+  /** Explicit territories to place reinforcements on. */
+  placeOn?: string[];
+  /** Explicit ordered attack route of territory ids. */
+  route?: string[];
+  /** Explicit territory id to pull troops back to in the fortify phase. */
+  fortifyTo?: string | null;
   /** Ids of active deals this seat deliberately breaks. */
   breakDeals: string[];
   skipCard: boolean;
@@ -133,6 +139,11 @@ export function parsePlanReply(raw: string, view: GameView, me: PlayerId): Comma
   const target = resolve(obj.target, players) ?? null;
   const avoidRaw = Array.isArray(obj.avoid) ? obj.avoid : typeof obj.avoid === 'string' ? [obj.avoid] : [];
   const avoid = [...new Set(avoidRaw.map((a) => resolve(a, players)).filter((x): x is string => !!x))];
+  const placeRaw = Array.isArray(obj.placeOn) ? obj.placeOn : typeof obj.placeOn === 'string' ? [obj.placeOn] : [];
+  const placeOn = [...new Set(placeRaw.map((t) => resolve(t, territories)).filter((x): x is string => !!x))];
+  const routeRaw = Array.isArray(obj.route) ? obj.route : typeof obj.route === 'string' ? [obj.route] : [];
+  const route = [...new Set(routeRaw.map((t) => resolve(t, territories)).filter((x): x is string => !!x))];
+  const fortifyTo = resolve(obj.fortifyTo, territories) ?? null;
   const choices = (view.legal?.capitalChoices ?? []).map((id) => ({ id, name: map.territoryById[id]?.name ?? id }));
   const capital = resolve(obj.capital, choices) ?? null;
   const garrison = clampNum(obj.capitalGarrison, 1, 60);
@@ -159,6 +170,9 @@ export function parsePlanReply(raw: string, view: GameView, me: PlayerId): Comma
     stallPressure: bool(obj.stallPressure),
     cardChance: clampNum(obj.cardChance, 0.3, 0.95),
     ...(commitArmies !== undefined ? { commitArmies: Math.round(commitArmies) } : {}),
+    ...(placeOn.length > 0 ? { placeOn } : {}),
+    ...(route.length > 0 ? { route } : {}),
+    ...(fortifyTo ? { fortifyTo } : {}),
     breakDeals: [...new Set((Array.isArray(obj.breakDeals) ? obj.breakDeals : typeof obj.breakDeals === 'string' ? [obj.breakDeals] : []).map((x) => clip(x, 20)).filter(Boolean))].slice(0, 5),
     // Skipping the card needs a stated reason.
     skipCard: bool(obj.skipCard) === true && skipCardReason.length > 0,
@@ -178,11 +192,14 @@ const SCHEMA = `{"winPath": "diplomacy"|"bonuses"|"cards"|"capitals"|"kills"|"ho
 const KNOBS = [
   'Threat, income, and card count assessment: every player\'s reinforcement income (+N/turn) and card count (how many cards they hold, though not which cards) are public at all times, even under fog of war. Without fog of war, weigh everyone\'s troop count, territory count, reinforcement income, and card count to know who is ahead and who is a threat. Under fog of war, opponents\' total troop and territory counts are hidden, so reinforcement income (+N/turn), card counts (3+ can hold a set, 4+ is an imminent trade), and visible border stacks are how you gauge who holds bonuses/capitals behind the fog, who is ahead, and who is a threat.',
   'Concrete troop-commitment alliances and betrayal: this is a free-for-all where you may scheme, lie, bluff, or backstab whenever betrayal serves your win path. Players can make joint_attack deals committing a specific number of troops against an enemy (e.g. "I will commit 20 troops against X"). Honoring that troop commitment is how you keep your end of the alliance; failing to commit those troops (or putting the deal id in breakDeals) is a backstab, which is totally allowed. When a stalemate is detected, use concrete troop-commitment deals and focused commitments to progress the game state and break the deadlock.',
-  'Drafting and routes: plan the full attack route for a bonus or elimination before placing troops. Fund every necessary launch stack, including separate fronts, with enough armies to finish its assigned branch. Reserve defenders and casualties; concentration is useful only when the objective truly has one viable front. The tactical chooser now budgets complete bonus and elimination routes and shares surplus across funded fronts.',
+  'Drafting and routes: plan the full attack route for a bonus or elimination before placing troops. You can directly control where reinforcements go with placeOn, trace your exact attack chain with route so your stack never strands in a dead-end pocket, and pull your stack back to your capital or choke point at the end of the turn with fortifyTo. Expanding out with your capital stack to take a bonus or territories and then fortifying the stack back to your capital at the end of the turn is a core Risk mechanic.',
   'Eliminations: actively hunt weak players for their entire card hand before they trade it against you. Compare every remaining territory, route, defending armies and your available troops; never assume one easy border is a complete kill. The tactical chooser budgets small visible kills and reserves separate branches when occupying: do not demand that every conquest move the whole stack forward. Re-evaluate after losses. Treaties may be broken deliberately with breakDeals; explicit capital garrisons remain tactical constraints. Stolen cards are available only after the final territory falls; public hand size does not prove the opponent holds a valid set.',
+  '- placeOn (territory id or array of territory ids, e.g. ["brazil"]): explicitly choose which of your territories receive your reinforcement troops this turn. Leave out to let the tactical chooser fund your campaign/front automatically.',
+  '- route (ordered array of territory ids, e.g. ["peru", "venezuela", "central_america"]): explicitly specify your attack/expansion path in order so your stack advances along that chain without splitting into dead-end pockets.',
+  '- fortifyTo (territory id, e.g. "peru"): explicitly choose which of your territories to pull your stack back to during the end-of-turn fortify phase (for example, expanding out with your capital stack and then fortifying back onto your capital or choke point).',
   '- riskTolerance (0..1): how much loss you accept; with aggression it sets the attack threshold and the capital-attack margin. Default: = aggression.',
   '- capitalGarrison (1..60): a hard floor of armies on every capital you hold; no attack goes below it. Default: none, only a soft few (3, or what the biggest adjacent stack suggests) that a measured attack may dip into.',
-  '- moveCapitalStack (true/false): lets a capital stack be fortified out or carried along on an occupation. Default false.',
+  '- moveCapitalStack (true/false): lets a capital stack be fortified out or carried along on an occupation beyond its garrison floor. Default false.',
   '- purposeMin (0..10): how much purpose (bonus, capital, focus, kill) an attack needs besides the card attack. Default 0.5; 1.5 on the cards and diplomacy paths.',
   '- borderGuard (0..2): multiplier on the garrisons kept on bonus borders, left behind after an occupation and moved in by fortifying; 0 = none. Default 1.',
   '- fortify (true/false): false stops voluntary fortifying. Default true.',
@@ -368,6 +385,10 @@ export class Commander {
     if (p.note) bits.push(`note: ${p.note}`);
     if (p.target) bits.push(`target ${name(p.target)}${p.commitArmies ? ` (commit ${p.commitArmies})` : ''}`);
     if (p.avoid.length) bits.push(`avoiding ${p.avoid.map(name).join(', ')}`);
+    if (p.placeOn?.length) bits.push(`placeOn ${p.placeOn.join(', ')}`);
+    if (p.route?.length) bits.push(`route ${p.route.join(' -> ')}`);
+    if (p.fortifyTo) bits.push(`fortifyTo ${p.fortifyTo}`);
+    if (p.moveCapitalStack) bits.push('moveCapitalStack');
     if (p.capital) bits.push(`capital ${p.capital}`);
     this.entries.push(`- ${bits.join(' | ')}`);
     this.flush();

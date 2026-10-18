@@ -150,4 +150,54 @@ describe('card every turn (progressive cards) and plan knobs', () => {
     expect(choosePlannedAction(view, 's0', { moveCapitalStack: true }, seeded(1))).toMatchObject({ type: 'fortify', from: 'peru' });
     expect(choosePlannedAction(view, 's0', { moveCapitalStack: true, fortify: false }, seeded(1))).toEqual({ type: 'end_turn' });
   });
+
+  it('fortifies from a border stack back into an interior capital or fortifyTo at end of turn', () => {
+    const state = frozenBoard(false);
+    for (const t of ['venezuela', 'brazil', 'argentina']) state.territories[t] = { owner: 's0', armies: 1 };
+    state.territories.peru = { owner: 's0', armies: 3 }; // interior capital
+    state.territories.venezuela = { owner: 's0', armies: 25 }; // border stack after expanding out
+    state.phase = 'fortify';
+    const view = viewFor(state, 's0');
+    expect(choosePlannedAction(view, 's0', { fortifyTo: 'peru' }, seeded(1))).toEqual({
+      type: 'fortify',
+      from: 'venezuela',
+      to: 'peru',
+      armies: 24,
+    });
+  });
+
+  it('honors explicit placeOn and route from the Commander and avoids stranding stacks in dead-end pockets', () => {
+    const state = frozenBoard(false);
+    state.territories.peru = { owner: 's0', armies: 20 };
+    state.territories.brazil = { owner: 's0', armies: 5 };
+    state.territories.argentina = { owner: 's3', armies: 1 }; // dead-end pocket (only touches peru & brazil, both owned by s0)
+    state.territories.venezuela = { owner: 's1', armies: 3 }; // active border
+    state.phase = 'reinforce';
+    state.players.find((p) => p.id === 's0')!.armiesToPlace = 6;
+    const reinforceView = viewFor(state, 's0');
+    expect(choosePlannedAction(reinforceView, 's0', { placeOn: ['brazil'] }, seeded(1))).toEqual({
+      type: 'place',
+      placements: { brazil: 6 },
+    });
+
+    // When occupying dead-end pocket argentina from peru while venezuela is still hostile on peru, keep the stack on peru.
+    state.phase = 'attack';
+    state.territories.argentina = { owner: 's0', armies: 0 };
+    state.pendingConquest = { from: 'peru', to: 'argentina', minArmies: 3, maxArmies: 19 };
+    const occupyDeadEnd = viewFor(state, 's0');
+    expect(choosePlannedAction(occupyDeadEnd, 's0', null, seeded(1))).toEqual({
+      type: 'occupy',
+      armies: 3,
+    });
+
+    // When occupying along an explicit Commander route (peru -> venezuela -> central_america), advance the stack.
+    state.territories.venezuela = { owner: 's0', armies: 0 };
+    state.territories.central_america = { owner: 's1', armies: 2 };
+    state.pendingConquest = { from: 'peru', to: 'venezuela', minArmies: 3, maxArmies: 19 };
+    const occupyRoute = viewFor(state, 's0');
+    expect(choosePlannedAction(occupyRoute, 's0', { route: ['peru', 'venezuela', 'central_america'] }, seeded(1))).toEqual({
+      type: 'occupy',
+      armies: 19,
+    });
+  });
 });

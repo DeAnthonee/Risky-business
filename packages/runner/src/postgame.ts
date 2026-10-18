@@ -67,16 +67,56 @@ export interface GameResult {
   seats: SeatResult[];
 }
 
-/** Sees every view any seat gets and remembers when each player was first seen dead. */
+/** Sees every view any seat gets and remembers when each player was first seen dead, plus mechanics telemetry. */
 export class GameTracker {
   private out = new Map<PlayerId, { round: number; turn: number }>();
+  private peakBonuses = new Map<PlayerId, Set<string>>();
+  private peakCapitals = new Map<PlayerId, number>();
+  private strandedTurns = new Map<PlayerId, number>();
+  private lastTurnSeen = -1;
+
   observe(view: GameView) {
     for (const p of view.players) {
       if (!p.alive && !p.isNeutral && !this.out.has(p.id)) this.out.set(p.id, { round: view.round, turn: view.turnNumber });
+      if (p.continents.length > 0) {
+        const set = this.peakBonuses.get(p.id) ?? new Set<string>();
+        for (const c of p.continents) set.add(c);
+        this.peakBonuses.set(p.id, set);
+      }
+    }
+    if (view.phase === 'fortify' && view.turnNumber !== this.lastTurnSeen) {
+      this.lastTurnSeen = view.turnNumber;
+      const map = getMap(view.options.map);
+      const caps = new Set(Object.values(view.capitals ?? {}));
+      const p = view.currentPlayer;
+      if (p) {
+        let myCaps = 0;
+        let stranded = 0;
+        for (const t of map.territoryIds) {
+          const s = view.territories[t];
+          if (!s || s.hidden || s.owner !== p) continue;
+          if (caps.has(t)) myCaps++;
+          else if (s.armies >= 4) {
+            const hasHostile = map.adjacency[t].some((n) => {
+              const ns = view.territories[n];
+              return ns && !ns.hidden && ns.owner !== p && !view.blizzards.includes(n);
+            });
+            if (!hasHostile) stranded += s.armies - 1;
+          }
+        }
+        this.peakCapitals.set(p, Math.max(this.peakCapitals.get(p) ?? 0, myCaps));
+        if (stranded > 0) this.strandedTurns.set(p, (this.strandedTurns.get(p) ?? 0) + 1);
+      }
     }
   }
   eliminated(id: PlayerId) {
     return this.out.get(id) ?? null;
+  }
+  mechanicsText(id: PlayerId): string {
+    const bonuses = [...(this.peakBonuses.get(id) ?? [])];
+    const peakCaps = this.peakCapitals.get(id) ?? 0;
+    const stranded = this.strandedTurns.get(id) ?? 0;
+    return `Mechanics telemetry: bonuses held at any point: ${bonuses.length ? bonuses.join(', ') : 'none'}; peak capitals held: ${peakCaps}; turns entering fortify with 4+ armies stranded on a non-capital interior pocket: ${stranded}.`;
   }
 }
 
@@ -313,7 +353,7 @@ export function extractWatchers(chat: SeatReport['chat']): { key: string; name: 
   return [...byKey.values()];
 }
 
-async function writeNote(llm: Llm | null, r: GameResult, seat: SeatReport, board: string, learningsDir: string, log: (l: string) => void): Promise<{ name: string; text: string; file: string }> {
+async function writeNote(llm: Llm | null, r: GameResult, seat: SeatReport, board: string, learningsDir: string, log: (l: string) => void, mechanics = ''): Promise<{ name: string; text: string; file: string }> {
   const row = r.seats.find((s) => s.name === seat.name);
   const result = row ? resultText(r, row) : `Game ${r.gameId} ended.`;
   let text = fallbackNote(seat.name, r.gameId, result, seat.privateLog);
@@ -337,7 +377,7 @@ async function writeNote(llm: Llm | null, r: GameResult, seat: SeatReport, board
               'One or two lines: how it ended for you.',
               '## Top lessons',
               '- 3 to 5 bullets a future player can act on, each one specific.',
-              'Each line of your private log may name your winPath and its plan (how you meant to win). Judge in the notes whether that plan worked, and what you would pick instead.',
+              'Each line of your private log may name your winPath and its plan (how you meant to win), plus tactical choices (placeOn, route, fortifyTo, moveCapitalStack). Judge in the notes whether that plan and routing worked, whether any troops were stranded in interior pockets, how well you took/defended bonuses and capitals, and what you would pick instead.',
               'If you made deals, say in the notes which were kept or broken and what that cost or gained you.',
               'Use only the facts given below. Do not invent events, numbers or quotes.',
             ].join('\n'),
@@ -347,6 +387,7 @@ async function writeNote(llm: Llm | null, r: GameResult, seat: SeatReport, board
             content: [
               `Game ${r.gameId} on ${r.map}, ${r.rounds} rounds.`,
               `Your result: ${result}`,
+              ...(mechanics ? [mechanics] : []),
               '',
               'Final standings:',
               statsTable(r),
@@ -755,6 +796,10 @@ export interface PostGameInput {
   seats: SeatReport[];
   tracker: GameTracker;
   charactersKey?: string;
+  /** Pure mechanics training: skip character memory/experience/diary writes, write results to mechanics-results.jsonl, and focus LLM reflection on top finishers. */
+  mechanicsOnly?: boolean;
+  /** Skip running the curator on this game (e.g. when batching curation every N games). */
+  skipCurate?: boolean;
   now?: () => Date;
   log: (line: string) => void;
 }
@@ -772,36 +817,51 @@ export async function runPostGame(i: PostGameInput): Promise<PostGameOutput> {
 
 async function runPostGameLocked(i: PostGameInput): Promise<PostGameOutput> {
   const result = buildResult(i.final, i.seats, i.tracker, { gameId: i.gameId, date: i.now?.() });
-  const existing = await readResults(i.learningsDir);
-  if (!existing.some(r => r.gameId === result.gameId)) await appendResult(i.learningsDir, result);
+  if (i.mechanicsOnly) {
+    await mkdir(i.learningsDir, { recursive: true });
+    await appendFile(path.join(i.learningsDir, 'mechanics-results.jsonl'), `${JSON.stringify(result)}\n`, 'utf8');
+  } else {
+    const existing = await readResults(i.learningsDir);
+    if (!existing.some(r => r.gameId === result.gameId)) await appendResult(i.learningsDir, result);
+  }
   const leaderboard = computeLeaderboard(await readResults(i.learningsDir));
   const leaderboardText = formatLeaderboard(leaderboard);
 
-  const notes = await Promise.all(i.seats.map((s) => writeNote(i.llm, result, s, leaderboardText, i.learningsDir, i.log)));
+  const notes = await Promise.all(
+    i.seats.map((s) => {
+      const row = result.seats.find((r) => r.name === s.name);
+      const seatLlm = i.mechanicsOnly && row && row.placement > 2 ? null : i.llm;
+      return writeNote(seatLlm, result, s, leaderboardText, i.learningsDir, i.log, i.tracker.mechanicsText(s.playerId));
+    }),
+  );
   i.log(`Wrote ${notes.length} notes to ${path.join(i.learningsDir, 'learnings')}`);
 
-  for (const seat of i.seats) {
-    const note = notes.find(n => n.name === seat.name);
-    if (seat.characterId && note) {
-      await addPersonalityMemory(i.learningsDir, seat.characterId, i.gameId, note.text);
-      const own = result.seats.find(s => s.character === seat.characterId)!;
-      const opponents = result.seats.filter(s => s !== own).map(s => ({ key: s.character ?? 'player:' + s.name.toLowerCase(), name: s.name }));
-      const watchers = extractWatchers(seat.chat);
-      await updateExperience({ dir: i.learningsDir, id: seat.characterId, name: seat.name, gameId: i.gameId, note: note.text,
-        ownWon: own.placement === 1, myPlacement: own.placement,
-        opponentResults: Object.fromEntries(result.seats.filter(s=>s!==own).map(s=>[s.character ?? 'player:' + s.name.toLowerCase(), {won:s.placement===1,placement:s.placement}])),
-        opponents, watchers, deals: seat.observedDeals ?? [], llm: i.llm, log: i.log });
+  if (!i.mechanicsOnly) {
+    for (const seat of i.seats) {
+      const note = notes.find(n => n.name === seat.name);
+      if (seat.characterId && note) {
+        await addPersonalityMemory(i.learningsDir, seat.characterId, i.gameId, note.text);
+        const own = result.seats.find(s => s.character === seat.characterId)!;
+        const opponents = result.seats.filter(s => s !== own).map(s => ({ key: s.character ?? 'player:' + s.name.toLowerCase(), name: s.name }));
+        const watchers = extractWatchers(seat.chat);
+        await updateExperience({ dir: i.learningsDir, id: seat.characterId, name: seat.name, gameId: i.gameId, note: note.text,
+          ownWon: own.placement === 1, myPlacement: own.placement,
+          opponentResults: Object.fromEntries(result.seats.filter(s=>s!==own).map(s=>[s.character ?? 'player:' + s.name.toLowerCase(), {won:s.placement===1,placement:s.placement}])),
+          opponents, watchers, deals: seat.observedDeals ?? [], llm: i.llm, log: i.log });
+      }
     }
-  }
 
-  if (i.charactersKey) {
-    await Promise.all(i.seats.map((s) => saveCharacter(i.api, i.charactersKey!, result, s, notes.find((n) => n.name === s.name)?.text ?? '', i.log)));
+    if (i.charactersKey) {
+      await Promise.all(i.seats.map((s) => saveCharacter(i.api, i.charactersKey!, result, s, notes.find((n) => n.name === s.name)?.text ?? '', i.log)));
+    } else {
+      i.log('No --characters-key: server diary/relationship saves skipped; local character memories saved');
+    }
   } else {
-    i.log('No --characters-key: server diary/relationship saves skipped; local character memories saved');
+    i.log('Mechanics-only mode: character memories, experience, and server diaries skipped');
   }
 
   let curated: PostGameOutput['curated'] = 'skipped';
-  if (i.llm) {
+  if (i.llm && !i.skipCurate) {
     curated = await curateLearnings({ llm: i.llm, learningsDir: i.learningsDir, gameId: i.gameId, notes, leaderboard: leaderboardText, result, now: i.now, log: i.log });
     i.log(curated === 'updated' ? 'RISK_LEARNINGS.md bot section updated' : 'RISK_LEARNINGS.md unchanged');
   }

@@ -258,4 +258,29 @@ describe('runPostGame', () => {
     expect(note).toContain('## Result');
     expect(note).toContain('Plan: Round 1: P1 plan');
   });
+
+  it('mechanicsOnly mode updates RISK_LEARNINGS.md and mechanics-results.jsonl without touching character memories or diaries', async () => {
+    const dir = await tmp();
+    await writeFile(path.join(dir, 'RISK_LEARNINGS.md'), HUMAN, 'utf8');
+    const { final, reports, tracker } = setup();
+    const { api, diary, rel } = fakeApi();
+    const out = await runPostGame({
+      api,
+      llm: chatLlm,
+      learningsDir: dir,
+      final,
+      gameId: 'MECH1',
+      seats: reports,
+      tracker,
+      charactersKey: 'k',
+      mechanicsOnly: true,
+      log: () => {},
+    });
+    expect(out.curated).toBe('updated');
+    expect(diary).toHaveLength(0);
+    expect(rel).toHaveLength(0);
+    expect(await readResults(dir)).toEqual([]); // character results.jsonl untouched
+    expect(await readFile(path.join(dir, 'mechanics-results.jsonl'), 'utf8')).toContain('MECH1');
+    expect(await readFile(path.join(dir, 'RISK_LEARNINGS.md'), 'utf8')).toContain(BOT_START);
+  });
 });

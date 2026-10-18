@@ -1222,6 +1222,29 @@ describe('AI character profiles', () => {
     expect(store.modelInfo().docs.map((d) => d.file).slice(0, 3)).toEqual(['general-player/playbook.md', 'general-player/ways-to-win.md', 'general-player/findings.md']);
   });
 
+  it('parses CRLF profiles, diaries and relationships (a Windows checkout with core.autocrlf)', async () => {
+    const { CharacterStore } = await import('../src/characters.js');
+    const { DEFAULT_AI_DIR } = await import('../src/app.js');
+    const aiDir = mkdtempSync(join(tmpdir(), 'risk-crlf-'));
+    try {
+      mkdirSync(join(aiDir, 'characters', 'marvel'), { recursive: true });
+      for (const f of ['ultron.md', 'ultron.diary.md', 'ultron.relationships.md']) {
+        const lf = readFileSync(join(DEFAULT_AI_DIR, 'characters', 'marvel', f), 'utf8').replace(/\r\n/g, '\n');
+        writeFileSync(join(aiDir, 'characters', 'marvel', f), lf.replace(/\n/g, '\r\n'));
+      }
+      const store = new CharacterStore(aiDir, null);
+      const diary = store.readDiary('marvel/ultron');
+      expect(diary.entries[0]).toMatchObject({ gameId: '3ZP4C4', outcome: 'lost', map: 'europe', winner: 'Wonder Woman' });
+      expect(diary.entries[0].text).not.toContain('\r');
+      expect(store.memorySummary('marvel/ultron').relationships[0]).toMatchObject({ with: 'God', rapport: -70 });
+      const profile = store.get('marvel/ultron');
+      expect(profile.markdown).not.toContain('\r');
+      expect(profile.name).not.toMatch(/\s$/);
+    } finally {
+      rmSync(aiDir, { recursive: true, force: true });
+    }
+  });
+
   it('refuses saves without the write key, accepts the admin token, and is read-only when no key is set', async () => {
     await withCharacters(async (url) => {
       const save = { section: 'Grudges & rivals', content: 'dc/batman' };

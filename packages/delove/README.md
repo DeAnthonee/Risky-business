@@ -20,6 +20,22 @@ registered first (`node --import ./packages/delove/dist/register.js`): the teach
 `models/delove/delove@N.onnx` (or `DELOVE_MODELS=<dir>`) as `delove@N` (plays its top move) and `delove@N-explore`
 (samples, temperature `DELOVE_TEMPERATURE`, default 1, for training games).
 
+## Play in a real game
+
+`npm run delove-seat` seats Delove versions in a real game through the server's HTTP API (the same client the MCP
+uses). It doesn't chat and has no character: it waits for its turn, rebuilds the board from its seat's view, picks a
+move like in self-play and sends it.
+
+```bash
+# join a game someone created (the host starts it); one seat per version
+npm run delove-seat -- --server https://risky.deanthoneeking.com --join ABC123 --agents delove@1,delove-teacher@1
+# or create one: Delove hosts, adds 2 built-in bots and starts; watch it at <server>/?game=<code>
+npm run delove-seat -- --server http://localhost:8080 --create --agents delove@1,delove-teacher@1 --bots 2
+```
+
+`--pace 400` (ms between moves, so spectators can follow), `--names "A,B"`, `--options '{"capitals":true}'`,
+`--no-start`. Fog of war games are refused for now: Delove was trained on the full board.
+
 ## Train a version (Stage 1: learn from the teacher)
 
 One-time Python setup (Windows, from the repo root; `.venv/` is ignored):

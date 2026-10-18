@@ -119,6 +119,7 @@ Small enough to train on an RTX 4060 (8 GB) in hours:
 packages/delove/          new package, never imported by the server or the character code
   src/register.ts             registers Delove's players with the self-play CLI (`npm run delove -- ...`)
   src/net-worker.ts           runs the ONNX model in a worker thread (agents answer synchronously)
+  src/seat.ts, seat-cli.ts    plays seats in real games over the HTTP API (`npm run delove-seat`)
   src/net-agent.ts            loads an ONNX model and registers it as delove@N for self-play / ladder
   src/teacher.ts              delove-teacher@1
   python/delove_model.py      the network
@@ -144,4 +145,5 @@ export in batches and delete old exports once trained on. Python training runs i
 4. The self-play loop promotes `delove@2` over `delove@1` on its own.
 5. `delove@N` beats `delove-teacher@1` clearly (the network has gone past what we taught it).
 6. Multi-player and World map ladders.
-7. A way to seat `delove@N` in real games over the HTTP API, to compare it with characters at the same tables.
+7. ✅ A way to seat `delove@N` in real games over the HTTP API (`npm run delove-seat`), to compare it with characters
+   at the same tables.

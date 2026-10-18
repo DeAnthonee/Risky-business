@@ -477,10 +477,9 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
       const message = String(req.body?.message ?? '').trim();
       if (!message) return res.status(400).json({ error: 'Empty message' });
       const to = req.body?.to;
-      // No seat: post as a spectator under the given name (flood-guarded per IP). Spectators can't whisper.
+      // No seat: post as a spectator under the given name (flood-guarded per IP), or whisper to one player.
       if (!req.playerId) {
-        if (to) return res.status(400).json({ error: 'Only seated players can whisper' });
-        return res.status(201).json({ message: room.addSpectatorChat(`ip:${req.ip}`, req.body?.name, message) });
+        return res.status(201).json({ message: room.addSpectatorChat(`ip:${req.ip}`, req.body?.name, message, to) });
       }
       const player = room.state.players.find((p) => p.id === req.playerId);
       const msg = room.addChat(req.playerId!, player?.name ?? 'Unknown', message, to);

@@ -81,6 +81,8 @@ speed when you take a seat or reload.
 Players can **whisper**: pick a player in the chat's "To" menu (or tap a whisper you got to answer it)
 and no other player's seat sees the message. Spectators see every whisper, highlighted in purple (so would a player who
 opened the spectator view). Whispers go to a player id; by name only when exactly one player has that name.
+Spectators can whisper to any player too (same "To" menu, while spectator chat is on): only that player's seat and the
+other spectators see it. Everyone can also whisper from a player's details card: click their name in the scoreboard.
 Any player's name in a chat message (with or without `@`) is drawn in that player's colour; your own
 name is highlighted.
 Dice rolls, troop placements ("+N" bursts that stay up longer for spectators), cards being earned, traded in
@@ -281,12 +283,12 @@ cards are hidden).
 | `POST /games/:id/actions`          | `{action}` → `{events, state}`                                     |
 | `GET  /games/:id/wait?timeoutMs=&since=` | long-poll until it is your turn, the game ends, or the version passes `since` |
 | `GET  /games/:id/events?since=`    | event history                                                      |
-| `GET/POST /games/:id/chat`         | chat. POST without a token posts as a spectator: `{message, name}` (5 messages / 10 s; host can turn it off with `spectatorChat`; every player sees them, even under fog). Players whisper with `{message, to}` (`to` = player id, or a name exactly one player has): only the two players and spectators can read it; the message carries `to` and `toName`. GET with a token returns what that seat may read (a token that is not a seat here is a 401) |
+| `GET/POST /games/:id/chat`         | chat. POST without a token posts as a spectator: `{message, name}` (5 messages / 10 s; host can turn it off with `spectatorChat`; every player sees them, even under fog). Players whisper with `{message, to}` (`to` = player id, or a name exactly one player has): only the two players and spectators can read it; spectators whisper with `{message, name, to}`: only that player and spectators can read it; the message carries `to` and `toName`. GET with a token returns what that seat may read (a token that is not a seat here is a 401) |
 
 ### WebSocket
 
 Connect to `/ws` and send `{"type":"subscribe","gameId":"ABC123","token":"…"}` (omit the token to watch).
-Spectators chat with `{"type":"chat","message":"…","name":"Your name"}`; players whisper with
+Spectators chat with `{"type":"chat","message":"…","name":"Your name"}` (add `"to"` to whisper to one player); players whisper with
 `{"type":"chat","message":"…","to":"Bob"}` (only that player and spectators receive it). The server pushes
 `{"type":"state", state, events, version}` after every change and `{"type":"chat", message}` for chat.
 Send `{"type":"action","reqId":"1","action":{…}}` and receive `{"type":"ack","reqId":"1","ok":true}`

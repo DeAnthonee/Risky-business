@@ -12,7 +12,7 @@ interface ClientMsg {
   message?: string;
   /** Display name for a spectator's chat message. */
   name?: string;
-  /** Whisper recipient (player id or name); seated players only. */
+  /** Whisper recipient (player id or name). */
   to?: string;
 }
 
@@ -25,7 +25,7 @@ let socketSeq = 0;
  *  server -> {type:'chat', message}
  *  client -> {type:'action', reqId, action}  server -> {type:'ack', reqId, ok, error?}
  *  client -> {type:'chat', message, name?, to?}   (name: display name when chatting as a spectator;
- *                                              to: whisper to one player, seated players only)
+ *                                              to: whisper to one player, from a seat or as a spectator)
  */
 /** Who is connected to each room over WebSocket: player ids and anonymous spectators. */
 interface Presence {
@@ -144,8 +144,7 @@ export function attachWebSocket(server: Server, store: Store, commit: () => stri
             const text = String(msg.message ?? '').trim();
             if (!text) return;
             if (!playerId) {
-              if (msg.to) return send({ type: 'ack', reqId: msg.reqId, ok: false, error: 'Only seated players can whisper' });
-              room.addSpectatorChat(socketKey, msg.name, text);
+              room.addSpectatorChat(socketKey, msg.name, text, msg.to);
               return send({ type: 'ack', reqId: msg.reqId, ok: true });
             }
             const p = room.state.players.find((x) => x.id === playerId);

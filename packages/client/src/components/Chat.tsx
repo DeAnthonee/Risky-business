@@ -5,7 +5,8 @@ import { getName, setName } from '../session';
 /**
  * Game chat. Seated players post under their seat and can whisper to one other player (only the two of
  * them and spectators see it); spectators post under a display name of their choosing (remembered in
- * this browser) and their messages are marked as coming from the crowd.
+ * this browser), their messages are marked as coming from the crowd, and they can whisper to any player
+ * (that player and the other spectators see it).
  */
 interface Mentionable {
   id: string;
@@ -53,7 +54,7 @@ export function Chat({ conn, canSend, spectator }: { conn: GameConnection; canSe
   const spectatorChatOn = opts?.spectatorChat !== false;
   const fog = !!opts?.fogOfWar;
   const canPost = spectator ? spectatorChatOn : canSend;
-  const others = spectator ? [] : (conn.view?.players ?? []).filter((p) => !p.isNeutral && p.id !== conn.you);
+  const others = (conn.view?.players ?? []).filter((p) => !p.isNeutral && p.id !== conn.you);
   const whisperTo = others.find((p) => p.id === to);
 
   useEffect(() => {
@@ -93,7 +94,7 @@ export function Chat({ conn, canSend, spectator }: { conn: GameConnection; canSe
             className={`chat-msg${m.spectator ? ' spectator' : ''}${m.to ? ' whisper' : ''}`}
             // Tap a whisper you received to whisper back.
             onClick={m.to && m.to === conn.you && m.playerId ? () => setTo(m.playerId!) : undefined}
-            title={m.to ? (m.to === conn.you ? 'Whisper: tap to whisper back' : 'Whisper: hidden from the other players') : undefined}
+            title={m.to ? (m.to === conn.you ? (m.playerId ? 'Whisper: tap to whisper back' : 'Whisper from a spectator: hidden from the other players') : 'Whisper: hidden from the other players') : undefined}
           >
             {m.spectator ? (
               <strong className="chat-spectator-name" title="watching">
@@ -144,7 +145,7 @@ export function Chat({ conn, canSend, spectator }: { conn: GameConnection; canSe
             />
           )}
           <div className="row">
-            <input value={text} onChange={(e) => setText(e.target.value)} placeholder={spectator ? 'Cheer, heckle, predict…' : whisperTo ? `Whisper to ${whisperTo.name}…` : 'Say something…'} maxLength={500} />
+            <input value={text} onChange={(e) => setText(e.target.value)} placeholder={whisperTo ? `Whisper to ${whisperTo.name}…` : spectator ? 'Cheer, heckle, predict…' : 'Say something…'} maxLength={500} />
             <button type="submit" disabled={!text.trim()}>
               Send
             </button>

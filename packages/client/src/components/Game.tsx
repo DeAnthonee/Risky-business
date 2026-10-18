@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CAPITAL_DEFENSE_DICE, getMap, tradeBonus, nextTradeValue, visibleTerritories, type Card, type GameEvent, type GameView } from '@risk/engine';
 import { api } from '../api';
 import { CARD_FX_MS, CardFxPanel, type CardFx } from './CardFx';
-import { CharacterName } from './Profiles';
+import { CharacterName, type Whisper } from './Profiles';
 import { ScoreChart } from './ScoreChart';
 import { spectateLink, type Session } from '../session';
 import type { EventBatch, GameConnection } from '../useGame';
@@ -351,6 +351,11 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
   // Only dim when we are choosing a source/target.
   const dimOthers = myTurn && (mode === 'attack' || mode === 'fortify') && !!selected;
 
+  // Whisper from a player's profile card: seated players to anyone else, watchers to anyone (if spectator chat is on).
+  const canWhisper = spectator ? view.options.spectatorChat !== false : !!session;
+  const whisperTo = (pid: string): Whisper | undefined =>
+    canWhisper && pid !== you ? { spectator, send: (message, name) => conn.sendChat(message, name, pid) } : undefined;
+
   const playersPanel = (
         <div className="players-panel">
           {view.phase !== 'lobby' && (
@@ -376,7 +381,7 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
             >
               <span className="swatch" style={{ background: p.color }} />
               <span className="pname">
-                {p.isNeutral ? p.name : <CharacterName name={p.name} gameId={gameId} playerId={p.id} />}
+                {p.isNeutral ? p.name : <CharacterName name={p.name} gameId={gameId} playerId={p.id} whisper={whisperTo(p.id)} />}
                 {p.isBot && ' 🤖'}
                 {p.id === you && ' (you)'}
                 {!p.isBot && !p.isNeutral && <span className={`online-dot ${conn.presence.online.includes(p.id) ? 'on' : ''}`} title={conn.presence.online.includes(p.id) ? 'online' : 'offline'} />}

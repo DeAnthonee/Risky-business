@@ -2,6 +2,50 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { RankingRow } from '@risk/engine';
 import { API } from '../api';
+import { getName, setName } from '../session';
+
+/** Whispering to the player a profile card shows: seated players send from their seat, watchers under a name. */
+export interface Whisper {
+  send: (message: string, name?: string) => Promise<void>;
+  spectator: boolean;
+}
+
+function WhisperForm({ to, whisper }: { to: string; whisper: Whisper }) {
+  const [text, setText] = useState('');
+  const [watcherName, setWatcherName] = useState(() => getName());
+  const [error, setError] = useState('');
+  const [sent, setSent] = useState(false);
+  const send = async () => {
+    const t = text.trim();
+    const name = watcherName.trim();
+    if (!t) return;
+    if (whisper.spectator && !name) return setError('Pick a name first');
+    setError('');
+    setSent(false);
+    setText('');
+    if (whisper.spectator) setName(name);
+    try {
+      await whisper.send(t, whisper.spectator ? name : undefined);
+      setSent(true);
+    } catch (e) {
+      setError((e as Error).message);
+      setText(t);
+    }
+  };
+  return (
+    <form className="profile-whisper chat-form" onSubmit={e => { e.preventDefault(); send(); }}>
+      <label className="small muted" htmlFor="profile-whisper-text">
+        🤫 Whisper to {to}{whisper.spectator ? ' (they and other watchers see it; the other players don\'t)' : ' (only they and spectators see it)'}
+      </label>
+      {whisper.spectator && <input className="chat-name" value={watcherName} onChange={e => setWatcherName(e.target.value)} placeholder="Your name" maxLength={24} aria-label="Your name" />}
+      <div className="row">
+        <input id="profile-whisper-text" value={text} onChange={e => { setText(e.target.value); setSent(false); }} placeholder={`Whisper to ${to}…`} maxLength={500} />
+        <button type="submit" disabled={!text.trim()}>Send</button>
+      </div>
+      {error ? <div className="chat-error small" role="alert">{error}</div> : sent && <div className="small muted" role="status">Whispered to {to}.</div>}
+    </form>
+  );
+}
 
 interface ProfileData { stats: RankingRow; profile: string | null }
 async function read<T>(url: string): Promise<T> {
@@ -10,7 +54,7 @@ async function read<T>(url: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-function ProfileDialog({ url, name, onClose }: { url: string; name: string; onClose: () => void }) {
+function ProfileDialog({ url, name, onClose, whisper }: { url: string; name: string; onClose: () => void; whisper?: Whisper }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [data, setData] = useState<ProfileData | null>(null);
   const [error, setError] = useState('');
@@ -28,7 +72,7 @@ function ProfileDialog({ url, name, onClose }: { url: string; name: string; onCl
     return () => { active = false; };
   }, [url, retry]);
   return createPortal(
-    <dialog ref={dialog} className="profile-dialog" aria-labelledby="profile-title" onCancel={onClose} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+    <dialog ref={dialog} className="profile-dialog" aria-labelledby="profile-title" onCancel={onClose} onClick={e => { e.stopPropagation(); if (e.target === e.currentTarget) onClose(); }}>
       <div className="profile-header"><h2 id="profile-title">{name}</h2><button autoFocus onClick={onClose} aria-label="Close profile">Close ✕</button></div>
       {error ? <p role="alert">{error} <button onClick={() => setRetry(n => n + 1)}>Retry</button></p> : !data ? <p role="status">Loading profile…</p> : <>
         <p className="muted">{data.stats.key.startsWith('league/') ? 'League character' : 'Player profile'} · All completed ranked games</p>
@@ -43,14 +87,15 @@ function ProfileDialog({ url, name, onClose }: { url: string; name: string; onCl
         {!data.stats.games && <p>No completed games yet.</p>}
         {data.profile && <details><summary>Personality and strategy</summary><div className="profile-bio">{data.profile}</div></details>}
       </>}
+      {whisper && <WhisperForm to={name} whisper={whisper} />}
     </dialog>, document.body);
 }
 
 /** Opening the profile does not navigate, disconnect the game, or change spectator fog. */
-export function CharacterName({ name, gameId, playerId, profileKey }: { name: string; gameId?: string; playerId?: string; profileKey?: string }) {
+export function CharacterName({ name, gameId, playerId, profileKey, whisper }: { name: string; gameId?: string; playerId?: string; profileKey?: string; whisper?: Whisper }) {
   const [open, setOpen] = useState(false);
   const url = profileKey ? `${API}/rankings/profile?key=${encodeURIComponent(profileKey)}` : `${API}/games/${encodeURIComponent(gameId!)}/players/${encodeURIComponent(playerId!)}/profile`;
-  return <><button className="character-name" onClick={e => { e.stopPropagation(); setOpen(true); }}>{name}</button>{open && <ProfileDialog name={name} url={url} onClose={() => setOpen(false)} />}</>;
+  return <><button className="character-name" onClick={e => { e.stopPropagation(); setOpen(true); }}>{name}</button>{open && <ProfileDialog name={name} url={url} whisper={whisper} onClose={() => setOpen(false)} />}</>;
 }
 
 export function Leaderboard() {

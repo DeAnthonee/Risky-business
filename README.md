@@ -518,6 +518,9 @@ how to add a player version are in
 [packages/selfplay/README.md](packages/selfplay/README.md). The built-in bot lives in the engine
 (`chooseBotAction`) so the server and self-play run the same code.
 
+The plan for training **Delove**, our base model (a network that plays Risk well, with no personality, kept separate
+from the character path), is in [docs/delove.md](docs/delove.md).
+
 ## Contributing
 
 **All changes go through pull requests; never push to the deploy branch directly.** See

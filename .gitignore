@@ -6,3 +6,4 @@ data/
 .env
 runs/
 __pycache__/
+models/

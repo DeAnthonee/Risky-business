@@ -38,6 +38,17 @@ describe('stalemate: big capital stacks side by side', () => {
       if (a?.type === 'attack') expect(a.to).not.toBe('venezuela');
     }
   });
+
+  it('commits the promised troops against target when an active troop-commitment deal is in the plan', () => {
+    const state = frozenBoard(false);
+    // Remove easy 3-army argentina target so only big stacks remain, simulating a frozen border stalemate
+    state.territories.argentina = { owner: 's0', armies: 2 };
+    state.territories.brazil = { owner: 's0', armies: 2 };
+    const view = viewFor(state, 's0');
+    expect(choosePlannedAction(view, 's0', null, seeded(1), 3)?.type).not.toBe('attack');
+    const committed = choosePlannedAction(view, 's0', { target: 's1', commitArmies: 20, capitalGarrison: 15 }, seeded(1), 3);
+    expect(committed).toMatchObject({ type: 'attack', from: 'peru', to: 'venezuela', blitz: true, stopAt: 21 });
+  });
 });
 
 describe('StallTracker', () => {

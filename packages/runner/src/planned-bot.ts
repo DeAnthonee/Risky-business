@@ -46,6 +46,8 @@ export interface Plan {
   /** How this seat actually wins from here. */
   winPath?: WinPath | null;
   winPlan?: string;
+  /** Remaining armies promised to commit into attacks against `target` under an active joint_attack deal. */
+  commitArmies?: number;
 }
 
 interface CleanPlan {
@@ -66,6 +68,7 @@ interface CleanPlan {
   cardChance: number;
   skipCard: boolean;
   winPath: WinPath | null;
+  commitArmies: number;
 }
 
 const DEFAULT_AGGRESSION = 0.5;
@@ -121,6 +124,7 @@ export function cleanPlan(plan: Plan | null | undefined, view: GameView, me: Pla
     cardChance: num(raw.cardChance, 0.3, 0.95) ?? PROGRESSIVE_CARD_CHANCE,
     skipCard: raw.skipCard === true && reason.length > 0,
     winPath,
+    commitArmies: Math.round(num(raw.commitArmies, 1, 500) ?? 0),
   };
 }
 
@@ -539,9 +543,22 @@ class Chooser {
           }
         }
       }
+      if (this.plan.commitArmies > 0 && toOwner === this.plan.target) {
+        const reserve = fromCapital ? (hardGarrison ? floor : Math.max(1, Math.min(SOFT_CAPITAL_FEW, have - 1))) : 1;
+        const avail = have - reserve;
+        if (avail >= 1) {
+          const pledged = Math.min(avail, this.plan.commitArmies);
+          if (!ok || commit < pledged) {
+            commit = pledged;
+            p = this.chance(commit, a.to);
+            ok = true;
+          }
+        }
+      }
       if (!ok) continue;
       // A near-certain win over a big stack is decisive (and breaks two giants trading small territories forever).
-      const score = purpose + p * 2 + (p >= 0.95 ? Math.min(d, 100) * 0.1 : -Math.min(d, 25) * 0.04) + this.random() * 0.3;
+      const commitBonus = this.plan.commitArmies > 0 && toOwner === this.plan.target ? 8 : 0;
+      const score = purpose + commitBonus + p * 2 + (p >= 0.95 ? Math.min(d, 100) * 0.1 : -Math.min(d, 25) * 0.04) + this.random() * 0.3;
       if (!best || score > best.score) best = { from: a.from, to: a.to, score, purpose, p, keep: have - commit };
     }
     return best;
@@ -707,6 +724,17 @@ class Chooser {
     if (campaign && Object.keys(campaign.placements).every(t => mine.includes(t))) {
       for (const [t, n] of Object.entries(campaign.placements)) add(t, n);
       for (const t of Object.keys(campaign.requirements)) funded.add(t);
+    }
+    if (this.plan.commitArmies > 0 && this.plan.target && left > 0) {
+      const commitFront = mine
+        .filter((t) => this.hostileNeighbours(t).some((n) => this.owner(n) === this.plan.target && !this.plan.noAttack.has(n)))
+        .sort((a, b) => this.armies(b) - this.armies(a))[0];
+      if (commitFront) {
+        const reserve = this.myCapitals.has(commitFront) ? (this.plan.capitalGarrison ?? SOFT_CAPITAL_FEW) : 1;
+        const need = Math.max(0, reserve + this.plan.commitArmies - this.armies(commitFront) - (result[commitFront] ?? 0));
+        if (need > 0) add(commitFront, need);
+        funded.add(commitFront);
+      }
     }
 
     // Protect valuable positions with part of the surplus; route troops already placed count toward defence.

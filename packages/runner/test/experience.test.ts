@@ -48,4 +48,31 @@ describe('persistent personality and rivalries',()=>{
       await expect(readPersonalityMemory(dir,'../escape')).rejects.toThrow('Invalid character');
     } finally {await rm(dir,{recursive:true,force:true});}
   });
+  it('keeps personality and relationship profiles for recognized Watchers (spectators)',async()=>{
+    const dir=await mkdtemp(path.join(tmpdir(),'watcher-profile-'));
+    try {
+      await updateExperience({
+        dir, id: 'league/shen', name: 'Shen', gameId: 'GW1', note: 'DeAnthonee watched the match.',
+        ownWon: true, myPlacement: 1,
+        opponents: [{ key: 'league/ahri', name: 'Ahri' }],
+        watchers: [{ key: 'watcher:deanthonee', name: 'DeAnthonee', messages: ['Break the stalemate in Asia!', 'Watch out for Ahri'] }],
+        opponentResults: { 'league/ahri': { won: false, placement: 2 } },
+        deals: [],
+        llm: { chat: async () => JSON.stringify({ playstyle: 'Calm.', observations: [{ with: 'watcher:deanthonee', text: 'DeAnthonee enjoys aggressive coalition plays and calls out stalemates.' }] }) },
+        log: () => {},
+      });
+      const state = await readExperience(dir, 'league/shen');
+      expect(state.relationships['watcher:deanthonee']).toMatchObject({
+        name: 'DeAnthonee',
+        role: 'watcher',
+        meetings: 1,
+      });
+      expect(state.relationships['watcher:deanthonee'].facts[0].text).toContain('Break the stalemate in Asia!');
+      expect(state.relationships['watcher:deanthonee'].impressions[0].text).toContain('coalition plays');
+      // Even when filtering by a specific opponent set, recognized Watchers are included in describeExperience
+      const desc = describeExperience(state, new Set(['league/zed']));
+      expect(desc).toContain('DeAnthonee (watcher:deanthonee, watcher): rapport 0/100; watched 1 games.');
+      expect(desc).toContain('coalition plays');
+    } finally {await rm(dir,{recursive:true,force:true});}
+  });
 });

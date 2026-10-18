@@ -165,6 +165,18 @@ capital garrisons and capital movement choices.
 
 Exponential cards start at 5 per player, then apply `ceil(previous × 1.3)` through their 25th set (3529), followed by +1000 per set. Trades by other players do not advance your value; stolen cards do not transfer the victim's progression. The runner checks the server catalogue before every game and includes exponential once that server supports it.
 
+Drafting first budgets a complete visible bonus or elimination route, including all launch stacks and branching
+paths. It then funds other affordable attack fronts (up to four) and shares spare casualty reserves among funded
+routes, with a limited defensive budget. Harder branches receive more troops; armies are not counted twice.
+A single stack is still appropriate when only one useful front is affordable. The same route planner guides
+attacks and occupation so the draft is executed rather than forgotten. Visible bonus campaigns are bounded to
+five missing territories and 80 defenders; larger or fogged objectives use the ordinary tactical chooser.
+
+At the opening, each commander receives the actual passable map connection graph, frozen vertices, geographic
+dead ends, bottlenecks, and disconnected components. Later turns retain a shorter terrain briefing and visible
+kill-route warnings. This is public geography only; it never reveals hidden armies or ownership. The route
+planner rejects frozen, disconnected and third-party transit paths rather than assuming it can reach a victim.
+
 ### Code vs advice
 
 Plan fields (all optional, clamped; bad values fall back to the default):

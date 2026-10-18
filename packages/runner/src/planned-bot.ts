@@ -1,6 +1,7 @@
 import { blitzOdds, commitForOdds, getMap, type Action, type GameView, type MapDef, type PlayerId, type TerritoryId } from '@risk/engine';
 import { chooseMove } from './view-state.js';
 import { planElimination, type KillPlan } from './eliminations.js';
+import { planConquest, type Campaign, type CampaignOptions } from './campaigns.js';
 
 export type WinPath = 'diplomacy' | 'bonuses' | 'cards' | 'capitals' | 'kills' | 'hopeless';
 export const WIN_PATHS: readonly WinPath[] = ['diplomacy', 'bonuses', 'cards', 'capitals', 'kills', 'hopeless'];
@@ -381,7 +382,8 @@ class Chooser {
     if (this.view.phase === 'attack') {
       // A complete, affordable elimination outranks routine bonus pokes or the once-per-turn card.
       const kill = this.elimination();
-      const route = kill?.attacks.find(a => this.lm.attacks.some(l => l.from === a.from && l.to === a.to));
+      const objective = kill ?? this.bonusCampaign();
+      const route = objective?.attacks.find(a => this.lm.attacks.some(l => l.from === a.from && l.to === a.to));
       if (route && !this.lm.attacks.some(a => this.winsGame(a.to) && this.chance(this.armies(a.from) - 1, a.to) >= 0.9)) {
         return { type: 'attack', from: route.from, to: route.to, blitz: true, stopAt: route.keep };
       }
@@ -406,13 +408,33 @@ class Chooser {
     return null;
   }
 
-  private elimination(reinforcements = 0, transfer?: { from: TerritoryId; to: TerritoryId; min: number; max: number }): KillPlan | null {
-    return planElimination(this.view, this.me, {
+  private campaignOptions(reinforcements = 0, transfer?: CampaignOptions['transfer']): CampaignOptions {
+    return {
       avoid: this.plan.avoid, noAttack: this.plan.noAttack,
       floor: t => this.myCapitals.has(t) ? this.capFloor(t) : 1,
       stationary: new Set([...this.myCapitals].filter(t => !this.plan.moveCapitalStack && !this.hopeless() && this.hostileNeighbours(t).length > 0)),
-      targetOnly: this.hopeless() ? this.plan.target : null, reinforcements, transfer,
-    });
+      reinforcements, transfer,
+    };
+  }
+
+  private elimination(reinforcements = 0, transfer?: CampaignOptions['transfer']): KillPlan | null {
+    return planElimination(this.view, this.me, { ...this.campaignOptions(reinforcements, transfer), targetOnly: this.hopeless() ? this.plan.target : null });
+  }
+
+  /** Complete a visible bonus from one or several fronts; route costs include all missing territories. */
+  private bonusCampaign(reinforcements = 0, transfer?: CampaignOptions['transfer']): (Campaign & { score: number }) | null {
+    if (this.hopeless()) return null;
+    let best: (Campaign & { score: number }) | null = null;
+    for (const c of this.map.continents) {
+      const share = this.continentShare(c.id);
+      if (!share.missing.length || share.missing.length > 5) continue;
+      const campaign = planConquest(this.view, this.me, share.missing, this.campaignOptions(reinforcements, transfer));
+      if (!campaign) continue;
+      const focused = this.plan.focusContinent === c.id || (!!this.plan.focusTerritory && c.territories.includes(this.plan.focusTerritory));
+      const score = c.bonus * (this.plan.winPath === 'bonuses' ? 4 : 3) + share.mine * 1.5 + (focused ? 12 : 0) - campaign.cost * 0.25 - campaign.deficit * 0.25;
+      if (score > 0 && (!best || score > best.score)) best = { ...campaign, score };
+    }
+    return best;
   }
 
   // ---------- conquest ----------
@@ -429,6 +451,8 @@ class Chooser {
     if (this.myCapitals.has(from) && fromHostile.length > 0 && !this.plan.moveCapitalStack && !this.hopeless()) return min;
     const kill = this.elimination(0, { from, to, min, max: Math.min(max, have - cap) });
     if (kill?.occupy !== undefined) return kill.occupy;
+    const bonus = this.bonusCampaign(0, { from, to, min, max: Math.min(max, have - cap) });
+    if (bonus?.occupy !== undefined) return bonus.occupy;
     if (fromHostile.length === 0) return ceiling; // the source became interior: the whole stack goes
     // Does the attack go on from the new territory? Then the stack goes with it.
     const toHostile = this.hostileNeighbours(to);
@@ -651,63 +675,74 @@ class Chooser {
       return { [best]: 1 };
     }
 
-    // Allocate every route of a feasible kill before distributing optional defensive reinforcements.
-    const kill = this.elimination(pool);
-    if (kill && Object.keys(kill.placements).every(t => options.includes(t))) {
-      const placements = { ...kill.placements };
-      const spent = Object.values(placements).reduce((sum, n) => sum + n, 0);
-      const stage = kill.attacks[0]?.from;
-      if (stage && options.includes(stage)) {
-        placements[stage] = (placements[stage] ?? 0) + pool - spent;
-        return placements;
+    const result: Record<TerritoryId, number> = {};
+    const mine = options.filter(t => this.owner(t) === this.me);
+    let left = pool;
+    const funded = new Set<TerritoryId>();
+    const add = (t: TerritoryId, n: number) => {
+      n = Math.max(0, Math.min(left, Math.floor(n)));
+      if (n > 0) { result[t] = (result[t] ?? 0) + n; left -= n; }
+    };
+
+    // First fund the entire objective, not just its most attractive first attack.
+    const campaign = this.elimination(pool) ?? this.bonusCampaign(pool);
+    if (campaign && Object.keys(campaign.placements).every(t => mine.includes(t))) {
+      for (const [t, n] of Object.entries(campaign.placements)) add(t, n);
+      for (const t of Object.keys(campaign.requirements)) funded.add(t);
+    }
+
+    // Protect valuable positions with part of the surplus; route troops already placed count toward defence.
+    let guardBudget = Math.ceil(left * 0.4);
+    const vital = mine.map(t => ({ t, wanted: this.myCapitals.has(t) ? this.capWanted(t) : this.isBonusBorder(t) ? this.guardFor(t) : 0 }))
+      .sort((a, b) => b.wanted - this.armies(b.t) - (a.wanted - this.armies(a.t)));
+    for (const v of vital) {
+      const n = Math.min(guardBudget, Math.max(0, v.wanted - this.armies(v.t) - (result[v.t] ?? 0)));
+      add(v.t, n); guardBudget -= n;
+    }
+
+    // Other worthwhile fronts must reach attack strength before we open another front. Never count the
+    // same stack twice for two projects, or scatter one army everywhere without funding a usable attack.
+    const projects: { from: TerritoryId; to: TerritoryId; needed: number; score: number }[] = [];
+    for (const from of mine) {
+      if (funded.has(from)) continue;
+      const have = this.armies(from) + (result[from] ?? 0);
+      const floor = this.myCapitals.has(from) ? this.capFloor(from) : 1;
+      for (const to of this.hostileNeighbours(from)) {
+        if (this.plan.avoid.has(this.owner(to)!) || this.plan.noAttack.has(to)) continue;
+        if (this.hopeless() && this.owner(to) !== this.plan.target) continue;
+        const purpose = this.purpose(from, to, this.winsGame(to));
+        const card = !this.conquered && !this.plan.skipCard && this.view.options.cardValues !== 'fixed';
+        if (purpose < this.plan.purposeMin && !card) continue;
+        const commit = commitForOdds(have + left, this.armies(to), this.limitFor(to), Math.max(0.85, this.threshold()), this.balanced);
+        if (commit === null) continue;
+        const needed = Math.max(0, floor + commit - have);
+        projects.push({ from, to, needed, score: this.targetValue(from, to) / (1 + needed * 0.15) });
       }
     }
-    const result: Record<TerritoryId, number> = {};
-    const add = (t: TerritoryId, n: number) => {
-      if (n > 0) result[t] = (result[t] ?? 0) + n;
-    };
-    let left = pool;
-    const mine = options.filter((t) => this.owner(t) === this.me);
+    projects.sort((a, b) => b.score - a.score || a.needed - b.needed);
+    for (const p of projects) {
+      if (funded.size >= 4) break;
+      if (funded.has(p.from) || p.needed > left) continue;
+      add(p.from, p.needed); funded.add(p.from);
+    }
 
-    // 1. Vital spots first: capitals and the borders of bonuses we hold, up to what the threat warrants.
-    const vital = mine
-      .map((t) => {
-        const isCap = this.myCapitals.has(t);
-        const wanted = isCap ? this.capWanted(t) : this.isBonusBorder(t) ? this.guardFor(t) : 0;
-        return { t, deficit: wanted - this.armies(t), urgency: (isCap ? 1.5 : 1) * (this.threat(t) + 1) };
-      })
-      .filter((v) => v.deficit > 0)
-      .sort((a, b) => b.urgency - a.urgency);
-    let vitalBudget = Math.ceil(pool * 0.6);
-    for (const v of vital) {
-      const n = Math.min(v.deficit, left, vitalBudget);
-      add(v.t, n);
-      left -= n;
-      vitalBudget -= n;
-      if (left <= 0 || vitalBudget <= 0) break;
+    // With no affordable attack, build toward the best real front (including a fog frontier).
+    // Otherwise distribute spare casualty reserves over the funded routes rather than one giant stack.
+    const reserves = [...funded];
+    if (!reserves.length) {
+      const fronts = mine.filter(t => this.map.adjacency[t].some(n => !this.blizzards.has(n) &&
+        (this.view.territories[n]?.hidden || (this.hostile(n) && !this.plan.avoid.has(this.owner(n)!) && !this.plan.noAttack.has(n)))));
+      const stage = projects[0]?.from ?? fronts.sort((a, b) => this.need(b) - this.need(a))[0] ?? mine[0] ?? options[0];
+      add(stage, left);
+      return result;
     }
-    if (left <= 0) return result;
-
-    // 2. The rest goes to one staging territory: the border with the most worthwhile attack, the most pressure
-    // (and the focus), concentrating the stack.
-    let stage: TerritoryId | null = null;
-    let stageScore = -Infinity;
-    for (const t of mine) {
-      const enemies = this.hostileNeighbours(t);
-      if (enemies.length === 0) continue;
-      let reach = 0;
-      for (const e of enemies) reach = Math.max(reach, this.targetValue(t, e));
-      let s = reach + this.armies(t) * 0.25 + Math.max(0, this.threat(t) - this.armies(t)) * 0.3;
-      if (this.myCapitals.has(t)) s -= 1.5; // keep the capital stack home unless it clearly leads
-      s += this.inFocus(t) * 1.5 + (this.nearFocus(t) ? 2 : 0);
-      s += this.random() * 0.5;
-      if (s > stageScore) ((stageScore = s), (stage = t));
-    }
-    if (!stage) {
-      // Nothing borders an enemy we can see: put it on the biggest stack.
-      stage = [...mine].sort((a, b) => this.armies(b) - this.armies(a))[0] ?? options[0];
-    }
-    add(stage, left);
+    const surplus = left;
+    const weights = reserves.map(t => Math.sqrt(Math.max(1, (campaign?.requirements[t] ?? this.threat(t) * 0.25 + 2) - 1)));
+    const total = weights.reduce((s, n) => s + n, 0);
+    const fractions = reserves.map((t, i) => ({ t, exact: surplus * weights[i] / total }));
+    for (const r of fractions) add(r.t, Math.floor(r.exact));
+    fractions.sort((a, b) => (b.exact % 1) - (a.exact % 1));
+    for (const r of fractions) if (left > 0) add(r.t, 1);
     return result;
   }
 

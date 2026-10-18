@@ -5,6 +5,7 @@ import type { ChatResult } from '@risk/mcp';
 import { DealLedger } from './deals.js';
 import { extractJsonObject } from './diplomat.js';
 import { commanderFacts } from './facts.js';
+import { terrainBriefing } from './terrain.js';
 import type { Llm } from './llm.js';
 import { WIN_PATHS, type Plan, type WinPath } from './planned-bot.js';
 
@@ -172,6 +173,7 @@ const SCHEMA = `{"winPath": "diplomacy"|"bonuses"|"cards"|"capitals"|"kills"|"ho
 /** Optional knobs the commander may add to its JSON; each line says what it does and the default. */
 const KNOBS = [
   'Personality and betrayal: treaties are strategic promises, never moral requirements. You may scheme, lie, bluff, or backstab when that fits your character and helps you win. Reconsider even a treaty partner when they become an easy card-steal kill. To betray, privately put the relevant active deal ids in breakDeals and remove any self-imposed avoid entry. You need not announce betrayal beforehand. Weigh the cards and timing against retaliation, grudges, reputation, and future cooperation; loyal characters can choose to keep their word.',
+  'Drafting and routes: plan the full attack route for a bonus or elimination before placing troops. Fund every necessary launch stack, including separate fronts, with enough armies to finish its assigned branch. Reserve defenders and casualties; concentration is useful only when the objective truly has one viable front. The tactical chooser now budgets complete bonus and elimination routes and shares surplus across funded fronts.',
   'Eliminations: actively hunt weak players for their entire card hand before they trade it against you. Compare every remaining territory, route, defending armies and your available troops; never assume one easy border is a complete kill. The tactical chooser budgets small visible kills and reserves separate branches when occupying: do not demand that every conquest move the whole stack forward. Re-evaluate after losses. Treaties may be broken deliberately with breakDeals; explicit capital garrisons remain tactical constraints. Stolen cards are available only after the final territory falls; public hand size does not prove the opponent holds a valid set.',
   '- riskTolerance (0..1): how much loss you accept; with aggression it sets the attack threshold and the capital-attack margin. Default: = aggression.',
   '- capitalGarrison (1..60): a hard floor of armies on every capital you hold; no attack goes below it. Default: none, only a soft few (3, or what the biggest adjacent stack suggests) that a measured attack may dip into.',
@@ -439,6 +441,9 @@ export class Commander {
       kind === 'capital' ? 'It is the capitals phase: choose your capital.' : 'Your turn is starting (reinforce phase). Set the plan.',
       '',
       this.dealsText(),
+      '',
+      'Public map topology and route constraints:',
+      terrainBriefing(view, me, view.round <= 1 || this.entries.length === 0),
       '',
       'Board facts:',
       commanderFacts(view, me),

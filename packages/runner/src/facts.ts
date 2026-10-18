@@ -1,4 +1,4 @@
-import { getMap, tradeBonus, type GameView, type PlayerId } from '@risk/engine';
+import { getMap, tradeBonus, nextTradeValue, type GameView, type PlayerId } from '@risk/engine';
 
 /**
  * The card set math, every turn: under progressive cards the next set's value (the engine's tradeBonus), what one
@@ -6,12 +6,31 @@ import { getMap, tradeBonus, type GameView, type PlayerId } from '@risk/engine';
  * Empty for fixed cards.
  */
 export function cardMath(view: GameView, me: PlayerId): string[] {
+  if (view.options.cardValues === 'exponential') {
+    const p = view.players.find(p => p.id === me);
+    const count = p?.tradesMade ?? 0;
+    return [
+      'Card math: exponential PER PLAYER. Your next sets: ' + [0, 1, 2].map(i => nextTradeValue('exponential', 0, count + i)).join(', ') + ' armies. You have traded ' + count + ' sets. Each next value is ceil(previous × 1.3) through personal trade 25, then +1000. Other players trading never advances your sequence; stolen cards use your sequence, not the victim’s.',
+      'You hold ' + (p?.cardCount ?? 0) + ' cards and ' + (p?.conqueredThisTurn ? 'have already' : 'have not yet') + ' taken a card this turn. Opponents: ' + view.players.filter(p => p.alive && !p.isNeutral && p.id !== me).map(p => p.name + ': ' + p.cardCount + ' cards, next personal set ' + nextTradeValue('exponential', 0, p.tradesMade ?? 0)).join('; '),
+    ];
+  }
   if (view.options.cardValues !== 'progressive') return [];
   const value = tradeBonus(view.tradeCount);
   const meP = view.players.find((p) => p.id === me);
   const lines = [`Card math: the next set is worth ${value} armies, so a card is worth about ${Math.round((value / 3) * 10) / 10} armies now, and the set grows with every trade (then ${tradeBonus(view.tradeCount + 1)}, ${tradeBonus(view.tradeCount + 2)}).`];
   const others = view.players.filter((p) => p.alive && !p.isNeutral && p.id !== me).map((p) => `${p.name} ${p.cardCount}`);
   lines.push(`You hold ${meP?.cardCount ?? 0} cards and ${meP?.conqueredThisTurn ? 'have already' : 'have not yet'} taken a card this turn. Opponents' cards: ${others.join(', ') || 'none'}.`);
+  return lines;
+}
+
+export function eliminationScouting(view: GameView, me: PlayerId): string[] {
+  const lines: string[] = [];
+  const weak = view.players.filter(p => p.alive && !p.isNeutral && p.id !== me && p.territoryCount !== null && p.territoryCount <= 4);
+  if (weak.length) lines.push('Elimination scouting (verify all routes before committing): ' + weak.map(p => {
+    const known = Object.entries(view.territories).filter(([, t]) => !t.hidden && t.owner === p.id);
+    const holdings = known.map(([id, t]) => id + ':' + t.armies).join(', ');
+    return p.name + ': ' + p.territoryCount + ' territories, ' + p.cardCount + ' cards to steal, ' + (known.length === p.territoryCount ? 'all holdings visible [' + holdings + ']' : 'incomplete visibility; no confirmed kill route');
+  }).join('; ') + '. Remove them before they can trade; split at forks only when both routes have enough troops.');
   return lines;
 }
 
@@ -64,7 +83,7 @@ export function boardFacts(view: GameView, me: PlayerId): string {
   if (biggest) lines.push(`Your biggest stack: ${terrName.get(biggest.id) ?? biggest.id} (${biggest.armies}).`);
 
   const mine = view.players.find((p) => p.id === me);
-  lines.push(...cardMath(view, me));
+  lines.push(...cardMath(view, me), ...eliminationScouting(view, me));
   if (mine && mine.continents.length > 0) lines.push(`Your continents: ${mine.continents.map((c) => contName.get(c) ?? c).join(', ')}.`);
   if (view.phase === 'finished' && view.winner) lines.push(`Winner: ${nameOf(view.winner)}.`);
 
@@ -101,10 +120,10 @@ export function commanderFacts(view: GameView, me: PlayerId): string {
   lines.push(`Settings: ${o.cardValues} cards, capitals ${o.capitals ? (o.chooseCapitals ? 'chosen' : 'assigned') : 'off'}, fog ${o.fogOfWar ? 'on' : 'off'}, ${o.fortifyMode} fortify, ${view.blizzards?.length ?? 0} blizzards.`);
 
   // Cards.
-  const next = o.cardValues === 'fixed' ? 'fixed 4-10 by set type' : `${tradeBonus(view.tradeCount)} armies (progressive, ${view.tradeCount} sets traded so far)`;
+  const next = o.cardValues === 'fixed' ? 'fixed 4-10 by set type' : o.cardValues === 'exponential' ? `${nextTradeValue('exponential', 0, view.players.find(p => p.id === me)?.tradesMade ?? 0)} armies (your personal exponential sequence)` : `${tradeBonus(view.tradeCount)} armies (progressive, ${view.tradeCount} sets traded so far)`;
   const sets = view.legal?.tradeableSets.length ?? 0;
   lines.push(`Next card set is worth ${next}. You hold ${meP?.cardCount ?? 0} cards${sets ? ` (${sets} tradeable set${sets > 1 ? 's' : ''})` : ''}.`);
-  lines.push(...cardMath(view, me));
+  lines.push(...cardMath(view, me), ...eliminationScouting(view, me));
 
   // Players.
   for (const p of living) {

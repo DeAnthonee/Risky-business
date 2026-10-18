@@ -75,6 +75,19 @@ describe('card set math in the facts', () => {
   });
 });
 
+describe('exponential card facts', () => {
+  it('uses the viewer personal sequence and public opponent values', () => {
+    const state = frozenBoard(false);
+    state.options.cardValues = 'exponential'; state.tradeCount = 80;
+    state.players.find(p => p.id === 's0')!.tradesMade = 6;
+    state.players.find(p => p.id === 's1')!.tradesMade = 1;
+    const view = viewFor(state, 's0');
+    expect(cardMath(view, 's0').join('\n')).toContain('Your next sets: 30, 39, 51 armies');
+    expect(cardMath(view, 's0').join('\n')).toContain('P1: 0 cards, next personal set 7');
+    expect(commanderFacts(view, 's0')).toContain('30 armies (your personal exponential sequence)');
+  });
+});
+
 describe('card every turn (progressive cards) and plan knobs', () => {
   /** s0's capital peru holds 12 against argentina 5; venezuela 63 and brazil 18 next door. */
   const cardBoard = () => {

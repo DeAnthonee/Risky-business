@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { fixedSetValue, isValidSet, tradeBonus, type Card } from '@risk/engine';
+import { fixedSetValue, isValidSet, nextTradeValue, type Card, type GameOptions } from '@risk/engine';
 import { getMap } from '@risk/engine';
 import { territoryName } from './Map';
 
@@ -14,9 +14,11 @@ export function CardsPanel({
   onClose,
   mapId,
   cardValues = 'progressive',
+  personalTrades = 0,
 }: {
   mapId: string;
-  cardValues?: 'progressive' | 'fixed';
+  cardValues?: GameOptions['cardValues'];
+  personalTrades?: number;
   cards: Card[];
   tradeCount: number;
   canTrade: boolean;
@@ -51,7 +53,8 @@ export function CardsPanel({
             </>
           ) : (
             <>
-              Next set is worth <strong>{tradeBonus(tradeCount)}</strong> armies.
+              {cardValues === 'exponential' ? 'Your next personal set' : 'Next set'} is worth <strong>{nextTradeValue(cardValues, tradeCount, personalTrades)}</strong> armies.
+              {cardValues === 'exponential' && ' Each player advances independently: ceil(previous × 1.3) through trade 25, then +1,000.'}
             </>
           )}
         </p>

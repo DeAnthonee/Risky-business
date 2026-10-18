@@ -86,7 +86,9 @@ one card at the end of any turn in which you conquered at least one territory, a
 cards when you eliminate them. A set is three of a kind, one of each, or any two plus a wild.
 Option "cardValues": "progressive" (default) escalates for the whole game: 4, 6, 8, 10, 12, 15, then +5 each
 (20, 25, ...). "fixed": three Infantry = 4, three Cavalry = 6, three Artillery = 8, one of each = 10; a wild
-completes the most valuable set it can.
+completes the most valuable set it can. "exponential": each player has an independent trade sequence, starting
+at 5; each next value is ceil(previous × 1.3) through their 25th set (3529), then +1000 each set.
+Eliminating a player steals their cards, never their personal trade progression.
 If a traded card shows a territory you own, 2 extra armies are placed there automatically (once per trade).
 
 OPTION: NEUTRAL TERRITORIES

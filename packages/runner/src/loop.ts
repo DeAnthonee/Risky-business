@@ -146,9 +146,15 @@ export async function runLoop(o: LoopOptions): Promise<GameResult[]> {
       if (sources.length > 0) log(`Profiles: ${sources.join(', ')}`);
     }
     const learnings = o.commander ? await readLearnings(o.learningsDir, log) : '';
+    let modes: GameOptions['cardValues'][] = ['progressive', 'fixed', 'exponential'];
+    if (api.cardModes) {
+      try { modes = await api.cardModes(); }
+      catch { modes = ['progressive', 'fixed']; log('Could not read server card modes; using fixed/progressive until the catalogue is available.'); }
+      if (!modes.includes('exponential')) log('Server has not enabled exponential cards yet; randomizing among its supported modes.');
+    }
     let setup;
     try {
-      setup = await createGame(api, order, { gameName: 'Bot table', options: gameOptions(order.length, map, o.options, random) });
+      setup = await createGame(api, order, { gameName: 'Bot table', options: gameOptions(order.length, map, o.options, random, modes) });
       failures = 0;
     } catch (e) {
       log(`Could not set up game ${g + 1}: ${(e as Error).message}`);

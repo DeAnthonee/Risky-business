@@ -252,6 +252,7 @@ export function OptionsForm({
         <select disabled={disabled} value={options.cardValues ?? 'progressive'} onChange={(e) => onChange({ cardValues: e.target.value as GameOptions['cardValues'] })}>
           <option value="progressive">Progressive (4, 6, 8, 10, 12, 15, +5…)</option>
           <option value="fixed">Fixed (4 / 6 / 8, mixed 10)</option>
+          <option value="exponential">Exponential per player (5, 7, 10… ×1.3)</option>
         </select>
       </label>
       <label className="check">

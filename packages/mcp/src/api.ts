@@ -174,6 +174,8 @@ export interface CharacterMemory {
  */
 export interface RiskApi {
   rules(): Promise<{ rules: string }>;
+  /** Optional for adapters; HTTP servers advertise supported modes in their options catalogue. */
+  cardModes?(): Promise<GameOptions['cardValues'][]>;
   map(mapId?: string): Promise<unknown>;
   listGames(): Promise<{ games: unknown[] }>;
   setCharacter(gameId: string, token: string, characterId: string): Promise<unknown>;
@@ -354,6 +356,11 @@ export class HttpRiskApi implements RiskApi {
   }
   map(mapId?: string) {
     return this.request<unknown>(`/map${mapId ? `?map=${encodeURIComponent(mapId)}` : ''}`);
+  }
+  async cardModes(): Promise<GameOptions['cardValues'][]> {
+    const catalogue = await this.request<{ options: { key: string; values?: string[] }[] }>('/options', { signal: AbortSignal.timeout(10000) });
+    const values = catalogue.options.find(o => o.key === 'cardValues')?.values ?? [];
+    return (['progressive', 'fixed', 'exponential'] as const).filter(v => values.includes(v));
   }
   listGames() {
     return this.request<{ games: unknown[] }>('/games');

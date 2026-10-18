@@ -1,5 +1,6 @@
 import { blitzOdds, commitForOdds, getMap, type Action, type GameView, type MapDef, type PlayerId, type TerritoryId } from '@risk/engine';
 import { chooseMove } from './view-state.js';
+import { planElimination, type KillPlan } from './eliminations.js';
 
 export type WinPath = 'diplomacy' | 'bonuses' | 'cards' | 'capitals' | 'kills' | 'hopeless';
 export const WIN_PATHS: readonly WinPath[] = ['diplomacy', 'bonuses', 'cards', 'capitals', 'kills', 'hopeless'];
@@ -378,6 +379,12 @@ class Chooser {
     if (lm.canPlaceOn.length > 0 && lm.placeLimit > 0) return { type: 'place', placements: this.placements(lm.canPlaceOn, lm.placeLimit) };
 
     if (this.view.phase === 'attack') {
+      // A complete, affordable elimination outranks routine bonus pokes or the once-per-turn card.
+      const kill = this.elimination();
+      const route = kill?.attacks.find(a => this.lm.attacks.some(l => l.from === a.from && l.to === a.to));
+      if (route && !this.lm.attacks.some(a => this.winsGame(a.to) && this.chance(this.armies(a.from) - 1, a.to) >= 0.9)) {
+        return { type: 'attack', from: route.from, to: route.to, blitz: true, stopAt: route.keep };
+      }
       const attack = this.bestAttack();
       if (attack) {
         const action: Action = { type: 'attack', from: attack.from, to: attack.to, blitz: true };
@@ -399,6 +406,15 @@ class Chooser {
     return null;
   }
 
+  private elimination(reinforcements = 0, transfer?: { from: TerritoryId; to: TerritoryId; min: number; max: number }): KillPlan | null {
+    return planElimination(this.view, this.me, {
+      avoid: this.plan.avoid, noAttack: this.plan.noAttack,
+      floor: t => this.myCapitals.has(t) ? this.capFloor(t) : 1,
+      stationary: new Set([...this.myCapitals].filter(t => !this.plan.moveCapitalStack && !this.hopeless() && this.hostileNeighbours(t).length > 0)),
+      targetOnly: this.hopeless() ? this.plan.target : null, reinforcements, transfer,
+    });
+  }
+
   // ---------- conquest ----------
 
   private occupyCount(pc: { from: TerritoryId; to: TerritoryId; minArmies: number; maxArmies: number }): number {
@@ -411,6 +427,8 @@ class Chooser {
     const fromHostile = this.hostileNeighbours(from).filter((n) => n !== to);
     // A capital that still borders enemies keeps its stack home, unless the plan lets the capital stack move.
     if (this.myCapitals.has(from) && fromHostile.length > 0 && !this.plan.moveCapitalStack && !this.hopeless()) return min;
+    const kill = this.elimination(0, { from, to, min, max: Math.min(max, have - cap) });
+    if (kill?.occupy !== undefined) return kill.occupy;
     if (fromHostile.length === 0) return ceiling; // the source became interior: the whole stack goes
     // Does the attack go on from the new territory? Then the stack goes with it.
     const toHostile = this.hostileNeighbours(to);
@@ -494,7 +512,7 @@ class Chooser {
    * garrison is kept when it names one. The plan can opt out with skipCard and a reason.
    */
   private cardAttack(): Scored | null {
-    if (this.view.options.cardValues !== 'progressive' || this.conquered || this.plan.skipCard) return null;
+    if (this.view.options.cardValues === 'fixed' || this.conquered || this.plan.skipCard) return null;
     const garrison = this.plan.capitalGarrison;
     let best: Scored | null = null;
     for (const a of this.lm.attacks) {
@@ -633,6 +651,17 @@ class Chooser {
       return { [best]: 1 };
     }
 
+    // Allocate every route of a feasible kill before distributing optional defensive reinforcements.
+    const kill = this.elimination(pool);
+    if (kill && Object.keys(kill.placements).every(t => options.includes(t))) {
+      const placements = { ...kill.placements };
+      const spent = Object.values(placements).reduce((sum, n) => sum + n, 0);
+      const stage = kill.attacks[0]?.from;
+      if (stage && options.includes(stage)) {
+        placements[stage] = (placements[stage] ?? 0) + pool - spent;
+        return placements;
+      }
+    }
     const result: Record<TerritoryId, number> = {};
     const add = (t: TerritoryId, n: number) => {
       if (n > 0) result[t] = (result[t] ?? 0) + n;

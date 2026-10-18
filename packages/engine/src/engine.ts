@@ -79,7 +79,7 @@ export function validateOptions(o: GameOptions): void {
   if (o.fortifyMode !== 'adjacent' && o.fortifyMode !== 'connected')
     throw new RuleError("fortifyMode must be 'adjacent' or 'connected'");
   if (!isMapId(o.map)) throw new RuleError(`Unknown map "${String(o.map)}"`);
-  if (o.cardValues !== 'progressive' && o.cardValues !== 'fixed') throw new RuleError("cardValues must be 'progressive' or 'fixed'");
+  if (!['progressive', 'fixed', 'exponential'].includes(o.cardValues)) throw new RuleError("cardValues must be 'progressive', 'fixed' or 'exponential'");
   const map = getMap(o.map);
   const maxBliz = maxBlizzards(map);
   if (!Number.isInteger(o.blizzards) || o.blizzards < 0 || o.blizzards > maxBliz)
@@ -671,8 +671,9 @@ function doTrade(state: GameState, playerId: PlayerId, action: TradeAction, even
 /** Trade three cards (already checked to be a valid set the player holds) for armies. */
 function tradeSet(state: GameState, playerId: PlayerId, cards: Card[], events: GameEvent[], auto: boolean): void {
   const player = playerOf(state, playerId);
-  const armies = setValue(cards, state.options.cardValues ?? 'progressive', state.tradeCount);
+  const armies = setValue(cards, state.options.cardValues ?? 'progressive', state.tradeCount, player.tradesMade ?? 0);
   state.tradeCount += 1;
+  player.tradesMade = (player.tradesMade ?? 0) + 1;
   player.cards = player.cards.filter((c) => !cards.includes(c));
   state.discard.push(...cards);
   player.armiesToPlace += armies;
@@ -702,7 +703,7 @@ export function bestSet(state: GameState, playerId: PlayerId): Card[] | null {
   let best: { cards: Card[]; score: number[] } | null = null;
   for (const ids of findSets(player.cards)) {
     const cards = ids.map((id) => player.cards.find((c) => c.id === id)!);
-    const value = setValue(cards, state.options.cardValues ?? 'progressive', state.tradeCount);
+    const value = setValue(cards, state.options.cardValues ?? 'progressive', state.tradeCount, player.tradesMade ?? 0);
     const bonus = cards.some((c) => c.territory && state.territories[c.territory].owner === playerId) ? 1 : 0;
     const wilds = cards.filter((c) => c.kind === 'wild').length;
     const score = [value, bonus, -wilds];

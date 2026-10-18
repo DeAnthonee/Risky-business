@@ -136,6 +136,7 @@ export function viewFor(state: GameState, viewer: PlayerId | null): GameView {
     const open = seesAllOf(p.id);
     return {
       ...p,
+      tradesMade: p.tradesMade ?? 0,
       cards: viewer === null || p.id === viewer ? p.cards : null,
       // Card counts are public at the table, fog or not.
       cardCount: p.cards.length,

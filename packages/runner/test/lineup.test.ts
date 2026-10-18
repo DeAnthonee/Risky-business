@@ -212,7 +212,7 @@ describe('runLoop with random lineups against a real server', () => {
     expect(results[0].winner).toBeTruthy();
     expect(results[0].map).toBe('asia');
     expect(results[0].seats).toHaveLength(7);
-    expect(results[0].options).toMatchObject({ maxPlayers: 7, fogOfWar: true, cardValues: 'progressive' });
+    expect(results[0].options).toMatchObject({ maxPlayers: 7, fogOfWar: true, cardValues: expect.stringMatching(/^(progressive|fixed|exponential)$/) });
     for (const s of results[0].seats) expect(ten.map((c) => c.name)).toContain(s.name);
     expect(lines.some((l) => /7 players:/.test(l))).toBe(true);
   }, 120_000);
@@ -263,22 +263,28 @@ describe('runLoop with random lineups against a real server', () => {
 
 describe('random game settings', () => {
   it('supports every independent toggle combination while preserving the other settings', () => {
-    for (let mask = 0; mask < 8; mask++) {
+    for (let mask = 0; mask < 16; mask++) {
       let call = 0;
       const options = gameOptions(5, 'classic', {}, () => (mask & (1 << call++)) ? 0.75 : 0.25);
-      expect(call).toBe(3);
+      expect(call).toBe(4);
       expect(options).toMatchObject({
         blizzards: mask & 1 ? 0 : 8,
         capitals: !(mask & 2), fogOfWar: !(mask & 4),
-        autoSetup: true, randomDeal: true, cardValues: 'progressive',
+        autoSetup: true, randomDeal: true, cardValues: mask & 8 ? 'exponential' : 'progressive',
         maxPlayers: 5, map: 'classic', chooseCapitals: true,
         neutrals: 0, balancedBlitz: true, firstRoundBonus: true,
         spectatorChat: true, fortifyMode: 'connected',
       });
     }
   });
+  it('samples all three card modes equally and respects older server capabilities', () => {
+    expect([0, 1, 2].map(i => gameOptions(5, 'classic', {}, () => (i + 0.5) / 3).cardValues)).toEqual(['progressive', 'fixed', 'exponential']);
+    expect(gameOptions(5, 'classic', {}, () => 0.9, ['progressive', 'fixed']).cardValues).toBe('fixed');
+    expect(() => gameOptions(5, 'classic', { cardValues: 'exponential' }, () => 0, ['progressive', 'fixed'])).toThrow('does not support exponential');
+  });
   it('honours explicit overrides after randomizing', () => {
-    expect(gameOptions(5, 'classic', { fogOfWar: true, capitals: true, blizzards: 8 }, () => 0.75))
-      .toMatchObject({ fogOfWar: true, capitals: true, blizzards: 8 });
+    expect(gameOptions(5, 'classic', { fogOfWar: true, capitals: true, blizzards: 8, cardValues: 'progressive' }, () => 0.75))
+      .toMatchObject({ fogOfWar: true, capitals: true, blizzards: 8, cardValues: 'progressive' });
+    expect(gameOptions(5, 'classic', { cardValues: 'fixed' }, () => 0.25)).toMatchObject({ cardValues: 'fixed' });
   });
 });

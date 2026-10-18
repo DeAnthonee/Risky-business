@@ -86,12 +86,13 @@ export const OPTION_SPECS: { [K in OptionKey]: OptionSpec } = {
   cardValues: {
     kind: 'enum',
     label: 'Card values',
-    values: ['progressive', 'fixed'],
+    values: ['progressive', 'fixed', 'exponential'],
     valueLabels: {
       progressive: `escalating for the whole game: ${[0, 1, 2, 3, 4, 5, 6].map(tradeBonus).join(', ')}, then +5`,
+      exponential: 'per player: 5, 7, 10, 13, ...; ceil(previous × 1.3) through trade 25, then +1000 per trade',
       fixed: 'three infantry 4, three cavalry 6, three artillery 8, one of each 10 (a wild completes the best set)',
     },
-    description: 'How many armies a traded card set is worth. In both modes a traded card showing a territory you own adds 2 armies there.',
+    description: 'How many armies a traded card set is worth. In all modes a traded card showing a territory you own adds 2 armies there.',
   },
   fogOfWar: {
     kind: 'boolean',
@@ -234,6 +235,7 @@ export function describeOptions(o: GameOptions, tradeCount = 0): string[] {
     `Fortify: ${(OPTION_SPECS.fortifyMode as EnumSpec).valueLabels[o.fortifyMode]}`,
     o.cardValues === 'fixed'
       ? `Cards: fixed values (${(OPTION_SPECS.cardValues as EnumSpec).valueLabels.fixed})`
+      : o.cardValues === 'exponential' ? `Cards: exponential per player, 5 initially, ceil(previous × 1.3) through trade 25, then +1000; see each player’s personal trade count`
       : `Cards: progressive, next set worth ${tradeBonus(tradeCount)} (then ${[1, 2, 3].map((i) => tradeBonus(tradeCount + i)).join(', ')}...)`,
     `Balanced blitz: ${o.balancedBlitz ? 'on (a blitz plays out the middle of 5 real blitzes, close to the odds; single rolls stay random)' : 'off (every roll is pure luck)'}`,
     `Fog of war: ${o.fogOfWar ? "on (players see only their territories and neighbours; nothing else about opponents except card counts, not even their troop or territory counts)" : 'off'}`,

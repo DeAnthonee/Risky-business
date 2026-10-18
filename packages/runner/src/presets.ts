@@ -103,12 +103,15 @@ export function pickLineup(o: {
 }
 
 /** Options for a new game: the preset, then caller overrides, with maxPlayers = seat count and the map. */
-export function gameOptions(seatCount: number, map: GameOptions['map'], overrides: Partial<GameOptions> = {}, random: () => number = Math.random): Partial<GameOptions> {
-  // Independent 50/50 switches, sampled afresh for each game. Explicit overrides still win.
-  const randomized = {
+export function gameOptions(seatCount: number, map: GameOptions['map'], overrides: Partial<GameOptions> = {}, random: () => number = Math.random, cardModes: readonly GameOptions['cardValues'][] = ['progressive', 'fixed', 'exponential']): Partial<GameOptions> {
+  // Independent 50/50 switches and equally weighted supported card modes, sampled afresh each game.
+  if (!cardModes.length) throw new Error('Server advertises no supported card mode');
+  if (overrides.cardValues && !cardModes.includes(overrides.cardValues)) throw new Error(`Server does not support ${overrides.cardValues} cards yet`);
+  const randomized: Partial<GameOptions> = {
     blizzards: random() < 0.5 ? 8 : 0,
     capitals: random() < 0.5,
     fogOfWar: random() < 0.5,
+    cardValues: cardModes[Math.min(cardModes.length - 1, Math.floor(random() * cardModes.length))],
   };
   return { ...DEFAULT_OPTIONS, ...randomized, maxPlayers: Math.max(2, seatCount), ...overrides, map: overrides.map ?? map };
 }

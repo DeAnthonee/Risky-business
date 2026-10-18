@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { CAPITAL_DEFENSE_DICE, getMap, tradeBonus, visibleTerritories, type Card, type GameEvent, type GameView } from '@risk/engine';
+import { CAPITAL_DEFENSE_DICE, getMap, tradeBonus, nextTradeValue, visibleTerritories, type Card, type GameEvent, type GameView } from '@risk/engine';
 import { api } from '../api';
 import { CARD_FX_MS, CardFxPanel, type CardFx } from './CardFx';
 import { CharacterName } from './Profiles';
@@ -441,6 +441,11 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
                 <span aria-hidden="true">🂠</span> Next set <strong>{tradeBonus(view.tradeCount)}</strong>
               </span>
             )}
+            {view.phase !== 'lobby' && view.options.cardValues === 'exponential' && (
+              <span className="set-value" title={view.players.filter(p => p.alive && !p.isNeutral).map(p => p.name + ': next set ' + nextTradeValue('exponential', 0, p.tradesMade ?? 0) + ' (' + (p.tradesMade ?? 0) + ' sets traded)').join(' · ')}>
+                🂠 {me ? 'Your' : current?.name ?? 'Current player'} next set <strong>{nextTradeValue('exponential', 0, (me ?? current)?.tradesMade ?? 0)}</strong>
+              </span>
+            )}
             {current && (
               <span className="turn-indicator">
                 <span className="swatch" style={{ background: current.color }} />
@@ -768,6 +773,7 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
           cardValues={view.options.cardValues}
           cards={me.cards ?? []}
           tradeCount={view.tradeCount}
+          personalTrades={me.tradesMade ?? 0}
           canTrade={myTurn && (view.phase === 'reinforce' || !!legal?.mustTrade)}
           mustTrade={!!legal?.mustTrade && myTurn}
           onTrade={trade}

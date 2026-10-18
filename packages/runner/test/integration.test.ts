@@ -110,7 +110,7 @@ describe('learning loop against a real server', () => {
       expect(results.every((r) => r.winner)).toBe(true);
       expect(results[0].gameId).not.toBe(results[1].gameId);
       for (const result of results) {
-        expect(result.options).toMatchObject({ autoSetup: true, cardValues: 'progressive', chooseCapitals: true, balancedBlitz: true, maxPlayers: 6 });
+        expect(result.options).toMatchObject({ autoSetup: true, cardValues: expect.stringMatching(/^(progressive|fixed|exponential)$/), chooseCapitals: true, balancedBlitz: true, maxPlayers: 6 });
         expect([0, 8]).toContain(result.options.blizzards);
         expect(typeof result.options.fogOfWar).toBe('boolean');
         expect(typeof result.options.capitals).toBe('boolean');

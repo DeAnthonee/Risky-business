@@ -80,7 +80,7 @@ Each game gets a new id, the seat order is shuffled (the first seat hosts) and t
 `rotate` (the next one in the list each game) or a fixed map id.
 
 Default settings (`src/presets.ts`, override any key with `--options '{"blizzards":4}'`): auto setup and random
-deal, setup batch 1, progressive cards, independently randomized fog of war and capitals (50% each), blizzards randomly off or exactly 8 (50% each), no neutrals (2 armies if on), spectator chat,
+deal, setup batch 1, cards randomized equally between progressive, fixed, and exponential (one third each), independently randomized fog of war and capitals (50% each), blizzards randomly off or exactly 8 (50% each), no neutrals (2 armies if on), spectator chat,
 first-round bonus, balanced blitz, chosen capitals when enabled, connected fortify, `maxPlayers` = player count.
 
 ## How the learning loop works
@@ -149,6 +149,21 @@ new file must start with the old text byte for byte, otherwise the old section s
 Built from the legal-move data in the player view, `getMap` and the engine's odds functions. The only things
 that are code are legality (the chooser plays only what the legal list allows) and mechanics (odds, stop-at
 commits, occupy limits). Everything strategic is advice with a loose default that the commander's plan can set.
+
+Small visible eliminations are planned explicitly: up to four remaining territories and 80 defending armies.
+The chooser enumerates routes from existing stacks, reserves troops for every branch, and can reinforce both fronts
+or leave a killing force behind during occupation. These kills outrank routine conquests, with extra value for stolen
+cards and preventing a likely upcoming trade. Each battle needs 90% odds plus a conservative casualty budget for the
+remaining route; that is a per-battle estimate, not a guaranteed campaign success rate. It recalculates after every
+action, never spends cards before stealing them, and does not treat hidden holdings as a confirmed elimination.
+Longer campaigns and routes through a third player's territory still use the ordinary chooser.
+
+Treaties remain character decisions: the commander may scheme, lie, or deliberately betray using private
+`breakDeals`, with the choice recorded in the deal ledger. Loyal characters can keep their word; opportunists
+can trade reputation for an ally's cards. The tactical chooser follows that current decision and preserves explicit
+capital garrisons and capital movement choices.
+
+Exponential cards start at 5 per player, then apply `ceil(previous × 1.3)` through their 25th set (3529), followed by +1000 per set. Trades by other players do not advance your value; stolen cards do not transfer the victim's progression. The runner checks the server catalogue before every game and includes exponential once that server supports it.
 
 ### Code vs advice
 
@@ -312,7 +327,7 @@ npm run runner -- --server https://risky.deanthoneeking.com --games 0 --lobbies 
 
 The 10 seeded League personalities can each appear in separate lobbies. Lineups remain distinct within a
 table. Random maps are selected first, then 5–10 players within the map limit. Each game independently
-switches fog and capitals on/off and blizzards between 0 and exactly 8 (50% per switch).
+switches fog and capitals on/off, blizzards between 0 and exactly 8, and cards equally between progressive, fixed, and exponential. Older servers use only advertised modes until updated.
 
 All lobbies in this process share the same OllamaLlm instance and FIFO concurrency limit. The games keep
 separate plans, chat and deal ledgers. On shutdown, the first Ctrl+C finishes every current game and write-up;

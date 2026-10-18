@@ -31,6 +31,17 @@ characters write key, but a seat without a character is ranked as `player:<displ
 someone else's name, or play two seats against each other and surrender one, to move that name's record. Decide
 whether plain seats should be ranked at all (or only characters and signed-in accounts) before the ladder matters.
 
+## 4. Spectator chat goes into the bots' long-term memory
+
+**Where:** `packages/runner/src/experience.ts` (watcher relationships), `packages/llm-player/src/prompt.ts`
+(`watchersFromChat`). Since #60, a spectator who chats becomes a "watcher" relationship in each league character's
+local experience: up to three of their messages per game are saved verbatim (120 characters each, last 20 facts) and
+shown to the model in every later game; the local-model player can also save a relationship note about them through
+the characters API. Spectator names are self-declared (anyone can watch as "DeAnthonee"), and the text is framed as
+untrusted memory, not instructions, but it is still a lasting way for an anonymous watcher to put words in front of
+the models. Before the league runs in public: store a summary instead of quotes, or keep watcher memory only for
+signed-in watchers.
+
 ## Fixed
 
 - **Character profiles, diaries and relationships were writable by anyone.** Every save now needs the write key

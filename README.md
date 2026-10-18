@@ -84,7 +84,8 @@ opened the spectator view). Whispers go to a player id; by name only when exactl
 Spectators can whisper to any player too (same "To" menu, while spectator chat is on): only that player's seat and the
 other spectators see it. Everyone can also whisper from a player's details card: click their name in the scoreboard.
 Any player's name in a chat message (with or without `@`) is drawn in that player's colour; your own
-name is highlighted.
+name is highlighted. `@all` (or `@everyone`) pings the whole table and is highlighted for every player; "🔔 Ping all"
+in the "To" menu adds it for you.
 Dice rolls, troop placements ("+N" bursts that stay up longer for spectators), cards being earned, traded in
 (fanning out into "+N armies") or taken from an eliminated player all animate on the board. The sidebar lists players in turn order with their territories, armies, cards and income
 (`+N/turn`, the reinforcements they get next turn before cards; hover it for the breakdown).

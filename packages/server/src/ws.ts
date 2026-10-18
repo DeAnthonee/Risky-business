@@ -47,7 +47,10 @@ export function attachWebSocket(server: Server, store: Store, commit: () => stri
   };
   const enter = (room: GameRoom, playerId: string | null) => {
     room.connections++;
-    if (playerId) room.touch();
+    if (playerId) {
+      room.touch();
+      room.seatSocket(playerId, 1);
+    }
     const p = presenceOf(room.id);
     if (playerId) p.players.set(playerId, (p.players.get(playerId) ?? 0) + 1);
     else p.spectators++;
@@ -55,6 +58,7 @@ export function attachWebSocket(server: Server, store: Store, commit: () => stri
   };
   const exit = (room: GameRoom, playerId: string | null) => {
     room.connections = Math.max(0, room.connections - 1);
+    if (playerId) room.seatSocket(playerId, -1);
     const p = presenceOf(room.id);
     if (playerId) {
       const n = (p.players.get(playerId) ?? 1) - 1;

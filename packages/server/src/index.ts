@@ -28,6 +28,11 @@ const retention = Object.fromEntries(
     finished: minutes('RISK_FINISHED_TTL_MIN'),
   }).filter(([, v]) => v !== undefined && Number.isFinite(v) && v > 0),
 );
+// For these two 0 means off (the defaults are 2 minutes), so zero must pass through.
+for (const [key, env] of [['finishedClose', 'RISK_FINISHED_CLOSE_MIN'], ['abandonedClose', 'RISK_ABANDONED_CLOSE_MIN']] as const) {
+  const v = minutes(env);
+  if (v !== undefined && Number.isFinite(v) && v >= 0) (retention as Record<string, number>)[key] = v;
+}
 const store = new Store(DATA_DIR ? join(DATA_DIR, 'games.json') : null, retention);
 const risk = createRiskServer(store, {
   clientDir: CLIENT_DIR,

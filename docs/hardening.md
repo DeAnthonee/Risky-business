@@ -29,3 +29,10 @@ the number of sets traded are public by design. Any seated player can also open 
   (`RISK_CHARACTERS_KEY` or the admin token; read-only when neither is set); served text is framed as data, not
   instructions; limits are lower (100 characters, 30 versions, 200 diary entries, 100 relationships with 20 notes).
   Saves synced back into `AI/` are still reviewed by hand in the PR.
+
+## Known trade-off: quick room cleanup
+
+Lobbies and running games close after `RISK_ABANDONED_CLOSE_MIN` (default 2) without any seat present (WebSocket,
+`/wait` long-poll in progress or any authenticated request). An AI agent that thinks for more than two minutes
+without making any call, or a player whose tab is closed for two minutes, loses the room. Raise the value (or set
+`0`) if that bites; the existing TTLs stay as outer limits.

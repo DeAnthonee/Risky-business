@@ -138,6 +138,33 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
     api.get('/model-info', (_req, res) => res.json(characters.modelInfo()));
   }
 
+  const rankedProfile = (key: string, name: string) => {
+    let profile: string | null = null;
+    if (/^[a-z0-9][a-z0-9_-]*\/[a-z0-9][a-z0-9_-]*$/.test(key) && characters) {
+      try { profile = characters.get(key).markdown; } catch { /* historical character may have been removed */ }
+    }
+    return { stats: store.rankings.profile(key, name), profile };
+  };
+  api.get('/rankings', (_req, res) => res.json({ rankings: store.rankings.rows() }));
+  api.get('/rankings/profile', (req, res) => {
+    const key = String(req.query.key ?? '').slice(0, 200);
+    if (!key) return res.status(400).json({ error: 'Profile key is required' });
+    res.json(rankedProfile(key, key.split('/').pop()!));
+  });
+  api.get('/games/:id/players/:player/profile', loadRoom, (req: Req, res) => {
+    const player = req.room!.state.players.find(p => p.id === req.params.player && !p.isNeutral);
+    if (!player) return res.status(404).json({ error: 'Player not found' });
+    const key = req.room!.characterIds[player.id] ?? `${player.isBot ? 'bot' : 'player'}:${player.name.trim().toLowerCase()}`;
+    res.json(rankedProfile(key, player.name));
+  });
+  api.post('/games/:id/character', loadRoom, requirePlayer, (req: Req, res) => {
+    const id = String(req.body?.characterId ?? '');
+    if (!characters) return res.status(404).json({ error: 'Characters unavailable' });
+    const canonical = characters.get(id).id;
+    req.room!.bindCharacter(req.playerId!, canonical);
+    res.json({ ok: true });
+  });
+
   // ---- games ----
   api.get('/games', (_req, res) => res.json({ games: store.list() }));
 

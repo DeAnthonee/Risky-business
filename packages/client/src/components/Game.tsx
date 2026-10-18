@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CAPITAL_DEFENSE_DICE, getMap, tradeBonus, visibleTerritories, type Card, type GameEvent, type GameView } from '@risk/engine';
 import { api } from '../api';
 import { CARD_FX_MS, CardFxPanel, type CardFx } from './CardFx';
+import { CharacterName } from './Profiles';
 import { ScoreChart } from './ScoreChart';
 import { spectateLink, type Session } from '../session';
 import type { EventBatch, GameConnection } from '../useGame';
@@ -375,7 +376,7 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
             >
               <span className="swatch" style={{ background: p.color }} />
               <span className="pname">
-                {p.name}
+                {p.isNeutral ? p.name : <CharacterName name={p.name} gameId={gameId} playerId={p.id} />}
                 {p.isBot && ' 🤖'}
                 {p.id === you && ' (you)'}
                 {!p.isBot && !p.isNeutral && <span className={`online-dot ${conn.presence.online.includes(p.id) ? 'on' : ''}`} title={conn.presence.online.includes(p.id) ? 'online' : 'offline'} />}

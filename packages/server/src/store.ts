@@ -21,6 +21,7 @@ import {
 } from '@risk/engine';
 import { chooseBotAction } from './bot.js';
 import { TournamentManager } from './tournaments.js';
+import { Rankings } from './rankings.js';
 
 export interface ChatMessage {
   id: number;
@@ -49,6 +50,8 @@ export interface HistoryEntry {
 }
 
 export interface RoomSnapshot {
+  characterIds?: Record<string, string>;
+  eliminationOrder?: string[];
   id: string;
   name: string;
   hostId: PlayerId;
@@ -136,6 +139,8 @@ function joinCode(): string {
 }
 
 export class GameRoom extends EventEmitter {
+  characterIds: Record<string, string> = {};
+  eliminationOrder: string[] = [];
   id: string;
   name: string;
   hostId: PlayerId;
@@ -164,6 +169,8 @@ export class GameRoom extends EventEmitter {
     super();
     this.setMaxListeners(500);
     this.id = snapshot.id;
+    this.characterIds = snapshot.characterIds ?? {};
+    this.eliminationOrder = snapshot.eliminationOrder ?? snapshot.history.flatMap(h => h.events.filter(e => e.type === 'eliminated').map(e => (e as { player: string }).player));
     this.name = snapshot.name;
     this.hostId = snapshot.hostId;
     this.state = snapshot.state;
@@ -179,6 +186,8 @@ export class GameRoom extends EventEmitter {
   snapshot(): RoomSnapshot {
     return {
       id: this.id,
+      characterIds: this.characterIds,
+      eliminationOrder: this.eliminationOrder,
       name: this.name,
       hostId: this.hostId,
       state: this.state,
@@ -277,6 +286,9 @@ export class GameRoom extends EventEmitter {
   }
 
   private commit(next: GameState, events: GameEvent[], playerId: PlayerId | null, action: HistoryEntry['action']) {
+    for (const player of this.state.players) {
+      if (!player.isNeutral && player.alive && next.players.some(p => p.id === player.id && !p.alive) && !this.eliminationOrder.includes(player.id)) this.eliminationOrder.push(player.id);
+    }
     this.state = next;
     this.updatedAt = Date.now();
     if (next.phase === 'finished' && this.finishedAt === null) this.finishedAt = this.updatedAt;
@@ -285,6 +297,13 @@ export class GameRoom extends EventEmitter {
     const msg: ChangeMessage = { state: next, events, version: next.version, playerId };
     this.emit('change', msg);
     this.scheduleBot();
+  }
+
+  bindCharacter(playerId: string, characterId: string) {
+    if (this.state.phase !== 'lobby') throw new RuleError('Choose a character in the lobby before starting');
+    if (Object.entries(this.characterIds).some(([id, c]) => id !== playerId && c === characterId && this.state.players.some(p => p.id === id))) throw new RuleError('This character already has a seat in this lobby');
+    this.characterIds[playerId] = characterId;
+    this.commit({ ...this.state, version: this.state.version + 1 }, [], playerId, { type: 'system', note: 'character selected' });
   }
 
   // ---- lobby ----
@@ -538,6 +557,7 @@ export class GameRoom extends EventEmitter {
 export class Store {
   rooms = new Map<string, GameRoom>();
   tournaments: TournamentManager;
+  rankings: Rankings;
   private saveTimer: NodeJS.Timeout | null = null;
 
   retention: RetentionPolicy;
@@ -548,6 +568,7 @@ export class Store {
     retention: Partial<RetentionPolicy> = {},
   ) {
     this.retention = { ...DEFAULT_RETENTION, ...retention };
+    this.rankings = new Rankings(file ? join(dirname(file), 'rankings.json') : null);
     if (file && existsSync(file)) {
       try {
         const data = JSON.parse(readFileSync(file, 'utf8')) as RoomSnapshot[];
@@ -583,7 +604,11 @@ export class Store {
 
   private attach(room: GameRoom) {
     this.rooms.set(room.id, room);
-    room.on('change', () => this.scheduleSave());
+    this.rankings.record(room.state, room.characterIds, room.eliminationOrder);
+    room.on('change', () => {
+      this.rankings.record(room.state, room.characterIds, room.eliminationOrder);
+      this.scheduleSave();
+    });
     room.on('chat', () => this.scheduleSave());
   }
 

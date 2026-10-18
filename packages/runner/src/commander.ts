@@ -1,0 +1,458 @@
+import { mkdir, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import { getMap, type GameView, type PlayerId } from '@risk/engine';
+import type { ChatResult } from '@risk/mcp';
+import { DealLedger } from './deals.js';
+import { extractJsonObject } from './diplomat.js';
+import { commanderFacts } from './facts.js';
+import type { Llm } from './llm.js';
+import { WIN_PATHS, type Plan, type WinPath } from './planned-bot.js';
+
+type ChatMsg = ChatResult['messages'][number];
+
+/** A validated plan plus the words that go with it. Ids only: names were resolved against the real board. */
+export interface CommanderPlan extends Plan {
+  plan: string;
+  note: string;
+  focus: string | null;
+  target: PlayerId | null;
+  avoid: PlayerId[];
+  aggression: number;
+  capitalGarrison: number | undefined;
+  capital: string | null;
+  riskTolerance: number | undefined;
+  moveCapitalStack: boolean | undefined;
+  purposeMin: number | undefined;
+  borderGuard: number | undefined;
+  fortify: boolean | undefined;
+  stallPressure: boolean | undefined;
+  cardChance: number | undefined;
+  /** Ids of active deals this seat deliberately breaks. */
+  breakDeals: string[];
+  skipCard: boolean;
+  skipCardReason: string;
+  winPath: WinPath | null;
+  winPlan: string;
+  /** Turn number and round it was made on. */
+  turn: number;
+  round: number;
+}
+
+export interface CommanderOptions {
+  llm: Llm;
+  seatName: string;
+  playerId: PlayerId;
+  /** Persona + Strategy section of the character profile (already shortened), or null. */
+  profile: string | null;
+  /** Text of RISK_LEARNINGS.md ("" when missing). */
+  learnings: string;
+  gameId: string;
+  /** Where the private log is mirrored (`<dir>/scouting/<name>-<GAMEID>.md`); null = memory only. */
+  scoutingDir: string | null;
+  /** How long moves wait for a plan. Default 45 s. */
+  timeoutMs?: number;
+  log?: (line: string) => void;
+  /** This seat's deal ledger (shared with its diplomat). Default: a private one. */
+  ledger?: DealLedger;
+}
+
+/** Token budget of a normal turn reply (terse JSON) and of the capitals-phase reply. */
+export const TURN_MAX_TOKENS = 300;
+export const CAPITAL_MAX_TOKENS = 400;
+
+export const LEARNINGS_CHARS = 34_000;
+const LOG_TAIL_CHARS = 1_500;
+const CHAT_KEPT = 25;
+const MAX_TEXT = 400;
+
+/**
+ * Shorten the shared learnings to fit the prompt. Over the limit, the sections that only matter to agents
+ * driving the MCP tools by hand ("Tool tips", "Game log") go first; then the middle is cut, keeping the start
+ * and the end (where the bot-managed findings live).
+ */
+export function condenseLearnings(text: string, max = LEARNINGS_CHARS): string {
+  let t = text.trim();
+  if (t.length <= max) return t;
+  t = t.replace(/^## (Tool tips|Game log)[^\n]*\n[\s\S]*?(?=^## |(?![\s\S]))/gim, '').trim();
+  if (t.length <= max) return t;
+  const gap = '\n\n[... middle of the file left out ...]\n\n';
+  const head = Math.floor(max * 0.6);
+  const tail = max - head - gap.length;
+  return `${t.slice(0, head).trimEnd()}${gap}${t.slice(-tail).trimStart()}`;
+}
+
+/** Persona and Strategy of a character profile, shortened for a prompt. */
+export function profileExcerpt(markdown: string | null, max = 3500): string | null {
+  if (!markdown) return null;
+  const parts = markdown.split(/^(?=## )/m);
+  const keep = parts.filter((p, i) => i === 0 || /^## (strategy|personality|persona|voice)/i.test(p));
+  const text = (keep.length > 1 ? keep : parts).join('\n').trim();
+  return text.slice(0, max);
+}
+
+// ---------- parsing ----------
+
+const lower = (s: string) => s.trim().toLowerCase();
+
+/** Resolve "[id]", a bare id or a name (any case) against a table; undefined when nothing matches. */
+function resolve(raw: unknown, table: { id: string; name: string }[]): string | undefined {
+  if (typeof raw !== 'string') return undefined;
+  const bracket = /\[([^\]]+)\]/.exec(raw);
+  const candidates = [raw, ...(bracket ? [bracket[1]] : [])].map(lower).filter(Boolean);
+  for (const c of candidates) {
+    const hit = table.find((x) => lower(x.id) === c) ?? table.find((x) => lower(x.name) === c);
+    if (hit) return hit.id;
+  }
+  return undefined;
+}
+
+const clampNum = (v: unknown, lo: number, hi: number): number | undefined => {
+  const n = typeof v === 'string' ? Number(v) : v;
+  return typeof n === 'number' && Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : undefined;
+};
+
+const clip = (v: unknown, max = MAX_TEXT) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, max) : '');
+
+/**
+ * Turn a model reply into a plan, or null when it is not JSON at all. Every name or id is checked against the
+ * map and the players; unknown ones become null / are dropped. Numbers are clamped. `capital` must be one of
+ * the capital choices on offer.
+ */
+export function parsePlanReply(raw: string, view: GameView, me: PlayerId): CommanderPlan | null {
+  const obj = extractJsonObject(raw);
+  if (!obj) return null;
+  const map = getMap(view.options.map);
+  const territories = map.territories.map((t) => ({ id: t.id, name: t.name }));
+  const continents = map.continents.map((c) => ({ id: c.id, name: c.name }));
+  const players = view.players.filter((p) => p.alive && !p.isNeutral && p.id !== me).map((p) => ({ id: p.id, name: p.name }));
+
+  const focus = resolve(obj.focus, territories) ?? resolve(obj.focus, continents) ?? null;
+  const target = resolve(obj.target, players) ?? null;
+  const avoidRaw = Array.isArray(obj.avoid) ? obj.avoid : typeof obj.avoid === 'string' ? [obj.avoid] : [];
+  const avoid = [...new Set(avoidRaw.map((a) => resolve(a, players)).filter((x): x is string => !!x))];
+  const choices = (view.legal?.capitalChoices ?? []).map((id) => ({ id, name: map.territoryById[id]?.name ?? id }));
+  const capital = resolve(obj.capital, choices) ?? null;
+  const garrison = clampNum(obj.capitalGarrison, 1, 60);
+  const bool = (v: unknown) => (typeof v === 'boolean' ? v : v === 'true' ? true : v === 'false' ? false : undefined);
+  const skipCardReason = clip(obj.skipCardReason, 200);
+  let winPath = WIN_PATHS.find((w) => w === lower(typeof obj.winPath === 'string' ? obj.winPath : '')) ?? null;
+  // "hopeless" needs a player to go all-in on.
+  if (winPath === 'hopeless' && !target) winPath = null;
+  return {
+    plan: clip(obj.plan),
+    note: clip(obj.note, 300),
+    focus,
+    target,
+    avoid,
+    aggression: clampNum(obj.aggression, 0, 1) ?? (winPath === 'cards' || winPath === 'diplomacy' ? 0.3 : winPath === 'hopeless' ? 1 : 0.5),
+    capitalGarrison: garrison === undefined ? undefined : Math.round(garrison),
+    capital,
+    riskTolerance: clampNum(obj.riskTolerance, 0, 1),
+    moveCapitalStack: bool(obj.moveCapitalStack),
+    purposeMin: clampNum(obj.purposeMin, 0, 10),
+    borderGuard: clampNum(obj.borderGuard, 0, 2),
+    fortify: bool(obj.fortify),
+    stallPressure: bool(obj.stallPressure),
+    cardChance: clampNum(obj.cardChance, 0.3, 0.95),
+    breakDeals: [...new Set((Array.isArray(obj.breakDeals) ? obj.breakDeals : typeof obj.breakDeals === 'string' ? [obj.breakDeals] : []).map((x) => clip(x, 20)).filter(Boolean))].slice(0, 5),
+    // Skipping the card needs a stated reason.
+    skipCard: bool(obj.skipCard) === true && skipCardReason.length > 0,
+    skipCardReason: bool(obj.skipCard) === true ? skipCardReason : '',
+    winPath,
+    winPlan: clip(obj.winPlan, 300),
+    turn: view.turnNumber,
+    round: view.round,
+  };
+}
+
+// ---------- the commander ----------
+
+const SCHEMA = `{"winPath": "diplomacy"|"bonuses"|"cards"|"capitals"|"kills"|"hopeless", "winPlan": string, "plan": string, "focus": string|null, "target": string|null, "avoid": string[], "aggression": number, "note": string}`;
+
+/** Optional knobs the commander may add to its JSON; each line says what it does and the default. */
+const KNOBS = [
+  '- riskTolerance (0..1): how much loss you accept; with aggression it sets the attack threshold and the capital-attack margin. Default: = aggression.',
+  '- capitalGarrison (1..60): a hard floor of armies on every capital you hold; no attack goes below it. Default: none, only a soft few (3, or what the biggest adjacent stack suggests) that a measured attack may dip into.',
+  '- moveCapitalStack (true/false): lets a capital stack be fortified out or carried along on an occupation. Default false.',
+  '- purposeMin (0..10): how much purpose (bonus, capital, focus, kill) an attack needs besides the card attack. Default 0.5; 1.5 on the cards and diplomacy paths.',
+  '- borderGuard (0..2): multiplier on the garrisons kept on bonus borders, left behind after an occupation and moved in by fortifying; 0 = none. Default 1.',
+  '- fortify (true/false): false stops voluntary fortifying. Default true.',
+  '- stallPressure (true/false): false stops attack thresholds loosening when nobody has conquered for a while (and the late-game push). Default true.',
+  '- cardChance (0.3..0.95): win chance the guaranteed card attack needs. Default 0.6.',
+  '- breakDeals (deal ids, e.g. ["S3"]): break these ACTIVE deals on purpose (a betrayal; the other side will know). Without it every active truce and border is kept and every joint attack is carried out. Default: [].',
+  '- skipCard (true) + skipCardReason (a sentence): skip the card attack this turn. Ignored without a reason; the reason goes in your log. Default: with progressive cards you take a card every turn.',
+];
+
+/** One seat's strategist: a single model call per own turn sets the plan the move chooser follows. */
+export class Commander {
+  private gameMemory: (view: GameView) => string = () => '';
+  setGameMemory(provider: (view: GameView) => string) { this.gameMemory=provider; }
+  private o: CommanderOptions;
+  private plan: CommanderPlan | null = null;
+  private planTurn = -1;
+  private capitalAsked = false;
+  private entries: string[] = [];
+  private chat: ChatMsg[] = [];
+  private seen = new Set<number>();
+  private hitUs = new Set<PlayerId>();
+  private lastMine = new Set<string>();
+  private writing: Promise<void> = Promise.resolve();
+  private timeoutMs: number;
+  private lastView: GameView | null = null;
+  readonly ledger: DealLedger;
+
+  constructor(o: CommanderOptions) {
+    this.o = o;
+    this.timeoutMs = o.timeoutMs ?? 45_000;
+    this.ledger = o.ledger ?? new DealLedger({ me: o.seatName });
+    const prior = this.ledger.onEvent;
+    this.ledger.onEvent = (line) => {
+      prior?.(line);
+      this.flush();
+    };
+  }
+
+  /**
+   * What the active deals demand of the move chooser: truces avoid the other party, borders put the other
+   * party's listed territories off limits, a joint attack that has started names its target. Code carries out
+   * what was agreed; the commander escapes it only through `breakDeals` (which breaks the deal in the ledger).
+   */
+  private dealEffects(): { avoid: PlayerId[]; noAttack: string[]; target: PlayerId | null } {
+    const view = this.lastView;
+    const out = { avoid: [] as PlayerId[], noAttack: [] as string[], target: null as PlayerId | null };
+    if (!view) return out;
+    const idOf = (name: string) => view.players.find((p) => p.alive && !p.isNeutral && p.id !== this.o.playerId && p.name.toLowerCase() === name.toLowerCase())?.id;
+    for (const d of this.ledger.active()) {
+      const other = this.ledger.other(d);
+      if (d.kind === 'truce') {
+        const id = idOf(other);
+        if (id) out.avoid.push(id);
+      } else if (d.kind === 'border') {
+        const theirs = Object.entries(d.territories ?? {}).find(([who]) => who.toLowerCase() === other.toLowerCase())?.[1] ?? [];
+        out.noAttack.push(...theirs);
+      } else if (d.kind === 'joint_attack' && !out.target && (d.startRound ?? 0) <= this.ledger.round) {
+        const id = d.target ? idOf(d.target) : undefined;
+        if (id) out.target = id;
+      }
+    }
+    return out;
+  }
+
+  /** The plan the move chooser should follow now: the latest plan minus players that have hit us since, plus what active deals require. */
+  currentPlan(): Plan | null {
+    const fx = this.dealEffects();
+    if (!this.plan && fx.avoid.length === 0 && fx.noAttack.length === 0 && !fx.target) return null;
+    const base = this.plan ?? ({} as Partial<CommanderPlan>);
+    const target = fx.target && base.winPath !== 'hopeless' ? fx.target : (base.target ?? null);
+    const avoid = [...new Set([...(base.avoid ?? []).filter((p) => !this.hitUs.has(p)), ...fx.avoid])].filter((p) => p !== target);
+    return { ...base, avoid, target, noAttack: fx.noAttack };
+  }
+
+  /** The ledger for prompts: the round and the seat's deals. */
+  dealsText(): string {
+    return `Current round: ${this.ledger.round}.\nYour deals:\n${this.ledger.summary()}`;
+  }
+
+  /** The plan in words, for the diplomat (never posted verbatim). */
+  planText(view?: GameView): string | null {
+    const p = this.plan;
+    if (!p) return null;
+    const name = (id: string | null) => view?.players.find((x) => x.id === id)?.name ?? id;
+    const bits = [p.plan];
+    if (p.winPlan) bits.push(`how I win: ${p.winPlan}`);
+    if (p.target) bits.push(`pressure ${name(p.target)}`);
+    if (p.avoid.length > 0) bits.push(`avoid attacking ${p.avoid.map(name).join(', ')}`);
+    return bits.filter(Boolean).join('; ').slice(0, 500) || null;
+  }
+
+  privateLog(): string[] {
+    return [...this.entries];
+  }
+
+  /** The seat's latest notes, newest last, cut to about 1.5k characters on a line boundary. */
+  logTail(max = LOG_TAIL_CHARS): string {
+    let out = '';
+    for (let i = this.entries.length - 1; i >= 0; i--) {
+      const next = out ? `${this.entries[i]}\n${out}` : this.entries[i];
+      if (next.length > max) break;
+      out = next;
+    }
+    return out;
+  }
+
+  /** Track who takes our territory: they hit us, so an agreement not to attack them is off. */
+  observe(view: GameView) {
+    const me = this.o.playerId;
+    this.lastView = view;
+    this.ledger.sync(view);
+    const mine = new Set<string>();
+    for (const [t, s] of Object.entries(view.territories)) if (s.owner === me) mine.add(t);
+    for (const t of this.lastMine) {
+      const now = view.territories[t];
+      if (now && !now.hidden && now.owner && now.owner !== me) {
+        this.hitUs.add(now.owner);
+        const attacker = view.players.find((p) => p.id === now.owner)?.name;
+        if (attacker) this.ledger.noteHit(attacker);
+      }
+    }
+    this.lastMine = mine;
+  }
+
+  onMessages(msgs: ChatMsg[]) {
+    this.ledger.ingest(msgs);
+    for (const m of msgs) {
+      if (this.seen.has(m.id)) continue;
+      this.seen.add(m.id);
+      this.chat.push(m);
+    }
+    if (this.chat.length > CHAT_KEPT) this.chat.splice(0, this.chat.length - CHAT_KEPT);
+    if (this.seen.size > 500) this.seen = new Set(this.chat.map((m) => m.id));
+  }
+
+  /** Once per own turn (at the reinforce phase): ask for a plan. Resolves with the plan in force afterwards. */
+  async planFor(view: GameView): Promise<Plan | null> {
+    this.lastView = view;
+    this.ledger.sync(view);
+    if (this.planTurn === view.turnNumber) return this.currentPlan();
+    this.planTurn = view.turnNumber;
+    const parsed = await this.ask(view, 'turn');
+    if (parsed) this.accept(parsed, view);
+    return this.currentPlan();
+  }
+
+  /** At the capitals phase: pick from the legal choices. Null when the model fails (the bot's own pick is used). */
+  async chooseCapital(view: GameView): Promise<string | null> {
+    if (this.capitalAsked || !view.legal || view.legal.capitalChoices.length === 0) return this.plan?.capital ?? null;
+    this.capitalAsked = true;
+    const parsed = await this.ask(view, 'capital');
+    if (!parsed) return null;
+    this.accept(parsed, view);
+    return parsed.capital;
+  }
+
+  private accept(p: CommanderPlan, view: GameView) {
+    this.plan = p;
+    this.lastView = view;
+    this.ledger.sync(view);
+    for (const id of p.breakDeals) {
+      const d = this.ledger.breakByMe(id);
+      if (d) p.note = `${p.note ? `${p.note} ` : ''}Broke ${d.id} (${this.ledger.describe(d)}).`.trim();
+    }
+    const name = (id: string | null) => view.players.find((x) => x.id === id)?.name ?? id;
+    const bits = [`Round ${view.round}, turn ${view.turnNumber}: ${p.plan || '(no plan text)'}`];
+    if (p.winPath) bits.push(`winPath ${p.winPath}${p.winPlan ? `: ${p.winPlan}` : ''}`);
+    if (p.skipCard) bits.push(`skipping the card: ${p.skipCardReason}`);
+    if (p.note) bits.push(`note: ${p.note}`);
+    if (p.target) bits.push(`target ${name(p.target)}`);
+    if (p.avoid.length) bits.push(`avoiding ${p.avoid.map(name).join(', ')}`);
+    if (p.capital) bits.push(`capital ${p.capital}`);
+    this.entries.push(`- ${bits.join(' | ')}`);
+    this.flush();
+  }
+
+  /** Mirror the private log to scouting/<name>-<GAMEID>.md (serialised, failures only logged). */
+  private flush() {
+    const dir = this.o.scoutingDir;
+    if (!dir) return;
+    const file = path.join(dir, `${this.o.seatName.toLowerCase().replace(/[^a-z0-9._-]+/g, '-')}-${this.o.gameId}.md`);
+    const deals = this.ledger.history.length > 0 ? `\n## Deals\n\n${this.ledger.history.map((l) => `- ${l}`).join('\n')}\n` : '';
+    const body = `# ${this.o.seatName} scouting ${this.o.gameId}\n\nMaster plan and per-turn notes (written by the bot runner as the game goes).\n\n${this.entries.join('\n')}\n${deals}`;
+    this.writing = this.writing
+      .then(async () => {
+        await mkdir(dir, { recursive: true });
+        await writeFile(file, body, 'utf8');
+      })
+      .catch((e) => this.o.log?.(`${this.o.seatName}: could not write scouting log: ${(e as Error).message}`));
+  }
+
+  /** Wait for pending log writes (tests, end of game). */
+  async settled(): Promise<void> {
+    await this.writing;
+  }
+
+  private async ask(view: GameView, kind: 'turn' | 'capital'): Promise<CommanderPlan | null> {
+    const ctrl = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<'timeout'>((resolve) => {
+      timer = setTimeout(() => resolve('timeout'), this.timeoutMs);
+    });
+    const call = this.o.llm
+      .chat(this.messages(view, kind), { maxTokens: kind === 'capital' ? CAPITAL_MAX_TOKENS : TURN_MAX_TOKENS, temperature: 0.6, json: true, signal: ctrl.signal, timeoutMs: this.timeoutMs + 15_000 })
+      .then((raw) => ({ raw }) as const)
+      .catch((error: unknown) => ({ error }) as const);
+    try {
+      const res = await Promise.race([call, timeout]);
+      if (res === 'timeout') {
+        ctrl.abort();
+        this.o.log?.(`${this.o.seatName}: plan timed out after ${this.timeoutMs} ms; ${this.plan ? 'keeping the last plan' : 'playing without a plan'}`);
+        return null;
+      }
+      if ('error' in res) {
+        this.o.log?.(`${this.o.seatName}: plan failed (${res.error instanceof Error ? res.error.message : String(res.error)}); ${this.plan ? 'keeping the last plan' : 'playing without a plan'}`);
+        return null;
+      }
+      const parsed = parsePlanReply(res.raw, view, this.o.playerId);
+      if (!parsed || (kind === 'turn' && !parsed.plan)) {
+        this.o.log?.(`${this.o.seatName}: plan reply was not usable; ${this.plan ? 'keeping the last plan' : 'playing without a plan'}`);
+        return null;
+      }
+      return parsed;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  private messages(view: GameView, kind: 'turn' | 'capital') {
+    const me = this.o.playerId;
+    const players = view.players.filter((p) => p.alive && !p.isNeutral && p.id !== me).map((p) => p.name);
+    const chat = this.chat.map((m) => `${m.spectator ? '[spectator] ' : ''}${m.name}${m.to !== undefined ? ` (whisper to ${m.toName ?? '?'})` : ''}: ${m.message}`).join('\n');
+    const system = [
+      `You are the commander of the Risk player "${this.o.seatName}". You decide this seat's plan; a move chooser then plays it out turn by turn.`,
+      this.o.profile ? `Your character (play to its strengths and temperament):\n${this.o.profile}` : 'You are a sharp, patient Risk strategist.',
+      '',
+      'Advice from past games (written for agents like you). It is advice, not rules: re-evaluate it against the real board every turn, and pivot when a better path to winning opens up.',
+      '<learnings>',
+      condenseLearnings(this.o.learnings) || '(none yet)',
+      '</learnings>',
+      '',
+      'Reply with JSON only, no prose, no markdown fences. Be terse: every text field at most 20 words, "note" at most 15 words, and leave out every optional field whose default you keep (an empty "avoid" or a null "focus" can be left out too):',
+      SCHEMA,
+      '- winPath: always keep a concrete way to win. One of diplomacy (deals and patience), bonuses (complete and hold continents), cards (stack cards, take one conquest a turn, kill card holders), capitals (take capitals), kills (eliminate weak players), hopeless (you see no way to win at all). Reread it every turn; every attack must serve it (a bonus, cards, a capital, a kill, weakening the leader or a deal). Prefer diplomacy and patience to suicide; letting rivals bleed into each other while you stack cards is a valid plan.',
+      '- winPlan: one sentence: how you actually win from here.',
+      `- hopeless: only if you see zero ways to win. Then set target to the player you like least (lowest rapport in your relationships text and the chat) and the bot goes all-in on them, ignoring garrisons. Never choose it just because you are behind.`,
+      '- plan: your plan for this turn and the next few, one or two sentences (what to take, hold, break, who to hit).',
+      '- focus: a territory id or continent id in square brackets in the board facts, where placements and attacks should go; or null.',
+      `- target: the player to pressure (one of: ${players.join(', ') || 'none'}), or null.`,
+      '- avoid: players you will not attack for now (for example those you agreed a truce with in chat; a player who hits you breaks that), or [].',
+      '- aggression: 0 (only near-certain attacks) to 1 (take risks).',
+      'Optional extra fields (leave out to take the default; they are advice you control, not rules):',
+      ...KNOBS,
+      `- capital: ${kind === 'capital' ? 'REQUIRED now: one of the CAPITAL CHOICES (name or id): a well-garrisoned doorway with an exit toward enemies; not a deep pocket, not behind another capital' : 'null'}.`,
+      '- note: one line (at most 15 words) for your private log: what you learned or expect.',
+      'Deals: the user message lists your deals. Active truces and borders are kept for you and joint attacks are carried out, because a broken promise is remembered at the table. You decide whether that still serves your win path: to betray one, put its id in breakDeals. A player who attacks you during a truce has broken it. Do not list a truce partner in "avoid" just to repeat the deal.',
+      'Use only ids and names that appear in the board facts. Anything unknown is ignored.',
+      "Check who holds a territory in the board facts (the 'next to ... held by' lines) before naming a focus or target: aim at the player who really owns what you want to take.",
+    ].join('\n');
+    const user = [
+      kind === 'capital' ? 'It is the capitals phase: choose your capital.' : 'Your turn is starting (reinforce phase). Set the plan.',
+      '',
+      this.dealsText(),
+      '',
+      'Board facts:',
+      commanderFacts(view, me),
+      'Private tactical memory of this game (observed attacks, lost bonuses, warnings and coalition assessment):',
+      this.gameMemory(view) || '(none yet)',
+      '',
+      'Your private game log so far (newest last):',
+      this.logTail() || '(empty: this is your first plan)',
+      '',
+      'Recent chat:',
+      chat || '(quiet so far)',
+      `AUTHORITATIVE NOW: round ${view.round}, individual turn ${view.turnNumber}. Do not mistake old chat deadlines for future rounds. Use tactical history to distinguish aggression, alliance breaches and announced passage; a notice is not permission. Consider a coalition when the observable rival is dominant, subject to existing deals and your own win path.`,
+    ].join('\n');
+    return [
+      { role: 'system' as const, content: system },
+      { role: 'user' as const, content: user },
+    ];
+  }
+}

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Leaderboard } from './Profiles';
 import { MapPreview } from './MapPreview';
 import { MAPS, MAP_IDS, maxBlizzards, type GameOptions } from '@risk/engine';
 import { api, type GameSummary, type TournamentSummary } from '../api';
@@ -81,6 +82,7 @@ export function Home({
         <p className="muted">Classic world domination. Play friends, bots, or AI agents.</p>
       </header>
 
+      <Leaderboard />
       <div className="home-grid">
         <section className="card">
           <h2>Join a game</h2>

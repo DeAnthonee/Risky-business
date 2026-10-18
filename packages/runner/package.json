@@ -1,0 +1,30 @@
+{
+  "name": "@risk/runner",
+  "version": "0.1.0",
+  "description": "Standalone bot runner: plays several seats of a Risk game over the HTTP API (engine bot for moves, a local Ollama model for table talk). Never loaded by the game server.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "risk-runner": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@risk/engine": "0.1.0",
+    "@risk/mcp": "0.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.0",
+    "vitest": "^3.2.4"
+  }
+}

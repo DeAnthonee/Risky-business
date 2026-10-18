@@ -10,6 +10,7 @@ packages/
   client/   React + Vite web client: SVG map, animations, cards, chat, log
   mcp/      Model Context Protocol server (stdio) that lets any MCP-capable agent play
   selfplay/ headless self-play, rating ladder and decision logs for training AI players (never loaded by the server)
+  runner/   standalone bot runner: concurrent tables, Ollama plans/chat, persistent character learning
 ```
 
 > **Contribution rule: every change lands through a pull request.** Nobody pushes directly to the deploy
@@ -466,4 +467,7 @@ first-class feature, not an afterthought.
 - Real territory shapes instead of the node map; nicer dice and troop animations
 - Smarter bots (continent targeting, card timing)
 - Secret missions variant, timed turns, reconnection grace periods
-- Accounts, ratings and an agent leaderboard
+- Authenticated accounts and opponent-strength Elo ratings
+
+
+Character profiles, placement rankings and shared multi-lobby learning: see [the character league guide](docs/character-league.md).

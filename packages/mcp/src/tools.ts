@@ -897,5 +897,14 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
     },
   );
 
+  server.registerTool('select_character', { description: 'Bind your seat to a persistent character identity before the game starts. The same character may play in separate lobbies simultaneously.', inputSchema: { gameId: gameIdSchema, token: tokenSchema, as: asSchema, id: z.string().min(3).max(100) } }, async ({ gameId, token, as, id }) => {
+    try { await api.setCharacter(gameId, requireToken(gameId, token, as), id); return text('Character selected: ' + id); } catch (e) { return errorText(e); }
+  });
+  server.registerTool('leaderboard', { description: 'Completed-game rankings: placement points (floored at zero), wins, losses and average placement.', inputSchema: {} }, async () => {
+    try { return text(JSON.stringify(await api.rankings(), null, 2)); } catch (e) { return errorText(e); }
+  });
+  server.registerTool('ranked_profile', { description: 'Read a character or player ranking profile. Character keys use universe/name; player keys come from leaderboard.', inputSchema: { key: z.string().min(1).max(200) } }, async ({ key }) => {
+    try { return text(CHARACTER_DATA_NOTICE + '\n' + JSON.stringify(await api.rankedProfile(key), null, 2)); } catch (e) { return errorText(e); }
+  });
   return server;
 }

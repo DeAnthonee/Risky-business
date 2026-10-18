@@ -172,11 +172,18 @@ Behaviour that the deploy pipeline relies on:
   games, player tokens, chat and bots resume where they were. Browsers reconnect automatically
   (WebSocket close 1012, exponential backoff) and MCP agents simply call `wait_for_turn` again.
   Updates therefore do not need to wait for `playing == 0`.
-- **Room cleanup.** A sweeper runs every 5 minutes. "Idle" means no person or agent has acted (bot moves don't
-  count); a room with any WebSocket client or long-polling agent attached is kept, up to a 7-day hard cap.
-  Lobbies go after 1 hour idle, finished games after 2 hours, running games after 12 hours, and games where
-  only built-in bots are left after 30 minutes unwatched. Rooms with no people or agents at all go at once,
-  as does a lobby when its last person leaves. Hosts can close their room (button in the lobby and game,
+- **Room cleanup.** A sweeper runs every 30 seconds. Two quick rules come first, and spectators don't hold
+  either one off:
+  - a finished game closes 2 minutes after it ended (`RISK_FINISHED_CLOSE_MIN`);
+  - a lobby or running game closes once no human or agent seat has been present for 2 minutes
+    (`RISK_ABANDONED_CLOSE_MIN`). Present means a WebSocket, a `wait_for_turn` long-poll in progress or any
+    authenticated request. See the trade-off in [`docs/hardening.md`](docs/hardening.md).
+
+  Tournament tables are exempt from both. After that, "idle" means no person or agent has acted (bot moves
+  don't count); a room with any WebSocket client or long-polling agent attached is kept, up to a 7-day hard
+  cap. Lobbies go after 1 hour idle, finished games after 2 hours, running games after 12 hours, and games
+  where only built-in bots are left after 30 minutes unwatched. Rooms with no people or agents at all go at
+  once, as does a lobby when its last person leaves. Hosts can close their room (button in the lobby and game,
   `POST /api/games/:id/close`, MCP `close_game`); connected clients see why it closed.
 - **Graceful shutdown.** SIGTERM/SIGINT: save, close WebSocket clients, release long-polls, close the
   HTTP server, exit 0 — typically well under a second, hard limit `RISK_SHUTDOWN_TIMEOUT_MS`.

@@ -46,6 +46,7 @@ export interface SeatResult {
   alive: boolean;
   eliminatedRound: number | null;
   eliminatedBy: string | null;
+  eliminations?: number;
   territories: number;
   armies: number;
   capitals: number;
@@ -64,24 +65,66 @@ export interface GameResult {
   reason: 'capitals' | 'domination' | 'unfinished';
   rounds: number;
   turns: number;
+  smartSeats?: number;
+  generation?: string;
   seats: SeatResult[];
 }
 
-/** Sees every view any seat gets and remembers when each player was first seen dead. */
+/** Sees every view any seat gets and remembers when each player was first seen dead, plus mechanics telemetry. */
 export class GameTracker {
   private out = new Map<PlayerId, { round: number; turn: number }>();
+  private peakBonuses = new Map<PlayerId, Set<string>>();
+  private peakCapitals = new Map<PlayerId, number>();
+  private strandedTurns = new Map<PlayerId, number>();
+  private lastTurnSeen = -1;
+
   observe(view: GameView) {
     for (const p of view.players) {
       if (!p.alive && !p.isNeutral && !this.out.has(p.id)) this.out.set(p.id, { round: view.round, turn: view.turnNumber });
+      if (p.continents.length > 0) {
+        const set = this.peakBonuses.get(p.id) ?? new Set<string>();
+        for (const c of p.continents) set.add(c);
+        this.peakBonuses.set(p.id, set);
+      }
+    }
+    if (view.phase === 'fortify' && view.turnNumber !== this.lastTurnSeen) {
+      this.lastTurnSeen = view.turnNumber;
+      const map = getMap(view.options.map);
+      const caps = new Set(Object.values(view.capitals ?? {}));
+      const p = view.currentPlayer;
+      if (p) {
+        let myCaps = 0;
+        let stranded = 0;
+        for (const t of map.territoryIds) {
+          const s = view.territories[t];
+          if (!s || s.hidden || s.owner !== p) continue;
+          if (caps.has(t)) myCaps++;
+          else if (s.armies >= 4) {
+            const hasHostile = map.adjacency[t].some((n) => {
+              const ns = view.territories[n];
+              return ns && !ns.hidden && ns.owner !== p && !view.blizzards.includes(n);
+            });
+            if (!hasHostile) stranded += s.armies - 1;
+          }
+        }
+        this.peakCapitals.set(p, Math.max(this.peakCapitals.get(p) ?? 0, myCaps));
+        if (stranded > 0) this.strandedTurns.set(p, (this.strandedTurns.get(p) ?? 0) + 1);
+      }
     }
   }
   eliminated(id: PlayerId) {
     return this.out.get(id) ?? null;
   }
+  mechanicsText(id: PlayerId): string {
+    const bonuses = [...(this.peakBonuses.get(id) ?? [])];
+    const peakCaps = this.peakCapitals.get(id) ?? 0;
+    const stranded = this.strandedTurns.get(id) ?? 0;
+    return `Mechanics telemetry: bonuses held at any point: ${bonuses.length ? bonuses.join(', ') : 'none'}; peak capitals held: ${peakCaps}; turns entering fortify with 4+ armies stranded on a non-capital interior pocket: ${stranded}.`;
+  }
 }
 
 /** Build the result record from the finished game's view (spectator-complete: no fog once it is over). */
-export function buildResult(final: GameView, seats: SeatInfo[], tracker: GameTracker, meta: { gameId: string; date?: Date }): GameResult {
+export function buildResult(final: GameView, seats: SeatInfo[], tracker: GameTracker, meta: { gameId: string; date?: Date; smartSeats?: number; generation?: string }): GameResult {
   const map = getMap(final.options.map);
   const players = final.players.filter((p) => !p.isNeutral);
   const nameOf = (id: PlayerId | null | undefined) => players.find((p) => p.id === id)?.name ?? null;
@@ -95,6 +138,12 @@ export function buildResult(final: GameView, seats: SeatInfo[], tracker: GameTra
     st.territories++;
     st.armies += s.armies;
     if (capitalTerritories.includes(t)) st.capitals++;
+  }
+  const kills = new Map<PlayerId, number>();
+  for (const p of final.players) {
+    if (p.eliminatedBy) {
+      kills.set(p.eliminatedBy, (kills.get(p.eliminatedBy) ?? 0) + 1);
+    }
   }
   const winner = final.winner;
   const rank = [...players].sort((a, b) => {
@@ -114,6 +163,7 @@ export function buildResult(final: GameView, seats: SeatInfo[], tracker: GameTra
       alive: p.alive,
       eliminatedRound: p.alive ? null : (tracker.eliminated(p.id)?.round ?? final.round),
       eliminatedBy: p.alive ? null : nameOf(p.eliminatedBy),
+      eliminations: kills.get(p.id) ?? 0,
       territories: st.territories,
       armies: st.armies,
       capitals: st.capitals,
@@ -135,6 +185,8 @@ export function buildResult(final: GameView, seats: SeatInfo[], tracker: GameTra
     reason,
     rounds: final.round,
     turns: final.turnNumber,
+    ...(meta.smartSeats !== undefined ? { smartSeats: meta.smartSeats } : {}),
+    ...(meta.generation ? { generation: meta.generation } : {}),
     seats: rows.sort((a, b) => a.placement - b.placement),
   };
 }
@@ -142,7 +194,8 @@ export function buildResult(final: GameView, seats: SeatInfo[], tracker: GameTra
 /** Plain-language result of one seat. */
 export function resultText(r: GameResult, seat: SeatResult): string {
   const of = `${seat.placement}${ordinal(seat.placement)} of ${r.seats.length}`;
-  const holdings = `${seat.territories} territories, ${seat.armies} armies, ${seat.capitals} capital${seat.capitals === 1 ? '' : 's'}, ${seat.heldBonus ? `bonuses held: ${seat.bonuses.join(', ')}` : 'no bonus at the end'}`;
+  const kills = seat.eliminations ? `, ${seat.eliminations} elimination${seat.eliminations === 1 ? '' : 's'} (+${seat.eliminations} kill point${seat.eliminations === 1 ? '' : 's'})` : '';
+  const holdings = `${seat.territories} territories, ${seat.armies} armies, ${seat.capitals} capital${seat.capitals === 1 ? '' : 's'}, ${seat.heldBonus ? `bonuses held: ${seat.bonuses.join(', ')}` : 'no bonus at the end'}${kills}`;
   if (r.winner === seat.name) {
     return `WON game ${r.gameId} in round ${r.rounds} (turn ${r.turns}) ${r.reason === 'capitals' ? 'by holding every capital' : 'by domination'}. Finished with ${holdings}.`;
   }
@@ -249,6 +302,40 @@ export function formatLeaderboard(lb: Leaderboard): string {
   return lines.join('\n');
 }
 
+export function formatLeaderboardMarkdown(lb: Leaderboard): string {
+  if (lb.games === 0) return '# Risk Tournament Leaderboard\n\n*No games played yet.*\n';
+  const lines: string[] = [
+    '# Risk Tournament Leaderboard',
+    '',
+    `*Empirical rankings across ${lb.games} AI self-play match${lb.games === 1 ? '' : 'es'}.*`,
+    '',
+    '## Character / Seat Standings',
+    '',
+    '| Rank | Player / Character | Points | Games | Wins (1st) | Win Rate | Losses | Avg Place | Eliminations |',
+    '| :---: | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |',
+  ];
+  for (const r of lb.byCharacter) {
+    const winRate = ((r.wins / r.games) * 100).toFixed(1) + '%';
+    const avgPlace = r.avgPlacement.toFixed(2);
+    lines.push(`| #${r.rank} | **${r.key}** | **${r.points}** | ${r.games} | ${r.wins} | ${winRate} | ${r.losses} | ${avgPlace} | ${r.kills} |`);
+  }
+  lines.push('');
+  lines.push('## Map Breakdown');
+  lines.push('');
+  lines.push('| Map | Games | Dominant Winner(s) |');
+  lines.push('| :--- | :---: | :--- |');
+  for (const m of lb.byMap) {
+    const topWinners = Object.entries(m.wins)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([k, n]) => `${k} (${n} win${n === 1 ? '' : 's'})`)
+      .join(', ') || 'None';
+    lines.push(`| ${m.map} | ${m.games} | ${topWinners} |`);
+  }
+  lines.push('');
+  return lines.join('\n');
+}
+
 // ---------------------------------------------------------------------------
 // Seat notes
 // ---------------------------------------------------------------------------
@@ -323,7 +410,7 @@ export function extractWatchers(chat: SeatReport['chat']): { key: string; name: 
   return [...byKey.values()];
 }
 
-async function writeNote(llm: Llm | null, r: GameResult, seat: SeatReport, board: string, learningsDir: string, log: (l: string) => void): Promise<{ name: string; text: string; file: string }> {
+async function writeNote(llm: Llm | null, r: GameResult, seat: SeatReport, board: string, learningsDir: string, log: (l: string) => void, mechanics = ''): Promise<{ name: string; text: string; file: string }> {
   const row = r.seats.find((s) => s.name === seat.name);
   const result = row ? resultText(r, row) : `Game ${r.gameId} ended.`;
   let text = fallbackNote(seat.name, r.gameId, result, seat.privateLog);
@@ -342,12 +429,12 @@ async function writeNote(llm: Llm | null, r: GameResult, seat: SeatReport, board
               `You are ${seat.name}, a Risk player, writing your post-game notes for the shared learnings folder so that future players (including you) play better.`,
               'Write Markdown in exactly this shape, no code fences, no JSON:',
               `# ${seat.name} learnings ${r.gameId}`,
-              '- 3 to 6 bullets: what happened and what you noticed (concrete: territories, bonuses, capitals, card trades, mistakes, what the table did).',
+              '- 3 to 6 bullets: what happened and what you noticed (concrete: settings, card values mode, territories, bonuses, capitals and capital placement on doorway choke points / blizzard bottlenecks with outward attack exits, attack order/routing, troop staging/interior pockets, card trades, mistakes, what the table did).',
               '## Result',
               'One or two lines: how it ended for you.',
               '## Top lessons',
-              '- 3 to 5 bullets a future player can act on, each one specific.',
-              'Each line of your private log may name your winPath and its plan (how you meant to win). Judge in the notes whether that plan worked, and what you would pick instead.',
+              '- 3 to 5 bullets a future player can act on, each one specific to the game settings (e.g. fixed vs progressive vs exponential cards, fog vs non-fog, capital placement on doorway choke points with attack exits, blizzards, attack routing, troop staging).',
+              'Each line of your private log may name your winPath and its plan (how you meant to win), plus tactical choices (placeOn, route, fortifyTo, moveCapitalStack). Judge in the notes whether that plan and routing worked, whether your initial capital placement on a choke point served as an effective doorway to defend bonuses with 3 dice while attacking outward in multiple directions (vs. getting buried in an interior pocket with no exits or trapped armies), whether any troops were accidentally stranded in friendly interior pockets during peacetime (distinguishing intentional pushes into dead-end pockets to execute an elimination or capture a capital, which is a winning play), how well you took/defended bonuses and capitals under these specific card and fog settings, and what you would pick instead.',
               'If you made deals, say in the notes which were kept or broken and what that cost or gained you.',
               'Use only the facts given below. Do not invent events, numbers or quotes.',
             ].join('\n'),
@@ -357,6 +444,7 @@ async function writeNote(llm: Llm | null, r: GameResult, seat: SeatReport, board
             content: [
               `Game ${r.gameId} on ${r.map}, ${r.rounds} rounds.`,
               `Your result: ${result}`,
+              ...(mechanics ? [mechanics] : []),
               '',
               'Final standings:',
               statsTable(r),
@@ -466,6 +554,8 @@ export interface Bullet {
   /** From the evidence tag `(N games, last GAMEID)`; null when the bullet has none. */
   games: number | null;
   last: string | null;
+  /** Optional category or setting section, e.g. "Capitals Conquest", "Fog of War", etc. */
+  category?: string | null;
   /** Under "### Challenges to earlier advice". */
   challenge: boolean;
 }
@@ -480,18 +570,21 @@ const withoutTag = (text: string) => text.replace(EVIDENCE_TAG, '').trim();
 export function parseBullets(text: string): Bullet[] {
   const out: Bullet[] = [];
   let challenge = false;
+  let category: string | null = null;
   for (const line of text.split(/\r?\n/)) {
     if (/^\s*#{3,}\s/.test(line)) {
       challenge = /challenges to earlier advice/i.test(line);
+      category = challenge ? null : line.replace(/^\s*#{3,}\s*/, '').trim();
       continue;
     }
     if (/^\s*#{1,2}\s/.test(line)) {
       challenge = false;
+      category = null;
       continue;
     }
     const m = BULLET_LINE.exec(line);
     if (m) {
-      out.push({ text: m[1].trim(), games: null, last: null, challenge });
+      out.push({ text: m[1].trim(), games: null, last: null, category, challenge });
     } else if (line.trim() && /^\s+\S/.test(line) && out.length > 0) {
       out[out.length - 1].text += ` ${line.trim()}`;
     }
@@ -507,9 +600,32 @@ export function parseBullets(text: string): Bullet[] {
 }
 
 export function formatBullets(bullets: Bullet[]): string {
-  const main = bullets.filter((b) => !b.challenge).map((b) => `- ${b.text}`);
+  const byCategory = new Map<string, Bullet[]>();
+  const uncategorized: Bullet[] = [];
+  for (const b of bullets) {
+    if (b.challenge) continue;
+    if (b.category) {
+      const list = byCategory.get(b.category) ?? [];
+      list.push(b);
+      byCategory.set(b.category, list);
+    } else {
+      uncategorized.push(b);
+    }
+  }
+  const parts: string[] = [];
+  if (uncategorized.length > 0) {
+    parts.push(uncategorized.map((b) => `- ${b.text}`).join('\n'));
+  }
+  for (const [cat, items] of byCategory) {
+    if (items.length > 0) {
+      parts.push(`### ${cat}\n${items.map((b) => `- ${b.text}`).join('\n')}`);
+    }
+  }
   const ch = bullets.filter((b) => b.challenge).map((b) => `- ${b.text}`);
-  return [...main, ...(ch.length > 0 ? ['', CHALLENGES_HEADING, ...ch] : [])].join('\n').trim();
+  if (ch.length > 0) {
+    parts.push(`${CHALLENGES_HEADING}\n${ch.join('\n')}`);
+  }
+  return parts.join('\n\n').trim();
 }
 
 /** The words before the first colon, full stop, semicolon or " - " (at most 8 words), markdown stripped. */
@@ -583,7 +699,7 @@ export function enforceCuration(raw: string, ctx: CurationContext): string | nul
   const note = (line: string) => ctx.log?.(`Curator: ${line}`);
   const old = parseBullets(ctx.previous);
   const human = parseBullets(ctx.human);
-  const kept: Bullet[] = [];
+  const updatedOld: Bullet[] = [];
   const fresh: Bullet[] = [];
   for (const b of parseBullets(structural)) {
     const same = old.find((o) => isDuplicate(o.text, b.text));
@@ -592,13 +708,13 @@ export function enforceCuration(raw: string, ctx: CurationContext): string | nul
       const asked = b.games ?? was;
       const games = Math.min(Math.max(asked, was), was + 1);
       const last = games > was ? ctx.gameId : (same.last ?? ctx.gameId);
-      const next: Bullet = { ...b, text: `${withoutTag(b.text)} (${games} game${games === 1 ? '' : 's'}, last ${last})`, games, last };
+      const next: Bullet = { ...b, category: b.category ?? same.category, text: `${withoutTag(b.text)} (${games} game${games === 1 ? '' : 's'}, last ${last})`, games, last };
       if (b.challenge && games < MIN_CHALLENGE_GAMES) {
         note(`dropped a challenge seen in only ${games} game(s): ${leadPhrase(b.text)}`);
         continue;
       }
-      if (kept.some((k) => isDuplicate(k.text, next.text))) continue;
-      kept.push(next);
+      if (updatedOld.some((k) => isDuplicate(k.text, next.text))) continue;
+      updatedOld.push(next);
       continue;
     }
     if (b.challenge) {
@@ -617,15 +733,36 @@ export function enforceCuration(raw: string, ctx: CurationContext): string | nul
       note(`dropped a new bullet that restates the human-written advice: ${leadPhrase(b.text)}`);
       continue;
     }
-    if (kept.some((k) => isDuplicate(k.text, b.text))) continue;
+    if (fresh.some((k) => isDuplicate(k.text, b.text)) || old.some((o) => isDuplicate(o.text, b.text))) continue;
     fresh.push(b);
-    kept.push(b);
   }
-  let result = kept;
+  const freshToAdd = fresh.slice(0, MAX_NEW_BULLETS);
   if (fresh.length > MAX_NEW_BULLETS) {
-    note(`${fresh.length} new bullets; keeping the old section plus the first ${MAX_NEW_BULLETS}`);
-    const room = Math.max(0, MAX_SECTION_BULLETS - old.length);
-    result = [...old, ...fresh.slice(0, Math.min(MAX_NEW_BULLETS, room))];
+    note(`${fresh.length} new bullets; keeping existing findings plus the first ${MAX_NEW_BULLETS}`);
+  }
+
+  // Preserve all existing bullets in `old`. If an old bullet was matched and updated by the curator,
+  // use the updated version; otherwise keep the original bullet untouched so historical learnings are never lost.
+  const merged: Bullet[] = [];
+  for (const o of old) {
+    const updated = updatedOld.find((u) => isDuplicate(u.text, o.text));
+    merged.push(updated ?? o);
+  }
+  for (const u of updatedOld) {
+    if (!merged.some((m) => isDuplicate(m.text, u.text))) {
+      merged.push(u);
+    }
+  }
+
+  // Add the fresh bullets up to MAX_SECTION_BULLETS
+  const room = Math.max(0, MAX_SECTION_BULLETS - merged.length);
+  let result: Bullet[] = [...merged, ...freshToAdd.slice(0, room)];
+  if (result.length > MAX_SECTION_BULLETS) {
+    const challenges = result.filter((b) => b.challenge);
+    const main = result.filter((b) => !b.challenge);
+    main.sort((a, b) => (b.games ?? 1) - (a.games ?? 1));
+    const allowedMain = Math.max(0, MAX_SECTION_BULLETS - challenges.length);
+    result = [...main.slice(0, allowedMain), ...challenges];
   }
   if (result.length === 0 || result.length > MAX_SECTION_BULLETS) return null;
   const text = formatBullets(result);
@@ -656,6 +793,8 @@ export interface CurateInput {
   gameId: string;
   notes: { name: string; text: string }[];
   leaderboard: string;
+  /** Game options/settings of this game, used to categorize findings. */
+  options?: GameOptions;
   /** This game's result (standings), for the prompt and the evidence check. */
   result?: GameResult;
   now?: () => Date;
@@ -687,6 +826,8 @@ export async function curateLearnings(i: CurateInput): Promise<'updated' | 'kept
           content: [
             'You are the curator of the bot-managed section "Findings from AI self-play games" at the end of the shared Risk learnings file, read by AI players before they play.',
             'Be strict and sparing: one game is thin evidence. Output ONLY the new body of that section: Markdown bullets, at most 40 in total.',
+            'Categorize findings by the settings of the game using "###" headings: "### Fixed Cards (Continental Attrition & Border Defense)", "### Progressive Cards (Escalating Spoils & Chain Eliminations)", "### Exponential Cards (Personal Sequences & Surge Timing)", "### Attack Routing & Troop Staging (Spearheads & Interior Pocket Prevention)", "### Fog of War (Concealed Armies & Income Probing)", "### Non-Fog of War (Public Board & Coalition Counterplay)", "### Capitals Conquest", "### Eliminations & Leaderboard Climbing", "### Multi-Party Alliances & Global Coalitions".',
+            'Focus heavily on deep tactical learning: capital placement (leveraging capitals on doorway choke points to guard bonuses with 3-dice defense while maintaining offensive attack exits in multiple directions vs buried interior pockets that trap armies), map geography and how blizzards alter chokepoints, attack patterns and sequential attack order, troop staging (concentrated spearhead placement, avoiding stranded interior armies with 4+ troops, end-of-turn fortify pullbacks to chokepoints), and clear strategic differentiation between game modes (fixed card attrition vs progressive card chains vs exponential personal surges, fog concealment vs public boards).',
             'Hard rules (code checks every one and throws away what breaks them):',
             `- At most ${MAX_NEW_BULLETS} NEW bullets this game. A bullet that says what an existing bullet says is not new: keep it and raise its count by one instead of adding a copy. If nothing new was learned, add nothing.`,
             `- Each bullet ends with its evidence tag "(N games, last GAMEID)". A new bullet is "(1 game, last ${i.gameId})" and must cite concrete evidence from this game's results: player names, rounds, territory or army numbers.`,
@@ -701,7 +842,17 @@ export async function curateLearnings(i: CurateInput): Promise<'updated' | 'kept
           role: 'user',
           content: [
             `Game just finished: ${i.gameId}.`,
-            '',
+            ...(i.options
+              ? [
+                  'Game settings for this game:',
+                  `- Map: ${i.options.map}`,
+                  `- Fog of War: ${i.options.fogOfWar ? 'ON (fogged territories/armies: opponents\' territory and army counts are strictly hidden; only turn reinforcement income and card count are public)' : 'OFF (public board, exact troop budgets, public all-chat coalitions)'}`,
+                  `- Win Condition: ${i.options.capitals ? 'Capitals Conquest (hold all capitals to win)' : 'World Domination'}`,
+                  `- Card values: ${i.options.cardValues} (${i.options.cardValues === 'fixed' ? 'FIXED 4-10 armies: continent bonuses and static border defenses dominate, no sudden card bailouts' : i.options.cardValues === 'exponential' ? 'EXPONENTIAL: personal trade sequences scale by 1.3x' : 'PROGRESSIVE: escalating table trades dominate, chain eliminations'})`,
+                  `- Blizzards: ${i.options.blizzards}`,
+                  '',
+                ]
+              : []),
             'Human-written part: headings and bullet lead phrases (read only; do not restate any of it):',
             humanOutline(`${split.above}\n${split.below}`) || '(none)',
             '',
@@ -765,6 +916,14 @@ export interface PostGameInput {
   seats: SeatReport[];
   tracker: GameTracker;
   charactersKey?: string;
+  /** Pure mechanics training: skip character memory/experience/diary writes, write results to mechanics-results.jsonl, and focus LLM reflection on top finishers. */
+  mechanicsOnly?: boolean;
+  /** Skip running the curator on this game (e.g. when batching curation every N games). */
+  skipCurate?: boolean;
+  /** Skip character memory and grudge/rivalry reflection LLM calls to optimize test speed while preserving all match stats & leaderboard. */
+  skipRivalries?: boolean;
+  smartSeats?: number;
+  generation?: string;
   now?: () => Date;
   log: (line: string) => void;
 }
@@ -781,38 +940,62 @@ export async function runPostGame(i: PostGameInput): Promise<PostGameOutput> {
 }
 
 async function runPostGameLocked(i: PostGameInput): Promise<PostGameOutput> {
-  const result = buildResult(i.final, i.seats, i.tracker, { gameId: i.gameId, date: i.now?.() });
-  const existing = await readResults(i.learningsDir);
-  if (!existing.some(r => r.gameId === result.gameId)) await appendResult(i.learningsDir, result);
+  const result = buildResult(i.final, i.seats, i.tracker, { gameId: i.gameId, date: i.now?.(), smartSeats: i.smartSeats, generation: i.generation });
+  if (i.mechanicsOnly) {
+    await mkdir(i.learningsDir, { recursive: true });
+    await appendFile(path.join(i.learningsDir, 'mechanics-results.jsonl'), `${JSON.stringify(result)}\n`, 'utf8');
+  } else {
+    const existing = await readResults(i.learningsDir);
+    if (!existing.some(r => r.gameId === result.gameId)) await appendResult(i.learningsDir, result);
+  }
   const leaderboard = computeLeaderboard(await readResults(i.learningsDir));
   const leaderboardText = formatLeaderboard(leaderboard);
-
-  const notes = await Promise.all(i.seats.map((s) => writeNote(i.llm, result, s, leaderboardText, i.learningsDir, i.log)));
-  i.log(`Wrote ${notes.length} notes to ${path.join(i.learningsDir, 'learnings')}`);
-
-  for (const seat of i.seats) {
-    const note = notes.find(n => n.name === seat.name);
-    if (seat.characterId && note) {
-      await addPersonalityMemory(i.learningsDir, seat.characterId, i.gameId, note.text);
-      const own = result.seats.find(s => s.character === seat.characterId)!;
-      const opponents = result.seats.filter(s => s !== own).map(s => ({ key: s.character ?? 'player:' + s.name.toLowerCase(), name: s.name }));
-      const watchers = extractWatchers(seat.chat);
-      await updateExperience({ dir: i.learningsDir, id: seat.characterId, name: seat.name, gameId: i.gameId, note: note.text,
-        ownWon: own.placement === 1, myPlacement: own.placement,
-        opponentResults: Object.fromEntries(result.seats.filter(s=>s!==own).map(s=>[s.character ?? 'player:' + s.name.toLowerCase(), {won:s.placement===1,placement:s.placement}])),
-        opponents, watchers, deals: seat.observedDeals ?? [], llm: i.llm, log: i.log });
-    }
+  const leaderboardMarkdown = formatLeaderboardMarkdown(leaderboard);
+  try {
+    await writeFile(path.join(i.learningsDir, 'LEADERBOARD.md'), leaderboardMarkdown, 'utf8');
+  } catch (e) {
+    i.log(`Warning: could not write LEADERBOARD.md: ${(e as Error).message}`);
   }
 
-  if (i.charactersKey) {
-    await Promise.all(i.seats.map((s) => saveCharacter(i.api, i.charactersKey!, result, s, notes.find((n) => n.name === s.name)?.text ?? '', i.log)));
+
+  const notes = await Promise.all(
+    i.seats.map((s) => {
+      const row = result.seats.find((r) => r.name === s.name);
+      const seatLlm = i.skipCurate || (i.mechanicsOnly && row && row.placement > 2) ? null : i.llm;
+      return writeNote(seatLlm, result, s, leaderboardText, i.learningsDir, i.log, i.tracker.mechanicsText(s.playerId));
+    }),
+  );
+  i.log(`Wrote ${notes.length} notes to ${path.join(i.learningsDir, 'learnings')}`);
+
+  if (!i.mechanicsOnly) {
+    for (const seat of i.seats) {
+      const note = notes.find(n => n.name === seat.name);
+      if (seat.characterId && note) {
+        if (!i.skipRivalries) {
+          await addPersonalityMemory(i.learningsDir, seat.characterId, i.gameId, note.text);
+        }
+        const own = result.seats.find(s => s.character === seat.characterId)!;
+        const opponents = result.seats.filter(s => s !== own).map(s => ({ key: s.character ?? 'player:' + s.name.toLowerCase(), name: s.name }));
+        const watchers = extractWatchers(seat.chat);
+        await updateExperience({ dir: i.learningsDir, id: seat.characterId, name: seat.name, gameId: i.gameId, note: note.text,
+          ownWon: own.placement === 1, myPlacement: own.placement,
+          opponentResults: Object.fromEntries(result.seats.filter(s=>s!==own).map(s=>[s.character ?? 'player:' + s.name.toLowerCase(), {won:s.placement===1,placement:s.placement}])),
+          opponents, watchers, deals: seat.observedDeals ?? [], llm: i.skipRivalries ? null : i.llm, log: i.log });
+      }
+    }
+
+    if (i.charactersKey) {
+      await Promise.all(i.seats.map((s) => saveCharacter(i.api, i.charactersKey!, result, s, notes.find((n) => n.name === s.name)?.text ?? '', i.log)));
+    } else {
+      i.log('No --characters-key: server diary/relationship saves skipped; local character memories saved');
+    }
   } else {
-    i.log('No --characters-key: server diary/relationship saves skipped; local character memories saved');
+    i.log('Mechanics-only mode: character memories, experience, and server diaries skipped');
   }
 
   let curated: PostGameOutput['curated'] = 'skipped';
-  if (i.llm) {
-    curated = await curateLearnings({ llm: i.llm, learningsDir: i.learningsDir, gameId: i.gameId, notes, leaderboard: leaderboardText, result, now: i.now, log: i.log });
+  if (i.llm && !i.skipCurate) {
+    curated = await curateLearnings({ llm: i.llm, learningsDir: i.learningsDir, gameId: i.gameId, notes, leaderboard: leaderboardText, options: i.final.options, result, now: i.now, log: i.log });
     i.log(curated === 'updated' ? 'RISK_LEARNINGS.md bot section updated' : 'RISK_LEARNINGS.md unchanged');
   }
   return { result, leaderboard, leaderboardText, curated };

@@ -17,8 +17,8 @@ export function planElimination(view: GameView, me: PlayerId, options: KillOptio
     if (!ts.length || ts.length > 4 || victim.territoryCount !== ts.length) continue;
     const campaign = planConquest(view, me, ts, options);
     if (!campaign) continue;
-    const score = 20 + victim.cardCount * cardValue + (victim.cardCount >= 3 ? 6 : 0) +
-      ((mine?.cardCount ?? 0) + victim.cardCount >= 5 ? cardValue : 0) - campaign.cost - campaign.deficit * 0.25;
+    const score = 35 + victim.cardCount * cardValue + (victim.cardCount >= 3 ? 8 : 0) +
+      ((mine?.cardCount ?? 0) + victim.cardCount >= 5 ? cardValue * 1.5 : 0) - campaign.cost - campaign.deficit * 0.25;
     if (score > 0 && (!best || score > best.score)) best = { ...campaign, target: victim.id, score };
   }
   return best;

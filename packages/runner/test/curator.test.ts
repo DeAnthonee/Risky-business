@@ -119,6 +119,33 @@ ${base} (4 games, last G9)`;
     expect(parseBullets(out)).toHaveLength(40); // the old section plus only as many new bullets as fit
   });
 
+  it('accumulates new bullets with existing findings without overwriting them', () => {
+    // Model emits ONLY fresh(0), omitting the oldSection bullets
+    const out = enforceCuration(fresh(0), ctx({ previous: oldSection }))!;
+    expect(out).toContain('Blizzard borders stall attacks');
+    expect(out).toContain('Card sets snowball');
+    expect(out).toContain('Lux held Oceania');
+    expect(parseBullets(out)).toHaveLength(3);
+  });
+
+  it('preserves unmentioned old bullets even when model updates one old bullet and adds one fresh bullet', () => {
+    // Model updates only the first bullet from oldSection, adds fresh(0), and omits the second bullet
+    const partialUpdate = [
+      '- Blizzard borders stall attacks, so count the entry points before a bonus push (3 games, last G9)',
+      fresh(0),
+    ].join('\n');
+    const out = enforceCuration(partialUpdate, ctx({ previous: oldSection }))!;
+    expect(out).toContain('Blizzard borders stall attacks');
+    expect(out).toContain('Card sets snowball');
+    expect(out).toContain('Lux held Oceania');
+    const bullets = parseBullets(out);
+    expect(bullets).toHaveLength(3);
+    expect(bullets[0]).toMatchObject({ games: 3, last: 'G9' });
+    expect(bullets[1]).toMatchObject({ games: 1, last: 'G8' });
+    expect(bullets[2]).toMatchObject({ games: 1, last: 'G9' });
+  });
+
+
   it('lists human headings and bullet lead phrases for the prompt', () => {
     const out = humanOutline('# T\n\n## Capitals\n- **Garrison your capital**: it decides the game. Long explanation follows.\n- Never attack early; wait.');
     expect(out).toContain('## Capitals');

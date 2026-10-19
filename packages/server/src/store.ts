@@ -120,6 +120,8 @@ export interface GameSummary {
   turnNumber: number;
   /** A scenario: the recorded game and step it began from. */
   scenarioOf?: ScenarioRef;
+  /** Set on a tournament table: the tournament it belongs to. */
+  tournamentId?: string;
 }
 
 export interface ChangeMessage {
@@ -292,6 +294,7 @@ export class GameRoom extends EventEmitter {
       winner: s.winner,
       turnNumber: s.turnNumber,
       ...(this.scenarioOf ? { scenarioOf: this.scenarioOf } : {}),
+      ...(this.tournamentId ? { tournamentId: this.tournamentId } : {}),
     };
   }
 

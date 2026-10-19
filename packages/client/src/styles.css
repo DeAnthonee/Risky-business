@@ -1778,7 +1778,7 @@ label.check input {
 .profile-dialog::backdrop { background: #030a14b8; }
 .profile-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .profile-header h2 { margin: 0; }
-.profile-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 24px 0; }
+.profile-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; margin: 24px 0; }
 .profile-stats > div { padding: 14px; border-radius: 8px; background: #0a1728; }
 .profile-stats dt { color: #9db1c9; font-size: .8rem; }
 .profile-victims { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0 0 16px; padding: 0; list-style: none; color: #c9d6e6; }
@@ -1792,3 +1792,26 @@ label.check input {
 .leaderboard th, .leaderboard td { padding: 12px; border-bottom: 1px solid #ffffff18; white-space: nowrap; }
 .leaderboard th { color: #9db1c9; font-size: .8rem; }
 @media (max-width: 540px) { .profile-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } .profile-dialog { padding: 16px; } }
+
+/* Spectator auto-redirect banner */
+.auto-redirect-banner {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--panel2);
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  font-size: 0.9rem;
+}
+.auto-redirect-banner .countdown-badge {
+  color: var(--accent);
+  font-weight: 700;
+}
+@keyframes pulse-opacity {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+.pulse {
+  animation: pulse-opacity 1.5s infinite;
+}

@@ -94,7 +94,7 @@ export function setGameInUrl(gameId: string | null, spectate = false) {
   const u = new URL(window.location.href);
   if (gameId) u.searchParams.set('game', gameId);
   else u.searchParams.delete('game');
-  if (gameId && spectate) u.searchParams.set('spectate', '1');
+  if (spectate) u.searchParams.set('spectate', '1');
   else u.searchParams.delete('spectate');
   window.history.replaceState({}, '', u.toString());
 }

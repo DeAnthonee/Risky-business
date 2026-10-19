@@ -48,6 +48,12 @@ export interface Plan {
   winPlan?: string;
   /** Remaining armies promised to commit into attacks against `target` under an active joint_attack deal. */
   commitArmies?: number;
+  /** Territories where the commander explicitly wants reinforcements placed this turn. */
+  placeOn?: TerritoryId[] | TerritoryId;
+  /** Ordered sequence of territories the commander wants to attack/advance through this turn. */
+  route?: TerritoryId[];
+  /** Territory the commander wants to fortify back to at the end of the turn (e.g. a capital or choke). */
+  fortifyTo?: TerritoryId | null;
 }
 
 interface CleanPlan {
@@ -69,6 +75,9 @@ interface CleanPlan {
   skipCard: boolean;
   winPath: WinPath | null;
   commitArmies: number;
+  placeOn: TerritoryId[];
+  route: TerritoryId[];
+  fortifyTo: TerritoryId | null;
 }
 
 const DEFAULT_AGGRESSION = 0.5;
@@ -125,6 +134,9 @@ export function cleanPlan(plan: Plan | null | undefined, view: GameView, me: Pla
     skipCard: raw.skipCard === true && reason.length > 0,
     winPath,
     commitArmies: Math.round(num(raw.commitArmies, 1, 500) ?? 0),
+    placeOn: [...new Set((Array.isArray(raw.placeOn) ? raw.placeOn : typeof raw.placeOn === 'string' ? [raw.placeOn] : []).filter((x): x is string => typeof x === 'string' && map.isTerritory(x)))],
+    route: [...new Set((Array.isArray(raw.route) ? raw.route : typeof raw.route === 'string' ? [raw.route] : []).filter((x): x is string => typeof x === 'string' && map.isTerritory(x)))],
+    fortifyTo: typeof raw.fortifyTo === 'string' && map.isTerritory(raw.fortifyTo) ? raw.fortifyTo : null,
   };
 }
 
@@ -404,7 +416,8 @@ class Chooser {
     if (this.view.phase === 'attack') {
       // A complete, affordable elimination outranks routine bonus pokes or the once-per-turn card.
       const kill = this.elimination();
-      const objective = kill ?? this.bonusCampaign();
+      const hasExplicitRoute = this.plan.route.some((r) => this.lm.attacks.some((l) => l.to === r));
+      const objective = kill ?? (hasExplicitRoute ? null : this.bonusCampaign());
       const route = objective?.attacks.find(a => this.lm.attacks.some(l => l.from === a.from && l.to === a.to));
       if (route && !this.lm.attacks.some(a => this.winsGame(a.to) && this.chance(this.armies(a.from) - 1, a.to) >= 0.9)) {
         return { type: 'attack', from: route.from, to: route.to, blitz: true, stopAt: route.keep };
@@ -433,8 +446,7 @@ class Chooser {
   private campaignOptions(reinforcements = 0, transfer?: CampaignOptions['transfer']): CampaignOptions {
     return {
       avoid: this.plan.avoid, noAttack: this.plan.noAttack,
-      floor: t => this.myCapitals.has(t) ? this.capFloor(t) : 1,
-      stationary: new Set([...this.myCapitals].filter(t => !this.plan.moveCapitalStack && !this.hopeless() && this.hostileNeighbours(t).length > 0)),
+      floor: t => this.myCapitals.has(t) ? (this.plan.moveCapitalStack || this.plan.route.includes(t) ? (this.plan.capitalGarrison ?? 1) : this.capFloor(t)) : 1,
       reinforcements, transfer,
     };
   }
@@ -466,21 +478,24 @@ class Chooser {
     const clamp = (n: number) => Math.max(min, Math.min(max, n));
     const have = this.armies(from);
     // A capital we hold keeps its floor (a soft few, or the plan's garrison).
-    const cap = this.myCapitals.has(from) ? this.capFloor(from) : 1;
+    const cap = this.myCapitals.has(from) ? (this.plan.moveCapitalStack || this.plan.route.includes(from) ? (this.plan.capitalGarrison ?? 1) : this.capFloor(from)) : 1;
     const ceiling = clamp(have - cap);
     const fromHostile = this.hostileNeighbours(from).filter((n) => n !== to);
-    // A capital that still borders enemies keeps its stack home, unless the plan lets the capital stack move.
-    if (this.myCapitals.has(from) && fromHostile.length > 0 && !this.plan.moveCapitalStack && !this.hopeless()) return min;
+    const toHostile = this.hostileNeighbours(to);
+    if (fromHostile.length > 0 && toHostile.length === 0 && !this.capitalOf.has(to) && this.plan.fortifyTo !== to) return min;
+    if (this.plan.route.includes(to) && this.plan.route.slice(this.plan.route.indexOf(to) + 1).some((r) => this.hostile(r))) return ceiling;
     const kill = this.elimination(0, { from, to, min, max: Math.min(max, have - cap) });
     if (kill?.occupy !== undefined) return kill.occupy;
     const bonus = this.bonusCampaign(0, { from, to, min, max: Math.min(max, have - cap) });
     if (bonus?.occupy !== undefined) return bonus.occupy;
     if (fromHostile.length === 0) return ceiling; // the source became interior: the whole stack goes
     // Does the attack go on from the new territory? Then the stack goes with it.
-    const toHostile = this.hostileNeighbours(to);
     const carry = Math.max(0, ceiling);
     const continues = toHostile.some((e) => this.chance(Math.max(1, carry), e) >= this.threshold() && !this.plan.avoid.has(this.owner(e)!) && !this.plan.noAttack.has(e));
+    if (this.plan.route.includes(to) && this.plan.route.slice(this.plan.route.indexOf(to) + 1).some((r) => this.hostile(r))) return ceiling;
     if (continues) return ceiling;
+    // Never strand the stack in a dead-end interior pocket while enemies still border `from`.
+    if (toHostile.length === 0 && !this.capitalOf.has(to) && this.plan.fortifyTo !== to) return min;
     // Otherwise leave a guard on the old border, and a garrison on a freshly captured capital.
     const guard = Math.max(cap, this.plan.borderGuard <= 0 ? 1 : Math.ceil(this.floorThreat(fromHostile) * 0.75 * this.plan.borderGuard) + 1);
     let n = clamp(have - guard);
@@ -525,7 +540,7 @@ class Chooser {
 
       // Measured commit from a capital: the smallest force that reaches the target odds, allowed to dip below a soft
       // floor by a bounded share when it is a card attack or has a real purpose. The rest stays home.
-      if (fromCapital && !wins && !hopeless) {
+      if (fromCapital && !wins && !hopeless && !this.plan.moveCapitalStack && !this.plan.route.includes(a.to)) {
         const dips = !hardGarrison && ((!this.conquered && !this.plan.skipCard) || purpose >= DIP_PURPOSE);
         const keepMin = dips ? Math.max(1, Math.ceil(floor * (1 - this.dipFraction()))) : floor;
         const most = have - keepMin;
@@ -558,7 +573,11 @@ class Chooser {
       if (!ok) continue;
       // A near-certain win over a big stack is decisive (and breaks two giants trading small territories forever).
       const commitBonus = this.plan.commitArmies > 0 && toOwner === this.plan.target ? 8 : 0;
-      const score = purpose + commitBonus + p * 2 + (p >= 0.95 ? Math.min(d, 100) * 0.1 : -Math.min(d, 25) * 0.04) + this.random() * 0.3;
+      const nextRouteTarget = this.plan.route.find((r) => this.hostile(r));
+      const routeBonus = a.to === nextRouteTarget ? 12 : this.plan.route.includes(a.to) ? 6 : 0;
+      const launchBonus = (this.plan.route.includes(a.from) || this.plan.placeOn.includes(a.from)) && routeBonus > 0 ? 4 : 0;
+      const pocketBonus = this.hostileNeighbours(a.from).length > 1 && this.hostileNeighbours(a.to).length === 0 ? 2 : 0;
+      const score = purpose + commitBonus + routeBonus + launchBonus + pocketBonus + p * 2 + (p >= 0.95 ? Math.min(d, 100) * 0.1 : -Math.min(d, 25) * 0.04) + this.random() * 0.3;
       if (!best || score > best.score) best = { from: a.from, to: a.to, score, purpose, p, keep: have - commit };
     }
     return best;
@@ -630,18 +649,21 @@ class Chooser {
     if (share.missing.length === 1 && share.missing[0] === to) cs += 6 + bonus;
     else if (share.missing.length <= 3 && share.mine * 2 >= share.total && share.missing.includes(to)) cs += 2.5 + bonus * 0.3;
     const holder = this.view.continentOwners[cont];
-    if (holder && holder !== this.me && holder === toOwner) cs += 3.5 + bonus * 0.7;
+    if (holder && holder !== this.me && holder === toOwner) cs += 4.5 + bonus * 0.8;
     s += path === 'bonuses' ? cs * 1.5 : cs;
     const capOwner = this.capitalOf.get(to);
     if (capOwner && capOwner !== this.me) s += path === 'capitals' ? 7 : 4;
     const focus = this.inFocus(to);
     if (focus === 2) s += 7;
     else if (focus === 1) s += 3.5;
-    if (this.plan.target && toOwner === this.plan.target) s += path === 'hopeless' ? 10 : 3;
+    if (this.plan.route.includes(to)) s += 6;
+    if (this.plan.target && toOwner === this.plan.target) s += path === 'hopeless' ? 10 : (path === 'kills' ? 5.5 : 3.5);
     const p = this.view.players.find((x) => x.id === toOwner);
-    if (p && p.territoryCount === 1) s += 5 + p.cardCount * 1.5;
-    else if (p && p.cardCount >= 3) s += path === 'cards' ? 3 : 0.8;
-    if (path === 'kills' && p && p.territoryCount !== null && p.territoryCount <= 4) s += 3 + p.cardCount * 0.8;
+    if (p && p.territoryCount === 1) s += (path === 'kills' ? 8 : 6) + p.cardCount * 1.5;
+    else if (p && p.cardCount >= 5) s += (path === 'kills' || path === 'cards' ? 6 : 4);
+    else if (p && p.cardCount >= 4) s += (path === 'kills' || path === 'cards' ? 4.5 : 2.5);
+    else if (p && p.cardCount >= 3) s += path === 'cards' ? 3 : 1.2;
+    if (path === 'kills' && p && (p.territoryCount === null || p.territoryCount <= 4)) s += 4 + p.cardCount * 1.2;
     if (toOwner === this.leader) s += 1;
     // Taking it makes the launch point interior.
     if (this.hostileNeighbours(from).length === 1) s += 1.5;
@@ -718,6 +740,29 @@ class Chooser {
       n = Math.max(0, Math.min(left, Math.floor(n)));
       if (n > 0) { result[t] = (result[t] ?? 0) + n; left -= n; }
     };
+
+    // If the Commander explicitly chose placement territories, honor them directly.
+    const chosenPlace = this.plan.placeOn.filter((t) => mine.includes(t));
+    if (chosenPlace.length > 0) {
+      const per = Math.floor(left / chosenPlace.length);
+      for (const t of chosenPlace) add(t, per);
+      for (const t of chosenPlace) if (left > 0) add(t, 1);
+      return result;
+    }
+
+    // If the Commander specified an explicit attack route, stage reinforcements at its launch pad.
+    if (this.plan.route.length > 0 && left > 0) {
+      const firstStep = this.plan.route[0];
+      const launch = mine.includes(firstStep)
+        ? firstStep
+        : mine
+          .filter((t) => this.map.adjacency[t].includes(firstStep) && !this.blizzards.has(firstStep))
+          .sort((a, b) => this.armies(b) - this.armies(a))[0];
+      if (launch) {
+        add(launch, left);
+        return result;
+      }
+    }
 
     // First fund the entire objective, not just its most attractive first attack.
     const campaign = this.elimination(pool) ?? this.bonusCampaign(pool);
@@ -807,6 +852,7 @@ class Chooser {
     if (this.myCapitals.has(t)) n += Math.max(0, this.capWanted(t) - have) * 1.5;
     if (this.isBonusBorder(t)) n += 2 * this.plan.borderGuard;
     n += this.inFocus(t) * 1.5 + (this.nearFocus(t) ? 1.5 : 0);
+    if (this.plan.fortifyTo === t) n += 25;
     return n;
   }
 
@@ -816,23 +862,28 @@ class Chooser {
     if (opts.length === 0) return null;
     const isBorder = (t: TerritoryId) => this.hostileNeighbours(t).length > 0;
     // Inside out: interior stacks go to the most threatened border (a capital's stack only when the plan lets it move).
-    const mayLeave = (t: TerritoryId) => !this.myCapitals.has(t) || this.plan.moveCapitalStack;
+    const mayLeave = (t: TerritoryId) => !this.myCapitals.has(t) || this.plan.moveCapitalStack || (this.plan.fortifyTo !== null && this.plan.fortifyTo !== t);
     let best: { from: TerritoryId; to: TerritoryId; armies: number; score: number } | null = null;
     for (const f of opts) {
       if (!mayLeave(f.from) || isBorder(f.from)) continue;
-      if (!isBorder(f.to) && !this.myCapitals.has(f.to)) continue;
+      if (!isBorder(f.to) && !this.myCapitals.has(f.to) && f.to !== this.plan.fortifyTo) continue;
       const score = this.need(f.to) + this.threat(f.to) * 0.15 + f.maxArmies * 0.2 + this.random() * 0.2;
       if (!best || score > best.score) best = { from: f.from, to: f.to, armies: f.maxArmies, score };
     }
     if (best) return { from: best.from, to: best.to, armies: best.armies };
     // Nothing interior left: shift surplus between borders (out of a capital only when the plan lets it move).
     for (const f of opts) {
-      if (!mayLeave(f.from) || !isBorder(f.from) || !isBorder(f.to)) continue;
-      const stay = Math.max(this.guardFor(f.from), this.myCapitals.has(f.from) ? this.capFloor(f.from) : 1);
+      if (!mayLeave(f.from) || !isBorder(f.from) || (!isBorder(f.to) && !this.myCapitals.has(f.to) && f.to !== this.plan.fortifyTo)) continue;
+      const pullingBack = f.to === this.plan.fortifyTo || this.myCapitals.has(f.to);
+      const stay = f.to === this.plan.fortifyTo
+        ? (this.myCapitals.has(f.from) ? this.capFloor(f.from) : 1)
+        : this.myCapitals.has(f.to)
+          ? (this.isBonusBorder(f.from) ? this.guardFor(f.from) : 1)
+          : Math.max(this.guardFor(f.from), this.myCapitals.has(f.from) ? this.capFloor(f.from) : 1);
       const surplus = Math.min(f.maxArmies, this.armies(f.from) - stay);
-      if (surplus < 2) continue;
+      if (surplus < (pullingBack ? 1 : 2)) continue;
       const gain = this.need(f.to) - this.need(f.from);
-      if (gain < 2) continue;
+      if (gain < (pullingBack ? 1 : 2)) continue;
       const score = gain + surplus * 0.1 + this.random() * 0.2;
       if (!best || score > best.score) best = { from: f.from, to: f.to, armies: surplus, score };
     }

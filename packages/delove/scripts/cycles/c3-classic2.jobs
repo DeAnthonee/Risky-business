@@ -1,0 +1,4 @@
+# Cycle 3, step 2: Classic 2-player, 4x cycle 2's volume (2-player is where the gate keeps missing).
+c2d  2000 delove-branch@1,delove@2
+c2c  2000 c2-candidate,delove-branch@1
+c2t  2000 delove-branch@1,delove-teacher@2

@@ -15,7 +15,7 @@
 #   steps=("<step> <jobs file> <title>" ...)       jobs files as for generate.sh; title for the summary
 #   export_agents=delove-branch@1                  whose decisions are exported (--only-agents)
 #   train_data=("<step>/<map>[:mode][*N]" | "<dataset under DATA or path>[:mode][*N]" ...)   *N repeats it N times
-#   train_init=<model id>  candidate=<cN-candidate>  train_args="--epochs 1.5 --lr 3e-4"
+#   train_init=<model id, or empty for a fresh network>  candidate=<cN-candidate>  train_args="--epochs 1.5 --lr 3e-4"
 #   gates=("<opponent> <players> <games> [options JSON]" ...)   ladder matches of the candidate
 # Environment: CYCLE_NAME (overrides name, e.g. for a trial run), DELOVE_MODELS (models folder, default models/delove), OUT (default runs/delove/<name>), DATA (default
 # data/delove), PYTHON (default .venv/Scripts/python), PARALLEL, CHUNKS (chunks per process and step, default 4; or
@@ -135,9 +135,11 @@ if [[ ! -f "$cand.onnx" ]]; then
     [[ -e $path ]] || { echo "no training data $path"; exit 1; }
     for ((i = 0; i < reps; i++)); do args+=(--data "$(absdir "$path")$mode"); done
   done
-  init_path=$(abs "$models/$train_init.pt"); cand_path=$(abs "$cand")
+  cand_path=$(abs "$cand")
+  # An empty train_init trains a fresh network (its size from train_args, e.g. --hidden 192 --rounds 6).
+  [[ -n ${train_init:-} ]] && args+=(--init "$(abs "$models/$train_init.pt")")
   # shellcheck disable=SC2086
-  (cd packages/delove/python && "$python" train.py "${args[@]}" --init "$init_path" --out "$cand_path" $train_args &&
+  (cd packages/delove/python && "$python" train.py "${args[@]}" --out "$cand_path" $train_args &&
     "$python" export_onnx.py "$cand_path") > "$out/train.log" 2>&1 || { echo "training failed (see $out/train.log)"; exit 1; }
   stamp "trained $candidate"
 fi

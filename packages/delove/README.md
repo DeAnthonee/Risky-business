@@ -72,7 +72,8 @@ answer synchronously.
 | --- | --- | --- |
 | `delove-teacher@1` | hand-coded teacher (`src/teacher.ts`), Stage 0: Delove's first version learns from it | done |
 | `delove@1` | network distilled from the teacher (Stage 1), loaded from `models/delove/` (ignored by git) | done |
-| `delove@2`, ... | self-play improved versions (Stage 2) | round 2 tried, not promoted (below) |
+| `delove@2` | distilled from the tuned teacher delove-teacher@2 (round 5) | done |
+| `delove@3` | fresh hidden-192 / 6-round network on branch-and-score decisions (cycle 4, `CYCLES.md`): 0.541 / 0.600 / 0.610 against delove@2 at 2 / 4 / 6 players | current best |
 
 `delove-teacher@1` picks only from the self-play candidates (never off-list), so every decision is a clean training
 label, and it is deterministic from the seed. Against `risky@1` (`--seed 3`):

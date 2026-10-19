@@ -830,7 +830,7 @@ async function runPostGameLocked(i: PostGameInput): Promise<PostGameOutput> {
   const notes = await Promise.all(
     i.seats.map((s) => {
       const row = result.seats.find((r) => r.name === s.name);
-      const seatLlm = i.mechanicsOnly && row && row.placement > 2 ? null : i.llm;
+      const seatLlm = i.skipCurate || (i.mechanicsOnly && row && row.placement > 2) ? null : i.llm;
       return writeNote(seatLlm, result, s, leaderboardText, i.learningsDir, i.log, i.tracker.mechanicsText(s.playerId));
     }),
   );

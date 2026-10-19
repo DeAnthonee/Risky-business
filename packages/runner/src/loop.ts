@@ -81,6 +81,8 @@ export interface LoopOptions {
   mechanicsOnly?: boolean;
   /** Run the RISK_LEARNINGS.md curator once every N finished games (and on the final game). Default 1. */
   curationInterval?: number;
+  /** Seats to leave open in the lobby for external players; the host waits until the lobby fills before starting. */
+  openSeats?: number;
   /** Printed in the "watch" line. */
   serverUrl?: string;
   control?: LoopControl;
@@ -128,16 +130,18 @@ export async function runLoop(o: LoopOptions): Promise<GameResult[]> {
   };
 
   let failures = 0;
+  const openSeats = Math.max(0, o.openSeats ?? 0);
   for (let g = 0; (o.games === 0 || g < o.games) && !control.soft && !control.hard; g++) {
     profiles.clear(); // Refresh shared character lessons before every new game.
     let order: SeatSpec[];
     let map: GameOptions['map'];
     if (o.seats) {
       order = shuffled(o.seats, random);
-      map = pickMap(o.map, order.length, g, random);
+      map = pickMap(o.map, order.length + openSeats, g, random);
     } else {
       const lineup = pickLineup({ map: o.map, players: o.players ?? 'random', roster: roster!, index: g, random });
-      order = shuffled(lineup.seats, random);
+      const total = Math.max(2 + openSeats, lineup.seats.length);
+      order = shuffled(lineup.seats, random).slice(0, Math.max(2, total - openSeats));
       map = lineup.map;
     }
     if (o.mechanicsOnly) {
@@ -166,8 +170,19 @@ export async function runLoop(o: LoopOptions): Promise<GameResult[]> {
       if (!modes.includes('exponential')) log('Server has not enabled exponential cards yet; randomizing among its supported modes.');
     }
     let setup;
+    const totalSeats = order.length + openSeats;
     try {
-      setup = await createGame(api, order, { gameName: o.mechanicsOnly ? 'Mechanics lab' : 'Bot table', options: gameOptions(order.length, map, o.options, random, modes) });
+      setup = await createGame(api, order, {
+        gameName: o.mechanicsOnly ? 'Mechanics lab' : 'Bot table',
+        options: gameOptions(totalSeats, map, o.options, random, modes),
+        openSeats,
+        onLobbyReady: (id) => {
+          if (openSeats > 0) {
+            log(`Lobby ${id} on ${map}: ${order.length} AI seated (${order.map((s) => s.name).join(', ')}), waiting for ${openSeats} open seat(s) to join before starting...`);
+            if (o.serverUrl) log(`Join: ${o.serverUrl}/?game=${id}`);
+          }
+        },
+      });
       failures = 0;
     } catch (e) {
       log(`Could not set up game ${g + 1}: ${(e as Error).message}`);
@@ -177,7 +192,7 @@ export async function runLoop(o: LoopOptions): Promise<GameResult[]> {
       continue;
     }
     const gameId = setup.gameId;
-    log(`Game ${g + 1}${o.games ? `/${o.games}` : ''}: ${gameId} on ${map}, ${order.length} players: ${order.map((s) => s.name).join(', ')}`);
+    log(`Game ${g + 1}${o.games ? `/${o.games}` : ''}: ${gameId} on ${map}, ${totalSeats} players (${order.map((s) => s.name).join(', ')}${openSeats > 0 ? ` + ${openSeats} joined` : ''})`);
     if (o.serverUrl) log(`Watch: ${o.serverUrl}/?game=${gameId}&spectate=1`);
 
     const tracker = new GameTracker();

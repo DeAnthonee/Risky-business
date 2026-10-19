@@ -1,9 +1,7 @@
 # Delove: our base model, a trained Risk player with no personality
 
-Status: Stages 0 and 1 done. `delove-teacher@1` beats `risky@1` on every setup tried, and `delove@1`, the network
-distilled from it, matches the teacher on Classic 2-player (0.525), beats it on World (0.605) and beats `risky@1`
-0.95-0.98 (numbers and commands in `packages/delove/README.md`). Stage 2 round 2 (`delove@2`: more players plus win-weighted self-play) was not promoted: better with 4-6 players,
-slightly worse head to head. Next round: advantage weighting from the value head and a value-guided lookahead.
+Status: Stage 2 under way. Current best: `delove@3` (cycle 4 of branch-and-score training): 0.541 / 0.600 / 0.610 against
+`delove@2` at 2 / 4 / 6 players. History and per-step stats: `packages/delove/CYCLES.md`.
 
 ## What it is, and what it is not
 

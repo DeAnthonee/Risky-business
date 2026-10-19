@@ -1,0 +1,4 @@
+# Cycle 4, step 2: Classic 2-player.
+c2d  2000 delove-branch@1,delove@2
+c2c  2000 c3-candidate,delove-branch@1
+c2t  2000 delove-branch@1,delove-teacher@2

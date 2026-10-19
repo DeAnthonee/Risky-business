@@ -13,6 +13,8 @@ import {
 import {
   candidateToAction,
   candidates,
+  decisionInput,
+  encodeDecision,
   makeTraits,
   seededRandom,
   type Agent,
@@ -22,6 +24,9 @@ import {
 } from '@risk/selfplay';
 import type { NetScorer } from './net-agent.js';
 import { seatOrder } from './net-agent.js';
+
+/** The value model ignores candidates; one placeholder keeps the encoder's shapes valid. */
+const END_ONLY: Candidate[] = [['end_turn']];
 
 /**
  * Branch and score: a player that settles each important decision by trying its options.
@@ -50,6 +55,11 @@ export interface BranchOptions {
   /** Decision kinds (of the teacher's move) played by the teacher without branching, e.g. 'occupy'. */
   skip: string[];
   weights: { armies: number; income: number; territories: number; cards: number; continents: number };
+  /**
+   * Blend of the network's win chance into a branch's score: score = (1 - valueWeight) * objective share +
+   * valueWeight * V(end position), V from the valuer's batched value model (one call per decision). 0 = off.
+   */
+  valueWeight: number;
 }
 
 /**
@@ -63,6 +73,7 @@ export const DEFAULT_BRANCH: BranchOptions = {
   horizon: 2,
   margin: 0.02,
   skip: ['occupy'],
+  valueWeight: 0,
   weights: { armies: 0.3, income: 0.3, territories: 0.15, cards: 0.15, continents: 0.1 },
 };
 
@@ -172,7 +183,14 @@ function isImportant(ctx: DecisionContext): boolean {
  * The branching player. `teacher` plays every seat in the rollouts and makes the unimportant decisions; `ranker`
  * (a Delove network) proposes the alternatives worth trying.
  */
-export function branchAgent(id: string, teacher: StepPick, ranker: NetScorer | null, opts: BranchOptions = DEFAULT_BRANCH): Agent {
+export function branchAgent(
+  id: string,
+  teacher: StepPick,
+  ranker: NetScorer | null,
+  opts: BranchOptions = DEFAULT_BRANCH,
+  /** Rates branch end positions when opts.valueWeight > 0 (a NetScorer with its .value.onnx). */
+  valuer: NetScorer | null = null,
+): Agent {
   return {
     id,
     choose(dctx) {
@@ -204,7 +222,9 @@ export function branchAgent(id: string, teacher: StepPick, ranker: NetScorer | n
       const kind = dctx.candidates[teacherIndex][0];
       branchStats.branchedByKind[kind] = (branchStats.branchedByKind[kind] ?? 0) + 1;
       const seeds = Array.from({ length: opts.rollouts }, () => Math.floor(dctx.random() * 0xffffffff) >>> 0);
-      const results: { mean: number; parts: Score }[] = actions.map((action) => {
+      const useValue = opts.valueWeight > 0 && valuer !== null;
+      const ends: { option: number; state: GameState }[] = [];
+      const results: { mean: number; parts: Score }[] = actions.map((action, option) => {
         const parts: Score = { score: 0, armies: 0, income: 0, territories: 0, cards: 0, continents: 0, won: 0, lost: 0 };
         for (const seed of seeds) {
           const copy: GameState = { ...dctx.state, rngState: seed, deck: shuffle(createRng(seed ^ 0x5bd1e995), dctx.state.deck) };
@@ -220,10 +240,26 @@ export function branchAgent(id: string, teacher: StepPick, ranker: NetScorer | n
           branchStats.simulatedMoves += r.moves;
           const sc = positionScore(r.state, dctx.me, opts.weights);
           for (const k of Object.keys(parts) as (keyof Score)[]) parts[k] += sc[k];
+          if (useValue) ends.push({ option, state: r.state });
         }
         for (const k of Object.keys(parts) as (keyof Score)[]) parts[k] /= seeds.length;
         return { mean: parts.score, parts };
       });
+      if (useValue) {
+        // One batched value call for every unfinished end position; a finished game is worth its result.
+        const open = ends.filter((e) => e.state.phase !== 'finished');
+        const traits = makeTraits();
+        const v = valuer!.values(
+          open.map((e) => encodeDecision(decisionInput(e.state, seatOrder(e.state), dctx.me, traits, END_ONLY))),
+          dctx.state.options.map,
+        );
+        const sum = new Array<number>(actions.length).fill(0);
+        let j = 0;
+        for (const e of ends) sum[e.option] += e.state.phase === 'finished' ? (e.state.winner === dctx.me ? 1 : 0) : v[j++];
+        results.forEach((r, i) => {
+          if (Number.isFinite(r.mean)) r.mean = (1 - opts.valueWeight) * r.mean + (opts.valueWeight * sum[i]) / seeds.length;
+        });
+      }
       let best = 0;
       for (let i = 1; i < results.length; i++) if (results[i].mean > results[best].mean) best = i;
       if (best !== 0 && results[best].mean - results[0].mean < opts.margin) best = 0;

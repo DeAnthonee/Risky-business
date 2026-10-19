@@ -27,6 +27,86 @@ import { stepAgent, type Candidate, type StepContext } from '@risk/selfplay';
  */
 export const TEACHER_ID = 'delove-teacher@1';
 
+/**
+ * Every number the teacher's judgement rests on. DEFAULT_TEACHER_PARAMS is delove-teacher@1; stronger teachers
+ * (delove-teacher@2, ...) are found by tuning these with self-play (src/tune.ts) and saved as JSON.
+ */
+export interface TeacherParams {
+  /** Target continent: weight of my share, of bonus per border, of enemy-to-mine army ratio, per territory missing. */
+  targetShare: number;
+  targetBonusPerBorder: number;
+  targetEnemyRatio: number;
+  targetMissing: number;
+  /** Border need: armies of margin wanted over the threat; base weight; held-continent bonus divisor. */
+  defenseGapPad: number;
+  defenseBase: number;
+  defenseStakeDiv: number;
+  /** A card is worth max(cardFloor, next set value / cardDiv) armies. */
+  cardFloor: number;
+  cardDiv: number;
+  /** Capture value: base; x bonus for completing a continent; in the target continent; x bonus for breaking one. */
+  captureBase: number;
+  completeBonus: number;
+  targetCapture: number;
+  breakBonus: number;
+  /** Eliminating a player: base, plus their cards at card value. */
+  elimBase: number;
+  capitalValue: number;
+  /** Placement: offense penalty per army the target outnumbers us by; weight of defense against offense. */
+  placeOffenseArmy: number;
+  placeDefenseMult: number;
+  /** Worth of one army lost: a rival's (one rival / several), the Neutral's, mine. */
+  rivalLoss2: number;
+  rivalLossMulti: number;
+  neutralLoss: number;
+  ownLoss: number;
+  /** Attack only with at least this win chance and expected value; exposure of a failed blitz. */
+  minWin: number;
+  minEv: number;
+  exposureBase: number;
+  exposureThreat: number;
+  exposureNeed: number;
+  /** Fortify: weight of raw threat on top of need; bonus for moving a fully interior stack. */
+  fortifyThreat: number;
+  interiorBonus: number;
+  /** Late game: from this round on, every round lowers the attack bar by lateRamp and discounts own losses by it. */
+  lateRound: number;
+  lateRamp: number;
+}
+
+export const DEFAULT_TEACHER_PARAMS: TeacherParams = {
+  targetShare: 4,
+  targetBonusPerBorder: 2,
+  targetEnemyRatio: 1,
+  targetMissing: 0.25,
+  defenseGapPad: 2,
+  defenseBase: 0.5,
+  defenseStakeDiv: 3,
+  cardFloor: 2.5,
+  cardDiv: 2.5,
+  captureBase: 0.6,
+  completeBonus: 3,
+  targetCapture: 1.5,
+  breakBonus: 2,
+  elimBase: 6,
+  capitalValue: 5,
+  placeOffenseArmy: 0.15,
+  placeDefenseMult: 1.5,
+  rivalLoss2: 0.45,
+  rivalLossMulti: 0.35,
+  neutralLoss: 0.1,
+  ownLoss: 0.45,
+  minWin: 0.45,
+  minEv: 0.3,
+  exposureBase: 0.5,
+  exposureThreat: 0.1,
+  exposureNeed: 0.2,
+  fortifyThreat: 0.05,
+  interiorBonus: 1.2,
+  lateRound: 1000,
+  lateRamp: 0,
+};
+
 interface MapInfo {
   map: MapDef;
   continentOf: Map<TerritoryId, ContinentDef>;
@@ -76,6 +156,7 @@ class Board {
   constructor(
     readonly state: GameState,
     readonly me: PlayerId,
+    readonly p: TeacherParams = DEFAULT_TEACHER_PARAMS,
   ) {
     this.info = mapInfo(getMap(state.options.map));
     this.adj = this.info.map.adjacency;
@@ -146,7 +227,8 @@ class Board {
       const touching = mine > 0 || ts.some((t) => this.adj[t].some((n) => this.owner(n) === this.me));
       if (!touching) continue;
       const borders = Math.max(1, this.info.borders.get(c.id)!.length);
-      const score = (mine / ts.length) * 4 + (c.bonus / borders) * 2 - theirArmies / (myArmies + 2) - (ts.length - mine) * 0.25;
+      const p = this.p;
+      const score = (mine / ts.length) * p.targetShare + (c.bonus / borders) * p.targetBonusPerBorder - (theirArmies / (myArmies + 2)) * p.targetEnemyRatio - (ts.length - mine) * p.targetMissing;
       if (score > bestScore) (bestScore = score), (best = c);
     }
     this.targetCache = best;
@@ -158,17 +240,17 @@ class Board {
     const c = this.info.continentOf.get(t);
     const threat = this.threat(t);
     if (threat <= 0) return 0;
-    const gap = threat - this.armies(t) + 2;
+    const gap = threat - this.armies(t) + this.p.defenseGapPad;
     if (gap <= 0) return 0;
     const atStake = c && this.holds(c) ? c.bonus : 0;
-    return gap * (0.5 + atStake / 3);
+    return gap * (this.p.defenseBase + atStake / this.p.defenseStakeDiv);
   }
 
   /** Rough worth of one card in armies: a third of a set, more as progressive sets grow. */
   cardValue(): number {
     const o = this.state.options;
     const p = this.state.players.find((x) => x.id === this.me)!;
-    return Math.max(2.5, nextTradeValue(o.cardValues, this.state.tradeCount, p.tradesMade ?? 0) / 2.5);
+    return Math.max(this.p.cardFloor, nextTradeValue(o.cardValues, this.state.tradeCount, p.tradesMade ?? 0) / this.p.cardDiv);
   }
 
   rivalsAlive(): number {
@@ -178,21 +260,21 @@ class Board {
   /** What taking territory u is worth beyond the territory itself. */
   captureValue(u: TerritoryId, cardStillToEarn: boolean): number {
     const owner = this.owner(u);
-    let v = 0.6;
+    let v = this.p.captureBase;
     if (cardStillToEarn) v += this.cardValue();
     const c = this.info.continentOf.get(u);
     if (c) {
       const ts = this.continentTerritories(c);
       const othersMine = ts.every((t) => t === u || this.owner(t) === this.me);
-      if (othersMine) v += c.bonus * 3;
-      else if (this.target()?.id === c.id) v += 1.5;
-      if (this.isRival(owner) && this.holds(c, owner)) v += c.bonus * 2;
+      if (othersMine) v += c.bonus * this.p.completeBonus;
+      else if (this.target()?.id === c.id) v += this.p.targetCapture;
+      if (this.isRival(owner) && this.holds(c, owner)) v += c.bonus * this.p.breakBonus;
     }
     if (this.isRival(owner) && this.territoryCount(owner) === 1) {
       const p = this.state.players.find((x) => x.id === owner)!;
-      v += 6 + p.cards.length * this.cardValue();
+      v += this.p.elimBase + p.cards.length * this.cardValue();
     }
-    if (this.state.options.capitals && owner !== null && this.state.capitals[owner] === u) v += 5;
+    if (this.state.options.capitals && owner !== null && this.state.capitals[owner] === u) v += this.p.capitalValue;
     return v;
   }
 }
@@ -233,9 +315,9 @@ function placementScore(b: Board, t: TerritoryId): number {
   let offense = 0;
   for (const u of enemies) {
     const value = b.captureValue(u, true);
-    offense = Math.max(offense, value - Math.max(0, b.armies(u) - b.armies(t)) * 0.15);
+    offense = Math.max(offense, value - Math.max(0, b.armies(u) - b.armies(t)) * b.p.placeOffenseArmy);
   }
-  return Math.max(defense * 1.5, offense);
+  return Math.max(defense * b.p.placeDefenseMult, offense);
 }
 
 function pickPlace(b: Board, cands: Candidate[], random: () => number): number {
@@ -261,7 +343,12 @@ function bestAttack(b: Board, cands: Candidate[], random: () => number): AttackP
   const cardStillToEarn = !me.conqueredThisTurn;
   const balanced = b.state.options.balancedBlitz;
   // Armies a rival loses are worth almost as much as my own; with several rivals the others gain from the fight.
-  const rivalLossWorth = b.rivalsAlive() <= 1 ? 0.45 : 0.35;
+  const P = b.p;
+  const rivalLossWorth = b.rivalsAlive() <= 1 ? P.rivalLoss2 : P.rivalLossMulti;
+  // Stall breaker: the longer the game drags on past lateRound, the more readily it attacks.
+  const late = Math.max(0, b.state.round - P.lateRound) * P.lateRamp;
+  const minEv = P.minEv - late;
+  const ownLoss = P.ownLoss / (1 + late);
   let best: AttackPlan | null = null;
   for (let i = 0; i < cands.length; i++) {
     const c = cands[i];
@@ -272,13 +359,13 @@ function bestAttack(b: Board, cands: Candidate[], random: () => number): AttackP
     if (a < 2) continue;
     const o = odds(a, b.armies(to), defenseDiceLimit(b.state, to));
     const p = balanced ? o.balancedWin : o.win;
-    if (p < 0.45) continue;
+    if (p < P.minWin) continue;
     const value = b.captureValue(to, cardStillToEarn);
     // A failed blitz leaves `from` on one army: costly when rivals sit next to it.
-    const exposure = (1 - p) * (0.5 + b.threat(from) * 0.1 + b.defenseNeed(from) * 0.2);
-    const defenderWorth = b.isRival(b.owner(to)) ? rivalLossWorth : 0.1;
-    const ev = p * value + o.expectedDefenderLosses * defenderWorth - o.expectedAttackerLosses * 0.45 - exposure + random() * 1e-3;
-    if (ev > 0.3 && (!best || ev > best.ev)) best = { index: i, ev };
+    const exposure = (1 - p) * (P.exposureBase + b.threat(from) * P.exposureThreat + b.defenseNeed(from) * P.exposureNeed);
+    const defenderWorth = b.isRival(b.owner(to)) ? rivalLossWorth : P.neutralLoss;
+    const ev = p * value + o.expectedDefenderLosses * defenderWorth - o.expectedAttackerLosses * ownLoss - exposure + random() * 1e-3;
+    if (ev > minEv && (!best || ev > best.ev)) best = { index: i, ev };
   }
   return best;
 }
@@ -316,22 +403,29 @@ function bestFortify(b: Board, legal: StepContext['legal']): FortifyPlan | null 
     if (!anyRealThreat && b.enemyNeighbours(f.from).length > 0) continue;
     let score: number;
     if (anyRealThreat) {
-      const need = b.defenseNeed(f.to) + b.threat(f.to) * 0.05;
+      const need = b.defenseNeed(f.to) + b.threat(f.to) * b.p.fortifyThreat;
       if (need <= 0) continue;
       score = need * Math.min(f.maxArmies, 1 + need);
     } else {
       if (b.enemyNeighbours(f.to).length === 0) continue;
       score = placementScore(b, f.to) * f.maxArmies * 0.1;
     }
-    if (b.enemyNeighbours(f.from).length === 0) score *= 1.2;
+    if (b.enemyNeighbours(f.from).length === 0) score *= b.p.interiorBonus;
     if (score > bestScore) (bestScore = score), (best = { from: f.from, to: f.to });
   }
   return best;
 }
 
-export const teacherPick: Pick = (ctx) => {
+/** The teacher's move picker with the given judgement numbers. */
+export function teacherPickWith(params: TeacherParams): Pick {
+  return (ctx) => pickWith(ctx, params);
+}
+
+export const teacherPick: Pick = teacherPickWith(DEFAULT_TEACHER_PARAMS);
+
+function pickWith(ctx: StepContext, params: TeacherParams): number {
   const { candidates: cands, state, me, random } = ctx;
-  const b = new Board(state, me);
+  const b = new Board(state, me, params);
   const ids = b.info.map.territoryIds;
 
   if (ctx.fortifyFrom !== null) {
@@ -370,6 +464,11 @@ export const teacherPick: Pick = (ctx) => {
 
   const end = indexOfKind(cands, 'end_turn');
   return end >= 0 ? end : 0;
-};
+}
 
 export const teacher = stepAgent(TEACHER_ID, teacherPick);
+
+/** A teacher version with its own judgement numbers (missing keys fall back to delove-teacher@1's). */
+export function makeTeacher(id: string, params: Partial<TeacherParams>) {
+  return stepAgent(id, teacherPickWith({ ...DEFAULT_TEACHER_PARAMS, ...params }));
+}

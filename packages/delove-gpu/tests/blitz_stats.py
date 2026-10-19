@@ -88,7 +88,7 @@ def main():
     worst = 0.0
     ok = True
     for exact_mode in (True, False):
-        e = Engine(1, exact=exact_mode, seed=7)
+        e = Engine(1, exact=exact_mode, seed=7, allow_unverified=True)
         name = "exact (mulberry32)" if exact_mode else "fast (multinomial jumps)"
         for fa0, ta0 in PAIRS:
             fa = torch.full((n,), fa0, device=e.dev)

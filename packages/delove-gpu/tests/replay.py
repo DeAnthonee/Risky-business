@@ -72,9 +72,9 @@ def replay_batch(recs: list[list[dict]], max_turns: int, device: str, enc: Encod
     if fused:
         from delove_gpu.fused import FusedEngine
 
-        e = FusedEngine(B, device=device, max_turns=max_turns)
+        e = FusedEngine(B, device=device, max_turns=max_turns, allow_unverified=True)
     else:
-        e = Engine(B, device=device, max_turns=max_turns)
+        e = Engine(B, device=device, max_turns=max_turns, allow_unverified=True)
     e.reset(torch.arange(B, device=e.dev), torch.tensor([g[0]["seed"] for g in recs]))
     encoder = Encoder(e) if enc else None
     player = NetPlayer(e, net[1]) if net else None

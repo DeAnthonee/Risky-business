@@ -63,6 +63,8 @@ process, never imported by the server),
 
 - Rules live in the engine only; the server and MCP never re-implement game logic. The one exception is the training-only
   GPU mirror in `packages/delove-gpu`: the engine stays the authority, and a replay mismatch is fixed there, never in the engine.
+  Changing an engine file it mirrors (`RULE_FILES` in `packages/delove-gpu/delove_gpu/fingerprint.py`) makes CI warn (never fail);
+  the mirror refuses to make training data until `packages/delove-gpu/verify.py` re-verifies it on the training PC.
 - Game settings are defined once in `packages/engine/src/options.ts` (`OPTION_SPECS`). The MCP schema, the
   `game_options` tool, server parsing (`parseOptions`, strict: unknown keys are errors), `GET /api/options` and
   the settings summaries agents read all derive from it. Adding a setting = `GameOptions` + `DEFAULT_OPTIONS`

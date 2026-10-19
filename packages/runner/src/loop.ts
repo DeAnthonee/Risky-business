@@ -8,7 +8,7 @@ import { Commander, condenseLearnings, profileExcerpt } from './commander.js';
 import { DealLedger, dealPrefixes } from './deals.js';
 import { Diplomat } from './diplomat.js';
 import type { Llm } from './llm.js';
-import { buildResult, computeLeaderboard, formatLeaderboard, readResults, GameTracker, runPostGame, type GameResult, type SeatReport } from './postgame.js';
+import { buildResult, computeLeaderboard, formatLeaderboard, killList, readResults, GameTracker, runPostGame, type GameResult, type SeatReport } from './postgame.js';
 import { gameOptions, pickLineup, pickMap, shuffled, type MapChoice, type PlayerCount, type RosterEntry } from './presets.js';
 import { loadCharacter, type CharacterText } from './roster.js';
 import { SeatRunner } from './seat.js';
@@ -136,7 +136,7 @@ export async function runLoop(o: LoopOptions): Promise<GameResult[]> {
     const localStandings = computeLeaderboard(await readResults(o.learningsDir));
     let rankingContext = formatLeaderboard(localStandings);
     if (api.rankings) {
-      try { const global = await api.rankings(); if (global.rankings.length) rankingContext = 'Server leaderboard (all-time):\n' + global.rankings.map(r => `#${r.rank} ${r.name} (${r.key}): ${r.points} points, ${r.wins} wins / ${r.losses} losses, ${r.winRate}% win rate, average place ${r.avgPlacement}`).join('\n'); }
+      try { const global = await api.rankings(); if (global.rankings.length) rankingContext = 'Server leaderboard (all-time):\n' + global.rankings.map(r => `#${r.rank} ${r.name} (${r.key}): ${r.points} points, ${r.wins} wins / ${r.losses} losses, ${r.winRate}% win rate, average place ${r.avgPlacement}, ${r.kills ?? 0} kills${killList(r.victims ?? {})}`).join('\n'); }
       catch (e) { log('Server rankings unavailable; using the local shared results ledger.'); }
     }
     const personas = new Map<string, CharacterText | null>();

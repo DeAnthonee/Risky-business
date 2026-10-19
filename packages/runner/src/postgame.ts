@@ -306,6 +306,40 @@ export function formatLeaderboard(lb: Leaderboard): string {
   return lines.join('\n');
 }
 
+export function formatLeaderboardMarkdown(lb: Leaderboard): string {
+  if (lb.games === 0) return '# Risk Tournament Leaderboard\n\n*No games played yet.*\n';
+  const lines: string[] = [
+    '# Risk Tournament Leaderboard',
+    '',
+    `*Empirical rankings across ${lb.games} AI self-play match${lb.games === 1 ? '' : 'es'}.*`,
+    '',
+    '## Character / Seat Standings',
+    '',
+    '| Rank | Player / Character | Elo Points | Games | Wins (1st) | Win Rate | Losses | Avg Place | Eliminations |',
+    '| :---: | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |',
+  ];
+  for (const r of lb.byCharacter) {
+    const winRate = ((r.wins / r.games) * 100).toFixed(1) + '%';
+    const avgPlace = r.avgPlacement.toFixed(2);
+    lines.push(`| #${r.rank} | **${r.key}** | **${r.points}** | ${r.games} | ${r.wins} | ${winRate} | ${r.losses} | ${avgPlace} | ${r.eliminations ?? 0} |`);
+  }
+  lines.push('');
+  lines.push('## Map Breakdown');
+  lines.push('');
+  lines.push('| Map | Games | Dominant Winner(s) |');
+  lines.push('| :--- | :---: | :--- |');
+  for (const m of lb.byMap) {
+    const topWinners = Object.entries(m.wins)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([k, n]) => `${k} (${n} win${n === 1 ? '' : 's'})`)
+      .join(', ') || 'None';
+    lines.push(`| ${m.map} | ${m.games} | ${topWinners} |`);
+  }
+  lines.push('');
+  return lines.join('\n');
+}
+
 // ---------------------------------------------------------------------------
 // Seat notes
 // ---------------------------------------------------------------------------
@@ -890,6 +924,8 @@ export interface PostGameInput {
   mechanicsOnly?: boolean;
   /** Skip running the curator on this game (e.g. when batching curation every N games). */
   skipCurate?: boolean;
+  /** Skip character memory and grudge/rivalry reflection LLM calls to optimize test speed while preserving all match stats & leaderboard. */
+  skipRivalries?: boolean;
   now?: () => Date;
   log: (line: string) => void;
 }
@@ -916,6 +952,16 @@ async function runPostGameLocked(i: PostGameInput): Promise<PostGameOutput> {
   }
   const leaderboard = computeLeaderboard(await readResults(i.learningsDir));
   const leaderboardText = formatLeaderboard(leaderboard);
+  const leaderboardMarkdown = formatLeaderboardMarkdown(leaderboard);
+  try {
+    await writeFile(path.join(i.learningsDir, 'LEADERBOARD.md'), leaderboardMarkdown, 'utf8');
+    const localLb = path.resolve('LEADERBOARD.md');
+    if (path.resolve(path.join(i.learningsDir, 'LEADERBOARD.md')) !== localLb) {
+      await writeFile(localLb, leaderboardMarkdown, 'utf8');
+    }
+  } catch (e) {
+    i.log(`Warning: could not write LEADERBOARD.md: ${(e as Error).message}`);
+  }
 
   const notes = await Promise.all(
     i.seats.map((s) => {
@@ -930,14 +976,16 @@ async function runPostGameLocked(i: PostGameInput): Promise<PostGameOutput> {
     for (const seat of i.seats) {
       const note = notes.find(n => n.name === seat.name);
       if (seat.characterId && note) {
-        await addPersonalityMemory(i.learningsDir, seat.characterId, i.gameId, note.text);
+        if (!i.skipRivalries) {
+          await addPersonalityMemory(i.learningsDir, seat.characterId, i.gameId, note.text);
+        }
         const own = result.seats.find(s => s.character === seat.characterId)!;
         const opponents = result.seats.filter(s => s !== own).map(s => ({ key: s.character ?? 'player:' + s.name.toLowerCase(), name: s.name }));
         const watchers = extractWatchers(seat.chat);
         await updateExperience({ dir: i.learningsDir, id: seat.characterId, name: seat.name, gameId: i.gameId, note: note.text,
           ownWon: own.placement === 1, myPlacement: own.placement,
           opponentResults: Object.fromEntries(result.seats.filter(s=>s!==own).map(s=>[s.character ?? 'player:' + s.name.toLowerCase(), {won:s.placement===1,placement:s.placement}])),
-          opponents, watchers, deals: seat.observedDeals ?? [], llm: i.llm, log: i.log });
+          opponents, watchers, deals: seat.observedDeals ?? [], llm: i.skipRivalries ? null : i.llm, log: i.log });
       }
     }
 

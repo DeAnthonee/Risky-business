@@ -195,6 +195,7 @@ async function main() {
     '--model', 'qwen3:14b',
     '--ctx', '20480',
     '--curation-interval', '5',
+    '--skip-rivalries',
     '--learnings-dir', LEARNINGS_DIR
   ]);
   await snapshot('gen5');

@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { readPersonalityMemory } from './shared-memory.js';
 import { readExperience, describeExperience } from './experience.js';
 import path from 'node:path';
@@ -83,6 +84,8 @@ export interface LoopOptions {
   curationInterval?: number;
   /** Limit commander/LLM reasoning to the first N seats (e.g. 1 smart player vs remaining plain bots). */
   smartSeats?: number;
+  /** Skip character grudge/rivalry memory loading and reflection to optimize test speed and avoid token bloat. Full match stats and leaderboard are still preserved. */
+  skipRivalries?: boolean;
   /** Seats to leave open in the lobby for external players; the host waits until the lobby fills before starting. */
   openSeats?: number;
   /** Printed in the "watch" line. */
@@ -121,11 +124,19 @@ export async function runLoop(o: LoopOptions): Promise<GameResult[]> {
 
   if (!o.seats && (!roster || roster.length < 2)) throw new Error('runLoop needs seats or a roster of at least 2 characters');
   const maxGameMs = o.maxGameMs ?? 120 * 60_000;
+  const skipRivalries = Boolean(o.skipRivalries || process.env.RISK_SKIP_RIVALRIES === '1' || (o.learningsDir && existsSync(path.join(o.learningsDir, '.skip-rivalries'))));
+  if (skipRivalries && !o.mechanicsOnly) {
+    log('Fast character mode: grudge/rivalry memory reflection bypassed for fast strategic execution; full match stats & leaderboard preserved.');
+  }
 
   // Profiles are refreshed before each game: the server copy, else the local AI folder; a missing one plays the generic persona.
   const profiles = new Map<string, CharacterText | null>();
   const profileFor = async (characterId: string): Promise<CharacterText | null> => {
     const character = await loadCharacter(api, characterId, o.aiDir ?? null);
+    if (skipRivalries) {
+      profiles.set(characterId, character && { ...character, personalMemory: undefined, experience: undefined, relationships: null });
+      return profiles.get(characterId) ?? null;
+    }
     const memory = await readPersonalityMemory(o.learningsDir, characterId);
     profiles.set(characterId, character && { ...character, personalMemory: memory, experience: describeExperience(await readExperience(o.learningsDir, characterId)) });
     return profiles.get(characterId) ?? null;
@@ -207,8 +218,8 @@ export async function runLoop(o: LoopOptions): Promise<GameResult[]> {
       const isSmart = seatIdx < smartLimit;
       const character = isSmart ? (personas.get(id.name) ?? null) : null;
       const persona = character?.markdown ?? null;
-      const relationships = isSmart ? ([character?.relationships, character?.experience].filter(Boolean).join('\n\n') || null) : null;
-      const personalContext = !isSmart || o.mechanicsOnly ? '' : [character?.personalMemory ? 'Your previous game notes (subjective advice, not rules):\n' + character.personalMemory : '',
+      const relationships = isSmart && !skipRivalries ? ([character?.relationships, character?.experience].filter(Boolean).join('\n\n') || null) : null;
+      const personalContext = !isSmart || o.mechanicsOnly || skipRivalries ? '' : [character?.personalMemory ? 'Your previous game notes (subjective advice, not rules):\n' + character.personalMemory : '',
         'Your all-time record and rivals: find your name/character ID below. Higher ranks are above you; lower ranks are below. Unlisted characters have 0 games, 0 points and are unranked. This is a pre-game snapshot.\n' + rankingContext].filter(Boolean).join('\n\n');
       const ledger = new DealLedger({ me: id.name, idPrefix: prefixes.get(id.name) });
       ledgers.set(id.name, ledger);
@@ -320,7 +331,7 @@ export async function runLoop(o: LoopOptions): Promise<GameResult[]> {
       const isLast = (o.games > 0 && g + 1 >= o.games) || control.soft || control.hard;
       const skipCurate = interval > 1 && (session.length + 1) % interval !== 0 && !isLast;
       try {
-        const out = await runPostGame({ api, llm: o.llm, learningsDir: o.learningsDir, final, gameId, seats: reports, tracker, charactersKey: o.charactersKey, mechanicsOnly: o.mechanicsOnly, skipCurate, log });
+        const out = await runPostGame({ api, llm: o.llm, learningsDir: o.learningsDir, final, gameId, seats: reports, tracker, charactersKey: o.charactersKey, mechanicsOnly: o.mechanicsOnly, skipCurate, skipRivalries, log });
         session.push(out.result);
         log(out.leaderboardText);
       } catch (e) {

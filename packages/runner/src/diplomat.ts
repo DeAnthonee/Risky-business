@@ -240,7 +240,10 @@ export class Diplomat {
     const pickOf = <T,>(xs: T[]) => xs[Math.min(xs.length - 1, Math.floor(this.random() * xs.length))];
     const r = this.random();
     const border = others.filter((p) => neighbours.has(p.id));
-    const distant = others.filter((p) => !neighbours.has(p.id));
+    const avgArmies = known.length > 0 ? known.reduce((s, p) => s + (p.armyCount ?? 0), 0) / known.length : 0;
+    const isViableAlly = (p: (typeof others)[number]) =>
+      view.options.fogOfWar || p.armyCount === null || (p.armyCount > 6 && (p.territoryCount ?? 0) > 2 && p.armyCount >= avgArmies * 0.4);
+    const distant = others.filter((p) => !neighbours.has(p.id) && isViableAlly(p));
     if (r < 0.4 && border.length > 0) {
       const p = pickOf(border);
       return { name: p.name, why: `shares a border with you, ${neighbours.get(p.id)} armies there` };
@@ -445,9 +448,10 @@ export class Diplomat {
       'Stay in character:',
       this.persona,
       '',
-      'Rules of the table: diplomacy is non-binding, so alliances, threats, deals and bluffs are all fair game.',
+      'Rules of the table: diplomacy and deals are strategic suggestions, never binding rules — alliances, threats, deals, bluffs and betrayals are all fair game.',
       'Speak plainly and briefly: one or two short sentences, no flowery speeches, no poetry, no metaphors piled on metaphors. Never mention being an AI, a model or a bot program.',
-      'Alliances need terms. When you talk alliance, truce, border or joint attack, put concrete terms on the table: a round number it lasts until, the territories each side keeps, or a shared target, the round the joint attack starts, and a concrete troop commitment (for example, "I will commit 20 troops against X"). Honoring that troop commitment is how you keep your end of the alliance; failing to commit those troops is a backstab, which is allowed, and remembered. When a stalemate is detected, propose or accept concrete troop-commitment joint attacks to progress the game state and end the stalemate. Never just praise a friendship without terms. When someone offers terms, answer them: accept, reject or counter with your own terms.',
+      'Alliances need concrete terms and strategic viability. Making an alliance with a weak player (someone with very few armies or territories) is practically useless — they cannot give meaningful help and are worth far more eliminated for their cards. When you talk alliance, truce, border or joint attack with a viable player, put concrete terms on the table: a round number it lasts until, the territories each side keeps, or a shared target, the round the joint attack starts, and a concrete troop commitment (for example, "I will commit 20 troops against X").',
+      'Always check if a player is bluffing or if their plan is even viable. Without fog of war, every player\'s total army count and territory count are public: if a player offers to commit 20 troops when they only have 4 troops left (or promises more troops than they can viably spare), reject ("answer": "reject") immediately and call out the bluff. Never just praise a friendship without terms. When someone offers terms, evaluate whether the deal actually helps you win: accept, reject or counter with your own terms.',
       'If a watcher (spectator) speaks in chat and you recognize their name from your relationship/personality profile, react to them with your established attitude and impression of them.',
       'Never use em dashes or en dashes (the long and medium dash characters) anywhere; use commas, full stops or plain hyphens in words instead.',
       'Prefer private whispers: most of what you say (well over half of your messages) should be a whisper to one named player, for deals, threats, coalitions against the leader, promises you may not keep, and lies. Keep whispers to one short sentence. Speak to the whole table only for a show of strength, a public offer or a taunt.',
@@ -467,6 +471,7 @@ export class Diplomat {
     const chat = this.history.map((m) => `${m.spectator ? '[spectator] ' : ''}${m.name}${m.to !== undefined ? ` (whisper to ${m.toName ?? '?'})` : ''}: ${m.message}`).join('\n');
     const plan = this.getPlan();
     const stall = this.getStall();
+    const reality = this.ledger.realityCheck(view, this.history);
     const own = this.ownLines.length > 0 ? ['Your own last lines (do not repeat or paraphrase them):', ...this.ownLines.slice(-PROMPT_LINES).map((l) => `- ${l}`), ''] : [];
     return [
       `Board facts:`,
@@ -475,6 +480,7 @@ export class Diplomat {
       this.gameMemory(view) || '(none yet)',
       `Current round: ${view.round}. Your deals (a player who attacks you during a deal or fails to commit promised troops has broken it):`,
       this.ledger.summary(),
+      ...(reality ? [reality] : []),
       ...(stall >= 2 ? [`STALEMATE DETECTED (${stall} turns without a conquest): propose or accept a concrete troop-commitment joint_attack deal (with "commitArmies", e.g. 15-30 troops against a rival) to break the stalemate.`] : []),
       '',
       ...(plan ? [`Your secret plan (never reveal targets, timing or troop placements; make your talk fit it, e.g. offer calm to those you will not attack, mislead about your aim): ${plan}`, ''] : []),

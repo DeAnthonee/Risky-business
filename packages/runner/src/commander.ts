@@ -191,9 +191,9 @@ const SCHEMA = `{"winPath": "diplomacy"|"bonuses"|"cards"|"capitals"|"kills"|"ho
 /** Optional knobs the commander may add to its JSON; each line says what it does and the default. */
 const KNOBS = [
   'Threat, income, and card count assessment: every player\'s reinforcement income (+N/turn) and card count (how many cards they hold, though not which cards) are public at all times, even under fog of war. Without fog of war, weigh everyone\'s troop count, territory count, reinforcement income, and card count to know who is ahead and who is a threat. Under fog of war, opponents\' total troop and territory counts are hidden, so reinforcement income (+N/turn), card counts (3+ can hold a set, 4+ is an imminent trade), and visible border stacks are how you gauge who holds bonuses/capitals behind the fog, who is ahead, and who is a threat.',
-  'Concrete troop-commitment alliances and betrayal: this is a free-for-all where you may scheme, lie, bluff, or backstab whenever betrayal serves your win path. Players can make joint_attack deals committing a specific number of troops against an enemy (e.g. "I will commit 20 troops against X"). Honoring that troop commitment is how you keep your end of the alliance; failing to commit those troops (or putting the deal id in breakDeals) is a backstab, which is totally allowed. When a stalemate is detected, use concrete troop-commitment deals and focused commitments to progress the game state and break the deadlock.',
+  'Alliances, weak allies, and bluff detection: every deal or alliance is a strategic suggestion, never a binding rule. Making an alliance with a weak player is useless — they cannot provide real military help and are worth far more eliminated for their cards. Without fog of war, every player\'s total army count is public: always check whether a partner\'s promised troop commitment is even viable (if someone offers to commit 20 troops when they only have 4 armies left, they are bluffing — ignore them or wipe them out). When a stalemate is detected, use viable troop-commitment deals with strong players or focused attacks to break the deadlock.',
   'Drafting and routes: plan the full attack route for a bonus or elimination before placing troops. You can directly control where reinforcements go with placeOn, trace your exact attack chain with route so your stack never strands in a dead-end pocket, and pull your stack back to your capital or choke point at the end of the turn with fortifyTo. Expanding out with your capital stack to take a bonus or territories and then fortifying the stack back to your capital at the end of the turn is a core Risk mechanic.',
-  'Eliminations: actively hunt weak players for their entire card hand before they trade it against you. Compare every remaining territory, route, defending armies and your available troops; never assume one easy border is a complete kill. The tactical chooser budgets small visible kills and reserves separate branches when occupying: do not demand that every conquest move the whole stack forward. Re-evaluate after losses. Treaties may be broken deliberately with breakDeals; explicit capital garrisons remain tactical constraints. Stolen cards are available only after the final territory falls; public hand size does not prove the opponent holds a valid set.',
+  'Eliminations: actively hunt weak players for their entire card hand before they trade it against you. Compare every remaining territory, route, defending armies and your available troops; never assume one easy border is a complete kill. The tactical chooser budgets small visible kills and reserves separate branches when occupying: do not demand that every conquest move the whole stack forward. Re-evaluate after losses. Treaties may be broken at any time by targeting the player, routing through their territory, or listing the deal in breakDeals; explicit capital garrisons remain tactical constraints. Stolen cards are available only after the final territory falls; public hand size does not prove the opponent holds a valid set.',
   '- placeOn (territory id or array of territory ids, e.g. ["brazil"]): explicitly choose which of your territories receive your reinforcement troops this turn. Leave out to let the tactical chooser fund your campaign/front automatically.',
   '- route (ordered array of territory ids, e.g. ["peru", "venezuela", "central_america"]): explicitly specify your attack/expansion path in order so your stack advances along that chain without splitting into dead-end pockets.',
   '- fortifyTo (territory id, e.g. "peru"): explicitly choose which of your territories to pull your stack back to during the end-of-turn fortify phase (for example, expanding out with your capital stack and then fortifying back onto your capital or choke point).',
@@ -205,8 +205,8 @@ const KNOBS = [
   '- fortify (true/false): false stops voluntary fortifying. Default true.',
   '- stallPressure (true/false): false stops attack thresholds loosening when nobody has conquered for a while (and the late-game push). Default true.',
   '- cardChance (0.3..0.95): win chance the guaranteed card attack needs. Default 0.6.',
-  '- commitArmies (1..500): commit this many troops into attacks against target this turn (automatically set when an active joint_attack deal has a troop commitment, unless broken with breakDeals).',
-  '- breakDeals (deal ids, e.g. ["S3"]): break these ACTIVE deals on purpose (a betrayal; the other side will know). Without it every active truce and border is kept and every joint attack (including its troop commitment) is carried out. Default: [].',
+  '- commitArmies (1..500): commit this many troops into attacks against target this turn (defaults to an active joint_attack deal\'s remaining troop commitment when targeting that enemy).',
+  '- breakDeals (deal ids, e.g. ["S3"]): explicitly break these ACTIVE deals on purpose (targeting or routing through a deal partner also overrides and breaks the deal automatically). Default: [].',
   '- skipCard (true) + skipCardReason (a sentence): skip the card attack this turn. Ignored without a reason; the reason goes in your log. Default: with progressive cards you take a card every turn.',
 ];
 
@@ -242,9 +242,9 @@ export class Commander {
   }
 
   /**
-   * What the active deals demand of the move chooser: truces avoid the other party, borders put the other
-   * party's listed territories off limits, a joint attack that has started names its target (and remaining troop commitment).
-   * Code carries out what was agreed; the commander escapes it only through `breakDeals` (which breaks the deal in the ledger).
+   * Default suggestions from active deals: truces suggest avoiding the other party, borders suggest leaving
+   * their listed territories alone, and a started joint attack suggests its target and remaining troop commitment.
+   * The commander's explicit target, route, or focus always overrides these suggestions.
    */
   private dealEffects(): { avoid: PlayerId[]; noAttack: string[]; target: PlayerId | null; commitArmies: number } {
     const view = this.lastView;
@@ -271,26 +271,45 @@ export class Commander {
     return out;
   }
 
-  /** The plan the move chooser should follow now: the latest plan minus players that have hit us since, plus what active deals require. */
+  /** The plan the move chooser should follow now: the commander's explicit choices take priority, with active deals filling in as defaults. */
   currentPlan(): Plan | null {
     const fx = this.dealEffects();
     if (!this.plan && fx.avoid.length === 0 && fx.noAttack.length === 0 && !fx.target) return null;
     const base = this.plan ?? ({} as Partial<CommanderPlan>);
-    const target = fx.target && base.winPath !== 'hopeless' ? fx.target : (base.target ?? null);
-    const avoid = [...new Set([...(base.avoid ?? []).filter((p) => !this.hitUs.has(p)), ...fx.avoid])].filter((p) => p !== target);
-    const commitArmies = Math.max(base.commitArmies ?? 0, target && target === fx.target ? fx.commitArmies : 0);
+    const target = base.target ?? fx.target;
+    const explicitTerrs = new Set([...(base.route ?? []), ...(base.focus ? [base.focus] : [])]);
+    const explicitOwners = new Set<PlayerId>();
+    if (this.lastView) {
+      for (const t of explicitTerrs) {
+        const owner = this.lastView.territories[t]?.owner;
+        if (owner && owner !== this.o.playerId) explicitOwners.add(owner);
+      }
+    }
+    const avoid = [
+      ...new Set([
+        ...(base.avoid ?? []).filter((p) => !this.hitUs.has(p)),
+        ...fx.avoid.filter((p) => !explicitOwners.has(p)),
+      ]),
+    ].filter((p) => p !== target);
+    const noAttack = fx.noAttack.filter((t) => {
+      if (explicitTerrs.has(t)) return false;
+      if (target && this.lastView?.territories[t]?.owner === target) return false;
+      return true;
+    });
+    const commitArmies = base.commitArmies ?? (target && target === fx.target && fx.commitArmies > 0 ? fx.commitArmies : 0);
     return {
       ...base,
       avoid,
       target,
-      noAttack: fx.noAttack,
+      noAttack,
       ...(commitArmies > 0 ? { commitArmies } : {}),
     };
   }
 
-  /** The ledger for prompts: the round and the seat's deals. */
-  dealsText(): string {
-    return `Current round: ${this.ledger.round}.\nYour deals:\n${this.ledger.summary()}`;
+  /** The ledger for prompts: the round, the seat's deals, and (without fog of war) a reality check on commitments and weak allies. */
+  dealsText(view?: GameView): string {
+    const check = view ? this.ledger.realityCheck(view, this.chat) : '';
+    return `Current round: ${this.ledger.round}.\nYour deals:\n${this.ledger.summary()}${check ? `\n${check}` : ''}`;
   }
 
   /** The plan in words, for the diplomat (never posted verbatim). */
@@ -374,7 +393,22 @@ export class Commander {
     this.plan = p;
     this.lastView = view;
     this.ledger.sync(view);
-    for (const id of p.breakDeals) {
+    const idOf = (name: string) => view.players.find((x) => x.alive && !x.isNeutral && x.id !== this.o.playerId && x.name.toLowerCase() === name.toLowerCase())?.id;
+    const explicitTerrs = new Set([...(p.route ?? []), ...(p.focus ? [p.focus] : [])]);
+    const autoBreak = new Set<string>(p.breakDeals);
+    for (const d of this.ledger.active()) {
+      const other = this.ledger.other(d);
+      const otherId = idOf(other);
+      if (d.kind === 'truce' && otherId && p.target === otherId) {
+        autoBreak.add(d.id);
+      } else if (d.kind === 'border') {
+        const theirs = Object.entries(d.territories ?? {}).find(([who]) => who.toLowerCase() === other.toLowerCase())?.[1] ?? [];
+        if ((otherId && p.target === otherId) || theirs.some((t) => explicitTerrs.has(t))) {
+          autoBreak.add(d.id);
+        }
+      }
+    }
+    for (const id of autoBreak) {
       const d = this.ledger.breakByMe(id);
       if (d) p.note = `${p.note ? `${p.note} ` : ''}Broke ${d.id} (${this.ledger.describe(d)}).`.trim();
     }
@@ -474,7 +508,7 @@ export class Commander {
       ...KNOBS,
       `- capital: ${kind === 'capital' ? 'REQUIRED now: one of the CAPITAL CHOICES (name or id): a well-garrisoned doorway with an exit toward enemies; not a deep pocket, not behind another capital' : 'null'}.`,
       '- note: one line (at most 15 words) for your private log: what you learned or expect.',
-      'Deals: the user message lists your deals. Active truces and borders are kept for you and joint attacks (including troop commitments) are carried out, because a broken promise is remembered at the table. You decide whether that still serves your win path: to betray one, put its id in breakDeals. A player who attacks you during a truce or fails to commit their promised troops has broken the deal. Do not list a truce partner in "avoid" just to repeat the deal.',
+      'Deals: the user message lists your deals. Deals are strategic suggestions, not mechanical rules: active truces, borders, and joint attacks act as defaults, and your explicit target, route, focus, or breakDeals always overrides them. Never protect or ally with a weak player when eliminating them for cards is better, and in non-fog games always verify whether a partner actually has the troops to fulfill their promised commitment.',
       'Use only ids and names that appear in the board facts. Anything unknown is ignored.',
       "Check who holds a territory in the board facts (the 'next to ... held by' lines) before naming a focus or target: aim at the player who really owns what you want to take.",
     ].join('\n');
@@ -482,7 +516,7 @@ export class Commander {
       kind === 'capital' ? 'It is the capitals phase: choose your capital.' : 'Your turn is starting (reinforce phase). Set the plan.',
       ...(stall >= 2 ? [`STALEMATE DETECTED (${stall} of your turns without a conquest): use concrete troop-commitment alliances (joint_attack with commitArmies) or set target + commitArmies to break the deadlock.`] : []),
       '',
-      this.dealsText(),
+      this.dealsText(view),
       '',
       'Public map topology and route constraints:',
       terrainBriefing(view, me, view.round <= 1 || this.entries.length === 0),

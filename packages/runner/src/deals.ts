@@ -508,4 +508,73 @@ export class DealLedger {
     for (const d of this.all().filter((x) => x.status === 'broken').slice(-3)) lines.push(`- ${d.id}: BROKEN by ${d.brokenBy}: ${this.describe(d)}`);
     return lines.length > 0 ? lines.join('\n') : '(none)';
   }
+
+  /**
+   * In non-Fog-of-War games, compare pending/active deal terms and recent chat claims against public army and
+   * territory counts so the AI can spot troop-commitment bluffs and useless alliances with weak players.
+   */
+  realityCheck(view: GameView, recentChat: ChatMsg[] = []): string {
+    if (view.options.fogOfWar) return '';
+    const rivals = view.players.filter((p) => p.alive && !p.isNeutral && lc(p.name) !== lc(this.me) && p.armyCount !== null && p.territoryCount !== null);
+    if (rivals.length === 0) return '';
+    const allLiving = view.players.filter((p) => p.alive && !p.isNeutral && p.armyCount !== null);
+    const avgArmies = allLiving.reduce((s, p) => s + (p.armyCount ?? 0), 0) / Math.max(1, allLiving.length);
+    const isWeak = (p: (typeof rivals)[number]) => (p.armyCount ?? 0) <= 6 || (p.territoryCount ?? 0) <= 2 || (p.armyCount ?? 0) < avgArmies * 0.4;
+    const notes: string[] = [];
+    const flaggedWeak = new Set<string>();
+
+    for (const d of [...this.pendingForMe(), ...this.active()]) {
+      const otherName = this.other(d);
+      const p = rivals.find((x) => lc(x.name) === lc(otherName));
+      if (!p) continue;
+      const armies = p.armyCount ?? 0;
+      const terrs = p.territoryCount ?? 0;
+      const inc = p.income?.total ?? 0;
+      const maxSpare = Math.max(0, armies - terrs + inc);
+      if (d.kind === 'joint_attack' && d.commitArmies !== undefined) {
+        const needed = d.status === 'active' ? Math.max(0, d.commitArmies - this.committedBy(d, p.name)) : d.commitArmies;
+        if (needed > armies) {
+          notes.push(
+            `- BLUFF / IMPOSSIBLE COMMITMENT (${d.id}): ${p.name} promises to commit ${needed} troops, but only has ${armies} total armies on the entire board across ${terrs} territories (+${inc}/turn)! Deny/reject or ignore this bluff.`,
+          );
+        } else if (needed > maxSpare) {
+          notes.push(
+            `- UNVIABLE COMMITMENT (${d.id}): ${p.name} promises to commit ${needed} troops, which exceeds their attackable armies (${armies} total armies across ${terrs} territories, +${inc}/turn; at most ~${maxSpare} troops can attack).`,
+          );
+        }
+      }
+      if (isWeak(p)) {
+        flaggedWeak.add(lc(p.name));
+        notes.push(
+          `- WEAK ALLY WARNING (${d.id} with ${p.name}): ${p.name} only has ${armies} armies across ${terrs} territories (+${inc}/turn vs table avg ${Math.round(avgArmies)} armies). Allying with a weak player is useless and protects an easy card kill.`,
+        );
+      }
+    }
+
+    for (const m of recentChat.slice(-8)) {
+      if (m.spectator || lc(m.name) === lc(this.me)) continue;
+      const p = rivals.find((x) => lc(x.name) === lc(m.name));
+      if (!p) continue;
+      const armies = p.armyCount ?? 0;
+      const terrs = p.territoryCount ?? 0;
+      const inc = p.income?.total ?? 0;
+      for (const match of m.message.matchAll(/\b(\d+)\s+(?:troops?|armies)\b/gi)) {
+        const claimed = Number(match[1]);
+        if (Number.isInteger(claimed) && claimed > armies && claimed <= 500) {
+          notes.push(
+            `- CHAT BLUFF (${p.name}): claims ${claimed} troops in chat, but actually has only ${armies} total armies across ${terrs} territories (+${inc}/turn).`,
+          );
+        }
+      }
+      if (!flaggedWeak.has(lc(p.name)) && isWeak(p) && /\b(?:truce|ally|alliance|pact|deal|peace|team up|work together)\b/i.test(m.message)) {
+        flaggedWeak.add(lc(p.name));
+        notes.push(
+          `- WEAK PLAYER SEEKING ALLIANCE (${p.name}): ${p.name} only has ${armies} armies and ${terrs} territories (+${inc}/turn vs table avg ${Math.round(avgArmies)} armies). Making an alliance with a weak player is useless.`,
+        );
+      }
+    }
+
+    return notes.length > 0 ? `Deal & alliance reality check (no fog of war — all troop counts are public):\n${notes.join('\n')}` : '';
+  }
 }
+

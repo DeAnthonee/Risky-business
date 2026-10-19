@@ -270,6 +270,73 @@ describe('Commander and deals', () => {
     expect(seen[0]).toContain('breakDeals');
     expect(ledger.history.join('\n')).toContain('accepted');
   });
+
+  it('treats deals as suggestions: explicit target or route overrides active deals without needing breakDeals', async () => {
+    const v = makeView(4);
+    const teemoTerr = Object.entries(v.territories).find(([, s]) => s.owner === 'c')![0];
+    const ledger = new DealLedger({ me: 'Shen', idPrefix: 'S' });
+    const c = commander({ plan: 'Pivot onto Teemo', target: 'Teemo', route: [teemoTerr] }, ledger);
+    c.observe(v);
+    activate(ledger, v, { kind: 'joint_attack', with: 'Teemo', target: 'Lux', startRound: 4 }, 'Teemo');
+    activate(ledger, v, { kind: 'truce', with: 'Teemo', untilRound: 9 }, 'Teemo');
+    activate(ledger, v, { kind: 'border', with: 'Teemo', untilRound: 9, territories: { Teemo: [teemoTerr] } }, 'Teemo');
+
+    await c.planFor({ ...v, phase: 'reinforce' });
+    const plan = c.currentPlan()!;
+    // Commander's explicit target ('c' = Teemo) wins over the joint_attack target ('b' = Lux) and breaks the truce/border with Teemo.
+    expect(plan.target).toBe('c');
+    expect(plan.avoid).not.toContain('c');
+    expect(plan.noAttack).not.toContain(teemoTerr);
+    expect(ledger.get('S2')?.status).toBe('broken');
+    expect(ledger.get('S3')?.status).toBe('broken');
+  });
+
+  it('flags troop-commitment bluffs and weak allies in non-Fog-of-War lobbies, but not under Fog of War', async () => {
+    const v = makeView(4);
+    // Make Lux ('b') a weak player with only 4 armies and 1 territory, while Shen ('a') and Teemo ('c') have 25 armies.
+    const players = v.players.map((p) =>
+      p.id === 'b'
+        ? { ...p, armyCount: 4, territoryCount: 1, income: { total: 3, base: 3, continents: [] } }
+        : { ...p, armyCount: 25, territoryCount: 8, income: { total: 5, base: 5, continents: [] } },
+    );
+    const noFogView: GameView = { ...v, options: { ...v.options, fogOfWar: false }, players };
+    const fogView: GameView = {
+      ...v,
+      options: { ...v.options, fogOfWar: true },
+      players: players.map((p) => (p.id === 'a' ? p : { ...p, armyCount: null, territoryCount: null })),
+    };
+
+    const ledger = new DealLedger({ me: 'Shen', idPrefix: 'S' });
+    ledger.sync(noFogView);
+    const offerMsg = msg('Lux', 'Shen, I will commit 20 troops against Teemo with you! [deal L1: joint_attack Lux+Shen vs Teemo commit 20 from round 5 until round 7]');
+    ledger.ingest([offerMsg]);
+
+    const checkNoFog = ledger.realityCheck(noFogView, [offerMsg]);
+    expect(checkNoFog).toContain('BLUFF / IMPOSSIBLE COMMITMENT (L1)');
+    expect(checkNoFog).toContain('only has 4 total armies');
+    expect(checkNoFog).toContain('WEAK ALLY WARNING');
+
+    const checkFog = ledger.realityCheck(fogView, [offerMsg]);
+    expect(checkFog).toBe('');
+
+    // Verify Diplomat surfaces the reality check in its prompt in non-fog games.
+    const seenPrompts: string[] = [];
+    const llm: Llm = {
+      chat: async (m) => {
+        seenPrompts.push(m.map((x) => x.content).join('\n'));
+        return JSON.stringify({
+          say: 'You only have 4 armies left Lux, stop bluffing about 20 troops.',
+          to: 'Lux',
+          deal: null,
+          respond: { dealId: 'L1', answer: 'reject' },
+        });
+      },
+    };
+    const d = new Diplomat({ llm, seatName: 'Shen', playerId: 'a', characterMarkdown: null, cooldownMs: 0 });
+    const out = await d.onMessages([offerMsg], noFogView);
+    expect(seenPrompts[0]).toContain('BLUFF / IMPOSSIBLE COMMITMENT (L1)');
+    expect(out?.message).toContain('[reject L1]');
+  });
 });
 
 describe('noAttack in the move chooser', () => {

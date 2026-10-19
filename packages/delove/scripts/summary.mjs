@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Summarise one step of a Delove cycle: the games played (generate.sh chunk results) and what branch-and-score did
-// (stats-*.json written with DELOVE_BRANCH_STATS). Prints Markdown and writes <dir>/summary.json.
+// (stats-*.json written with DELOVE_BRANCH_STATS), or, for a step played on the GPU, its gpu.json (delove_gpu.generate
+// --summary: the same per-table results and branch stats). Prints Markdown and writes <dir>/summary.json.
 //
 //   node packages/delove/scripts/summary.mjs runs/delove/c1/micro "Cycle 1, step 1: micro games"
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -14,6 +15,13 @@ if (!dir || !existsSync(dir)) {
 const json = (f) => JSON.parse(readFileSync(join(dir, f), 'utf8'));
 const results = readdirSync(dir).filter((f) => /-c\d+\.json$/.test(f)).map((f) => ({ group: f.replace(/-c\d+\.json$/, ''), ...json(f) }));
 const stats = readdirSync(dir).filter((f) => /^stats-\d+\.json$/.test(f)).map(json);
+if (existsSync(join(dir, 'gpu.json'))) {
+  const gpu = json('gpu.json');
+  for (const t of [...gpu.tables].sort((a, b) => (a.table < b.table ? -1 : 1))) {
+    results.push({ group: t.table, agents: t.agents, games: t.games, winsBySeat: t.wins, meanTurns: t.turns / t.games, decisions: t.decisions, turnLimit: t.turnLimit, seconds: 0 });
+  }
+  stats.push(gpu.branch);
+}
 
 const groups = new Map();
 for (const r of results) {

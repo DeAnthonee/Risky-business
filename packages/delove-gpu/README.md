@@ -277,6 +277,6 @@ each verified against the TypeScript. In rough order of what would speed a cycle
    last long games finish, so thin steps stop costing a full kernel latency each.
 4. **Other players in the pool:** `risky@1` (`packages/engine/src/bot.ts`, short) and sampling (`-explore`) network
    seats, which need ONNX-identical sampling arithmetic.
-5. **cycle.sh wiring:** run the Classic 2-player step with `generate.py` (writing its dataset folder directly) while
-   the CPU pool plays the other steps. Left out of this change on purpose: the cycle scripts are being changed in
-   the cycles 2-4 PR (#74).
+5. ~~**cycle.sh wiring**~~ done: `gpu_steps=(classic2)` in a cycle config plays that step here while the CPU pool
+   plays the others (packages/delove/README.md, "A step on the GPU"). `generate.py --summary` also counts decisions
+   per table as `game.ts` does (a fortify, two steps here, is one), so `cycle.md`'s table matches the CPU's.

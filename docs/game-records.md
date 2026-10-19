@@ -21,6 +21,10 @@ A game is recorded from the moment it starts; lobbies that never start leave not
 before anyone wins is still filed, with `outcome.finished: false` and `endedBecause`. Records hold every hand and
 the hidden board, so they are only served to the admin. A game takes roughly 0.3 MB (2 players) to 1.6 MB (6 players).
 
+Only the newest 1000 records are kept (`RISK_ARCHIVE_KEEP`; `0` keeps them all), so the archive stays around
+0.3-1.6 GB. Each time a game is filed, the oldest records beyond that are deleted with their `index.jsonl` lines.
+Copy the archive off the host to keep more.
+
 ## Getting them
 
 With `RISK_ADMIN_TOKEN` (as `Authorization: Bearer <token>`):

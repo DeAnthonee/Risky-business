@@ -12,6 +12,8 @@ import {
   recordHeader,
   recordStep,
   recordTurnStart,
+  scenarioState,
+  setPlayerBot,
   stateAtStep,
   startGame,
   verifyRecord,
@@ -122,5 +124,48 @@ describe('game records', () => {
     const spectator = observeStep(record, step.i, null);
     expect(Object.values(spectator.view.territories).some((t) => t.hidden)).toBe(false);
     expect(spectator.events).toEqual(step.events);
+  });
+
+  it('starts a new game from any recorded moment, with new dice and its own record', () => {
+    const { record } = fog;
+    const step = record.steps.find((s) => s.i > 40 && s.phase === 'attack')!.i;
+    const scenario = scenarioState(record, step, { id: 'SCN', at: 5, seed: 99, seats: { b: 'open' } });
+    expect(scenario.id).toBe('SCN');
+    expect(boardOf(scenario, record)).toEqual(record.steps[step].board);
+    expect(scenario.currentPlayer).toBe(record.steps[step].player);
+    expect(scenario.players.map((p) => p.isBot)).toEqual([true, false, true]);
+    expect([scenario.seed, scenario.rngState, scenario.startedAt]).toEqual([99, 99, 5]);
+    // Kept dice: the recorded moves rebuild the recorded game from here.
+    const kept = scenarioState(record, step, { id: 'SCN', at: 5 });
+    expect(kept.rngState).toBe(stateAtStep(record, step).rngState);
+    const next = applyAction(kept, record.steps[step].player, record.steps[step].action).state;
+    expect(boardOf(next, record)).toEqual(record.steps[step + 1].board);
+
+    // Played out by bots and recorded like any game, it replays exactly and points back at its origin.
+    let s = setPlayerBot(scenario, 'b', true);
+    expect(setPlayerBot(s, 'b', true)).toBe(s);
+    const header = recordHeader('SCN-1', { id: 'SCN', name: 'Scenario' }, s, [], {}, { recordId: record.id, step });
+    const entries: RecordEntry[] = [];
+    const rng = createRng(11);
+    for (let n = 0; s.phase !== 'finished' && n < 6000; n++) {
+      const player = s.currentPlayer!;
+      const action = chooseBotAction(s, player, () => nextFloat(rng))!;
+      const { state, events } = applyAction(s, player, action);
+      entries.push(recordStep(header, s, player, action, events, n));
+      const turn = recordTurnStart(header, state, events, n);
+      if (turn) entries.push(turn);
+      s = state;
+    }
+    const played: GameRecord = JSON.parse(JSON.stringify(assembleRecord(header, entries, s, 1)));
+    expect(played.scenarioOf).toEqual({ recordId: 'REC-1', step });
+    expect(played.outcome.finished).toBe(true);
+    expect(verifyRecord(played)).toBeNull();
+  });
+
+  it('refuses a scenario after the game was decided, or with a seat that is not a player', () => {
+    const { record } = fog;
+    expect(() => scenarioState(record, record.steps.length, { id: 'X', at: 0 })).toThrow(/decided/);
+    expect(() => scenarioState(record, 0, { id: 'X', at: 0, seats: { zed: 'open' } })).toThrow(/not a player/);
+    expect(() => scenarioState(record, 0, { id: 'X', at: 0, seats: { a: 'human' as never } })).toThrow(/bot/);
   });
 });

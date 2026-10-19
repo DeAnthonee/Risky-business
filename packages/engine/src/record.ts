@@ -1,4 +1,5 @@
 import { applyAction, territoriesOf } from './engine.js';
+import { RuleError } from './types.js';
 import { getMap } from './maps.js';
 import { boardFor, redactEvents, viewFor, type GameView } from './view.js';
 import type { Action, Card, GameEvent, GameOptions, GameState, Phase, PlayerId, TerritoryId, TerritoryState } from './types.js';
@@ -51,6 +52,14 @@ export interface RecordHeader {
   players: RecordPlayer[];
   /** The full state right after the start, and the start's events. Replays begin here. */
   start: { state: GameState; events: GameEvent[] };
+  /** Set when this game is a scenario: it began from this moment of another recorded game (see scenarioState). */
+  scenarioOf?: ScenarioRef;
+}
+
+/** A moment of a recorded game: the state just before step `step` of record `recordId`. */
+export interface ScenarioRef {
+  recordId: string;
+  step: number;
 }
 
 /** One action by one player. */
@@ -147,6 +156,7 @@ export function recordHeader(
   state: GameState,
   events: GameEvent[],
   characterIds: Record<PlayerId, string> = {},
+  scenarioOf?: ScenarioRef,
 ): RecordHeader {
   if (state.phase === 'lobby' || state.startedAt === null) throw new Error('recordHeader: the game has not started');
   return {
@@ -170,6 +180,7 @@ export function recordHeader(
       characterId: characterIds[p.id] ?? null,
     })),
     start: { state, events },
+    ...(scenarioOf ? { scenarioOf } : {}),
   };
 }
 
@@ -293,4 +304,44 @@ export function observeStep(record: GameRecord, step: number, viewer: PlayerId |
   if (!s) return { view: viewFor(before, viewer), events: [] };
   const after = applyAction(before, s.player, s.action).state;
   return { view: viewFor(before, viewer), events: redactEvents(after, viewer, s.events) };
+}
+
+/** Who plays a seat in a scenario: a built-in bot, or a person or agent holding the seat's token. */
+export type ScenarioSeat = 'bot' | 'open';
+
+export interface ScenarioOptions {
+  /** The new game's id (its room code). */
+  id: string;
+  /** When the new game starts. */
+  at: number;
+  /** A new dice seed, so the game plays out differently from the record. Omitted: the recorded dice are kept. */
+  seed?: number;
+  /** Per player id; every seat not listed is a bot. Eliminated players and the neutral army are left as they are. */
+  seats?: Record<PlayerId, ScenarioSeat>;
+}
+
+/**
+ * A new game that begins at one moment of a recorded game: the exact state just before step `step`, under a new
+ * id and start time. Players keep their ids, names, colours, cards and armies; who plays each seat comes from
+ * `seats` (bots by default). With a seed the dice differ from the record from here on; the deck's order is
+ * part of the state and is kept either way.
+ */
+export function scenarioState(record: Pick<GameRecord, 'start' | 'steps'>, step: number, opts: ScenarioOptions): GameState {
+  const state = stateAtStep(record, step);
+  if (state.phase === 'finished' || state.phase === 'lobby') throw new RuleError('That moment is after the game was decided: pick an earlier step');
+  const seats = opts.seats ?? {};
+  for (const [id, seat] of Object.entries(seats)) {
+    const p = state.players.find((x) => x.id === id);
+    if (!p || p.isNeutral) throw new RuleError(`${id} is not a player in that game`);
+    if (seat !== 'bot' && seat !== 'open') throw new RuleError(`A seat is "bot" or "open", not ${JSON.stringify(seat)}`);
+  }
+  return {
+    ...state,
+    id: opts.id,
+    players: state.players.map((p) => (p.isNeutral ? p : { ...p, isBot: (seats[p.id] ?? 'bot') === 'bot' })),
+    ...(opts.seed !== undefined ? { seed: opts.seed >>> 0, rngState: opts.seed >>> 0 } : {}),
+    createdAt: opts.at,
+    startedAt: opts.at,
+    finishedAt: null,
+  };
 }

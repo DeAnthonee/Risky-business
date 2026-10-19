@@ -8,7 +8,9 @@
         --data data/delove/s2-self/classic:winners --init models/delove/delove@1.pt --out models/delove/delove@2
 
 Policy: cross-entropy on the candidate that was played, weighted per decision (mode "imitate": every move counts
-fully; mode "winners": weight loser_weight + (1 - loser_weight) * z, so mostly the winner's moves). Value: binary
+fully; mode "winners": weight loser_weight + (1 - loser_weight) * z, so mostly the winner's moves; mode
+"advantage": weight exp((z - V) / beta), V the model's own current value for the position (no gradient), so a move
+counts more the better the game went than expected from there, and weights are normalised per batch). Value: binary
 cross-entropy on the game result `z`, on every decision.
 Writes <out>.pt (weights + config) and <out>.json (training settings and validation metrics).
 """
@@ -24,12 +26,13 @@ import torch.nn.functional as F
 from delove_model import DeloveNet, segment_log_softmax
 
 SUPPORTED_ENCODER = 2
+MODES = ("imitate", "winners", "advantage")
 
 
 class Data:
     def __init__(self, folder, mode="imitate", loser_weight=0.1):
-        if mode not in ("imitate", "winners"):
-            raise SystemExit(f"{folder}: unknown mode {mode!r} (imitate or winners)")
+        if mode not in MODES:
+            raise SystemExit(f"{folder}: unknown mode {mode!r} ({', '.join(MODES)})")
         self.name, self.mode, self.loser_weight = folder, mode, loser_weight
         with open(os.path.join(folder, "features.json")) as f:
             self.info = json.load(f)
@@ -50,7 +53,7 @@ class Data:
 
     def policy_weight(self, ks):
         z = self.z[ks].astype(np.float32)
-        return np.ones_like(z) if self.mode == "imitate" else self.loser_weight + (1 - self.loser_weight) * z
+        return self.loser_weight + (1 - self.loser_weight) * z if self.mode == "winners" else np.ones_like(z)
 
     def batch(self, ks, device):
         """Tensors for decisions `ks` (sorted for faster memmap reads)."""
@@ -72,6 +75,7 @@ class Data:
             target=t(target, torch.int64),
             z=t(self.z[ks]),
             w=t(self.policy_weight(ks)),
+            advantage=self.mode == "advantage",
             n=len(ks),
         )
 
@@ -91,10 +95,13 @@ def blocks(idx, block, rng):
     return [chunks[i] for i in order]
 
 
-def step_loss(model, b, adj, value_weight):
+def step_loss(model, b, adj, value_weight, beta=0.3):
     logits, value = model(b["territory"], b["glob"], adj, b["cand"], b["cand_from"], b["cand_to"], b["cand_batch"])
     logp = segment_log_softmax(logits, b["cand_batch"], b["n"])
     w = b["w"]
+    if b["advantage"]:
+        w = torch.exp(((b["z"] - value.detach()) / beta).clamp(-3.0, 2.0))
+        w = w / w.mean()
     policy_loss = -(logp[b["target"]] * w).sum() / w.sum().clamp(min=1e-6)
     value_loss = F.binary_cross_entropy(value.clamp(1e-6, 1 - 1e-6), b["z"])
     # Top-1: the played candidate has the highest logit in its decision.
@@ -104,14 +111,14 @@ def step_loss(model, b, adj, value_weight):
 
 
 @torch.no_grad()
-def evaluate(model, data, idx, device, batch_size, value_weight):
+def evaluate(model, data, idx, device, batch_size, value_weight, beta=0.3):
     adj = torch.as_tensor(data.adj, device=device)
     model.eval()
     tot = np.zeros(4)
     n = 0
     for i in range(0, len(idx), batch_size):
         b = data.batch(idx[i : i + batch_size], device)
-        losses = step_loss(model, b, adj, value_weight)
+        losses = step_loss(model, b, adj, value_weight, beta)
         tot += np.array([x.item() for x in losses]) * b["n"]
         n += b["n"]
     model.train()
@@ -122,7 +129,8 @@ def evaluate(model, data, idx, device, batch_size, value_weight):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", required=True, action="append",
-                    help="export folder for one map, optionally :imitate (default) or :winners; repeat to mix exports of the same map")
+                    help="export folder for one map, optionally :imitate (default), :winners or :advantage; repeat to mix exports of the same map")
+    ap.add_argument("--beta", type=float, default=0.3, help="temperature of :advantage weights (smaller = sharper)")
     ap.add_argument("--loser-weight", type=float, default=0.1, help="policy weight of a losing side's moves in :winners data")
     ap.add_argument("--out", required=True, help="output path without extension, e.g. models/delove/delove@1")
     ap.add_argument("--init", help="start from these weights (<path>.pt)")
@@ -141,17 +149,15 @@ def main():
     rng = np.random.default_rng(args.seed)
     device = "cuda" if torch.cuda.is_available() else "cpu"
     def parse(spec):
-        for mode in ("imitate", "winners"):
+        for mode in MODES:
             if spec.endswith(":" + mode):
                 return Data(spec[: -len(mode) - 1], mode, args.loser_weight)
         return Data(spec, "imitate", args.loser_weight)
 
     datasets = [parse(d) for d in args.data]
     first = datasets[0]
-    for d in datasets[1:]:
-        if d.info["territoryIds"] != first.info["territoryIds"]:
-            raise SystemExit(f"{d.name}: another map than {first.name}; train one map at a time")
-    adj = torch.as_tensor(first.adj, device=device)
+    # Maps can differ between datasets: every batch comes from one dataset and uses that map's adjacency.
+    adjs = [torch.as_tensor(d.adj, device=device) for d in datasets]
     splits = []
     for d in datasets:
         tr, va = split_by_game(d.game, args.val, args.seed)
@@ -198,7 +204,7 @@ def main():
         per = {}
         tot, n = np.zeros(4), 0
         for d, (_, va) in zip(datasets, splits):
-            m = evaluate(model, d, va, device, args.batch, args.value_weight)
+            m = evaluate(model, d, va, device, args.batch, args.value_weight, args.beta)
             per[label(d)] = m
             tot += np.array([m["loss"], m["policy_loss"], m["value_loss"], m["top1"]]) * len(va)
             n += len(va)
@@ -210,7 +216,7 @@ def main():
             if step >= steps_total:
                 break
             b = datasets[di].batch(ks, device)
-            loss, pl, vl, acc = step_loss(model, b, adj, args.value_weight)
+            loss, pl, vl, acc = step_loss(model, b, adjs[di], args.value_weight, args.beta)
             opt.zero_grad(set_to_none=True)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)

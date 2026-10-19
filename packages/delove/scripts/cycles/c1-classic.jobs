@@ -1,0 +1,4 @@
+# Cycle 1, steps 2-3: scenario games on Classic, real positions at every decision, 2 and 4 players.
+c2t   800 delove-branch@1,delove-teacher@2
+c2d   800 delove@2,delove-branch@1
+c4    600 delove-branch@1,delove-teacher@2,delove@2,risky@1

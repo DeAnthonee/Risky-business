@@ -1,0 +1,10 @@
+# Round 3: value-guided lookahead (search.ts). l* groups are lookahead-only tables: the policy learns what the
+# lookahead picked (imitation = expert iteration). m* groups mix in Sensei and risky@1: train them as :advantage.
+l2   2500 delove@1+look-explore,delove@1+look-explore
+l3   1500 delove@1+look-explore,delove@1+look-explore,delove@1+look-explore
+l4   1500 delove@1+look-explore,delove@1+look-explore,delove@1+look-explore,delove@1+look-explore
+l6    500 delove@1+look-explore,delove@1+look-explore,delove@1+look-explore,delove@1+look-explore,delove@1+look-explore,delove@1+look-explore
+m2t  1000 delove@1+look-explore,delove-teacher@1
+m2d  1000 delove@1+look-explore,delove@1
+m4    500 delove@1+look-explore,delove@1+look-explore,delove-teacher@1,delove-teacher@1
+m6    500 delove@1+look-explore,delove@1+look-explore,delove-teacher@1,delove-teacher@1,delove@1,risky@1

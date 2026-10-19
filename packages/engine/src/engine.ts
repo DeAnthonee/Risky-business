@@ -21,6 +21,7 @@ import {
   type PlayerId,
   type ReinforcementBreakdown,
   type TerritoryId,
+  type TerritoryState,
   type TradeAction,
 } from './types.js';
 
@@ -361,8 +362,52 @@ export function applyAction(state: GameState, playerId: PlayerId, action: Action
 // Helpers
 // ------------------------------------------------------------------
 
-function clone<T>(x: T): T {
-  return structuredClone(x);
+/**
+ * Deep copy of a game state. States are plain JSON data, so a direct copy gives the same result as structuredClone
+ * at a fraction of the cost (the clone was most of the time of a simulated move). The fields known to hold nested
+ * data are copied by shape; any other object-valued field (added later, or in an old save) is deep-copied generically.
+ */
+function clone(state: GameState): GameState {
+  const next = { ...state };
+  for (const k in next) {
+    const v = (next as unknown as Record<string, unknown>)[k];
+    if (typeof v === 'object' && v !== null && k !== 'territories' && k !== 'players' && k !== 'deck' && k !== 'discard')
+      (next as unknown as Record<string, unknown>)[k] = copyPlain(v);
+  }
+  // Territories and cards hold only primitives (see TerritoryState and Card), so a spread copies them fully.
+  const territories: Record<TerritoryId, TerritoryState> = {};
+  for (const t in state.territories) territories[t] = { ...state.territories[t] };
+  next.territories = territories;
+  next.players = state.players.map(copyPlayer);
+  next.deck = state.deck.map(copyCard);
+  next.discard = state.discard.map(copyCard);
+  return next;
+}
+
+function copyCard(c: Card): Card {
+  return { ...c };
+}
+
+function copyPlayer(p: Player): Player {
+  const out = { ...p };
+  for (const k in out) {
+    const v = (out as unknown as Record<string, unknown>)[k];
+    if (k === 'cards') out.cards = p.cards.map(copyCard);
+    else if (typeof v === 'object' && v !== null) (out as unknown as Record<string, unknown>)[k] = copyPlain(v);
+  }
+  return out;
+}
+
+function copyPlain<T>(v: T): T {
+  if (typeof v !== 'object' || v === null) return v;
+  if (Array.isArray(v)) {
+    const out = new Array(v.length);
+    for (let i = 0; i < v.length; i++) out[i] = copyPlain(v[i]);
+    return out as T;
+  }
+  const out: Record<string, unknown> = {};
+  for (const k in v) out[k] = copyPlain((v as Record<string, unknown>)[k]);
+  return out as T;
 }
 
 function rngOf(state: GameState): Rng {
@@ -1169,14 +1214,71 @@ function fortifyOptions(state: GameState, playerId: PlayerId, owned: TerritoryId
   const out: { from: TerritoryId; to: TerritoryId; maxArmies: number }[] = [];
   if (state.fortifiedThisTurn) return out;
   const adjacency = mapOf(state).adjacency;
+  const connected = state.options.fortifyMode === 'adjacent' ? null : new ConnectedSearch(state, playerId);
   for (const t of owned) {
     const armies = state.territories[t].armies;
     if (armies < 2) continue;
-    const targets =
-      state.options.fortifyMode === 'adjacent'
-        ? adjacency[t].filter((n) => state.territories[n].owner === playerId)
-        : [...connectedTerritories(state, playerId, t)];
+    const targets = connected ? connected.from(t) : adjacency[t].filter((n) => state.territories[n].owner === playerId);
     for (const n of targets) out.push({ from: t, to: n, maxArmies: armies - 1 });
   }
   return out;
+}
+
+/** Territory indexes and index adjacency per map, for searches that run many times per position. */
+const indexedMaps = new WeakMap<MapDef, { index: Map<TerritoryId, number>; adj: number[][] }>();
+
+function indexedMap(map: MapDef) {
+  let m = indexedMaps.get(map);
+  if (!m) {
+    const index = new Map(map.territoryIds.map((t, i) => [t, i]));
+    m = { index, adj: map.territoryIds.map((t) => map.adjacency[t].map((n) => index.get(n)!)) };
+    indexedMaps.set(map, m);
+  }
+  return m;
+}
+
+/**
+ * connectedTerritories for every source of one player in one position: owners are read once, and each search visits
+ * territories in exactly the same order as connectedTerritories, so the targets come out in the same order.
+ */
+class ConnectedSearch {
+  private readonly ids: TerritoryId[];
+  private readonly index: Map<TerritoryId, number>;
+  private readonly adj: number[][];
+  private readonly mine: Uint8Array;
+  private readonly seen: Uint32Array;
+  private readonly stack: number[] = [];
+  private stamp = 0;
+
+  constructor(state: GameState, owner: PlayerId) {
+    const map = mapOf(state);
+    const m = indexedMap(map);
+    this.ids = map.territoryIds;
+    this.index = m.index;
+    this.adj = m.adj;
+    this.mine = new Uint8Array(this.ids.length);
+    for (let i = 0; i < this.ids.length; i++) if (state.territories[this.ids[i]].owner === owner) this.mine[i] = 1;
+    this.seen = new Uint32Array(this.ids.length);
+  }
+
+  from(t: TerritoryId): TerritoryId[] {
+    const { ids, adj, mine, seen, stack } = this;
+    const out: TerritoryId[] = [];
+    const start = this.index.get(t)!;
+    const stamp = ++this.stamp;
+    seen[start] = stamp;
+    stack.length = 0;
+    stack.push(start);
+    while (stack.length) {
+      const cur = stack.pop()!;
+      for (const n of adj[cur]) {
+        if (seen[n] !== stamp && mine[n]) {
+          seen[n] = stamp;
+          stack.push(n);
+          out.push(ids[n]);
+        }
+      }
+    }
+    return out;
+  }
 }

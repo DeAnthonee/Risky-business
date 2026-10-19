@@ -2,7 +2,8 @@
 
 Status: Stages 0 and 1 done. `delove-teacher@1` beats `risky@1` on every setup tried, and `delove@1`, the network
 distilled from it, matches the teacher on Classic 2-player (0.525), beats it on World (0.605) and beats `risky@1`
-0.95-0.98 (numbers and commands in `packages/delove/README.md`). Next: Stage 2, self-play to get past the teacher.
+0.95-0.98 (numbers and commands in `packages/delove/README.md`). Stage 2 round 2 (`delove@2`: more players plus win-weighted self-play) was not promoted: better with 4-6 players,
+slightly worse head to head. Next round: advantage weighting from the value head and a value-guided lookahead.
 
 ## What it is, and what it is not
 

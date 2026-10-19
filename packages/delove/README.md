@@ -72,7 +72,7 @@ answer synchronously.
 | --- | --- | --- |
 | `delove-teacher@1` | hand-coded teacher (`src/teacher.ts`), Stage 0: Delove's first version learns from it | done |
 | `delove@1` | network distilled from the teacher (Stage 1), loaded from `models/delove/` (ignored by git) | done |
-| `delove@2`, ... | self-play improved versions (Stage 2) | next |
+| `delove@2`, ... | self-play improved versions (Stage 2) | round 2 tried, not promoted (below) |
 
 `delove-teacher@1` picks only from the self-play candidates (never off-list), so every decision is a clean training
 label, and it is deterministic from the seed. Against `risky@1` (`--seed 3`):
@@ -105,3 +105,31 @@ teacher's move 77% of the time on held-out games), `--seed 5`:
 | `delove-teacher@1` | Classic, 2 players | 400 | 0.525 | (even: it learned the teacher) |
 | `delove-teacher@1` | World, 2 players | 200 | 0.605 | +74 (a map it never trained on) |
 | `delove-teacher@1` | Classic, 4 players | 200 | 0.415 | (trained on 2-player games only) |
+
+## Stage 2: self-play rounds
+
+A round: generate games with a jobs file, export the groups, train from the current best with `--init`, then gate
+the candidate on the ladder against the current best (promoted only at >= 0.55 over >= 200 games with the 95%
+interval above 0.5).
+
+```bash
+bash packages/delove/scripts/generate.sh packages/delove/scripts/round-02.jobs runs/delove/r02 202   # ~14 min
+npm run delove -- export --log $(ls -d runs/delove/r02/t*/c* | paste -sd,) --out data/delove/r02-teacher
+npm run delove -- export --log $(ls -d runs/delove/r02/x*/c* | paste -sd,) --out data/delove/r02-self
+cd packages/delove/python
+../../../.venv/Scripts/python train.py --data ../../../data/delove/teacher-01/classic   --data ../../../data/delove/r02-teacher/classic --data ../../../data/delove/r02-self/classic:winners   --init ../../../models/delove/delove@1.pt --out ../../../models/delove/delove@2 --epochs 1 --lr 5e-4   # ~22 min
+../../../.venv/Scripts/python export_onnx.py ../../../models/delove/delove@2
+cd ../../.. && npm run delove -- ladder --best delove@1 --candidate delove@2 --games 400
+```
+
+`:winners` data teaches the policy mostly from the side that won (`--loser-weight`, default 0.1); imitation data
+counts every move.
+
+**Round 2 (not promoted).** 22,000 games (Sensei with 3-6 players; `delove@1-explore` at temperature 0.7 against
+itself, Sensei and `risky@1` with 2-6 players), 19.6M decisions with the original 2-player set, 1 epoch from
+`delove@1`. `delove@2` against `delove@1` (`--seed 7`): 0.465 (2p, 400 games), 0.55 (4p, interval reaches 0.48),
+0.535 (6p), 0.51 (World). Against Sensei: 0.523 (2p), 0.45 (4p, was 0.415), 0.44 (6p); against `risky@1` 4p: 0.79
+(was 0.75). Better with more players, slightly worse head to head: imitation still dominates the data (14M of 19.6M
+decisions) and the win/loss signal of a whole game is too noisy to say which moves won it. Next: learn from the
+value head's judgement of each move (advantage weighting) and a value-guided lookahead at decision time, which can
+play better than the policy alone and gives better training targets than copying.

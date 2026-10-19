@@ -10,6 +10,7 @@ any player: how to play a turn, how to win under each setting, and what past gam
 | `ways-to-win.md` | How to win under each victory condition and game setting (Capital Conquest, fog, cards, blizzards, ...) |
 | `findings.md` | Dated findings from real games that hold for every player, each with its evidence |
 | `risk-learnings.md` | Lessons from every past game so far: troop movement, capitals, fixed vs progressive cards, diplomacy, tool tips, game log. Read before every game. |
+| `../../docs/fog-power-rankings.md` | Deducing opponent strength & power scores under Fog of War (attrition formula, income deductions, card surge) |
 
 ## Saving here
 

@@ -539,3 +539,4 @@ first-class feature, not an afterthought.
 
 
 Character profiles, placement rankings and shared multi-lobby learning: see [the character league guide](docs/character-league.md).
+AI Fog of War Power Rankings and Opponent Strength Estimation: see [the Fog Power Rankings guide](docs/fog-power-rankings.md) and [quick notes](NOTES_POWER_RANKINGS.md).

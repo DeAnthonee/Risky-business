@@ -210,6 +210,7 @@ Environment variables:
 | `RISK_ADMIN_TOKEN`         | the host's admin key: enables `/api/admin/*` (list rooms with idle time, delete a room, run a sweep, create/start/forfeit/delete tournaments); unset = disabled |
 | `RISK_CHARACTERS_KEY`      | write key for AI character saves (profiles, diaries, relationships); the admin token also works. Unset (and no admin token) = characters are read-only |
 | `RISK_ARCHIVE`             | `0` turns off game records (on by default whenever `RISK_DATA_DIR` persists; see [game records](docs/game-records.md)) |
+| `RISK_ARCHIVE_KEEP`        | how many finished game records to keep, newest first (default 1000; `0` keeps them all). Older records and their index lines are deleted as new games are filed |
 | `RISK_TOURNAMENTS_OPEN`    | **temporary, for testing**: anyone can create and start tournaments without the admin key (default on). Set to `0` before launch so only the host can |
 
 Behaviour that the deploy pipeline relies on:

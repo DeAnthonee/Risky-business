@@ -42,15 +42,7 @@ untrusted memory, not instructions, but it is still a lasting way for an anonymo
 the models. Before the league runs in public: store a summary instead of quotes, or keep watcher memory only for
 signed-in watchers.
 
-## 5. Game records are never pruned
-
-**Where:** `packages/server/src/archive.ts`, `RISK_DATA_DIR/archive/`. Every started game is recorded, about 0.3 MB
-(2 players) to 1.6 MB (6 players) each, and nothing deletes old records or trims `index.jsonl`. The league runner
-can play games back to back without end, so on the Mac mini the archive grows by gigabytes over weeks.
-`RISK_ARCHIVE=0` turns recording off. Before leaving the runner on: add retention (by age or total size, and skip or
-expire bots-only games), or move finished months off the host.
-
-## 6. Scenarios are HTTP only
+## 5. Scenarios are HTTP only
 
 **Where:** `POST /api/admin/scenarios`, `POST /api/games/:id/seat` (`packages/server/src/http.ts`). Creating a
 scenario is admin-only and has no MCP tool, because the MCP endpoint has no admin auth and the only admin-ish MCP
@@ -62,6 +54,8 @@ belong in the lobby before they are used in public.
 
 ## Fixed
 
+- **Game records were never pruned.** Only the newest `RISK_ARCHIVE_KEEP` records (default 1000, about
+  0.3-1.6 GB) are kept; filing a new one deletes the oldest record files and their `index.jsonl` lines.
 - **Character profiles, diaries and relationships were writable by anyone.** Every save now needs the write key
   (`RISK_CHARACTERS_KEY` or the admin token; read-only when neither is set); served text is framed as data, not
   instructions; limits are lower (100 characters, 30 versions, 200 diary entries, 100 relationships with 20 notes).

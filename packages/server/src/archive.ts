@@ -1,5 +1,5 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmdirSync, unlinkSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import {
   assembleRecord,
   recordHeader,
@@ -60,16 +60,27 @@ export interface ArchiveIndexEntry {
   players: { id: string; name: string; isBot: boolean; characterId: string | null; place: number | null }[];
 }
 
+/** Records kept by default: roughly 0.3-1.6 GB at 0.3-1.6 MB a game. */
+export const DEFAULT_KEEP = 1000;
+
 const RECORD_ID = /^[A-Za-z0-9_-]{1,80}$/;
+/** What an index line may name as its record: pruning deletes only files that match. */
+const RECORD_FILE = /^games\/\d{4}-\d{2}\/[A-Za-z0-9_-]{1,80}\.json$/;
 
 /**
  * Game records under <RISK_DATA_DIR>/archive: every game that starts is journalled move by move to
  * live/<id>.jsonl (append-only, so it survives restarts), and when it ends (won, or its room closed) the
  * journal becomes games/<yyyy-mm>/<id>.json, a GameRecord, plus a line in index.jsonl.
+ * Only the newest `keep` records stay (RISK_ARCHIVE_KEEP, default 1000; 0 keeps them all): filing one more deletes
+ * the oldest record and its index line.
  * Recording must never break a game: every failure is logged and the game goes on.
  */
 export class GameArchive {
-  constructor(private dir: string | null) {}
+  constructor(
+    private dir: string | null,
+    /** How many finished records to keep, newest first (0 = all). */
+    public keep = DEFAULT_KEEP,
+  ) {}
 
   get enabled(): boolean {
     return this.dir !== null;
@@ -155,6 +166,43 @@ export class GameArchive {
       this.headers.delete(id);
     } catch (err) {
       console.error(`[archive] ${room.id}: could not save the record of ${id}:`, err);
+    }
+    this.prune();
+  }
+
+  /** Delete the oldest records beyond `keep`, their index lines and any month folder left empty. Returns how many went. */
+  prune(): number {
+    if (!this.dir || this.keep <= 0) return 0;
+    const index = join(this.dir, 'index.jsonl');
+    try {
+      if (!existsSync(index)) return 0;
+      const lines = readFileSync(index, 'utf8').split('\n').filter(Boolean);
+      if (lines.length <= this.keep) return 0;
+      const drop = lines.slice(0, lines.length - this.keep);
+      const kept = lines.slice(drop.length);
+      const fileOf = (line: string): string | null => {
+        try {
+          const file = (JSON.parse(line) as ArchiveIndexEntry).file;
+          return RECORD_FILE.test(file) ? file : null;
+        } catch {
+          return null; // a torn line names no file
+        }
+      };
+      const keptFiles = new Set(kept.map(fileOf));
+      // Rewrite the index first: a crash after it leaves stray files, never index lines pointing at nothing.
+      writeFileSync(index + '.tmp', kept.join('\n') + '\n');
+      renameSync(index + '.tmp', index);
+      for (const rel of drop.map(fileOf)) {
+        if (!rel || keptFiles.has(rel)) continue;
+        const f = join(this.dir, rel);
+        if (existsSync(f)) unlinkSync(f);
+        const month = dirname(f);
+        if (existsSync(month) && readdirSync(month).length === 0) rmdirSync(month);
+      }
+      return drop.length;
+    } catch (err) {
+      console.error('[archive] could not prune old records:', err);
+      return 0;
     }
   }
 

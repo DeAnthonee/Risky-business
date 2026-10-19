@@ -27,7 +27,7 @@ import {
 import { chooseBotAction } from './bot.js';
 import { TournamentManager } from './tournaments.js';
 import { Rankings } from './rankings.js';
-import { GameArchive, type CommitInfo } from './archive.js';
+import { DEFAULT_KEEP, GameArchive, type CommitInfo } from './archive.js';
 
 export interface ChatMessage {
   id: number;
@@ -614,7 +614,11 @@ export class Store {
   ) {
     this.retention = { ...DEFAULT_RETENTION, ...retention };
     this.rankings = new Rankings(file ? join(dirname(file), 'rankings.json') : null);
-    this.archive = new GameArchive(file && process.env.RISK_ARCHIVE !== '0' ? join(dirname(file), 'archive') : null);
+    const keep = Number(process.env.RISK_ARCHIVE_KEEP || DEFAULT_KEEP);
+    this.archive = new GameArchive(
+      file && process.env.RISK_ARCHIVE !== '0' ? join(dirname(file), 'archive') : null,
+      Number.isInteger(keep) && keep >= 0 ? keep : DEFAULT_KEEP,
+    );
     if (file && existsSync(file)) {
       try {
         const data = JSON.parse(readFileSync(file, 'utf8')) as RoomSnapshot[];

@@ -23,7 +23,7 @@ export function App() {
   const [gameId, setGameId] = useState<string | null>(() => gameIdFromUrl());
   const [session, setSession] = useState<Session | null>(() => (gameId ? getSession(gameId) : null));
   // ?spectate=1 opens a game as a spectator even when a session exists for it.
-  const [spectating, setSpectating] = useState(() => !!gameId && spectateFromUrl());
+  const [spectating, setSpectating] = useState(() => spectateFromUrl());
   const [name, setNameState] = useState(getName());
   // The tournament being followed: leaving one of its games comes back to its bracket.
   const [tournamentId, setTournamentId] = useState<string | null>(() => tournamentIdFromUrl());
@@ -34,6 +34,30 @@ export function App() {
   useEffect(() => {
     setTournamentInUrl(tournamentId);
   }, [tournamentId]);
+
+  // Auto-connect when spectating mode is active without a specific game ID
+  useEffect(() => {
+    if (!spectating || gameId) return;
+    let alive = true;
+    const findLiveGame = async () => {
+      try {
+        const res = await api.listGames();
+        if (!alive) return;
+        const live = res.games.find((g) => g.phase !== 'finished') ?? res.games[0];
+        if (live) {
+          setGameId(live.id);
+        }
+      } catch {
+        /* retry */
+      }
+    };
+    findLiveGame();
+    const timer = setInterval(findLiveGame, 1500);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, [spectating, gameId]);
 
   const setName = (n: string) => {
     setNameState(n);
@@ -54,8 +78,8 @@ export function App() {
     setSpectating(false);
   };
 
-  const watch = (id: string) => {
-    setGameId(id);
+  const watch = (id?: string) => {
+    setGameId(id || null);
     setSpectating(true);
   };
 
@@ -63,12 +87,26 @@ export function App() {
     return <Tournament id={tournamentId} name={name} setName={setName} onPlay={enter} onWatch={watch} onBack={() => setTournamentId(null)} />;
   }
 
+  if (!gameId && spectating) {
+    return (
+      <div className="center">
+        <div className="card">
+          <h2>Tuning into Live Spectator Stream…</h2>
+          <p className="muted pulse">Searching for active games on the server…</p>
+          <div className="row">
+            <button onClick={() => setSpectating(false)}>Back to Home</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (!gameId) {
     return <Home name={name} setName={setName} onEnter={enter} onSpectate={watch} onOpenTournament={setTournamentId} />;
   }
 
   if (spectating) {
-    return <Connected gameId={gameId} session={null} spectating onLeave={leaveToHome} onJoin={() => setSpectating(false)} />;
+    return <Connected key={gameId} gameId={gameId} session={null} spectating onLeave={leaveToHome} onJoin={() => setSpectating(false)} onWatch={watch} />;
   }
 
   if (!session) {
@@ -84,7 +122,7 @@ export function App() {
     );
   }
 
-  return <Connected gameId={gameId} session={session} onLeave={leaveToHome} />;
+  return <Connected key={gameId} gameId={gameId} session={session} onLeave={leaveToHome} onWatch={watch} />;
 }
 
 function Connected({
@@ -93,14 +131,40 @@ function Connected({
   spectating = false,
   onLeave,
   onJoin,
+  onWatch,
 }: {
   gameId: string;
   session: Session | null;
   spectating?: boolean;
   onLeave: () => void;
   onJoin?: () => void;
+  onWatch?: (id: string) => void;
 }) {
   const conn = useGame(gameId, spectating ? undefined : session?.token);
+  const [stayOnClosed, setStayOnClosed] = useState(false);
+
+  // Auto-redirect if room was closed while spectating
+  useEffect(() => {
+    if (!spectating || !conn.closedReason || stayOnClosed || !onWatch) return;
+    let alive = true;
+    const findNext = async () => {
+      try {
+        const res = await api.listGames();
+        if (!alive) return;
+        const next = res.games.find((g) => g.id !== gameId && g.phase !== 'finished');
+        if (next) {
+          onWatch(next.id);
+        }
+      } catch {}
+    };
+    findNext();
+    const timer = setInterval(findNext, 2000);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, [spectating, conn.closedReason, stayOnClosed, gameId, onWatch]);
+
   if (conn.closedReason) {
     const why: Record<string, string> = {
       host: 'The host closed this room.',
@@ -114,9 +178,17 @@ function Connected({
         <div className="card">
           <h2>Room {gameId} is closed</h2>
           <p className="muted">{why[conn.closedReason] ?? 'This room is no longer available.'}</p>
-          <button className="primary" onClick={onLeave}>
-            Back to games
-          </button>
+          {spectating && !stayOnClosed ? (
+            <p className="muted pulse">Looking for the next active game…</p>
+          ) : null}
+          <div className="row">
+            <button className="primary" onClick={onLeave}>
+              Back to games
+            </button>
+            {spectating && !stayOnClosed && (
+              <button onClick={() => setStayOnClosed(true)}>Stay here</button>
+            )}
+          </div>
         </div>
       </div>
     );
@@ -133,7 +205,7 @@ function Connected({
     );
   }
   if (conn.view.phase === 'lobby') return <Lobby conn={conn} gameId={gameId} session={spectating ? null : session} onLeave={onLeave} onJoin={onJoin} />;
-  return <Game conn={conn} gameId={gameId} session={spectating ? null : session} onLeave={onLeave} onJoin={onJoin} />;
+  return <Game conn={conn} gameId={gameId} session={spectating ? null : session} onLeave={onLeave} onJoin={onJoin} onWatch={onWatch} />;
 }
 
 function JoinPrompt({

@@ -144,7 +144,18 @@ export function Home({
         )}
 
         <section className="card wide">
-          <h2>Open games</h2>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px', marginBottom: '12px' }}>
+            <h2 style={{ margin: 0 }}>Open games</h2>
+            {games.some((g) => g.phase !== 'finished') && (
+              <button
+                className="primary small"
+                onClick={() => onSpectate('')}
+                title="Automatically watch live games and transition to each new lobby"
+              >
+                🔴 Auto-Spectate Live Stream
+              </button>
+            )}
+          </div>
           {games.length === 0 && <p className="muted">No games yet. Create one!</p>}
           <ul className="game-list">
             {games.map((g) => (

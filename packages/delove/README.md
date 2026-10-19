@@ -135,6 +135,19 @@ each phase to `runs/delove/<name>/cycle.md`. Re-running resumes where it stopped
 DELOVE_MODELS=models/delove PYTHON=.venv/Scripts/python bash packages/delove/scripts/cycle.sh packages/delove/scripts/cycles/c2.cycle
 ```
 
+**A step on the GPU.** A config can list steps to play on the GPU instead, `gpu_steps=(classic2)`: that step's tables
+go to `python -m delove_gpu.generate` (`packages/delove-gpu`), in the background while the CPU pool plays the other
+steps, with the same seed, tables and `DELOVE_BRANCH_*` settings the pool would use. It writes the training arrays to
+`DATA/<name>-<step>` itself (no export) and its per-table results and branch stats to `OUT/<step>/gpu.json`, which
+`scripts/summary.mjs` reads in place of the chunk results, so `cycle.md` has the step's tables as before. Only Classic
+2-player tables with no options qualify (the GPU mirror's rules; cycle.sh refuses others, and `DELOVE_BRANCH_VALUE`).
+Before the pool starts, cycle.sh checks the mirror's fingerprint: if the engine changed since the last verification,
+run `packages/delove-gpu/verify.py --models <models dir>` first. `GPU_BATCH` sets the games in flight (default 6000).
+
+The games are the CPU's: cycle 3's Classic 2-player step played this way (`c3.cycle` with `gpu_steps=(classic2)`,
+same environment as cycle 3) gives a `cycle.md` step table identical to cycle 3's CPU one, every number of it: wins
+per table, mean turns, decisions, and all branch-and-score statistics.
+
 A cycle-2-sized run (2,000 micro games, 3,000 Classic 2-player and 600 Classic 4-player branch games, training,
 1,800 gate games) takes **20 minutes**, where cycle 1's way took about 80 minutes before its gates:
 

@@ -191,6 +191,9 @@ class Generator:
         self.queue.reverse()
         self.seat_agent = torch.zeros(B, e.n, dtype=torch.long, device=e.dev)
         self.uid = torch.full((B,), -1, dtype=torch.long, device=e.dev)
+        # decisions per game as game.ts counts them: one per action, a fortify (two steps here) is one
+        self.decisions = torch.zeros(B, dtype=torch.long, device=e.dev)
+        self.fortify_to = KIND_NAMES.index("fortify_to")
         self.slot_game: list[tuple[int, int] | None] = [None] * B
         self.occupied = torch.zeros(B, dtype=torch.bool, device=e.dev)
         self.results: list[dict] = []
@@ -210,6 +213,7 @@ class Generator:
             self.slot_game[b] = (ti, i)
             self.seat_agent[b] = torch.tensor([self.agent_ids.index(a) for a in t.agents], device=self.dev)
             self.uid[b] = self.next_uid
+            self.decisions[b] = 0
             self.next_uid += 1
         if not g:
             return
@@ -228,7 +232,8 @@ class Generator:
             winner = int(e.winner[b]) if won else None
             alive = [bool(e.alive[b, s]) for s in range(e.n)]
             z = [1.0 if s == winner else 0.0 for s in range(e.n)] if won else [1.0 / sum(alive) if a else 0.0 for a in alive]
-            self.results.append({"table": t.name, "index": t.start + i, "winner": winner, "turns": int(e.turn[b]), "agents": t.agents})
+            self.results.append({"table": t.name, "index": t.start + i, "winner": winner, "turns": int(e.turn[b]), "agents": t.agents,
+                                 "decisions": int(self.decisions[b])})
             if self.rec:
                 self.rec.finish_game(int(self.uid[b]), z)
             self.slot_game[b] = None
@@ -303,6 +308,8 @@ class Generator:
                 self._branch_stats(d, None)
             ordered, cnt = e.cand_order() if self.rec else (None, None)
             self._record(active.nonzero(as_tuple=True)[0], ordered, cnt, act1, terr, glob)
+            counted = active & (act1 >= 0)
+            self.decisions += (counted & (e.L.kind[act1.clamp(min=0)] != self.fortify_to)).long()
             e.step(act1)
             g2 = (act2 >= 0).nonzero(as_tuple=True)[0]
             if g2.numel():
@@ -330,9 +337,11 @@ class Generator:
 def table_summary(results: list[dict]) -> list[dict]:
     out = {}
     for r in results:
-        t = out.setdefault(r["table"], {"table": r["table"], "agents": r["agents"], "games": 0, "wins": [0] * len(r["agents"]), "turnLimit": 0, "turns": 0})
+        t = out.setdefault(r["table"], {"table": r["table"], "agents": r["agents"], "games": 0, "wins": [0] * len(r["agents"]), "turnLimit": 0, "turns": 0,
+                                        "decisions": 0})
         t["games"] += 1
         t["turns"] += r["turns"]
+        t["decisions"] += r["decisions"]
         if r["winner"] is None:
             t["turnLimit"] += 1
         else:

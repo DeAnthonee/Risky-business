@@ -957,6 +957,7 @@ async function runPostGameLocked(i: PostGameInput): Promise<PostGameOutput> {
     i.log(`Warning: could not write LEADERBOARD.md: ${(e as Error).message}`);
   }
 
+
   const notes = await Promise.all(
     i.seats.map((s) => {
       const row = result.seats.find((r) => r.name === s.name);

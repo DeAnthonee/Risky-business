@@ -1,4 +1,4 @@
-import { getMap, type GameEvent, type GameView } from '@risk/engine';
+import { getMap, nextTradeValue, exponentialTradeBonus, type GameEvent, type GameView } from '@risk/engine';
 import type { ChatResult } from '@risk/mcp';
 import type { Deal } from './deals.js';
 
@@ -93,14 +93,37 @@ export class GameMemory {
     return s;
   }
 
+  getUpcomingTradeValue(pid: string, view: GameView): number {
+    const stats = this.getStats(pid, view);
+    const mode = view.options.cardValues ?? 'progressive';
+    return nextTradeValue(mode, view.tradeCount, stats.cardTrades);
+  }
+
+  getEffectivePower(pid: string, view: GameView): { estimatedArmies: number; upcomingTrade: number; effectivePower: number } {
+    const p = view.players.find((x) => x.id === pid);
+    const est = this.getEstimatedArmies(pid, view);
+    if (!p) return { estimatedArmies: est, upcomingTrade: 0, effectivePower: est };
+    const upcomingTrade = this.getUpcomingTradeValue(pid, view);
+    // 5 cards = 100% forced trade; 4 cards = ~85% probability; 3 cards = ~40% probability
+    const prob = p.cardCount >= 5 ? 1.0 : p.cardCount === 4 ? 0.85 : p.cardCount === 3 ? 0.40 : 0.0;
+    const effectivePower = Math.round(est + prob * upcomingTrade);
+    return { estimatedArmies: est, upcomingTrade, effectivePower };
+  }
+
   getEstimatedArmies(pid: string, view: GameView): number {
     const p = view.players.find((x) => x.id === pid);
     if (!p) return 0;
     if (p.armyCount !== null && p.armyCount !== undefined) return p.armyCount;
     const stats = this.getStats(pid, view);
     const visibleArmies = Object.values(view.territories).filter((t) => !t.hidden && t.owner === pid).reduce((s, t) => s + t.armies, 0);
-    const tradeValue = view.options.cardValues === 'fixed' ? 7 : (view.tradeCount * 2 + 4);
-    const tradeArmies = stats.cardTrades * tradeValue;
+    let tradeArmies = 0;
+    if (view.options.cardValues === 'exponential') {
+      for (let i = 0; i < stats.cardTrades; i++) tradeArmies += exponentialTradeBonus(i);
+    } else if (view.options.cardValues === 'fixed') {
+      tradeArmies = stats.cardTrades * 7;
+    } else {
+      tradeArmies = stats.cardTrades * (view.tradeCount * 2 + 4);
+    }
     const attackCost = Math.round(stats.totalAttacks * 1.2 + stats.totalConquests * 1.0);
     const rawEst = stats.startingArmies + stats.cumulativeIncome + tradeArmies - attackCost;
     return Math.max(visibleArmies, Math.max(3, rawEst));
@@ -216,19 +239,29 @@ export class GameMemory {
     if (assessment.armyLeader) lines.push(`Largest observable army: ${who(assessment.armyLeader)}, ${assessment.armyLeader.armyCount} armies.`);
     if (assessment.incomeLeader) lines.push(`Highest reinforcement income${assessment.partial ? ' (public under fog; primary way to gauge who is ahead alongside visible border stacks)' : ''}: ${who(assessment.incomeLeader)}, +${assessment.incomeLeader.income?.total ?? 0}/turn (${living.map(p=>`${who(p)} +${p.income?.total ?? 0}`).join(', ')}).`);
     const cardHolders = living.filter(p => p.id !== this.me && p.cardCount >= 3).sort((a, b) => b.cardCount - a.cardCount);
-    if (cardHolders.length) lines.push(`Card watch (card counts are public even under fog): ${cardHolders.map(p => `${p.name} holds ${p.cardCount} cards${p.cardCount >= 4 ? ' (imminent/forced trade threat)' : ' (can hold a tradeable set)'}`).join('; ')}.`);
+    if (cardHolders.length) {
+      lines.push(`Card watch (card counts and trade values are public even under fog): ${cardHolders.map(p => {
+        const nextVal = this.getUpcomingTradeValue(p.id, view);
+        return `${p.name} holds ${p.cardCount} cards (${view.options.cardValues} next trade: +${nextVal} armies; ${p.cardCount >= 5 ? 'FORCED trade surge next turn!' : p.cardCount >= 4 ? 'imminent trade threat' : 'trade possible'})`;
+      }).join('; ')}.`);
+    }
     const fogRivals = living.filter((p) => p.id !== this.me);
     if (fogRivals.length > 0) {
       lines.push('Opponent activity & estimated strength (tracked through starting troops, income, and attacks/conquests made even behind fog):');
       for (const r of fogRivals) {
         const stats = this.getStats(r.id, view);
-        const est = this.getEstimatedArmies(r.id, view);
+        const { estimatedArmies: est, upcomingTrade, effectivePower } = this.getEffectivePower(r.id, view);
         const visTerrs = Object.values(view.territories).filter((t) => !t.hidden && t.owner === r.id).length;
         const visArmies = Object.values(view.territories).filter((t) => !t.hidden && t.owner === r.id).reduce((s, t) => s + t.armies, 0);
         const lastActivity = stats.lastTurnAttacks > 0
           ? `${stats.lastTurnAttacks} attacks (${stats.lastTurnConquests} conquests) last turn`
           : '0 attacks last turn (turtling/holding)';
-        lines.push(`- ${r.name}: ${stats.totalAttacks} total attacks (${stats.totalConquests} conquests) | ${lastActivity} | Est. total armies: ~${est} (+${r.income?.total ?? 3}/turn, ${r.cardCount} cards) | Visible holdings: ${visTerrs} terrs (${visArmies} armies).`);
+        const tradeAlert = r.cardCount >= 4
+          ? ` | SURGE THREAT: +${upcomingTrade} armies trade -> Effective Power: ~${effectivePower}`
+          : r.cardCount === 3
+            ? ` | Card trade possible (+${upcomingTrade} armies)`
+            : '';
+        lines.push(`- ${r.name}: ${stats.totalAttacks} total attacks (${stats.totalConquests} conquests) | ${lastActivity} | Est. standing armies: ~${est} (+${r.income?.total ?? 3}/turn, ${r.cardCount} cards)${tradeAlert} | Visible holdings: ${visTerrs} terrs (${visArmies} armies).`);
       }
     }
     if (assessment.needsCoalition) lines.push(`Coalition assessment: ${assessment.threat!.name} holds at least 40% of observable land, 45% of observable armies, or a dominant reinforcement income (+${assessment.threat!.income?.total ?? '?'}/turn). Consider a time-limited coalition or concrete troop-commitment joint_attack deal against them with ${assessment.partners.map(p=>p.name).join(', ') || 'available opponents'}. ${assessment.partial ? 'This is a visible-threat estimate, not proof of global dominance. ' : ''}Check borders, willingness and existing agreements; do not automatically ally or betray.`);

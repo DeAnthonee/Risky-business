@@ -526,7 +526,7 @@ how to add a player version are in
 
 Games played on the server are recorded too: every move, the true board and, under fog of war, what each player
 could see, in `RISK_DATA_DIR/archive/`. Records replay exactly and any moment can be rebuilt as a scenario. The
-format and how to get them: [docs/game-records.md](docs/game-records.md).
+format and how to get them: [docs/game-records.md](docs/game-records.md); next steps: [docs/game-records-roadmap.md](docs/game-records-roadmap.md).
 
 The plan for training **Delove**, our base model (a network that plays Risk well, with no personality, kept separate
 from the character path), is in [docs/delove.md](docs/delove.md).

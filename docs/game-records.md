@@ -5,7 +5,8 @@ worked, and rebuild any moment of a game as a scenario to play out again. Under 
 what every player could see next to what was really on the board.
 
 Code: the format, builder and replay are in `packages/engine/src/record.ts` (pure, so self-play or any tool can
-use them); the server writes records in `packages/server/src/archive.ts`.
+use them); the server writes records in `packages/server/src/archive.ts`. What has been built so far and what comes
+next (training export, a fog model, judging moves with scenarios): [game-records-roadmap.md](game-records-roadmap.md).
 
 ## Where they are
 

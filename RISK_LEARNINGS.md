@@ -173,6 +173,9 @@ Advice, not rules. Compiled from public Risk guides and forum threads (mostly Co
 - **Failing to form coalitions against a dominant player leads to isolation.** Divided rivals who negotiate separate truces while a leader snowballs get rolled up one by one. (1 game, last X3T6U8)
 - **Aggressive expansion and breaking key bonuses can significantly reduce an opponent's reinforcement income.** Bot1 aggressively expanded, taking 35 territories and breaking multiple bonuses, which significantly reduced Bot9's reinforcement income and contributed to their limited success. (1 game, last PLTM26)
 - **Maintaining a strong reinforcement income through territory control is crucial for long-term survival.** Bot9 held 42 territories and had a +38 reinforcement income per turn, which allowed them to expand rapidly and overwhelm opponents. (1 game, last YLFZU9)
+- **High reinforcement income is a decisive advantage.** Bot10 had a +109/turn income, which allowed them to rapidly expand and overwhelm opponents like Bot5. (1 game, last WTGYS7)
+- **Securing key bonuses early provides long-term reinforcement benefits.** Bot10 focused on holding as many bonuses as possible, which contributed to their high reinforcement income and strategic expansion. (1 game, last WTGYS7)
+- **Avoiding direct conflict with dominant players until they are significantly weakened can be a strategic advantage.** Tryndamere avoided direct conflict with Darius for most of the game, only engaging him in the final rounds when it was clear he was the dominant threat. (1 game, last 45K9US)
 - **Failing to leverage bonuses can leave players vulnerable to aggressive opponents.** Bot7 held bonuses for Australia, Asia, and Africa but failed to use them effectively, which contributed to their elimination by Bot9. (1 game, last YLFZU9)
 
 ### Fog of War (Hidden Information & Scouting)
@@ -206,11 +209,11 @@ Advice, not rules. Compiled from public Risk guides and forum threads (mostly Co
 
 ### Eliminations & Leaderboard Climbing
 - **Eliminations award permanent Elo points and placement jumps.** Actively hunting players down to 1-3 territories secures immediate Elo points, card rewards, and higher tournament standing. (1 game, last ZNXJK6)
-- **Focusing on eliminating threats early can lead to long-term dominance.** Shaco prioritized eliminating weaker players like Thresh, Lux, and Teemo early, consolidating power and climbing the leaderboard. (1 game, last ZNXJK6)
-- **Avoiding interior pockets with stranded troops helps prevent resource drain.** Leaving large garrisons trapped behind friendly lines without hostile borders wastes armies that should be reinforcing frontlines. (1 game, last 9H667J)
+- **Focusing on eliminating threats early can lead to long-term dominance.** Shaco and Tryndamere prioritized eliminating weaker players early, consolidating power and climbing the leaderboard. (2 games, last 45K9US)
+- **Avoiding interior pockets with stranded troops helps prevent resource drain.** Leaving large garrisons trapped behind friendly lines without hostile borders wastes armies that should be reinforcing frontlines. (2 games, last WTGYS7)
 - **Avoiding stranded troops and focusing on efficient reinforcement and movement can minimize losses.** Planning multi-turn attack paths ensures frontline stacks remain mobile and offensive momentum is preserved. (1 game, last VX6C5F)
 - **Aggressive early attacks can be countered with disciplined defense and reinforcement management.** Bot1 absorbed an early rush by consolidating onto high-defense choke points and counter-attacked once the aggressor depleted their forces. (1 game, last 8ESC69)
 - **Maintaining strong connectivity between territories prevents leaving interior pockets vulnerable.** Fragmented territory holdings make defense impossible once a hostile breakthrough occurs. (1 game, last D5HXP4)
-- **Early bonus control can be critical for survival.** Shen completed the Southeast, Deep South, and Great Lakes bonuses early, providing steady income that helped build a strong territorial base. (1 game, last PMNH5H)
+- **Early bonus control can be critical for survival.** Shen and Tryndamere completed regional bonuses early, providing steady income that built strong territorial bases. (2 games, last 45K9US)
 - **Aggressive expansion can lead to rapid elimination if key bonuses are broken early.** Bot7 aggressively expanded, but Bot9 broke three of Bot7's bonuses, reducing Bot7's reinforcement income and leading to Bot7's elimination in round 11. (1 game, last YLFZU9)
 <!-- bot-findings:end -->

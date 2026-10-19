@@ -93,6 +93,9 @@ Fundamental rules, mechanics, and tournament scoring for the Risk engine, follow
 - **Failing to engage in card trades can limit strategic advantages.** Delaying card trades too long in progressive lobbies allows opponents to escalate trade values and overwhelm static defenses. Bot4's delayed card trades limited their ability to counter Bot6's expansion. (2 games, last CDCU2S)
 - **Eliminations funded the winners.** Lux knocked out Darius (round 4), Shaco (round 6) and Leona (round 38) and survived to 2nd; Ahri swept every capital. The three first players out (Darius, Shaco, Thresh) never made a kill. (1 game, last MVAPM8)
 - **Focusing on card acquisition without securing territory is a losing strategy.** Bot6 focused on gathering cards but failed to secure any bonuses or capitals, making him an easy target for elimination. (1 game, last PMNH5H)
+- **Securing key bonuses early allows for rapid card trade escalation.** Thresh secured 17 bonuses, enabling a high reinforcement income (+87/turn) that funded multiple card trades and eliminations. (1 game, last 7QS4UG)
+- **Elimination chains can be triggered by inheriting cards from fallen opponents.** Thresh eliminated Shen and Tryndamere, inheriting their card sets and using them to fund further expansions and eliminations. (1 game, last 7QS4UG)
+- **Failing to secure capitals can limit long-term reinforcement income despite card advantages.** Shen and Tryndamere had no capitals, which limited their reinforcement income despite having some card sets, making them vulnerable to elimination. (1 game, last 7QS4UG)
 
 ### Exponential Cards (Personal Sequences & Surge Timing)
 - **Monitor personal trade counts before engaging.** In exponential games where set values scale by 1.3x independently per player (5, 7, 10, 13, 17, 23...), timing a high-tier personal set cash-in allows sudden board-clearing strikes that static defenders cannot match. (1 game, last 8VALR5)
@@ -106,8 +109,8 @@ Fundamental rules, mechanics, and tournament scoring for the Risk engine, follow
 ### Fog of War (Concealed Armies & Income Probing)
 - **Scouting with card-taking attacks reveals critical enemy garrison counts.** Bot9 used single-territory probes to reveal enemy garrison counts before launching major offensives, allowing them to prepare for the scale of the attack. (2 games, last T9DCQW)
 - **Small border garrisons can project false weakness.** Opponents often assume lightly defended fog borders indicate an empty interior; keep mobile strike stacks one step behind the frontline. (1 game, last MVAPM8)
-- **Maintaining strong reinforcement income is crucial for long-term survival under fog.** Bot9 maintained a high reinforcement income (+91/turn) despite losing several key territories, which contributed to their survival and elimination of multiple opponents. (1 game, last 8VALR5)
-- **Judging hidden threats by income is a reliable strategy.** Bot9 used enemy turn income as a reliable estimate of rival strength to target weaker opponents effectively. (1 game, last 8SR5HD)
+- **Maintaining strong reinforcement income is crucial for long-term survival under fog.** Lux maintained a high reinforcement income (+38/turn) despite losing several key territories, which contributed to their survival and elimination of multiple opponents. (1 game, last 8VALR5)
+- **Judging hidden threats by income is a reliable strategy.** Lux used enemy turn income as a reliable estimate of rival strength to target weaker opponents effectively. (1 game, last 8SR5HD)
 
 ### Non-Fog of War (Public Board & Coalition Counterplay)
 - **Troop commitments must match visible budgets.** In non-fog lobbies where armies and incomes are public, bluffing impossible troop offers fails; proposals exceeding armyCount plus income are rejected. (1 game, last 4J2YAV)
@@ -120,15 +123,16 @@ Fundamental rules, mechanics, and tournament scoring for the Risk engine, follow
 
 ### Capitals Conquest
 - **Capitals defend with 3 dice and require overwhelming odds.** Bot7’s concentrated garrisons on key territories withstood attacks from multiple opponents, who had 0 capitals and were major threats. (5 games, last DGS35N)
-- **Holding all capitals provides a massive reinforcement income and makes it nearly impossible for opponents to contest key regions.** Bot8’s control over all capitals allowed them to withstand attacks and maintain a strong reinforcement income, which was critical to their victory. (4 games, last ZYW8N8)
+- **Holding all capitals provides a massive reinforcement income and makes it nearly impossible for opponents to contest key regions.** Lux held all capitals and had a +38/turn reinforcement income, which was critical to their victory. (4 games, last ZYW8N8)
 - **Failing to secure capitals leaves you vulnerable to sudden elimination.** Holding raw territories without a secure capital base leaves players exposed once larger rivals mobilize. Bot2 had 0 capitals and was eliminated by Bot9. (4 games, last H7NVFC)
-- **Securing key bonuses early provides long-term reinforcement benefits.** Bot8 secured multiple continent bonuses early in the game, which contributed to their high reinforcement income and strategic expansion. (3 games, last H7NVFC)
+- **Securing key bonuses early provides long-term reinforcement benefits.** Lux secured multiple continent bonuses early in the game, contributing to their high reinforcement income and strategic expansion. (3 games, last H7NVFC)
 - **High reinforcement income from key bonuses can be offset by poor capital control.** Bot10 had a +114/turn reinforcement income but lost the game because their unprotected territories were overwhelmed by Bot6. (2 games, last CDCU2S)
+- **Failing to secure capitals leaves you vulnerable to sudden elimination.** Ahri had 0 capitals and was eliminated by Lux in round 8. (1 game, last XG5SYR)
 
 ### Eliminations & Leaderboard Climbing
-- **High reinforcement income is a decisive advantage.** Bot8's +100/turn reinforcement income allowed them to rapidly expand and overwhelm opponents like Bot7, Bot9, Bot2, Bot1, and Bot5. (3 games, last CYK7GV)
+- **Maintaining strong reinforcement income is a decisive advantage.** Thresh's high reinforcement income (+87/turn) allowed them to rapidly expand and overwhelm opponents like Shen and Tryndamere. (3 games, last CYK7GV)
 - **Eliminations award permanent Elo points and placement jumps.** Bot8's elimination of Bot7, Bot9, Bot2, Bot1, and Bot5 contributed significantly to their Elo gain and tournament standing. (5 games, last H7NVFC)
-- **Focusing on eliminating weaker opponents early can lead to long-term dominance.** Bot8 prioritized eliminating Bot7, Bot9, Bot2, Bot1, and Bot5 early, allowing them to dominate the game and finish in 1st place. (5 games, last H7NVFC)
+- **Focusing on eliminating weaker opponents early can lead to long-term dominance.** Thresh prioritized eliminating Shen and Tryndamere early, allowing them to dominate the game and finish in 1st place. (5 games, last H7NVFC)
 - **Early bonus control can be critical for survival.** Shen and Tryndamere completed regional bonuses early, providing steady income that built strong territorial bases. (2 games, last 45K9US)
 - **Aggressive early attacks can be countered with disciplined defense and reinforcement management.** Bot3 absorbed an early rush by consolidating onto high-defense choke points and counter-attacked once the aggressor depleted their forces. (1 game, last 8ESC69)
 

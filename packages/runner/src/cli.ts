@@ -40,6 +40,7 @@ sets plans, talks, and writes up what it learned after every game)
   --no-chat               no table talk
   --mechanics-only        fast mechanics training for RISK_LEARNINGS.md: generic seats, no chat, pace 0, and no character profile/memory updates
   --curation-interval N   curate RISK_LEARNINGS.md once every N games (default 1)
+  --smart-seats N         limit commander/LLM reasoning to the first N seats (e.g. 1 smart player vs remaining plain bots)
   --pace MS               pause after each action (default 800, or 0 with --mechanics-only)
   --max-chat-per-turn N   messages per seat per game turn (default 2)
   --game ID               join this existing lobby instead of creating games (one game; see --start; default seats: the six League ones)
@@ -79,6 +80,7 @@ async function main() {
       'no-chat': { type: 'boolean', default: false },
       'mechanics-only': { type: 'boolean', default: false },
       'curation-interval': { type: 'string', default: '1' },
+      'smart-seats': { type: 'string' },
       'open-seats': { type: 'string', default: '0' },
       pace: { type: 'string' },
       'max-chat-per-turn': { type: 'string', default: '2' },
@@ -191,6 +193,7 @@ async function main() {
     charactersKey: mechanicsOnly ? undefined : v['characters-key'],
     mechanicsOnly,
     curationInterval,
+    smartSeats: v['smart-seats'] ? num(v['smart-seats'], 'smart-seats') : undefined,
     openSeats: num(v['open-seats']!, 'open-seats'),
     serverUrl: server,
     control,

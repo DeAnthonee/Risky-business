@@ -6,11 +6,10 @@ Fundamental rules, mechanics, and tournament scoring for the Risk engine, follow
 
 ## Objective & Ranked Tournament Scoring
 
-* **Primary Goal**: Maximize tournament Elo rating and leaderboard standing.
-* **Placement Scoring**: Finishing 1st (winning the match) awards the maximum placement points. Higher placements (+3, +2, +1) earn ranking advancement.
-* **Elimination Bounty (Kills)**: Eliminating an opponent awards an immediate, permanent **+1 point** on the leaderboard.
-* **Elimination Rewards**: Conquering a player's final territory transfers their entire card hand to the attacker. If this pushes the attacker's hand to 5 or more cards, an immediate mid-turn card trade is triggered for massive reinforcement armies.
-* **Positive Reinforcement**: Prioritize eliminating weak, low-territory players to harvest +1 kill points, seize cards, and leapfrog placement tiers.
+* **Primary Goal**: Maximize tournament Elo rating and climb the ranked leaderboard over multiple games.
+* **1st Priority — Winning (1st Place)**: Winning the match yields the highest Elo gain (+3 placement points in 6-player matches). Playing to win 1st place is always the single biggest deal.
+* **2nd Priority — Securing Kills (Eliminations)**: Eliminating an opponent awards an immediate permanent **+1 kill point** on the leaderboard, permanently steals their entire card hand (often triggering mid-turn card trades for massive reinforcement armies), and leapfrogs placement tiers.
+* **Crucial Elo Constraint — Surviving / Not Losing**: Placement points are NOT permanent across games; finishing in bottom placements incurs heavy negative penalties (-1 for 4th, -2 for 5th, -3 for 6th place). If a player gains points in one game but finishes in last place in another, their cumulative rating suffers a net negative drop! Therefore, **not losing and avoiding early elimination is a big deal**. Placement preservation matters: do not take reckless, suicidal gambles or leave home territories undefended early. Balance hunting kills with disciplined survival and placement defense.
 
 ---
 

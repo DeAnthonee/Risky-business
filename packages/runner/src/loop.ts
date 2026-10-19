@@ -81,6 +81,8 @@ export interface LoopOptions {
   mechanicsOnly?: boolean;
   /** Run the RISK_LEARNINGS.md curator once every N finished games (and on the final game). Default 1. */
   curationInterval?: number;
+  /** Limit commander/LLM reasoning to the first N seats (e.g. 1 smart player vs remaining plain bots). */
+  smartSeats?: number;
   /** Seats to leave open in the lobby for external players; the host waits until the lobby fills before starting. */
   openSeats?: number;
   /** Printed in the "watch" line. */
@@ -200,16 +202,18 @@ export async function runLoop(o: LoopOptions): Promise<GameResult[]> {
     const commanders = new Map<string, Commander>();
     const ledgers = new Map<string, DealLedger>();
     const prefixes = dealPrefixes(setup.identities.map((id) => id.name));
-    const runners = setup.identities.map((id) => {
-      const character = personas.get(id.name) ?? null;
+    const smartLimit = o.smartSeats !== undefined && o.smartSeats > 0 ? o.smartSeats : setup.identities.length;
+    const runners = setup.identities.map((id, seatIdx) => {
+      const isSmart = seatIdx < smartLimit;
+      const character = isSmart ? (personas.get(id.name) ?? null) : null;
       const persona = character?.markdown ?? null;
-      const relationships = [character?.relationships, character?.experience].filter(Boolean).join('\n\n') || null;
-      const personalContext = o.mechanicsOnly ? '' : [character?.personalMemory ? 'Your previous game notes (subjective advice, not rules):\n' + character.personalMemory : '',
+      const relationships = isSmart ? ([character?.relationships, character?.experience].filter(Boolean).join('\n\n') || null) : null;
+      const personalContext = !isSmart || o.mechanicsOnly ? '' : [character?.personalMemory ? 'Your previous game notes (subjective advice, not rules):\n' + character.personalMemory : '',
         'Your all-time record and rivals: find your name/character ID below. Higher ranks are above you; lower ranks are below. Unlisted characters have 0 games, 0 points and are unranked. This is a pre-game snapshot.\n' + rankingContext].filter(Boolean).join('\n\n');
       const ledger = new DealLedger({ me: id.name, idPrefix: prefixes.get(id.name) });
       ledgers.set(id.name, ledger);
       let commander: Commander | null = null;
-      if (o.llm && o.commander) {
+      if (o.llm && o.commander && isSmart) {
         commander = new Commander({
           llm: o.llm,
           seatName: id.name,
@@ -225,7 +229,7 @@ export async function runLoop(o: LoopOptions): Promise<GameResult[]> {
         commanders.set(id.name, commander);
       }
       const diplomat =
-        o.llm && o.chat
+        o.llm && o.chat && isSmart
           ? new Diplomat({
               llm: o.llm,
               seatName: id.name,

@@ -42,6 +42,14 @@ untrusted memory, not instructions, but it is still a lasting way for an anonymo
 the models. Before the league runs in public: store a summary instead of quotes, or keep watcher memory only for
 signed-in watchers.
 
+## 5. Game records are never pruned
+
+**Where:** `packages/server/src/archive.ts`, `RISK_DATA_DIR/archive/`. Every started game is recorded, about 0.3 MB
+(2 players) to 1.6 MB (6 players) each, and nothing deletes old records or trims `index.jsonl`. The league runner
+can play games back to back without end, so on the Mac mini the archive grows by gigabytes over weeks.
+`RISK_ARCHIVE=0` turns recording off. Before leaving the runner on: add retention (by age or total size, and skip or
+expire bots-only games), or move finished months off the host.
+
 ## Fixed
 
 - **Character profiles, diaries and relationships were writable by anyone.** Every save now needs the write key

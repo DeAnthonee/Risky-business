@@ -108,6 +108,17 @@ export function redactEvents(state: GameState, viewer: PlayerId | null, events: 
   });
 }
 
+/**
+ * The territories as a viewer sees them: the whole board for spectators and when fog does not apply to them,
+ * otherwise unseen territories blanked and marked hidden. Blizzards are public knowledge, fog or not.
+ */
+export function boardFor(state: GameState, viewer: PlayerId | null): Record<TerritoryId, TerritoryState> {
+  if (!foggedFor(state, viewer)) return state.territories;
+  const territories = fogTerritories(state.territories, visibleTerritories(state.territories, viewer!, getMap(state.options.map)));
+  for (const t of state.blizzards ?? []) territories[t] = { owner: null, armies: 0 };
+  return territories;
+}
+
 export interface PlayerView extends Omit<Player, 'cards'> {
   cards: Card[] | null;
   /** Always visible, fog or not. */
@@ -182,12 +193,7 @@ export function viewFor(state: GameState, viewer: PlayerId | null): GameView {
     continentOwners[c.id] = owner && controlsContinent(state, c.territories, owner) && continentVisible(c.territories) ? owner : null;
   }
   const { deck, discard, rngState, seed, players: _p, ...rest } = state;
-  let territories = fogged ? fogTerritories(state.territories, visible!) : state.territories;
-  // Blizzards are public knowledge, fog or not.
-  if (fogged && state.blizzards?.length) {
-    territories = { ...territories };
-    for (const t of state.blizzards) territories[t] = { owner: null, armies: 0 };
-  }
+  const territories = boardFor(state, viewer);
   const capitals = fogged ? Object.fromEntries(Object.entries(state.capitals).filter(([, t]) => !territories[t].hidden)) : state.capitals;
   // Another player's pending occupy names both ends of the conquest and the size of the attacking stack.
   const pc = state.pendingConquest;

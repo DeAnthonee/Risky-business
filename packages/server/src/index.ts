@@ -54,6 +54,7 @@ risk.server.listen(PORT, HOST, () => {
   console.log(`  websocket: ws://localhost:${PORT}/ws`);
   console.log(`  mcp:       http://localhost:${PORT}/mcp (Streamable HTTP)`);
   console.log(`  data dir:  ${DATA_DIR ?? '(persistence disabled)'}`);
+  console.log(`  archive:   ${store.archive.describe()}`);
   console.log(`  characters: ${risk.characters.writable ? 'saves need the write key' : 'read-only (set RISK_CHARACTERS_KEY to allow saves)'}`);
   console.log(`  client:    ${CLIENT_DIR}`);
 });

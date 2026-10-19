@@ -300,6 +300,31 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
     }),
   );
 
+  // A scenario: a new live game that begins at one moment of a recorded game, for bots, agents or people to play
+  // out differently. Body: {recordId, step, seats?: {<playerId>: 'bot' | 'open'}, keepDice?, name?}. Returns every
+  // seat's token: an open seat is played by whoever holds it; a bot seat can be taken over with POST /games/:id/seat.
+  api.post(
+    '/admin/scenarios',
+    requireAdmin,
+    wrap((req, res) => {
+      const body = req.body ?? {};
+      if (!store.archive.enabled) return res.status(404).json({ error: 'Game records are off (no persistence or RISK_ARCHIVE=0)' });
+      const record = typeof body.recordId === 'string' ? store.archive.get(body.recordId) : null;
+      if (!record) return res.status(404).json({ error: 'No recorded game with that id' });
+      const step = body.step;
+      if (!Number.isInteger(step) || step < 0 || step > record.steps.length) return res.status(400).json({ error: `step must be 0..${record.steps.length}` });
+      if (body.seats !== undefined && (typeof body.seats !== 'object' || body.seats === null || Array.isArray(body.seats)))
+        throw new RuleError('seats must be an object: {<playerId>: "bot" | "open"}');
+      if (body.keepDice !== undefined && typeof body.keepDice !== 'boolean') throw new RuleError('keepDice must be true or false');
+      const { room, seats } = store.createScenario(record, step, {
+        seats: body.seats,
+        keepDice: body.keepDice,
+        name: typeof body.name === 'string' ? body.name : undefined,
+      });
+      res.status(201).json({ gameId: room.id, name: room.name, scenarioOf: room.scenarioOf, seats, game: room.summary() });
+    }),
+  );
+
   // ---- tournaments: the admin creates and runs them; anyone can join, follow and watch ----
   api.post(
     '/admin/tournaments',
@@ -397,6 +422,20 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
       if (target === room.hostId) return res.status(400).json({ error: 'Cannot kick the host' });
       room.leave(target);
       res.json({ state: room.view(req.playerId!) });
+    }),
+  );
+
+  // Scenarios: the holder of a seat's token takes it over from its bot ({bot: false}, the default) or hands it back ({bot: true}).
+  api.post(
+    '/games/:id/seat',
+    loadRoom,
+    requirePlayer,
+    wrap((req, res) => {
+      const room = req.room!;
+      const bot = req.body?.bot ?? false;
+      if (typeof bot !== 'boolean') throw new RuleError('bot must be true or false');
+      room.setSeatBot(req.playerId!, bot);
+      res.json({ ok: true, state: room.view(req.playerId!) });
     }),
   );
 

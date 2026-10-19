@@ -152,6 +152,18 @@ export function renamePlayer(state: GameState, id: PlayerId, name: string): Game
   return next;
 }
 
+/** Hand a seat to a built-in bot (isBot) or to a person or agent. The neutral army cannot be handed over. */
+export function setPlayerBot(state: GameState, id: PlayerId, isBot: boolean): GameState {
+  const p = state.players.find((x) => x.id === id);
+  if (!p) throw new RuleError('Unknown player');
+  if (p.isNeutral) throw new RuleError("The neutral army is nobody's seat");
+  if (p.isBot === isBot) return state;
+  const next = clone(state);
+  next.players.find((x) => x.id === id)!.isBot = isBot;
+  next.version++;
+  return next;
+}
+
 export function removePlayer(state: GameState, id: PlayerId): GameState {
   if (state.phase !== 'lobby') throw new RuleError('Cannot leave a game in progress; surrender instead');
   const next = clone(state);

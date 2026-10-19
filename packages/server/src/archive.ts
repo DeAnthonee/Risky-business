@@ -12,6 +12,7 @@ import {
   type PlayerId,
   type RecordEntry,
   type RecordHeader,
+  type ScenarioRef,
 } from '@risk/engine';
 
 /** One committed change to a room, as the archive needs it. */
@@ -33,6 +34,8 @@ export interface ArchivedRoom {
   state: GameState;
   /** The record this room's game is being written to, if any. */
   recordId?: string;
+  /** A scenario: the recorded moment the game began from. */
+  scenarioOf?: ScenarioRef;
 }
 
 /** One line of index.jsonl: a game at a glance, without opening its record. */
@@ -45,6 +48,7 @@ export interface ArchiveIndexEntry {
   map: string;
   fog: boolean;
   tournamentId?: string;
+  scenarioOf?: ScenarioRef;
   startedAt: number;
   endedAt: number;
   finished: boolean;
@@ -83,7 +87,7 @@ export class GameArchive {
   onCommit(room: ArchivedRoom, c: CommitInfo) {
     if (!this.dir) return;
     try {
-      if (c.action.type === 'start') return this.begin(room, c);
+      if (c.action.type === 'start') return this.begin(room, c.next, c.events, c.at);
       if (!room.recordId || c.action.type === 'system' || !c.playerId) return;
       const file = this.journal(room.recordId);
       // A game that started before recording existed (or whose journal is gone) is not recorded.
@@ -114,12 +118,14 @@ export class GameArchive {
     return h;
   }
 
-  private begin(room: ArchivedRoom, c: CommitInfo) {
-    const id = `${room.id}-${(c.next.startedAt ?? c.at).toString(36)}`;
-    const header = recordHeader(id, { id: room.id, name: room.name, ...(room.tournamentId ? { tournamentId: room.tournamentId } : {}) }, c.next, c.events, room.characterIds);
-    mkdirSync(join(this.dir!, 'live'), { recursive: true });
+  /** Start the record of a game that has just begun in `state` (a started game, or a scenario's first state). */
+  begin(room: ArchivedRoom, state: GameState, events: GameEvent[], at: number) {
+    if (!this.dir) return;
+    const id = `${room.id}-${(state.startedAt ?? at).toString(36)}`;
+    const header = recordHeader(id, { id: room.id, name: room.name, ...(room.tournamentId ? { tournamentId: room.tournamentId } : {}) }, state, events, room.characterIds, room.scenarioOf);
+    mkdirSync(join(this.dir, 'live'), { recursive: true });
     const lines = [JSON.stringify({ kind: 'header', header })];
-    const turn = recordTurnStart(header, c.next, c.events, c.at);
+    const turn = recordTurnStart(header, state, events, at);
     if (turn) lines.push(JSON.stringify(turn));
     writeFileSync(this.journal(id), lines.join('\n') + '\n');
     this.headers.set(id, header);
@@ -190,6 +196,7 @@ function indexEntry(r: GameRecord, file: string): ArchiveIndexEntry {
     map: r.map,
     fog: r.fog,
     ...(r.room.tournamentId ? { tournamentId: r.room.tournamentId } : {}),
+    ...(r.scenarioOf ? { scenarioOf: r.scenarioOf } : {}),
     startedAt: r.startedAt,
     endedAt: r.endedAt,
     finished: r.outcome.finished,

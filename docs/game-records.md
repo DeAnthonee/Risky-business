@@ -86,7 +86,39 @@ const state = stateAtStep(record, 120);      // the full game just before step 1
 const { view } = observeStep(record, 120, record.steps[120].player);  // the same moment through that player's eyes
 ```
 
-Starting a live game from a recorded moment is not built yet; `stateAtStep` gives the state such a game would begin from.
+### Scenarios: playing a recorded moment out again
+
+The admin can start a new live game from any moment of a recorded game, so bots, agents or people play that
+position out differently:
+
+```http
+POST /api/admin/scenarios
+Authorization: Bearer <RISK_ADMIN_TOKEN>
+
+{ "recordId": "K7QX2M-mf3k2a1", "step": 120, "seats": { "p_ab12": "open" }, "keepDice": false, "name": "What if?" }
+```
+
+- The new room (fresh room code) begins in the exact state just before step `step` (`scenarioState` in
+  `record.ts`: `stateAtStep` under a new id and start time). `step` runs from 0 to the last step; a moment after the
+  game was won is refused.
+- Players keep their ids, names, colours, cards and armies, so the new game lines up with the original record.
+- **Seats** default to built-in bots. `seats` maps a player id to `"bot"` or `"open"`; an open seat is played by
+  whoever holds its token. The response returns every seat's token
+  (`{gameId, name, scenarioOf, seats: [{playerId, name, alive, bot, token}], game}`), and a token holder can take a
+  bot seat over at any time with `POST /api/games/:id/seat` (body `{}`; `{"bot": true}` hands it back). After that,
+  the seat plays over the normal API (`/games/:id/actions`, `/wait`, WebSocket) like any other.
+- **Dice:** a new seed by default, so the dice differ from the original. `keepDice: true` keeps the recorded dice
+  state, so replaying the recorded moves reproduces the original game exactly. The deck's order is part of the
+  state and is kept either way.
+- Nobody hosts the room (only the admin closes it, with `DELETE /api/admin/games/:id`). A scenario played by bots
+  alone is not swept at once like other bots-only rooms; it follows the bots-only idle rule (30 minutes by default).
+  Open seats follow the usual rule for absent seats (closed after `RISK_ABANDONED_CLOSE_MIN` with no seat present).
+- Its result is not ranked on the leaderboard: the position was someone else's.
+- It is recorded like any game. Its record's `start.state` is the scenario's first state, and its header, its
+  `index.jsonl` line, the room's snapshot and its game summary (`GET /api/games`) all carry
+  `scenarioOf: { recordId, step }`. A scenario of a scenario works the same way, so chains can be followed back.
+
+Scenarios have no MCP tools yet (see `docs/hardening.md`).
 
 ## Changing the format
 

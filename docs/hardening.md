@@ -50,6 +50,16 @@ can play games back to back without end, so on the Mac mini the archive grows by
 `RISK_ARCHIVE=0` turns recording off. Before leaving the runner on: add retention (by age or total size, and skip or
 expire bots-only games), or move finished months off the host.
 
+## 6. Scenarios are HTTP only
+
+**Where:** `POST /api/admin/scenarios`, `POST /api/games/:id/seat` (`packages/server/src/http.ts`). Creating a
+scenario is admin-only and has no MCP tool, because the MCP endpoint has no admin auth and the only admin-ish MCP
+tools (`create_tournament`, `start_tournament`) are TEMPORARY ones slated for removal. Taking a seat over is not on
+the MCP either: an agent given a scenario seat's token can play it with `resume_game`, but has to call
+`POST /games/:id/seat` over HTTP first if the seat is a bot. The web client does not mark scenario rooms yet
+(`scenarioOf` is in the game summary). Decide whether agents should get a `take_seat` tool and whether scenarios
+belong in the lobby before they are used in public.
+
 ## Fixed
 
 - **Character profiles, diaries and relationships were writable by anyone.** Every save now needs the write key

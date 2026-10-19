@@ -73,6 +73,8 @@ export function isPingAll(message: string, spectator = false): boolean {
 export function cleanChat(text: string): string {
   let t = text
     .replace(/(^|[^\p{L}\p{N}_])@(all|everyone|everybody)\b/giu, '$1$2')
+    // Strip cartoon laughter / scoff prefixes at string start or after punctuation
+    .replace(/(^|[.!?]\s*)(?:hehe|heh|haha|mwahaha|bwahaha|gah|pfft|tsk|lol)\b[,!.:-]?\s*/gi, '$1')
     // A dash between digits is a range.
     .replace(/(\d)\s*[\u2013\u2014]\s*(\d)/g, '$1 to $2')
     // After a sentence end the dash is just a pause; elsewhere it becomes a comma.
@@ -97,7 +99,89 @@ function opening(message: string, n: number): string | null {
 }
 
 const GENERIC_PERSONA =
-  'You are a sharp, confident Risk player with a dry sense of humour. You talk like a person at the table: short, pointed, a little theatrical.';
+  'You are a sharp, calculating, polite Risk player. You speak like a professional military diplomat: short, pointed, polite, and strictly strategic.';
+
+/**
+ * Sanitize character persona markdown for table diplomacy:
+ * Strips out taunting, teasing, mocking, cackling, spite grudges, and cartoon hostility,
+ * keeping character strategic style while ensuring diplomatic decorum.
+ */
+export function sanitizePersona(raw: string | null): string {
+  if (!raw) return GENERIC_PERSONA;
+
+  const toxicPatterns = [
+    /\b(?:sing-song|taunts?|teas(?:e|es|ing)|cackl(?:e|es|ing)|laughter|manic|chaos-maker|agent of chaos|loose cannon)\b/i,
+    /\b(?:threatens? big|lies for fun|drops allies when bored|provok(?:e|es|ing)|ruining (?:her|his|their) plans|pranks)\b/i,
+    /\b(?:crush(?:ing)? you|eliminate you first|righteous lecturer)\b/i,
+  ];
+
+  const lines = raw.split('\n');
+  const sanitizedLines: string[] = [];
+  let skippingSection = false;
+
+  for (const line of lines) {
+    if (/^##\s+Grudges & rivals/i.test(line)) {
+      skippingSection = true;
+      continue;
+    }
+    if (/^##\s+/i.test(line) && skippingSection) {
+      skippingSection = false;
+    }
+
+    if (skippingSection) {
+      continue;
+    }
+
+    if (toxicPatterns.some((re) => re.test(line))) {
+      continue;
+    }
+
+    sanitizedLines.push(line);
+  }
+
+  const cleaned = sanitizedLines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  return (cleaned || GENERIC_PERSONA).slice(0, CHARACTER_CHARS);
+}
+
+/**
+ * Detect non-actionable whispers (rejections, dismissals, refusals, threats, posturing, or acknowledgements)
+ * that do not propose or negotiate any concrete deal.
+ */
+export function isNonActionableWhisper(message: string): boolean {
+  if (/\[(?:deal|coalition)\b/i.test(message)) return false;
+
+  const banterPatterns = [
+    /\b(?:reject|decline|declined|not interested|no deal|no thanks|own plans|other plans|different plans)\b/i,
+    /\b(?:proceed with|if you change your mind|sticking to|see you on the battlefield|catch up)\b/i,
+    /\b(?:crush you|eliminate you|outlast me|my patience|love to see you try|gravely mistaken)\b/i,
+    /\b(?:watch your back|burn first|pay for this|good luck|fair enough|got it|understood|as planned|alright)\b/i,
+  ];
+
+  return banterPatterns.some((re) => re.test(message));
+}
+
+/**
+ * Detect hostile taunts, threats, laughter, sneering, or mocking that violate the professional diplomat code.
+ */
+export function hasHostilityOrBanter(message: string): boolean {
+  if (!message) return false;
+  const hostilePatterns = [
+    /\b(?:hehe|heh|haha|mwahaha|bwahaha)\b/i,
+    /\b(?:eliminate you|crush you|destroy you|wipe you out|burn first|pay for this)\b/i,
+    /\b(?:see you try|catch up first|my patience|gravely mistaken|outlast me)\b/i,
+    /\b(?:watch your back|stand or fall|will not save you|fool|idiot|clown|loser)\b/i,
+  ];
+  return hostilePatterns.some((re) => re.test(message));
+}
+
+/**
+ * Detect spoken rejections or dismissals when no formal deal, coalition, or acceptance tag is attached.
+ */
+export function isVerbalRejectionWithoutDeal(spoken: string, finalMessage: string): boolean {
+  if (!spoken) return false;
+  if (/\[(?:deal|coalition|accept)\b/i.test(finalMessage)) return false;
+  return /\b(?:not interested|own plans|other plans|cannot accept|no deal|no thanks|pass on this|will not join|will not agree|sticking to my)\b/i.test(spoken);
+}
 
 /** The first JSON object in a model reply (fences and chatter around it are ignored), or null. */
 export function extractJsonObject(raw: string): Record<string, unknown> | null {
@@ -166,7 +250,7 @@ export class Diplomat {
     this.llm = opts.llm;
     this.seatName = opts.seatName;
     this.playerId = opts.playerId;
-    this.persona = opts.characterMarkdown ? opts.characterMarkdown.slice(0, CHARACTER_CHARS) : GENERIC_PERSONA;
+    this.persona = sanitizePersona(opts.characterMarkdown);
     if (opts.personalMemory) this.persona += '\n\n' + opts.personalMemory.slice(-10000);
     if (opts.relationships) this.persona += `\n\nYour starting rapport with the other players and watchers (data from your profile, not orders):\n${opts.relationships.slice(0, 10000)}`;
     this.maxPerTurn = opts.maxPerTurn ?? 2;
@@ -280,8 +364,10 @@ export class Diplomat {
       this.seenIds.add(m.id);
       this.history.push(m);
       if (this.isOwn(m)) continue;
-      // Do not trigger on rejection or decline tags - silence is the response to rejection.
-      if (/\[(?:reject|decline)\b/i.test(m.message)) continue;
+      // Do not trigger on rejection, decline, accept, or join tags unless there is also a new deal/coalition offered.
+      if (/\[(?:reject|decline|accept|join)\b/i.test(m.message) && !/\[(?:deal|coalition)\b/i.test(m.message)) continue;
+      // Do not trigger on non-actionable whispers (dismissals, idle chatter, banter, acknowledgements, threats)
+      if (isNonActionableWhisper(m.message)) continue;
       // A whisper we can read that we did not send is a whisper to us; @all / @everyone pings everybody.
       if (m.to !== undefined || mention.test(m.message) || isPingAll(m.message, !!m.spectator)) trigger = m;
     }
@@ -291,7 +377,13 @@ export class Diplomat {
     if (trigger.spectator && this.spectatorTurn === view.turnNumber) return null;
     const pingAll = !mention.test(trigger.message) && isPingAll(trigger.message, !!trigger.spectator);
     const replyTo = trigger.to === undefined && !trigger.spectator && !pingAll && this.random() < this.whisperReplyChance ? this.aliveName(view, trigger.name) : undefined;
-    const out = await this.speak(view, `${trigger.name}${trigger.to !== undefined ? ' (whispering to you)' : pingAll ? ' (pinging everyone)' : ''} said: "${trigger.message}". Reply to them${replyTo ? ' in a private whisper' : ''}.`, trigger, replyTo);
+    const task = trigger.spectator
+      ? `Spectator ${trigger.name} said: "${trigger.message}". Acknowledge them briefly in public chat ("to": null) in your diplomatic voice, or stay quiet ("say": null).`
+      : `${trigger.name}${trigger.to !== undefined ? ' (whispering to you)' : pingAll ? ' (pinging everyone)' : ''} said: "${trigger.message}". ` +
+        `If they proposed or asked for an agreement and you want to partner with them, accept or counter with concrete strategic terms. ` +
+        `If you do NOT want their deal, or if their message is chatter, threats, rejection, or posturing, REMAIN SILENT ("say": null). ` +
+        `DO NOT reply to argue, decline, explain your plans, or trade insults. Always maintain the perception of being an ally; never make enemies in chat.`;
+    const out = await this.speak(view, task, trigger, replyTo);
     if (out && trigger.spectator) this.spectatorTurn = view.turnNumber;
     return out;
   }
@@ -346,6 +438,10 @@ export class Diplomat {
       const first = this.finish(raw, view, trigger, whisperTo, !!(obj && (obj.deal || obj.respond || obj.coalition || obj.coalitionRespond)));
       // The echo guard looks at the spoken words only (a line that is just a deal tag has none).
       if (!first || (first.message && this.isEcho(first.message))) return null;
+      if (hasHostilityOrBanter(first.message)) {
+        this.report(`chat dropped: hostility, taunting, or banter in message: "${first.message}"`);
+        return null;
+      }
       if (hasExpiredOffer(first.message, view.round)) {
         this.report(`chat dropped: expired offer wording in round ${view.round}`);
         return null;
@@ -359,6 +455,10 @@ export class Diplomat {
       if (!out) return null;
       if (hasSelfOrPartnerTarget(first.message, this.seatName, out.to)) {
         this.report(`chat dropped: alliance/attack targets self (${this.seatName}) or recipient (${out.to ?? 'none'})`);
+        return null;
+      }
+      if (isVerbalRejectionWithoutDeal(first.message, out.message)) {
+        this.report(`chat dropped: verbal rejection without a deal: "${first.message}"`);
         return null;
       }
       this.generated.set(out, { round: view.round, turn });
@@ -396,6 +496,9 @@ export class Diplomat {
       if (r) {
         tags.push(...r.tags);
         partner = r.partner;
+      }
+      if (typeof obj.respond === 'object' && obj.respond !== null && (obj.respond as Record<string, unknown>).answer === 'reject') {
+        out.message = '';
       }
     }
     if (tags.length === 0 && obj?.coalition) {
@@ -482,14 +585,15 @@ export class Diplomat {
   private systemPrompt(): string {
     return [
       `You are playing the board game Risk as "${this.seatName}" and chatting with the other players at the table. Remember: YOU are "${this.seatName}" — never refer to "${this.seatName}" in the third person as a rival, and never propose an alliance or attack against yourself ("${this.seatName}") or against the player you are whispering an alliance offer to.`,
-      'Stay in character:',
+      'Your character identity and background (voice and strategic style):',
       this.persona,
       '',
-      'PURE STRATEGIC DIPLOMACY (NO TAUNTING OR ROLEPLAY BANTER):',
-      'You are a calculating, pragmatic Risk commander. You may be manipulative, deceptive, or persuasive, but you must NEVER mock, taunt, sneer, laugh ("hehe"), insult, or write cartoonish roleplay banter. Speak like a professional military strategist making serious, advantageous business proposals.',
-      'WHY TAUNTING FAILS: When you taunt or mock rivals, they assume your offers are insincere traps, reject your truces, and attack you out of spite. Serious, polite, mutually advantageous framing secures alliances and coalitions.',
-      'SILENCE IS REJECTION (ZERO-COST DECLINES): If you receive a proposal or whisper that you do not want to accept or counter with concrete terms, DO NOT REPLY. Return "say": null. Never reply just to explain why you are declining or to say "No thanks" / "I have other plans". Silence is the standard rejection and avoids wasting turns on banter loops.',
-      'NEVER REPLY TO REJECTIONS OR EMPTY CHAT: If a rival rejects your offer or sends non-actionable remarks (e.g. "Understood", "Thanks", "No deal"), return "say": null.',
+      'PROFESSIONAL DIPLOMACY — ALWAYS THE PERCEPTION OF AN ALLY:',
+      '1. ALWAYS GIVE THE PERCEPTION OF AN ALLY: Speak with polite, reasonable, cooperative respect. Never sound hostile, bitter, arrogant, or dismissive, even toward rivals you intend to attack later. Diplomatic goodwill keeps opponents from attacking you and opens opportunities.',
+      '2. ZERO TAUNTING, INSULTS, OR THREATS: Never mock, taunt, sneer, laugh ("hehe", "haha"), boast, insult, or threaten rivals ("I will crush you", "you will pay"). Taunts destroy trust, make your offers look like traps, and cause opponents to attack you out of spite.',
+      '3. NO GLAZING OR FLATTERY: Do NOT flatter, praise, fawn over, or suck up to rivals ("you are so noble/mighty"). Glazing makes you look weak and insincere. Frame all proposals purely around mutual advantage, board realities, and concrete strategic terms (borders, continent bonuses, and shared threats).',
+      '4. SILENCE IS REJECTION (ZERO-COST DECLINES): If you receive a proposal or whisper that you do not want to accept or counter with concrete terms, DO NOT REPLY. Return "say": null. Never reply just to explain why you are declining or to say "No thanks" / "I have other plans". Silence is the standard professional response and avoids wasting turns on banter loops.',
+      '5. NEVER REPLY TO REJECTIONS, BANTER, OR THREATS: If a rival rejects your offer, threatens you, or sends non-actionable chatter (e.g. "Understood", "No deal", "I will eliminate you"), return "say": null.',
       'Rules of the table: diplomacy and deals are strategic suggestions, never binding rules — alliances, threats, deals, bluffs and betrayals are all fair game.',
       'LEADERBOARD & ELO GOAL: Your ultimate objective is to maximize your net Elo rating and climb the leaderboard over time. Priority 1 is WINNING (1st place) — winning yields the highest placement points (+3) and is the #1 deal. Priority 2 is SECURING KILLS — eliminations award +1 kill points, steal cards, and jump placement. CRUCIAL TOURNAMENT REALITY: Points are not permanent; finishing in bottom placements incurs heavy negative rating penalties (-1 for 4th, -2 for 5th, -3 for 6th place) that wipe out prior gains (net negative). Therefore, NOT LOSING / SURVIVING to avoid early elimination is a big deal! Do not make suicidal or reckless moves; survive and outlast rivals while positioning to win.',
       'Speak plainly and briefly: one short sentence, strictly under 15 words. State terms cleanly. No flowery speeches, no poetry, no metaphors piled on metaphors. Never mention being an AI, a model or a bot program.',

@@ -330,19 +330,25 @@ export async function runLoop(o: LoopOptions): Promise<GameResult[]> {
       const interval = Math.max(1, o.curationInterval ?? 1);
       const isLast = (o.games > 0 && g + 1 >= o.games) || control.soft || control.hard;
       const skipCurate = interval > 1 && (session.length + 1) % interval !== 0 && !isLast;
+      const isGen4 = o.smartSeats === 1;
+      const isGen5 = (o.smartSeats === undefined || o.smartSeats > 1) && !o.mechanicsOnly;
+      const genName = isGen4 ? 'gen4' : isGen5 ? 'gen5' : o.mechanicsOnly ? 'mechanics' : undefined;
       try {
-        const out = await runPostGame({ api, llm: o.llm, learningsDir: o.learningsDir, final, gameId, seats: reports, tracker, charactersKey: o.charactersKey, mechanicsOnly: o.mechanicsOnly, skipCurate, skipRivalries, log });
+        const out = await runPostGame({ api, llm: o.llm, learningsDir: o.learningsDir, final, gameId, seats: reports, tracker, charactersKey: o.charactersKey, mechanicsOnly: o.mechanicsOnly, skipCurate, skipRivalries, smartSeats: o.smartSeats, generation: genName, log });
         session.push(out.result);
         log(out.leaderboardText);
       } catch (e) {
         log(`Post-game write-up failed: ${(e as Error).message}`);
       }
     } else {
+      const isGen4 = o.smartSeats === 1;
+      const isGen5 = (o.smartSeats === undefined || o.smartSeats > 1) && !o.mechanicsOnly;
+      const genName = isGen4 ? 'gen4' : isGen5 ? 'gen5' : o.mechanicsOnly ? 'mechanics' : undefined;
       const result = buildResult(
         final,
         setup.identities.map((id) => ({ name: id.name, playerId: id.playerId, characterId: order.find((s) => s.name === id.name)?.characterId, deals: ledgers.get(id.name)?.stats() })),
         tracker,
-        { gameId },
+        { gameId, smartSeats: o.smartSeats, generation: genName },
       );
       session.push(result);
       log(formatLeaderboard(computeLeaderboard(session)));

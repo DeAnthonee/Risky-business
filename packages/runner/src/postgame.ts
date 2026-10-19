@@ -65,6 +65,8 @@ export interface GameResult {
   reason: 'capitals' | 'domination' | 'unfinished';
   rounds: number;
   turns: number;
+  smartSeats?: number;
+  generation?: string;
   seats: SeatResult[];
 }
 
@@ -122,7 +124,7 @@ export class GameTracker {
 }
 
 /** Build the result record from the finished game's view (spectator-complete: no fog once it is over). */
-export function buildResult(final: GameView, seats: SeatInfo[], tracker: GameTracker, meta: { gameId: string; date?: Date }): GameResult {
+export function buildResult(final: GameView, seats: SeatInfo[], tracker: GameTracker, meta: { gameId: string; date?: Date; smartSeats?: number; generation?: string }): GameResult {
   const map = getMap(final.options.map);
   const players = final.players.filter((p) => !p.isNeutral);
   const nameOf = (id: PlayerId | null | undefined) => players.find((p) => p.id === id)?.name ?? null;
@@ -183,6 +185,8 @@ export function buildResult(final: GameView, seats: SeatInfo[], tracker: GameTra
     reason,
     rounds: final.round,
     turns: final.turnNumber,
+    ...(meta.smartSeats !== undefined ? { smartSeats: meta.smartSeats } : {}),
+    ...(meta.generation ? { generation: meta.generation } : {}),
     seats: rows.sort((a, b) => a.placement - b.placement),
   };
 }
@@ -926,6 +930,8 @@ export interface PostGameInput {
   skipCurate?: boolean;
   /** Skip character memory and grudge/rivalry reflection LLM calls to optimize test speed while preserving all match stats & leaderboard. */
   skipRivalries?: boolean;
+  smartSeats?: number;
+  generation?: string;
   now?: () => Date;
   log: (line: string) => void;
 }
@@ -942,7 +948,7 @@ export async function runPostGame(i: PostGameInput): Promise<PostGameOutput> {
 }
 
 async function runPostGameLocked(i: PostGameInput): Promise<PostGameOutput> {
-  const result = buildResult(i.final, i.seats, i.tracker, { gameId: i.gameId, date: i.now?.() });
+  const result = buildResult(i.final, i.seats, i.tracker, { gameId: i.gameId, date: i.now?.(), smartSeats: i.smartSeats, generation: i.generation });
   if (i.mechanicsOnly) {
     await mkdir(i.learningsDir, { recursive: true });
     await appendFile(path.join(i.learningsDir, 'mechanics-results.jsonl'), `${JSON.stringify(result)}\n`, 'utf8');

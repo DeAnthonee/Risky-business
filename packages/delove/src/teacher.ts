@@ -152,6 +152,13 @@ class Board {
   readonly adj: Record<TerritoryId, TerritoryId[]>;
   private readonly heldCache = new Map<string, boolean>();
   private targetCache: ContinentDef | null | undefined;
+  // The board never changes under a Board, so per-territory answers are worked out once.
+  private readonly enemyCache = new Map<TerritoryId, TerritoryId[]>();
+  private readonly threatCache = new Map<TerritoryId, number>();
+  private readonly needCache = new Map<TerritoryId, number>();
+  private readonly countCache = new Map<PlayerId, number>();
+  private readonly captureCache = new Map<string, number>();
+  private cardValueCache: number | undefined;
 
   constructor(
     readonly state: GameState,
@@ -177,17 +184,28 @@ class Board {
 
   /** Neighbours I could attack (anyone else's, the Neutral included). */
   enemyNeighbours(t: TerritoryId): TerritoryId[] {
-    return this.adj[t].filter((n) => !isBlizzard(this.state, n) && this.owner(n) !== null && this.owner(n) !== this.me);
+    let v = this.enemyCache.get(t);
+    if (v === undefined) {
+      v = this.adj[t].filter((n) => !isBlizzard(this.state, n) && this.owner(n) !== null && this.owner(n) !== this.me);
+      this.enemyCache.set(t, v);
+    }
+    return v;
   }
 
   /** Armies rival players could throw at t next turn (each stack keeps one behind). */
   threat(t: TerritoryId): number {
-    let sum = 0;
-    for (const n of this.adj[t]) if (this.isRival(this.owner(n))) sum += this.armies(n) - 1;
+    let sum = this.threatCache.get(t);
+    if (sum === undefined) {
+      sum = 0;
+      for (const n of this.adj[t]) if (this.isRival(this.owner(n))) sum += this.armies(n) - 1;
+      this.threatCache.set(t, sum);
+    }
     return sum;
   }
 
+  /** A continent's open territories (callers only read the list). */
   continentTerritories(c: ContinentDef): TerritoryId[] {
+    if (!this.state.blizzards?.length) return c.territories;
     return c.territories.filter((t) => !isBlizzard(this.state, t));
   }
 
@@ -203,8 +221,12 @@ class Board {
   }
 
   territoryCount(p: PlayerId): number {
-    let n = 0;
-    for (const t of this.info.map.territoryIds) if (this.owner(t) === p) n++;
+    let n = this.countCache.get(p);
+    if (n === undefined) {
+      n = 0;
+      for (const t of this.info.map.territoryIds) if (this.owner(t) === p) n++;
+      this.countCache.set(p, n);
+    }
     return n;
   }
 
@@ -237,6 +259,12 @@ class Board {
 
   /** How badly a held continent's border territory needs armies (0 when it does not). */
   defenseNeed(t: TerritoryId): number {
+    let v = this.needCache.get(t);
+    if (v === undefined) this.needCache.set(t, (v = this.computeDefenseNeed(t)));
+    return v;
+  }
+
+  private computeDefenseNeed(t: TerritoryId): number {
     const c = this.info.continentOf.get(t);
     const threat = this.threat(t);
     if (threat <= 0) return 0;
@@ -248,6 +276,11 @@ class Board {
 
   /** Rough worth of one card in armies: a third of a set, more as progressive sets grow. */
   cardValue(): number {
+    if (this.cardValueCache === undefined) this.cardValueCache = this.computeCardValue();
+    return this.cardValueCache;
+  }
+
+  private computeCardValue(): number {
     const o = this.state.options;
     const p = this.state.players.find((x) => x.id === this.me)!;
     return Math.max(this.p.cardFloor, nextTradeValue(o.cardValues, this.state.tradeCount, p.tradesMade ?? 0) / this.p.cardDiv);
@@ -259,6 +292,13 @@ class Board {
 
   /** What taking territory u is worth beyond the territory itself. */
   captureValue(u: TerritoryId, cardStillToEarn: boolean): number {
+    const key = cardStillToEarn ? `1${u}` : `0${u}`;
+    let v = this.captureCache.get(key);
+    if (v === undefined) this.captureCache.set(key, (v = this.computeCaptureValue(u, cardStillToEarn)));
+    return v;
+  }
+
+  private computeCaptureValue(u: TerritoryId, cardStillToEarn: boolean): number {
     const owner = this.owner(u);
     let v = this.p.captureBase;
     if (cardStillToEarn) v += this.cardValue();

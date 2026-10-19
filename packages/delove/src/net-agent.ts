@@ -147,8 +147,8 @@ export function modelsDir(): string {
 }
 
 /**
- * Every model in the models folder as player versions. `delove@N.onnx` (a promoted version) and `rNN-candidate.onnx`
- * (a training round's candidate, before the ladder decides) each give:
+ * Every model in the models folder as player versions. `delove@N.onnx` (a promoted version) and `rNN-candidate.onnx` or
+ * `cNN-candidate.onnx` (a training round's or cycle's candidate, before the ladder decides) each give:
  * - `<id>` plays its policy's top move; `<id>-explore` samples it (temperature DELOVE_TEMPERATURE, default 1);
  * - with `<id>.value.onnx` next to it, `<id>+look` plays with the lookahead (search.ts) and `<id>+look-explore`
  *   samples among the lookahead's ratings (temperature DELOVE_LOOK_TEMPERATURE, default 0.03).
@@ -164,7 +164,7 @@ export function discoverNetAgents(dir = modelsDir()): Agent[] {
   );
   const files = new Set(readdirSync(dir));
   return [...files]
-    .filter((f) => /^(delove@\d+|r\d+-candidate)\.onnx$/.test(f))
+    .filter((f) => /^(delove@\d+|[rc]\d+-candidate)\.onnx$/.test(f))
     .sort()
     .flatMap((f) => {
       const id = basename(f, '.onnx');

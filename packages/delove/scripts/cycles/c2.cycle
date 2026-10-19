@@ -1,0 +1,22 @@
+# Cycle 2, run with: bash packages/delove/scripts/cycle.sh packages/delove/scripts/cycles/c2.cycle
+name=c2
+seed=302
+steps=(
+  "micro packages/delove/scripts/cycles/c2-micro.jobs Cycle 2, step 1: micro games (1v1, Four Crowns)"
+  "classic2 packages/delove/scripts/cycles/c2-classic2.jobs Cycle 2, step 2: scenario games on Classic (2 players)"
+  "classic4 packages/delove/scripts/cycles/c2-classic4.jobs Cycle 2, step 3: scenario games on Classic (4 players)"
+)
+export_agents=delove-branch@1
+# Branch decisions weighted as in cycle 1, plus Sensei 2's 2-player games as an anchor (under DATA).
+train_data=(micro/skirmish*2 classic2/classic*3 classic4/classic*3 r05-sensei2/classic)
+train_init=r06-candidate
+candidate=c2-candidate
+train_args="--epochs 1.5 --lr 3e-4"
+gates=(
+  "delove@2 2 800"
+  "delove@2 4 200"
+  "delove@2 6 200"
+  "delove@2 2 200 {\"map\":\"skirmish\"}"
+  "delove-teacher@2 2 200"
+  "delove@1 2 200"
+)

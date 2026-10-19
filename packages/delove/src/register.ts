@@ -30,7 +30,8 @@ if (existsSync(dir)) {
 /**
  * delove-branch@1: branch and score (src/branch.ts). DELOVE_BRANCH_TEACHER picks the rollout teacher (default: the
  * newest tuned one), DELOVE_BRANCH_RANKER the network that proposes alternatives (default delove@2);
- * DELOVE_BRANCH_OPTIONS / _ROLLOUTS / _HORIZON / _MARGIN override the search size. With DELOVE_BRANCH_STATS=<dir> each process
+ * DELOVE_BRANCH_OPTIONS / _ROLLOUTS / _HORIZON / _MARGIN override the search size, DELOVE_BRANCH_SKIP (comma-separated
+ * decision kinds, e.g. occupy,trade) the kinds it plays without branching. With DELOVE_BRANCH_STATS=<dir> each process
  * writes what branching did to <dir>/stats-<pid>.json when it exits.
  */
 {
@@ -46,6 +47,7 @@ if (existsSync(dir)) {
       rollouts: env('DELOVE_BRANCH_ROLLOUTS', DEFAULT_BRANCH.rollouts),
       horizon: env('DELOVE_BRANCH_HORIZON', DEFAULT_BRANCH.horizon),
       margin: env('DELOVE_BRANCH_MARGIN', DEFAULT_BRANCH.margin),
+      skip: process.env.DELOVE_BRANCH_SKIP === undefined ? DEFAULT_BRANCH.skip : process.env.DELOVE_BRANCH_SKIP.split(',').filter(Boolean),
     }),
   );
   const statsDir = process.env.DELOVE_BRANCH_STATS;

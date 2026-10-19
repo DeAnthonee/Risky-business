@@ -122,6 +122,24 @@ cd packages/delove/python
 cd ../../.. && npm run delove -- ladder --best delove@1 --candidate delove@2 --games 400
 ```
 
+### A whole cycle in one command
+
+`scripts/cycle.sh` runs a training cycle from a config (`scripts/cycles/c2.cycle` is cycle 2): every step's games go
+into one pool of small chunks over all CPU threads (the most expensive step first, so the pool ends on short chunks),
+each step is exported as soon as its last chunk is done while the others keep generating, then it trains on the GPU,
+plays every ladder gate at once (each split into chunks) and writes the step tables, the gate table and the time of
+each phase to `runs/delove/<name>/cycle.md`. Re-running resumes where it stopped.
+
+```bash
+DELOVE_MODELS=models/delove PYTHON=.venv/Scripts/python bash packages/delove/scripts/cycle.sh packages/delove/scripts/cycles/c2.cycle
+```
+
+Speed work has two guards. `scripts/golden.mjs record|check <file>` replays ~60 seeded games across maps, player
+counts, settings and players (teachers, `risky@1`, the network, the branch player) and fails if any logged decision,
+its features or a result changes: record before touching the engine, self-play or Delove code, check after.
+`scripts/branch-variant.sh` measures one branch-and-score setting against Sensei 2 in both seat orders on the same
+seeds, with the time per game.
+
 `:winners` data teaches the policy mostly from the side that won (`--loser-weight`, default 0.1); imitation data
 counts every move.
 

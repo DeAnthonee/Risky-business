@@ -38,7 +38,7 @@ import { seatOrder } from './net-agent.js';
  * bonus lowers their share as surely as gaining my own. The option with the best average is played (the teacher's
  * own move unless another beats it by `margin`), so the game the logs record follows the improved choices.
  *
- * Setup and capital picks, and decisions with a single option, are played by the teacher directly.
+ * Setup and capital picks, decisions with a single option and the kinds in `skip` are played by the teacher directly.
  */
 export interface BranchOptions {
   /** Options compared per decision (the teacher's move + network candidates). */
@@ -47,14 +47,22 @@ export interface BranchOptions {
   horizon: number;
   /** Keep the teacher's move unless an alternative scores this much better. */
   margin: number;
+  /** Decision kinds (of the teacher's move) played by the teacher without branching, e.g. 'occupy'. */
+  skip: string[];
   weights: { armies: number; income: number; territories: number; cards: number; continents: number };
 }
 
+/**
+ * Measured over 2,000 two-player Classic games against delove-teacher@2 each (scripts/branch-variant.sh, README):
+ * 3 options instead of 4 and playing occupy decisions without branching lost nothing and cut the time per game by
+ * 39%; 4 rollouts instead of 6 cost about 0.035 of score, so rollouts stay at 6.
+ */
 export const DEFAULT_BRANCH: BranchOptions = {
-  options: 4,
+  options: 3,
   rollouts: 6,
   horizon: 2,
   margin: 0.02,
+  skip: ['occupy'],
   weights: { armies: 0.3, income: 0.3, territories: 0.15, cards: 0.15, continents: 0.1 },
 };
 
@@ -172,7 +180,7 @@ export function branchAgent(id: string, teacher: StepPick, ranker: NetScorer | n
       const base: StepContext = { ...dctx, fortifyFrom: null };
       branchStats.decisions++;
       const teacherIndex = teacher(base);
-      if (!isImportant(dctx)) return completeAction(base, teacherIndex, teacher);
+      if (!isImportant(dctx) || opts.skip.includes(dctx.candidates[teacherIndex][0])) return completeAction(base, teacherIndex, teacher);
 
       // Options: the teacher's move first, then the network's favourites.
       const order: number[] = [teacherIndex];

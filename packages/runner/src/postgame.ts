@@ -815,7 +815,7 @@ export async function curateLearnings(i: CurateInput): Promise<'updated' | 'kept
               ? [
                   'Game settings for this game:',
                   `- Map: ${i.options.map}`,
-                  `- Fog of War: ${i.options.fogOfWar ? 'ON (fogged territories/armies)' : 'OFF (public board, exact troop budgets, public all-chat coalitions)'}`,
+                  `- Fog of War: ${i.options.fogOfWar ? 'ON (fogged territories/armies: opponents\' territory and army counts are hidden; only turn reinforcement income and card count are public)' : 'OFF (public board, exact troop budgets, public all-chat coalitions)'}`,
                   `- Win Condition: ${i.options.capitals ? 'Capitals Conquest (hold all capitals to win)' : 'World Domination'}`,
                   `- Card values: ${i.options.cardValues}`,
                   `- Blizzards: ${i.options.blizzards}`,

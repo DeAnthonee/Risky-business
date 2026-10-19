@@ -1,0 +1,191 @@
+"""The replay proof over every map, table size and covered setting: plays logged CPU games for each case of a suite
+(the TypeScript engine and agents, in parallel over the CPU's threads), then replays every log through the GPU
+(tests/replay.py --fused: board, cards, phase and legal moves at every step; tests/teacher_replay.py for teacher
+seats: the logged pick at every step) and prints one table.
+
+    python tests/matrix.py --suite rules --out runs/gpu-verify/matrix [--seed 7] [--scale 1] [--models models/delove]
+    python tests/matrix.py --suite rules --out ... --only greater_europe   # cases whose name contains this
+
+A case is `name map seats agents games [options JSON]`. Logs go to OUT/<name>/ with the case's options in
+options.json (replay.py reads them). Re-running skips logs that are complete and replays again.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import shutil
+import subprocess
+import sys
+import time
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE.parent))
+from delove_gpu.fingerprint import REPO  # noqa: E402
+
+PYTHON = sys.executable
+R, T1, T2, RK = "random@1", "delove-teacher@1", "delove-teacher@2", "risky@1"
+
+
+def seats(n: int, *agents: str) -> str:
+    """n seats filled with the agents in rotation."""
+    return ",".join(agents[i % len(agents)] for i in range(n))
+
+
+# Every map at 2 seats, a middle size and its largest table; random players reach the turn limit and every corner of
+# the rules, teachers play real games (eliminations, card captures, conquests of whole continents).
+def rules_suite(scale: float) -> list[tuple]:
+    g = lambda n: max(4, int(n * scale))  # noqa: E731
+    maps = {"classic": 6, "world": 10, "world_large": 10, "europe": 8, "greater_europe": 10, "europe_classic": 6, "usa": 10,
+            "asia": 8, "fantasy": 10, "skirmish": 4}
+    cases = []
+    for m, mx in maps.items():
+        sizes = sorted({2, (2 + mx + 1) // 2, mx})
+        for n in sizes:
+            cases.append((f"{m}-{n}p-teacher", m, n, seats(n, T2, T1, RK), g(300 if n <= 4 else 150), {}))
+            cases.append((f"{m}-{n}p-random", m, n, seats(n, R, T1), g(40 if n <= 4 else 20), {}))
+    return cases
+
+
+# The settings, each on two or three maps and table sizes (and together at the end).
+def settings_suite(scale: float) -> list[tuple]:
+    g = lambda n: max(4, int(n * scale))  # noqa: E731
+    sets = [
+        ("capitals", {"capitals": True}),
+        ("choosecap", {"capitals": True, "chooseCapitals": True}),
+        ("fixed", {"cardValues": "fixed"}),
+        ("expo", {"cardValues": "exponential"}),
+        ("adjacent", {"fortifyMode": "adjacent"}),
+        ("balanced", {"balancedBlitz": True}),
+        ("blizzards", {"blizzards": -1}),  # -1: the map's maximum
+        ("nofrb", {"firstRoundBonus": False}),
+        ("batch3", {"setupBatch": 3}),
+        ("batch40", {"setupBatch": 40}),
+        ("autosetup", {"autoSetup": True}),
+        ("claim", {"randomDeal": False}),
+        ("neutrals", {"neutrals": 6, "neutralArmies": 3}),
+        ("all", {"capitals": True, "chooseCapitals": True, "cardValues": "exponential", "fortifyMode": "adjacent", "balancedBlitz": True,
+                 "blizzards": 4, "firstRoundBonus": False, "setupBatch": 2, "randomDeal": False, "neutrals": 4, "neutralArmies": 1}),
+        ("all-auto", {"capitals": True, "cardValues": "fixed", "balancedBlitz": True, "blizzards": 6, "autoSetup": True, "neutrals": 8}),
+    ]
+    tables = [("classic", 2), ("skirmish", 3), ("world", 6), ("greater_europe", 10)]
+    cases = []
+    for name, o in sets:
+        for m, n in tables:
+            oo = dict(o)
+            cases.append((f"{name}-{m}-{n}p-teacher", m, n, seats(n, T2, T1, RK), g(150 if n <= 3 else 60), oo))
+            cases.append((f"{name}-{m}-{n}p-random", m, n, seats(n, R, T1), g(16 if n <= 3 else 8), oo))
+    return cases
+
+
+SUITES = {"rules": rules_suite, "settings": settings_suite}
+
+
+def resolve_options(m: str, o: dict) -> dict:
+    o = dict(o)
+    if o.get("blizzards") == -1:
+        from delove_gpu.config import engine_facts
+
+        o["blizzards"] = engine_facts()["maps"][m]["maxBlizzards"]
+    return o
+
+
+def node_play(agents: str, games: int, start: int, seed: int, options: dict, log: Path, models: str | None) -> subprocess.CompletedProcess:
+    env = dict(os.environ)
+    if models:
+        env["DELOVE_MODELS"] = models
+    cmd = ["node", "--import", "./packages/delove/dist/register.js", "packages/selfplay/dist/cli.js", "play", "--agents", agents,
+           "--games", str(games), "--start", str(start), "--seed", str(seed), "--options", json.dumps(options), "--log", str(log)]
+    return subprocess.run(cmd, cwd=REPO, capture_output=True, text=True, env=env)
+
+
+def generate(cases: list[tuple], out: Path, seed: int, models: str | None, parallel: int, chunk: int):
+    jobs = []
+    for i, (name, m, n, agents, games, o) in enumerate(cases):
+        d = out / name
+        opts = {**resolve_options(m, o), "map": m}
+        if (d / "complete").exists():
+            continue
+        if d.exists():
+            shutil.rmtree(d)
+        d.mkdir(parents=True)
+        (d / "options.json").write_text(json.dumps(opts) + "\n", encoding="utf8")
+        for st in range(0, games, chunk):
+            jobs.append((name, agents, min(chunk, games - st), st, seed * 1000 + i, opts, d / f"c{st}"))
+    print(f"generating {len(jobs)} chunks over {parallel} processes", flush=True)
+    t0 = time.time()
+
+    def run(j):
+        name, agents, games, st, sd, opts, log = j
+        r = node_play(agents, games, st, sd, opts, log, models)
+        if r.returncode:
+            raise RuntimeError(f"{name} c{st}: {r.stderr[-2000:]}")
+        return name
+
+    with ThreadPoolExecutor(parallel) as ex:
+        list(ex.map(run, jobs))
+    for name, *_ in cases:
+        (out / name / "complete").touch()
+    print(f"generated in {time.time() - t0:.0f}s", flush=True)
+
+
+def flatten(case_dir: Path) -> list[str]:
+    return sorted(str(p) for p in case_dir.iterdir() if p.is_dir())
+
+
+def replay_case(name: str, d: Path, args) -> dict:
+    """One case: every chunk through replay.py --fused, with the teacher picks checked at teacher seats."""
+    res = {"case": name}
+    logs = flatten(d)
+    for lg in logs:  # chunk dirs inherit the case's options
+        shutil.copy(d / "options.json", Path(lg) / "options.json")
+    cmd = [PYTHON, str(HERE / "replay.py"), *logs, "--fused", "--batch", str(args.batch)]
+    if args.models:
+        cmd += ["--teacher", f"{T1}=", "--teacher", f"{T2}={Path(args.models) / (T2 + '.json')}"]
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    res["rules"] = r.stdout.strip().splitlines()[-1] if r.stdout.strip() else r.stderr[-500:]
+    res["rules_ok"] = r.returncode == 0
+    res["rules_log"] = r.stdout[-3000:] + r.stderr[-3000:]
+    return res
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    ap.add_argument("--suite", choices=list(SUITES), required=True)
+    ap.add_argument("--out", required=True)
+    ap.add_argument("--seed", type=int, default=7)
+    ap.add_argument("--scale", type=float, default=1.0, help="multiply every case's game count")
+    ap.add_argument("--models", default=None, help="models folder (delove-teacher@2.json; DELOVE_MODELS for the CPU games)")
+    ap.add_argument("--only", default=None, help="only cases whose name contains this")
+    ap.add_argument("--parallel", type=int, default=max(1, (os.cpu_count() or 2) - 1))
+    ap.add_argument("--replay-parallel", type=int, default=6, help="replay processes at once (they share the GPU)")
+    ap.add_argument("--chunk", type=int, default=25)
+    ap.add_argument("--batch", type=int, default=400)
+    ap.add_argument("--no-generate", action="store_true")
+    args = ap.parse_args()
+    cases = SUITES[args.suite](args.scale)
+    if args.only:
+        cases = [c for c in cases if args.only in c[0]]
+    out = Path(args.out).resolve()
+    out.mkdir(parents=True, exist_ok=True)
+    if not args.no_generate:
+        generate(cases, out, args.seed, args.models, args.parallel, args.chunk)
+    t0 = time.time()
+    with ThreadPoolExecutor(args.replay_parallel) as ex:
+        results = list(ex.map(lambda c: replay_case(c[0], out / c[0], args), cases))
+    bad = 0
+    for r in results:
+        ok = r["rules_ok"]
+        bad += not ok
+        print(f"{'ok ' if ok else 'BAD'} {r['case']}: {r['rules']}")
+        if not ok:
+            print("    " + r["rules_log"].replace("\n", "\n    ")[-2500:])
+    (out / f"results-{args.suite}.json").write_text(json.dumps(results, indent=1) + "\n", encoding="utf8")
+    print(f"{len(results) - bad}/{len(results)} cases identical, replay {time.time() - t0:.0f}s")
+    sys.exit(1 if bad else 0)
+
+
+if __name__ == "__main__":
+    main()

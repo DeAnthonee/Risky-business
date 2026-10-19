@@ -1,14 +1,15 @@
 """The hand-coded teacher (packages/delove/src/teacher.ts, teacherPickWith(params)) in the fused CUDA kernel.
 
-TRAINING ONLY, like the rules mirror: teacher.ts is the authority and tests/teacher_replay.py checks that this picks
-the logged candidate at every step of logged teacher games. It must be exact, not merely close: the teacher breaks
-ties with 1e-3 of jitter from the seeded random source and compares scores built from odds, shares and products, so
-every double here is computed with the same operations in the same order as the TypeScript (NVRTC with --fmad=false,
-so no fused multiply-adds), draws its jitter from the same mulberry32 stream, and visits candidates in the order
-actions.ts lists them (fortify destinations in the engine's connected-search order, not territory order).
+TRAINING ONLY, like the rules mirror: teacher.ts is the authority and the replay tests (tests/replay.py --teacher,
+tests/teacher_replay.py) check that this picks the logged candidate at every step of logged teacher games. It must be
+exact, not merely close: the teacher breaks ties with 1e-3 of jitter from the seeded random source and compares scores
+built from odds, shares and products, so every double here is computed with the same operations in the same order as
+the TypeScript (NVRTC with --fmad=false, so no fused multiply-adds), draws its jitter from the same mulberry32 stream,
+and visits candidates in the order actions.ts lists them (fortify destinations in the engine's connected-search order,
+or adjacency order with adjacent fortify).
 
-Covered: what the GPU rules cover (Classic, 2 players and the Neutral, default options: no capitals, blizzards or
-balanced blitz). One thread per game, like the rules.
+Covered: everything the rules kernel covers (every map and table size; capitals and chosen capitals, card values,
+adjacent fortify, balanced blitz, blizzards, the claiming phase, neutrals). One thread per game, like the rules.
 """
 from __future__ import annotations
 
@@ -20,7 +21,7 @@ import torch
 
 from . import odds as odds_mod
 from .fingerprint import REPO, require_verified
-from .fused import STATE_FIELDS, FusedEngine, _source, compile_kernels
+from .fused import FusedEngine, _source, compile_kernels
 
 TEACHER_TS = REPO / "packages" / "delove" / "src" / "teacher.ts"
 
@@ -32,8 +33,6 @@ PARAM_KEYS = [
     "minWin", "minEv", "exposureBase", "exposureThreat", "exposureNeed", "fortifyThreat", "interiorBonus", "lateRound",
     "lateRamp",
 ]
-
-ODDS_A, ODDS_D = 2000, 2000
 
 
 def default_params() -> dict[str, float]:
@@ -60,42 +59,38 @@ def load_params(path: str | Path | None) -> dict[str, float]:
     return p
 
 
+def params_tensor(params: dict[str, float], device) -> torch.Tensor:
+    return torch.tensor([params[k] for k in PARAM_KEYS], dtype=torch.float64, device=device)
+
+
 def _consts(e) -> str:
-    m = e.m
-    cmax = max(len(ts) for _, _, ts in m.continents)
-    rows = [ts + [-1] * (cmax - len(ts)) for _, _, ts in m.continents]
-    body = ",".join("{" + ",".join(map(str, r)) + "}" for r in rows)
-    borders = []
-    for _, _, ts in m.continents:
-        inside = set(ts)
-        borders.append(sum(1 for t in ts if any(n not in inside for n in m.adj[t])))
     names = [re.sub(r"([A-Z])", r"_\1", k).upper() for k in PARAM_KEYS]
     defs = "\n".join(f"#define P_{n} {i}" for i, n in enumerate(names))
     return f"""
-#define CMAX {cmax}
 #define DINF __longlong_as_double(0x7ff0000000000000LL)
-#define ODDS_A {ODDS_A}
-#define ODDS_D {ODDS_D}
-__constant__ int CMEM[K][CMAX] = {{{body}}};
-__constant__ int CBORD[K] = {{{",".join(map(str, borders))}}};
+#define ODDS_DMAX {odds_mod.DMAX}
 {defs}
 """
 
 
 TEACHER_BODY = r"""
 // ---- the teacher (packages/delove/src/teacher.ts) ---------------------------------------------------------------
-struct TP { const double* p; const double* ow; const double* ola; const double* old; unsigned long long* stats; };
+// prm: the teacher's numbers; the odds tables of both defence-dice limits (rows d of limit 2, then of limit 3).
+#define TP_ARGS const double* prm, const double* ow, const double* ola, const double* old, const double* obw, const i64* ooff, const i64* olen, unsigned long long* tstats
+#define TP_PASS prm, ow, ola, old, obw, ooff, olen, tstats
+struct TP { const double* p; const double* ow; const double* ola; const double* old; const double* obw; const i64* ooff; const i64* olen; unsigned long long* stats; };
+#define TP_MAKE TP tp = {prm, ow, ola, old, obw, ooff, olen, tstats};
 
 __device__ __forceinline__ double rnd(i64* st) { return (double)mb_next(st) / 4294967296.0; }
 __device__ __forceinline__ double dmax(double a, double b) { return a > b ? a : (b > a ? b : a); }  // Math.max (no NaN here)
 __device__ __forceinline__ double dmin(double a, double b) { return a < b ? a : (b < a ? b : a); }
 
-struct Odds { double win, la, ld; };
+struct Odds { double win, bwin, la, ld; };
 
-// blitzOdds(a, d, 2) of odds.ts: exact tables up to ODDS_A x ODDS_D, fit()'s proportional scaling above MAX_ODDS_CELLS.
-__device__ Odds odds(const TP& tp, int a, int d) {
+// blitzOdds(a, d, dlim) of odds.ts: fit()'s proportional scaling above MAX_ODDS_CELLS, then the exact table cell.
+__device__ Odds odds(const TP& tp, int a, int d, int dlim) {
   Odds o;
-  if (d <= 0) { o.win = 1; o.la = 0; o.ld = 0; return o; }
+  if (d <= 0) { o.win = 1; o.bwin = 1; o.la = 0; o.ld = 0; return o; }
   int oa = a, od = d;
   double scale = 1.0;
   double cells = (double)(a + 1) * (double)(d + 1);
@@ -105,13 +100,14 @@ __device__ Odds odds(const TP& tp, int a, int d) {
     oa = x < 2.0 ? 2 : (int)x;
     od = y < 1.0 ? 1 : (int)y;
   }
-  if (oa > ODDS_A || od > ODDS_D) {  // outside the tables: counted, and clamped (never seen in Classic 2-player games)
+  int row = (dlim == 3 ? ODDS_DMAX + 1 : 0) + (od > ODDS_DMAX ? ODDS_DMAX : od);
+  if (od > ODDS_DMAX || oa >= tp.olen[row]) {  // outside the tables (never seen): counted, and clamped
     atomicAdd(&tp.stats[0], 1ull);
-    if (oa > ODDS_A) oa = ODDS_A;
-    if (od > ODDS_D) od = ODDS_D;
+    if (oa >= tp.olen[row]) oa = (int)tp.olen[row] - 1;
   }
-  i64 k = (i64)oa * (ODDS_D + 1) + od;
+  i64 k = tp.ooff[row] + oa;
   o.win = tp.ow[k];
+  o.bwin = tp.obw[k];
   o.la = tp.ola[k] / scale;
   o.ld = tp.old[k] / scale;
   return o;
@@ -122,12 +118,13 @@ struct Board {
   int me, own[T], arm[T], thr[T], nen[T], holder[K], tcount[P], target, rivals;
   double cv;
   const double* p;
+  S* s;
 };
 
 __device__ __forceinline__ bool is_rival(const Board& b, int o) { return o >= 0 && o != b.me && o != NEU; }
 
 __device__ void board_init(Board& b, S& s, int me, const double* p) {
-  b.me = me; b.p = p;
+  b.me = me; b.p = p; b.s = &s;
   for (int t = 0; t < T; t++) { b.own[t] = (int)s.owner[t]; b.arm[t] = (int)s.armies[t]; }
   for (int q = 0; q < P; q++) b.tcount[q] = 0;
   for (int t = 0; t < T; t++) {
@@ -135,18 +132,24 @@ __device__ void board_init(Board& b, S& s, int me, const double* p) {
     for (int k = 0; k < DEG[t]; k++) {
       int n = NBR[t][k], o = b.own[n];
       if (is_rival(b, o)) th += b.arm[n] - 1;
-      if (o >= 0 && o != me) ne++;
+      if (o >= 0 && o != me) ne++;  // enemyNeighbours: blizzards and unclaimed land are nobody's
     }
     b.thr[t] = th; b.nen[t] = ne;
     if (b.own[t] >= 0) b.tcount[b.own[t]]++;
   }
+  // holds(c, p): every open territory of c is p's (the holder; -1 if none or mixed)
   for (int c = 0; c < K; c++) {
-    int o = b.own[CMEM[c][0]];
-    for (int i = 1; i < CSIZE[c]; i++) if (b.own[CMEM[c][i]] != o) { o = -1; break; }
-    b.holder[c] = o;
+    int o = -2;
+    for (int i = 0; i < CSIZE[c]; i++) {
+      int t = CMEM[c][i];
+      if (s.bliz[t]) continue;
+      if (o == -2) o = b.own[t];
+      else if (b.own[t] != o) { o = -1; break; }
+    }
+    b.holder[c] = o < 0 ? -1 : o;
   }
-  // cardValue(): max(cardFloor, nextTradeValue(progressive) / cardDiv)
-  b.cv = dmax(p[P_CARD_FLOOR], (double)trade_bonus((int)*s.trade_count) / p[P_CARD_DIV]);
+  // cardValue(): max(cardFloor, nextTradeValue(mode, tradeCount, my trades) / cardDiv)
+  b.cv = dmax(p[P_CARD_FLOOR], (double)next_value(s, me) / p[P_CARD_DIV]);
   b.rivals = 0;
   for (int q = 0; q < NS; q++) if (q != me && s.alive[q]) b.rivals++;
   // target(): the continent to take
@@ -154,15 +157,19 @@ __device__ void board_init(Board& b, S& s, int me, const double* p) {
   double bs = -DINF;
   for (int c = 0; c < K; c++) {
     if (b.holder[c] == me) continue;
-    int n = CSIZE[c], mine = 0, myA = 0, theirA = 0;
+    int n = 0, mine = 0, myA = 0, theirA = 0;
     bool touching = false;
-    for (int i = 0; i < n; i++) {
+    for (int i = 0; i < CSIZE[c]; i++) {
       int t = CMEM[c][i];
+      if (s.bliz[t]) continue;
+      n++;
       if (b.own[t] == me) { mine++; myA += b.arm[t]; } else theirA += b.arm[t];
     }
+    if (n == 0) continue;
     if (mine > 0) touching = true;
-    for (int i = 0; i < n && !touching; i++) {
+    for (int i = 0; i < CSIZE[c] && !touching; i++) {
       int t = CMEM[c][i];
+      if (s.bliz[t]) continue;
       for (int k = 0; k < DEG[t]; k++) if (b.own[NBR[t][k]] == me) { touching = true; break; }
     }
     if (!touching) continue;
@@ -191,15 +198,23 @@ __device__ double capture_value(const Board& b, S& s, int u, bool card) {
   if (card) v += b.cv;
   int c = CONT_OF[u];
   bool others = true;
-  for (int i = 0; i < CSIZE[c]; i++) { int t = CMEM[c][i]; if (t != u && b.own[t] != b.me) { others = false; break; } }
+  for (int i = 0; i < CSIZE[c]; i++) { int t = CMEM[c][i]; if (s.bliz[t]) continue; if (t != u && b.own[t] != b.me) { others = false; break; } }
   if (others) v += (double)CBONUS[c] * p[P_COMPLETE_BONUS];
   else if (b.target == c) v += p[P_TARGET_CAPTURE];
   if (is_rival(b, owner) && b.holder[c] == owner) v += (double)CBONUS[c] * p[P_BREAK_BONUS];
   if (is_rival(b, owner) && b.tcount[owner] == 1) v += p[P_ELIM_BASE] + (double)s.hand_n[owner] * b.cv;
+  if (OPT_CAPITALS && owner >= 0 && owner < NS && s.capital[owner] == u) v += p[P_CAPITAL_VALUE];
   return v;
 }
 
 __device__ double placement_score(const Board& b, S& s, int t) {
+  if (b.own[t] < 0) {  // claiming phase: grow next to my territories, inside continents I can hope to hold
+    int c = CONT_OF[t], near = 0, mine_in = 0, total = 0;
+    for (int k = 0; k < DEG[t]; k++) if (b.own[NBR[t][k]] == b.me) near++;
+    for (int i = 0; i < CSIZE[c]; i++) { int x = CMEM[c][i]; if (s.bliz[x]) continue; total++; if (b.own[x] == b.me) mine_in++; }
+    int borders = CBORD[c] > 1 ? CBORD[c] : 1;
+    return (double)near + (total ? ((double)mine_in / (double)total) * 3.0 : 0.0) + (double)CBONUS[c] / (double)borders;
+  }
   if (b.nen[t] == 0) return (double)(-50 - b.arm[t]);
   double defense = defense_need(b, t), offense = 0.0;
   for (int k = 0; k < DEG[t]; k++) {
@@ -212,10 +227,16 @@ __device__ double placement_score(const Board& b, S& s, int t) {
   return dmax(defense * b.p[P_PLACE_DEFENSE_MULT], offense);
 }
 
-// ConnectedSearch.from(src) of engine.ts: my territories reachable from src, in the engine's visiting order.
-__device__ int connected_from(const Board& b, int src, int* out) {
+// The fortify destinations legalMoves lists for src, in its order: ConnectedSearch.from(src) (connected fortify) or
+// src's neighbours of mine in adjacency order (adjacent fortify).
+__device__ int fortify_targets(const Board& b, int src, int* out) {
+  int n = 0;
+  if (FORT_ADJ) {
+    for (int k = 0; k < DEG[src]; k++) { int v = NBR[src][k]; if (b.own[v] == b.me) out[n++] = v; }
+    return n;
+  }
   u8 seen[T];
-  int stack[T], sp = 0, n = 0;
+  int stack[T], sp = 0;
   for (int t = 0; t < T; t++) seen[t] = 0;
   seen[src] = 1;
   stack[sp++] = src;
@@ -240,7 +261,7 @@ __device__ void best_fortify(const Board& b, S& s, int* bf, int* bt) {
     if (b.own[f] != b.me || b.arm[f] < 2) continue;
     if (b.thr[f] > 0) continue;
     if (!any_real && b.nen[f] > 0) continue;
-    int n = connected_from(b, f, tg);
+    int n = fortify_targets(b, f, tg);
     int mx = b.arm[f] - 1;
     for (int i = 0; i < n; i++) {
       int to = tg[i];
@@ -274,7 +295,7 @@ __device__ int teacher_pick(S& s, const TP& tp, i64* rng) {
     best_fortify(b, s, &bf, &bt);
     int dest = bf == src ? bt : -1;
     int tg[T];
-    int n = connected_from(b, src, tg), best = -1;
+    int n = fortify_targets(b, src, tg), best = -1;
     double bs = -DINF;
     int mx = b.arm[src] - 1;
     for (int i = 0; i < n; i++) {
@@ -313,6 +334,18 @@ __device__ int teacher_pick(S& s, const TP& tp, i64* rng) {
     return OCCUPY + 2;
   }
 
+  if (ph == CAPITALS) {  // capital: well garrisoned, few enemy neighbours, little threat
+    int best = -1;
+    double bs = -DINF;
+    for (int t = 0; t < T; t++) {
+      if (!m[CAP + t]) continue;
+      double sc = (double)(b.arm[t] * 2 - b.nen[t]) - (double)b.thr[t] / 4.0;
+      double j = sc + rnd(rng) * 1e-3;
+      if (j > bs) { bs = j; best = CAP + t; }
+    }
+    return best;
+  }
+
   if (ph == REINFORCE) {  // trades first (the GPU rules make forced trades themselves)
     int best = -1;
     double bs = -DINF;
@@ -338,10 +371,11 @@ __device__ int teacher_pick(S& s, const TP& tp, i64* rng) {
     for (int t = 0; t < T; t++) {
       if (!m[3 * t]) continue;
       double sc = placement_score(b, s, t);
+      bool claim = b.own[t] < 0;
       for (int sl = 0; sl < 3; sl++) {
         int a = 3 * t + sl;
         if (!m[a]) continue;
-        int amount = sl == 0 ? lim : (sl == 1 ? (lim + 1) / 2 : 1);
+        int amount = claim ? 1 : (sl == 0 ? lim : (sl == 1 ? (lim + 1) / 2 : 1));
         double j = (sc + (double)amount * 1e-6) + rnd(rng) * 1e-3;
         if (j > bs) { bs = j; best = a; }
       }
@@ -363,8 +397,8 @@ __device__ int teacher_pick(S& s, const TP& tp, i64* rng) {
       int from = EFROM[e], to = ETO[e];
       int fa = b.arm[from];
       if (fa < 2) continue;
-      Odds o = odds(tp, fa, b.arm[to]);
-      double pw = o.win;
+      Odds o = odds(tp, fa, b.arm[to], OPT_CAPITALS && is_capital(s, to) ? 3 : 2);
+      double pw = BALANCED ? o.bwin : o.win;
       if (pw < p[P_MIN_WIN]) continue;
       double value = capture_value(b, s, to, card);
       double exposure = (1.0 - pw) * (p[P_EXPOSURE_BASE] + (double)b.thr[from] * p[P_EXPOSURE_THREAT] + defense_need(b, from) * p[P_EXPOSURE_NEED]);
@@ -391,23 +425,21 @@ __device__ __forceinline__ i64* agent_rng(i64* arng, int rstride, int b, int sea
 
 // The teacher's pick for every active game (the decider's stream: arng[b * rstride + seat], or one stream per game
 // when rstride == 1). out[b] = -1 when inactive or there is no move.
-extern "C" __global__ void k_teacher(STATE_ARGS, const double* prm, const double* ow, const double* ola, const double* old,
-                                     unsigned long long* tstats, i64* arng, int rstride, const u8* active, i64* out, int B) {
+extern "C" __global__ void k_teacher(STATE_ARGS, TP_ARGS, i64* arng, int rstride, const u8* active, i64* out, int B) {
   int b = blockIdx.x * blockDim.x + threadIdx.x;
   if (b >= B) return;
   MAKE_S(b);
   if (!active[b] || *s.done) { out[b] = -1; return; }
-  TP tp = {prm, ow, ola, old, tstats};
+  TP_MAKE
   out[b] = teacher_pick(s, tp, agent_rng(arng, rstride, b, cur(s)));
 }
 
-// Teacher plays every seat for up to `steps` steps per game (bench / whole games). stats: finished games, steps.
-extern "C" __global__ void k_teacher_play(STATE_ARGS, const double* prm, const double* ow, const double* ola, const double* old,
-                                          unsigned long long* tstats, i64* arng, int rstride, int steps, int max_turns) {
+// Teacher plays every seat for up to `steps` steps per game (bench / whole games). stats: [2] steps.
+extern "C" __global__ void k_teacher_play(STATE_ARGS, TP_ARGS, i64* arng, int rstride, int steps, int max_turns, int B) {
   int b = blockIdx.x * blockDim.x + threadIdx.x;
-  if (b >= gridDim.x * blockDim.x) return;
+  if (b >= B) return;
   MAKE_S(b);
-  TP tp = {prm, ow, ola, old, tstats};
+  TP_MAKE
   for (int i = 0; i < steps && !*s.done; i++) {
     int a = teacher_pick(s, tp, agent_rng(arng, rstride, b, cur(s)));
     if (a < 0) break;
@@ -416,19 +448,32 @@ extern "C" __global__ void k_teacher_play(STATE_ARGS, const double* prm, const d
   }
 }
 
-// Odds as the kernel computes them, for the tests.
-extern "C" __global__ void k_odds(const double* ow, const double* ola, const double* old, unsigned long long* tstats,
-                                  const i64* a, const i64* d, double* out, int n) {
+// Odds as the kernel computes them, for the tests: out = win, balancedWin, attacker losses, defender losses.
+extern "C" __global__ void k_odds(TP_ARGS, const i64* a, const i64* d, const i64* dl, double* out, int n) {
   int i = blockIdx.x * blockDim.x + threadIdx.x;
   if (i >= n) return;
-  TP tp = {0, ow, ola, old, tstats};
-  Odds o = odds(tp, (int)a[i], (int)d[i]);
-  out[3 * i] = o.win; out[3 * i + 1] = o.la; out[3 * i + 2] = o.ld;
+  TP_MAKE
+  Odds o = odds(tp, (int)a[i], (int)d[i], (int)dl[i]);
+  out[4 * i] = o.win; out[4 * i + 1] = o.bwin; out[4 * i + 2] = o.la; out[4 * i + 3] = o.ld;
 }
 """
 
 TEACHER_KERNELS = ("k_teacher", "k_teacher_play", "k_odds")
 FMAD_OFF = ["--fmad=false"]
+
+_odds_dev: dict = {}
+
+
+def odds_tensors(device) -> list[torch.Tensor]:
+    """[win, la, ld, bwin, off, len] for both defence-dice limits on the device, shared by every engine."""
+    key = str(device)
+    if key not in _odds_dev:
+        t2, t3 = odds_mod.tables(2), odds_mod.tables(3)
+        n2 = t2["win"].shape[0]
+        cat = lambda k: torch.from_numpy(__import__("numpy").concatenate([t2[k], t3[k]])).to(device).contiguous()  # noqa: E731
+        off = torch.from_numpy(__import__("numpy").concatenate([t2["off"], t3["off"] + n2])).to(device).contiguous()
+        _odds_dev[key] = [cat("win"), cat("la"), cat("ld"), cat("bwin"), off, cat("len")]
+    return _odds_dev[key]
 
 
 def teacher_source(e) -> str:
@@ -440,24 +485,22 @@ class TeacherEngine(FusedEngine):
 
     MIRROR = "teacher"
 
-    def __init__(self, B: int, params: dict[str, float] | None = None, extra_source: str = "", extra_kernels=(), **kw):
+    def __init__(self, B: int, cfg=None, params: dict[str, float] | None = None, extra_source: str = "", extra_kernels=(), **kw):
         allow = kw.get("allow_unverified", False)
         kw["allow_unverified"] = True  # checked below under this mirror's own name
-        super().__init__(B, **kw)
+        super().__init__(B, cfg, **kw)
         if not allow:  # every layer this one stands on: the rules kernel, the teacher, and this mirror itself
             for name in dict.fromkeys(["fused.py", "teacher", self.MIRROR]):
                 require_verified(name)
-        params = params or default_params()
-        self.prm = torch.tensor([params[k] for k in PARAM_KEYS], dtype=torch.float64, device=self.dev)
-        w, la, ld = odds_mod.tables(ODDS_A, ODDS_D)
-        self.ow, self.ola, self.old = (torch.from_numpy(x).to(self.dev).contiguous() for x in (w, la, ld))
+        self.prm = params_tensor(params or default_params(), self.dev)
+        self.ow, self.ola, self.old, self.obw, self.ooff, self.olen = odds_tensors(self.dev)
         self.tstats = torch.zeros(4, dtype=torch.int64, device=self.dev)  # [odds outside the tables, -, steps, -]
         self.tk = compile_kernels(teacher_source(self) + extra_source, TEACHER_KERNELS + tuple(extra_kernels), FMAD_OFF)
         # per (game, seat) agent streams, seeded like playGame: mixSeed(seed, 0x5eed + seat)
         self.arng = torch.zeros(B, self.n, dtype=torch.long, device=self.dev)
 
-    def _tp(self) -> list:
-        return [self.prm, self.ow, self.ola, self.old, self.tstats]
+    def _tp(self, prm: torch.Tensor | None = None) -> list:
+        return [self.prm if prm is None else prm, self.ow, self.ola, self.old, self.obw, self.ooff, self.olen, self.tstats]
 
     def _launch_t(self, name: str, n: int, *args):
         grid = ((n + self.BLOCK - 1) // self.BLOCK, 1, 1)
@@ -468,25 +511,24 @@ class TeacherEngine(FusedEngine):
         for seat in range(self.n):
             self.arng[g, seat] = torch.tensor([mix_seed(int(x), 0x5EED + seat) for x in seeds.tolist()], dtype=torch.long, device=self.dev)
 
-    def teacher(self, active: torch.Tensor | None = None, arng: torch.Tensor | None = None) -> torch.Tensor:
-        """The teacher's action for the decider of every (active) game, advancing its stream; -1 where none."""
+    def teacher(self, active: torch.Tensor | None = None, arng: torch.Tensor | None = None, prm: torch.Tensor | None = None) -> torch.Tensor:
+        """The teacher's action for the decider of every (active) game, advancing its stream; -1 where none. `prm`:
+        another teacher version's numbers (params_tensor) instead of this engine's."""
         out = torch.empty(self.B, dtype=torch.long, device=self.dev)
         ar = self.arng if arng is None else arng
         rstride = ar.shape[1] if ar.dim() == 2 else 1
         act = active.to(torch.uint8).contiguous() if active is not None else torch.ones(self.B, dtype=torch.uint8, device=self.dev)
-        self._launch_t("k_teacher", self.B, *self._state(), *self._tp(), ar, rstride, act, out, self.B)
+        self._launch_t("k_teacher", self.B, *self._state(), *self._tp(prm), ar, rstride, act, out, self.B)
         return out
 
     def play_teacher(self, steps: int):
-        grid_b = (self.B + self.BLOCK - 1) // self.BLOCK * self.BLOCK
-        if grid_b != self.B:
-            raise ValueError(f"play_teacher needs B a multiple of {self.BLOCK}")
-        self._launch_t("k_teacher_play", self.B, *self._state(), *self._tp(), self.arng, self.n, steps, self.max_turns)
+        self._launch_t("k_teacher_play", self.B, *self._state(), *self._tp(), self.arng, self.n, steps, self.max_turns, self.B)
 
-    def odds(self, a: torch.Tensor, d: torch.Tensor) -> torch.Tensor:
+    def odds(self, a: torch.Tensor, d: torch.Tensor, dlim: torch.Tensor | int = 2) -> torch.Tensor:
         n = a.numel()
-        out = torch.empty(n, 3, dtype=torch.float64, device=self.dev)
-        self._launch_t("k_odds", n, self.ow, self.ola, self.old, self.tstats, a.long().contiguous(), d.long().contiguous(), out, n)
+        out = torch.empty(n, 4, dtype=torch.float64, device=self.dev)
+        dl = torch.as_tensor(dlim, device=self.dev).long().expand(n).contiguous()
+        self._launch_t("k_odds", n, *self._tp(), a.to(self.dev).long().contiguous(), d.to(self.dev).long().contiguous(), dl, out, n)
         return out
 
 

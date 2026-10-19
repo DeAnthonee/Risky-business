@@ -1,15 +1,19 @@
 """Play self-play tables on the GPU (branch and score, the teacher, Delove networks) and write the training arrays
 `train.py` reads straight from the GPU: the format of `npm run delove -- export` (packages/selfplay/src/export.ts),
-no JSONL logs and no export step.
+no JSONL logs and no export step. Any map, table size (2-10 seats) and covered game setting.
 
-TRAINING ONLY. Every piece is a mirror checked by a replay test: the rules (tests/replay.py), the teacher
-(tests/teacher_replay.py), branch and score (tests/branch_replay.py) and the encoder (tests/export_check.py). Games
-are numbered and seeded as `play` does (game i of a table: gameSeed(seed, i), seats in the listed order, each seat's
+TRAINING ONLY. Every piece is a mirror checked by a replay test: the rules and the teacher (tests/replay.py,
+tests/matrix.py), branch and score (tests/branch_replay.py) and the encoder (tests/export_check.py). Games are
+numbered and seeded as `play` does (game i of a table: gameSeed(seed, i), seats in the listed order, each seat's
 stream mixSeed(seed, 0x5eed + seat)), so a table here is the same set of games as on the CPU.
 
     python -m delove_gpu.generate --models models/delove --ranker c2-candidate --horizon 1 --margin 0.01 \\
-        --table "c2d 2000 delove-branch@1,delove@2" --table "c2t 2000 delove-branch@1,delove-teacher@2" \\
-        --seed 303 --out data/delove/g3-classic2
+        --table "c2d 2000 delove-branch@1,delove@2" --table 'mb 600 delove-branch@1,delove-teacher@2 {"map":"skirmish"}' \\
+        --seed 303 --out data/delove/g3
+
+Tables with the same configuration (map, seats, settings) share one engine; configurations run one after another,
+each map's arrays going to OUT/<map>/ (several configurations on one map append to the same folder, like export).
+`--jobs FILE` reads a jobs file (`name games agents [options JSON]` per line, as generate.sh / cycle.sh take).
 """
 from __future__ import annotations
 
@@ -19,13 +23,14 @@ import os
 import subprocess
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
 import torch
 
 from .branch import SCORE_PARTS, BranchEngine, GpuBranch, cpu_order, default_branch, first_max, net_ranker
+from .config import GameConfig
 from .encode import Encoder
 from .engine import FINISHED, KIND_NAMES
 from .fingerprint import REPO
@@ -43,13 +48,36 @@ class Table:
     games: int
     agents: list[str]
     start: int = 0
+    options: dict = field(default_factory=dict)
+
+    @property
+    def config(self) -> GameConfig:
+        return GameConfig.make(len(self.agents), self.options)
 
 
 def parse_table(s: str) -> Table:
-    parts = s.split()
-    if len(parts) not in (3, 4):
-        raise argparse.ArgumentTypeError(f"table {s!r}: want 'NAME GAMES AGENT,AGENT [START]'")
-    return Table(parts[0], int(parts[1]), parts[2].split(","), int(parts[3]) if len(parts) == 4 else 0)
+    """'NAME GAMES AGENT,AGENT [START] [OPTIONS JSON]'."""
+    parts = s.strip().split(None, 3)
+    if len(parts) < 3:
+        raise argparse.ArgumentTypeError(f"table {s!r}: want 'NAME GAMES AGENT,AGENT [START] [OPTIONS JSON]'")
+    start, options = 0, {}
+    rest = parts[3].strip() if len(parts) == 4 else ""
+    if rest and not rest.startswith("{"):
+        first, _, rest = rest.partition(" ")
+        start = int(first)
+        rest = rest.strip()
+    if rest:
+        options = json.loads(rest)
+    return Table(parts[0], int(parts[1]), parts[2].split(","), start, options)
+
+
+def read_jobs(path: str) -> list[Table]:
+    out = []
+    for line in Path(path).read_text(encoding="utf8").splitlines():
+        line = line.strip()
+        if line and not line.startswith("#"):
+            out.append(parse_table(line))
+    return out
 
 
 def ts_constants() -> dict:
@@ -64,17 +92,17 @@ def ts_constants() -> dict:
 
 
 class Recorder:
-    """Training arrays for one map folder, as export.ts writes them."""
+    """Training arrays for one map folder, as export.ts writes them (several configurations may append)."""
 
-    def __init__(self, out: Path, e):
+    def __init__(self, out: Path, m, consts: dict):
         from .encode import ENCODER_VERSION, F_CAND, F_GLOBAL, F_TERRITORY
 
-        self.c = ts_constants()
+        self.c = consts
         if self.c["encoderVersion"] != ENCODER_VERSION:
             raise RuntimeError(f"encode.ts is v{self.c['encoderVersion']}, the GPU encoder v{ENCODER_VERSION}")
-        self.dir = out / e.m.id
+        self.dir = out / m.id
         self.dir.mkdir(parents=True, exist_ok=True)
-        T = e.m.T
+        T = m.T
         w = lambda name, dt, shape: NpyWriter(self.dir / f"{name}.npy", dt, shape)  # noqa: E731
         self.territory = w("territory", "<f4", [T, F_TERRITORY])
         self.glob = w("global", "<f4", [F_GLOBAL])
@@ -90,7 +118,7 @@ class Recorder:
         self.uids: list[np.ndarray] = []  # game uid of each row, for z at the end
         self.game_index: dict[int, int] = {}
         self.z_of: dict[tuple[int, int], float] = {}
-        self.m = e.m
+        self.m = m
         self.keys: list = []
 
     def add(self, enc: Encoder, terr, glob, games: torch.Tensor, ordered: torch.Tensor, cnt: torch.Tensor, chosen: torch.Tensor,
@@ -152,53 +180,120 @@ class Recorder:
         return result
 
 
-class Generator:
-    def __init__(self, tables: list[Table], seed: int, models: Path, ranker: str, teacher: str, cfg, B: int,
-                 export_agents: list[str], out: Path | None, max_turns: int = 500, precision: str = "fp32", device="cuda",
-                 allow_unverified: bool = False):
-        self.tables, self.seed, self.cfg = tables, seed, cfg
+# Bytes of GPU memory per game in flight, beyond the networks (measured on the RTX 4060 with headroom): the state, the
+# masks and candidate lists, and options x rollouts copies of the board for branch and score.
+def state_bytes(T: int, n: int, A: int, H: int = 12) -> int:
+    P, NC = n + 1, T + 2
+    return 8 * (2 * T + P * (H + 4) + 2 * NC + 2 * n + 24) + T + 9 * A
+
+
+def auto_batch(cfg: GameConfig, bcfg, branch: bool, budget: float) -> int:
+    """Games in flight for a configuration within `budget` bytes of GPU memory (rounded down to 256)."""
+    from .engine import Layout
+    from .mapdata import MapData
+
+    m = MapData(cfg.map, "cpu")
+    A = Layout(m).A
+    per = state_bytes(m.T, cfg.seats, A)
+    if branch:
+        per += bcfg.options * bcfg.rollouts * state_bytes(m.T, cfg.seats, A) + 24 * bcfg.options * bcfg.rollouts
+    per += 8 * m.T * 27 * 2 + 64 * A  # encoder features (float64 then float32) and per-move candidate features
+    return max(256, int(budget // per) // 256 * 256)
+
+
+class Run:
+    """What every configuration of one run shares: the networks, the teacher, the recorders, results and stats."""
+
+    def __init__(self, tables: list[Table], seed: int, models: Path, ranker: str, teacher: str, bcfg, export_agents: list[str],
+                 out: Path | None, max_turns: int, precision: str, device: str, allow_unverified: bool):
+        self.tables, self.seed, self.bcfg, self.models = tables, seed, bcfg, models
+        self.ranker, self.teacher_id, self.max_turns, self.precision = ranker, teacher, max_turns, precision
+        self.device, self.allow_unverified = torch.device(device), allow_unverified
         tpath = models / f"{teacher}.json"
-        self.teacher_id = teacher
-        params = load_params(tpath if tpath.exists() else None)
-        self.e = e = BranchEngine(B, params=params, device=device, max_turns=max_turns, allow_unverified=allow_unverified)
-        self.enc = Encoder(e)
-        self.adj = e.m.adj_matrix
-        self.cpu_order = cpu_order(e.L, e.dev)
-        self.B, self.dev = B, e.dev
-        # agents
-        ids = sorted({a for t in tables for a in t.agents} | {ranker})
-        self.agent_ids = ids
-        self.nets: dict[str, object] = {}
-        types = []
-        for a in ids:
+        self.params = load_params(tpath if tpath.exists() else None)
+        self.agent_ids = sorted({a for t in tables for a in t.agents} | {ranker})
+        self.types: dict[str, int] = {}
+        self.net_modules: dict[str, torch.nn.Module] = {}
+        for a in self.agent_ids:
             if a == BRANCH_ID:
-                types.append(BRANCH)
+                self.types[a] = BRANCH
             elif a.startswith("delove-teacher@"):
                 if a != teacher:
                     raise SystemExit(f"{a} at the table but the rollout teacher is {teacher}: one teacher version per run")
-                types.append(TEACHER)
+                self.types[a] = TEACHER
             else:
                 pt = models / f"{a}.pt"
                 if not pt.exists():
                     raise SystemExit(f"{pt} missing (a network seat needs its PyTorch weights)")
-                self.nets[a] = net_ranker(self.enc, load_delove(pt, e.dev), self.adj, precision)
-                types.append(NET)
-        self.agent_type = torch.tensor(types, device=e.dev)
-        self.branch = GpuBranch(e, self.nets[ranker], cfg) if BRANCH_ID in ids and any(BRANCH_ID in t.agents for t in tables) else None
-        self.export_idx = torch.tensor([ids.index(a) for a in export_agents if a in ids], dtype=torch.long, device=e.dev)
-        self.rec = Recorder(out, e) if out else None
+                net = load_delove(pt, self.device)
+                self.net_modules[a] = net.half() if precision == "fp16" else net
+                self.types[a] = NET
+        self.export_agents = [a for a in export_agents if a in self.agent_ids]
+        self.out = out
+        self.consts = ts_constants() if out else None
+        self.recorders: dict[str, Recorder] = {}
+        self.results: list[dict] = []
+        self.next_uid = 0
+        self.stats = {"decisions": 0, "branched": 0, "simulations": 0, "simulatedMoves": 0, "changed": 0, "gain": 0.0,
+                      "changedByKind": {}, "branchedByKind": {}, "chosen": {k: 0.0 for k in SCORE_PARTS}}
+        self.groups: list[dict] = []
+
+    def recorder(self, m) -> Recorder | None:
+        if self.out is None:
+            return None
+        if m.id not in self.recorders:
+            self.recorders[m.id] = Recorder(self.out, m, self.consts)
+        return self.recorders[m.id]
+
+    def run(self, batch: int | None, budget: float, progress: bool = True) -> dict:
+        t0 = time.time()
+        by_cfg: dict[GameConfig, list[Table]] = {}
+        for t in self.tables:
+            by_cfg.setdefault(t.config, []).append(t)
+        for cfg, tables in by_cfg.items():
+            has_branch = any(BRANCH_ID in t.agents for t in tables)
+            B = batch or auto_batch(cfg, self.bcfg, has_branch, budget)
+            B = min(B, max(256, (sum(t.games for t in tables) + 255) // 256 * 256))
+            g = Group(self, cfg, tables, B)
+            info = g.run(progress)
+            info.update({"config": cfg.label(), "batch": B, "tables": [t.name for t in tables]})
+            self.groups.append(info)
+            if progress:
+                print(f"  {cfg.label()}: {info['games']} games in {info['seconds']}s (batch {B})", flush=True)
+            del g
+            torch.cuda.empty_cache()
+        out = {"games": len(self.results), "seconds": round(time.time() - t0, 1), "groups": self.groups, "branch": self.stats}
+        if self.out:
+            out["export"] = [r.close([f"gpu:{t.name}" for t in self.tables]) for r in self.recorders.values()]
+        return out
+
+
+class Group:
+    """The tables of one configuration on one BranchEngine."""
+
+    def __init__(self, run: Run, cfg: GameConfig, tables: list[Table], B: int):
+        self.r, self.tables, self.cfg = run, tables, cfg
+        self.e = e = BranchEngine(B, cfg, params=run.params, device=run.device, max_turns=run.max_turns,
+                                  allow_unverified=run.allow_unverified)
+        self.enc = Encoder(e)
+        self.adj = e.m.adj_matrix
+        self.cpu_order = cpu_order(e.L, e.dev)
+        self.B, self.dev = B, e.dev
+        ids = run.agent_ids
+        self.agent_type = torch.tensor([run.types[a] for a in ids], device=e.dev)
+        self.nets = {a: net_ranker(self.enc, mod, self.adj, run.precision) for a, mod in run.net_modules.items()}
+        self.branch = GpuBranch(e, self.nets[run.ranker], run.bcfg) if any(BRANCH_ID in t.agents for t in tables) else None
+        self.export_idx = torch.tensor([ids.index(a) for a in run.export_agents], dtype=torch.long, device=e.dev)
+        self.rec = run.recorder(e.m)
         self.queue = [(ti, i) for ti, t in enumerate(tables) for i in range(t.games)]
         self.queue.reverse()
         self.seat_agent = torch.zeros(B, e.n, dtype=torch.long, device=e.dev)
         self.uid = torch.full((B,), -1, dtype=torch.long, device=e.dev)
         self.slot_game: list[tuple[int, int] | None] = [None] * B
         self.occupied = torch.zeros(B, dtype=torch.bool, device=e.dev)
-        self.results: list[dict] = []
-        self.next_uid = 0
-        self.stats = {"decisions": 0, "branched": 0, "simulations": 0, "simulatedMoves": 0, "changed": 0, "gain": 0.0,
-                      "changedByKind": {}, "branchedByKind": {}, "chosen": {k: 0.0 for k in SCORE_PARTS}}
 
     def fill(self, slots: list[int]):
+        r = self.r
         g, seeds = [], []
         for b in slots:
             if not self.queue:
@@ -206,11 +301,11 @@ class Generator:
             ti, i = self.queue.pop()
             t = self.tables[ti]
             g.append(b)
-            seeds.append(mix_seed(self.seed, t.start + i))
+            seeds.append(mix_seed(r.seed, t.start + i))
             self.slot_game[b] = (ti, i)
-            self.seat_agent[b] = torch.tensor([self.agent_ids.index(a) for a in t.agents], device=self.dev)
-            self.uid[b] = self.next_uid
-            self.next_uid += 1
+            self.seat_agent[b] = torch.tensor([r.agent_ids.index(a) for a in t.agents], device=self.dev)
+            self.uid[b] = r.next_uid
+            r.next_uid += 1
         if not g:
             return
         gt = torch.tensor(g, device=self.dev)
@@ -228,7 +323,7 @@ class Generator:
             winner = int(e.winner[b]) if won else None
             alive = [bool(e.alive[b, s]) for s in range(e.n)]
             z = [1.0 if s == winner else 0.0 for s in range(e.n)] if won else [1.0 / sum(alive) if a else 0.0 for a in alive]
-            self.results.append({"table": t.name, "index": t.start + i, "winner": winner, "turns": int(e.turn[b]), "agents": t.agents})
+            self.r.results.append({"table": t.name, "index": t.start + i, "winner": winner, "turns": int(e.turn[b]), "agents": t.agents})
             if self.rec:
                 self.rec.finish_game(int(self.uid[b]), z)
             self.slot_game[b] = None
@@ -242,8 +337,8 @@ class Generator:
         g = games[keep]
         self.rec.add(self.enc, terr, glob, g, ordered, cnt, chosen, self.uid, self.e.cur)
 
-    def _branch_stats(self, d, ph_kind):
-        s = self.stats
+    def _branch_stats(self, d):
+        s = self.r.stats
         n_imp = int(d.branched.sum())
         s["decisions"] += d.games.numel()
         s["branched"] += n_imp
@@ -251,7 +346,7 @@ class Generator:
             return
         L = self.e.L
         nopt = (d.options[d.branched] >= 0).sum(1)
-        s["simulations"] += int(nopt.sum()) * self.cfg.rollouts
+        s["simulations"] += int(nopt.sum()) * self.r.bcfg.rollouts
         s["simulatedMoves"] += d.moves
         s["changed"] += int(d.changed.sum())
         m = d.means[d.branched]
@@ -270,11 +365,11 @@ class Generator:
 
     @torch.inference_mode()
     def run(self, progress: bool = True) -> dict:
-        e, dev, B = self.e, self.dev, self.B
+        e, dev, B, r = self.e, self.dev, self.B, self.r
         ar = torch.arange(B, device=dev)
         self.fill(list(range(B)))
         t0, it, total = time.time(), 0, sum(t.games for t in self.tables)
-        self.iter_log = []
+        done_games = 0
         while bool(self.occupied.any()):
             active = self.occupied & ~e.done
             mask = e.legal()
@@ -291,7 +386,7 @@ class Generator:
             one = active & (typ == NET) & (nlegal == 1)
             act1 = torch.where(one, mask.long().argmax(1), act1)
             for name, rank in self.nets.items():
-                g = (active & (ag == self.agent_ids.index(name)) & (nlegal > 1)).nonzero(as_tuple=True)[0]
+                g = (active & (ag == r.agent_ids.index(name)) & (nlegal > 1)).nonzero(as_tuple=True)[0]
                 if g.numel():
                     act1[g] = first_max(rank(g, mask), self.cpu_order)  # ties: first candidate (fortify_to: territory order)
             act2 = torch.full((B,), -1, dtype=torch.long, device=dev)
@@ -300,7 +395,7 @@ class Generator:
                 d = self.branch.decide(bg, mask, tact)
                 act1[bg] = d.act1
                 act2[bg] = d.act2
-                self._branch_stats(d, None)
+                self._branch_stats(d)
             ordered, cnt = e.cand_order() if self.rec else (None, None)
             self._record(active.nonzero(as_tuple=True)[0], ordered, cnt, act1, terr, glob)
             e.step(act1)
@@ -314,17 +409,12 @@ class Generator:
             done = (self.occupied & e.done).nonzero(as_tuple=True)[0]
             if done.numel():
                 self.finish(done)
+                done_games += done.numel()
                 self.fill(done.tolist())
             it += 1
-            self.iter_log.append((time.time() - t0, int(active.sum())))
-            if progress and it % 50 == 0:
-                print(f"  step {it}: {len(self.results)}/{total} games, {time.time() - t0:.0f}s", flush=True)
-        secs = time.time() - t0
-        out = {"games": len(self.results), "seconds": round(secs, 1), "steps": it, "branch": self.stats,
-               "odds_outside_tables": int(e.tstats[0])}
-        if self.rec:
-            out["export"] = self.rec.close([f"gpu:{t.name}" for t in self.tables])
-        return out
+            if progress and it % 100 == 0:
+                print(f"    {self.cfg.label()} step {it}: {done_games}/{total} games, {time.time() - t0:.0f}s", flush=True)
+        return {"games": done_games, "seconds": round(time.time() - t0, 1), "steps": it, "odds_outside_tables": int(e.tstats[0])}
 
 
 def table_summary(results: list[dict]) -> list[dict]:
@@ -344,7 +434,8 @@ def table_summary(results: list[dict]) -> list[dict]:
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("--table", action="append", type=parse_table, required=True, help="'NAME GAMES AGENT,AGENT [START]'")
+    ap.add_argument("--table", action="append", type=parse_table, default=[], help="'NAME GAMES AGENT,AGENT [START] [OPTIONS JSON]'")
+    ap.add_argument("--jobs", action="append", default=[], help="a jobs file (name games agents [options JSON] per line)")
     ap.add_argument("--seed", type=int, required=True)
     ap.add_argument("--models", default=str(REPO / "models" / "delove"))
     ap.add_argument("--ranker", default="delove@2", help="network proposing the branch options (DELOVE_BRANCH_RANKER)")
@@ -355,14 +446,21 @@ def main():
     ap.add_argument("--horizon", type=int, default=d.horizon)
     ap.add_argument("--margin", type=float, default=d.margin)
     ap.add_argument("--skip", default=",".join(d.skip))
-    ap.add_argument("--batch", type=int, default=4096, help="games in flight")
+    ap.add_argument("--batch", type=int, default=0, help="games in flight per configuration (0: sized to --gpu-gb)")
+    ap.add_argument("--gpu-gb", type=float, default=3.0, help="GPU memory for game states when sizing batches (networks come on top)")
     ap.add_argument("--out", help="write training arrays here (export's format, one folder per map)")
     ap.add_argument("--export-agents", default=BRANCH_ID)
     ap.add_argument("--precision", default="fp32", choices=["fp32", "tf32", "fp16"])
+    ap.add_argument("--max-turns", type=int, default=500)
     ap.add_argument("--summary", help="write the run summary JSON here")
     ap.add_argument("--results", help="write one JSON line per game here (table, index, winner seat, turns)")
     ap.add_argument("--allow-unverified", action="store_true", help="benchmarks only: run even if the mirror is not verified for this engine")
     args = ap.parse_args()
+    tables = list(args.table)
+    for j in args.jobs:
+        tables += read_jobs(j)
+    if not tables:
+        ap.error("no tables (--table or --jobs)")
     models = Path(args.models)
     teacher = args.teacher
     if teacher is None:
@@ -371,10 +469,10 @@ def main():
     cfg = d
     cfg.options, cfg.rollouts, cfg.horizon, cfg.margin = args.options, args.rollouts, args.horizon, args.margin
     cfg.skip = [k for k in args.skip.split(",") if k]
-    gen = Generator(args.table, args.seed, models, args.ranker, teacher, cfg, args.batch, args.export_agents.split(","),
-                    Path(args.out) if args.out else None, precision=args.precision, allow_unverified=args.allow_unverified)
-    res = gen.run()
-    res["tables"] = table_summary(gen.results)
+    run = Run(tables, args.seed, models, args.ranker, teacher, cfg, args.export_agents.split(","), Path(args.out) if args.out else None,
+              args.max_turns, args.precision, "cuda", args.allow_unverified)
+    res = run.run(args.batch or None, args.gpu_gb * 2**30)
+    res["tables"] = table_summary(run.results)
     res["config"] = {"seed": args.seed, "ranker": args.ranker, "teacher": teacher, "options": cfg.options, "rollouts": cfg.rollouts,
                      "horizon": cfg.horizon, "margin": cfg.margin, "skip": cfg.skip, "weights": cfg.weights, "batch": args.batch,
                      "precision": args.precision}
@@ -384,7 +482,7 @@ def main():
         Path(args.summary).write_text(text + "\n", encoding="utf8")
     if args.results:
         with open(args.results, "w", encoding="utf8") as f:
-            for r in sorted(gen.results, key=lambda r: (r["table"], r["index"])):
+            for r in sorted(run.results, key=lambda r: (r["table"], r["index"])):
                 f.write(json.dumps(r) + "\n")
 
 

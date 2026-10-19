@@ -1,0 +1,3 @@
+# Cycle 2, step 1: micro games, 1v1 on Four Crowns.
+mb   1000 delove-branch@1,delove-teacher@2 {"map":"skirmish"}
+md   1000 r06-candidate,delove-branch@1 {"map":"skirmish"}

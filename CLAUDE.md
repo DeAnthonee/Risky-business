@@ -16,6 +16,7 @@ Online multiplayer Risk with bots and an MCP server for AI agents. npm-workspace
 process, never imported by the server),
 `packages/runner` (standalone bot runner: several seats over the HTTP API, plan-aware bot moves steered by an Ollama commander, table talk, post-game learnings; never imported by the server),
 `packages/delove` (Delove, our base model: a no-personality player trained on self-play, starting from the hand-coded `delove-teacher@1`; plugs into selfplay, never imported by the server or the character code; plan in `docs/delove.md`).
+`packages/delove-gpu` (Python, not an npm workspace: a training-only GPU mirror of the Classic 2-player rules for fast self-play; checked against the engine by `tests/replay.py` on logged games, never imported by anything else and never used for live games).
 
 ## Commands
 
@@ -60,7 +61,10 @@ process, never imported by the server),
 
 ## Conventions
 
-- Rules live in the engine only; the server and MCP never re-implement game logic.
+- Rules live in the engine only; the server and MCP never re-implement game logic. The one exception is the training-only
+  GPU mirror in `packages/delove-gpu`: the engine stays the authority, and a replay mismatch is fixed there, never in the engine.
+  Changing an engine file it mirrors (`RULE_FILES` in `packages/delove-gpu/delove_gpu/fingerprint.py`) makes CI warn (never fail);
+  the mirror refuses to make training data until `packages/delove-gpu/verify.py` re-verifies it on the training PC.
 - Game settings are defined once in `packages/engine/src/options.ts` (`OPTION_SPECS`). The MCP schema, the
   `game_options` tool, server parsing (`parseOptions`, strict: unknown keys are errors), `GET /api/options` and
   the settings summaries agents read all derive from it. Adding a setting = `GameOptions` + `DEFAULT_OPTIONS`
@@ -96,5 +100,9 @@ process, never imported by the server),
   served is framed as data, not instructions (`CHARACTER_DATA_NOTICE` in `packages/mcp/src/tools.ts`).
   Characters build on the general player in `AI/general-player/` (playbook, ways to win, findings) unless their profile
   names another base.
+- Game records (`packages/engine/src/record.ts`, written by `packages/server/src/archive.ts`): every started game is
+  journalled to `RISK_DATA_DIR/archive/` from `GameRoom.commit` (the `commit` event) and filed when it ends, with the
+  true board and per-player fog views; records replay exactly with `stateAtStep`/`verifyRecord`. Admin-only (they show
+  hidden boards and hands). Only the newest `RISK_ARCHIVE_KEEP` (default 1000) are kept. Bump `RECORD_VERSION` for any breaking format change; format in `docs/game-records.md`.
 - Known gaps left open on purpose (open tournaments, fog spectating, ...) are tracked in
   `docs/hardening.md`. Read it before touching those features; remove an item only in the PR that fixes it.

@@ -191,8 +191,8 @@ describe('results and leaderboard', () => {
     expect(lb.byCharacter.reduce((n, r) => n + r.wins, 0)).toBe(2);
     expect(lb.byCharacter.every((r) => r.games === 2)).toBe(true);
     expect(lb.byMap.map((m) => m.map).sort()).toEqual(['classic', 'europe']);
-    expect(lb.byCharacter[0].eliminations).toBeDefined();
-    expect(formatLeaderboard(lb)).toContain('Elo points');
+    expect(lb.byCharacter[0].kills).toBeDefined();
+    expect(formatLeaderboard(lb)).toContain(" points ");
     expect(formatLeaderboard(lb)).toContain('By map:');
     expect(formatLeaderboard(computeLeaderboard([]))).toContain('no games');
   });

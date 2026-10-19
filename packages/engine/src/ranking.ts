@@ -5,15 +5,25 @@ export function placementPoints(placement: number, players: number): number {
   return Math.sign(centered) * Math.ceil(Math.abs(centered));
 }
 
-export interface RankedSeat { key: string; name: string; placement: number; eliminations?: number }
+/** Points for each player you eliminate, on top of placement: a high-kill runner-up can outscore the winner. */
+export const KILL_POINTS = 1;
+
+/** `killed` lists the ranking keys of the players this seat eliminated (absent on records from before kills were tracked). */
+export interface RankedSeat { key: string; name: string; placement: number; killed?: string[] }
 export interface RankedGame { gameId: string; seats: RankedSeat[] }
 export interface RankingRow {
   key: string; name: string; rank: number; points: number;
   games: number; wins: number; losses: number; winRate: number; avgPlacement: number;
-  eliminations: number;
+  /** Players eliminated across all games, and how many times each victim (by ranking key). */
+  kills: number; victims: Record<string, number>;
 }
 
-/** Input order is completion order. Rating floors at zero after each game; duplicate game IDs are ignored. Each elimination adds +1 Elo point. */
+/** Points one seat earns from one game: placement plus kills. */
+export function gamePoints(seat: RankedSeat, players: number): number {
+  return placementPoints(seat.placement, players) + KILL_POINTS * (seat.killed?.length ?? 0);
+}
+
+/** Input order is completion order. Rating floors at zero after each game; duplicate game IDs are ignored. */
 export function rankLeaderboard(results: readonly RankedGame[]): RankingRow[] {
   const rows = new Map<string, RankingRow & { places: number }>();
   const seen = new Set<string>();
@@ -21,20 +31,22 @@ export function rankLeaderboard(results: readonly RankedGame[]): RankingRow[] {
     if (seen.has(result.gameId) || result.seats.length < 2) continue;
     seen.add(result.gameId);
     for (const seat of result.seats) {
-      const row = rows.get(seat.key) ?? { key: seat.key, name: seat.name, rank: 0, points: 0, games: 0, wins: 0, losses: 0, winRate: 0, avgPlacement: 0, eliminations: 0, places: 0 };
+      const row = rows.get(seat.key) ?? { key: seat.key, name: seat.name, rank: 0, points: 0, games: 0, wins: 0, losses: 0, winRate: 0, avgPlacement: 0, kills: 0, victims: {}, places: 0 };
       row.name = seat.name;
-      const killPoints = seat.eliminations ?? 0;
-      row.points = Math.max(0, row.points + placementPoints(seat.placement, result.seats.length) + killPoints);
-      row.eliminations = (row.eliminations ?? 0) + killPoints;
+      row.points = Math.max(0, row.points + gamePoints(seat, result.seats.length));
       row.games++;
       row.wins += Number(seat.placement === 1);
       row.losses = row.games - row.wins;
       row.places += seat.placement;
       row.avgPlacement = Math.round(row.places / row.games * 100) / 100;
       row.winRate = Math.round(row.wins / row.games * 1000) / 10;
+      for (const victim of seat.killed ?? []) {
+        row.kills++;
+        row.victims[victim] = (row.victims[victim] ?? 0) + 1;
+      }
       rows.set(seat.key, row);
     }
   }
-  return [...rows.values()].sort((a, b) => b.points - a.points || b.wins - a.wins || (b.eliminations ?? 0) - (a.eliminations ?? 0) || a.avgPlacement - b.avgPlacement || a.key.localeCompare(b.key))
+  return [...rows.values()].sort((a, b) => b.points - a.points || b.wins - a.wins || b.kills - a.kills || a.avgPlacement - b.avgPlacement || a.key.localeCompare(b.key))
     .map(({ places: _places, ...row }, i) => ({ ...row, rank: i + 1 }));
 }

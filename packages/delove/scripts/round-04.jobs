@@ -1,0 +1,8 @@
+# Round 4: pure self-play, no teacher imitation. delove@1 exploring against itself (and some delove@1 / Sensei
+# seats so it keeps meeting other styles); all of it trains as :advantage.
+p2  10000 delove@1-explore,delove@1-explore
+p3   6000 delove@1-explore,delove@1-explore,delove@1-explore
+p4   6000 delove@1-explore,delove@1-explore,delove@1-explore,delove@1-explore
+p6   3000 delove@1-explore,delove@1-explore,delove@1-explore,delove@1-explore,delove@1-explore,delove@1-explore
+q2   3000 delove@1-explore,delove@1
+q4   2000 delove@1-explore,delove@1-explore,delove-teacher@1,delove@1

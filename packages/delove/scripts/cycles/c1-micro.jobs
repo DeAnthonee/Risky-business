@@ -1,0 +1,4 @@
+# Cycle 1, step 1: micro games. 1v1 on Four Crowns (24 territories): short games, so every decision weighs more.
+mb   1000 delove-branch@1,delove-teacher@2 {"map":"skirmish"}
+mbr  1000 delove-teacher@2,delove-branch@1 {"map":"skirmish"}
+md   1000 delove-branch@1,delove@2 {"map":"skirmish"}

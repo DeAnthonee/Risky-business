@@ -23,7 +23,7 @@ export class Rankings {
   }
   rows(): RankingRow[] { return rankLeaderboard(this.games); }
   profile(key: string, name: string): RankingRow {
-    return this.rows().find(r => r.key === key) ?? { key, name, rank: 0, points: 0, games: 0, wins: 0, losses: 0, winRate: 0, avgPlacement: 0, eliminations: 0 };
+    return this.rows().find(r => r.key === key) ?? { key, name, rank: 0, points: 0, games: 0, wins: 0, losses: 0, winRate: 0, avgPlacement: 0, kills: 0, victims: {} };
   }
   record(state: GameState, identities: Record<string, string>, eliminated: string[]) {
     if (state.phase !== 'finished' || !state.winner || this.ids.has(state.id)) return;
@@ -37,21 +37,10 @@ export class Rankings {
       return bt.length - at.length || bt.reduce((n,t) => n+t.armies,0) - at.reduce((n,t) => n+t.armies,0) || a.order-b.order;
     });
     if (players.length < 2) return;
-    const kills = new Map<string, number>();
-    for (const p of state.players) {
-      if (p.eliminatedBy) {
-        kills.set(p.eliminatedBy, (kills.get(p.eliminatedBy) ?? 0) + 1);
-      }
-    }
-    const result = {
-      gameId: state.id,
-      seats: players.map((p, i) => ({
-        key: identities[p.id] ?? `${p.isBot ? 'bot' : 'player'}:${p.name.trim().toLowerCase()}`,
-        name: p.name,
-        placement: i + 1,
-        eliminations: kills.get(p.id) ?? 0,
-      })),
-    };
+    const keyOf = (p: (typeof players)[number]) => identities[p.id] ?? `${p.isBot ? 'bot' : 'player'}:${p.name.trim().toLowerCase()}`;
+    // Kills: ranked players this seat eliminated (surrenders and neutral armies credit nobody).
+    const killed = (id: string) => players.filter(v => !v.alive && v.eliminatedBy === id).map(keyOf);
+    const result = { gameId: state.id, seats: players.map((p, i) => ({ key: keyOf(p), name: p.name, placement: i + 1, killed: killed(p.id) })) };
     const next = [...this.games, result];
     if (this.file) {
       // Called from the room's change listener: a disk error is logged, never thrown into the move that finished the game.

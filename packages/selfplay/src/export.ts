@@ -61,7 +61,12 @@ export function decisionShards(logDir: string): string[] {
     .map((f) => join(logDir, f));
 }
 
-export async function exportDataset(logDirs: string[], outDir: string, opts: { maps?: string[]; force?: boolean } = {}): Promise<ExportResult[]> {
+export async function exportDataset(
+  logDirs: string[],
+  outDir: string,
+  /** `agents`: keep only decisions these player versions made (e.g. the one being trained in a mixed game). */
+  opts: { maps?: string[]; force?: boolean; agents?: string[] } = {},
+): Promise<ExportResult[]> {
   // Arrays are rewritten from scratch, and map folders from an earlier export with other --maps would linger.
   if (!opts.force && existsSync(outDir) && readdirSync(outDir).length > 0) throw new Error(`${outDir} is not empty (pass force / --force to overwrite)`);
   const FOG = RULE_KEYS.indexOf('fogOfWar');
@@ -108,6 +113,7 @@ export async function exportDataset(logDirs: string[], outDir: string, opts: { m
         // A run continued after an upgrade can leave older shards next to a newer meta.json.
         if (rec.v !== LOG_VERSION) throw new Error(`${shard}: record in log format v${rec.v}; export reads v${LOG_VERSION} (re-run the games)`);
         if (opts.maps && !opts.maps.includes(rec.map)) continue;
+        if (opts.agents && !opts.agents.includes(rec.agent)) continue;
         const w = open(rec.map);
         if (rec.rules?.[FOG]) {
           w.fogSkipped++;

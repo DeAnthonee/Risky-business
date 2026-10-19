@@ -1,0 +1,6 @@
+# Round 5: distill the tuned teacher (delove-teacher@2, +76 Elo over @1 head to head) with 2-6 players.
+s2  10000 delove-teacher@2,delove-teacher@2
+s3   5000 delove-teacher@2,delove-teacher@2,delove-teacher@2
+s4   5000 delove-teacher@2,delove-teacher@2,delove-teacher@2,delove-teacher@2
+s5   2500 delove-teacher@2,delove-teacher@2,delove-teacher@2,delove-teacher@2,delove-teacher@2
+s6   2500 delove-teacher@2,delove-teacher@2,delove-teacher@2,delove-teacher@2,delove-teacher@2,delove-teacher@2

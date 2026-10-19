@@ -1,7 +1,7 @@
 # Delove: our base model, a trained Risk player with no personality
 
-Status: Stage 0 done: `delove-teacher@1` is built (`packages/delove`) and beats `risky@1` on every setup tried
-(0.94 on Classic 2-player, 0.80-0.84 with 4-6 players; see `packages/delove/README.md`). Next: Stage 1.
+Status: Stage 2 under way. Current best: `delove@3` (cycle 4 of branch-and-score training): 0.541 / 0.600 / 0.610 against
+`delove@2` at 2 / 4 / 6 players. History and per-step stats: `packages/delove/CYCLES.md`.
 
 ## What it is, and what it is not
 
@@ -117,11 +117,16 @@ Small enough to train on an RTX 4060 (8 GB) in hours:
 ```
 packages/delove/          new package, never imported by the server or the character code
   src/register.ts             registers Delove's players with the self-play CLI (`npm run delove -- ...`)
+  src/net-worker.ts           runs the ONNX model in a worker thread (agents answer synchronously)
+  src/seat.ts, seat-cli.ts    plays seats in real games over the HTTP API (`npm run delove-seat`)
   src/net-agent.ts            loads an ONNX model and registers it as delove@N for self-play / ladder
   src/teacher.ts              delove-teacher@1
+  python/delove_model.py      the network
   python/train.py             distillation (Stage 1) and self-play training (Stage 2), PyTorch
   python/export_onnx.py
   README.md                   how to run each stage on the training PC
+packages/delove-gpu/      training-only GPU mirror of the Classic 2-player rules (Python/PyTorch + CUDA kernels),
+                          checked step for step against the engine by replaying self-play logs; prototype
 models/delove/                (ignored) delove@1.onnx, delove@2.onnx, ... + training settings per version
 runs/, data/                  (ignored) game logs and exported datasets
 ```
@@ -136,9 +141,10 @@ export in batches and delete old exports once trained on. Python training runs i
 ## Milestones
 
 1. ✅ `delove-teacher@1` beats `risky@1` on the ladder.
-2. Training pipeline: export → `train.py` → ONNX → `delove@1` plays in self-play.
-3. `delove@1` matches `delove-teacher@1` and beats `risky@1`.
+2. ✅ Training pipeline: export → `train.py` → ONNX → `delove@1` plays in self-play.
+3. ✅ `delove@1` matches `delove-teacher@1` and beats `risky@1`.
 4. The self-play loop promotes `delove@2` over `delove@1` on its own.
 5. `delove@N` beats `delove-teacher@1` clearly (the network has gone past what we taught it).
 6. Multi-player and World map ladders.
-7. A way to seat `delove@N` in real games over the HTTP API, to compare it with characters at the same tables.
+7. ✅ A way to seat `delove@N` in real games over the HTTP API (`npm run delove-seat`), to compare it with characters
+   at the same tables.

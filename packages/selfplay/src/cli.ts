@@ -12,7 +12,7 @@ const USAGE = `risk-selfplay: headless Risk self-play, rating ladder and decisio
   play     --agents risky@1,risky@1 [--games 100] [--seed 1] [--start 0] [--log DIR] [--no-gzip]
   ladder   --candidate ID [--best ID] [--file ladder.json] [--games 200] [--seed 1]
            [--threshold 0.55] [--min-games 200] [--log DIR]
-  export   --log DIR[,DIR...] --out DIR [--maps classic,world]
+  export   --log DIR[,DIR...] --out DIR [--maps classic,world] [--only-agents ID[,ID...]]
   agents   list the agent ids that can play
 
 common: [--map classic] [--players N (ladder)] [--options '{"fogOfWar":false}'] [--traits '{"aggression":0.8}']
@@ -70,6 +70,7 @@ async function main() {
       out: { type: 'string' },
       maps: { type: 'string' },
       force: { type: 'boolean' },
+      'only-agents': { type: 'string' },
     },
   });
 
@@ -78,7 +79,8 @@ async function main() {
     const t0 = Date.now();
     const maps = values.maps?.split(',').map((m) => m.trim());
     for (const m of maps ?? []) if (!(m in MAPS)) fail(`--maps: unknown map "${m}" (known: ${Object.keys(MAPS).join(', ')})`);
-    const results = await exportDataset(values.log.split(','), values.out, { ...(maps ? { maps } : {}), force: !!values.force });
+    const agents = values['only-agents']?.split(',').map((a) => a.trim());
+    const results = await exportDataset(values.log.split(','), values.out, { ...(maps ? { maps } : {}), ...(agents ? { agents } : {}), force: !!values.force });
     console.log(JSON.stringify({ out: values.out, maps: results, seconds: (Date.now() - t0) / 1000 }, null, 2));
     return;
   }

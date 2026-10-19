@@ -1781,6 +1781,7 @@ label.check input {
 .profile-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; margin: 24px 0; }
 .profile-stats > div { padding: 14px; border-radius: 8px; background: #0a1728; }
 .profile-stats dt { color: #9db1c9; font-size: .8rem; }
+.profile-victims { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0 0 16px; padding: 0; list-style: none; color: #c9d6e6; }
 .profile-stats dd { font-size: 1.55rem; font-weight: 700; margin: 6px 0 0; }
 .profile-whisper { margin-top: 20px; padding-top: 16px; border-top: 1px solid #39516d; }
 .profile-whisper .row input { flex: 1; min-width: 0; }

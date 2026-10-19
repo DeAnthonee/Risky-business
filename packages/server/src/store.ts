@@ -9,19 +9,25 @@ import {
   createGame,
   removePlayer,
   renamePlayer,
+  scenarioState,
   setOptions,
+  setPlayerBot,
   startGame,
   viewFor,
   type Action,
   type GameEvent,
   type GameOptions,
   type GameState,
+  type GameRecord,
   type GameView,
   type PlayerId,
+  type ScenarioRef,
+  type ScenarioSeat,
 } from '@risk/engine';
 import { chooseBotAction } from './bot.js';
 import { TournamentManager } from './tournaments.js';
 import { Rankings } from './rankings.js';
+import { DEFAULT_KEEP, GameArchive, type CommitInfo } from './archive.js';
 
 export interface ChatMessage {
   id: number;
@@ -62,8 +68,12 @@ export interface RoomSnapshot {
   updatedAt: number;
   /** Last time a person or agent did something here (bot moves do not count). */
   lastActivity?: number;
+  /** The game record this room's game is being journalled to (see archive.ts). */
+  recordId?: string;
   /** Set on a tournament table: the tournament that seated it. Nobody hosts such a room. */
   tournamentId?: string;
+  /** Set on a scenario: the recorded moment its game began from. Nobody hosts such a room. */
+  scenarioOf?: ScenarioRef;
 }
 
 /** How long an idle room is kept, by phase. All values in milliseconds. */
@@ -108,6 +118,8 @@ export interface GameSummary {
   joinable: boolean;
   winner: PlayerId | null;
   turnNumber: number;
+  /** A scenario: the recorded game and step it began from. */
+  scenarioOf?: ScenarioRef;
 }
 
 export interface ChangeMessage {
@@ -162,6 +174,10 @@ export class GameRoom extends EventEmitter {
   private seatPolls = new Map<PlayerId, number>();
   /** Tournament that owns this table, if any. */
   tournamentId?: string;
+  /** The game record this room's game is being journalled to, until it is finished. */
+  recordId?: string;
+  /** A scenario: the recorded moment this room's game began from. */
+  scenarioOf?: ScenarioRef;
   private botTimer: NodeJS.Timeout | null = null;
   private waiters = new Set<() => void>();
 
@@ -180,6 +196,8 @@ export class GameRoom extends EventEmitter {
     this.updatedAt = snapshot.updatedAt;
     this.lastActivity = snapshot.lastActivity ?? snapshot.updatedAt;
     this.tournamentId = snapshot.tournamentId;
+    this.recordId = snapshot.recordId;
+    this.scenarioOf = snapshot.scenarioOf;
     if (this.state.phase === 'finished') this.finishedAt = this.history.at(-1)?.at ?? this.updatedAt;
   }
 
@@ -197,6 +215,8 @@ export class GameRoom extends EventEmitter {
       updatedAt: this.updatedAt,
       lastActivity: this.lastActivity,
       ...(this.tournamentId ? { tournamentId: this.tournamentId } : {}),
+      ...(this.recordId ? { recordId: this.recordId } : {}),
+      ...(this.scenarioOf ? { scenarioOf: this.scenarioOf } : {}),
     };
   }
 
@@ -271,6 +291,7 @@ export class GameRoom extends EventEmitter {
       joinable: s.phase === 'lobby' && s.players.length < s.options.maxPlayers,
       winner: s.winner,
       turnNumber: s.turnNumber,
+      ...(this.scenarioOf ? { scenarioOf: this.scenarioOf } : {}),
     };
   }
 
@@ -289,11 +310,15 @@ export class GameRoom extends EventEmitter {
     for (const player of this.state.players) {
       if (!player.isNeutral && player.alive && next.players.some(p => p.id === player.id && !p.alive) && !this.eliminationOrder.includes(player.id)) this.eliminationOrder.push(player.id);
     }
+    const before = this.state;
     this.state = next;
     this.updatedAt = Date.now();
     if (next.phase === 'finished' && this.finishedAt === null) this.finishedAt = this.updatedAt;
     this.history.push({ version: next.version, at: this.updatedAt, playerId, action, events });
     if (this.history.length > MAX_HISTORY) this.history.splice(0, this.history.length - MAX_HISTORY);
+    // The game archive listens here: every move, in full, before anything else reacts to it.
+    const info: CommitInfo = { before, next, events, playerId, action, at: this.updatedAt };
+    this.emit('commit', info);
     const msg: ChangeMessage = { state: next, events, version: next.version, playerId };
     this.emit('change', msg);
     this.scheduleBot();
@@ -348,6 +373,20 @@ export class GameRoom extends EventEmitter {
     const { state, events } = startGame(this.state);
     this.touch();
     this.commit(state, events, null, { type: 'start' });
+  }
+
+  /** Scenarios: hand a seat to its token holder (bot false) or back to a built-in bot (bot true). */
+  setSeatBot(playerId: PlayerId, bot: boolean) {
+    if (!this.scenarioOf) throw new RuleError('Only scenario seats can be taken over');
+    const p = this.state.players.find((x) => x.id === playerId);
+    if (p && !p.alive) throw new RuleError('That player is out of the game');
+    const next = setPlayerBot(this.state, playerId, bot);
+    if (next === this.state) return;
+    if (!bot) {
+      this.touch();
+      this.lastSeatSeen = Date.now();
+    }
+    this.commit(next, [], playerId, { type: 'system', note: bot ? `${playerId} handed to a bot` : `${playerId} taken over` });
   }
 
   // ---- play ----
@@ -562,6 +601,8 @@ export class Store {
   rooms = new Map<string, GameRoom>();
   tournaments: TournamentManager;
   rankings: Rankings;
+  /** Every game's record, move by move (under <data dir>/archive; off without persistence). */
+  archive: GameArchive;
   private saveTimer: NodeJS.Timeout | null = null;
 
   retention: RetentionPolicy;
@@ -573,6 +614,11 @@ export class Store {
   ) {
     this.retention = { ...DEFAULT_RETENTION, ...retention };
     this.rankings = new Rankings(file ? join(dirname(file), 'rankings.json') : null);
+    const keep = Number(process.env.RISK_ARCHIVE_KEEP || DEFAULT_KEEP);
+    this.archive = new GameArchive(
+      file && process.env.RISK_ARCHIVE !== '0' ? join(dirname(file), 'archive') : null,
+      Number.isInteger(keep) && keep >= 0 ? keep : DEFAULT_KEEP,
+    );
     if (file && existsSync(file)) {
       try {
         const data = JSON.parse(readFileSync(file, 'utf8')) as RoomSnapshot[];
@@ -608,9 +654,14 @@ export class Store {
 
   private attach(room: GameRoom) {
     this.rooms.set(room.id, room);
-    this.rankings.record(room.state, room.characterIds, room.eliminationOrder);
+    // A scenario starts from someone else's position, so its result is not ranked.
+    const rank = () => {
+      if (!room.scenarioOf) this.rankings.record(room.state, room.characterIds, room.eliminationOrder);
+    };
+    rank();
+    room.on('commit', (c: CommitInfo) => this.archive.onCommit(room, c));
     room.on('change', () => {
-      this.rankings.record(room.state, room.characterIds, room.eliminationOrder);
+      rank();
       this.scheduleSave();
     });
     room.on('chat', () => this.scheduleSave());
@@ -652,6 +703,45 @@ export class Store {
     return { room, seats };
   }
 
+  /**
+   * A scenario: a new room whose game begins at one moment of a recorded game (the state just before `step`).
+   * Nobody hosts it (the admin closes it). Every seat gets a fresh token; seats are bots unless `seats` opens
+   * them, and a token holder can take a bot seat over later. New dice unless keepDice. Recorded like any game,
+   * its record pointing back at the moment it began from.
+   */
+  createScenario(record: GameRecord, step: number, opts: { seats?: Record<PlayerId, ScenarioSeat>; keepDice?: boolean; name?: string } = {}) {
+    let id = joinCode();
+    while (this.rooms.has(id)) id = joinCode();
+    const at = Date.now();
+    const state = scenarioState(record, step, { id, at, seats: opts.seats, ...(opts.keepDice ? {} : { seed: randomBytes(4).readUInt32LE(0) }) });
+    const scenarioOf: ScenarioRef = { recordId: record.id, step };
+    const tokens: Record<string, PlayerId> = {};
+    const seats = state.players
+      .filter((p) => !p.isNeutral)
+      .map((p) => {
+        const token = newId(24);
+        tokens[token] = p.id;
+        return { playerId: p.id, name: p.name, alive: p.alive, bot: p.isBot, token };
+      });
+    const room = new GameRoom({
+      id,
+      name: (opts.name?.trim() || `${record.room.name} @ step ${step}`).slice(0, 40),
+      hostId: '',
+      state,
+      tokens,
+      chat: [],
+      history: [],
+      updatedAt: at,
+      characterIds: {},
+      scenarioOf,
+    });
+    this.attach(room);
+    this.archive.begin(room, state, [], at);
+    room.scheduleBot();
+    this.scheduleSave();
+    return { room, seats };
+  }
+
   get(id: string): GameRoom | undefined {
     return this.rooms.get(id.toUpperCase());
   }
@@ -667,7 +757,10 @@ export class Store {
     const room = this.rooms.get(id.toUpperCase());
     if (!room) return false;
     room.close(reason);
+    // A game closed before anyone won still keeps its record, marked unfinished.
+    this.archive.finish(room, `room closed (${reason})`);
     room.removeAllListeners('change');
+    room.removeAllListeners('commit');
     this.rooms.delete(room.id);
     this.scheduleSave();
     return true;
@@ -714,7 +807,8 @@ export class Store {
       return `every seat gone ${fmt(now - room.lastSeatSeen)}`;
     }
     if (room.isWatched()) return null;
-    if (!room.hasHumans()) return 'no people or agents in the room';
+    // A scenario played by bots alone is meant to be watched or taken over: it follows the bots-only rule below.
+    if (!room.hasHumans() && !room.scenarioOf) return 'no people or agents in the room';
     if (phase === 'lobby' && idle > r.lobby) return `lobby idle ${fmt(idle)}`;
     if (phase === 'finished' && idle > r.finished) return `finished, idle ${fmt(idle)}`;
     if (phase !== 'lobby' && phase !== 'finished') {

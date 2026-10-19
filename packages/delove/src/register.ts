@@ -30,7 +30,8 @@ if (existsSync(dir)) {
 /**
  * delove-branch@1: branch and score (src/branch.ts). DELOVE_BRANCH_TEACHER picks the rollout teacher (default: the
  * newest tuned one), DELOVE_BRANCH_RANKER the network that proposes alternatives (default delove@2);
- * DELOVE_BRANCH_OPTIONS / _ROLLOUTS / _HORIZON / _MARGIN override the search size, DELOVE_BRANCH_SKIP (comma-separated
+ * DELOVE_BRANCH_OPTIONS / _ROLLOUTS / _HORIZON / _MARGIN override the search size, DELOVE_BRANCH_VALUE (0-1) blends
+ * the ranker's win chance into branch scores, DELOVE_BRANCH_SKIP (comma-separated
  * decision kinds, e.g. occupy,trade) the kinds it plays without branching. With DELOVE_BRANCH_STATS=<dir> each process
  * writes what branching did to <dir>/stats-<pid>.json when it exits.
  */
@@ -39,6 +40,9 @@ if (existsSync(dir)) {
   const params = tuned.get(teacherId) ?? DEFAULT_TEACHER_PARAMS;
   const rankerPath = join(dir, `${process.env.DELOVE_BRANCH_RANKER ?? 'delove@2'}.onnx`);
   const ranker = existsSync(rankerPath) ? new NetScorer(rankerPath) : null;
+  // DELOVE_BRANCH_VALUE > 0 blends the ranker's win chance into branch scores (needs its .value.onnx).
+  const valuePath = rankerPath.slice(0, -'.onnx'.length) + '.value.onnx';
+  const valuer = existsSync(rankerPath) && existsSync(valuePath) ? new NetScorer(rankerPath, valuePath) : null;
   const env = (k: string, d: number) => (process.env[k] === undefined ? d : Number(process.env[k]));
   registerAgent(
     branchAgent('delove-branch@1', teacherPickWith(params), ranker, {
@@ -48,7 +52,8 @@ if (existsSync(dir)) {
       horizon: env('DELOVE_BRANCH_HORIZON', DEFAULT_BRANCH.horizon),
       margin: env('DELOVE_BRANCH_MARGIN', DEFAULT_BRANCH.margin),
       skip: process.env.DELOVE_BRANCH_SKIP === undefined ? DEFAULT_BRANCH.skip : process.env.DELOVE_BRANCH_SKIP.split(',').filter(Boolean),
-    }),
+      valueWeight: env('DELOVE_BRANCH_VALUE', DEFAULT_BRANCH.valueWeight),
+    }, valuer),
   );
   const statsDir = process.env.DELOVE_BRANCH_STATS;
   if (statsDir) process.on('exit', () => void (branchStats.decisions > 0 && writeBranchStats(join(statsDir, `stats-${process.pid}.json`))));

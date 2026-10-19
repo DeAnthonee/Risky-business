@@ -7,11 +7,15 @@ steps=(
   "classic4 packages/delove/scripts/cycles/c2-classic4.jobs Cycle 2, step 3: scenario games on Classic (4 players)"
 )
 export_agents=delove-branch@1
-# Branch decisions weighted as in cycle 1, plus Sensei 2's 2-player games as an anchor (under DATA).
-train_data=(micro/skirmish*2 classic2/classic*3 classic4/classic*3 r05-sensei2/classic)
+# All branch-and-score decisions so far (cycle 1, the first, stopped cycle 2 run "c2old", and this cycle), 2-player
+# Classic weighted up (cycle 1's weak spot), plus Sensei 2's 2-player games as an anchor (under DATA).
+train_data=(micro/skirmish*2 classic2/classic*3 classic4/classic*2
+  c1-micro/skirmish c1-classic2/classic*2 c1-classic4/classic
+  c2old-micro/skirmish c2old-classic2/classic*2
+  r05-sensei2/classic)
 train_init=r06-candidate
 candidate=c2-candidate
-train_args="--epochs 1.5 --lr 3e-4"
+train_args="--epochs 1 --lr 3e-4"
 gates=(
   "delove@2 2 800"
   "delove@2 4 200"

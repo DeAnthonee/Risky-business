@@ -51,6 +51,8 @@ Fundamental rules, mechanics, and tournament scoring for the Risk engine, follow
   * Each player starts with a designated Capital territory.
   * Capitals defend with 3 dice instead of 2, making them significantly harder to capture.
   * Holding capitals grants +2 reinforcement armies per capital per turn.
+  * **Doorway Choke Point Capital Placement**: Placing the initial capital on an outward-facing doorway choke point protects continent bonuses with 3-dice defense while maintaining offensive attack routes in multiple directions. Never bury a capital in an interior pocket where armies are trapped and 3-dice defense is wasted.
+  * **The Cap Run Mechanics**: Winning via Capitals is strictly a **late-game calculation** when enemy capitals are under-defended and your primary strike stack can conquer all remaining capitals in a single turn for the instant win. You NEVER play for a cap run on turn 1 or early game; in early/mid game, hold your doorway capital defensively (+2 armies/turn) while pursuing bonuses and kills.
   * Win condition: Capture and hold all Capitals on the map while defending your own Capital.
 
 ### 4. Fog of War & Information Control
@@ -61,6 +63,10 @@ Fundamental rules, mechanics, and tournament scoring for the Risk engine, follow
   * Only territories directly adjacent to friendly borders are visible.
   * Opponents' total territory counts and total army counts are strictly hidden (`null`).
   * Turn reinforcement income (+N/turn) and card count (number of cards held) are publicly announced at turn start and provide the only reliable estimate of hidden rival strength.
+  * **Deducing Hidden Army Strength**:
+    * *Starting Troops + Cumulative Income*: Tracking initial troop allocations (e.g. 20 for 6p, 25 for 5p, 30 for 4p, 35 for 3p) and adding public turn incomes (+N/turn) provides an exact upper bound on total historical troops.
+    * *Attack & Conquest Counts*: Every attack and conquest made by any player (even behind fog) is logged. Repeated attacks cost the attacker ~1.2 armies on average per roll, and each conquest leaves 1 army behind. An opponent with +3/turn income holds at most 11 territories and 0 bonuses.
+    * *Capital Capture Alerts*: Capturing a capital grants +2 armies/turn. When an opponent's income jumps or capital capture events occur, track their capital holdings behind fog.
   * Scouting/probing attacks reveal neighboring garrison counts.
   * Staging reserve stacks 1 territory behind the visible frontline prevents rivals from discovering your primary strike force.
 
@@ -71,12 +77,21 @@ Fundamental rules, mechanics, and tournament scoring for the Risk engine, follow
 ### 6. Table Communication & Diplomacy
 * Players may communicate via public table-wide chat or private whispers.
 * **Deals**: Truces, Joint Attacks, Non-Aggression pacts, and Coalition calls against dominant leaders.
-* Deals are strategic non-binding agreements; bots may negotiate, propose, honor, or break deals when it serves their path to victory.
+* **Diplomacy with Intention**: Alliances must directly serve your current Advantage Plan. Never propose aimless alliances. Early game (Rounds 1-4), securing a continent bonus is vital — without a bonus, base income of +3/turn means falling behind.
+  * *Obstacle Awareness*: If an opponent holds territories inside the continent bonus you are claiming, NEVER propose a truce or border deal with them; they are an obstacle to conquer!
+  * *The Good Neighbor Policy*: Adjacent continent holders (e.g. South America and North America) agreeing to mutual non-aggression across their shared border allows both players to consolidate a single outward front, cementing top-2 placement.
+  * *Single-Target Focus*: Never "bad neighbor" multiple rivals at once by attacking in all directions. Pick ONE target to pressure, maintain peaceful Good Neighbor borders with the rest, and focus combat force on that single front.
+  * *The Endgame Backstab (3-Player Dynamics)*: Alliances are temporary ladders to reach the endgame. When 3 players remain, scheming and executing the backstab against the leader or neighbor is required to take 1st place (+3 Elo).
 
 ### 7. Attack Patterns, Tactical Routing & Troop Staging
 * **Concentrated Spearheads (`placeOn`)**: Deploying draft reinforcements into a single concentrated attack stack (spearhead) on the frontline rather than scattering 1-2 armies across internal territories maximizes break-through odds and minimizes combat casualties.
 * **Sequential Attack Routing (`route`)**: Order attacks along a contiguous path from highest-probability / weakest resistance outward. Take at least one guaranteed territory early to secure the turn's card before attempting high-variance expansion.
-* **Interior Pocket Prevention**: Never leave large garrisons (4+ armies) stranded in friendly interior pockets that do not border hostile territories or blizzards. Armies stuck in interior pockets contribute 0 defense and 0 attack power.
+* **Interior Pocket Prevention**: Never leave large garrisons (4+ armies) stranded in friendly interior pockets that do not border hostile territories or blizzards. Pushing into a dead-end pocket is completely justified and encouraged when executing an elimination or capturing a capital (stolen cards, placement jump, and kill bounty far outweigh having troops in a corner); peacetime reinforcement is what must avoid friendly interior pockets.
+* **Asymmetric Bonus Denial & Griefing**: When holding a geographically secure continent with 1 choke point (e.g. South America or Australia) against a rival holding an exposed continent with 3 choke points (e.g. Europe, North America, or Africa), breaking their bonus is high-leverage griefing: you deny huge recurring income while defending only 1 point.
+* **The Golden Kill Rule & Post-Kill Net Armies**:
+  * When attacker cards + victim cards $\ge 5$, an immediate trade is guaranteed.
+  * Calculate $\text{Net Armies After Kill} = \text{Strike Stack} - \text{Expected Losses} - \text{Conquests} + \text{Immediate Trade Armies}$.
+  * If a kill leaves you with $<5$ armies and vulnerable to rivals, it is suicidal. If it leaves you with $\ge 10$ armies, it is a game-winning comeback move that refuels your army, leaps placement tiers, and locks in +1 Elo.
 * **Fortify Repositioning (`fortifyTo`)**: At the end of the turn, use the fortify phase to pull back mobile rear armies or advance reserve stacks to frontline defensive chokepoints, border gates, or capital garrisons to protect held continent bonuses from enemy counter-punches.
 
 ---
@@ -94,8 +109,8 @@ Fundamental rules, mechanics, and tournament scoring for the Risk engine, follow
 - **Eliminations funded the winners.** Lux knocked out Darius (round 4), Shaco (round 6) and Leona (round 38) and survived to 2nd; Ahri swept every capital. The three first players out (Darius, Shaco, Thresh) never made a kill. (1 game, last MVAPM8)
 - **Focusing on card acquisition without securing territory is a losing strategy.** Bot6 focused on gathering cards but failed to secure any bonuses or capitals, making him an easy target for elimination. (1 game, last PMNH5H)
 - **Securing key bonuses early allows for rapid card trade escalation.** Thresh secured 17 bonuses, enabling a high reinforcement income (+87/turn) that funded multiple card trades and eliminations. (1 game, last 7QS4UG)
-- **Elimination chains can be triggered by inheriting cards from fallen opponents.** Thresh eliminated Shen and Tryndamere, inheriting their card sets and using them to fund further expansions and eliminations. (1 game, last 7QS4UG)
-- **Failing to secure capitals can limit long-term reinforcement income despite card advantages.** Shen and Tryndamere had no capitals, which limited their reinforcement income despite having some card sets, making them vulnerable to elimination. (1 game, last 7QS4UG)
+- **Elimination chains can be triggered by inheriting cards from fallen opponents.** Tryndamere eliminated Jinx (round 11) and Lux (round 12), inheriting their card sets and using them to fund further expansions and eliminations. (1 game, last 7QS4UG)
+- **Failing to secure capitals can limit long-term reinforcement income despite card advantages.** Lux had no capitals, which limited their reinforcement income despite inheriting card sets from Jinx, making them vulnerable to elimination. (1 game, last 7QS4UG)
 
 ### Exponential Cards (Personal Sequences & Surge Timing)
 - **Monitor personal trade counts before engaging.** In exponential games where set values scale by 1.3x independently per player (5, 7, 10, 13, 17, 23...), timing a high-tier personal set cash-in allows sudden board-clearing strikes that static defenders cannot match. (1 game, last 8VALR5)
@@ -109,7 +124,7 @@ Fundamental rules, mechanics, and tournament scoring for the Risk engine, follow
 ### Fog of War (Concealed Armies & Income Probing)
 - **Scouting with card-taking attacks reveals critical enemy garrison counts.** Bot9 used single-territory probes to reveal enemy garrison counts before launching major offensives, allowing them to prepare for the scale of the attack. (2 games, last T9DCQW)
 - **Small border garrisons can project false weakness.** Opponents often assume lightly defended fog borders indicate an empty interior; keep mobile strike stacks one step behind the frontline. (1 game, last MVAPM8)
-- **Maintaining strong reinforcement income is crucial for long-term survival under fog.** Lux maintained a high reinforcement income (+38/turn) despite losing several key territories, which contributed to their survival and elimination of multiple opponents. (1 game, last 8VALR5)
+- **Maintaining strong reinforcement income is crucial for long-term survival under fog.** Tryndamere maintained a high reinforcement income (+62/turn) despite losing several key territories, which contributed to their survival and elimination of multiple opponents. (1 game, last 8VALR5)
 - **Judging hidden threats by income is a reliable strategy.** Lux used enemy turn income as a reliable estimate of rival strength to target weaker opponents effectively. (1 game, last 8SR5HD)
 
 ### Non-Fog of War (Public Board & Coalition Counterplay)
@@ -123,7 +138,7 @@ Fundamental rules, mechanics, and tournament scoring for the Risk engine, follow
 
 ### Capitals Conquest
 - **Capitals defend with 3 dice and require overwhelming odds.** Bot7’s concentrated garrisons on key territories withstood attacks from multiple opponents, who had 0 capitals and were major threats. (5 games, last DGS35N)
-- **Holding all capitals provides a massive reinforcement income and makes it nearly impossible for opponents to contest key regions.** Lux held all capitals and had a +38/turn reinforcement income, which was critical to their victory. (4 games, last ZYW8N8)
+- **Holding all capitals provides a massive reinforcement income and makes it nearly impossible for opponents to contest key regions.** Tryndamere held all capitals and had a +62/turn reinforcement income, which was critical to their victory. (4 games, last ZYW8N8)
 - **Failing to secure capitals leaves you vulnerable to sudden elimination.** Holding raw territories without a secure capital base leaves players exposed once larger rivals mobilize. Bot2 had 0 capitals and was eliminated by Bot9. (4 games, last H7NVFC)
 - **Securing key bonuses early provides long-term reinforcement benefits.** Lux secured multiple continent bonuses early in the game, contributing to their high reinforcement income and strategic expansion. (3 games, last H7NVFC)
 - **High reinforcement income from key bonuses can be offset by poor capital control.** Bot10 had a +114/turn reinforcement income but lost the game because their unprotected territories were overwhelmed by Bot6. (2 games, last CDCU2S)

@@ -1,4 +1,4 @@
-import { getMap, tradeBonus, nextTradeValue, type GameView, type PlayerId } from '@risk/engine';
+import { getMap, tradeBonus, nextTradeValue, blitzOdds, type GameView, type PlayerId } from '@risk/engine';
 
 /**
  * The card set math, every turn: under progressive cards the next set's value (the engine's tradeBonus), what one
@@ -23,14 +23,111 @@ export function cardMath(view: GameView, me: PlayerId): string[] {
   return lines;
 }
 
-export function eliminationScouting(view: GameView, me: PlayerId): string[] {
+export function eliminationScouting(view: GameView, me: PlayerId, detailed = false): string[] {
+  const map = getMap(view.options.map);
+  const livingRivals = view.players.filter((p) => p.alive && !p.isNeutral && p.id !== me);
+  if (!livingRivals.length) return [];
+
+  const myTerrs = map.territoryIds.filter((t) => view.territories[t]?.owner === me);
+  const myBiggestStack = Math.max(1, ...myTerrs.map((t) => view.territories[t]?.armies ?? 1));
+  const myIncome = view.players.find((p) => p.id === me)?.income?.total ?? 0;
+  const myStrikePool = myBiggestStack + (view.phase === 'reinforce' ? myIncome : 0) - 1;
+
+  const cardValue = view.options.cardValues === 'fixed'
+    ? 3
+    : view.options.cardValues === 'exponential'
+      ? (nextTradeValue('exponential', 0, view.players.find((p) => p.id === me)?.tradesMade ?? 0) / 3)
+      : (tradeBonus(view.tradeCount) / 3);
+
   const lines: string[] = [];
-  const weak = view.players.filter(p => p.alive && !p.isNeutral && p.id !== me && p.territoryCount !== null && p.territoryCount <= 4);
-  if (weak.length) lines.push('Elimination scouting (kills award +1 Elo point on leaderboard, steal all cards & boost placement - verify all routes before committing): ' + weak.map(p => {
-    const known = Object.entries(view.territories).filter(([, t]) => !t.hidden && t.owner === p.id);
-    const holdings = known.map(([id, t]) => id + ':' + t.armies).join(', ');
-    return p.name + ': ' + p.territoryCount + ' territories, ' + p.cardCount + ' cards to steal, ' + (known.length === p.territoryCount ? 'all holdings visible [' + holdings + ']' : 'incomplete visibility; no confirmed kill route');
-  }).join('; ') + '. Eliminate them for the +1 Elo kill bounty, card steal, and placement jump!');
+  const header = detailed
+    ? 'Kill potential & Blitz odds (formula for all-in elimination; kills award +1 Elo, steal cards, and jump placement):'
+    : 'Elimination scouting (kills award +1 Elo, steal cards & boost placement):';
+  lines.push(header);
+
+  for (const victim of livingRivals) {
+    const knownTerrs = map.territoryIds.filter((t) => !view.territories[t]?.hidden && view.territories[t]?.owner === victim.id);
+    const knownArmies = knownTerrs.reduce((sum, t) => sum + (view.territories[t]?.armies ?? 0), 0);
+    const hasFullVis = victim.territoryCount !== null && knownTerrs.length === victim.territoryCount;
+
+    const terrCount = victim.territoryCount ?? Math.max(knownTerrs.length, Math.min(11, Math.round(knownTerrs.length * 1.5)));
+    const totalDefendingArmies = victim.armyCount ?? Math.max(knownArmies, knownArmies + Math.max(0, terrCount - knownTerrs.length) * 1.5);
+
+    const isWeakOrHighCard = (victim.territoryCount !== null && victim.territoryCount <= 4) || totalDefendingArmies <= 8 || victim.cardCount >= 3;
+    if (!detailed && !isWeakOrHighCard) continue;
+
+    const effectiveAttacker = Math.max(1, myStrikePool - terrCount);
+    const hasCap = view.options.capitals && view.capitals && Object.entries(view.capitals).some(([pid, t]) => pid === victim.id && view.territories[t]?.owner === victim.id);
+    const defDice = hasCap ? 3 : 2;
+
+    const odds = blitzOdds(effectiveAttacker, totalDefendingArmies, defDice);
+    const winP = view.options.balancedBlitz ? odds.balancedWin : odds.win;
+    const pct = Math.round(winP * 100);
+
+    const stealText = `${victim.name}: ${victim.territoryCount !== null ? `${victim.territoryCount} territories, ` : ''}${victim.cardCount} cards to steal`;
+
+    if (!detailed) {
+      const holdings = knownTerrs.map((id) => `${id}:${view.territories[id]?.armies ?? 0}`).join(', ');
+      const visText = hasFullVis ? `all holdings visible [${holdings}]` : `${knownTerrs.length} visible holdings`;
+      lines.push(`- ${stealText}, ${visText} (Blitz kill chance: ${pct}%).`);
+      continue;
+    }
+
+    const myCards = view.players.find((p) => p.id === me)?.cardCount ?? 0;
+    const guaranteedSet = (myCards + victim.cardCount) >= 5;
+    const tradeArmies = guaranteedSet
+      ? (view.options.cardValues === 'fixed' ? 7 : (view.options.cardValues === 'exponential' ? nextTradeValue('exponential', 0, view.players.find((p) => p.id === me)?.tradesMade ?? 0) : tradeBonus(view.tradeCount)))
+      : (victim.cardCount >= 4 ? (view.options.cardValues === 'fixed' ? 6 : Math.round(tradeBonus(view.tradeCount) * 0.8)) : 0);
+
+    const expectedSpend = Math.round(odds.expectedAttackerLosses + terrCount);
+    const netArmiesAfterKill = Math.round(myStrikePool - expectedSpend + tradeArmies);
+
+    let postKillStatus = '';
+    if (netArmiesAfterKill >= 10) {
+      postKillStatus = `strong recovery (~${netArmiesAfterKill} net armies after kill & trade)`;
+    } else if (netArmiesAfterKill >= 5) {
+      postKillStatus = `moderate (~${netArmiesAfterKill} net armies after kill)`;
+    } else {
+      postKillStatus = `CRIPPLING RISK (~${netArmiesAfterKill} net armies left; dangerous if rivals can sweep you)`;
+    }
+
+    let bountyBonus = 0;
+    let cardNote = `${victim.cardCount} cards`;
+    if (victim.cardCount >= 5) {
+      bountyBonus = 35;
+      cardNote = '5 CARDS (GUARANTEED IMMEDIATE SET TRADE!)';
+    } else if (victim.cardCount >= 4) {
+      bountyBonus = 18;
+      cardNote = '4 cards (imminent/high trade chance)';
+    } else if (victim.cardCount >= 3) {
+      bountyBonus = 8;
+      cardNote = '3 cards (can hold set)';
+    }
+
+    const killScore = Math.round(winP * (35 + bountyBonus + victim.cardCount * cardValue) - (1 - winP) * 45);
+
+    let verdict = `Unviable (${pct}% odds) — avoid reckless suicide`;
+    if (victim.cardCount >= 5 && winP >= 0.65) {
+      verdict = netArmiesAfterKill >= 5
+        ? `CRITICAL ALL-IN KILL: ${pct}% Blitz odds! ${myCards}+${victim.cardCount}=${myCards + victim.cardCount} cards GUARANTEES immediate set trade (+${tradeArmies} armies), leaving ~${netArmiesAfterKill} armies & leaping placement!`
+        : `DANGEROUS KILL: ${pct}% Blitz odds for 5 cards, but leaves only ~${netArmiesAfterKill} armies — only do it if no rival can punish you.`;
+    } else if (guaranteedSet && winP >= 0.70) {
+      verdict = netArmiesAfterKill >= 5
+        ? `PRIME COMEBACK KILL: ${pct}% Blitz odds! Stealing ${victim.cardCount} cards guarantees immediate set trade (+${tradeArmies} armies), refuels army to ~${netArmiesAfterKill} troops!`
+        : `HIGH RISK KILL: guarantees trade (+${tradeArmies} armies), but expected losses leave only ~${netArmiesAfterKill} armies.`;
+    } else if (victim.cardCount >= 4 && winP >= 0.70) {
+      verdict = `PRIME KILL TARGET: ${pct}% Blitz odds to steal 4 cards (high trade chance) & leap placement!`;
+    } else if (terrCount <= 2 && winP >= 0.80) {
+      verdict = `EASY BOUNTY: ${pct}% Blitz odds to eliminate weak survivor (+1 Elo point)`;
+    } else if (winP >= 0.70) {
+      verdict = `FAVORABLE KILL: ${pct}% Blitz odds; viable if route is clear`;
+    }
+
+    const holdingsText = hasFullVis ? `all ${terrCount} terrs visible (${knownArmies} armies)` : `${knownTerrs.length}/${terrCount} terrs visible (${knownArmies} armies)`;
+    lines.push(`- ${stealText} (${cardNote}) | Est. Defense: ${Math.round(totalDefendingArmies)} armies across ${terrCount} terrs (${holdingsText}) | Your strike stack: ${myStrikePool} armies -> Blitz win chance: ${pct}% (${view.options.balancedBlitz ? 'balanced' : 'true random'}) | Post-kill: ${postKillStatus} | Score: ${killScore} | Verdict: ${verdict}`);
+  }
+
+  if (!detailed && lines.length === 1) return [];
   return lines;
 }
 
@@ -126,7 +223,7 @@ export function boardFacts(view: GameView, me: PlayerId): string {
   return lines.join('\n').slice(0, MAX_FACTS);
 }
 
-const MAX_COMMANDER_FACTS = 6500;
+const MAX_COMMANDER_FACTS = 9000;
 
 /** "Name [id]" label used for territories and continents so the model can answer with an id. */
 const label = (name: string | undefined, id: string) => (name && name !== id ? `${name} [${id}]` : `[${id}]`);
@@ -163,7 +260,7 @@ export function commanderFacts(view: GameView, me: PlayerId): string {
     .map((p) => `${p.name} ${p.cardCount}${p.cardCount >= 4 ? ' (forced trade soon)' : p.cardCount >= 3 ? ' (can hold a set)' : ''}`)
     .join(', ');
   lines.push(`Next card set is worth ${next}. You hold ${meP?.cardCount ?? 0} cards${sets ? ` (${sets} tradeable set${sets > 1 ? 's' : ''})` : ''}.${o.fogOfWar && oppCards ? ` Opponent card counts (public under fog): ${oppCards}.` : ''}`);
-  lines.push(...cardMath(view, me), ...eliminationScouting(view, me));
+  lines.push(...cardMath(view, me), ...eliminationScouting(view, me, true));
 
   // Players.
   for (const p of living) {
@@ -219,6 +316,26 @@ export function commanderFacts(view: GameView, me: PlayerId): string {
     const total = living.length + view.players.filter((p) => !p.alive && !p.isNeutral).length;
     const seen = Object.keys(view.capitals ?? {}).length;
     if (seen < total) lines.push(`${total - seen} capital${total - seen > 1 ? 's' : ''} not yet seen. Holding every capital wins.`);
+
+    // Cap run feasibility: can our strike stack sweep all remaining enemy capitals this turn for an instant win?
+    const enemyCaps = Object.entries(view.capitals ?? {}).filter(([pid, t]) => pid !== me && ts(t) && !ts(t).hidden && ts(t).owner !== me);
+    const unheldCaps = total - (mine && ts(mine)?.owner === me ? 1 : 0);
+    if (enemyCaps.length > 0 && enemyCaps.length === unheldCaps) {
+      const totalCapArmies = enemyCaps.reduce((sum, [, t]) => sum + ts(t).armies, 0);
+      const myTerrs = map.territoryIds.filter((t) => ts(t)?.owner === me);
+      const myBiggestStack = Math.max(1, ...myTerrs.map((t) => ts(t)?.armies ?? 1));
+      const myIncome = meP?.income?.total ?? 0;
+      const myStrikePool = myBiggestStack + (view.phase === 'reinforce' ? myIncome : 0) - 1;
+      const effectiveCapAttack = Math.max(1, myStrikePool - enemyCaps.length);
+      const capOdds = blitzOdds(effectiveCapAttack, totalCapArmies, 3);
+      const pCapRun = o.balancedBlitz ? capOdds.balancedWin : capOdds.win;
+      const capPct = Math.round(pCapRun * 100);
+      if (capPct >= 70) {
+        lines.push(`CAP RUN AVAILABLE: Instant game victory viable! ${capPct}% Blitz odds to conquer all ${enemyCaps.length} remaining enemy capitals (${totalCapArmies} total armies defending with 3 dice) in one sweep! Route through all capitals now!`);
+      } else {
+        lines.push(`Cap run feasibility: only ${capPct}% Blitz odds to take all ${enemyCaps.length} remaining capitals (${totalCapArmies} armies defending with 3 dice). DO NOT pick capitals as your advantage path in early/mid game — hold your doorway choke point capital defensively (+2 armies/turn) and play bonuses or kills.`);
+      }
+    }
   }
   if (view.legal && view.legal.capitalChoices.length > 0) {
     const opts = view.legal.capitalChoices.map((t) => {

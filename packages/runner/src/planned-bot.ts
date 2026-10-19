@@ -649,7 +649,7 @@ class Chooser {
     if (share.missing.length === 1 && share.missing[0] === to) cs += 6 + bonus;
     else if (share.missing.length <= 3 && share.mine * 2 >= share.total && share.missing.includes(to)) cs += 2.5 + bonus * 0.3;
     const holder = this.view.continentOwners[cont];
-    if (holder && holder !== this.me && holder === toOwner) cs += 3.5 + bonus * 0.7;
+    if (holder && holder !== this.me && holder === toOwner) cs += 4.5 + bonus * 0.8;
     s += path === 'bonuses' ? cs * 1.5 : cs;
     const capOwner = this.capitalOf.get(to);
     if (capOwner && capOwner !== this.me) s += path === 'capitals' ? 7 : 4;
@@ -657,11 +657,13 @@ class Chooser {
     if (focus === 2) s += 7;
     else if (focus === 1) s += 3.5;
     if (this.plan.route.includes(to)) s += 6;
-    if (this.plan.target && toOwner === this.plan.target) s += path === 'hopeless' ? 10 : 3;
+    if (this.plan.target && toOwner === this.plan.target) s += path === 'hopeless' ? 10 : (path === 'kills' ? 5.5 : 3.5);
     const p = this.view.players.find((x) => x.id === toOwner);
     if (p && p.territoryCount === 1) s += (path === 'kills' ? 8 : 6) + p.cardCount * 1.5;
-    else if (p && p.cardCount >= 3) s += path === 'cards' ? 3 : 0.8;
-    if (path === 'kills' && p && p.territoryCount !== null && p.territoryCount <= 4) s += 4 + p.cardCount * 1.0;
+    else if (p && p.cardCount >= 5) s += (path === 'kills' || path === 'cards' ? 6 : 4);
+    else if (p && p.cardCount >= 4) s += (path === 'kills' || path === 'cards' ? 4.5 : 2.5);
+    else if (p && p.cardCount >= 3) s += path === 'cards' ? 3 : 1.2;
+    if (path === 'kills' && p && (p.territoryCount === null || p.territoryCount <= 4)) s += 4 + p.cardCount * 1.2;
     if (toOwner === this.leader) s += 1;
     // Taking it makes the launch point interior.
     if (this.hostileNeighbours(from).length === 1) s += 1.5;

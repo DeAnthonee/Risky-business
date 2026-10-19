@@ -171,6 +171,9 @@ Advice, not rules. Compiled from public Risk guides and forum threads (mostly Co
 - **Troop commitments must match visible budgets.** In non-fog lobbies where armies and incomes are public, bluffing impossible troop offers fails; proposals exceeding armyCount plus income are rejected. (1 game, last 4J2YAV)
 - **Multi-way alliances against runaway leaders require all-chat.** Whispering between two players cannot coordinate a 3-way or 4-way response against a dominant player; public coalition calls coordinate joint pressure. (1 game, last X3T6U8)
 - **Failing to form coalitions against a dominant player leads to isolation.** Divided rivals who negotiate separate truces while a leader snowballs get rolled up one by one. (1 game, last X3T6U8)
+- **Aggressive expansion and breaking key bonuses can significantly reduce an opponent's reinforcement income.** Bot1 aggressively expanded, taking 35 territories and breaking multiple bonuses, which significantly reduced Bot9's reinforcement income and contributed to their limited success. (1 game, last PLTM26)
+- **Maintaining a strong reinforcement income through territory control is crucial for long-term survival.** Bot9 held 42 territories and had a +38 reinforcement income per turn, which allowed them to expand rapidly and overwhelm opponents. (1 game, last YLFZU9)
+- **Failing to leverage bonuses can leave players vulnerable to aggressive opponents.** Bot7 held bonuses for Australia, Asia, and Africa but failed to use them effectively, which contributed to their elimination by Bot9. (1 game, last YLFZU9)
 
 ### Fog of War (Hidden Information & Scouting)
 - **Scout with card-taking attacks before committing stacks.** Under fog of war, single-territory probes reveal neighboring enemy garrison counts without exposing main armies. (1 game, last 3ZP4C4)
@@ -181,6 +184,8 @@ Advice, not rules. Compiled from public Risk guides and forum threads (mostly Co
 - **Controlling all capitals provides a decisive victory.** Lux won by sweeping every capital, which gave her massive reinforcement income and made it impossible for opponents to contest key regions. (1 game, last Q5W3YD)
 - **Capitals defend with 3 dice and require overwhelming odds.** Concentrated garrisons on capitals withstand attacks from double their size; stage and reinforce before attempting a capital breakthrough. (1 game, last 79A2TA)
 - **Holding all six capitals provides massive reinforcement income and prevents comebacks.** Securing capitals early creates an insurmountable reinforcement stream that locks opponents out. (1 game, last 79A2TA)
+- **Holding all capitals provides massive reinforcement income and makes it nearly impossible for opponents to contest key regions.** Bot1 secured and held all 9 capitals, leading to a +57 reinforcement income per turn and a decisive victory. (1 game, last 4B8YCT)
+- **Maintaining strong defensive positioning and ensuring no territories are left vulnerable is critical for long-term survival.** Bot1 ensured no territories were left vulnerable, which allowed them to effectively counter attacks from Bot9 and maintain control over all capitals. (1 game, last PLTM26)
 - **High reinforcement income from bonuses can compensate for not holding capitals.** Bot4 and Bot10 secured multiple continental bonuses, out-producing capital holders (+107 income) and overwhelming them through sheer army count. (2 games, last 4J2YAV)
 - **Failing to secure capitals leaves you vulnerable to sudden elimination.** Holding raw territories without a secure capital base leaves players exposed once larger rivals mobilize. (1 game, last Q5W3YD)
 - **High reinforcement income from bonuses can be offset by poor capital control.** A player with +20 bonus income lost the game because their unprotected capital fell to a sudden concentrated rush. (1 game, last L3HVFX)
@@ -207,4 +212,5 @@ Advice, not rules. Compiled from public Risk guides and forum threads (mostly Co
 - **Aggressive early attacks can be countered with disciplined defense and reinforcement management.** Bot1 absorbed an early rush by consolidating onto high-defense choke points and counter-attacked once the aggressor depleted their forces. (1 game, last 8ESC69)
 - **Maintaining strong connectivity between territories prevents leaving interior pockets vulnerable.** Fragmented territory holdings make defense impossible once a hostile breakthrough occurs. (1 game, last D5HXP4)
 - **Early bonus control can be critical for survival.** Shen completed the Southeast, Deep South, and Great Lakes bonuses early, providing steady income that helped build a strong territorial base. (1 game, last PMNH5H)
+- **Aggressive expansion can lead to rapid elimination if key bonuses are broken early.** Bot7 aggressively expanded, but Bot9 broke three of Bot7's bonuses, reducing Bot7's reinforcement income and leading to Bot7's elimination in round 11. (1 game, last YLFZU9)
 <!-- bot-findings:end -->

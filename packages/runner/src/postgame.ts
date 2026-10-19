@@ -669,7 +669,7 @@ export function enforceCuration(raw: string, ctx: CurationContext): string | nul
   const note = (line: string) => ctx.log?.(`Curator: ${line}`);
   const old = parseBullets(ctx.previous);
   const human = parseBullets(ctx.human);
-  const kept: Bullet[] = [];
+  const updatedOld: Bullet[] = [];
   const fresh: Bullet[] = [];
   for (const b of parseBullets(structural)) {
     const same = old.find((o) => isDuplicate(o.text, b.text));
@@ -683,8 +683,8 @@ export function enforceCuration(raw: string, ctx: CurationContext): string | nul
         note(`dropped a challenge seen in only ${games} game(s): ${leadPhrase(b.text)}`);
         continue;
       }
-      if (kept.some((k) => isDuplicate(k.text, next.text))) continue;
-      kept.push(next);
+      if (updatedOld.some((k) => isDuplicate(k.text, next.text))) continue;
+      updatedOld.push(next);
       continue;
     }
     if (b.challenge) {
@@ -703,31 +703,30 @@ export function enforceCuration(raw: string, ctx: CurationContext): string | nul
       note(`dropped a new bullet that restates the human-written advice: ${leadPhrase(b.text)}`);
       continue;
     }
-    if (kept.some((k) => isDuplicate(k.text, b.text))) continue;
+    if (fresh.some((k) => isDuplicate(k.text, b.text)) || old.some((o) => isDuplicate(o.text, b.text))) continue;
     fresh.push(b);
-    kept.push(b);
   }
   const freshToAdd = fresh.slice(0, MAX_NEW_BULLETS);
   if (fresh.length > MAX_NEW_BULLETS) {
     note(`${fresh.length} new bullets; keeping existing findings plus the first ${MAX_NEW_BULLETS}`);
   }
-  let result: Bullet[];
-  const keptOld = kept.filter((k) => old.some((o) => isDuplicate(o.text, k.text)));
-  if (fresh.length > MAX_NEW_BULLETS || (old.length > 0 && keptOld.length === 0)) {
-    // When there are more than 3 new bullets, or when the model only emitted fresh bullets
-    // without repeating any existing findings, preserve all existing bullets and append fresh ones.
-    const room = Math.max(0, MAX_SECTION_BULLETS - old.length);
-    result = [...old, ...freshToAdd.slice(0, room)];
-  } else {
-    // The model explicitly rewrote its section: keep the old bullets it chose to retain/update,
-    // plus any fresh bullets it introduced.
-    result = [];
-    for (const k of kept) {
-      if (!result.some((r) => isDuplicate(r.text, k.text))) {
-        result.push(k);
-      }
+
+  // Preserve all existing bullets in `old`. If an old bullet was matched and updated by the curator,
+  // use the updated version; otherwise keep the original bullet untouched so historical learnings are never lost.
+  const merged: Bullet[] = [];
+  for (const o of old) {
+    const updated = updatedOld.find((u) => isDuplicate(u.text, o.text));
+    merged.push(updated ?? o);
+  }
+  for (const u of updatedOld) {
+    if (!merged.some((m) => isDuplicate(m.text, u.text))) {
+      merged.push(u);
     }
   }
+
+  // Add the fresh bullets up to MAX_SECTION_BULLETS
+  const room = Math.max(0, MAX_SECTION_BULLETS - merged.length);
+  let result: Bullet[] = [...merged, ...freshToAdd.slice(0, room)];
   if (result.length > MAX_SECTION_BULLETS) {
     const challenges = result.filter((b) => b.challenge);
     const main = result.filter((b) => !b.challenge);

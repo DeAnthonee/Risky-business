@@ -107,14 +107,14 @@ describe('curateLearnings', () => {
     expect(await readFile(path.join(dir, 'learnings-history', hist[0]), 'utf8')).toBe(HUMAN);
     expect((await readdir(dir)).filter((f) => f.includes('.tmp'))).toEqual([]);
 
-    // Second game: the model rewrites its own bullets; the history gets the previous version.
-    const { llm: llm2, calls: calls2 } = llmReturning(`${goodSection(2)}\n\n### Challenges to earlier advice\n- "Garrison your capital" cost Shen a game in round 7 (1 game, last G2)`);
+    // Second game: the model updates a bullet with G2; the history gets the previous version and older bullets are preserved.
+    const { llm: llm2, calls: calls2 } = llmReturning(`- Lesson 0: garrisons rarely fall by round 3 (2 games, last G2)\n\n### Challenges to earlier advice\n- "Garrison your capital" cost Shen a game in round 7 (1 game, last G2)`);
     expect((await run(dir, llm2, 'G2')).res).toBe('updated');
     expect(calls2[0]).toContain('Lesson 1'); // it sees its current section
     const after2 = await readFile(file, 'utf8');
     expect(after2.startsWith(after.slice(0, after.indexOf(BOT_START) + BOT_START.length))).toBe(true);
     expect(after2).not.toContain('Challenges to earlier advice'); // one game never challenges earlier advice
-    expect(after2).not.toContain('Lesson 2');
+    expect(after2).toContain('Lesson 2'); // older bullets are preserved
     expect(await readdir(path.join(dir, 'learnings-history'))).toHaveLength(2);
   });
 

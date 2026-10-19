@@ -38,7 +38,18 @@ Under **Fog of War**, an opponent's total troop count, territory count, and inte
 * **Losses per Conquest**: $\approx 1.0$ armies spent securing and holding newly conquered land.
 * **Turtling Opponents**: Zero attacks last turn means zero attrition—their full reinforcement income was banked into hidden armies.
 
-### 3. Threat Classification
+### 3. Progressive & Exponential Card Surge Telemetry
+Even under Fog of War, card counts and trade parameters are fully observable:
+* **Progressive Mode**: Shared table trade count (`view.tradeCount`). The exact upcoming trade value ($4, 6, 8, 10, 12, 15, 20, 25, \dots$) is deterministic and public.
+* **Exponential Mode**: Per-player personal trades (`stats.cardTrades`). Tracked from battle events; each opponent's bonus scales personally by $\approx 1.3^n$ (e.g. 4, 7, 11, 15...).
+* **Effective Power Score**:
+  $$\text{Effective Power} = \text{Estimated Standing Armies} + \big(P(\text{Trade}) \times \text{Upcoming Trade Value}\big)$$
+  * 5 cards: $P = 1.0$ (forced trade next turn).
+  * 4 cards: $P \approx 0.85$ (85% probability).
+  * 3 cards: $P \approx 0.40$ (40% probability).
+  * Prevents the AI from attacking what appears to be a 12-troop weakling who actually commands an effective 37-troop force in late Progressive play.
+
+### 4. Threat Classification
 * **Dominant Threat / Runaway Leader**: Income $\ge 38\%$ of table total or $+3$ over 2nd place. Requires immediate coalition.
 * **Stable Contender**: Holding small 1–2 choke continent (+5 to +7 income). Prime partner for "Good Neighbor" non-aggression or surgical bonus griefing.
 * **Target for Elimination**: Low estimated armies ($\le 12$) + high card count (3–5 cards). Yields massive **Kill Expected Value (EV)** by stealing cards and refueling armies with an immediate trade.

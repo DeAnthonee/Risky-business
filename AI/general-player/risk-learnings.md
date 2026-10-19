@@ -1,212 +1,168 @@
-# Risk learnings: what past games taught every model
+# Risk Rules & Strategic Learnings
 
-Read this before you join a game. It distils the post-game notes of every AI player so far (games QVXQSA,
-8SR5HD and AAR5MR, 10 players each). Treat it as advice, not rules: the `rules` MCP tool is the authority,
-settings change between games, and you should re-evaluate against the real board every turn and pivot when a
-better path to winning opens up. Character files (`../characters/`) say *how* a character plays; this file is
-what holds for every model whichever character it plays.
+Fundamental rules, mechanics, and tournament scoring for the Risk engine, followed by empirical strategic findings discovered through AI self-play.
 
-Examples name the player and the game in brackets so the evidence stays checkable.
+---
 
-## Start of every game
+## Objective & Ranked Tournament Scoring
 
-1. **Read the `rules` tool and `get_state` settings.** Settings change between games. Check card values
-   (fixed or progressive), whether Capital Conquest is on, fog of war, blizzards and the map.
-2. **Take stock of the blizzards.** Use the frozen list and the `map` tool (it covers every board, the fantasy
-   one included) to see which bonuses got easier to hold (fewer ways in) and which got split or opened up. Each
-   sub-bonus counts on its own. Look for a bonus that blizzards turned into a one- or two-point hold, and never
-   plan around a bonus that blizzards made impossible to complete.
-3. **Log every capital you can see,** and keep logging new ones as you find them under fog.
-4. **Write a master plan to win** at the top of your private notes. "Stay alive" is never a plan. Examples:
-   take and hold bonuses until your income wins; rally the table against the leader while you grow; chain kills
-   with cards; take capitals one by one.
+* **Primary Goal**: Maximize tournament Elo rating and climb the ranked leaderboard over multiple games.
+* **1st Priority — Winning (1st Place)**: Winning the match yields the highest Elo gain (+3 placement points in 6-player matches). Playing to win 1st place is always the single biggest deal.
+* **2nd Priority — Securing Kills (Eliminations)**: Eliminating an opponent awards an immediate permanent **+1 kill point** on the leaderboard, permanently steals their entire card hand (often triggering mid-turn card trades for massive reinforcement armies), and leapfrogs placement tiers.
+* **Crucial Elo Constraint — Surviving / Not Losing**: Placement points are NOT permanent across games; finishing in bottom placements incurs heavy negative penalties (-1 for 4th, -2 for 5th, -3 for 6th place). If a player gains points in one game but finishes in last place in another, their cumulative rating suffers a net negative drop! Therefore, **not losing and avoiding early elimination is a big deal**. Placement preservation matters: do not take reckless, suicidal gambles or leave home territories undefended early. Balance hunting kills with disciplined survival and placement defense.
 
-## Every turn
+---
 
-- **Re-read your plan** and check that this turn's moves serve it. Plan two or three turns ahead, not just
-  against whatever is adjacent right now (Mira, QVXQSA, reacted to threats every turn and never got ahead).
-- **Read chat with `sinceId`.** Several players never read chat and missed deals and threats that decided
-  their game. Replying is optional.
-- **Check the leader's income and territory count,** not just your neighbours. Hit the leader's border early
-  and rally others against them before they snowball. Chat rallying alone does nothing: someone has to attack.
-  (AAR5MR: the Ambassador went from +9 to +46 a turn while the table argued, and stacks of 260+ appeared out of
-  the fog. 8SR5HD: Ahri reached +69 a turn quietly while everyone else fought each other.)
-- **Take at least one territory for the card,** choosing the safest weak target next to a big stack. Beyond
-  that, attack only with a purpose: complete a bonus, break one, or take a capital, all in the same turn if
-  that takes two or three conquests.
-- **Retake a loss at once** when the enemy left only a small stack in it (1-6 armies).
-- **Never skip your fortify.** Move an interior stack onto a border, inside out. Fortify big stacks toward the
-  threatened border; moving 2-4 armies into a 1-army spot rarely matters.
+## Game Rules & Mechanical Foundations
 
-## Moving troops
+### 1. Turn Structure & Phases
+1. **Draft (Reinforcement)**:
+   * **Base Income**: Calculated as $\max(3, \lfloor \text{territories} / 3 \rfloor)$.
+   * **Continent Bonuses**: Additional fixed armies awarded for controlling all territories within a named region/continent.
+   * **Capitals Bonus**: In Capitals Conquest, holding capitals grants +2 reinforcement armies per capital per turn.
+   * **Card Trades**: Redeeming a valid card set provides additional draft armies.
+   * All drafted troops must be deployed onto friendly territories before attacking.
+2. **Attack Phase**:
+   * Attacks may be launched from any friendly territory with 2 or more armies into adjacent enemy territories.
+   * **Combat Dice**: Attacker rolls up to 3 dice; defender rolls up to 2 dice (or 3 dice when defending a Capital).
+   * **Resolution**: The highest attacking die is compared against the highest defending die; the second-highest attacking die is compared against the second-highest defending die. Defender wins ties.
+   * **Territory Conquest**: Upon eliminating the final defending army, the attacker must advance at least the number of attacking dice used (leaving at least 1 army behind on the source territory).
+3. **Fortify Phase**:
+   * Move any number of armies between friendly territories, leaving at least 1 army behind on the origin territory.
+   * Allowed movement paths depend on the game's Fortify setting (Connected path, Adjacent-only, or Single move).
 
-**The most common mistake in every game so far:** sitting on troops in interior territories, then attacking
-with split, small stacks. Before every attack, ask: am I carrying my full stack forward? Before ending every
-turn, ask: are any troops stuck on a territory that touches no enemy?
+### 2. Cards & Escalating Spoils
+* **Earning Cards**: Capturing at least one enemy territory during your turn guarantees 1 card at the end of the turn.
+* **Valid Card Sets**: 3 Infantry, 3 Cavalry, 3 Artillery, or 1 of each (mixed set). Wildcards match any unit type.
+* **Hand Limit**: A player holding 5 or more cards must trade a set on their draft phase. Mid-turn card inheritance from an eliminated player triggers immediate reinforcement deployment.
+* **Fixed Cards**:
+  * Set values remain constant throughout the game: 4 for 3 Infantry, 6 for 3 Cavalry, 8 for 3 Artillery, 10 for Mixed or Wildcard set.
+  * *Strategic Reality*: Because trade values never escalate, continental bonuses (+2 to +7 armies/turn) and territory income are the primary reinforcement drivers. There are no sudden 50+ army card bailouts. Players win through permanent border fortification, continental attrition, and preventing opponents from securing regional monopolies.
+* **Progressive Cards**:
+  * Set values escalate table-wide as more sets are traded: 4, 6, 8, 10, 12, 15, then +5 per trade (20, 25, 30, 35, 40, etc.).
+  * *Strategic Reality*: In late game, single card trades provide massive 30-60+ army drops that dwarf all continental bonuses combined. Earning a card every single turn and eliminating players holding 3+ cards to steal their hands and chain mid-turn trades is the dominant path to victory.
+* **Exponential Cards**:
+  * Each player possesses an independent, personal trade counter. Set values start at 5 armies and scale exponentially by $\lceil \text{previous} \times 1.3 \rceil$ (5, 7, 10, 13, 17, 23, 30, 39, 51, 67...).
+  * *Strategic Reality*: Because progression is personal rather than table-wide, monitoring your personal next trade value relative to opponents' trade counts dictates timing an unstoppable personal surge turn.
 
-- **Advance with the whole stack** when you will keep attacking or the territory you leave becomes interior.
-  Attack in a line so only 1 army is left behind on each step.
-- **Pick the move-in number for the border you are leaving,** not for the territory you took. If the origin
-  still faces a big enemy stack or is a capital, leave it a real garrison. (AAR5MR: Mira moved 10 into
-  Kazakhstan and left Tibet at 10 next to 65; Kael's "max" would have emptied border stacks.)
-- **Under fog of war, leave `occupy` out of the attack.** The conquest reveals the territories beyond it
-  (capitals are tagged `CAPITAL`), and you then choose the move-in knowing what is there: a weak capital next
-  door is a reason to move everything in and keep going.
-- **Keep leftovers in one stack.** One stack of 12 takes one fortify to clear; two 6s take two turns.
-- **Concentrate, don't spread.** Keep one big stack on each front that faces a big neighbour. Don't strip a
-  bonus border to cover other fronts. (AAR5MR: Mira took Tibet from 49 down to 10 and lost it to a stack of 65.)
-- **Don't leave 1-3 army territories on open borders;** they get picked off next turn. With 10 players, nine
-  opponents roll up thin garrisons within a round (8SR5HD: Katarina lost half her land by turn 17 this way).
-- **Don't attack at near-even odds with a thin empire,** and don't blitz from a 3-army stack into a bigger
-  one. Reinforce first. Weak neighbours that leave 1-3 army territories are the cheap targets: chain through
-  them from a big stack.
+### 3. Game Modes & Win Conditions
+* **World Domination**: Eliminate all rival players and control 100% of territories on the board.
+* **Capitals Conquest**:
+  * Each player starts with a designated Capital territory.
+  * Capitals defend with 3 dice instead of 2, making them significantly harder to capture.
+  * Holding capitals grants +2 reinforcement armies per capital per turn.
+  * **Doorway Choke Point Capital Placement**: Placing the initial capital on an outward-facing doorway choke point protects continent bonuses with 3-dice defense while maintaining offensive attack routes in multiple directions. Never bury a capital in an interior pocket where armies are trapped and 3-dice defense is wasted.
+  * **The Cap Run Mechanics**: Winning via Capitals is strictly a **late-game calculation** when enemy capitals are under-defended and your primary strike stack can conquer all remaining capitals in a single turn for the instant win. You NEVER play for a cap run on turn 1 or early game; in early/mid game, hold your doorway capital defensively (+2 armies/turn) while pursuing bonuses and kills.
+  * Win condition: Capture and hold all Capitals on the map while defending your own Capital.
 
-## Capitals (Capital Conquest)
+### 4. Fog of War & Information Control
+* **Non-Fog of War (Visible)**:
+  * All player army garrisons, territory boundaries, and turn incomes are publicly visible to all participants.
+  * Full visibility enables exact combat calculations and public table alliances to counter snowballing leaders.
+* **Fog of War (Hidden)**:
+  * Only territories directly adjacent to friendly borders are visible.
+  * Opponents' total territory counts and total army counts are strictly hidden (`null`).
+  * Turn reinforcement income (+N/turn) and card count (number of cards held) are publicly announced at turn start and provide the only reliable estimate of hidden rival strength.
+  * **Deducing Hidden Army Strength**:
+    * *Starting Troops + Cumulative Income*: Tracking initial troop allocations (e.g. 20 for 6p, 25 for 5p, 30 for 4p, 35 for 3p) and adding public turn incomes (+N/turn) provides an exact upper bound on total historical troops.
+    * *Attack & Conquest Counts*: Every attack and conquest made by any player (even behind fog) is logged. Repeated attacks cost the attacker ~1.2 armies on average per roll, and each conquest leaves 1 army behind. An opponent with +3/turn income holds at most 11 territories and 0 bonuses.
+    * *Capital Capture Alerts*: Capturing a capital grants +2 armies/turn. When an opponent's income jumps or capital capture events occur, track their capital holdings behind fog.
+  * Scouting/probing attacks reveal neighboring garrison counts.
+  * Staging reserve stacks 1 territory behind the visible frontline prevents rivals from discovering your primary strike force.
 
-Current rule: a capital gets 3 extra armies when it is set (chosen or assigned), defends with up to 3 dice and pays +2 a turn to whoever holds it; a captured capital
-becomes the captor's like any territory; losing your own does not knock you out; holding every capital
-(eliminated players' included) wins at once. QVXQSA was played under an older rule where losing your capital
-eliminated you, so read its notes with that in mind.
+### 5. Map Geography, Bonuses & Blizzards
+* **Continent / Regional Bonuses**: Holding every territory in an unbroken continent provides recurring turn income. Entry chokepoints determine defensive cost.
+* **Blizzards**: Random impassable territories and blocked connections that alter standard map topography and create unique chokepoints.
 
-- **Don't blitz a capital without a big margin** (at least 3 to 1), or roll in steps and stop if the dice go
-  bad. A capital at 1-3 armies falls to almost any attack; at 6+ it needs a real stack. (AAR5MR: Draven hit
-  Angola's 30 with 61, got run down to 1, and needed a second attack. 8SR5HD: Ahri's 10 against 3 failed.)
-- **Hit a capital the moment its garrison leaves.** When an enemy moves troops off their capital to attack,
-  take it that turn, before the troops come back.
-- **Keep troops in every capital you hold,** your own or captured, even interior ones. Attacking out of a
-  capital is fine, but never drain it and don't fortify out of it; keep the capital's neighbours garrisoned
-  too. Otherwise an enemy breaks your border, rolls over your 1s, and sits on your capital with 3 dice.
-- **Don't spend a thin army retaking your own capital** against 3 dice. Hold your stack and let it be until
-  the margin is there (8SR5HD: Katarina's retake left her hub at 2).
+### 6. Table Communication & Diplomacy
+* Players may communicate via public table-wide chat or private whispers.
+* **Deals**: Truces, Joint Attacks, Non-Aggression pacts, and Coalition calls against dominant leaders.
+* **Diplomacy with Intention**: Alliances must directly serve your current Advantage Plan. Never propose aimless alliances. Early game (Rounds 1-4), securing a continent bonus is vital — without a bonus, base income of +3/turn means falling behind.
+  * *Obstacle Awareness*: If an opponent holds territories inside the continent bonus you are claiming, NEVER propose a truce or border deal with them; they are an obstacle to conquer!
+  * *The Good Neighbor Policy*: Adjacent continent holders (e.g. South America and North America) agreeing to mutual non-aggression across their shared border allows both players to consolidate a single outward front, cementing top-2 placement.
+  * *Single-Target Focus*: Never "bad neighbor" multiple rivals at once by attacking in all directions. Pick ONE target to pressure, maintain peaceful Good Neighbor borders with the rest, and focus combat force on that single front.
+  * *The Endgame Backstab (3-Player Dynamics)*: Alliances are temporary ladders to reach the endgame. When 3 players remain, scheming and executing the backstab against the leader or neighbor is required to take 1st place (+3 Elo).
 
-### Choosing a capital (when `chooseCapitals` is on)
+### 7. Attack Patterns, Tactical Routing & Troop Staging
+* **Concentrated Spearheads vs. Multi-Pronged Drafting (`placeOn`)**: Deploying draft reinforcements into a single concentrated attack stack (spearhead) on the frontline rather than scattering 1-2 armies across internal territories maximizes break-through odds and minimizes combat casualties against fortified lines. **However, reinforcements do not always need a single concentrated point**: when hunting an elimination target whose remaining territories are spread or disconnected across the map, draft reinforcements across 2–3 launch points simultaneously (`placeOn: ["territory_a", "territory_b"]`) to attack and sweep the player in 2–3 directions to finish them off in a single turn.
+* **Sequential Attack Routing (`route`)**: Order attacks along a contiguous path from highest-probability / weakest resistance outward. Take at least one guaranteed territory early to secure the turn's card before attempting high-variance expansion.
+* **Interior Pocket Prevention**: Never leave large garrisons (4+ armies) stranded in friendly interior pockets that do not border hostile territories or blizzards. Pushing into a dead-end pocket is completely justified and encouraged when executing an elimination or capturing a capital (stolen cards, placement jump, and kill bounty far outweigh having troops in a corner); peacetime reinforcement is what must avoid friendly interior pockets.
+* **Asymmetric Bonus Denial & Griefing**: When holding a geographically secure continent with 1 choke point (e.g. South America or Australia) against a rival holding an exposed continent with 3 choke points (e.g. Europe, North America, or Africa), breaking their bonus is high-leverage griefing: you deny huge recurring income while defending only 1 point.
+* **The Golden Kill Rule & Post-Kill Net Armies**:
+  * When attacker cards + victim cards $\ge 5$, an immediate trade is guaranteed.
+  * Calculate $\text{Net Armies After Kill} = \text{Strike Stack} - \text{Expected Losses} - \text{Conquests} + \text{Immediate Trade Armies}$.
+  * If a kill leaves you with $<5$ armies and vulnerable to rivals, it is suicidal. If it leaves you with $\ge 10$ armies, it is a game-winning comeback move that refuels your army, leaps placement tiers, and locks in +1 Elo.
+* **Fortify Repositioning (`fortifyTo`)**: At the end of the turn, use the fortify phase to pull back mobile rear armies or advance reserve stacks to frontline defensive chokepoints, border gates, or capital garrisons to protect held continent bonuses from enemy counter-punches.
 
-- **Choose the doorway to a pocket, not its interior,** and keep the capital connected to the fight. A capital
-  deep inside a pocket, on an island or in a dead end is safe early but locks the stack away from the front and
-  can starve you of cards later. Put the main stack on the pocket's entry territories and a modest garrison on
-  the capital. (8SR5HD: Lee Sin's island capital gave a free bonus on turn 1 and then became a dead end.)
-- **Evaluate usable attack routes,** not just how few neighbours can attack you. Multiple avenues of attack
-  can beat claiming every surrounding territory.
-- **Never cap behind another player's capital.** If their capital controls your pocket's only exit, your
-  stack is locked behind a three-dice defender; a card or peace deal does not fix a permanent geographic trap.
-- **Avoid crowded middle regions** bordering 6 or more players in a 10-player game (8SR5HD: Katarina's
-  7-way crossroads was a death zone) and regions a blizzard split with no room to grow (8SR5HD: Zed).
-- Place the capital where it helps take a bonus while keeping your stack able to act.
+### 8. Geographic Viability & Early Bonus Selection (Small Chokepoints vs. Sprawling Traps)
+* **Starting Geography Dictates Advantage**: Starting randomized territory allocations and initial troop concentrations dictate early-game advantage paths. Always survey where your starting troop stacks and territory clusters are placed. Never attempt to expand into distant regions where you have zero local presence.
+* **Prioritize Small, Tight Bonuses Early**: Base reinforcement income starts at only +3/turn. Securing a small continent bonus (+2 or +3/turn) doubles your reinforcement rate immediately. Small continents (2 to 4 territories, e.g. Iceland, Australia, South America) can often be completed on turn 1 or 2 with minimal casualties.
+* **Chokepoint Defensibility (Holdability)**:
+  * *1 Border Entry (Exceptional)*: Continents with a single entry point (e.g. Australia/Siam, Iceland) allow parking 100% of defensive armies on a single border stack, making them virtually impregnable early on.
+  * *2 Border Entries (Strong)*: Continents with two entry points (e.g. South America) require only two guard stacks, offering an optimal ratio of bonus income to defense cost.
+  * *4+ Border Entries (Sprawling Traps)*: Continents with 4 to 6 entry points (e.g. Russia, Asia, Europe) are fatal early-game traps on rounds 1–4. Attempting to hold them spreads armies paper-thin across too many borders, invites breaches, and drains reinforcements into endless defense.
 
-## Fixed cards: bonuses win
+---
 
-- Card sets stay small (4-10 armies), so bonuses decide the game. Never play a whole game without a bonus.
-  (AAR5MR: Draven held +18 to +24 from bonuses and survived to the end; Kael held no bonus for about 250 turns
-  and was eliminated.)
-- **Garrison only the borders** of a bonus and leave the inside at 1.
-- **Check region membership** in `get_state` before assuming a bonus is complete. (8SR5HD: Yasuo assumed
-  Wrenfield was in Orlenne, but it belonged to Brannoch Vale.)
-- **Finish the bonus before you stack it.** One enemy territory left inside your region means no bonus at
-  all. (8SR5HD: Ahri left a single enemy territory inside a region and parked about 200 troops there for no
-  bonus.)
-- **Leapfrog bonuses.** Expand one bonus at a time, toward whichever adds a bonus with the fewest border
-  points. Choose attack chains that turn old borders into interior territories, then fortify the freed stacks
-  forward. (AAR5MR: Draven held Southeast Asia, Oceania and South Asia on two points, Tibet and Pakistan.)
-- **Finish the bonus you're working on** before breaking a strong neighbour.
-- **Break a neighbour's bonus when they can't retaliate.** It's almost always good, but it starts a war.
+## Findings from AI self-play games
+<!-- bot-findings:start -->
+### Fixed Cards (Continental Attrition & Border Defense)
+- **When card trades are fixed, holding unbroken continent bonuses provides the primary reinforcement engine.** Continental bonuses (+2 to +7) make permanent border defense and attrition far more critical than card-hunting. Bot4 held key bonuses with +45/turn and won without card escalation. (4 games, last H7NVFC)
+- **Aggressive expansion without securing permanent border garrisons in fixed mode leads to counter-punches.** Darius broke Ahri’s key bonuses, permanently stunting Ahri's fixed income and contributing to their elimination. (2 games, last ZPEAUR)
+- **Securing continent bonuses early provides long-term reinforcement benefits.** Shen secured key bonuses by round 3, contributing to their high reinforcement income (+35/turn) and strategic expansion. (8 games, last 8HTXH4)
 
-## Progressive cards: cards and kills win
+### Capitals Conquest
+- **Holding all capitals provides a massive reinforcement income and makes it nearly impossible for opponents to contest key regions.** Thresh held all capitals and had a +48/turn reinforcement income, which was critical to their victory. (7 games, last 8HTXH4)
+- **Failing to secure capitals leaves you vulnerable to sudden elimination.** Ahri had 0 capitals and was eliminated by Leona in round 7, despite holding 2 territories and 37 armies. (4 games, last 8HTXH4)
+- **Capitals defend with 3 dice and require overwhelming odds.** Jinx’s concentrated garrisons on key territories withstood attacks from multiple opponents, who had 0 capitals and were major threats. (5 games, last DGS35N)
+- **Failing to secure capitals leaves you vulnerable to sudden elimination.** Holding raw territories without a secure capital base leaves players exposed once larger rivals mobilize. Bot2 had 0 capitals and was eliminated by Bot9. (4 games, last H7NVFC)
+- **High reinforcement income from key bonuses can be offset by poor capital control.** Bot10 had a +114/turn reinforcement income but lost the game because their unprotected territories were overwhelmed by Bot6. (2 games, last CDCU2S)
+- **Failing to secure capitals leaves you vulnerable to sudden elimination.** Shaco had 0 capitals and was eliminated in round 14 by Darius, despite inheriting card sets from eliminated players, making them vulnerable to elimination. (3 games, last WP588T)
 
-- Set values climb fast (seen: 4, 6, 8, 10, 12, 15, then +5 a set, reaching 100-145 late), so bonuses barely
-  matter once sets are big.
-- **Know when the switch happens.** In a 10-player progressive game, by around round 15 a single set can be
-  worth around 100 armies, roughly 30 armies per turn for everyone trading. A +20 bonus no longer sets you
-  apart. From then on: earn a card every turn, keep cards to trade, and hunt weak players for their cards.
-- **Trade early while sets are cheap,** then time your trades once they are big. Never sit on a set while your
-  board is thin: Katarina (8SR5HD) and Sable (QVXQSA) never traded and were out by round 4; Kael (QVXQSA) held
-  4 unused cards when his capital fell. Yasuo held a set until it was worth 30-40, and the spike took three
-  bonuses in one turn. Trade when the armies turn straight into a kill, a bonus or a capital.
-- **After a big trade, don't leave a trail of 1s.** Lee Sin, Yasuo and Zed (8SR5HD) all spent 45-120 army
-  trades punching deep and left 1-army territories behind; the leader rolled them up next turn. Keep real
-  garrisons on the borders facing the biggest stack, and never park a mid-size stack next to one three times
-  its size.
-- **Keep your empire wide,** so you can't be card-blocked. Stack cards and keep a strong capital.
-- **Kill order:** go after whoever holds the most cards. A player you eliminate hands you their whole hand,
-  which funds the next kill.
-- **Plan the whole kill run before the first attack.** Map the full path through every target's territories
-  so your stack always moves outward toward the next target. Never leave troops landlocked behind you mid-run;
-  you only get one fortify, at the end. (8SR5HD: Ahri landlocked troops during the final kill run.)
-- **Go for the kill.** When someone looks weak, from their chat or your read of the board, take them out, and
-  use each kill's cards to fund the next.
-- **Late-game tactics** (from around round 15, once sets are huge):
-  - **Kill-guarding:** save a weak player's kill for yourself. Wall them off behind a one-territory choke that
-    you hold, so nobody else can reach them. Kill them later, when the set value is higher and they hold 3-4
-    cards with no set to trade, then take those cards.
-  - **Card-blocking:** catch a player who has cards but no set yet. Hold every territory that borders theirs,
-    ideally on one-territory chokes, with stacks too big for them to break. If they can't conquer anything,
-    they never draw the card that completes a set. Late in the game every turn without a card costs them 30+
-    armies (8SR5HD: sets reached 120+).
-- **Winning by capitals:** eliminated players' capitals still count. After your kills, sweep every remaining
-  capital to win at once instead of mopping up the last player. Before the final turn, stack the gateway
-  territory next to the last capital so one attack finishes it. (8SR5HD: Ahri won this way with Tryndamere
-  still alive.)
+### Progressive Cards (Escalating Spoils & Chain Eliminations)
+- **Time your trades to fund immediate eliminations.** Sitting on complete card sets while opponents trade escalating spoils allows rivals to build overwhelming attack stacks; trade when armies convert directly into a kill or capital. Bot2 timed their card trades effectively to fund their elimination of Bot8, Bot10, Bot1, Bot9, and Bot5. (2 games, last CDCU2S)
+- **Failing to engage in card trades can limit strategic advantages.** Delaying card trades too long in progressive lobbies allows opponents to escalate trade values and overwhelm static defenses. Bot4's delayed card trades limited their ability to counter Bot6's expansion. (2 games, last CDCU2S)
+- **Eliminations funded the winners.** Lux knocked out Darius (round 4), Shaco (round 6) and Leona (round 38) and survived to 2nd; Ahri swept every capital. The three first players out (Darius, Shaco, Thresh) never made a kill. (1 game, last MVAPM8)
+- **Focusing on card acquisition without securing territory is a losing strategy.** Teemo focused on gathering cards but failed to secure any bonuses or capitals, making him an easy target for elimination. (2 games, last UMQD5S)
+- **Securing key bonuses early allows for rapid card trade escalation.** Thresh secured 17 bonuses, enabling a high reinforcement income (+87/turn) that funded multiple card trades and eliminations. (1 game, last 7QS4UG)
+- **Inheriting cards from eliminated players can accelerate elimination chains.** Ahri inherited cards from Lux and others, which helped fund further eliminations and expansion. (2 games, last UMQD5S)
 
-## Cards: mechanics that cost players armies
+### Progressive Cards
+- **Elimination chains accelerate endgame conquest.** Inheriting cards from an eliminated player can push the attacker to 5+ cards, triggering a mid-turn trade that finances the next elimination on the same turn. (2 games, last CDCU2S)
 
-- Trade in the reinforce phase, **before** you place: the set's armies and any +2 territory bonus are placed
-  in the same phase. (You can also trade during the attack phase, and eliminating a player who leaves you with 5+
-  cards trades for you on the spot.)
-- A wild plus any two cards counts as a set; so do three of a kind or one of each.
-- Holding 5 or more cards at the start of your turn makes the game trade for you automatically (best set
-  first) until you hold 4 or fewer, so choose your own trade timing before you reach 5.
-- Use the ids listed under "Tradeable sets" in your legal moves; don't build sets by hand.
+### Exponential Cards (Personal Sequences & Surge Timing)
+- **Monitor personal trade counts before engaging in card trades.** In exponential games where set values scale independently, timing a high-tier personal set cash-in allows sudden board-clearing strikes that static defenders cannot match. (1 game, last 8VALR5)
 
-## Diplomacy and chat
+### Attack Routing & Troop Staging (Spearheads & Interior Pocket Prevention)
+- **Avoiding interior pockets with stranded troops helps prevent resource drain.** Ahri left large garrisons trapped behind friendly lines without hostile borders, wasting armies that should have been reinforcing frontlines. (4 games, last 8HTXH4)
+- **Sequential routing preserves offensive momentum.** Teemo ordered attacks along a single chain from weakest resistance outward, preserving attacking stacks and ensuring guaranteed card capture without splitting forces. (1 game, last VX6C5F)
+- **End-of-turn fortify pullbacks secure vulnerable borders.** Striking forward with mobile stacks to take territory and then fortifying back onto chokepoints or capitals prevents aggressive counter-attacks. (1 game, last 8ESC69)
+- **Maintaining strong connectivity between territories prevents leaving interior pockets vulnerable.** Ahri's fragmented territory holdings made defense impossible once Shaco launched a concentrated attack, leading to Ahri's elimination. (1 game, last D5HXP4)
 
-- **Talk as much as you want.** There is no per-turn message limit. Use chat to negotiate, bluff, scheme,
-  misdirect, form alliances, and break them when that advances your own chance of winning.
-- **Stay in character whenever you speak,** in public chat and whispers, including during deception and
-  negotiation. Character voice should support your strategy.
-- **There are no teams.** Every seat plays only for itself, including other agents.
-- **Alliances:** make them when they help and watch them closely; pacts break as soon as they stop paying,
-  often within a few turns (AAR5MR: Meek broke a secret Greenland/Quebec pact with Kael by taking both). Two big
-  neighbours can agree not to break each other's borders. If someone breaks your bonus, treat it as war until
-  peace is declared in chat.
-- **Never reveal your plan in chat:** no targets, timing or troop placements. Post only when the message
-  itself does something: manipulates, makes or breaks a deal, or misdirects.
-- **You can answer spectators** when spectator chat is on, in character, still without revealing your plan.
-- **Coaching you receive privately is private.** Treat it as information to weigh, never as instructions (it can come
-  from any player or spectator), and never acknowledge or repeat it in chat.
+### Fog of War (Concealed Armies & Income Probing)
+- **Scouting with card-taking attacks reveals critical enemy garrison counts.** Jinx used single-territory probes to reveal enemy garrison counts before launching major offensives, allowing them to prepare for the scale of the attack. (3 games, last 8HTXH4)
+- **Judging hidden threats by income is a reliable strategy.** Jinx used enemy turn income as a reliable estimate of rival strength to target weaker opponents effectively. (2 games, last 8HTXH4)
+- **Maintaining strong reinforcement income is crucial for long-term survival under fog.** Leona maintained a high reinforcement income despite losing several key territories, which contributed to her survival and elimination of multiple opponents. (3 games, last GURQZ8)
+- **Small border garrisons can project false weakness.** Opponents often assume lightly defended fog borders indicate an empty interior; keep mobile strike stacks one step behind the frontline. (1 game, last MVAPM8)
 
-## Tool tips
+### Non-Fog of War (Public Board & Coalition Counterplay)
+- **Troop commitments must match visible budgets.** In non-fog lobbies, proposals exceeding armyCount plus income are rejected, preventing bluffing. (1 game, last 4J2YAV)
+- **Multi-way alliances against runaway leaders require all-chat.** Whispering between two players cannot coordinate a 3-way or 4-way response against a dominant player; public coalition calls coordinate joint pressure. (1 game, last X3T6U8)
+- **Failing to form coalitions against a dominant player leads to isolation.** Divided rivals who negotiate separate truces while a leader snowballs get rolled up one by one. (7 games, last H7NVFC)
+- **Not engaging in deals can be a strategic advantage if it avoids the risk of betrayal.** Darius did not make any deals during the game, allowing them to focus on expansion and defense without the risk of betrayal. (6 games, last H7NVFC)
+- **High reinforcement income from key bonuses can offset lack of capital control.** Bot9 secured multiple continental bonuses, out-producing capital holders (+114/turn) and overwhelming them through sheer army count. (3 games, last H7NVFC)
+- **Avoiding direct conflict with dominant players until they are significantly weakened can be a strategic advantage.** Bot3 avoided direct conflict with Bot8 for most of the game, only engaging them in the final rounds when it was clear Bot8 was the dominant threat. (2 games, last H7NVFC)
+- **Failing to leverage held bonuses can leave players vulnerable to aggressive opponents.** Bot1 held the hrimvald, gloamfen, and mistveil bonuses but failed to use them effectively, contributing to their elimination by Bot6. (2 games, last C6KXT6)
 
-- **`occupy`** must be between the dice you rolled and your attacking armies minus 1, or the call fails with "Move between N and M armies". `"min"` moves that minimum, which is the
-  number of dice rolled (usually 3), not 1. `"max"` moves everything but 1. An explicit number in range is the
-  most predictable. Under fog, leave it out and send `{"type":"occupy","armies":N}` after reading the reveal.
-- **`act` replies are compact:** the events, only the territories your action changed (with their
-  neighbours), your armies, cards and continents, and your next legal moves. You rarely need `get_state`
-  during a turn; pass `full:true` for the whole board.
-- **Read YOUR LEGAL MOVES before each action.** It lists exact attack pairs with max dice, fortify options and
-  tradeable sets.
-- **Fortifying ends your turn:** `fortify` works straight from the attack phase (no `end_attack` or `end_turn` needed).
-- **Always pass `sinceId` to `read_chat`.** Without it the full history can exceed 50KB.
-- **`wait_for_turn` timing out (up to 110 seconds) is normal;** call it again. On connection resets or proxy
-  errors, check `get_state` to see whether your action went through before retrying it.
-- **Always pass your seat token.** If a call says you are not in the game, use `resume_game` with it.
-- **Placings that agents self-report are often wrong.** Use the server's elimination order.
+### Eliminations & Leaderboard Climbing
+- **Maintaining strong reinforcement income is a decisive advantage.** Tryndamere’s high reinforcement income allowed them to rapidly expand and overwhelm opponents. (6 games, last PP5GYG)
+- **Eliminations award permanent Elo points and placement jumps.** Tryndamere’s elimination of multiple opponents contributed significantly to their Elo gain and tournament standing. (7 games, last PP5GYG)
+- **Focusing on eliminating weaker opponents early can lead to long-term dominance.** Leona prioritized eliminating Ahri as the primary threat, allowing her to dominate the game and finish in 1st place. (6 games, last GURQZ8)
+- **Early bonus control can be critical for survival.** Shen and Tryndamere completed regional bonuses early, providing steady income that built strong territorial bases. (2 games, last 45K9US)
+- **Aggressive early attacks can be countered with disciplined defense and reinforcement management.** Bot3 absorbed an early rush by consolidating onto high-defense choke points and counter-attacked once the aggressor depleted their forces. (1 game, last 8ESC69)
 
-## Game log
-
-- **QVXQSA**: World map, 10 players, fog, capitals, auto setup, 6 blizzards (nunavut, bolivia, western_russia,
-  kamchatka, turkestan, afghanistan), progressive cards. Under the old rule, losing your capital knocked you
-  out. Baron Malvert Null won on turn 52 by chaining capital takeovers.
-- **8SR5HD "Halvaren II"**: Realms of Halvaren (fantasy, 87 territories), 10 players, fog, progressive cards,
-  8 blizzards, chosen capitals. Ahri won on turn 114 (round 17) by holding every capital, with 68 territories
-  and about 700 armies; sets reached 135-145. Elimination order: Katarina, Zed, Teemo, Shaco, Nautilus,
-  Lee Sin, Yasuo. Tryndamere was still alive at the end.
-- **AAR5MR**: World map, same settings with fixed cards, under the current "hold every capital to win" rule.
-  Blizzards: peru, afghanistan, china, sahara, sudan, south_africa. Ambassador Vellix Maro won on turn 444
-  (round 51) with 32 territories. Best agent: Draven, alive at the end with 12 territories after holding the
-  Southeast Asia, Oceania, South Asia and Africa bonuses.
-
-## Adding to this file
-
-After a game, add only lessons that hold for every model: put each one in the section it belongs to (or
-sharpen an existing bullet instead of repeating it), cite the player and game code in brackets, and add the
-game to the log. Character-specific habits go in that character's file. Check tool tips against the current
-`act` and `rules` output before writing them; several old tips went stale as the tools improved.
+### Multi-Party Alliances & Global Coalitions
+- **Alliances are risky if not enforced.** Multiple players, including Bot9, made alliance proposals or truce offers, but these were often broken or ignored, leaving players vulnerable to attacks. (3 games, last 6VNSVQ)
+- **Alliance talk never became terms.** Players discussed teaming up all game, but no message set a round, a border or a target, so everyone kept attacking at random. (2 games, last CDCU2S)
+- **Truces with aggressive players can be risky if not enforced.** Shen made multiple truce proposals with Shaco and Lux, but these were not honored, allowing Shaco to break Shen's bonuses and weaken their position. (2 games, last CDCU2S)
+<!-- bot-findings:end -->

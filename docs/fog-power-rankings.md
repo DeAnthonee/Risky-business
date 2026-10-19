@@ -38,9 +38,13 @@ $$\text{Estimated Armies} = \max\Big(\text{Visible Armies}, \max\big(3, \text{St
 * **Starting Armies**: Baseline pool determined by the map configuration (e.g., 20 armies for 6 players on Classic or Europe).
 * **$\sum \text{Cumulative Income}$**: Every turn, when an opponent starts their turn, their received reinforcement count is added to `cumulativeIncome`.
 * **$\text{Trade Armies}$**: 
-  * Under **Fixed Cards**: Each card trade awards $\approx 7$ troops.
-  * Under **Progressive Cards**: Card trade value scales with the global trade count:
-    $$\text{Trade Value} = (2 \times \text{tradeCount}) + 4$$
+  * Under **Fixed Cards**: Each card trade awards $\approx 7$ troops (4 for infantry, 6 for cavalry, 8 for artillery, 10 for any mixed set; empirical average $\approx 7$).
+  * Under **Progressive Cards**: Card trade values are table-wide and scale with the global `view.tradeCount`:
+    $$\text{Trade Value} = \text{nextTradeValue}('progressive', \text{view.tradeCount})$$
+    (Sequence: 4, 6, 8, 10, 12, 15, 20, 25, 30... advancing by +5 per trade after trade 5).
+  * Under **Exponential Cards**: Card trade values scale per-player based on personal trades made ($\text{stats.cardTrades}$):
+    $$\text{Trade Value} = \sum_{i=0}^{\text{stats.cardTrades}-1} \text{exponentialTradeBonus}(i)$$
+    where each trade bonus scales by $\approx 1.3^n$ (e.g. 4, 7, 11, 15...).
 * **$\text{Combat Losses}$ (Attrition Model)**:
   Every battle rolled has an attacking attrition cost. Based on empirical dice probability formulas (balanced blitz & true random):
   $$\text{Losses} \approx (\text{Total Attacks} \times 1.2) + (\text{Total Conquests} \times 1.0)$$
@@ -74,14 +78,37 @@ The AI inspects its own visible borders:
 
 ---
 
-## 4. Card Surge & Threat Spike Projections
+## 4. Card Surge, Trade Value Formulas & Effective Power
 
-Card count is public information even when territory holdings are hidden. The AI evaluates each opponent's card threat:
+Card count is public information even when territory holdings are hidden. When combined with the game's card mode rules, the AI calculates the **Upcoming Trade Value** and **Effective Power Score** for every opponent.
 
-* **0–2 Cards**: Minimal immediate burst potential. Opponent must rely entirely on base turn income.
-* **3 Cards**: **Set Potential (33%–80% probability)**: Opponent could hold three matching designs or three different designs. High alert for a sudden turn trade.
-* **4 Cards**: **High Probability Set (>80%)**: Opponent almost certainly holds a tradeable set.
-* **5 Cards**: **Forced Trade Alert (100% Guaranteed)**: Under Risk rules, a player with 5 cards *must* trade on their turn. They will gain $+4$ to $+20+$ armies instantly.
+### Deterministic Trade Values Under Fog:
+1. **Progressive Mode**:
+   - Telemetry source: `view.tradeCount` (global, public).
+   - Upcoming trade value: `nextTradeValue('progressive', view.tradeCount)`.
+   - All players trade on the same global escalating ladder. If `view.tradeCount = 7`, the next trade is guaranteed to yield **25 armies** regardless of who trades.
+2. **Exponential Mode**:
+   - Telemetry source: `stats.cardTrades` (per-player, tracked from all public/fogged `traded` events).
+   - Upcoming trade value: `nextTradeValue('exponential', view.tradeCount, stats.cardTrades)` or `exponentialTradeBonus(stats.cardTrades)`.
+   - Players advance along their own individual sequence (scaling by $\approx 1.3^n$). An opponent who has traded 3 times will receive their personal 4th trade value.
+3. **Fixed Mode**:
+   - Baseline: 4, 6, 8, or 10 armies (expected average $\approx 7$).
+
+### Set Probability & Effective Power Formula:
+Inside `packages/runner/src/game-memory.ts`, the function `getEffectivePower(pid, view)` computes:
+
+$$\text{Effective Power} = \text{Estimated Standing Armies} + \big(P(\text{Trade Set}) \times \text{Upcoming Trade Value}\big)$$
+
+Where $P(\text{Trade Set})$ is derived from combinatorial card design distribution:
+* **$\le 2$ Cards**: $P = 0.0$ (impossible to trade).
+* **3 Cards**: $P \approx 0.40$ (40% probability of holding 3-of-a-kind or 1-of-each).
+* **4 Cards**: $P \approx 0.85$ (85% probability of holding a valid tradeable set).
+* **5 Cards**: $P = 1.0$ (**Forced Trade Alert**: Under Risk rules, 5 cards guarantees a set and *requires* an immediate trade on their next turn).
+
+### Why Effective Power is Critical:
+Without factoring in card trades, an opponent with 12 standing armies appears weak. But in late-game Progressive play where `nextTradeValue = 25`:
+$$\text{Effective Power} = 12 + (1.0 \times 25) = 37 \text{ armies!}$$
+An AI attacking their border would face an immediate 37-army counter-attack. Factoring in Progressive and Exponential trade values prevents the AI from falsely assessing a 5-card opponent as "vulnerable."
 
 ### Kill EV vs. Card Power
 When an opponent has low estimated armies ($\le 12$) but holds **4–5 cards**, their **Kill Expected Value (EV)** spikes to the maximum tier. Eliminating them awards their entire hand, immediately granting a trade-in that refuels the attacker's army while eliminating a rival for $+1$ Elo.

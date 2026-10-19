@@ -42,7 +42,11 @@ async function snapshot(genName) {
   if (existsSync(src)) {
     await copyFile(src, dstRisk);
     await copyFile(src, dstLocal);
-    log(`Snapshotted ${genName}: ${dstRisk} and ${dstLocal}`);
+    try {
+      await copyFile(src, path.join(LOCAL_DIR, 'RISK_LEARNINGS.md'));
+      await copyFile(src, path.join(LOCAL_DIR, 'AI', 'general-player', 'risk-learnings.md'));
+    } catch {}
+    log(`Snapshotted ${genName}: ${dstRisk} and ${dstLocal} (and synced to repo RISK_LEARNINGS.md)`);
   } else {
     log(`Warning: source file ${src} does not exist for snapshot`);
   }

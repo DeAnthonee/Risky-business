@@ -2,6 +2,7 @@ import { rankLeaderboard } from '@risk/engine';
 import { updateExperience } from './experience.js';
 import { addPersonalityMemory, withLearningLock } from './shared-memory.js';
 import { copyFile, mkdir, readFile, rename, writeFile, appendFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import type { GameOptions, GameView, PlayerId } from '@risk/engine';
 import { getMap } from '@risk/engine';
@@ -908,7 +909,39 @@ export async function curateLearnings(i: CurateInput): Promise<'updated' | 'kept
     await mkdir(i.learningsDir, { recursive: true });
   }
   await writeAtomic(file, next);
+  await syncLearningsToRepo(file, i.log);
   return 'updated';
+}
+
+function findRepoRoot(startDir: string = process.cwd()): string {
+  let curr = path.resolve(startDir);
+  while (curr !== path.dirname(curr)) {
+    if (existsSync(path.join(curr, '.git')) || existsSync(path.join(curr, 'pnpm-workspace.yaml'))) {
+      return curr;
+    }
+    curr = path.dirname(curr);
+  }
+  return process.cwd();
+}
+
+async function syncLearningsToRepo(sourceFile: string, log?: (line: string) => void): Promise<void> {
+  if (process.env.VITEST) return;
+  try {
+    const text = await readFile(sourceFile, 'utf8');
+    const repoRoot = findRepoRoot();
+    const targets = [
+      path.resolve(repoRoot, 'RISK_LEARNINGS.md'),
+      path.resolve(repoRoot, 'AI', 'general-player', 'risk-learnings.md'),
+    ];
+    for (const target of targets) {
+      if (path.resolve(sourceFile) !== target) {
+        await mkdir(path.dirname(target), { recursive: true });
+        await writeFile(target, text, 'utf8');
+      }
+    }
+  } catch {
+    // If source file does not exist yet or cannot be read, nothing to mirror
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -961,13 +994,21 @@ async function runPostGameLocked(i: PostGameInput): Promise<PostGameOutput> {
   const leaderboardMarkdown = formatLeaderboardMarkdown(leaderboard);
   try {
     await writeFile(path.join(i.learningsDir, 'LEADERBOARD.md'), leaderboardMarkdown, 'utf8');
-    const localLb = path.resolve('LEADERBOARD.md');
-    if (path.resolve(path.join(i.learningsDir, 'LEADERBOARD.md')) !== localLb) {
-      await writeFile(localLb, leaderboardMarkdown, 'utf8');
+    if (!process.env.VITEST) {
+      const repoRoot = findRepoRoot();
+      const localLb = path.resolve(repoRoot, 'LEADERBOARD.md');
+      if (path.resolve(path.join(i.learningsDir, 'LEADERBOARD.md')) !== localLb) {
+        await writeFile(localLb, leaderboardMarkdown, 'utf8');
+      }
     }
   } catch (e) {
     i.log(`Warning: could not write LEADERBOARD.md: ${(e as Error).message}`);
   }
+
+  try {
+    const srcLearnings = path.join(i.learningsDir, 'RISK_LEARNINGS.md');
+    await syncLearningsToRepo(srcLearnings, i.log);
+  } catch {}
 
   const notes = await Promise.all(
     i.seats.map((s) => {

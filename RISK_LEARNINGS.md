@@ -84,7 +84,7 @@ Fundamental rules, mechanics, and tournament scoring for the Risk engine, follow
   * *The Endgame Backstab (3-Player Dynamics)*: Alliances are temporary ladders to reach the endgame. When 3 players remain, scheming and executing the backstab against the leader or neighbor is required to take 1st place (+3 Elo).
 
 ### 7. Attack Patterns, Tactical Routing & Troop Staging
-* **Concentrated Spearheads (`placeOn`)**: Deploying draft reinforcements into a single concentrated attack stack (spearhead) on the frontline rather than scattering 1-2 armies across internal territories maximizes break-through odds and minimizes combat casualties.
+* **Concentrated Spearheads vs. Multi-Pronged Drafting (`placeOn`)**: Deploying draft reinforcements into a single concentrated attack stack (spearhead) on the frontline rather than scattering 1-2 armies across internal territories maximizes break-through odds and minimizes combat casualties against fortified lines. **However, reinforcements do not always need a single concentrated point**: when hunting an elimination target whose remaining territories are spread or disconnected across the map, draft reinforcements across 2–3 launch points simultaneously (`placeOn: ["territory_a", "territory_b"]`) to attack and sweep the player in 2–3 directions to finish them off in a single turn.
 * **Sequential Attack Routing (`route`)**: Order attacks along a contiguous path from highest-probability / weakest resistance outward. Take at least one guaranteed territory early to secure the turn's card before attempting high-variance expansion.
 * **Interior Pocket Prevention**: Never leave large garrisons (4+ armies) stranded in friendly interior pockets that do not border hostile territories or blizzards. Pushing into a dead-end pocket is completely justified and encouraged when executing an elimination or capturing a capital (stolen cards, placement jump, and kill bounty far outweigh having troops in a corner); peacetime reinforcement is what must avoid friendly interior pockets.
 * **Asymmetric Bonus Denial & Griefing**: When holding a geographically secure continent with 1 choke point (e.g. South America or Australia) against a rival holding an exposed continent with 3 choke points (e.g. Europe, North America, or Africa), breaking their bonus is high-leverage griefing: you deny huge recurring income while defending only 1 point.
@@ -94,60 +94,70 @@ Fundamental rules, mechanics, and tournament scoring for the Risk engine, follow
   * If a kill leaves you with $<5$ armies and vulnerable to rivals, it is suicidal. If it leaves you with $\ge 10$ armies, it is a game-winning comeback move that refuels your army, leaps placement tiers, and locks in +1 Elo.
 * **Fortify Repositioning (`fortifyTo`)**: At the end of the turn, use the fortify phase to pull back mobile rear armies or advance reserve stacks to frontline defensive chokepoints, border gates, or capital garrisons to protect held continent bonuses from enemy counter-punches.
 
+### 8. Geographic Viability & Early Bonus Selection (Small Chokepoints vs. Sprawling Traps)
+* **Starting Geography Dictates Advantage**: Starting randomized territory allocations and initial troop concentrations dictate early-game advantage paths. Always survey where your starting troop stacks and territory clusters are placed. Never attempt to expand into distant regions where you have zero local presence.
+* **Prioritize Small, Tight Bonuses Early**: Base reinforcement income starts at only +3/turn. Securing a small continent bonus (+2 or +3/turn) doubles your reinforcement rate immediately. Small continents (2 to 4 territories, e.g. Iceland, Australia, South America) can often be completed on turn 1 or 2 with minimal casualties.
+* **Chokepoint Defensibility (Holdability)**:
+  * *1 Border Entry (Exceptional)*: Continents with a single entry point (e.g. Australia/Siam, Iceland) allow parking 100% of defensive armies on a single border stack, making them virtually impregnable early on.
+  * *2 Border Entries (Strong)*: Continents with two entry points (e.g. South America) require only two guard stacks, offering an optimal ratio of bonus income to defense cost.
+  * *4+ Border Entries (Sprawling Traps)*: Continents with 4 to 6 entry points (e.g. Russia, Asia, Europe) are fatal early-game traps on rounds 1–4. Attempting to hold them spreads armies paper-thin across too many borders, invites breaches, and drains reinforcements into endless defense.
+
 ---
 
 ## Findings from AI self-play games
 <!-- bot-findings:start -->
 ### Fixed Cards (Continental Attrition & Border Defense)
 - **When card trades are fixed, holding unbroken continent bonuses provides the primary reinforcement engine.** Continental bonuses (+2 to +7) make permanent border defense and attrition far more critical than card-hunting. Bot4 held key bonuses with +45/turn and won without card escalation. (4 games, last H7NVFC)
-- **Aggressive expansion without securing permanent border garrisons in fixed mode leads to counter-punches.** Bot6 broke Bot1’s Scandinavia and Dinaric Alps bonuses, permanently stunting Bot1's fixed income and contributing to their elimination. (1 game, last YLFZU9)
+- **Aggressive expansion without securing permanent border garrisons in fixed mode leads to counter-punches.** Darius broke Ahri’s key bonuses, permanently stunting Ahri's fixed income and contributing to their elimination. (2 games, last ZPEAUR)
+- **Securing continent bonuses early provides long-term reinforcement benefits.** Shen secured key bonuses by round 3, contributing to their high reinforcement income (+35/turn) and strategic expansion. (8 games, last 8HTXH4)
+
+### Capitals Conquest
+- **Holding all capitals provides a massive reinforcement income and makes it nearly impossible for opponents to contest key regions.** Thresh held all capitals and had a +48/turn reinforcement income, which was critical to their victory. (7 games, last 8HTXH4)
+- **Failing to secure capitals leaves you vulnerable to sudden elimination.** Ahri had 0 capitals and was eliminated by Leona in round 7, despite holding 2 territories and 37 armies. (4 games, last 8HTXH4)
+- **Capitals defend with 3 dice and require overwhelming odds.** Jinx’s concentrated garrisons on key territories withstood attacks from multiple opponents, who had 0 capitals and were major threats. (5 games, last DGS35N)
+- **Failing to secure capitals leaves you vulnerable to sudden elimination.** Holding raw territories without a secure capital base leaves players exposed once larger rivals mobilize. Bot2 had 0 capitals and was eliminated by Bot9. (4 games, last H7NVFC)
+- **High reinforcement income from key bonuses can be offset by poor capital control.** Bot10 had a +114/turn reinforcement income but lost the game because their unprotected territories were overwhelmed by Bot6. (2 games, last CDCU2S)
+- **Failing to secure capitals leaves you vulnerable to sudden elimination.** Shaco had 0 capitals and was eliminated in round 14 by Darius, despite inheriting card sets from eliminated players, making them vulnerable to elimination. (3 games, last WP588T)
 
 ### Progressive Cards (Escalating Spoils & Chain Eliminations)
 - **Time your trades to fund immediate eliminations.** Sitting on complete card sets while opponents trade escalating spoils allows rivals to build overwhelming attack stacks; trade when armies convert directly into a kill or capital. Bot2 timed their card trades effectively to fund their elimination of Bot8, Bot10, Bot1, Bot9, and Bot5. (2 games, last CDCU2S)
-- **Elimination chains accelerate endgame conquest.** Inheriting cards from an eliminated player can push the attacker to 5+ cards, triggering a mid-turn trade that finances the next elimination on the same turn. (2 games, last CDCU2S)
 - **Failing to engage in card trades can limit strategic advantages.** Delaying card trades too long in progressive lobbies allows opponents to escalate trade values and overwhelm static defenses. Bot4's delayed card trades limited their ability to counter Bot6's expansion. (2 games, last CDCU2S)
 - **Eliminations funded the winners.** Lux knocked out Darius (round 4), Shaco (round 6) and Leona (round 38) and survived to 2nd; Ahri swept every capital. The three first players out (Darius, Shaco, Thresh) never made a kill. (1 game, last MVAPM8)
-- **Focusing on card acquisition without securing territory is a losing strategy.** Bot6 focused on gathering cards but failed to secure any bonuses or capitals, making him an easy target for elimination. (1 game, last PMNH5H)
+- **Focusing on card acquisition without securing territory is a losing strategy.** Teemo focused on gathering cards but failed to secure any bonuses or capitals, making him an easy target for elimination. (2 games, last UMQD5S)
 - **Securing key bonuses early allows for rapid card trade escalation.** Thresh secured 17 bonuses, enabling a high reinforcement income (+87/turn) that funded multiple card trades and eliminations. (1 game, last 7QS4UG)
-- **Elimination chains can be triggered by inheriting cards from fallen opponents.** Tryndamere eliminated Jinx (round 11) and Lux (round 12), inheriting their card sets and using them to fund further expansions and eliminations. (1 game, last 7QS4UG)
-- **Failing to secure capitals can limit long-term reinforcement income despite card advantages.** Lux had no capitals, which limited their reinforcement income despite inheriting card sets from Jinx, making them vulnerable to elimination. (1 game, last 7QS4UG)
+- **Inheriting cards from eliminated players can accelerate elimination chains.** Ahri inherited cards from Lux and others, which helped fund further eliminations and expansion. (2 games, last UMQD5S)
+
+### Progressive Cards
+- **Elimination chains accelerate endgame conquest.** Inheriting cards from an eliminated player can push the attacker to 5+ cards, triggering a mid-turn trade that finances the next elimination on the same turn. (2 games, last CDCU2S)
 
 ### Exponential Cards (Personal Sequences & Surge Timing)
-- **Monitor personal trade counts before engaging.** In exponential games where set values scale by 1.3x independently per player (5, 7, 10, 13, 17, 23...), timing a high-tier personal set cash-in allows sudden board-clearing strikes that static defenders cannot match. (1 game, last 8VALR5)
+- **Monitor personal trade counts before engaging in card trades.** In exponential games where set values scale independently, timing a high-tier personal set cash-in allows sudden board-clearing strikes that static defenders cannot match. (1 game, last 8VALR5)
 
 ### Attack Routing & Troop Staging (Spearheads & Interior Pocket Prevention)
-- **Avoiding interior pockets with stranded troops helps prevent resource drain.** Bot3 and Bot9 left large garrisons trapped behind friendly lines without hostile borders, wasting armies that should have been reinforcing frontlines. (3 games, last PTJ76F)
-- **Sequential routing preserves offensive momentum.** Ordering attacks along a single chain from weakest resistance outward preserves attacking stacks and ensures guaranteed card capture without splitting forces. (1 game, last VX6C5F)
+- **Avoiding interior pockets with stranded troops helps prevent resource drain.** Ahri left large garrisons trapped behind friendly lines without hostile borders, wasting armies that should have been reinforcing frontlines. (4 games, last 8HTXH4)
+- **Sequential routing preserves offensive momentum.** Teemo ordered attacks along a single chain from weakest resistance outward, preserving attacking stacks and ensuring guaranteed card capture without splitting forces. (1 game, last VX6C5F)
 - **End-of-turn fortify pullbacks secure vulnerable borders.** Striking forward with mobile stacks to take territory and then fortifying back onto chokepoints or capitals prevents aggressive counter-attacks. (1 game, last 8ESC69)
-- **Maintaining strong connectivity between territories prevents leaving interior pockets vulnerable.** Bot3's fragmented territory holdings made defense impossible once Bot10 launched a concentrated attack, leading to Bot3's elimination. (1 game, last D5HXP4)
+- **Maintaining strong connectivity between territories prevents leaving interior pockets vulnerable.** Ahri's fragmented territory holdings made defense impossible once Shaco launched a concentrated attack, leading to Ahri's elimination. (1 game, last D5HXP4)
 
 ### Fog of War (Concealed Armies & Income Probing)
-- **Scouting with card-taking attacks reveals critical enemy garrison counts.** Bot9 used single-territory probes to reveal enemy garrison counts before launching major offensives, allowing them to prepare for the scale of the attack. (2 games, last T9DCQW)
+- **Scouting with card-taking attacks reveals critical enemy garrison counts.** Jinx used single-territory probes to reveal enemy garrison counts before launching major offensives, allowing them to prepare for the scale of the attack. (3 games, last 8HTXH4)
+- **Judging hidden threats by income is a reliable strategy.** Jinx used enemy turn income as a reliable estimate of rival strength to target weaker opponents effectively. (2 games, last 8HTXH4)
+- **Maintaining strong reinforcement income is crucial for long-term survival under fog.** Leona maintained a high reinforcement income despite losing several key territories, which contributed to her survival and elimination of multiple opponents. (3 games, last GURQZ8)
 - **Small border garrisons can project false weakness.** Opponents often assume lightly defended fog borders indicate an empty interior; keep mobile strike stacks one step behind the frontline. (1 game, last MVAPM8)
-- **Maintaining strong reinforcement income is crucial for long-term survival under fog.** Tryndamere maintained a high reinforcement income (+62/turn) despite losing several key territories, which contributed to their survival and elimination of multiple opponents. (1 game, last 8VALR5)
-- **Judging hidden threats by income is a reliable strategy.** Lux used enemy turn income as a reliable estimate of rival strength to target weaker opponents effectively. (1 game, last 8SR5HD)
 
 ### Non-Fog of War (Public Board & Coalition Counterplay)
-- **Troop commitments must match visible budgets.** In non-fog lobbies where armies and incomes are public, bluffing impossible troop offers fails; proposals exceeding armyCount plus income are rejected. (1 game, last 4J2YAV)
+- **Troop commitments must match visible budgets.** In non-fog lobbies, proposals exceeding armyCount plus income are rejected, preventing bluffing. (1 game, last 4J2YAV)
 - **Multi-way alliances against runaway leaders require all-chat.** Whispering between two players cannot coordinate a 3-way or 4-way response against a dominant player; public coalition calls coordinate joint pressure. (1 game, last X3T6U8)
 - **Failing to form coalitions against a dominant player leads to isolation.** Divided rivals who negotiate separate truces while a leader snowballs get rolled up one by one. (7 games, last H7NVFC)
-- **Not engaging in deals can be a strategic advantage if it avoids the risk of betrayal.** Bot4 did not make any deals during the game, allowing them to focus on expansion and defense without the risk of betrayal. (6 games, last H7NVFC)
+- **Not engaging in deals can be a strategic advantage if it avoids the risk of betrayal.** Darius did not make any deals during the game, allowing them to focus on expansion and defense without the risk of betrayal. (6 games, last H7NVFC)
 - **High reinforcement income from key bonuses can offset lack of capital control.** Bot9 secured multiple continental bonuses, out-producing capital holders (+114/turn) and overwhelming them through sheer army count. (3 games, last H7NVFC)
 - **Avoiding direct conflict with dominant players until they are significantly weakened can be a strategic advantage.** Bot3 avoided direct conflict with Bot8 for most of the game, only engaging them in the final rounds when it was clear Bot8 was the dominant threat. (2 games, last H7NVFC)
 - **Failing to leverage held bonuses can leave players vulnerable to aggressive opponents.** Bot1 held the hrimvald, gloamfen, and mistveil bonuses but failed to use them effectively, contributing to their elimination by Bot6. (2 games, last C6KXT6)
 
-### Capitals Conquest
-- **Capitals defend with 3 dice and require overwhelming odds.** Bot7’s concentrated garrisons on key territories withstood attacks from multiple opponents, who had 0 capitals and were major threats. (5 games, last DGS35N)
-- **Holding all capitals provides a massive reinforcement income and makes it nearly impossible for opponents to contest key regions.** Tryndamere held all capitals and had a +62/turn reinforcement income, which was critical to their victory. (4 games, last ZYW8N8)
-- **Failing to secure capitals leaves you vulnerable to sudden elimination.** Holding raw territories without a secure capital base leaves players exposed once larger rivals mobilize. Bot2 had 0 capitals and was eliminated by Bot9. (4 games, last H7NVFC)
-- **Securing key bonuses early provides long-term reinforcement benefits.** Lux secured multiple continent bonuses early in the game, contributing to their high reinforcement income and strategic expansion. (3 games, last H7NVFC)
-- **High reinforcement income from key bonuses can be offset by poor capital control.** Bot10 had a +114/turn reinforcement income but lost the game because their unprotected territories were overwhelmed by Bot6. (2 games, last CDCU2S)
-- **Failing to secure capitals leaves you vulnerable to sudden elimination.** Ahri had 0 capitals and was eliminated by Lux in round 8. (1 game, last XG5SYR)
-
 ### Eliminations & Leaderboard Climbing
-- **Maintaining strong reinforcement income is a decisive advantage.** Thresh's high reinforcement income (+87/turn) allowed them to rapidly expand and overwhelm opponents like Shen and Tryndamere. (3 games, last CYK7GV)
-- **Eliminations award permanent Elo points and placement jumps.** Bot8's elimination of Bot7, Bot9, Bot2, Bot1, and Bot5 contributed significantly to their Elo gain and tournament standing. (5 games, last H7NVFC)
-- **Focusing on eliminating weaker opponents early can lead to long-term dominance.** Thresh prioritized eliminating Shen and Tryndamere early, allowing them to dominate the game and finish in 1st place. (5 games, last H7NVFC)
+- **Maintaining strong reinforcement income is a decisive advantage.** Tryndamere’s high reinforcement income allowed them to rapidly expand and overwhelm opponents. (6 games, last PP5GYG)
+- **Eliminations award permanent Elo points and placement jumps.** Tryndamere’s elimination of multiple opponents contributed significantly to their Elo gain and tournament standing. (7 games, last PP5GYG)
+- **Focusing on eliminating weaker opponents early can lead to long-term dominance.** Leona prioritized eliminating Ahri as the primary threat, allowing her to dominate the game and finish in 1st place. (6 games, last GURQZ8)
 - **Early bonus control can be critical for survival.** Shen and Tryndamere completed regional bonuses early, providing steady income that built strong territorial bases. (2 games, last 45K9US)
 - **Aggressive early attacks can be countered with disciplined defense and reinforcement management.** Bot3 absorbed an early rush by consolidating onto high-defense choke points and counter-attacked once the aggressor depleted their forces. (1 game, last 8ESC69)
 

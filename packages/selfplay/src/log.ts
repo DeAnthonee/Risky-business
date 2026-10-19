@@ -15,7 +15,10 @@ import { TRAIT_KEYS } from './traits.js';
  * Seats: players are numbered 0..N-1 in the order they were seated (not turn order). Territory owner codes:
  * seat index, OWNER_NONE (unowned or blizzard) or OWNER_NEUTRAL.
  */
-export const LOG_VERSION = 2;
+/** v3 adds the outcome's placement, kills and points (the leaderboard's scoring); export still reads v2. */
+export const LOG_VERSION = 3;
+/** Log versions export can read. */
+export const READABLE_LOG_VERSIONS: readonly number[] = [2, 3];
 export const OWNER_NONE = -1;
 export const OWNER_NEUTRAL = -2;
 export const PHASES: Phase[] = ['lobby', 'setup', 'capitals', 'reinforce', 'attack', 'fortify', 'finished'];
@@ -61,7 +64,7 @@ export interface EncodedState {
 }
 
 export interface DecisionRecord {
-  v: typeof LOG_VERSION;
+  v: number;
   game: string;
   seed: number;
   map: string;
@@ -93,6 +96,15 @@ export interface Outcome {
   z: number;
   turns: number;
   reason: 'domination' | 'capitals' | 'turn_limit';
+  /**
+   * v3: the deciding seat's final place (engine finalPlacements, the leaderboard's rule), the players it
+   * eliminated, and its leaderboard points for the game (placement points + kills). A game that hits the turn limit
+   * has no winner and counts for nothing on the leaderboard; for training every seat then gets last place's points,
+   * so stalling is never worth it.
+   */
+  placement?: number;
+  kills?: number;
+  points?: number;
 }
 
 export function seatOf(seats: string[], id: string | null): number {

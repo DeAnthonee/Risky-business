@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { rankLeaderboard, type GameState, type RankedGame, type RankingRow } from '@risk/engine';
+import { finalPlacements, rankLeaderboard, type GameState, type RankedGame, type RankingRow } from '@risk/engine';
 
 /** Server-owned, append-only results, kept independently of expiring game rooms. */
 export class Rankings {
@@ -27,20 +27,18 @@ export class Rankings {
   }
   record(state: GameState, identities: Record<string, string>, eliminated: string[]) {
     if (state.phase !== 'finished' || !state.winner || this.ids.has(state.id)) return;
-    const totals = (id: string) => Object.values(state.territories).filter(t => t.owner === id);
-    const players = state.players.filter(p => !p.isNeutral).sort((a, b) => {
-      if (a.id === state.winner) return -1;
-      if (b.id === state.winner) return 1;
-      if (a.alive !== b.alive) return a.alive ? -1 : 1;
-      if (!a.alive) return eliminated.indexOf(b.id) - eliminated.indexOf(a.id) || a.order - b.order;
-      const at = totals(a.id), bt = totals(b.id);
-      return bt.length - at.length || bt.reduce((n,t) => n+t.armies,0) - at.reduce((n,t) => n+t.armies,0) || a.order-b.order;
-    });
-    if (players.length < 2) return;
-    const keyOf = (p: (typeof players)[number]) => identities[p.id] ?? `${p.isBot ? 'bot' : 'player'}:${p.name.trim().toLowerCase()}`;
+    const standings = finalPlacements(state, eliminated);
+    if (standings.length < 2) return;
+    const byId = new Map(state.players.map((p) => [p.id, p]));
+    const keyOf = (id: string) => {
+      const p = byId.get(id)!;
+      return identities[p.id] ?? `${p.isBot ? 'bot' : 'player'}:${p.name.trim().toLowerCase()}`;
+    };
     // Kills: ranked players this seat eliminated (surrenders and neutral armies credit nobody).
-    const killed = (id: string) => players.filter(v => !v.alive && v.eliminatedBy === id).map(keyOf);
-    const result = { gameId: state.id, seats: players.map((p, i) => ({ key: keyOf(p), name: p.name, placement: i + 1, killed: killed(p.id) })) };
+    const result = {
+      gameId: state.id,
+      seats: standings.map((s) => ({ key: keyOf(s.id), name: byId.get(s.id)!.name, placement: s.placement, killed: s.killed.map(keyOf) })),
+    };
     const next = [...this.games, result];
     if (this.file) {
       // Called from the room's change listener: a disk error is logged, never thrown into the move that finished the game.

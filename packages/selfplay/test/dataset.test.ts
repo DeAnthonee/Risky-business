@@ -139,7 +139,12 @@ describe('exportDataset', () => {
     expect([...(load('cand').data as Float32Array).subarray(offsets[k] * CF, offsets[k + 1] * CF)]).toEqual([...f.cand]);
 
     const info = JSON.parse(readFileSync(join(out, 'classic', 'features.json'), 'utf8'));
-    expect(info).toMatchObject({ encoderVersion: 2, logVersion: 2, decisions: N });
+    expect(info).toMatchObject({ encoderVersion: 2, logVersion: 3, decisions: N });
+    // Leaderboard points per decision, and the same scaled into 0..1.
+    const pts = load('points').data as Float32Array;
+    const p01 = load('points01').data as Float32Array;
+    expect(pts.length).toBe(N);
+    expect(p01.every((x) => x >= 0 && x <= 1)).toBe(true);
     expect(info.territoryFeatures).toEqual([...TERRITORY_FEATURES]);
   });
 

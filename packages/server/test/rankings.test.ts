@@ -8,6 +8,7 @@ import { createRiskServer, DEFAULT_AI_DIR, type RiskServer } from '../src/app.js
 import { CharacterStore } from '../src/characters.js';
 import { Rankings } from '../src/rankings.js';
 import { HttpRiskApi } from '@risk/mcp';
+import type { GameState } from '@risk/engine';
 
 let risk: RiskServer | undefined;
 const dirs: string[]=[];
@@ -59,6 +60,20 @@ describe('persistent character rankings API',()=>{
     restored.rankings.record(restored.get(c.gameId)!.state,restored.get(c.gameId)!.characterIds,[]);
     expect(restored.rankings.rows()).toEqual(rows);
     restored.stopTimers();
+  });
+  it('credits eliminations to the eliminator, but not surrenders or neutral armies',()=>{
+    const player=(id:string,order:number,extra:object={})=>({id,name:id.toUpperCase(),order,isBot:false,isNeutral:false,alive:false,...extra});
+    const state={id:'g1',phase:'finished',winner:'a',territories:{t1:{owner:'a',armies:5},t2:{owner:'b',armies:2}},players:[
+      player('a',0,{alive:true}),player('b',1,{alive:true}),
+      player('c',2,{eliminatedBy:'b'}),player('d',3,{eliminatedBy:'b'}),player('e',4,{eliminatedBy:'a'}),player('f',5),
+      player('n',6,{isNeutral:true,eliminatedBy:'a'}),
+    ]} as unknown as GameState;
+    const rankings=new Rankings(null);
+    rankings.record(state,{b:'league/shen'},['f','c','d','e']);
+    const rows=rankings.rows();
+    expect(rows.find(r=>r.key==='league/shen')).toMatchObject({points:2+2,kills:2,victims:{'player:c':1,'player:d':1}});
+    expect(rows.find(r=>r.key==='player:a')).toMatchObject({points:3+1,kills:1,victims:{'player:e':1}});
+    expect(rows.find(r=>r.key==='player:f')).toMatchObject({kills:0});
   });
   it('sets a corrupt rankings file aside instead of failing to start',()=>{
     const dir=mkdtempSync(join(tmpdir(),'rankings-'));dirs.push(dir);

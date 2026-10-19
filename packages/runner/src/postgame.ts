@@ -192,6 +192,9 @@ export interface LeaderRow {
   points: number;
   losses: number;
   rank: number;
+  kills: number;
+  /** Times this seat eliminated each other key. */
+  victims: Record<string, number>;
 }
 
 export interface Leaderboard {
@@ -200,9 +203,16 @@ export interface Leaderboard {
   byMap: { map: string; games: number; wins: Record<string, number> }[];
 }
 
+/** " (Ahri x2, Shen x1)", most killed first; empty when no kills. */
+export function killList(victims: Record<string, number>): string {
+  const list = Object.entries(victims).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  return list.length ? ` (${list.map(([k, n]) => `${k} x${n}`).join(', ')})` : '';
+}
+
 export function computeLeaderboard(results: GameResult[]): Leaderboard {
   results = [...new Map(results.filter(r => r.winner && r.reason !== 'unfinished').map(r => [r.gameId, r])).values()];
-  const ratings = rankLeaderboard(results.map(r => ({ gameId: r.gameId, seats: r.seats.map(s => ({ key: s.character ?? s.name, name: s.name, placement: s.placement })) })));
+  const ratings = rankLeaderboard(results.map(r => ({ gameId: r.gameId, seats: r.seats.map(s => ({ key: s.character ?? s.name, name: s.name, placement: s.placement,
+    killed: r.seats.filter(v => v.eliminatedBy === s.name).map(v => v.character ?? v.name) })) })));
   const chars = new Map<string, { games: number; wins: number; place: number }>();
   const maps = new Map<string, { games: number; wins: Record<string, number> }>();
   for (const r of results) {
@@ -225,7 +235,7 @@ export function computeLeaderboard(results: GameResult[]): Leaderboard {
   }
   return {
     games: results.length,
-    byCharacter: ratings.map(r => ({ key: r.key, games: r.games, wins: r.wins, avgPlacement: r.avgPlacement, points: r.points, losses: r.losses, rank: r.rank })),
+    byCharacter: ratings.map(r => ({ key: r.key, games: r.games, wins: r.wins, avgPlacement: r.avgPlacement, points: r.points, losses: r.losses, rank: r.rank, kills: r.kills, victims: r.victims })),
     byMap: [...maps].map(([map, m]) => ({ map, ...m })).sort((a, b) => b.games - a.games),
   };
 }
@@ -233,7 +243,7 @@ export function computeLeaderboard(results: GameResult[]): Leaderboard {
 export function formatLeaderboard(lb: Leaderboard): string {
   if (lb.games === 0) return 'Leaderboard: no games yet.';
   const lines = [`Leaderboard after ${lb.games} game${lb.games === 1 ? '' : 's'} (wins/games, average placement):`];
-  for (const r of lb.byCharacter) lines.push(`  ${r.key}: ${r.wins}/${r.games}, avg place ${r.avgPlacement}, ${r.points} points (#${r.rank}), ${r.losses} losses, ${Math.round(r.wins / r.games * 1000) / 10}% win rate`);
+  for (const r of lb.byCharacter) lines.push(`  ${r.key}: ${r.wins}/${r.games}, avg place ${r.avgPlacement}, ${r.points} points (#${r.rank}), ${r.losses} losses, ${Math.round(r.wins / r.games * 1000) / 10}% win rate, ${r.kills} kills${killList(r.victims)}`);
   lines.push('By map:');
   for (const m of lb.byMap) lines.push(`  ${m.map}: ${m.games} game${m.games === 1 ? '' : 's'}; wins ${Object.entries(m.wins).map(([k, n]) => `${k} ${n}`).join(', ') || 'none'}`);
   return lines.join('\n');

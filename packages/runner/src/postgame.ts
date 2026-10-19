@@ -46,6 +46,7 @@ export interface SeatResult {
   alive: boolean;
   eliminatedRound: number | null;
   eliminatedBy: string | null;
+  eliminations?: number;
   territories: number;
   armies: number;
   capitals: number;
@@ -136,6 +137,12 @@ export function buildResult(final: GameView, seats: SeatInfo[], tracker: GameTra
     st.armies += s.armies;
     if (capitalTerritories.includes(t)) st.capitals++;
   }
+  const kills = new Map<PlayerId, number>();
+  for (const p of final.players) {
+    if (p.eliminatedBy) {
+      kills.set(p.eliminatedBy, (kills.get(p.eliminatedBy) ?? 0) + 1);
+    }
+  }
   const winner = final.winner;
   const rank = [...players].sort((a, b) => {
     if (a.id === winner) return -1;
@@ -154,6 +161,7 @@ export function buildResult(final: GameView, seats: SeatInfo[], tracker: GameTra
       alive: p.alive,
       eliminatedRound: p.alive ? null : (tracker.eliminated(p.id)?.round ?? final.round),
       eliminatedBy: p.alive ? null : nameOf(p.eliminatedBy),
+      eliminations: kills.get(p.id) ?? 0,
       territories: st.territories,
       armies: st.armies,
       capitals: st.capitals,
@@ -182,7 +190,8 @@ export function buildResult(final: GameView, seats: SeatInfo[], tracker: GameTra
 /** Plain-language result of one seat. */
 export function resultText(r: GameResult, seat: SeatResult): string {
   const of = `${seat.placement}${ordinal(seat.placement)} of ${r.seats.length}`;
-  const holdings = `${seat.territories} territories, ${seat.armies} armies, ${seat.capitals} capital${seat.capitals === 1 ? '' : 's'}, ${seat.heldBonus ? `bonuses held: ${seat.bonuses.join(', ')}` : 'no bonus at the end'}`;
+  const kills = seat.eliminations ? `, ${seat.eliminations} elimination${seat.eliminations === 1 ? '' : 's'} (+${seat.eliminations} Elo)` : '';
+  const holdings = `${seat.territories} territories, ${seat.armies} armies, ${seat.capitals} capital${seat.capitals === 1 ? '' : 's'}, ${seat.heldBonus ? `bonuses held: ${seat.bonuses.join(', ')}` : 'no bonus at the end'}${kills}`;
   if (r.winner === seat.name) {
     return `WON game ${r.gameId} in round ${r.rounds} (turn ${r.turns}) ${r.reason === 'capitals' ? 'by holding every capital' : 'by domination'}. Finished with ${holdings}.`;
   }
@@ -232,6 +241,7 @@ export interface LeaderRow {
   points: number;
   losses: number;
   rank: number;
+  eliminations: number;
 }
 
 export interface Leaderboard {
@@ -242,7 +252,15 @@ export interface Leaderboard {
 
 export function computeLeaderboard(results: GameResult[]): Leaderboard {
   results = [...new Map(results.filter(r => r.winner && r.reason !== 'unfinished').map(r => [r.gameId, r])).values()];
-  const ratings = rankLeaderboard(results.map(r => ({ gameId: r.gameId, seats: r.seats.map(s => ({ key: s.character ?? s.name, name: s.name, placement: s.placement })) })));
+  const ratings = rankLeaderboard(results.map(r => ({
+    gameId: r.gameId,
+    seats: r.seats.map(s => ({
+      key: s.character ?? s.name,
+      name: s.name,
+      placement: s.placement,
+      eliminations: s.eliminations ?? 0,
+    })),
+  })));
   const chars = new Map<string, { games: number; wins: number; place: number }>();
   const maps = new Map<string, { games: number; wins: Record<string, number> }>();
   for (const r of results) {
@@ -265,7 +283,16 @@ export function computeLeaderboard(results: GameResult[]): Leaderboard {
   }
   return {
     games: results.length,
-    byCharacter: ratings.map(r => ({ key: r.key, games: r.games, wins: r.wins, avgPlacement: r.avgPlacement, points: r.points, losses: r.losses, rank: r.rank })),
+    byCharacter: ratings.map(r => ({
+      key: r.key,
+      games: r.games,
+      wins: r.wins,
+      avgPlacement: r.avgPlacement,
+      points: r.points,
+      losses: r.losses,
+      rank: r.rank,
+      eliminations: r.eliminations ?? 0,
+    })),
     byMap: [...maps].map(([map, m]) => ({ map, ...m })).sort((a, b) => b.games - a.games),
   };
 }
@@ -273,7 +300,7 @@ export function computeLeaderboard(results: GameResult[]): Leaderboard {
 export function formatLeaderboard(lb: Leaderboard): string {
   if (lb.games === 0) return 'Leaderboard: no games yet.';
   const lines = [`Leaderboard after ${lb.games} game${lb.games === 1 ? '' : 's'} (wins/games, average placement):`];
-  for (const r of lb.byCharacter) lines.push(`  ${r.key}: ${r.wins}/${r.games}, avg place ${r.avgPlacement}, ${r.points} points (#${r.rank}), ${r.losses} losses, ${Math.round(r.wins / r.games * 1000) / 10}% win rate`);
+  for (const r of lb.byCharacter) lines.push(`  ${r.key}: ${r.wins}/${r.games}, avg place ${r.avgPlacement}, ${r.points} Elo points (${r.eliminations ?? 0} kills) (#${r.rank}), ${r.losses} losses, ${Math.round(r.wins / r.games * 1000) / 10}% win rate`);
   lines.push('By map:');
   for (const m of lb.byMap) lines.push(`  ${m.map}: ${m.games} game${m.games === 1 ? '' : 's'}; wins ${Object.entries(m.wins).map(([k, n]) => `${k} ${n}`).join(', ') || 'none'}`);
   return lines.join('\n');
@@ -497,6 +524,8 @@ export interface Bullet {
   /** From the evidence tag `(N games, last GAMEID)`; null when the bullet has none. */
   games: number | null;
   last: string | null;
+  /** Optional category or setting section, e.g. "Capitals Conquest", "Fog of War", etc. */
+  category?: string | null;
   /** Under "### Challenges to earlier advice". */
   challenge: boolean;
 }
@@ -511,18 +540,21 @@ const withoutTag = (text: string) => text.replace(EVIDENCE_TAG, '').trim();
 export function parseBullets(text: string): Bullet[] {
   const out: Bullet[] = [];
   let challenge = false;
+  let category: string | null = null;
   for (const line of text.split(/\r?\n/)) {
     if (/^\s*#{3,}\s/.test(line)) {
       challenge = /challenges to earlier advice/i.test(line);
+      category = challenge ? null : line.replace(/^\s*#{3,}\s*/, '').trim();
       continue;
     }
     if (/^\s*#{1,2}\s/.test(line)) {
       challenge = false;
+      category = null;
       continue;
     }
     const m = BULLET_LINE.exec(line);
     if (m) {
-      out.push({ text: m[1].trim(), games: null, last: null, challenge });
+      out.push({ text: m[1].trim(), games: null, last: null, category, challenge });
     } else if (line.trim() && /^\s+\S/.test(line) && out.length > 0) {
       out[out.length - 1].text += ` ${line.trim()}`;
     }
@@ -538,9 +570,32 @@ export function parseBullets(text: string): Bullet[] {
 }
 
 export function formatBullets(bullets: Bullet[]): string {
-  const main = bullets.filter((b) => !b.challenge).map((b) => `- ${b.text}`);
+  const byCategory = new Map<string, Bullet[]>();
+  const uncategorized: Bullet[] = [];
+  for (const b of bullets) {
+    if (b.challenge) continue;
+    if (b.category) {
+      const list = byCategory.get(b.category) ?? [];
+      list.push(b);
+      byCategory.set(b.category, list);
+    } else {
+      uncategorized.push(b);
+    }
+  }
+  const parts: string[] = [];
+  if (uncategorized.length > 0) {
+    parts.push(uncategorized.map((b) => `- ${b.text}`).join('\n'));
+  }
+  for (const [cat, items] of byCategory) {
+    if (items.length > 0) {
+      parts.push(`### ${cat}\n${items.map((b) => `- ${b.text}`).join('\n')}`);
+    }
+  }
   const ch = bullets.filter((b) => b.challenge).map((b) => `- ${b.text}`);
-  return [...main, ...(ch.length > 0 ? ['', CHALLENGES_HEADING, ...ch] : [])].join('\n').trim();
+  if (ch.length > 0) {
+    parts.push(`${CHALLENGES_HEADING}\n${ch.join('\n')}`);
+  }
+  return parts.join('\n\n').trim();
 }
 
 /** The words before the first colon, full stop, semicolon or " - " (at most 8 words), markdown stripped. */
@@ -623,7 +678,7 @@ export function enforceCuration(raw: string, ctx: CurationContext): string | nul
       const asked = b.games ?? was;
       const games = Math.min(Math.max(asked, was), was + 1);
       const last = games > was ? ctx.gameId : (same.last ?? ctx.gameId);
-      const next: Bullet = { ...b, text: `${withoutTag(b.text)} (${games} game${games === 1 ? '' : 's'}, last ${last})`, games, last };
+      const next: Bullet = { ...b, category: b.category ?? same.category, text: `${withoutTag(b.text)} (${games} game${games === 1 ? '' : 's'}, last ${last})`, games, last };
       if (b.challenge && games < MIN_CHALLENGE_GAMES) {
         note(`dropped a challenge seen in only ${games} game(s): ${leadPhrase(b.text)}`);
         continue;
@@ -652,11 +707,33 @@ export function enforceCuration(raw: string, ctx: CurationContext): string | nul
     fresh.push(b);
     kept.push(b);
   }
-  let result = kept;
+  const freshToAdd = fresh.slice(0, MAX_NEW_BULLETS);
   if (fresh.length > MAX_NEW_BULLETS) {
-    note(`${fresh.length} new bullets; keeping the old section plus the first ${MAX_NEW_BULLETS}`);
+    note(`${fresh.length} new bullets; keeping existing findings plus the first ${MAX_NEW_BULLETS}`);
+  }
+  let result: Bullet[];
+  const keptOld = kept.filter((k) => old.some((o) => isDuplicate(o.text, k.text)));
+  if (fresh.length > MAX_NEW_BULLETS || (old.length > 0 && keptOld.length === 0)) {
+    // When there are more than 3 new bullets, or when the model only emitted fresh bullets
+    // without repeating any existing findings, preserve all existing bullets and append fresh ones.
     const room = Math.max(0, MAX_SECTION_BULLETS - old.length);
-    result = [...old, ...fresh.slice(0, Math.min(MAX_NEW_BULLETS, room))];
+    result = [...old, ...freshToAdd.slice(0, room)];
+  } else {
+    // The model explicitly rewrote its section: keep the old bullets it chose to retain/update,
+    // plus any fresh bullets it introduced.
+    result = [];
+    for (const k of kept) {
+      if (!result.some((r) => isDuplicate(r.text, k.text))) {
+        result.push(k);
+      }
+    }
+  }
+  if (result.length > MAX_SECTION_BULLETS) {
+    const challenges = result.filter((b) => b.challenge);
+    const main = result.filter((b) => !b.challenge);
+    main.sort((a, b) => (b.games ?? 1) - (a.games ?? 1));
+    const allowedMain = Math.max(0, MAX_SECTION_BULLETS - challenges.length);
+    result = [...main.slice(0, allowedMain), ...challenges];
   }
   if (result.length === 0 || result.length > MAX_SECTION_BULLETS) return null;
   const text = formatBullets(result);
@@ -687,6 +764,8 @@ export interface CurateInput {
   gameId: string;
   notes: { name: string; text: string }[];
   leaderboard: string;
+  /** Game options/settings of this game, used to categorize findings. */
+  options?: GameOptions;
   /** This game's result (standings), for the prompt and the evidence check. */
   result?: GameResult;
   now?: () => Date;
@@ -718,6 +797,7 @@ export async function curateLearnings(i: CurateInput): Promise<'updated' | 'kept
           content: [
             'You are the curator of the bot-managed section "Findings from AI self-play games" at the end of the shared Risk learnings file, read by AI players before they play.',
             'Be strict and sparing: one game is thin evidence. Output ONLY the new body of that section: Markdown bullets, at most 40 in total.',
+            'Categorize findings by the settings of the game using "###" headings (e.g. "### Non-Fog of War", "### Fog of War", "### Capitals Conquest", "### Progressive vs Fixed Cards", "### Multi-Party Alliances & Global Coalitions", "### Eliminations & Leaderboard Climbing").',
             'Hard rules (code checks every one and throws away what breaks them):',
             `- At most ${MAX_NEW_BULLETS} NEW bullets this game. A bullet that says what an existing bullet says is not new: keep it and raise its count by one instead of adding a copy. If nothing new was learned, add nothing.`,
             `- Each bullet ends with its evidence tag "(N games, last GAMEID)". A new bullet is "(1 game, last ${i.gameId})" and must cite concrete evidence from this game's results: player names, rounds, territory or army numbers.`,
@@ -732,7 +812,17 @@ export async function curateLearnings(i: CurateInput): Promise<'updated' | 'kept
           role: 'user',
           content: [
             `Game just finished: ${i.gameId}.`,
-            '',
+            ...(i.options
+              ? [
+                  'Game settings for this game:',
+                  `- Map: ${i.options.map}`,
+                  `- Fog of War: ${i.options.fogOfWar ? 'ON (fogged territories/armies)' : 'OFF (public board, exact troop budgets, public all-chat coalitions)'}`,
+                  `- Win Condition: ${i.options.capitals ? 'Capitals Conquest (hold all capitals to win)' : 'World Domination'}`,
+                  `- Card values: ${i.options.cardValues}`,
+                  `- Blizzards: ${i.options.blizzards}`,
+                  '',
+                ]
+              : []),
             'Human-written part: headings and bullet lead phrases (read only; do not restate any of it):',
             humanOutline(`${split.above}\n${split.below}`) || '(none)',
             '',
@@ -862,7 +952,7 @@ async function runPostGameLocked(i: PostGameInput): Promise<PostGameOutput> {
 
   let curated: PostGameOutput['curated'] = 'skipped';
   if (i.llm && !i.skipCurate) {
-    curated = await curateLearnings({ llm: i.llm, learningsDir: i.learningsDir, gameId: i.gameId, notes, leaderboard: leaderboardText, result, now: i.now, log: i.log });
+    curated = await curateLearnings({ llm: i.llm, learningsDir: i.learningsDir, gameId: i.gameId, notes, leaderboard: leaderboardText, options: i.final.options, result, now: i.now, log: i.log });
     i.log(curated === 'updated' ? 'RISK_LEARNINGS.md bot section updated' : 'RISK_LEARNINGS.md unchanged');
   }
   return { result, leaderboard, leaderboardText, curated };

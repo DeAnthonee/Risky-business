@@ -46,6 +46,25 @@ export interface DealStats {
   broken: number;
 }
 
+/**
+ * A public, multi-party alliance against one player, proposed and answered in all chat:
+ * `[coalition ShC1: vs Lux until round 12]`, then `[join ShC1]` / `[decline ShC1]` from anyone but the target.
+ * Like every deal it is a strategic suggestion, not a mechanical lock.
+ */
+export interface Coalition {
+  id: string;
+  target: string;
+  untilRound: number;
+  proposedBy: string;
+  proposedRound: number;
+  /** Everyone who is in (proposer first, then joiners in order). */
+  members: string[];
+  declined: string[];
+  /** Members who attacked another member while it ran. */
+  breakers: string[];
+  status: 'open' | 'expired' | 'done';
+}
+
 /** How far ahead a deal may reach, so a typo like "round 900" is not a deal. */
 const MAX_AHEAD = 40;
 
@@ -81,6 +100,8 @@ export class DealLedger {
   private prefix: string;
   private counter = 0;
   private deals = new Map<string, Deal>();
+  private coalitions = new Map<string, Coalition>();
+  private coalitionCounter = 0;
   private madeIds = new Set<string>();
   private seenMsgs = new Set<number>();
   private names: string[] = [];
@@ -139,6 +160,144 @@ export class DealLedger {
       }
       d.status = 'expired';
       if (was === 'active') this.emit(`deal ${d.id} ${targetGone && !over ? 'done (target gone)' : 'kept to the end'}: ${this.describe(d)}`);
+    }
+    for (const c of this.coalitions.values()) {
+      if (c.status !== 'open') continue;
+      const targetGone = this.alive.size > 0 && !this.alive.has(lc(c.target));
+      if (targetGone) {
+        c.status = 'done';
+        if (this.isMember(c)) this.emit(`coalition ${c.id} done (${c.target} is out): ${this.describeCoalition(c)}`);
+      } else if (this.round > c.untilRound) {
+        c.status = 'expired';
+        if (this.isMember(c)) this.emit(`coalition ${c.id} ran to the end: ${this.describeCoalition(c)}`);
+      }
+    }
+  }
+
+  /**
+   * Without fog of war: the most troops this seat can honestly promise (its armies on the board now plus its next
+   * reinforcement). Null under fog or when the count is unknown.
+   */
+  troopBudget(view: GameView): number | null {
+    if (view.options.fogOfWar) return null;
+    const meP = view.players.find((p) => p.id === view.you) ?? view.players.find((p) => lc(p.name) === lc(this.me));
+    if (!meP || meP.armyCount === null || meP.armyCount === undefined) return null;
+    return meP.armyCount + (meP.income?.total ?? 0);
+  }
+
+  /** Why the last proposal was refused (for logs), or ''. */
+  lastRejection = '';
+
+  // ---------- coalitions (public, multi-party) ----------
+
+  private isMember(c: Coalition, who = this.me): boolean {
+    return c.members.some((m) => lc(m) === lc(who));
+  }
+
+  coalitionList(): Coalition[] {
+    return [...this.coalitions.values()];
+  }
+
+  getCoalition(id: string): Coalition | undefined {
+    return this.coalitions.get(id) ?? this.coalitionList().find((c) => lc(c.id) === lc(id));
+  }
+
+  /** Open coalitions this seat is in with at least one other member. */
+  activeCoalitions(): Coalition[] {
+    return this.coalitionList().filter((c) => c.status === 'open' && this.isMember(c) && c.members.length >= 2);
+  }
+
+  /** Open public coalition offers this seat could still join (not against it, not answered yet). */
+  coalitionOffers(): Coalition[] {
+    return this.coalitionList().filter(
+      (c) => c.status === 'open' && !this.isMember(c) && lc(c.target) !== lc(this.me) && !c.declined.some((d) => lc(d) === lc(this.me)),
+    );
+  }
+
+  /** Open coalitions aimed at this seat. */
+  coalitionsAgainstMe(): Coalition[] {
+    return this.coalitionList().filter((c) => c.status === 'open' && lc(c.target) === lc(this.me));
+  }
+
+  describeCoalition(c: Coalition): string {
+    return `coalition vs ${c.target} until round ${c.untilRound} (members: ${c.members.join(', ')}${c.declined.length ? `; declined: ${c.declined.join(', ')}` : ''})`;
+  }
+
+  coalitionTag(c: Coalition): string {
+    return `[coalition ${c.id}: vs ${tagName(c.target)} until round ${c.untilRound}]`;
+  }
+
+  /** Validate and record this seat's public coalition proposal (`{target, untilRound}`). Null when it is not concrete. */
+  proposeCoalition(raw: unknown, view: GameView, text: string): Coalition | null {
+    this.sync(view);
+    this.lastRejection = '';
+    if (!raw || typeof raw !== 'object') return null;
+    const r = raw as Record<string, unknown>;
+    const target = this.resolvePlayer(r.target ?? r.against ?? r.vs, view);
+    if (!target) return (this.lastRejection = 'coalition target is not a living rival', null);
+    if (view.players.filter((p) => p.alive && !p.isNeutral).length < 3) return (this.lastRejection = 'a coalition needs at least three players alive', null);
+    const until = this.roundNum(r.untilRound);
+    if (until === undefined || until < this.round) return (this.lastRejection = 'coalition needs an end round that lies ahead', null);
+    if (this.coalitionList().some((c) => c.status === 'open' && lc(c.target) === lc(target) && this.isMember(c)))
+      return (this.lastRejection = `already in an open coalition vs ${target}`, null);
+    let id: string;
+    do id = `${this.prefix}C${++this.coalitionCounter}`;
+    while (this.coalitions.has(id));
+    const c: Coalition = { id, target, untilRound: until, proposedBy: this.me, proposedRound: this.round, members: [this.me], declined: [], breakers: [], status: 'open' };
+    void text;
+    this.coalitions.set(id, c);
+    this.emit(`proposed public ${id}: ${this.describeCoalition(c)}`);
+    return c;
+  }
+
+  /** Join or decline an open public coalition: `{coalitionId, answer: 'join'|'decline'}`. Returns the tag, or null. */
+  answerCoalition(raw: unknown, view: GameView): { tag: string; coalition: Coalition } | null {
+    this.sync(view);
+    if (!raw || typeof raw !== 'object') return null;
+    const r = raw as Record<string, unknown>;
+    const idRaw = typeof r.coalitionId === 'string' ? r.coalitionId : typeof r.dealId === 'string' ? r.dealId : '';
+    const c = idRaw ? this.getCoalition(idRaw.trim()) : undefined;
+    if (!c || c.status !== 'open' || this.isMember(c) || lc(c.target) === lc(this.me)) return null;
+    const how = lc(String(r.answer ?? ''));
+    if (how === 'join' || how === 'accept') {
+      c.members.push(this.me);
+      c.declined = c.declined.filter((d) => lc(d) !== lc(this.me));
+      this.emit(`joined ${c.id}: ${this.describeCoalition(c)}`);
+      return { tag: `[join ${c.id}]`, coalition: c };
+    }
+    if (how === 'decline' || how === 'reject') {
+      if (!c.declined.some((d) => lc(d) === lc(this.me))) c.declined.push(this.me);
+      this.emit(`declined ${c.id}: ${this.describeCoalition(c)}`);
+      return { tag: `[decline ${c.id}]`, coalition: c };
+    }
+    return null;
+  }
+
+  private ingestCoalitionTags(message: string, from: string) {
+    for (const t of message.matchAll(/\[(coalition|join|decline) ([A-Za-z0-9]+)(?::\s*([^\]]*))?\]/g)) {
+      const [, verb, id, body] = t;
+      if (verb === 'coalition') {
+        if (this.coalitions.has(id) || !body) continue;
+        const m = /\bvs\s+(\S+)\s+until round (\d+)/.exec(body);
+        const target = m ? this.resolveKnown(m[1]) : null;
+        const until = m ? Number(m[2]) : NaN;
+        if (!target || lc(target) === lc(from) || !Number.isInteger(until) || until < this.round) continue;
+        const c: Coalition = { id, target, untilRound: until, proposedBy: from, proposedRound: this.round, members: [from], declined: [], breakers: [], status: 'open' };
+        this.coalitions.set(id, c);
+        this.emit(lc(target) === lc(this.me) ? `${from} called a public coalition AGAINST US (${id}) until round ${until}` : `${from} offered public ${id}: ${this.describeCoalition(c)}`);
+        continue;
+      }
+      const c = this.getCoalition(id);
+      if (!c || c.status !== 'open' || lc(c.target) === lc(from)) continue;
+      if (verb === 'join') {
+        if (this.isMember(c, from)) continue;
+        c.members.push(from);
+        c.declined = c.declined.filter((d) => lc(d) !== lc(from));
+        this.emit(`${from} joined ${c.id}: ${this.describeCoalition(c)}`);
+      } else if (!c.declined.some((d) => lc(d) === lc(from)) && !this.isMember(c, from)) {
+        c.declined.push(from);
+        this.emit(`${from} declined ${c.id}`);
+      }
     }
   }
 
@@ -238,6 +397,7 @@ export class DealLedger {
    */
   propose(raw: unknown, view: GameView, text: string, exceptId?: string): Deal | null {
     this.sync(view);
+    this.lastRejection = '';
     if (!raw || typeof raw !== 'object') return null;
     const r = raw as Record<string, unknown>;
     const kind = DEAL_KINDS.find((k) => k === lc(String(r.kind ?? '').replace(/[\s-]+/g, '_')));
@@ -274,6 +434,11 @@ export class DealLedger {
       if (until !== undefined) deal.untilRound = until;
       const commit = this.commitNum(r.commitArmies ?? r.commit ?? r.troops ?? r.armies, text);
       if (commit !== undefined) {
+        const budget = this.troopBudget(view);
+        if (budget !== null && commit > budget) {
+          this.lastRejection = `offered ${commit} troops but only has ${budget} (armies on the board plus next reinforcement)`;
+          return null;
+        }
         deal.commitArmies = commit;
         deal.committedArmies = { [this.me]: 0, [partner]: 0 };
       }
@@ -403,6 +568,7 @@ export class DealLedger {
       if (m.spectator || lc(m.name) === lc(this.me)) continue;
       const from = this.names.find((n) => lc(n) === lc(m.name));
       if (!from) continue;
+      this.ingestCoalitionTags(m.message, from);
       for (const t of m.message.matchAll(/\[(deal|accept|reject) ([A-Za-z0-9]+)(?::\s*([^\]]*))?\]/g)) {
         const [, verb, id, body] = t;
         if (verb === 'deal') {
@@ -465,6 +631,12 @@ export class DealLedger {
       hit.push(d);
       this.emit(`${d.brokenBy} BROKE ${d.id} by attacking us: ${this.describe(d)}`);
     }
+    for (const c of this.activeCoalitions()) {
+      if (!this.isMember(c, attacker) || c.breakers.some((b) => lc(b) === lc(attacker))) continue;
+      c.breakers.push(attacker);
+      c.members = c.members.filter((m) => lc(m) !== lc(attacker));
+      this.emit(`${attacker} BROKE coalition ${c.id} by attacking us (a fellow member): ${this.describeCoalition(c)}`);
+    }
     return hit;
   }
 
@@ -506,6 +678,10 @@ export class DealLedger {
     }
     for (const d of this.all()) if (d.status === 'proposed' && lc(d.proposedBy) === lc(this.me)) lines.push(`- ${d.id}: you offered ${this.other(d)}, no answer yet: ${this.describe(d)}`);
     for (const d of this.all().filter((x) => x.status === 'broken').slice(-3)) lines.push(`- ${d.id}: BROKEN by ${d.brokenBy}: ${this.describe(d)}`);
+    for (const c of this.coalitionOffers()) lines.push(`- ${c.id}: PUBLIC COALITION OFFER from ${c.proposedBy}, answer with join or decline: ${this.describeCoalition(c)}`);
+    for (const c of this.coalitionList().filter((x) => x.status === 'open' && this.isMember(x)))
+      lines.push(`- ${c.id}: ${c.members.length >= 2 ? 'ACTIVE' : 'OPEN (nobody joined yet)'} PUBLIC ${this.describeCoalition(c)}`);
+    for (const c of this.coalitionsAgainstMe()) lines.push(`- ${c.id}: PUBLIC COALITION AGAINST YOU: ${this.describeCoalition(c)}`);
     return lines.length > 0 ? lines.join('\n') : '(none)';
   }
 
@@ -573,6 +749,20 @@ export class DealLedger {
         );
       }
     }
+
+    const armiesOf = (name: string) => view.players.find((p) => p.alive && lc(p.name) === lc(name))?.armyCount ?? 0;
+    for (const c of [...this.coalitionOffers(), ...this.coalitionList().filter((x) => x.status === 'open' && this.isMember(x)), ...this.coalitionsAgainstMe()]) {
+      const side = c.members.reduce((s, m) => s + armiesOf(m), 0) + (this.isMember(c) || lc(c.target) === lc(this.me) ? 0 : armiesOf(this.me));
+      const tgt = armiesOf(c.target);
+      notes.push(
+        lc(c.target) === lc(this.me)
+          ? `- COALITION AGAINST YOU (${c.id}): members ${c.members.join(', ')} hold ${c.members.reduce((s, m) => s + armiesOf(m), 0)} armies vs your ${tgt}.`
+          : `- COALITION STRENGTH (${c.id} vs ${c.target}): ${this.isMember(c) ? 'members' : 'members plus you'} hold ${side} armies vs ${c.target}'s ${tgt}.`,
+      );
+    }
+
+    const budget = this.troopBudget(view);
+    if (budget !== null) notes.unshift(`- YOUR TROOP BUDGET: at most ${budget} troops (armies on the board plus next reinforcement). Never offer to commit more than that; an offer above it is refused before it is sent.`);
 
     return notes.length > 0 ? `Deal & alliance reality check (no fog of war — all troop counts are public):\n${notes.join('\n')}` : '';
   }

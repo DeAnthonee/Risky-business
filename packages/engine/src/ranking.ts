@@ -5,14 +5,15 @@ export function placementPoints(placement: number, players: number): number {
   return Math.sign(centered) * Math.ceil(Math.abs(centered));
 }
 
-export interface RankedSeat { key: string; name: string; placement: number }
+export interface RankedSeat { key: string; name: string; placement: number; eliminations?: number }
 export interface RankedGame { gameId: string; seats: RankedSeat[] }
 export interface RankingRow {
   key: string; name: string; rank: number; points: number;
   games: number; wins: number; losses: number; winRate: number; avgPlacement: number;
+  eliminations: number;
 }
 
-/** Input order is completion order. Rating floors at zero after each game; duplicate game IDs are ignored. */
+/** Input order is completion order. Rating floors at zero after each game; duplicate game IDs are ignored. Each elimination adds +1 Elo point. */
 export function rankLeaderboard(results: readonly RankedGame[]): RankingRow[] {
   const rows = new Map<string, RankingRow & { places: number }>();
   const seen = new Set<string>();
@@ -20,9 +21,11 @@ export function rankLeaderboard(results: readonly RankedGame[]): RankingRow[] {
     if (seen.has(result.gameId) || result.seats.length < 2) continue;
     seen.add(result.gameId);
     for (const seat of result.seats) {
-      const row = rows.get(seat.key) ?? { key: seat.key, name: seat.name, rank: 0, points: 0, games: 0, wins: 0, losses: 0, winRate: 0, avgPlacement: 0, places: 0 };
+      const row = rows.get(seat.key) ?? { key: seat.key, name: seat.name, rank: 0, points: 0, games: 0, wins: 0, losses: 0, winRate: 0, avgPlacement: 0, eliminations: 0, places: 0 };
       row.name = seat.name;
-      row.points = Math.max(0, row.points + placementPoints(seat.placement, result.seats.length));
+      const killPoints = seat.eliminations ?? 0;
+      row.points = Math.max(0, row.points + placementPoints(seat.placement, result.seats.length) + killPoints);
+      row.eliminations = (row.eliminations ?? 0) + killPoints;
       row.games++;
       row.wins += Number(seat.placement === 1);
       row.losses = row.games - row.wins;
@@ -32,6 +35,6 @@ export function rankLeaderboard(results: readonly RankedGame[]): RankingRow[] {
       rows.set(seat.key, row);
     }
   }
-  return [...rows.values()].sort((a, b) => b.points - a.points || b.wins - a.wins || a.avgPlacement - b.avgPlacement || a.key.localeCompare(b.key))
+  return [...rows.values()].sort((a, b) => b.points - a.points || b.wins - a.wins || (b.eliminations ?? 0) - (a.eliminations ?? 0) || a.avgPlacement - b.avgPlacement || a.key.localeCompare(b.key))
     .map(({ places: _places, ...row }, i) => ({ ...row, rank: i + 1 }));
 }

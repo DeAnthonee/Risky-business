@@ -659,9 +659,9 @@ class Chooser {
     if (this.plan.route.includes(to)) s += 6;
     if (this.plan.target && toOwner === this.plan.target) s += path === 'hopeless' ? 10 : 3;
     const p = this.view.players.find((x) => x.id === toOwner);
-    if (p && p.territoryCount === 1) s += 5 + p.cardCount * 1.5;
+    if (p && p.territoryCount === 1) s += (path === 'kills' ? 8 : 6) + p.cardCount * 1.5;
     else if (p && p.cardCount >= 3) s += path === 'cards' ? 3 : 0.8;
-    if (path === 'kills' && p && p.territoryCount !== null && p.territoryCount <= 4) s += 3 + p.cardCount * 0.8;
+    if (path === 'kills' && p && p.territoryCount !== null && p.territoryCount <= 4) s += 4 + p.cardCount * 1.0;
     if (toOwner === this.leader) s += 1;
     // Taking it makes the launch point interior.
     if (this.hostileNeighbours(from).length === 1) s += 1.5;

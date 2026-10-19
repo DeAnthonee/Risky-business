@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { addPlayer, createGame, startGame, viewFor, type GameView } from '@risk/engine';
-import { cleanChat, Diplomat, parseReply, type ChatMsg } from '../src/diplomat.js';
+import { cleanChat, Diplomat, parseReply, hasOverbudgetTroopOffer, type ChatMsg } from '../src/diplomat.js';
 import { boardFacts } from '../src/facts.js';
 import type { Llm } from '../src/llm.js';
 
@@ -312,5 +312,47 @@ describe('round freshness and expired offers', () => {
     const { d: partnerTarget } = diplomat(fakeLlm(JSON.stringify({ say: 'Batman, let us form an alliance to take down Batman together.', to: 'Batman' })).llm);
     expect(await partnerTarget.onTurnStart(at(10))).toBeNull();
   });
+
+  it('hasOverbudgetTroopOffer detects bluffing troop commitments over budget in non-fog games', () => {
+    expect(hasOverbudgetTroopOffer('I will commit 20 troops against Batman', 5)).toBe(true);
+    expect(hasOverbudgetTroopOffer('I can send 10 armies to attack Batman', 4)).toBe(true);
+    expect(hasOverbudgetTroopOffer('I will commit 5 troops against Batman', 10)).toBe(false);
+    expect(hasOverbudgetTroopOffer('I will commit 20 troops against Batman', null)).toBe(false); // fog of war
+  });
+
+  it('drops chat messages where player offers more troops than their budget in non-fog games', async () => {
+    // Ultron in at(10) has 14 armies + 4 income = 18 troop budget
+    const { d: overbudget } = diplomat(fakeLlm(JSON.stringify({ say: 'Batman, I will commit 40 troops against Tony.' })).llm);
+    expect(await overbudget.onTurnStart(at(10))).toBeNull();
+
+    const { d: withinBudget } = diplomat(fakeLlm(JSON.stringify({ say: 'Batman, I will commit 10 troops against Tony.' })).llm);
+    const out = await withinBudget.onTurnStart(at(10));
+    expect(out?.message).toContain('commit 10 troops');
+  });
+
+  it('posts public coalitions and coalition responses to all chat (to: undefined)', async () => {
+    const { d } = diplomat(fakeLlm(JSON.stringify({
+      say: 'Everyone team up against Batman!',
+      coalition: { target: 'Batman', untilRound: 15 },
+    })).llm);
+    const out = await d.onTurnStart(at(10));
+    expect(out).not.toBeNull();
+    expect(out?.to).toBeUndefined(); // All chat!
+    expect(out?.message).toContain('[coalition');
+    expect(out?.message).toContain('vs Batman until round 15');
+
+    // Responding to a coalition offer
+    const { d: joiner } = diplomat(fakeLlm(JSON.stringify({
+      say: 'I will join the coalition against Batman.',
+      coalitionRespond: { coalitionId: 'TC1', answer: 'join' },
+    })).llm);
+    joiner.observe(at(10));
+    joiner.ledger.ingest([{ id: 100, at: 0, name: 'Tony', message: '[coalition TC1: vs Batman until round 15]' }]);
+    const joinOut = await joiner.onTurnStart(at(10));
+    expect(joinOut).not.toBeNull();
+    expect(joinOut?.to).toBeUndefined(); // All chat!
+    expect(joinOut?.message).toContain('[join TC1]');
+  });
 });
+
 

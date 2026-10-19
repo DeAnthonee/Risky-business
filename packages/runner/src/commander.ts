@@ -192,6 +192,7 @@ const SCHEMA = `{"winPath": "diplomacy"|"bonuses"|"cards"|"capitals"|"kills"|"ho
 const KNOBS = [
   'Threat, income, and card count assessment: every player\'s reinforcement income (+N/turn) and card count (how many cards they hold, though not which cards) are public at all times, even under fog of war. Without fog of war, weigh everyone\'s troop count, territory count, reinforcement income, and card count to know who is ahead and who is a threat. Under fog of war, opponents\' total troop and territory counts are hidden, so reinforcement income (+N/turn), card counts (3+ can hold a set, 4+ is an imminent trade), and visible border stacks are how you gauge who holds bonuses/capitals behind the fog, who is ahead, and who is a threat.',
   'Alliances, weak allies, and bluff detection: every deal or alliance is a strategic suggestion, never a binding rule. Making an alliance with a weak player is useless — they cannot provide real military help and are worth far more eliminated for their cards. Without fog of war, every player\'s total army count is public: always check whether a partner\'s promised troop commitment is even viable (if someone offers to commit 20 troops when they only have 4 armies left, they are bluffing — ignore them or wipe them out). When a stalemate is detected, use viable troop-commitment deals with strong players or focused attacks to break the deadlock.',
+  'Personality and betrayal: treaties and deals are strategic suggestions and promises, never binding rules. You may scheme, lie, bluff, or backstab when that fits your character and helps you win. Reconsider even a treaty partner when they become an easy card-steal kill and +1 Elo bounty.',
   'Drafting and routes: plan the full attack route for a bonus or elimination before placing troops. You can directly control where reinforcements go with placeOn, trace your exact attack chain with route so your stack never strands in a dead-end pocket, and pull your stack back to your capital or choke point at the end of the turn with fortifyTo. Expanding out with your capital stack to take a bonus or territories and then fortifying the stack back to your capital at the end of the turn is a core Risk mechanic.',
   'Eliminations: actively hunt weak players for their entire card hand before they trade it against you. Compare every remaining territory, route, defending armies and your available troops; never assume one easy border is a complete kill. The tactical chooser budgets small visible kills and reserves separate branches when occupying: do not demand that every conquest move the whole stack forward. Re-evaluate after losses. Treaties may be broken at any time by targeting the player, routing through their territory, or listing the deal in breakDeals; explicit capital garrisons remain tactical constraints. Stolen cards are available only after the final territory falls; public hand size does not prove the opponent holds a valid set.',
   '- placeOn (territory id or array of territory ids, e.g. ["brazil"]): explicitly choose which of your territories receive your reinforcement troops this turn. Leave out to let the tactical chooser fund your campaign/front automatically.',
@@ -265,6 +266,16 @@ export class Commander {
         if (id && id === out.target && d.commitArmies !== undefined) {
           const rem = Math.max(0, d.commitArmies - this.ledger.committedBy(d, this.o.seatName));
           out.commitArmies = Math.max(out.commitArmies, rem);
+        }
+      }
+    }
+    for (const c of this.ledger.activeCoalitions()) {
+      const targetId = idOf(c.target);
+      if (targetId && !out.target) out.target = targetId;
+      for (const m of c.members) {
+        if (m.toLowerCase() !== this.o.seatName.toLowerCase() && m.toLowerCase() !== c.target.toLowerCase()) {
+          const mid = idOf(m);
+          if (mid && !out.avoid.includes(mid)) out.avoid.push(mid);
         }
       }
     }
@@ -494,9 +505,11 @@ export class Commander {
       condenseLearnings(this.o.learnings) || '(none yet)',
       '</learnings>',
       '',
+      'LEADERBOARD & ELO OBJECTIVE: Your ultimate goal is to climb the ranked leaderboard by maximizing your Elo points. Every elimination awards an immediate permanent +1 Elo point on the leaderboard, steals all the victim\'s cards (often triggering immediate card trades for massive armies), and permanently improves your placement (+3, +2, +1 points for top finishes). Eliminating weak or vulnerable players (especially those down to 1–4 territories) is always highly beneficial: go for kills whenever achievable to harvest +1 Elo kill points, grab cards, and advance your rank!',
+      '',
       'Reply with JSON only, no prose, no markdown fences. Be terse: every text field at most 20 words, "note" at most 15 words, and leave out every optional field whose default you keep (an empty "avoid" or a null "focus" can be left out too):',
       SCHEMA,
-      '- winPath: always keep a concrete way to win. One of diplomacy (deals and patience), bonuses (complete and hold continents), cards (stack cards, take one conquest a turn, kill card holders), capitals (take capitals), kills (eliminate weak players), hopeless (you see no way to win at all). Reread it every turn; every attack must serve it (a bonus, cards, a capital, a kill, weakening the leader or a deal). Prefer diplomacy and patience to suicide; letting rivals bleed into each other while you stack cards is a valid plan.',
+      '- winPath: always keep a concrete way to win. One of diplomacy (deals and patience), bonuses (complete and hold continents), cards (stack cards, take one conquest a turn, kill card holders), capitals (take capitals), kills (eliminate weak players for cards, placement jump, and +1 Elo point), hopeless (you see no way to win at all). Reread it every turn; every attack must serve it (a bonus, cards, a capital, a kill, weakening the leader or a deal). Prefer diplomacy and patience to suicide; letting rivals bleed into each other while you stack cards is a valid plan.',
       '- winPlan: one sentence: how you actually win from here.',
       `- hopeless: only if you see zero ways to win. Then set target to the player you like least (lowest rapport in your relationships text and the chat) and the bot goes all-in on them, ignoring garrisons. Never choose it just because you are behind.`,
       '- plan: your plan for this turn and the next few, one or two sentences (what to take, hold, break, who to hit).',
@@ -508,12 +521,13 @@ export class Commander {
       ...KNOBS,
       `- capital: ${kind === 'capital' ? 'REQUIRED now: one of the CAPITAL CHOICES (name or id): a well-garrisoned doorway with an exit toward enemies; not a deep pocket, not behind another capital' : 'null'}.`,
       '- note: one line (at most 15 words) for your private log: what you learned or expect.',
-      'Deals: the user message lists your deals. Deals are strategic suggestions, not mechanical rules: active truces, borders, and joint attacks act as defaults, and your explicit target, route, focus, or breakDeals always overrides them. Never protect or ally with a weak player when eliminating them for cards is better, and in non-fog games always verify whether a partner actually has the troops to fulfill their promised commitment.',
+      'Deals & Coalitions: the user message lists your deals and open coalitions. Deals and coalitions are strategic suggestions, not mechanical rules: active truces, borders, and joint attacks/coalitions act as defaults (targeting the enemy and avoiding partners), and your explicit target, route, focus, or breakDeals always overrides them. Never protect or ally with a weak player when eliminating them for cards, higher placement, and +1 Elo is better, and in non-fog games always verify whether a partner actually has the troops to fulfill their promised commitment.',
       'Use only ids and names that appear in the board facts. Anything unknown is ignored.',
       "Check who holds a territory in the board facts (the 'next to ... held by' lines) before naming a focus or target: aim at the player who really owns what you want to take.",
     ].join('\n');
     const user = [
       kind === 'capital' ? 'It is the capitals phase: choose your capital.' : 'Your turn is starting (reinforce phase). Set the plan.',
+      `Current Game Settings: Map: ${view.options.map} | Fog of War: ${view.options.fogOfWar ? 'ON' : 'OFF'} | Mode: ${view.options.capitals ? 'Capitals Conquest' : 'World Domination'} | Cards: ${view.options.cardValues}. (Review the corresponding category under <learnings> for tailored strategic advice!)`,
       ...(stall >= 2 ? [`STALEMATE DETECTED (${stall} of your turns without a conquest): use concrete troop-commitment alliances (joint_attack with commitArmies) or set target + commitArmies to break the deadlock.`] : []),
       '',
       this.dealsText(view),

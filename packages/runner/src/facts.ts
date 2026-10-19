@@ -26,11 +26,11 @@ export function cardMath(view: GameView, me: PlayerId): string[] {
 export function eliminationScouting(view: GameView, me: PlayerId): string[] {
   const lines: string[] = [];
   const weak = view.players.filter(p => p.alive && !p.isNeutral && p.id !== me && p.territoryCount !== null && p.territoryCount <= 4);
-  if (weak.length) lines.push('Elimination scouting (verify all routes before committing): ' + weak.map(p => {
+  if (weak.length) lines.push('Elimination scouting (kills award +1 Elo point on leaderboard, steal all cards & boost placement - verify all routes before committing): ' + weak.map(p => {
     const known = Object.entries(view.territories).filter(([, t]) => !t.hidden && t.owner === p.id);
     const holdings = known.map(([id, t]) => id + ':' + t.armies).join(', ');
     return p.name + ': ' + p.territoryCount + ' territories, ' + p.cardCount + ' cards to steal, ' + (known.length === p.territoryCount ? 'all holdings visible [' + holdings + ']' : 'incomplete visibility; no confirmed kill route');
-  }).join('; ') + '. Remove them before they can trade; split at forks only when both routes have enough troops.');
+  }).join('; ') + '. Eliminate them for the +1 Elo kill bounty, card steal, and placement jump!');
   return lines;
 }
 

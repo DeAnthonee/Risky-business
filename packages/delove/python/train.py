@@ -156,10 +156,8 @@ def main():
 
     datasets = [parse(d) for d in args.data]
     first = datasets[0]
-    for d in datasets[1:]:
-        if d.info["territoryIds"] != first.info["territoryIds"]:
-            raise SystemExit(f"{d.name}: another map than {first.name}; train one map at a time")
-    adj = torch.as_tensor(first.adj, device=device)
+    # Maps can differ between datasets: every batch comes from one dataset and uses that map's adjacency.
+    adjs = [torch.as_tensor(d.adj, device=device) for d in datasets]
     splits = []
     for d in datasets:
         tr, va = split_by_game(d.game, args.val, args.seed)
@@ -218,7 +216,7 @@ def main():
             if step >= steps_total:
                 break
             b = datasets[di].batch(ks, device)
-            loss, pl, vl, acc = step_loss(model, b, adj, args.value_weight, args.beta)
+            loss, pl, vl, acc = step_loss(model, b, adjs[di], args.value_weight, args.beta)
             opt.zero_grad(set_to_none=True)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)

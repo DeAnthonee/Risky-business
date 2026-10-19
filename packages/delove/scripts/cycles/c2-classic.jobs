@@ -1,0 +1,4 @@
+# Cycle 2, steps 2-3: scenario games on Classic. Twice the 2-player volume of cycle 1 (its weak spot).
+c2t  1500 delove-branch@1,delove-teacher@2
+c2d  1500 r06-candidate,delove-branch@1
+c4    600 delove-branch@1,delove-teacher@2,r06-candidate,delove@2

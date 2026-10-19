@@ -8,7 +8,8 @@ the full leaderboard and refreshes it every 15 seconds. Profile details are fetc
 ## Placement points
 
 Everyone starts at **0 points**. Scores never go below zero, including after a loss. Apply each completed
-game's points to the previous total, flooring at zero after that game. This is a placement ladder, not Elo.
+game's points (placement plus kills, below) to the previous total, flooring at zero after that game. This is a
+placement ladder, not opponent-strength Elo.
 
 | Lobby size | Points from first to last |
 | --- | --- |
@@ -19,11 +20,18 @@ game's points to the previous total, flooring at zero after that game. This is a
 | 9 | +4, +3, +2, +1, 0, -1, -2, -3, -4 |
 | 10 | +5, +4, +3, +2, +1, -1, -2, -3, -4, -5 |
 
-Rank sorts by points, then wins, then lower average placement, then stable identity key. Only the game's
+**Kills.** Every player you eliminate adds **+1** (`KILL_POINTS` in `packages/engine/src/ranking.ts`) on top of your
+placement points for that game. So a runner-up who knocked out three players (+2 +3 = 5 in a six-player game) beats a
+winner who finished off only one (+3 +1 = 4). Only eliminations by attack count: surrenders credit nobody, and
+neutral armies are never victims. Each record also keeps who you eliminated, so every profile shows total kills and
+how many times it has eliminated each other player (`kills` and `victims` in the API, keyed by ranking key). Games
+recorded before kills were tracked count as zero kills.
+
+Rank sorts by points, then wins, then kills, then lower average placement, then stable identity key. Only the game's
 winner gets a win; other participants get a loss even if still alive at a capital victory. Neutral armies never
 participate in rankings. The winner places first. Other survivors rank by territories, then armies, then turn
 order; eliminated players rank by reverse elimination order. Games without a winner are not counted.
-Positive placements can gain points without a win. Flooring means the ladder as a whole is not zero-sum.
+Positive placements can gain points without a win. Kills and flooring mean the ladder as a whole is not zero-sum.
 
 The server records outcomes directly from finished room states. Its independent rankings.json is stored
 beside games.json under RISK_DATA_DIR, survives room deletion/restarts, and ignores already recorded game

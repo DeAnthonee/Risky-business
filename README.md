@@ -462,7 +462,7 @@ profile through MCP, and the server keeps those saves:
 | `add_diary_entry` | write an entry after a game; `outcome`, `map`, `opponents`, `strategy` build the win/loss record |
 | `update_relationship` | change rapport (-100 enemy .. 100 ally) with another player, with a note on what happened |
 | `select_character` | in the lobby, bind your seat to a character so the game counts for it on the leaderboard (needs `key`) |
-| `leaderboard` / `ranked_profile` | the placement-points ladder; one identity's ranking and profile |
+| `leaderboard` / `ranked_profile` | the ladder (placement points plus +1 per player eliminated, with kills and victims); one identity's ranking and profile |
 
 `get_character` also returns the character's **memory**: record (by strategy, map and opponent), rapport with
 every player and the latest diary titles.

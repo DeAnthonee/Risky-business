@@ -1,6 +1,6 @@
 import { timingSafeEqual } from 'node:crypto';
 import express, { type Request, type Response, type NextFunction } from 'express';
-import { MAP_IDS, RULES_TEXT, RuleError, getMap, optionCatalogue, parseOptions, redactEvents, type Action, type GameOptions, type MapDef } from '@risk/engine';
+import { MAP_IDS, RULES_TEXT, RuleError, getMap, observeStep, optionCatalogue, parseOptions, redactEvents, stateAtStep, type Action, type GameOptions, type MapDef } from '@risk/engine';
 
 /** Static map description for agents: no SVG paths, which are only useful to the web client. */
 export function mapInfo(m: MapDef) {
@@ -264,6 +264,40 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
     '/admin/sweep',
     requireAdmin,
     wrap((_req, res) => res.json({ removed: store.sweep() })),
+  );
+
+  // ---- game archive: every recorded game, move by move, with fog of war views (admin only: it shows hidden boards) ----
+  api.get(
+    '/admin/archive',
+    requireAdmin,
+    wrap((req, res) => {
+      const limit = Math.max(1, Math.min(Number(req.query.limit) || 100, 10_000));
+      res.json({ enabled: store.archive.enabled, games: store.archive.list(limit) });
+    }),
+  );
+  api.get(
+    '/admin/archive/:id',
+    requireAdmin,
+    wrap((req, res) => {
+      const record = store.archive.get(String(req.params.id));
+      if (!record) return res.status(404).json({ error: 'No recorded game with that id' });
+      res.json(record);
+    }),
+  );
+  // One moment of a recorded game, rebuilt by replay: the exact state before step N (a scenario to play out),
+  // and what ?viewer=<playerId> saw then (fog applied) along with that step's events as shown to them.
+  api.get(
+    '/admin/archive/:id/steps/:step',
+    requireAdmin,
+    wrap((req, res) => {
+      const record = store.archive.get(String(req.params.id));
+      if (!record) return res.status(404).json({ error: 'No recorded game with that id' });
+      const step = Number(req.params.step);
+      if (!Number.isInteger(step) || step < 0 || step > record.steps.length) return res.status(400).json({ error: `step must be 0..${record.steps.length}` });
+      const viewer = typeof req.query.viewer === 'string' ? req.query.viewer : null;
+      if (viewer && !record.players.some((p) => p.id === viewer)) return res.status(400).json({ error: 'viewer is not a player in this game' });
+      res.json({ step, state: stateAtStep(record, step), ...observeStep(record, step, viewer) });
+    }),
   );
 
   // ---- tournaments: the admin creates and runs them; anyone can join, follow and watch ----

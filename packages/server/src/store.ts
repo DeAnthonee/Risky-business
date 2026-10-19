@@ -22,6 +22,7 @@ import {
 import { chooseBotAction } from './bot.js';
 import { TournamentManager } from './tournaments.js';
 import { Rankings } from './rankings.js';
+import { GameArchive, type CommitInfo } from './archive.js';
 
 export interface ChatMessage {
   id: number;
@@ -62,6 +63,8 @@ export interface RoomSnapshot {
   updatedAt: number;
   /** Last time a person or agent did something here (bot moves do not count). */
   lastActivity?: number;
+  /** The game record this room's game is being journalled to (see archive.ts). */
+  recordId?: string;
   /** Set on a tournament table: the tournament that seated it. Nobody hosts such a room. */
   tournamentId?: string;
 }
@@ -162,6 +165,8 @@ export class GameRoom extends EventEmitter {
   private seatPolls = new Map<PlayerId, number>();
   /** Tournament that owns this table, if any. */
   tournamentId?: string;
+  /** The game record this room's game is being journalled to, until it is finished. */
+  recordId?: string;
   private botTimer: NodeJS.Timeout | null = null;
   private waiters = new Set<() => void>();
 
@@ -180,6 +185,7 @@ export class GameRoom extends EventEmitter {
     this.updatedAt = snapshot.updatedAt;
     this.lastActivity = snapshot.lastActivity ?? snapshot.updatedAt;
     this.tournamentId = snapshot.tournamentId;
+    this.recordId = snapshot.recordId;
     if (this.state.phase === 'finished') this.finishedAt = this.history.at(-1)?.at ?? this.updatedAt;
   }
 
@@ -197,6 +203,7 @@ export class GameRoom extends EventEmitter {
       updatedAt: this.updatedAt,
       lastActivity: this.lastActivity,
       ...(this.tournamentId ? { tournamentId: this.tournamentId } : {}),
+      ...(this.recordId ? { recordId: this.recordId } : {}),
     };
   }
 
@@ -289,11 +296,15 @@ export class GameRoom extends EventEmitter {
     for (const player of this.state.players) {
       if (!player.isNeutral && player.alive && next.players.some(p => p.id === player.id && !p.alive) && !this.eliminationOrder.includes(player.id)) this.eliminationOrder.push(player.id);
     }
+    const before = this.state;
     this.state = next;
     this.updatedAt = Date.now();
     if (next.phase === 'finished' && this.finishedAt === null) this.finishedAt = this.updatedAt;
     this.history.push({ version: next.version, at: this.updatedAt, playerId, action, events });
     if (this.history.length > MAX_HISTORY) this.history.splice(0, this.history.length - MAX_HISTORY);
+    // The game archive listens here: every move, in full, before anything else reacts to it.
+    const info: CommitInfo = { before, next, events, playerId, action, at: this.updatedAt };
+    this.emit('commit', info);
     const msg: ChangeMessage = { state: next, events, version: next.version, playerId };
     this.emit('change', msg);
     this.scheduleBot();
@@ -562,6 +573,8 @@ export class Store {
   rooms = new Map<string, GameRoom>();
   tournaments: TournamentManager;
   rankings: Rankings;
+  /** Every game's record, move by move (under <data dir>/archive; off without persistence). */
+  archive: GameArchive;
   private saveTimer: NodeJS.Timeout | null = null;
 
   retention: RetentionPolicy;
@@ -573,6 +586,7 @@ export class Store {
   ) {
     this.retention = { ...DEFAULT_RETENTION, ...retention };
     this.rankings = new Rankings(file ? join(dirname(file), 'rankings.json') : null);
+    this.archive = new GameArchive(file && process.env.RISK_ARCHIVE !== '0' ? join(dirname(file), 'archive') : null);
     if (file && existsSync(file)) {
       try {
         const data = JSON.parse(readFileSync(file, 'utf8')) as RoomSnapshot[];
@@ -609,6 +623,7 @@ export class Store {
   private attach(room: GameRoom) {
     this.rooms.set(room.id, room);
     this.rankings.record(room.state, room.characterIds, room.eliminationOrder);
+    room.on('commit', (c: CommitInfo) => this.archive.onCommit(room, c));
     room.on('change', () => {
       this.rankings.record(room.state, room.characterIds, room.eliminationOrder);
       this.scheduleSave();
@@ -667,7 +682,10 @@ export class Store {
     const room = this.rooms.get(id.toUpperCase());
     if (!room) return false;
     room.close(reason);
+    // A game closed before anyone won still keeps its record, marked unfinished.
+    this.archive.finish(room, `room closed (${reason})`);
     room.removeAllListeners('change');
+    room.removeAllListeners('commit');
     this.rooms.delete(room.id);
     this.scheduleSave();
     return true;

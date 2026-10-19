@@ -191,7 +191,13 @@ describe('results and leaderboard', () => {
     expect(lb.byCharacter.reduce((n, r) => n + r.wins, 0)).toBe(2);
     expect(lb.byCharacter.every((r) => r.games === 2)).toBe(true);
     expect(lb.byMap.map((m) => m.map).sort()).toEqual(['classic', 'europe']);
-    expect(lb.byCharacter[0].kills).toBeDefined();
+    const killsIn = (name: string) => result.seats.filter((v) => v.eliminatedBy === name).length;
+    for (const row of lb.byCharacter) {
+      const seat = result.seats.find((s) => s.character === row.key)!;
+      expect(row.kills).toBe(2 * killsIn(seat.name));
+    }
+    expect(lb.byCharacter.reduce((n, r) => n + r.kills, 0)).toBe(2 * result.seats.filter((v) => v.eliminatedBy).length);
+    expect(lb.byCharacter.reduce((n, r) => n + r.kills, 0)).toBeGreaterThan(0);
     expect(formatLeaderboard(lb)).toContain(" points ");
     expect(formatLeaderboard(lb)).toContain('By map:');
     expect(formatLeaderboard(computeLeaderboard([]))).toContain('no games');

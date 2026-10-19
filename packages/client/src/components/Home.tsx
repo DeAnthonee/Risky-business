@@ -4,18 +4,22 @@ import { MapPreview } from './MapPreview';
 import { MAPS, MAP_IDS, maxBlizzards, type GameOptions } from '@risk/engine';
 import { api, type GameSummary, type TournamentSummary } from '../api';
 import type { Session } from '../session';
+import { pickLiveGame } from './AutoAdvance';
 
 export function Home({
   name,
   setName,
   onEnter,
   onSpectate,
+  onAutoSpectate,
   onOpenTournament,
 }: {
   name: string;
   setName: (n: string) => void;
   onEnter: (s: Session) => void;
   onSpectate: (gameId: string) => void;
+  /** Opt in to the auto-spectate live stream (moves on to the next live game when one ends). */
+  onAutoSpectate: () => void;
   onOpenTournament: (id: string) => void;
 }) {
   const [games, setGames] = useState<GameSummary[]>([]);
@@ -146,11 +150,11 @@ export function Home({
         <section className="card wide">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px', marginBottom: '12px' }}>
             <h2 style={{ margin: 0 }}>Open games</h2>
-            {games.some((g) => g.phase !== 'finished') && (
+            {pickLiveGame(games, null) && (
               <button
                 className="primary small"
-                onClick={() => onSpectate('')}
-                title="Automatically watch live games and transition to each new lobby"
+                onClick={onAutoSpectate}
+                title="Watch a live game and move on to the next live game when it ends (tournament tables are skipped)"
               >
                 🔴 Auto-Spectate Live Stream
               </button>

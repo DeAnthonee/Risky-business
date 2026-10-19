@@ -32,9 +32,9 @@ export function scoresFogged(view: GameView): boolean {
   return view.players.some((p) => p.alive && !p.isNeutral && (p.armyCount === null || p.territoryCount === null));
 }
 
-/** Power score weights for the public board (armies, territories, income). */
-export function activeWeights(_view: GameView): Record<PartKey, number> {
-  return { ...SCORE_WEIGHTS };
+/** Weights in use: under fog only territory counts are public, so they carry the whole score. */
+export function activeWeights(view: GameView): Record<PartKey, number> {
+  return scoresFogged(view) ? { armies: 0, territories: 1, income: 0 } : { ...SCORE_WEIGHTS };
 }
 
 export function playerScores(view: GameView): PlayerScore[] {

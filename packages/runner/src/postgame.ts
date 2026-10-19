@@ -194,7 +194,7 @@ export function buildResult(final: GameView, seats: SeatInfo[], tracker: GameTra
 /** Plain-language result of one seat. */
 export function resultText(r: GameResult, seat: SeatResult): string {
   const of = `${seat.placement}${ordinal(seat.placement)} of ${r.seats.length}`;
-  const kills = seat.eliminations ? `, ${seat.eliminations} elimination${seat.eliminations === 1 ? '' : 's'} (+${seat.eliminations} Elo)` : '';
+  const kills = seat.eliminations ? `, ${seat.eliminations} elimination${seat.eliminations === 1 ? '' : 's'} (+${seat.eliminations} kill point${seat.eliminations === 1 ? '' : 's'})` : '';
   const holdings = `${seat.territories} territories, ${seat.armies} armies, ${seat.capitals} capital${seat.capitals === 1 ? '' : 's'}, ${seat.heldBonus ? `bonuses held: ${seat.bonuses.join(', ')}` : 'no bonus at the end'}${kills}`;
   if (r.winner === seat.name) {
     return `WON game ${r.gameId} in round ${r.rounds} (turn ${r.turns}) ${r.reason === 'capitals' ? 'by holding every capital' : 'by domination'}. Finished with ${holdings}.`;
@@ -311,7 +311,7 @@ export function formatLeaderboardMarkdown(lb: Leaderboard): string {
     '',
     '## Character / Seat Standings',
     '',
-    '| Rank | Player / Character | Elo Points | Games | Wins (1st) | Win Rate | Losses | Avg Place | Eliminations |',
+    '| Rank | Player / Character | Points | Games | Wins (1st) | Win Rate | Losses | Avg Place | Eliminations |',
     '| :---: | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |',
   ];
   for (const r of lb.byCharacter) {
@@ -953,10 +953,6 @@ async function runPostGameLocked(i: PostGameInput): Promise<PostGameOutput> {
   const leaderboardMarkdown = formatLeaderboardMarkdown(leaderboard);
   try {
     await writeFile(path.join(i.learningsDir, 'LEADERBOARD.md'), leaderboardMarkdown, 'utf8');
-    const localLb = path.resolve('LEADERBOARD.md');
-    if (path.resolve(path.join(i.learningsDir, 'LEADERBOARD.md')) !== localLb) {
-      await writeFile(localLb, leaderboardMarkdown, 'utf8');
-    }
   } catch (e) {
     i.log(`Warning: could not write LEADERBOARD.md: ${(e as Error).message}`);
   }

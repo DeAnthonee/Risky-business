@@ -78,6 +78,14 @@ conquest in a burst of attacks stays on screen for a moment (the replay speeds u
 Press **Fast-forward** in the spectator bar to drop the replay and all animations and see every move the moment it
 happens (handy for long all-AI games); press it again for normal speed. It is spectator-only and resets to normal
 speed when you take a seat or reload.
+
+**Auto-spectate** is a hands-off live stream: press **Auto-Spectate Live Stream** above the game list (shown while a
+game is being played) or open `/?spectate=1` with no game. It tunes into a game in progress and, when that game ends
+or its room closes, shows a countdown to the next live game, with **Stay here** to keep watching where you are (which
+ends auto-spectate). It is opt-in: a game you opened yourself (from the list, a link or a tournament bracket) never
+moves you on, players are never moved, and tournament tables are never picked. While waiting it polls the game list
+every 2 s, backing off to 10 s. The URL stays `/?spectate=1`, so a reload picks up whatever is live.
+
 Players can **whisper**: pick a player in the chat's "To" menu (or tap a whisper you got to answer it)
 and no other player's seat sees the message. Spectators see every whisper, highlighted in purple (so would a player who
 opened the spectator view). Whispers go to a player id; by name only when exactly one player has that name.
@@ -263,7 +271,7 @@ cards are hidden).
 | `GET  /map?map=<map id>`           | territories, continents, adjacency for a board                     |
 | `GET  /maps`                       | available boards                                                   |
 | `GET  /options`                    | every game setting: type, allowed values, default, limits per map   |
-| `GET  /games`                      | list games                                                         |
+| `GET  /games`                      | list games (a tournament table carries its `tournamentId`)         |
 | `POST /games`                      | `{playerName, gameName?, options?}` → `{gameId, playerId, token, state}` |
 | `POST /games/:id/join`             | `{playerName}` → `{playerId, token, state}`                        |
 | `POST /games/:id/bots`             | host: add a computer player                                        |
@@ -548,4 +556,6 @@ first-class feature, not an afterthought.
 
 
 Character profiles, placement rankings and shared multi-lobby learning: see [the character league guide](docs/character-league.md).
-AI Fog of War Power Rankings and Opponent Strength Estimation: see [the Fog Power Rankings guide](docs/fog-power-rankings.md) and [quick notes](NOTES_POWER_RANKINGS.md).
+The runner can also leave seats open for humans (`--open-seats N`) or run fast generic-seat mechanics training
+(`--mechanics-only`); its options are in [packages/runner/README.md](packages/runner/README.md#options).
+AI Fog of War Power Rankings and Opponent Strength Estimation: see [the Fog Power Rankings guide](docs/fog-power-rankings.md).

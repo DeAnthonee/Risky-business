@@ -41,8 +41,8 @@ export function eliminationScouting(view: GameView, me: PlayerId, detailed = fal
 
   const lines: string[] = [];
   const header = detailed
-    ? 'Kill potential & Blitz odds (formula for all-in elimination; kills award +1 Elo, steal cards, and jump placement):'
-    : 'Elimination scouting (kills award +1 Elo, steal cards & boost placement):';
+    ? 'Kill potential & Blitz odds (formula for all-in elimination; kills award +1 kill point, steal cards, and jump placement):'
+    : 'Elimination scouting (kills award +1 kill point, steal cards & boost placement):';
   lines.push(header);
 
   for (const victim of livingRivals) {
@@ -118,7 +118,7 @@ export function eliminationScouting(view: GameView, me: PlayerId, detailed = fal
     } else if (victim.cardCount >= 4 && winP >= 0.70) {
       verdict = `PRIME KILL TARGET: ${pct}% Blitz odds to steal 4 cards (high trade chance) & leap placement!`;
     } else if (terrCount <= 2 && winP >= 0.80) {
-      verdict = `EASY BOUNTY: ${pct}% Blitz odds to eliminate weak survivor (+1 Elo point)`;
+      verdict = `EASY BOUNTY: ${pct}% Blitz odds to eliminate weak survivor (+1 kill point)`;
     } else if (winP >= 0.70) {
       verdict = `FAVORABLE KILL: ${pct}% Blitz odds; viable if route is clear`;
     }

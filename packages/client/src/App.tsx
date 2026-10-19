@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { api } from './api';
 import { Home } from './components/Home';
 import { Lobby } from './components/Lobby';
 import { Game } from './components/Game';
+import { AutoAdvance, useLiveGame, type AutoSpectate } from './components/AutoAdvance';
 import { Tournament } from './components/Tournament';
 import {
   clearSession,
@@ -23,41 +24,27 @@ export function App() {
   const [gameId, setGameId] = useState<string | null>(() => gameIdFromUrl());
   const [session, setSession] = useState<Session | null>(() => (gameId ? getSession(gameId) : null));
   // ?spectate=1 opens a game as a spectator even when a session exists for it.
-  const [spectating, setSpectating] = useState(() => spectateFromUrl());
+  const [spectating, setSpectating] = useState(() => !!gameId && spectateFromUrl());
+  // ?spectate=1 without a game is the opt-in auto-spectate live stream: watch a live game, then move on to the next.
+  // Only this mode ever moves the viewer; a game opened on purpose (link, list, tournament bracket) stays put.
+  const [autoSpectate, setAutoSpectate] = useState(() => !gameId && spectateFromUrl());
   const [name, setNameState] = useState(getName());
   // The tournament being followed: leaving one of its games comes back to its bracket.
   const [tournamentId, setTournamentId] = useState<string | null>(() => tournamentIdFromUrl());
 
   useEffect(() => {
-    setGameInUrl(gameId, spectating);
-  }, [gameId, spectating]);
+    // The stream keeps its URL (`?spectate=1`), so a reload tunes back into whatever is live.
+    if (autoSpectate) setGameInUrl(null, true);
+    else setGameInUrl(gameId, spectating);
+  }, [gameId, spectating, autoSpectate]);
   useEffect(() => {
     setTournamentInUrl(tournamentId);
   }, [tournamentId]);
 
-  // Auto-connect when spectating mode is active without a specific game ID
+  const firstLive = useLiveGame(autoSpectate && !gameId, null);
   useEffect(() => {
-    if (!spectating || gameId) return;
-    let alive = true;
-    const findLiveGame = async () => {
-      try {
-        const res = await api.listGames();
-        if (!alive) return;
-        const live = res.games.find((g) => g.phase !== 'finished') ?? res.games[0];
-        if (live) {
-          setGameId(live.id);
-        }
-      } catch {
-        /* retry */
-      }
-    };
-    findLiveGame();
-    const timer = setInterval(findLiveGame, 1500);
-    return () => {
-      alive = false;
-      clearInterval(timer);
-    };
-  }, [spectating, gameId]);
+    if (autoSpectate && !gameId && firstLive) setGameId(firstLive.id);
+  }, [autoSpectate, gameId, firstLive]);
 
   const setName = (n: string) => {
     setNameState(n);
@@ -69,6 +56,7 @@ export function App() {
     setSession(s);
     setGameId(s.gameId);
     setSpectating(false);
+    setAutoSpectate(false);
   };
 
   const leaveToHome = () => {
@@ -76,25 +64,36 @@ export function App() {
     setSession(null);
     setGameId(null);
     setSpectating(false);
+    setAutoSpectate(false);
   };
 
-  const watch = (id?: string) => {
-    setGameId(id || null);
+  const watch = (id: string) => {
+    setGameId(id);
     setSpectating(true);
+    setAutoSpectate(false);
   };
+
+  const startAutoSpectate = () => {
+    setGameId(null);
+    setSpectating(true);
+    setAutoSpectate(true);
+  };
+
+  // Stable, so the countdown's effects do not restart on every render. Staying ends auto-spectate for good.
+  const auto = useMemo<AutoSpectate>(() => ({ advance: (id) => setGameId(id), stay: () => setAutoSpectate(false) }), []);
 
   if (!gameId && tournamentId) {
     return <Tournament id={tournamentId} name={name} setName={setName} onPlay={enter} onWatch={watch} onBack={() => setTournamentId(null)} />;
   }
 
-  if (!gameId && spectating) {
+  if (!gameId && autoSpectate) {
     return (
       <div className="center">
         <div className="card">
-          <h2>Tuning into Live Spectator Stream…</h2>
-          <p className="muted pulse">Searching for active games on the server…</p>
+          <h2>Auto-spectate</h2>
+          <p className="muted pulse">Looking for a live game…</p>
           <div className="row">
-            <button onClick={() => setSpectating(false)}>Back to Home</button>
+            <button onClick={leaveToHome}>Back to games</button>
           </div>
         </div>
       </div>
@@ -102,11 +101,24 @@ export function App() {
   }
 
   if (!gameId) {
-    return <Home name={name} setName={setName} onEnter={enter} onSpectate={watch} onOpenTournament={setTournamentId} />;
+    return <Home name={name} setName={setName} onEnter={enter} onSpectate={watch} onAutoSpectate={startAutoSpectate} onOpenTournament={setTournamentId} />;
   }
 
   if (spectating) {
-    return <Connected key={gameId} gameId={gameId} session={null} spectating onLeave={leaveToHome} onJoin={() => setSpectating(false)} onWatch={watch} />;
+    return (
+      <Connected
+        key={gameId}
+        gameId={gameId}
+        session={null}
+        spectating
+        onLeave={leaveToHome}
+        onJoin={() => {
+          setSpectating(false);
+          setAutoSpectate(false);
+        }}
+        autoSpectate={autoSpectate ? auto : undefined}
+      />
+    );
   }
 
   if (!session) {
@@ -122,7 +134,7 @@ export function App() {
     );
   }
 
-  return <Connected key={gameId} gameId={gameId} session={session} onLeave={leaveToHome} onWatch={watch} />;
+  return <Connected gameId={gameId} session={session} onLeave={leaveToHome} />;
 }
 
 function Connected({
@@ -131,40 +143,18 @@ function Connected({
   spectating = false,
   onLeave,
   onJoin,
-  onWatch,
+  autoSpectate,
 }: {
   gameId: string;
   session: Session | null;
   spectating?: boolean;
   onLeave: () => void;
   onJoin?: () => void;
-  onWatch?: (id: string) => void;
+  /** Auto-spectate viewers only: move on to another live game when this one ends or closes. */
+  autoSpectate?: AutoSpectate;
 }) {
   const conn = useGame(gameId, spectating ? undefined : session?.token);
-  const [stayOnClosed, setStayOnClosed] = useState(false);
-
-  // Auto-redirect if room was closed while spectating
-  useEffect(() => {
-    if (!spectating || !conn.closedReason || stayOnClosed || !onWatch) return;
-    let alive = true;
-    const findNext = async () => {
-      try {
-        const res = await api.listGames();
-        if (!alive) return;
-        const next = res.games.find((g) => g.id !== gameId && g.phase !== 'finished');
-        if (next) {
-          onWatch(next.id);
-        }
-      } catch {}
-    };
-    findNext();
-    const timer = setInterval(findNext, 2000);
-    return () => {
-      alive = false;
-      clearInterval(timer);
-    };
-  }, [spectating, conn.closedReason, stayOnClosed, gameId, onWatch]);
-
+  const auto = spectating ? autoSpectate : undefined;
   if (conn.closedReason) {
     const why: Record<string, string> = {
       host: 'The host closed this room.',
@@ -178,16 +168,11 @@ function Connected({
         <div className="card">
           <h2>Room {gameId} is closed</h2>
           <p className="muted">{why[conn.closedReason] ?? 'This room is no longer available.'}</p>
-          {spectating && !stayOnClosed ? (
-            <p className="muted pulse">Looking for the next active game…</p>
-          ) : null}
           <div className="row">
             <button className="primary" onClick={onLeave}>
               Back to games
             </button>
-            {spectating && !stayOnClosed && (
-              <button onClick={() => setStayOnClosed(true)}>Stay here</button>
-            )}
+            {auto && <AutoAdvance from={gameId} auto={auto} />}
           </div>
         </div>
       </div>
@@ -205,7 +190,7 @@ function Connected({
     );
   }
   if (conn.view.phase === 'lobby') return <Lobby conn={conn} gameId={gameId} session={spectating ? null : session} onLeave={onLeave} onJoin={onJoin} />;
-  return <Game conn={conn} gameId={gameId} session={spectating ? null : session} onLeave={onLeave} onJoin={onJoin} onWatch={onWatch} />;
+  return <Game conn={conn} gameId={gameId} session={spectating ? null : session} onLeave={onLeave} onJoin={onJoin} autoSpectate={auto} />;
 }
 
 function JoinPrompt({

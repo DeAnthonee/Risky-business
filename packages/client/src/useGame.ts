@@ -108,15 +108,6 @@ export function useGame(gameId: string | null, token: string | undefined): GameC
   }, []);
 
   useEffect(() => {
-    setView(null);
-    setHost(null);
-    setName('');
-    setYou(null);
-    setConnected(false);
-    setBatches([]);
-    setChat([]);
-    setError(null);
-    setClosedReason(null);
     if (!gameId) return;
     // A new connection (another game, or a spectator taking a seat) starts at normal speed.
     playback.current.fast = false;

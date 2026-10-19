@@ -41,6 +41,9 @@ sets plans, talks, and writes up what it learned after every game)
   --mechanics-only        fast mechanics training for RISK_LEARNINGS.md: generic seats, no chat, pace 0, and no character profile/memory updates
   --curation-interval N   curate RISK_LEARNINGS.md once every N games (default 1)
   --smart-seats N         limit commander/LLM reasoning to the first N seats (e.g. 1 smart player vs remaining plain bots)
+  --skip-rivalries        skip character memory, experience and relationships (results and leaderboard are kept)
+  --open-seats N          leave N seats open for outside players; waits for the lobby to fill before starting
+  --generation TAG        tag stored on each result (default derived: gen4 with --smart-seats 1, mechanics, or gen5)
   --pace MS               pause after each action (default 800, or 0 with --mechanics-only)
   --max-chat-per-turn N   messages per seat per game turn (default 2)
   --game ID               join this existing lobby instead of creating games (one game; see --start; default seats: the six League ones)

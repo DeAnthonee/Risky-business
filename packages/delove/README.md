@@ -134,6 +134,45 @@ each phase to `runs/delove/<name>/cycle.md`. Re-running resumes where it stopped
 DELOVE_MODELS=models/delove PYTHON=.venv/Scripts/python bash packages/delove/scripts/cycle.sh packages/delove/scripts/cycles/c2.cycle
 ```
 
+A cycle-2-sized run (2,000 micro games, 3,000 Classic 2-player and 600 Classic 4-player branch games, training,
+1,800 gate games) takes **20 minutes**, where cycle 1's way took about 80 minutes before its gates:
+
+| phase | before (cycle 1/2 logs) | `cycle.sh` |
+| --- | --- | --- |
+| micro games | 6.8 min | (in the pool) |
+| Classic 2-player games | 32.5 min | (in the pool) |
+| Classic 4-player games | 26.3 min | (in the pool) |
+| all games | 65.6 min | 11.0 min |
+| exports | ~5 min after the games | done 5 s after the last game |
+| training (GPU) | ~10 min | 8.1 min |
+| gates | one match at a time | 1.2 min, all at once |
+
+Where it comes from: the engine copies a state by shape instead of `structuredClone` (most of a simulated move's
+time) and lists connected fortify targets with one indexed search per position; the teacher works out each
+per-territory answer once per position (together 4.6x on branch games, same moves); branch and score compares 3
+options instead of 4 and lets the teacher play `occupy` decisions (1.6x more on 2-player games, 1.75x on 4-player).
+Branch settings measured with `scripts/branch-variant.sh`, 2,000 two-player Classic games each against Sensei 2
+(both seat orders, same seeds; paired difference against today's setting):
+
+| options / rollouts / skip | score | paired difference | s per game |
+| --- | --- | --- | --- |
+| 4 / 6 / - (before) | 0.530 | - | 4.69 |
+| 3 / 6 / - | 0.562 | +0.032 ± 0.025 | 3.94 |
+| 4 / 4 / - | 0.488 | -0.043 ± 0.027 | 3.38 |
+| 3 / 4 / - | 0.508 | -0.022 ± 0.025 | 2.73 |
+| 4 / 6 / occupy | 0.548 | +0.018 ± 0.023 | 3.51 |
+| 3 / 4 / occupy | 0.532 | +0.002 ± 0.026 | 1.99 |
+| 3 / 4 / occupy, trade | 0.539 | +0.009 ± 0.026 | 1.91 |
+| **3 / 6 / occupy (now)** | **0.574** | **+0.043 ± 0.025** | **2.88** |
+| 3 / 6 / occupy, trade | 0.568 | +0.037 ± 0.025 | 2.84 |
+
+Across these runs 4 rollouts cost about 0.035 against 6 (8,000 games a side), so rollouts stay at 6; fewer options
+and skipping `occupy` cost nothing measurable. On 4-player Classic (800 games, Sensei 2, `delove@2` and `risky@1` at
+the table) the branch player's share of wins was 0.688 before and 0.659 now (paired -0.029 ± 0.043; 0.25 is even) at
+10.1 instead of 17.7 s per game. (The 0.688 two-player figure from 96 games earlier was luck or an older setting:
+2,000 games put today's setting at 0.53, and cycle 1's own Classic games at 0.549.) `occupy` moves in the logs are now
+Sensei 2's own; set `DELOVE_BRANCH_SKIP=` to branch on them again.
+
 Speed work has two guards. `scripts/golden.mjs record|check <file>` replays ~60 seeded games across maps, player
 counts, settings and players (teachers, `risky@1`, the network, the branch player) and fails if any logged decision,
 its features or a result changes: record before touching the engine, self-play or Delove code, check after.

@@ -19,114 +19,114 @@
     "packages/selfplay/src/npy.ts": "892fcb85ec7325a26087455b28584286cf3695554c316726344a41978d882291"
   },
   "verified": {
-    "at": "2026-10-19T14:48:53",
-    "commit": "4d741b7e1e40ce0f08c52c5b9f74633babb6e0dd (with uncommitted changes to the rule files)",
-    "seed": 46080,
+    "at": "2026-10-19T14:57:12",
+    "commit": "d066035b061cf38d64e96cabea8ecbe436f498bc",
+    "seed": 46618,
     "engines": [
       "engine.py",
       "fused.py",
       "teacher",
       "branch"
     ],
-    "steps": 925842,
+    "steps": 922748,
     "replays": [
       {
         "engine": "engine.py",
         "logs": [
-          "runs/gpu-verify/2026-10-19-46080/teacher",
-          "runs/gpu-verify/2026-10-19-46080/risky"
+          "runs/gpu-verify/2026-10-19-46618/teacher",
+          "runs/gpu-verify/2026-10-19-46618/risky"
         ],
         "games": 1000,
-        "steps": 279750
+        "steps": 277290
       },
       {
         "engine": "engine.py",
         "logs": [
-          "runs/gpu-verify/2026-10-19-46080/random"
+          "runs/gpu-verify/2026-10-19-46618/random"
         ],
         "games": 50,
-        "steps": 142113
+        "steps": 142051
       },
       {
         "engine": "engine.py",
         "logs": [
-          "runs/gpu-verify/2026-10-19-46080/encoder"
+          "runs/gpu-verify/2026-10-19-46618/encoder"
         ],
         "games": 50,
-        "steps": 13700
+        "steps": 15293
       },
       {
         "engine": "engine.py",
         "logs": [
-          "runs/gpu-verify/2026-10-19-46080/net"
+          "runs/gpu-verify/2026-10-19-46618/net"
         ],
         "games": 100,
-        "steps": 27358
+        "steps": 26740
       },
       {
         "engine": "fused.py",
         "logs": [
-          "runs/gpu-verify/2026-10-19-46080/teacher",
-          "runs/gpu-verify/2026-10-19-46080/risky"
+          "runs/gpu-verify/2026-10-19-46618/teacher",
+          "runs/gpu-verify/2026-10-19-46618/risky"
         ],
         "games": 1000,
-        "steps": 279750
+        "steps": 277290
       },
       {
         "engine": "fused.py",
         "logs": [
-          "runs/gpu-verify/2026-10-19-46080/random"
+          "runs/gpu-verify/2026-10-19-46618/random"
         ],
         "games": 50,
-        "steps": 142113
+        "steps": 142051
       },
       {
         "engine": "fused.py",
         "logs": [
-          "runs/gpu-verify/2026-10-19-46080/encoder"
+          "runs/gpu-verify/2026-10-19-46618/encoder"
         ],
         "games": 50,
-        "steps": 13700
+        "steps": 15293
       },
       {
         "engine": "fused.py",
         "logs": [
-          "runs/gpu-verify/2026-10-19-46080/net"
+          "runs/gpu-verify/2026-10-19-46618/net"
         ],
         "games": 100,
-        "steps": 27358
+        "steps": 26740
       },
       {
         "engine": "teacher",
         "check": "teacher_replay.py",
         "logs": [
-          "runs/gpu-verify/2026-10-19-46080/teacher-tuned"
+          "runs/gpu-verify/2026-10-19-46618/teacher-tuned"
         ],
-        "decisions": 134807
+        "decisions": 139044
       },
       {
         "engine": "branch",
         "check": "branch_replay.py",
         "logs": [
-          "runs/gpu-verify/2026-10-19-46080/branch-default"
+          "runs/gpu-verify/2026-10-19-46618/branch-default"
         ],
-        "decisions": 13021
+        "decisions": 12837
       },
       {
         "engine": "branch",
         "check": "branch_replay.py",
         "logs": [
-          "runs/gpu-verify/2026-10-19-46080/branch-cycle"
+          "runs/gpu-verify/2026-10-19-46618/branch-cycle"
         ],
-        "decisions": 13995
+        "decisions": 11904
       },
       {
         "engine": "branch",
         "check": "export_check.py",
         "logs": [
-          "runs/gpu-verify/2026-10-19-46080/branch-cycle"
+          "runs/gpu-verify/2026-10-19-46618/branch-cycle"
         ],
-        "decisions": 14609
+        "decisions": 12441
       }
     ]
   }

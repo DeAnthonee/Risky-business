@@ -90,7 +90,8 @@ def replay_batch(recs: list[list[dict]], max_turns: int, device: str, enc: Encod
         if encoder:
             out = encoder.encode_dense()
             feats = tuple(x.cpu().numpy() for x in out)
-        top = player.logits(mask).argmax(1).cpu().numpy() if player else None
+        lg_np = player.logits(mask).cpu().numpy() if player else None
+        top = lg_np.argmax(1) if player else None
         action = torch.zeros(B, dtype=torch.long)
         fixes = []
         for b in range(B):
@@ -130,7 +131,12 @@ def replay_batch(recs: list[list[dict]], max_turns: int, device: str, enc: Encod
                     fixes.append((b, *fix))
             if player and r["agent"] == net[0] and len(acts) > 1:
                 stats["net_total"] += 1
-                stats["net_agree"] += int(top[b] == acts[r["choice"]])
+                agree = top[b] == acts[r["choice"]]
+                stats["net_agree"] += int(agree)
+                if not agree:
+                    gap = float(lg_np[b, top[b]] - lg_np[b, acts[r["choice"]]])
+                    stats["net_gaps"].append(gap)
+                    stats["net_near"] += int(gap < NEAR_TIE)
         e.step(action.to(e.dev))
         for b, t_sorted, t_hand, cards in fixes:
             if t_sorted != t_hand:
@@ -155,6 +161,10 @@ def replay_batch(recs: list[list[dict]], max_turns: int, device: str, enc: Encod
 # Agents that send engine actions themselves instead of picking a self-play candidate, and list a trade's cards in
 # hand order (findSets order): risky@1 plays legalMoves().tradeableSets[0] (packages/engine/src/bot.ts).
 HAND_ORDER_TRADERS = {"risky@1"}
+
+# ONNX Runtime in Node and PyTorch here compute the same fp32 network with different kernels (summation order), so two
+# candidates whose logits are this close can swap places. A different top move with a larger gap is a real difference.
+NEAR_TIE = 1e-4
 
 
 def _trade_order_fix(e, snap, b, action, rec):
@@ -205,7 +215,7 @@ def main():
     args = ap.parse_args()
     if args.export and len(args.logs) != 1:
         ap.error("--export checks one log dir")
-    total = {"games": 0, "ok_games": 0, "steps": 0, "fail": [], "net_total": 0, "net_agree": 0, "trade_order": 0}
+    total = {"games": 0, "ok_games": 0, "steps": 0, "fail": [], "net_total": 0, "net_agree": 0, "trade_order": 0, "net_near": 0, "net_gaps": []}
     net = None
     if args.net:
         from delove_gpu.play import load_delove
@@ -214,7 +224,7 @@ def main():
     enc = EncoderCheck(args.export) if args.export else None
     t0 = time.time()
     for log in args.logs:
-        stats = {"games": 0, "ok_games": 0, "steps": 0, "fail": [], "net_total": 0, "net_agree": 0, "trade_order": 0}
+        stats = {"games": 0, "ok_games": 0, "steps": 0, "fail": [], "net_total": 0, "net_agree": 0, "trade_order": 0, "net_near": 0, "net_gaps": []}
         batch: list[list[dict]] = []
         row = 0
         n = 0
@@ -234,11 +244,15 @@ def main():
         print(f"{log}: {stats['ok_games']}/{stats['games']} games identical, {stats['steps']} steps checked, {len(stats['fail'])} failed{extra}")
         for f in stats["fail"][:10]:
             print("   ", f)
-        for k in ("games", "ok_games", "steps", "net_total", "net_agree", "trade_order"):
+        total["net_gaps"] += stats["net_gaps"]
+        for k in ("games", "ok_games", "steps", "net_total", "net_agree", "trade_order", "net_near"):
             total[k] += stats[k]
         total["fail"] += stats["fail"]
     if net:
-        print(f"network: GPU top move = {net[0]}'s logged move on {total['net_agree']}/{total['net_total']} decisions with 2+ candidates")
+        gaps = ", ".join(f"{g:.2g}" for g in total["net_gaps"][:10])
+        print(f"network: GPU top move = {net[0]}'s logged move on {total['net_agree']}/{total['net_total']} decisions with 2+ candidates; "
+              f"{total['net_near']} of the {total['net_total'] - total['net_agree']} others are near-ties (the two logits within {NEAR_TIE:g}"
+              f"{', gaps ' + gaps if gaps else ''})")
     if enc:
         print(f"encoder: {enc.checked} decisions checked, max abs error {enc.max_err}")
     print(f"TOTAL: {total['ok_games']}/{total['games']} games identical, {total['steps']} steps, {len(total['fail'])} failed, {time.time() - t0:.0f}s")

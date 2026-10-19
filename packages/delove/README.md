@@ -173,6 +173,11 @@ the table) the branch player's share of wins was 0.688 before and 0.659 now (pai
 2,000 games put today's setting at 0.53, and cycle 1's own Classic games at 0.549.) `occupy` moves in the logs are now
 Sensei 2's own; set `DELOVE_BRANCH_SKIP=` to branch on them again.
 
+The Classic 2-player step can also run on the GPU (`packages/delove-gpu`, `python -m delove_gpu.generate`): the same
+games, the same decisions and bit-identical training arrays (checked by replay), 4.6x faster than this pool for cycle
+3's 6,000 games. `DELOVE_BRANCH_TRACE=<file>` makes the branch player write each branched decision's options and mean
+scores, which the GPU's replay test compares option by option.
+
 Speed work has two guards. `scripts/golden.mjs record|check <file>` replays ~60 seeded games across maps, player
 counts, settings and players (teachers, `risky@1`, the network, the branch player) and fails if any logged decision,
 its features or a result changes: record before touching the engine, self-play or Delove code, check after.

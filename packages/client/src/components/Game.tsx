@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CAPITAL_DEFENSE_DICE, getMap, tradeBonus, nextTradeValue, visibleTerritories, type Card, type GameEvent, type GameView } from '@risk/engine';
 import { api } from '../api';
+import { AutoAdvance, type AutoSpectate } from './AutoAdvance';
 import { CARD_FX_MS, CardFxPanel, type CardFx } from './CardFx';
 import { CharacterName, type Whisper } from './Profiles';
 import { ScoreChart } from './ScoreChart';
@@ -25,7 +26,22 @@ const FLOAT_SPECTATOR_MS = 3200;
 const BLITZ_ROLL_MS = 170;
 const BLITZ_SHOW_MS = 230;
 
-export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameConnection; gameId: string; session: Session | null; onLeave: () => void; onJoin?: () => void }) {
+export function Game({
+  conn,
+  gameId,
+  session,
+  onLeave,
+  onJoin,
+  autoSpectate,
+}: {
+  conn: GameConnection;
+  gameId: string;
+  session: Session | null;
+  onLeave: () => void;
+  onJoin?: () => void;
+  /** Auto-spectate viewers only: move on to the next live game once this one ends. */
+  autoSpectate?: AutoSpectate;
+}) {
   const view = conn.view!;
   const you = conn.you;
   const me = view.players.find((p) => p.id === you) ?? null;
@@ -502,6 +518,7 @@ export function Game({ conn, gameId, session, onLeave, onJoin }: { conn: GameCon
           {view.phase === 'finished' ? (
             <div className="action-group">
               <strong>🏆 {names[view.winner ?? ''] ?? 'Someone'} wins!</strong>
+              {spectator && autoSpectate && <AutoAdvance from={gameId} auto={autoSpectate} />}
               <button onClick={leaveSpectate}>Back to lobby list</button>
               {session && conn.host === session.playerId && (
                 <button className="small danger" onClick={() => confirm('Close this room for everyone?') && api.closeGame(gameId, session.token).catch(() => {})}>

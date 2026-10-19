@@ -214,7 +214,7 @@ describe('runLoop with random lineups against a real server', () => {
     expect(results[0].seats).toHaveLength(7);
     expect(results[0].options).toMatchObject({ maxPlayers: 7, fogOfWar: true, cardValues: expect.stringMatching(/^(progressive|fixed|exponential)$/) });
     for (const s of results[0].seats) expect(ten.map((c) => c.name)).toContain(s.name);
-    expect(lines.some((l) => /7 players:/.test(l))).toBe(true);
+    expect(lines.some((l) => /7 players/.test(l))).toBe(true);
   }, 120_000);
 
   it('gives up on a game past the time cap: the seats leave and the loop moves on', async () => {

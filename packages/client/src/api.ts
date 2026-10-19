@@ -35,6 +35,8 @@ export interface GameSummary {
   joinable: boolean;
   winner: string | null;
   turnNumber: number;
+  /** Set on a tournament table. */
+  tournamentId?: string;
 }
 
 export interface TournamentSummary {

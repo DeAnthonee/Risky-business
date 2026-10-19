@@ -104,5 +104,10 @@ process, never imported by the server),
   journalled to `RISK_DATA_DIR/archive/` from `GameRoom.commit` (the `commit` event) and filed when it ends, with the
   true board and per-player fog views; records replay exactly with `stateAtStep`/`verifyRecord`. Admin-only (they show
   hidden boards and hands). Only the newest `RISK_ARCHIVE_KEEP` (default 1000) are kept. Bump `RECORD_VERSION` for any breaking format change; format in `docs/game-records.md`.
+- The runner (`packages/runner`) writes only under its `--learnings-dir` (results, notes, `RISK_LEARNINGS.md`,
+  `LEADERBOARD.md`, ...), never into the repo or the current directory. Runtime output and personal scripts
+  (leaderboards, learnings files, local pipelines) are not committed.
+- The web client moves a spectator to another game only in opt-in auto-spectate (`/?spectate=1` with no game),
+  never from a game opened on purpose, never a player, and never onto or off a tournament table.
 - Known gaps left open on purpose (open tournaments, fog spectating, ...) are tracked in
   `docs/hardening.md`. Read it before touching those features; remove an item only in the PR that fixes it.

@@ -38,7 +38,13 @@ sets plans, talks, and writes up what it learned after every game)
   --no-commander          plain planned bot, no model call per turn
   --no-learn              skip every post-game write (results, notes, learnings file, scouting log)
   --no-chat               no table talk
-  --pace MS               pause after each action (default 800)
+  --mechanics-only        fast mechanics training for RISK_LEARNINGS.md: generic seats, no chat, pace 0, and no character profile/memory updates
+  --curation-interval N   curate RISK_LEARNINGS.md once every N games (default 1)
+  --smart-seats N         limit commander/LLM reasoning to the first N seats (e.g. 1 smart player vs remaining plain bots)
+  --skip-rivalries        skip character memory, experience and relationships (results and leaderboard are kept)
+  --open-seats N          leave N seats open for outside players; waits for the lobby to fill before starting
+  --generation TAG        tag stored on each result (default derived: gen4 with --smart-seats 1, mechanics, or gen5)
+  --pace MS               pause after each action (default 800, or 0 with --mechanics-only)
   --max-chat-per-turn N   messages per seat per game turn (default 2)
   --game ID               join this existing lobby instead of creating games (one game; see --start; default seats: the six League ones)
   --start                 with --game: start it if one of our seats is the host
@@ -75,8 +81,14 @@ async function main() {
       'no-commander': { type: 'boolean', default: false },
       'no-learn': { type: 'boolean', default: false },
       'no-chat': { type: 'boolean', default: false },
-      pace: { type: 'string', default: '800' },
+      'mechanics-only': { type: 'boolean', default: false },
+      'curation-interval': { type: 'string', default: '1' },
+      'smart-seats': { type: 'string' },
+      'skip-rivalries': { type: 'boolean' },
+      'open-seats': { type: 'string', default: '0' },
+      pace: { type: 'string' },
       'max-chat-per-turn': { type: 'string', default: '2' },
+      generation: { type: 'string' },
       verbose: { type: 'boolean', default: false },
       help: { type: 'boolean', default: false },
     },
@@ -121,15 +133,17 @@ async function main() {
 
   const server = v.server!.replace(/\/+$/, '');
   const log = (line: string) => console.log(`[${new Date().toLocaleTimeString()}] ${line}`);
-  const api = withRetry(new HttpRiskApi(server, v['characters-key']), { log });
+  const mechanicsOnly = Boolean(v['mechanics-only']);
+  const curationInterval = Math.max(1, num(v['curation-interval']!, 'curation-interval'));
+  const api = withRetry(new HttpRiskApi(server, mechanicsOnly ? undefined : v['characters-key']), { log });
   const learn = !v['no-learn'];
   const commander = !v['no-commander'];
-  const chat = !v['no-chat'];
+  const chat = !v['no-chat'] && !mechanicsOnly;
   const needLlm = commander || chat || learn;
   const llm = needLlm
     ? new OllamaLlm({ baseUrl: v.ollama, model: v.model, concurrency: num(v['llm-concurrency']!, 'llm-concurrency'), numCtx: num(v.ctx!, 'ctx') })
     : null;
-  const paceMs = num(v.pace!, 'pace');
+  const paceMs = v.pace !== undefined ? num(v.pace, 'pace') : mechanicsOnly ? 0 : 800;
   const maxChatPerTurn = num(v['max-chat-per-turn']!, 'max-chat-per-turn');
   const aiDir = findAiDir(v['ai-dir']);
   if (v['ai-dir'] && !aiDir) fail(`--ai-dir ${v['ai-dir']} has no characters/ folder`);
@@ -157,10 +171,10 @@ async function main() {
     return;
   }
 
-  const roster = explicitSeats ? undefined : await discoverRoster(api, aiDir, log);
-  if (!explicitSeats && (!roster || roster.length < 2)) fail('No league/* characters found on the server or in the AI folder (use --ai-dir, or --seats for explicit seats)');
+  const roster = explicitSeats || mechanicsOnly ? undefined : await discoverRoster(api, aiDir, log);
+  if (!explicitSeats && !mechanicsOnly && (!roster || roster.length < 2)) fail('No league/* characters found on the server or in the AI folder (use --ai-dir, or --seats for explicit seats)');
 
-  if (learn) await bootstrapCharacterHistory(v['learnings-dir']!, (specs ?? roster ?? []).flatMap(s => 'characterId' in s ? (s.characterId ? [s.characterId] : []) : 'id' in s ? [s.id] : []), log);
+  if (learn && !mechanicsOnly) await bootstrapCharacterHistory(v['learnings-dir']!, (specs ?? roster ?? []).flatMap(s => 'characterId' in s ? (s.characterId ? [s.characterId] : []) : 'id' in s ? [s.id] : []), log);
   let results: Awaited<ReturnType<typeof runLoop>>;
   try {
   results = (await Promise.all(controls.map((control, lobby) => runLoop({
@@ -181,7 +195,13 @@ async function main() {
     learn,
     chat,
     maxChatPerTurn,
-    charactersKey: v['characters-key'],
+    charactersKey: mechanicsOnly ? undefined : v['characters-key'],
+    mechanicsOnly,
+    curationInterval,
+    smartSeats: v['smart-seats'] ? num(v['smart-seats'], 'smart-seats') : undefined,
+    skipRivalries: v['skip-rivalries'] !== undefined ? Boolean(v['skip-rivalries']) : undefined,
+    generation: v.generation,
+    openSeats: num(v['open-seats']!, 'open-seats'),
     serverUrl: server,
     control,
     log: line => log(lobbyCount > 1 ? `[Lobby ${lobby + 1}] ${line}` : line),

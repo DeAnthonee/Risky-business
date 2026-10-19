@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { addPlayer, createGame, startGame, viewFor, type GameView } from '@risk/engine';
-import { cleanChat, Diplomat, parseReply, type ChatMsg } from '../src/diplomat.js';
+import {
+  cleanChat,
+  Diplomat,
+  parseReply,
+  hasOverbudgetTroopOffer,
+  sanitizePersona,
+  isNonActionableWhisper,
+  hasHostilityOrBanter,
+  isVerbalRejectionWithoutDeal,
+  type ChatMsg,
+} from '../src/diplomat.js';
 import { boardFacts } from '../src/facts.js';
 import type { Llm } from '../src/llm.js';
 
@@ -158,6 +168,11 @@ describe('cleanChat', () => {
     expect(out).not.toMatch(/[–—]/);
     expect(cleanChat(out)).toBe(out);
   });
+  it('strips leading cartoon laughter prefixes', () => {
+    expect(cleanChat('Hehe, let us attack.')).toBe('let us attack.');
+    expect(cleanChat('haha! We strike now.')).toBe('We strike now.');
+    expect(cleanChat('Hehe!')).toBe('');
+  });
   it('is applied to what the diplomat returns', async () => {
     const out = await diplomat(fakeLlm('{"say":"Hold Alaska — or else","to":null}').llm).d.onTurnStart(makeView());
     expect(out?.message).toBe('Hold Alaska, or else');
@@ -304,4 +319,149 @@ describe('round freshness and expired offers', () => {
     const {d:confused}=diplomat(fakeLlm(JSON.stringify({say:'Round 6 is still ahead.'})).llm);
     expect(await confused.onTurnStart(at(10))).toBeNull();
   });
+
+  it('drops chat messages that propose an alliance against self or against the whisper recipient', async () => {
+    const { d: selfTarget } = diplomat(fakeLlm(JSON.stringify({ say: 'Batman, let us team up against Ultron next round.', to: 'Batman' })).llm);
+    expect(await selfTarget.onTurnStart(at(10))).toBeNull();
+
+    const { d: partnerTarget } = diplomat(fakeLlm(JSON.stringify({ say: 'Batman, let us form an alliance to take down Batman together.', to: 'Batman' })).llm);
+    expect(await partnerTarget.onTurnStart(at(10))).toBeNull();
+  });
+
+  it('hasOverbudgetTroopOffer detects bluffing troop commitments over budget in non-fog games', () => {
+    expect(hasOverbudgetTroopOffer('I will commit 20 troops against Batman', 5)).toBe(true);
+    expect(hasOverbudgetTroopOffer('I can send 10 armies to attack Batman', 4)).toBe(true);
+    expect(hasOverbudgetTroopOffer('I will commit 5 troops against Batman', 10)).toBe(false);
+    expect(hasOverbudgetTroopOffer('I will commit 20 troops against Batman', null)).toBe(false); // fog of war
+  });
+
+  it('drops chat messages where player offers more troops than their budget in non-fog games', async () => {
+    // Ultron in at(10) has 14 armies + 4 income = 18 troop budget
+    const { d: overbudget } = diplomat(fakeLlm(JSON.stringify({ say: 'Batman, I will commit 40 troops against Tony.' })).llm);
+    expect(await overbudget.onTurnStart(at(10))).toBeNull();
+
+    const { d: withinBudget } = diplomat(fakeLlm(JSON.stringify({ say: 'Batman, I will commit 10 troops against Tony.' })).llm);
+    const out = await withinBudget.onTurnStart(at(10));
+    expect(out?.message).toContain('commit 10 troops');
+  });
+
+  it('posts public coalitions and coalition responses to all chat (to: undefined)', async () => {
+    const { d } = diplomat(fakeLlm(JSON.stringify({
+      say: 'Everyone team up against Batman!',
+      coalition: { target: 'Batman', untilRound: 15 },
+    })).llm);
+    const out = await d.onTurnStart(at(10));
+    expect(out).not.toBeNull();
+    expect(out?.to).toBeUndefined(); // All chat!
+    expect(out?.message).toContain('[coalition');
+    expect(out?.message).toContain('vs Batman until round 15');
+
+    // Responding to a coalition offer
+    const { d: joiner } = diplomat(fakeLlm(JSON.stringify({
+      say: 'I will join the coalition against Batman.',
+      coalitionRespond: { coalitionId: 'TC1', answer: 'join' },
+    })).llm);
+    joiner.observe(at(10));
+    joiner.ledger.ingest([{ id: 100, at: 0, name: 'Tony', message: '[coalition TC1: vs Batman until round 15]' }]);
+    const joinOut = await joiner.onTurnStart(at(10));
+    expect(joinOut).not.toBeNull();
+    expect(joinOut?.to).toBeUndefined(); // All chat!
+    expect(joinOut?.message).toContain('[join TC1]');
+  });
 });
+
+describe('sanitizePersona', () => {
+  it('strips taunts, cackles, and toxic grudges from character markdown', () => {
+    const raw = [
+      '# Jinx',
+      '## Personality & voice',
+      '- Fast, giddy and loud: sing-song taunts, laughter, Hehe.',
+      '- Teases the leader and cackles when a big stack falls.',
+      '- Whispers giddy, chaotic offers.',
+      '- Prefers all-in aggression and smashing continent bonuses.',
+      '## Grudges & rivals',
+      '- Leona: the righteous lecturer; Jinx loves ruining her plans.',
+      '- Shen: too calm; she goes out of her way to provoke him.',
+      '## Strategy',
+      'Stack up, then throw everything at the biggest target.',
+    ].join('\n');
+
+    const sanitized = sanitizePersona(raw);
+    expect(sanitized).not.toContain('sing-song taunts');
+    expect(sanitized).not.toContain('cackles');
+    expect(sanitized).not.toContain('ruining her plans');
+    expect(sanitized).not.toContain('provoke him');
+    expect(sanitized).toContain('smashing continent bonuses');
+    expect(sanitized).toContain('Stack up, then throw everything');
+  });
+
+  it('falls back to GENERIC_PERSONA on null', () => {
+    expect(sanitizePersona(null)).toContain('professional military diplomat');
+  });
+});
+
+describe('isNonActionableWhisper', () => {
+  it('identifies rejections, dismissals, refusals, threats, and banter', () => {
+    expect(isNonActionableWhisper('Then I will proceed with my own plans. If you change your mind, let me know.')).toBe(true);
+    expect(isNonActionableWhisper("You know what, Leona? I'm still sticking to my own plans. I'll see you on the battlefield.")).toBe(true);
+    expect(isNonActionableWhisper("Jinx, if you're not willing to stand with me, then know this: I will eliminate you first.")).toBe(true);
+    expect(isNonActionableWhisper("Hehe, Leona, I'd love to see you try. You'll have to catch up first.")).toBe(true);
+    expect(isNonActionableWhisper('Jinx, my patience is thin. If you think you can outlast me, you are gravely mistaken. I will not only catch up, I will crush you.')).toBe(true);
+    expect(isNonActionableWhisper("Got it. Let's make sure we commit those 10 troops against Leona in round 2 as planned.")).toBe(true);
+  });
+
+  it('allows actionable deals and proposals through', () => {
+    expect(isNonActionableWhisper('I propose a truce until round 1. [deal S1: truce Shen+Leona until round 1]')).toBe(false);
+    expect(isNonActionableWhisper('Shen, truce?')).toBe(false);
+    expect(isNonActionableWhisper('psst')).toBe(false);
+  });
+});
+
+describe('hasHostilityOrBanter', () => {
+  it('detects hostility, threats, and laughter', () => {
+    expect(hasHostilityOrBanter('Hehe, I will strike soon.')).toBe(true);
+    expect(hasHostilityOrBanter('I will eliminate you first.')).toBe(true);
+    expect(hasHostilityOrBanter('I will crush you.')).toBe(true);
+    expect(hasHostilityOrBanter('Let us propose a truce until round 5.')).toBe(false);
+  });
+});
+
+describe('Diplomatic silence and clean rejections', () => {
+  it('silences spoken text on deal reject, outputting only the tag', async () => {
+    const v = makeView();
+    const { d } = diplomat(fakeLlm(JSON.stringify({
+      say: 'I am not interested in Darius, I have my own plans.',
+      respond: { dealId: 'L1', answer: 'reject' },
+    })).llm);
+    d.observe(v);
+    d.ledger.ingest([{ id: 10, at: 0, name: 'Batman', message: 'Truce? [deal L1: truce Batman+Ultron until round 5]' }]);
+    const out = await d.onTurnStart(v);
+    expect(out).not.toBeNull();
+    expect(out?.message).toBe('[reject L1]');
+    expect(out?.message).not.toContain('not interested');
+  });
+
+  it('drops verbal rejections without a deal or tag', async () => {
+    const v = makeView();
+    const { d } = diplomat(fakeLlm(JSON.stringify({
+      say: "I am not interested in a joint attack. I've got my own plans in motion.",
+      to: 'Batman',
+    })).llm);
+    const out = await d.onTurnStart(v);
+    expect(out).toBeNull();
+  });
+
+  it('ignores non-actionable banter whispers without calling LLM', async () => {
+    const { llm, calls } = fakeLlm('{"say":"Why reply?"}');
+    const { d } = diplomat(llm);
+    const v = makeView();
+    const out = await d.onMessages([
+      msg('Batman', 'Then I will proceed with my own plans. If you change your mind, let me know.', { to: 'a', toName: 'Ultron' }),
+    ], v);
+    expect(out).toBeNull();
+    expect(calls).toHaveLength(0); // Zero LLM calls!
+  });
+});
+
+
+

@@ -1415,6 +1415,9 @@ describe('tournaments', () => {
         expect(m.status).toBe('playing');
       }
       expect((await call(`/tournaments/${id}/join`, post({ playerName: 'Late' }))).status).toBe(400);
+      // Tables are listed with their tournament, so the web client can keep auto-spectating viewers off them.
+      const listed = (await call('/games')).body.games;
+      for (const m of r1) expect(listed).toContainEqual(expect.objectContaining({ id: m.gameId, tournamentId: id }));
 
       // Every entrant learns their table and seat; the seat works in the game, and nobody hosts the table.
       for (const [entrantId, token] of Object.entries(tokens)) {

@@ -8,6 +8,16 @@ import { addPersonalityMemory, withLearningLock } from './shared-memory.js';
 export async function bootstrapCharacterHistory(dir: string, ids: string[], log: (line:string)=>void) {
   const results=await readResults(dir);
   if (!results.length) return;
+  let needsBootstrap = false;
+  for (const id of new Set(ids)) {
+    const state = await readExperience(dir, id);
+    const processed = new Set(state.processed);
+    if (results.some((r) => r.winner && r.reason !== 'unfinished' && r.seats.some((s) => s.character === id) && !processed.has(r.gameId))) {
+      needsBootstrap = true;
+      break;
+    }
+  }
+  if (!needsBootstrap) return;
   await withLearningLock(dir,async()=>{
     for(const id of new Set(ids)) {
       const state=await readExperience(dir,id);

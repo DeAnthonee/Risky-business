@@ -67,7 +67,7 @@ export function planConquest(view: GameView, me: PlayerId, targets: TerritoryId[
       const lower = Math.max(tr.min, toNeed);
       const upper = Math.min(tr.max, armies(tr.from) - fromNeed);
       if (lower > upper) return;
-      occupy = upper;
+      occupy = requirements[tr.to] !== undefined || requirements[tr.from] === undefined ? upper : lower;
       deficit -= (placements[tr.from] ?? 0) + (placements[tr.to] ?? 0);
       delete placements[tr.from]; delete placements[tr.to];
     }

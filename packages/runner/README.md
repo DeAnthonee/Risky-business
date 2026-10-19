@@ -107,7 +107,8 @@ first-round bonus, balanced blitz, chosen capitals when enabled, connected forti
 3. **After the game** (`postgame.ts`, skipped with `--no-learn`):
    - one JSON line appended to `results.jsonl` (game id, date, map, options, winner, finish reason, rounds, per
      seat: name, character, placement, elimination round and by whom, final territories/armies, capitals held,
-     bonuses held); a leaderboard (wins/games by character and by map) is printed and fed to the model;
+     bonuses held); a leaderboard (placement points plus kill points by character, wins by map) is printed and
+     fed to the model, and written as `LEADERBOARD.md` in the learnings folder;
    - each seat: one model call turns its result, the standings, its private log and the chat it saw into a note
      (`learnings/<name>-<GAMEID>.md`, with `## Result` and `## Top lessons`). If the model is down a plain
      summary is written instead;
@@ -137,6 +138,9 @@ first-round bonus, balanced blitz, chosen capitals when enabled, connected forti
 | `scouting/<name>-<GAMEID>.md` | each seat's private plan log, written as the game goes |
 | `RISK_LEARNINGS.md` | only the bot section between the markers changes |
 | `learnings-history/RISK_LEARNINGS-<ISO timestamp>-<GAMEID>.md` | copy of the file taken before every write |
+| `LEADERBOARD.md` | the leaderboard as a Markdown table (points = placement points + kill points), rewritten after every game |
+| `mechanics-results.jsonl` | with `--mechanics-only`: one line per game, kept apart from `results.jsonl` |
+| `.skip-rivalries` | not written: create it (empty) to get `--skip-rivalries` for every run on this folder |
 
 **The human-written part of `RISK_LEARNINGS.md` (everything above the start marker) is never edited.** The curator
 reply is validated (non-empty, under about 12 KB, at most 40 bullets, no headings or markers of its own, plus the
@@ -259,7 +263,13 @@ engine bot (41-58) because it turtled, so the purpose requirement is deliberatel
 | `--no-commander` | off | pure planned bot, no model call per turn |
 | `--no-learn` | off | skip every post-game write and the scouting log |
 | `--no-chat` | off | no table talk |
-| `--pace` | 800 | ms between actions so spectators can follow |
+| `--mechanics-only` | off | fast mechanics training: generic seats (`Bot1`, `Bot2`, ...) without character profiles, no chat, pace 0, no character key, no diary/relationship/memory writes; results go to `mechanics-results.jsonl` and only the `RISK_LEARNINGS.md` bot section is curated |
+| `--curation-interval N` | 1 | run the `RISK_LEARNINGS.md` curator once every N games (and always on the last one) |
+| `--smart-seats N` | all | only the first N seats get the commander and model calls; the rest play the plain planned bot |
+| `--skip-rivalries` | off | skip loading character memory, experience and relationships (faster, smaller prompts); results and the leaderboard are still kept. Also on with `RISK_SKIP_RIVALRIES=1` or a `.skip-rivalries` file in the learnings folder |
+| `--open-seats N` | 0 | leave N seats open for outside players (humans or agents); the runner logs the join link and waits for the lobby to fill before starting |
+| `--generation TAG` | derived | tag stored on each result (default `gen4` with `--smart-seats 1`, `mechanics` with `--mechanics-only`, else `gen5`) |
+| `--pace` | 800 (0 with `--mechanics-only`) | ms between actions so spectators can follow |
 | `--max-chat-per-turn` | 2 | messages per seat per game turn |
 | `--game ID` / `--start` | off | join an existing lobby and play that one game (plain planned bot, chat only; no commander or write-ups; default seats are the six original League ones unless `--seats`) |
 | `--verbose` | off | also log chat failures |

@@ -97,7 +97,7 @@ export function pickLineup(o: {
       let name = c.name.trim() || c.id.split('/').pop()!;
       for (let n = 2; used.has(name.toLowerCase()); n++) name = `${c.name} ${n}`;
       used.add(name.toLowerCase());
-      return { name, characterId: c.id };
+      return c.id ? { name, characterId: c.id } : { name };
     });
   return { map, seats };
 }

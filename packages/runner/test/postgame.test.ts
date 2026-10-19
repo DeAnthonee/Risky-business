@@ -107,14 +107,14 @@ describe('curateLearnings', () => {
     expect(await readFile(path.join(dir, 'learnings-history', hist[0]), 'utf8')).toBe(HUMAN);
     expect((await readdir(dir)).filter((f) => f.includes('.tmp'))).toEqual([]);
 
-    // Second game: the model rewrites its own bullets; the history gets the previous version.
-    const { llm: llm2, calls: calls2 } = llmReturning(`${goodSection(2)}\n\n### Challenges to earlier advice\n- "Garrison your capital" cost Shen a game in round 7 (1 game, last G2)`);
+    // Second game: the model updates a bullet with G2; the history gets the previous version and older bullets are preserved.
+    const { llm: llm2, calls: calls2 } = llmReturning(`- Lesson 0: garrisons rarely fall by round 3 (2 games, last G2)\n\n### Challenges to earlier advice\n- "Garrison your capital" cost Shen a game in round 7 (1 game, last G2)`);
     expect((await run(dir, llm2, 'G2')).res).toBe('updated');
     expect(calls2[0]).toContain('Lesson 1'); // it sees its current section
     const after2 = await readFile(file, 'utf8');
     expect(after2.startsWith(after.slice(0, after.indexOf(BOT_START) + BOT_START.length))).toBe(true);
     expect(after2).not.toContain('Challenges to earlier advice'); // one game never challenges earlier advice
-    expect(after2).not.toContain('Lesson 2');
+    expect(after2).toContain('Lesson 2'); // older bullets are preserved
     expect(await readdir(path.join(dir, 'learnings-history'))).toHaveLength(2);
   });
 
@@ -191,6 +191,14 @@ describe('results and leaderboard', () => {
     expect(lb.byCharacter.reduce((n, r) => n + r.wins, 0)).toBe(2);
     expect(lb.byCharacter.every((r) => r.games === 2)).toBe(true);
     expect(lb.byMap.map((m) => m.map).sort()).toEqual(['classic', 'europe']);
+    const killsIn = (name: string) => result.seats.filter((v) => v.eliminatedBy === name).length;
+    for (const row of lb.byCharacter) {
+      const seat = result.seats.find((s) => s.character === row.key)!;
+      expect(row.kills).toBe(2 * killsIn(seat.name));
+    }
+    expect(lb.byCharacter.reduce((n, r) => n + r.kills, 0)).toBe(2 * result.seats.filter((v) => v.eliminatedBy).length);
+    expect(lb.byCharacter.reduce((n, r) => n + r.kills, 0)).toBeGreaterThan(0);
+    expect(formatLeaderboard(lb)).toContain(" points ");
     expect(formatLeaderboard(lb)).toContain('By map:');
     expect(formatLeaderboard(computeLeaderboard([]))).toContain('no games');
   });
@@ -257,5 +265,30 @@ describe('runPostGame', () => {
     const note = await readFile(path.join(dir, 'learnings', 'p1-GAMEZ.md'), 'utf8');
     expect(note).toContain('## Result');
     expect(note).toContain('Plan: Round 1: P1 plan');
+  });
+
+  it('mechanicsOnly mode updates RISK_LEARNINGS.md and mechanics-results.jsonl without touching character memories or diaries', async () => {
+    const dir = await tmp();
+    await writeFile(path.join(dir, 'RISK_LEARNINGS.md'), HUMAN, 'utf8');
+    const { final, reports, tracker } = setup();
+    const { api, diary, rel } = fakeApi();
+    const out = await runPostGame({
+      api,
+      llm: chatLlm,
+      learningsDir: dir,
+      final,
+      gameId: 'MECH1',
+      seats: reports,
+      tracker,
+      charactersKey: 'k',
+      mechanicsOnly: true,
+      log: () => {},
+    });
+    expect(out.curated).toBe('updated');
+    expect(diary).toHaveLength(0);
+    expect(rel).toHaveLength(0);
+    expect(await readResults(dir)).toEqual([]); // character results.jsonl untouched
+    expect(await readFile(path.join(dir, 'mechanics-results.jsonl'), 'utf8')).toContain('MECH1');
+    expect(await readFile(path.join(dir, 'RISK_LEARNINGS.md'), 'utf8')).toContain(BOT_START);
   });
 });

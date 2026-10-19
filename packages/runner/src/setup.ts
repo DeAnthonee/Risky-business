@@ -28,6 +28,9 @@ export function parseSeats(text: string): SeatSpec[] {
 export interface CreateSpec {
   gameName?: string;
   options?: Partial<GameOptions>;
+  /** Seats to leave open for external players; the host waits until the lobby fills before starting. */
+  openSeats?: number;
+  onLobbyReady?: (gameId: string, identities: Identity[]) => void;
 }
 
 /** Best effort: every seat leaves its game (in a running game that is a surrender), so the room can be cleaned up. */
@@ -37,7 +40,9 @@ export async function leaveSeats(api: RiskApi, identities: readonly Identity[]):
 
 /** The first seat creates the game and hosts it, the rest join, then the host starts it. A failure leaves the seats taken so far. */
 export async function createGame(api: RiskApi, seats: SeatSpec[], spec: CreateSpec = {}): Promise<{ gameId: string; identities: Identity[] }> {
-  const options: Partial<GameOptions> = { maxPlayers: Math.max(2, seats.length), ...spec.options };
+  const openSeats = Math.max(0, spec.openSeats ?? 0);
+  const totalPlayers = Math.max(2, seats.length + openSeats);
+  const options: Partial<GameOptions> = { maxPlayers: totalPlayers, ...spec.options };
   const identities: Identity[] = [];
   try {
     const host = await api.createGame(seats[0].name, spec.gameName, options);
@@ -49,7 +54,21 @@ export async function createGame(api: RiskApi, seats: SeatSpec[], spec: CreateSp
       // 404: older servers; 401/403: no characters write key, so the seat plays without a ranked identity.
       catch (e) { if (!(e instanceof RiskHttpError) || ![401, 403, 404].includes(e.status)) throw e; }
     }
-    await api.start(host.gameId, host.token);
+    spec.onLobbyReady?.(host.gameId, identities);
+    if (openSeats > 0) {
+      for (;;) {
+        const info = await api.getGame(host.gameId, host.token);
+        if (info.state.phase !== 'lobby') break;
+        const joined = info.state.players.filter((p) => !p.isNeutral).length;
+        if (joined >= totalPlayers) {
+          await api.start(host.gameId, host.token);
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+    } else {
+      await api.start(host.gameId, host.token);
+    }
     return { gameId: host.gameId, identities };
   } catch (e) {
     await leaveSeats(api, identities);

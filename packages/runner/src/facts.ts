@@ -73,8 +73,16 @@ export function boardFacts(view: GameView, me: PlayerId): string {
   }
 
   const allCountsVisible = living.length > 0 && living.every((p) => p.territoryCount !== null && p.armyCount !== null);
+  const whoLabel = (p: (typeof living)[number]) => `${p.name}${p.id === me ? ' (you)' : ''}`;
+  const rivals = living.filter((p) => p.id !== me);
   if (allCountsVisible) {
     const top = [...living].sort(
+      (a, b) =>
+        b.territoryCount! - a.territoryCount! ||
+        (b.armyCount ?? 0) - (a.armyCount ?? 0) ||
+        (b.income?.total ?? 0) - (a.income?.total ?? 0),
+    )[0];
+    const topRival = [...rivals].sort(
       (a, b) =>
         b.territoryCount! - a.territoryCount! ||
         (b.armyCount ?? 0) - (a.armyCount ?? 0) ||
@@ -83,10 +91,11 @@ export function boardFacts(view: GameView, me: PlayerId): string {
     const armyTop = [...living].sort((a, b) => (b.armyCount ?? 0) - (a.armyCount ?? 0) || (b.income?.total ?? 0) - (a.income?.total ?? 0))[0];
     const incTop = [...living].sort((a, b) => (b.income?.total ?? 0) - (a.income?.total ?? 0) || (b.armyCount ?? 0) - (a.armyCount ?? 0))[0];
     const extras = [
-      armyTop && armyTop.id !== top.id ? `most troops: ${armyTop.name} (${armyTop.armyCount} armies, +${q(armyTop.income?.total)}/turn)` : null,
-      incTop && incTop.id !== top.id && incTop.id !== armyTop?.id ? `highest income: ${incTop.name} (+${q(incTop.income?.total)}/turn, ${incTop.armyCount} armies)` : null,
+      top.id === me && topRival ? `leading rival: ${topRival.name} (${topRival.territoryCount} territories, ${topRival.armyCount} armies, +${q(topRival.income?.total)}/turn)` : null,
+      armyTop && armyTop.id !== top.id ? `most troops: ${whoLabel(armyTop)} (${armyTop.armyCount} armies, +${q(armyTop.income?.total)}/turn)` : null,
+      incTop && incTop.id !== top.id && incTop.id !== armyTop?.id ? `highest income: ${whoLabel(incTop)} (+${q(incTop.income?.total)}/turn, ${incTop.armyCount} armies)` : null,
     ].filter(Boolean);
-    lines.push(`Leader: ${top.name} (${top.territoryCount} territories, ${top.armyCount} armies, +${q(top.income?.total)}/turn)${extras.length ? `; ${extras.join('; ')}` : ''}.`);
+    lines.push(`Leader: ${whoLabel(top)} (${top.territoryCount} territories, ${top.armyCount} armies, +${q(top.income?.total)}/turn)${extras.length ? `; ${extras.join('; ')}` : ''}.`);
   } else if (living.length > 0) {
     const top = [...living].sort(
       (a, b) =>
@@ -100,7 +109,7 @@ export function boardFacts(view: GameView, me: PlayerId): string {
       .sort((a, b) => b.cardCount - a.cardCount)
       .map((p) => `${p.name} (${p.cardCount} cards)`);
     lines.push(
-      `Leader (by income under fog): ${top.name} (+${q(top.income?.total)}/turn, ${top.cardCount} cards)${borderTop ? `; biggest border threat: ${nameOf(borderTop[0])} (${borderTop[1]} visible armies, +${q(living.find((p) => p.id === borderTop[0])?.income?.total)}/turn)` : ''}${cardWatch.length ? `; card trade watch: ${cardWatch.join(', ')}` : ''}.`,
+      `Leader (by income under fog): ${whoLabel(top)} (+${q(top.income?.total)}/turn, ${top.cardCount} cards)${borderTop ? `; biggest border threat: ${nameOf(borderTop[0])} (${borderTop[1]} visible armies, +${q(living.find((p) => p.id === borderTop[0])?.income?.total)}/turn)` : ''}${cardWatch.length ? `; card trade watch: ${cardWatch.join(', ')}` : ''}.`,
     );
   }
 

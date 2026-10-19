@@ -124,12 +124,13 @@ export class GameMemory {
 
   summary(view: GameView): string {
     const name=(id:string)=>view.players.find(p=>p.id===id)?.name ?? id;
+    const who=(p:{id:string;name:string})=>`${p.name}${p.id===this.me ? ' (you)' : ''}`;
     const living=view.players.filter(p=>p.alive && !p.isNeutral);
     const assessment=assessLeader(view,this.me);
     const lines=[`THIS GAME ONLY — current round ${view.round}, individual turn ${view.turnNumber}.`];
-    if (assessment.leader) lines.push(`${assessment.partial ? 'Largest observable territory holder (global leader uncertain under fog)' : 'Largest territory holder'}: ${assessment.leader.name}, ${assessment.leader.territoryCount} territories${assessment.leader.income ? `, +${assessment.leader.income.total}/turn` : ''}.`);
-    if (assessment.armyLeader) lines.push(`Largest observable army: ${assessment.armyLeader.name}, ${assessment.armyLeader.armyCount} armies.`);
-    if (assessment.incomeLeader) lines.push(`Highest reinforcement income${assessment.partial ? ' (public under fog; primary way to gauge who is ahead alongside visible border stacks)' : ''}: ${assessment.incomeLeader.name}, +${assessment.incomeLeader.income?.total ?? 0}/turn (${living.map(p=>`${p.name} +${p.income?.total ?? 0}`).join(', ')}).`);
+    if (assessment.leader) lines.push(`${assessment.partial ? 'Largest observable territory holder (global leader uncertain under fog)' : 'Largest territory holder'}: ${who(assessment.leader)}, ${assessment.leader.territoryCount} territories${assessment.leader.income ? `, +${assessment.leader.income.total}/turn` : ''}.`);
+    if (assessment.armyLeader) lines.push(`Largest observable army: ${who(assessment.armyLeader)}, ${assessment.armyLeader.armyCount} armies.`);
+    if (assessment.incomeLeader) lines.push(`Highest reinforcement income${assessment.partial ? ' (public under fog; primary way to gauge who is ahead alongside visible border stacks)' : ''}: ${who(assessment.incomeLeader)}, +${assessment.incomeLeader.income?.total ?? 0}/turn (${living.map(p=>`${who(p)} +${p.income?.total ?? 0}`).join(', ')}).`);
     const cardHolders = living.filter(p => p.id !== this.me && p.cardCount >= 3).sort((a, b) => b.cardCount - a.cardCount);
     if (cardHolders.length) lines.push(`Card watch (card counts are public even under fog): ${cardHolders.map(p => `${p.name} holds ${p.cardCount} cards${p.cardCount >= 4 ? ' (imminent/forced trade threat)' : ' (can hold a tradeable set)'}`).join('; ')}.`);
     if (assessment.needsCoalition) lines.push(`Coalition assessment: ${assessment.threat!.name} holds at least 40% of observable land, 45% of observable armies, or a dominant reinforcement income (+${assessment.threat!.income?.total ?? '?'}/turn). Consider a time-limited coalition or concrete troop-commitment joint_attack deal against them with ${assessment.partners.map(p=>p.name).join(', ') || 'available opponents'}. ${assessment.partial ? 'This is a visible-threat estimate, not proof of global dominance. ' : ''}Check borders, willingness and existing agreements; do not automatically ally or betray.`);

@@ -304,4 +304,13 @@ describe('round freshness and expired offers', () => {
     const {d:confused}=diplomat(fakeLlm(JSON.stringify({say:'Round 6 is still ahead.'})).llm);
     expect(await confused.onTurnStart(at(10))).toBeNull();
   });
+
+  it('drops chat messages that propose an alliance against self or against the whisper recipient', async () => {
+    const { d: selfTarget } = diplomat(fakeLlm(JSON.stringify({ say: 'Batman, let us team up against Ultron next round.', to: 'Batman' })).llm);
+    expect(await selfTarget.onTurnStart(at(10))).toBeNull();
+
+    const { d: partnerTarget } = diplomat(fakeLlm(JSON.stringify({ say: 'Batman, let us form an alliance to take down Batman together.', to: 'Batman' })).llm);
+    expect(await partnerTarget.onTurnStart(at(10))).toBeNull();
+  });
 });
+

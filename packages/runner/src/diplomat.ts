@@ -196,9 +196,12 @@ export class Diplomat {
     const pick = this.pickWhisperTarget(view);
     if (!pick) return this.speak(view, 'It is your turn. Say one opening line to the table: a threat, an offer, or a comment on the board.', null);
     if (stall >= 2) {
+      const thirdRivals = view.players
+        .filter((p) => p.alive && !p.isNeutral && p.id !== this.playerId && p.name.toLowerCase() !== pick.name.toLowerCase())
+        .map((p) => p.name);
       return this.speak(
         view,
-        `It is your turn and the board is in a stalemate (${stall} turns without a conquest). Whisper one short line to ${pick.name} (${pick.why}) proposing a concrete troop-commitment joint_attack deal (with "commitArmies", e.g. "I will commit 20 troops against X") to break the stalemate.`,
+        `It is your turn and the board is in a stalemate (${stall} turns without a conquest). Whisper one short line to ${pick.name} (${pick.why}) proposing a concrete troop-commitment joint_attack deal (with "commitArmies") against a third rival (${thirdRivals.join(', ') || 'another opponent'} — never against yourself ${this.seatName} and never against ${pick.name}) to break the stalemate.`,
         null,
         pick.name,
       );
@@ -339,6 +342,10 @@ export class Diplomat {
       }
       const out = this.attachDeals(first, obj, view);
       if (!out) return null;
+      if (hasSelfOrPartnerTarget(first.message, this.seatName, out.to)) {
+        this.report(`chat dropped: alliance/attack targets self (${this.seatName}) or recipient (${out.to ?? 'none'})`);
+        return null;
+      }
       this.generated.set(out, { round: view.round, turn });
       this.ownLines.push(out.message);
       if (this.ownLines.length > OWN_LINES) this.ownLines.shift();
@@ -444,7 +451,7 @@ export class Diplomat {
 
   private systemPrompt(): string {
     return [
-      `You are playing the board game Risk as "${this.seatName}" and chatting with the other players at the table.`,
+      `You are playing the board game Risk as "${this.seatName}" and chatting with the other players at the table. Remember: YOU are "${this.seatName}" — never refer to "${this.seatName}" in the third person as a rival, and never propose an alliance or attack against yourself ("${this.seatName}") or against the player you are whispering an alliance offer to.`,
       'Stay in character:',
       this.persona,
       '',
@@ -505,3 +512,27 @@ export function hasExpiredOffer(message: string, round: number): boolean {
   }
   return [...message.matchAll(/\bround\s+(\d+)\s+is\s+(?:still\s+)?(?:ahead|in the future)\b/gi)].some(m => Number(m[1]) < round);
 }
+
+/**
+ * Detect when a spoken line proposes attacking or forming an alliance against the speaker themselves (`me`),
+ * or proposes an alliance/joint-attack with `to` against `to`.
+ */
+export function hasSelfOrPartnerTarget(message: string, me: string, to?: string): boolean {
+  if (!message) return false;
+  const targetVerbs = '(?:against|vs\\.?|versus|target(?:ing)?|take\\s+down|burn(?:ing)?|attack(?:ing)?|eliminat(?:e|ing)|crush(?:ing)?|stop(?:ping)?|focus(?:ing)?\\s+on|strik(?:e|ing)|gang(?:ing)?\\s+up\\s+on|team(?:ing)?\\s+up\\s+on)';
+  const meEsc = escapeRe(me.trim());
+  if (meEsc) {
+    const selfTargetRe = new RegExp(`\\b${targetVerbs}\\s+${meEsc}(?=$|[^\\p{L}\\p{N}_]|'s)`, 'iu');
+    if (selfTargetRe.test(message)) return true;
+  }
+  if (to) {
+    const toEsc = escapeRe(to.trim());
+    const isAllianceOffer = /\b(?:ally|alliance|team\s+up|join\s+forces|work\s+together|partner(?:ship)?|coalition|joint\s+attack|strike\s+together|together|with\s+me|with\s+you|common\s+cause)\b/i.test(message);
+    if (toEsc && isAllianceOffer) {
+      const partnerTargetRe = new RegExp(`\\b${targetVerbs}\\s+${toEsc}(?=$|[^\\p{L}\\p{N}_]|'s)`, 'iu');
+      if (partnerTargetRe.test(message)) return true;
+    }
+  }
+  return false;
+}
+

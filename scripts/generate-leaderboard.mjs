@@ -182,7 +182,7 @@ function generateMarkdown(gen5Data, gen4Data) {
     lines.push(
       `*Standings across **${gen5Data.totalGames}** competitive Generation 5 match${gen5Data.totalGames === 1 ? '' : 'es'}.*`,
       '',
-      '| Rank | Player / Character | Elo Points | Pts/Game | Games | Wins (1st) | Win Rate | Losses | Avg Place | Eliminations |',
+      '| Rank | Player / Character | Elo Points | Pts/Game | Games | Wins (1st) | Win Rate | Losses | Avg Place | Kill Count |',
       '| :---: | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |'
     );
 

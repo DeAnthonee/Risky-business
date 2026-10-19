@@ -2,7 +2,7 @@ import { createRiskServer } from '../packages/server/dist/app.js';
 import { Store } from '../packages/server/dist/store.js';
 import { spawn } from 'node:child_process';
 import { copyFile, readFile, writeFile } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 const LEARNINGS_DIR = 'C:\\Users\\makey\\Documents\\Claude gaming\\Risk';
@@ -14,6 +14,15 @@ const log = (msg) => {
   const ts = new Date().toLocaleTimeString();
   console.log(`[${ts}] [ORCHESTRATOR] ${msg}`);
 };
+
+async function getStatus() {
+  if (existsSync(STATUS_FILE)) {
+    try {
+      return JSON.parse(await readFile(STATUS_FILE, 'utf8'));
+    } catch {}
+  }
+  return {};
+}
 
 async function updateStatus(data) {
   try {
@@ -71,7 +80,6 @@ async function waitForGen1() {
     // Check if port 58338 is open
     const open = await isPortOpen(58338);
     if (!open) {
-      // Check if it already finished by verifying if notes exist
       if (existsSync(GEN1_LOG)) {
         const content = await readFile(GEN1_LOG, 'utf8');
         if (content.includes('=== [GENERATION 1] Complete!')) {
@@ -93,10 +101,17 @@ async function runSimulation(title, cliArgs) {
   log(`Starting ${title}`);
   log(`================================================================`);
 
-  const risk = createRiskServer(new Store(null), { clientDir: null, sweepIntervalMs: 0 });
+  const clientDist = path.resolve(LOCAL_DIR, 'packages', 'client', 'dist');
+  const risk = createRiskServer(new Store(null), { clientDir: existsSync(clientDist) ? clientDist : null, sweepIntervalMs: 0 });
   await new Promise((r) => risk.server.listen(0, '127.0.0.1', r));
   const port = risk.server.address().port;
   log(`Ephemeral risk server listening on http://127.0.0.1:${port}`);
+
+  try {
+    const dataDir = path.resolve(LOCAL_DIR, 'data');
+    if (!existsSync(dataDir)) mkdirSync(dataDir, { recursive: true });
+    writeFileSync(path.resolve(dataDir, 'active-port.txt'), String(port), 'utf8');
+  } catch {}
 
   const fullArgs = [
     'packages/runner/dist/cli.js',
@@ -140,66 +155,105 @@ async function main() {
   log('Pipeline Orchestrator started.');
   log(`Learnings directory: ${LEARNINGS_DIR}`);
 
+  const status = await getStatus();
+
   // Step 1: Gen 1
-  await waitForGen1();
+  if (status.gen1 !== 'completed') {
+    await waitForGen1();
+  } else {
+    log('Generation 1 already marked completed, skipping.');
+  }
 
   // Step 2: Gen 2 (1,000 games mechanics simulation, 4 lobbies x 250 games)
-  await updateStatus({ currentGen: 'gen2', state: 'running', gen2StartedAt: new Date().toISOString() });
-  await runSimulation('GENERATION 2 (1,000 Games Mechanics Self-Play)', [
-    '--mechanics-only',
-    '--no-commander',
-    '--lobbies', '4',
-    '--games', '250',
-    '--curation-interval', '10',
-    '--learnings-dir', LEARNINGS_DIR
-  ]);
-  await snapshot('gen2');
-  await updateStatus({ gen2: 'completed', gen2CompletedAt: new Date().toISOString() });
+  if (status.gen2 !== 'completed') {
+    await updateStatus({ currentGen: 'gen2', state: 'running', gen2StartedAt: new Date().toISOString() });
+    await runSimulation('GENERATION 2 (1,000 Games Mechanics Self-Play)', [
+      '--mechanics-only',
+      '--no-commander',
+      '--lobbies', '4',
+      '--games', '250',
+      '--curation-interval', '10',
+      '--learnings-dir', LEARNINGS_DIR
+    ]);
+    await snapshot('gen2');
+    await updateStatus({ gen2: 'completed', gen2CompletedAt: new Date().toISOString() });
+  } else {
+    log('Generation 2 already marked completed, skipping.');
+  }
 
   // Step 3: Gen 3 (1,000 games mechanics simulation, 4 lobbies x 250 games)
-  await updateStatus({ currentGen: 'gen3', state: 'running', gen3StartedAt: new Date().toISOString() });
-  await runSimulation('GENERATION 3 (1,000 Games Mechanics Self-Play)', [
-    '--mechanics-only',
-    '--no-commander',
-    '--lobbies', '4',
-    '--games', '250',
-    '--curation-interval', '10',
-    '--learnings-dir', LEARNINGS_DIR
-  ]);
-  await snapshot('gen3');
-  await updateStatus({ gen3: 'completed', gen3CompletedAt: new Date().toISOString() });
+  if (status.gen3 !== 'completed') {
+    await updateStatus({ currentGen: 'gen3', state: 'running', gen3StartedAt: new Date().toISOString() });
+    await runSimulation('GENERATION 3 (1,000 Games Mechanics Self-Play)', [
+      '--mechanics-only',
+      '--no-commander',
+      '--lobbies', '4',
+      '--games', '250',
+      '--curation-interval', '10',
+      '--learnings-dir', LEARNINGS_DIR
+    ]);
+    await snapshot('gen3');
+    await updateStatus({ gen3: 'completed', gen3CompletedAt: new Date().toISOString() });
+  } else {
+    log('Generation 3 already marked completed, skipping.');
+  }
 
   // Step 4: Gen 4 (100 games: 1 smart LLM player vs 5 mechanics bots)
-  await updateStatus({ currentGen: 'gen4', state: 'running', gen4StartedAt: new Date().toISOString() });
-  await runSimulation('GENERATION 4 (100 Games: 1 Smart LLM Player vs 5 Bots)', [
-    '--players', '6',
-    '--smart-seats', '1',
-    '--lobbies', '1',
-    '--games', '100',
-    '--pace', '0',
-    '--model', 'qwen3:14b',
-    '--ctx', '20480',
-    '--curation-interval', '5',
-    '--learnings-dir', LEARNINGS_DIR
-  ]);
-  await snapshot('gen4');
-  await updateStatus({ gen4: 'completed', gen4CompletedAt: new Date().toISOString() });
+  if (status.gen4 !== 'completed') {
+    await updateStatus({ currentGen: 'gen4', state: 'running', gen4StartedAt: new Date().toISOString() });
+    await runSimulation('GENERATION 4 (100 Games: 1 Smart LLM Player vs 5 Bots)', [
+      '--players', '6',
+      '--smart-seats', '1',
+      '--lobbies', '1',
+      '--games', '100',
+      '--pace', '0',
+      '--model', 'qwen3:14b',
+      '--ctx', '20480',
+      '--curation-interval', '5',
+      '--learnings-dir', LEARNINGS_DIR
+    ]);
+    await snapshot('gen4');
+    await updateStatus({ gen4: 'completed', gen4CompletedAt: new Date().toISOString() });
+  } else {
+    log('Generation 4 already marked completed, skipping.');
+  }
 
   // Step 5: Gen 5 (100 games: 6 smart LLM players vs 6 smart LLM players)
-  await updateStatus({ currentGen: 'gen5', state: 'running', gen5StartedAt: new Date().toISOString() });
-  await runSimulation('GENERATION 5 (100 Games: Smart LLM Players vs Smart LLM Players)', [
-    '--players', '6',
-    '--lobbies', '1',
-    '--games', '100',
-    '--pace', '0',
-    '--model', 'qwen3:14b',
-    '--ctx', '20480',
-    '--curation-interval', '5',
-    '--skip-rivalries',
-    '--learnings-dir', LEARNINGS_DIR
-  ]);
-  await snapshot('gen5');
-  await updateStatus({ gen5: 'completed', gen5CompletedAt: new Date().toISOString(), currentGen: 'done', state: 'all_generations_completed' });
+  if (status.gen5 !== 'completed') {
+    let gen5GamesPlayed = 0;
+    const resultsFile = path.join(LEARNINGS_DIR, 'results.jsonl');
+    if (existsSync(resultsFile)) {
+      try {
+        const raw = await readFile(resultsFile, 'utf8');
+        for (const line of raw.split('\n')) {
+          if (!line.trim()) continue;
+          const parsed = JSON.parse(line);
+          if (parsed.generation === 'gen5' || (status.gen5StartedAt && parsed.date >= status.gen5StartedAt)) {
+            gen5GamesPlayed++;
+          }
+        }
+      } catch {}
+    }
+    const remainingGames = Math.max(1, 100 - gen5GamesPlayed);
+    log(`Generation 5: ${gen5GamesPlayed}/100 games already recorded. Running remaining ${remainingGames} games.`);
+
+    await updateStatus({ currentGen: 'gen5', state: 'running' });
+    await runSimulation(`GENERATION 5 (${remainingGames} Games: Smart LLM vs Smart LLM FFA)`, [
+      '--players', '6',
+      '--lobbies', '1',
+      '--games', String(remainingGames),
+      '--pace', '0',
+      '--model', 'qwen3:14b',
+      '--ctx', '20480',
+      '--curation-interval', '5',
+      '--skip-rivalries',
+      '--learnings-dir', LEARNINGS_DIR
+    ]);
+    await snapshot('gen5');
+    await updateStatus({ gen5: 'completed', gen5CompletedAt: new Date().toISOString(), currentGen: 'done', state: 'all_generations_completed' });
+  } else {
+    log('Generation 5 already marked completed.');
+  }
 
   log('================================================================');
   log('ALL 5 GENERATIONS COMPLETED SUCCESSFULLY!');

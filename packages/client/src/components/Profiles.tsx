@@ -79,6 +79,7 @@ function ProfileDialog({ url, name, onClose, whisper }: { url: string; name: str
         <dl className="profile-stats">
           <div><dt>Leaderboard rank</dt><dd>{data.stats.rank ? `#${data.stats.rank}` : 'Unranked'}</dd></div>
           <div><dt>Points</dt><dd>{data.stats.points}</dd></div>
+          <div><dt>Kill count</dt><dd>{data.stats.eliminations ?? 0}</dd></div>
           <div><dt>Wins / losses</dt><dd>{data.stats.wins} / {data.stats.losses}</dd></div>
           <div><dt>Average placement</dt><dd>{data.stats.games ? data.stats.avgPlacement.toFixed(2) : '—'}</dd></div>
           <div><dt>Games</dt><dd>{data.stats.games}</dd></div>
@@ -112,12 +113,12 @@ export function Leaderboard() {
   }, [retry]);
   return <section className="card leaderboard">
     <h2>Leaderboard</h2>
-    <p className="muted small">Placement points · Start at 0, never below 0. Six players: +3, +2, +1, −1, −2, −3. Scores scale with lobby size.</p>
+    <p className="muted small">Placement points + eliminations (+1 pt per kill) · Start at 0, never below 0. Six players: +3, +2, +1, −1, −2, −3. Scores scale with lobby size.</p>
     {error && <p role="alert">{error} <button onClick={() => setRetry(n => n + 1)}>Retry</button></p>}
     {!loaded && !error && <p role="status">Loading leaderboard…</p>}
     {loaded && !rows.length && <p>No completed games yet. The first finished game starts the standings.</p>}
-    {!!rows.length && <div className="leaderboard-scroll"><table><thead><tr><th>Rank</th><th>Character / player</th><th>Points</th><th>W–L</th><th>Avg. place</th><th>Win %</th></tr></thead><tbody>
-      {rows.map(r => <tr key={r.key}><td>#{r.rank}</td><td><CharacterName name={r.name} profileKey={r.key} /></td><td>{r.points}</td><td>{r.wins}–{r.losses}</td><td>{r.avgPlacement.toFixed(2)}</td><td>{r.winRate}%</td></tr>)}
+    {!!rows.length && <div className="leaderboard-scroll"><table><thead><tr><th>Rank</th><th>Character / player</th><th>Points</th><th>Kills</th><th>W–L</th><th>Avg. place</th><th>Win %</th></tr></thead><tbody>
+      {rows.map(r => <tr key={r.key}><td>#{r.rank}</td><td><CharacterName name={r.name} profileKey={r.key} /></td><td>{r.points}</td><td>{r.eliminations ?? 0}</td><td>{r.wins}–{r.losses}</td><td>{r.avgPlacement.toFixed(2)}</td><td>{r.winRate}%</td></tr>)}
     </tbody></table></div>}
   </section>;
 }

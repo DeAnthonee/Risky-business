@@ -44,7 +44,11 @@ class StaleMirror(RuntimeError):
 
 
 def file_hash(rel: str) -> str:
-    data = (REPO / rel).read_bytes().replace(b"\r\n", b"\n")
+    """A missing file (renamed or split in the engine) hashes as "missing", so it reads as changed, not as a crash."""
+    path = REPO / rel
+    if not path.is_file():
+        return "missing"
+    data = path.read_bytes().replace(b"\r\n", b"\n")
     return hashlib.sha256(data).hexdigest()
 
 

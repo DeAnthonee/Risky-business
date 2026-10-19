@@ -21,6 +21,7 @@ from __future__ import annotations
 import torch
 
 from . import rng as R
+from .fingerprint import require_verified
 from .mapdata import WILD, MapData, triples
 
 # packages/selfplay/src/log.ts PHASES
@@ -103,12 +104,19 @@ def valid_set(kinds: torch.Tensor) -> torch.Tensor:
 
 
 class Engine:
+    MIRROR = "engine.py"  # the name verify.py records when it has replayed logs through this implementation
+
     def __init__(self, B: int, map_id: str = "classic", n_seats: int = 2, device="cuda", max_turns: int = 500, hand_slots: int = 12,
-                 exact: bool = True, seed: int = 0):
+                 exact: bool = True, seed: int = 0, allow_unverified: bool = False):
         """exact=True draws every die and shuffle from each game's mulberry32 stream, as the TypeScript engine does
         (the replay tests need it). exact=False is for speed: torch's generator, shuffles by sorting random keys, and
         blitzes that resolve whole runs of 3-against-2 rounds with one multinomial draw. Same rules, same
-        probabilities, different random numbers (tests/blitz_stats.py checks the battle outcomes match)."""
+        probabilities, different random numbers (tests/blitz_stats.py checks the battle outcomes match).
+
+        Raises fingerprint.StaleMirror when the engine files changed since the mirror was last verified (verify.py),
+        unless allow_unverified=True (the replay test and benchmarks; never for training data)."""
+        if not allow_unverified:
+            require_verified(self.MIRROR)
         if n_seats != 2:
             raise NotImplementedError("2 players (plus the classic Neutral) only so far")
         self.m = m = MapData(map_id, device)

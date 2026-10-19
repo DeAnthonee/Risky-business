@@ -15,11 +15,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 import time
 
 import torch
 
 from delove_gpu.engine import Engine
+from delove_gpu.fingerprint import changed_files
 from delove_gpu.play import NetPlayer, load_delove, random_moves
 
 
@@ -27,8 +29,8 @@ def make_engine(kind: str, B: int, max_turns: int):
     if kind == "fused":
         from delove_gpu.fused import FusedEngine
 
-        return FusedEngine(B, max_turns=max_turns)
-    return Engine(B, max_turns=max_turns, exact=(kind == "tensor"), seed=1)
+        return FusedEngine(B, max_turns=max_turns, allow_unverified=True)
+    return Engine(B, max_turns=max_turns, exact=(kind == "tensor"), seed=1, allow_unverified=True)
 
 
 def bench_fused_random(B: int, seconds: float, warmup: float, max_turns: int, chunk: int) -> dict:
@@ -118,6 +120,9 @@ def main():
     ap.add_argument("--precision", choices=["fp32", "tf32", "fp16"], default="fp32", help="network precision (play.py NetPlayer)")
     ap.add_argument("--max-turns", type=int, default=500)
     args = ap.parse_args()
+    stale = changed_files()
+    if stale:
+        print(f"note: the GPU mirror is not verified against this engine ({', '.join(stale)}); speed numbers only", file=sys.stderr)
     for B in [int(x) for x in args.batch.split(",")]:
         try:
             if args.engine == "fused" and args.policy == "random":

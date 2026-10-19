@@ -513,6 +513,7 @@ class FusedEngine(Engine):
     """Engine with legal(), step() and reset() as single CUDA kernels (always exact: mulberry32 like the engine)."""
 
     BLOCK = 128
+    MIRROR = "fused.py"
 
     def __init__(self, B: int, **kw):
         kw["exact"] = True

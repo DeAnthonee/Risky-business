@@ -35,6 +35,8 @@ the map, seat count and options as data (`mapdata.py`, `Engine(n_seats=...)`) so
 | `delove_gpu/encode.py` | the board encoder of `packages/selfplay/src/encode.ts` (ENCODER_VERSION 2) on tensors |
 | `delove_gpu/play.py` | random moves, and a Delove network (`.pt` from `train.py`) choosing every move in one batched pass |
 | `delove_gpu/logs.py` | reads decision logs (format v2) and compares records with the GPU state |
+| `delove_gpu/fingerprint.py` | which engine the mirror was last verified against (`engine-fingerprint.json`), and the stale check |
+| `verify.py` | re-verifies the mirror against the current engine and updates the fingerprint |
 | `tests/replay.py` | the replay test (below) |
 | `tests/blitz_stats.py` | battle outcomes against the exact dice distribution |
 | `bench.py`, `bench_cpu.mjs` | GPU and CPU throughput |
@@ -85,6 +87,35 @@ Results (2026-10-19, logs in the ignored `runs/gpu-verify/`):
   every game that reaches them.
 - `tests/blitz_stats.py`: 200,000 battles per starting pair (2 v 1 up to 150 v 40) match the exact outcome
   distribution for both samplers (largest |z| 1.64 over 11 pairs).
+
+## Keeping the mirror in step with the engine
+
+The mirror is only right for the engine it was checked against. `engine-fingerprint.json` records hashes of the engine
+and self-play files it copies (`RULE_FILES` in `delove_gpu/fingerprint.py`: `engine.ts`, `cards.ts`, `rng.ts`,
+`types.ts`, `maps.ts`, the Classic map JSON, and self-play's `actions.ts`, `encode.ts`, `log.ts`, `game.ts`,
+`traits.ts`), written only after logs made with exactly those files replayed identically.
+
+- **Training refuses a stale mirror.** `Engine(...)` and `FusedEngine(...)` raise `StaleMirror` when any of those files
+  changed since the last verification, so GPU-generated training data always comes from a verified mirror. The replay
+  test and the benchmarks pass `allow_unverified=True`; nothing that makes training data should.
+- **CI warns, never blocks.** `.github/workflows/ci.yml` runs `fingerprint.py check --github`: a PR that changes one of
+  those files gets a "GPU mirror needs re-verifying" warning. Engine and server work is never held up by this
+  training-only package (CI has no GPU to run the replay on anyway).
+- **Re-verify on the training PC** after such a change is merged:
+
+  ```bash
+  .venv/Scripts/python packages/delove-gpu/delove_gpu/fingerprint.py check   # what changed
+  .venv/Scripts/python packages/delove-gpu/verify.py --model models/delove/delove@2.pt
+  ```
+
+  `verify.py` builds the packages, plays fresh logged games with the current engine (new seeds each run: teacher,
+  `risky@1`, random to the turn limit, a network player with `--model`), replays them through `engine.py` and
+  `fused.py` with the encoder and network checks, and writes the fingerprint only if every step matches. Commit the
+  fingerprint (with any mirror fixes) in a PR. A change that does not touch the rules (a refactor, a comment) only
+  needs the run; a mismatch means the mirror needs the same change, made in `packages/delove-gpu`, never the engine.
+
+A hash changes for any edit, so the check can be stale without anything being wrong; the run settles it in a few
+minutes.
 
 ## Speed
 

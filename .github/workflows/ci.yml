@@ -18,3 +18,8 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npm test
+      # Non-blocking: warns on the PR when engine rules files changed since the training-only GPU mirror
+      # (packages/delove-gpu) was last verified. It never fails the build; verify.py on the training PC clears it.
+      - name: GPU mirror freshness (warning only)
+        if: always()
+        run: python3 packages/delove-gpu/delove_gpu/fingerprint.py check --github

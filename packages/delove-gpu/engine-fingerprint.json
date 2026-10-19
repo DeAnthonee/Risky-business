@@ -1,0 +1,94 @@
+{
+  "about": "Hashes of the engine files packages/delove-gpu mirrors, as of its last successful replay verification. Written by packages/delove-gpu/verify.py; do not edit by hand.",
+  "files": {
+    "packages/engine/src/engine.ts": "cd274eb40941b04663f50fb90c00f6d566a57a28b4977b63b99cb205457cea76",
+    "packages/engine/src/cards.ts": "763d4a921873636ce52fe366da4f5c823bb5d77eee42e64040dbf978d64f33b5",
+    "packages/engine/src/rng.ts": "07836989954a8b135ae1b0d936b3458d158e6cfa6cc54c37e82a7be5d97edbd0",
+    "packages/engine/src/types.ts": "59d736706f010b008ab1e2ca0a3a35bdda3a215d61ccbf0ff129ed62ebee153c",
+    "packages/engine/src/maps.ts": "c39c495ad65a86251aab6fa149f361fee9ce9dc0fb7fef552fa182d1a6e28227",
+    "packages/engine/src/generated/classic.json": "694c7b09d7fe49d06e2afd0818bc8c28916887a91f3638e04ab6d06a89fa09a2",
+    "packages/selfplay/src/actions.ts": "b39a9e6e9dc38681f3b1c241ee647e92dc35e2bb4f3c4962dc5bbdf4c58a2a0d",
+    "packages/selfplay/src/encode.ts": "31cec45e71de65dd26d8b6e582bb06c008f8adb39728feeb00dd5c25a3303336",
+    "packages/selfplay/src/log.ts": "76e33f14b9707b58e989d783bfc220522c6abd4bed7ed1c5e085e0fd2c303e33",
+    "packages/selfplay/src/game.ts": "99410a9d2f1340fd1c8caecf8172eac8f1340db1b291ea2701fb6a98bd556350",
+    "packages/selfplay/src/traits.ts": "0034dba7c24728973a29595aab1b96e92e73a0b960bb7f927c0fd92decd42dc2"
+  },
+  "verified": {
+    "at": "2026-10-19T12:45:44",
+    "commit": "494b22cccc1cfe121e2b530c39f45d2bc22c78ca",
+    "seed": 38300,
+    "engines": [
+      "engine.py",
+      "fused.py"
+    ],
+    "steps": 921982,
+    "replays": [
+      {
+        "engine": "engine.py",
+        "logs": [
+          "runs/gpu-verify/2026-10-19-38300/teacher",
+          "runs/gpu-verify/2026-10-19-38300/risky"
+        ],
+        "games": 1000,
+        "steps": 277334
+      },
+      {
+        "engine": "engine.py",
+        "logs": [
+          "runs/gpu-verify/2026-10-19-38300/random"
+        ],
+        "games": 50,
+        "steps": 141311
+      },
+      {
+        "engine": "engine.py",
+        "logs": [
+          "runs/gpu-verify/2026-10-19-38300/encoder"
+        ],
+        "games": 50,
+        "steps": 14979
+      },
+      {
+        "engine": "engine.py",
+        "logs": [
+          "runs/gpu-verify/2026-10-19-38300/net"
+        ],
+        "games": 100,
+        "steps": 27367
+      },
+      {
+        "engine": "fused.py",
+        "logs": [
+          "runs/gpu-verify/2026-10-19-38300/teacher",
+          "runs/gpu-verify/2026-10-19-38300/risky"
+        ],
+        "games": 1000,
+        "steps": 277334
+      },
+      {
+        "engine": "fused.py",
+        "logs": [
+          "runs/gpu-verify/2026-10-19-38300/random"
+        ],
+        "games": 50,
+        "steps": 141311
+      },
+      {
+        "engine": "fused.py",
+        "logs": [
+          "runs/gpu-verify/2026-10-19-38300/encoder"
+        ],
+        "games": 50,
+        "steps": 14979
+      },
+      {
+        "engine": "fused.py",
+        "logs": [
+          "runs/gpu-verify/2026-10-19-38300/net"
+        ],
+        "games": 100,
+        "steps": 27367
+      }
+    ]
+  }
+}

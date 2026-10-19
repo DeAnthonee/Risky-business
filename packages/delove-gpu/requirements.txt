@@ -1,0 +1,5 @@
+# Training-only GPU mirror of the engine rules (see README.md). Install PyTorch with CUDA first:
+#   pip install torch --index-url https://download.pytorch.org/whl/cu128
+# torch.cuda._compile_kernel (NVRTC, used by fused.py) is a recent PyTorch API (tested with 2.11); no CUDA toolkit or C++ compiler needed.
+torch>=2.8
+numpy>=2.0

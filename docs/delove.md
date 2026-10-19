@@ -127,6 +127,8 @@ packages/delove/          new package, never imported by the server or the chara
   python/train.py             distillation (Stage 1) and self-play training (Stage 2), PyTorch
   python/export_onnx.py
   README.md                   how to run each stage on the training PC
+packages/delove-gpu/      training-only GPU mirror of the Classic 2-player rules (Python/PyTorch + CUDA kernels),
+                          checked step for step against the engine by replaying self-play logs; prototype
 models/delove/                (ignored) delove@1.onnx, delove@2.onnx, ... + training settings per version
 runs/, data/                  (ignored) game logs and exported datasets
 ```

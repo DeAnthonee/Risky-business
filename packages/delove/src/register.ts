@@ -53,6 +53,8 @@ if (existsSync(dir)) {
       margin: env('DELOVE_BRANCH_MARGIN', DEFAULT_BRANCH.margin),
       skip: process.env.DELOVE_BRANCH_SKIP === undefined ? DEFAULT_BRANCH.skip : process.env.DELOVE_BRANCH_SKIP.split(',').filter(Boolean),
       valueWeight: env('DELOVE_BRANCH_VALUE', DEFAULT_BRANCH.valueWeight),
+      // DELOVE_STRENGTH=<file>: the strength meter's fitted share weights (python/fit_strength.py) for branch scores.
+      weights: process.env.DELOVE_STRENGTH ? JSON.parse(readFileSync(process.env.DELOVE_STRENGTH, 'utf8')).weights : DEFAULT_BRANCH.weights,
     }, valuer),
   );
   const statsDir = process.env.DELOVE_BRANCH_STATS;

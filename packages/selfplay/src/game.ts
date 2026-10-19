@@ -2,8 +2,11 @@ import {
   addPlayer,
   applyAction,
   createGame,
+  finalPlacements,
+  gamePoints,
   getMap,
   legalMoves,
+  placementPoints,
   RuleError,
   startGame,
   type Action,
@@ -54,6 +57,10 @@ export interface GameResult {
   turnOrder: number[];
   /** Territories held per seat at the end. */
   territories: number[];
+  /** Per seat: final place (1 = first), players eliminated, leaderboard points (see Outcome.points). */
+  placement: number[];
+  kills: number[];
+  points: number[];
   /** Illegal actions per seat (only non-zero with onIllegal: 'surrender'). */
   illegal: number[];
   /** Decisions outside the discrete action space, per seat. */
@@ -89,6 +96,8 @@ export function playGame(cfg: GameConfig): GameResult {
   let turnDecisions = 0;
   let lastTurn = state.turnNumber;
   let reason: Outcome['reason'] = 'turn_limit';
+  /** Player ids in the order they were eliminated (for final placements). */
+  const eliminationOrder: string[] = [];
 
   while (state.phase !== 'finished' && state.turnNumber < maxTurns) {
     const me = state.currentPlayer!;
@@ -127,6 +136,7 @@ export function playGame(cfg: GameConfig): GameResult {
       ({ state, events } = applyAction(state, me, { type: 'surrender' }));
     }
     decisions++;
+    for (const e of events) if (e.type === 'eliminated' && !eliminationOrder.includes(e.player)) eliminationOrder.push(e.player);
     const over = events.find((e) => e.type === 'game_over');
     if (over && over.type === 'game_over') reason = over.reason ?? 'domination';
 
@@ -142,7 +152,15 @@ export function playGame(cfg: GameConfig): GameResult {
   const alive = ids.map((p) => state.players.find((x) => x.id === p)!.alive);
   const survivors = alive.filter(Boolean).length;
   const z = (seat: number) => (winner !== null ? (seat === winner ? 1 : 0) : alive[seat] ? 1 / survivors : 0);
-  for (const r of records) r.outcome = { winner, z: z(r.seat), turns: state.turnNumber, reason };
+  const standings = new Map(finalPlacements(state, eliminationOrder).map((p) => [p.id, p]));
+  const placement = ids.map((p) => standings.get(p)!.placement);
+  const kills = ids.map((p) => standings.get(p)!.killed.length);
+  const points = ids.map((p, seat) =>
+    winner === null ? placementPoints(n, n) : gamePoints({ key: p, name: p, placement: placement[seat], killed: standings.get(p)!.killed }, n),
+  );
+  for (const r of records) {
+    r.outcome = { winner, z: z(r.seat), turns: state.turnNumber, reason, placement: placement[r.seat], kills: kills[r.seat], points: points[r.seat] };
+  }
 
   return {
     id,
@@ -157,6 +175,9 @@ export function playGame(cfg: GameConfig): GameResult {
     steps: stepCount,
     turnOrder: state.turnOrder.map((p) => ids.indexOf(p)),
     territories: ids.map((p) => map.territoryIds.filter((t) => state.territories[t].owner === p).length),
+    placement,
+    kills,
+    points,
     illegal,
     offList,
     ...(cfg.record ? { records } : {}),

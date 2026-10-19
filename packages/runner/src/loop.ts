@@ -86,6 +86,8 @@ export interface LoopOptions {
   smartSeats?: number;
   /** Skip character grudge/rivalry memory loading and reflection to optimize test speed and avoid token bloat. Full match stats and leaderboard are still preserved. */
   skipRivalries?: boolean;
+  /** Explicit generation tag for results (e.g. 'gen5', 'gen6'). */
+  generation?: string;
   /** Seats to leave open in the lobby for external players; the host waits until the lobby fills before starting. */
   openSeats?: number;
   /** Printed in the "watch" line. */
@@ -332,7 +334,7 @@ export async function runLoop(o: LoopOptions): Promise<GameResult[]> {
       const skipCurate = interval > 1 && (session.length + 1) % interval !== 0 && !isLast;
       const isGen4 = o.smartSeats === 1;
       const isGen5 = (o.smartSeats === undefined || o.smartSeats > 1) && !o.mechanicsOnly;
-      const genName = isGen4 ? 'gen4' : isGen5 ? 'gen5' : o.mechanicsOnly ? 'mechanics' : undefined;
+      const genName = o.generation ?? (isGen4 ? 'gen4' : isGen5 ? 'gen5' : o.mechanicsOnly ? 'mechanics' : undefined);
       try {
         const out = await runPostGame({ api, llm: o.llm, learningsDir: o.learningsDir, final, gameId, seats: reports, tracker, charactersKey: o.charactersKey, mechanicsOnly: o.mechanicsOnly, skipCurate, skipRivalries, smartSeats: o.smartSeats, generation: genName, log });
         session.push(out.result);

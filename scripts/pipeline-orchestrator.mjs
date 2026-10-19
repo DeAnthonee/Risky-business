@@ -238,7 +238,7 @@ async function main() {
     log(`Generation 5: ${gen5GamesPlayed}/100 games already recorded. Running remaining ${remainingGames} games.`);
 
     await updateStatus({ currentGen: 'gen5', state: 'running' });
-    await runSimulation(`GENERATION 5 (${remainingGames} Games: Smart LLM vs Smart LLM FFA)`, [
+    await runSimulation(`GENERATION 5 (${remainingGames} Games: Smart FFA Pure Tactics, No Chat)`, [
       '--players', '6',
       '--lobbies', '1',
       '--games', String(remainingGames),
@@ -247,16 +247,56 @@ async function main() {
       '--ctx', '20480',
       '--curation-interval', '5',
       '--skip-rivalries',
+      '--no-chat',
+      '--generation', 'gen5',
       '--learnings-dir', LEARNINGS_DIR
     ]);
     await snapshot('gen5');
-    await updateStatus({ gen5: 'completed', gen5CompletedAt: new Date().toISOString(), currentGen: 'done', state: 'all_generations_completed' });
+    await updateStatus({ gen5: 'completed', gen5CompletedAt: new Date().toISOString() });
   } else {
     log('Generation 5 already marked completed.');
   }
 
+  // Step 6: Gen 6 (100 games: Smart FFA with Strategic Diplomacy & Deals Reintroduced)
+  if (status.gen6 !== 'completed') {
+    let gen6GamesPlayed = 0;
+    const resultsFile = path.join(LEARNINGS_DIR, 'results.jsonl');
+    if (existsSync(resultsFile)) {
+      try {
+        const raw = await readFile(resultsFile, 'utf8');
+        for (const line of raw.split('\n')) {
+          if (!line.trim()) continue;
+          const parsed = JSON.parse(line);
+          if (parsed.generation === 'gen6' || (status.gen6StartedAt && parsed.date >= status.gen6StartedAt)) {
+            gen6GamesPlayed++;
+          }
+        }
+      } catch {}
+    }
+    const remainingGames = Math.max(1, 100 - gen6GamesPlayed);
+    log(`Generation 6: ${gen6GamesPlayed}/100 games already recorded. Running remaining ${remainingGames} games.`);
+
+    await updateStatus({ currentGen: 'gen6', state: 'running' });
+    await runSimulation(`GENERATION 6 (${remainingGames} Games: Smart FFA with Full Strategic Diplomacy & Deals)`, [
+      '--players', '6',
+      '--lobbies', '1',
+      '--games', String(remainingGames),
+      '--pace', '0',
+      '--model', 'qwen3:14b',
+      '--ctx', '20480',
+      '--curation-interval', '5',
+      '--skip-rivalries',
+      '--generation', 'gen6',
+      '--learnings-dir', LEARNINGS_DIR
+    ]);
+    await snapshot('gen6');
+    await updateStatus({ gen6: 'completed', gen6CompletedAt: new Date().toISOString(), currentGen: 'done', state: 'all_generations_completed' });
+  } else {
+    log('Generation 6 already marked completed.');
+  }
+
   log('================================================================');
-  log('ALL 5 GENERATIONS COMPLETED SUCCESSFULLY!');
+  log('ALL 6 GENERATIONS COMPLETED SUCCESSFULLY!');
   log('================================================================');
 }
 

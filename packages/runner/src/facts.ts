@@ -384,6 +384,74 @@ export function commanderFacts(view: GameView, me: PlayerId): string {
     }
   }
 
+  // Geographic viability & attractive bonuses: evaluated by troop concentration, choke points, and early game ease.
+  const viable = map.continents
+    .map((c) => {
+      const cells = c.territories.filter((t) => !blizzards.has(t));
+      const inside = new Set(cells);
+      const mineHere = cells.filter((t) => mineSet.has(t));
+      const missing = cells.filter((t) => !mineSet.has(t));
+      if (cells.length === 0 || missing.length === 0) return null;
+
+      const entries = cells.filter((t) => map.adjacency[t].some((n) => !inside.has(n) && !blizzards.has(n))).length;
+
+      const adjacentToCont = new Set<string>();
+      for (const t of cells) {
+        for (const n of map.adjacency[t]) {
+          if (!inside.has(n) && mineSet.has(n) && !blizzards.has(n)) {
+            adjacentToCont.add(n);
+          }
+        }
+      }
+      const myArmiesInside = mineHere.reduce((sum, t) => sum + (ts(t)?.armies ?? 0), 0);
+      const myArmiesAdjacent = [...adjacentToCont].reduce((sum, t) => sum + (ts(t)?.armies ?? 0), 0);
+      const localTroopStrength = myArmiesInside + myArmiesAdjacent;
+      const enemyArmiesToClear = missing.reduce((sum, t) => sum + (visible(t) ? (ts(t)?.armies ?? 0) : 1), 0);
+
+      const chokeScore = entries <= 1 ? 25 : entries === 2 ? 12 : entries === 3 ? 0 : -15 * (entries - 2);
+      const isEarly = view.round <= 3;
+      const sizeBonus = isEarly ? (cells.length <= 4 ? 20 : cells.length <= 6 ? 5 : -25) : 0;
+      const completionRatio = mineHere.length / cells.length;
+      const forceAdvantage = Math.min(25, (localTroopStrength - enemyArmiesToClear) * 2);
+
+      const score = Math.round(
+        completionRatio * 35 +
+        forceAdvantage +
+        chokeScore +
+        sizeBonus -
+        missing.length * 4 -
+        enemyArmiesToClear * 1.5 +
+        c.bonus * 3,
+      );
+
+      let verdict = 'MODERATE';
+      if (entries <= 1 && missing.length <= 3) {
+        verdict = 'PRIME EARLY TARGET (1 chokepoint defense, high ROI)';
+      } else if (entries <= 2 && missing.length <= 3) {
+        verdict = 'HIGHLY ATTRACTIVE (2 chokepoint defense, quick to secure)';
+      } else if (entries >= 4 && isEarly) {
+        verdict = 'EARLY GAME SPRAWL TRAP (too many open borders, do not pursue on turns 1-4)';
+      } else if (score >= 40) {
+        verdict = 'VIABLE ADVANTAGE TARGET';
+      } else if (score < 0) {
+        verdict = 'DIFFICULT / UNFAVORABLE';
+      }
+
+      return { c, cells, mineHere, missing, entries, localTroopStrength, enemyArmiesToClear, score, verdict };
+    })
+    .filter((x): x is NonNullable<typeof x> => x !== null)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3);
+
+  if (viable.length > 0) {
+    lines.push('Geographic viability of bonuses (evaluated by starting troops, chokepoints, and holdability):');
+    for (const v of viable) {
+      lines.push(
+        `- ${label(v.c.name, v.c.id)} bonus +${v.c.bonus}: hold ${v.mineHere.length}/${v.cells.length} (missing ${v.missing.length}, ~${v.enemyArmiesToClear} armies to clear) | Your local strength: ${v.localTroopStrength} armies | Chokepoints: ${v.entries} border${v.entries === 1 ? '' : 's'} | Viability Score: ${v.score} -> VERDICT: ${v.verdict}`,
+      );
+    }
+  }
+
   // Threats on my borders.
   const threats = mineList
     .map((t) => ({ t, foes: hostileNeighbours(t) }))

@@ -450,6 +450,7 @@ extern "C" __global__ void k_legal(STATE_ARGS, u8* mask, int B) {
 extern "C" __global__ void k_step(STATE_ARGS, i64* action, int B, int max_turns) {
   int b = blockIdx.x * blockDim.x + threadIdx.x;
   if (b >= B) return;
+  if (action[b] < 0) return;  // no move for this game this step
   MAKE_S(b);
   apply(s, (int)action[b], max_turns);
 }
@@ -494,19 +495,39 @@ extern "C" __global__ void k_random_play(STATE_ARGS, i64* agent_rng, i64* dec, u
 """
 
 
-def _kernels(e: Engine) -> dict:
-    src = _source(e)
-    if src in _cache:
-        return _cache[src]
+def compile_kernels(src: str, names, options: list[str] | None = None) -> dict:
+    """Compile `names` from `src` with NVRTC (cached per source). `options` go to NVRTC, e.g. --fmad=false so double
+    arithmetic rounds exactly like JavaScript's (no fused multiply-adds)."""
+    key = (src, tuple(names), tuple(options or ()))
+    if key in _cache:
+        return _cache[key]
     import torch.utils.cpp_extension as cpp
 
     if cpp.CUDA_HOME is None:  # NVRTC needs no headers here; torch only wants an include dir to pass along
         (_INCLUDE_STUB / "include").mkdir(parents=True, exist_ok=True)
         cpp.CUDA_HOME = str(_INCLUDE_STUB)
         os.environ.setdefault("CUDA_HOME", str(_INCLUDE_STUB))
-    ks = {name: torch.cuda._compile_kernel(src, name) for name in ("k_legal", "k_step", "k_reset", "k_random_play")}
-    _cache[src] = ks
+    # One NVRTC compile for all the (extern "C") kernels of a source, the binary cached on disk by source hash.
+    import hashlib
+
+    from torch.cuda._utils import _cuda_load_module, _nvrtc_compile
+
+    cc = "".join(map(str, torch.cuda.get_device_capability()))
+    h = hashlib.sha256("\0".join([src, *(options or ()), cc, torch.__version__]).encode()).hexdigest()[:24]
+    disk = _INCLUDE_STUB.parent / "_cache" / f"kernels-{h}.cubin"
+    if disk.exists():
+        binary = disk.read_bytes()
+    else:
+        binary, _ = _nvrtc_compile(src, names[0], None, None, list(options or []))
+        disk.parent.mkdir(exist_ok=True)
+        disk.write_bytes(binary)
+    ks = _cuda_load_module(binary, list(names))
+    _cache[key] = ks
     return ks
+
+
+def _kernels(e: Engine) -> dict:
+    return compile_kernels(_source(e), ("k_legal", "k_step", "k_reset", "k_random_play"))
 
 
 class FusedEngine(Engine):

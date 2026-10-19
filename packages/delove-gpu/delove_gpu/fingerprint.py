@@ -21,9 +21,10 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[3]
 FINGERPRINT = REPO / "packages" / "delove-gpu" / "engine-fingerprint.json"
 
-# The files whose behaviour the mirror copies: the rules, the RNG, cards, defaults, the Classic map, and the self-play
-# action space, log format and encoder the replay test and encode.py follow. Add a file here when the mirror starts
-# depending on it.
+# The files whose behaviour the mirror copies: the rules, the RNG, cards, defaults, the Classic map, the self-play
+# action space, log format and encoder the replay test and encode.py follow, and the teacher, its odds, branch and
+# score and the export format (teacher.py, branch.py, generate.py). Add a file here when the mirror starts depending
+# on it.
 RULE_FILES = [
     "packages/engine/src/engine.ts",
     "packages/engine/src/cards.ts",
@@ -36,6 +37,12 @@ RULE_FILES = [
     "packages/selfplay/src/log.ts",
     "packages/selfplay/src/game.ts",
     "packages/selfplay/src/traits.ts",
+    # the GPU teacher, branch and score, and the training-array writer
+    "packages/delove/src/teacher.ts",
+    "packages/engine/src/odds.ts",
+    "packages/delove/src/branch.ts",
+    "packages/selfplay/src/export.ts",
+    "packages/selfplay/src/npy.ts",
 ]
 
 
@@ -64,7 +71,7 @@ def recorded() -> dict:
 
 def changed_files(engine: str | None = None) -> list[str]:
     """Rule files that differ from the verified fingerprint (all of them if there is none). With `engine`
-    ("engine.py" or "fused.py"), also reports that engine as unverified if the last verification skipped it."""
+    ("engine.py", "fused.py", "teacher" or "branch"), also reports it as unverified if the last verification skipped it."""
     rec = recorded()
     files = rec.get("files", {})
     out = [rel for rel, h in current().items() if files.get(rel) != h]

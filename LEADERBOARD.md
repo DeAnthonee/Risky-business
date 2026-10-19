@@ -7,44 +7,49 @@
 
 ## 🏆 Official Competitive Standings (Generation 5: All-Smart FFA)
 
-*Standings across **6** competitive Generation 5 matches.*
+*Standings across **17** competitive Generation 5 matches.*
 
 | Rank | Player / Character | Elo Points | Pts/Game | Games | Wins (1st) | Win Rate | Losses | Avg Place | Eliminations |
 | :---: | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| #1 | **league/shaco** | **15** | 5.00 | 3 | 2 | 66.7% | 1 | 1.33 | 7 |
-| #2 | **league/jinx** | **8** | 2.00 | 4 | 2 | 50.0% | 2 | 3.00 | 6 |
-| #3 | **league/leona** | **7** | 1.75 | 4 | 1 | 25.0% | 3 | 3.00 | 3 |
-| #4 | **league/teemo** | **6** | 1.50 | 4 | 0 | 0.0% | 4 | 3.00 | 3 |
-| #5 | **league/lux** | **5** | 1.67 | 3 | 1 | 33.3% | 2 | 4.00 | 4 |
-| #6 | **league/darius** | **3** | 1.00 | 3 | 0 | 0.0% | 3 | 4.33 | 1 |
-| #7 | **league/shen** | **2** | 0.50 | 4 | 0 | 0.0% | 4 | 3.25 | 0 |
-| #8 | **league/thresh** | **1** | 0.25 | 4 | 0 | 0.0% | 4 | 4.25 | 3 |
-| #9 | **league/tryndamere** | **0** | 0.00 | 2 | 0 | 0.0% | 2 | 4.00 | 0 |
-| #10 | **league/ahri** | **0** | 0.00 | 5 | 0 | 0.0% | 5 | 4.60 | 0 |
+| #1 | **league/teemo** | **29** | 2.42 | 12 | 4 | 33.3% | 8 | 2.75 | 17 |
+| #2 | **league/leona** | **20** | 1.82 | 11 | 3 | 27.3% | 8 | 2.73 | 8 |
+| #3 | **league/jinx** | **15** | 1.67 | 9 | 4 | 44.4% | 5 | 3.22 | 13 |
+| #4 | **league/shaco** | **11** | 1.10 | 10 | 3 | 30.0% | 7 | 3.30 | 9 |
+| #5 | **league/shen** | **11** | 1.00 | 11 | 2 | 18.2% | 9 | 3.27 | 2 |
+| #6 | **league/tryndamere** | **9** | 1.50 | 6 | 0 | 0.0% | 6 | 3.50 | 6 |
+| #7 | **league/ahri** | **5** | 0.38 | 13 | 0 | 0.0% | 13 | 4.08 | 7 |
+| #8 | **league/lux** | **4** | 0.50 | 8 | 1 | 12.5% | 7 | 3.88 | 4 |
+| #9 | **league/thresh** | **0** | 0.00 | 10 | 0 | 0.0% | 10 | 4.10 | 3 |
+| #10 | **league/darius** | **0** | 0.00 | 12 | 0 | 0.0% | 12 | 4.17 | 2 |
 
 ### Placement Breakdown (1st through 6th)
 
 | Rank | Player / Character | 1st 🥇 | 2nd 🥈 | 3rd 🥉 | 4th | 5th | 6th | Podium Rate |
 | :---: | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| #1 | **league/shaco** | 2 | 1 | 0 | 0 | 0 | 0 | 100.0% |
-| #2 | **league/jinx** | 2 | 0 | 0 | 1 | 0 | 1 | 50.0% |
-| #3 | **league/leona** | 1 | 1 | 0 | 1 | 1 | 0 | 50.0% |
-| #4 | **league/teemo** | 0 | 1 | 2 | 1 | 0 | 0 | 75.0% |
-| #5 | **league/lux** | 1 | 0 | 0 | 0 | 1 | 1 | 33.3% |
-| #6 | **league/darius** | 0 | 1 | 0 | 0 | 1 | 1 | 33.3% |
-| #7 | **league/shen** | 0 | 1 | 2 | 0 | 1 | 0 | 75.0% |
-| #8 | **league/thresh** | 0 | 0 | 1 | 1 | 2 | 0 | 25.0% |
-| #9 | **league/tryndamere** | 0 | 0 | 0 | 2 | 0 | 0 | 0.0% |
-| #10 | **league/ahri** | 0 | 1 | 1 | 0 | 0 | 3 | 40.0% |
+| #1 | **league/teemo** | 4 | 1 | 4 | 1 | 1 | 1 | 75.0% |
+| #2 | **league/leona** | 3 | 3 | 1 | 2 | 2 | 0 | 63.6% |
+| #3 | **league/jinx** | 4 | 0 | 0 | 2 | 1 | 2 | 44.4% |
+| #4 | **league/shaco** | 3 | 1 | 1 | 1 | 3 | 1 | 50.0% |
+| #5 | **league/shen** | 2 | 2 | 3 | 1 | 1 | 2 | 63.6% |
+| #6 | **league/tryndamere** | 0 | 1 | 2 | 2 | 1 | 0 | 50.0% |
+| #7 | **league/ahri** | 0 | 3 | 3 | 1 | 2 | 4 | 46.2% |
+| #8 | **league/lux** | 1 | 2 | 1 | 0 | 1 | 3 | 50.0% |
+| #9 | **league/thresh** | 0 | 1 | 2 | 3 | 3 | 1 | 30.0% |
+| #10 | **league/darius** | 0 | 3 | 0 | 4 | 2 | 3 | 25.0% |
 
 ### Map Breakdown
 
 | Map | Matches | Dominant Winner(s) |
 | :--- | :---: | :--- |
+| asia | 4 | league/shen (2 wins), league/leona (1 win), league/teemo (1 win) |
+| europe_classic | 3 | league/leona (1 win), league/shaco (1 win), league/jinx (1 win) |
 | greater_europe | 2 | league/jinx (1 win), league/shaco (1 win) |
-| europe_classic | 2 | league/leona (1 win), league/shaco (1 win) |
+| world | 2 | league/jinx (1 win), league/leona (1 win) |
+| classic | 2 | league/jinx (1 win), league/teemo (1 win) |
 | europe | 1 | league/lux (1 win) |
-| world | 1 | league/jinx (1 win) |
+| usa | 1 | league/teemo (1 win) |
+| world_large | 1 | league/teemo (1 win) |
+| fantasy | 1 | league/shaco (1 win) |
 
 ---
 
@@ -66,4 +71,4 @@
 | **league/teemo** | 7 | 7 | **100.0%** | 21 |
 | **league/jinx** | 6 | 6 | **100.0%** | 11 |
 
-*Last updated: 2026-10-19T14:13:16.634Z*
+*Last updated: 2026-10-19T17:35:39.258Z*

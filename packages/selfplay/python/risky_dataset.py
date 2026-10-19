@@ -17,7 +17,7 @@ import sys
 
 import numpy as np
 
-SUPPORTED_ENCODER = 1
+SUPPORTED_ENCODER = 2
 ARRAYS = ["territory", "global", "cand", "cand_from", "cand_to", "cand_offset", "choice", "z", "game", "seat"]
 
 

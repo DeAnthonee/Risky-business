@@ -50,7 +50,6 @@ Fundamental rules, mechanics, and tournament scoring for the Risk engine, follow
 * **Fog of War (Hidden)**:
   * Only territories directly adjacent to friendly borders are visible.
   * Enemy stacks, interior movements, and bonus completions within the fog are hidden.
-  * Opponents' total troop counts and territory counts are strictly hidden; players see only rivals' turn reinforcement income (+N/turn) and card count.
   * Probing/scouting attacks reveal neighboring garrison counts.
 
 ### 5. Map Geography, Bonuses & Blizzards
@@ -96,7 +95,7 @@ Fundamental rules, mechanics, and tournament scoring for the Risk engine, follow
 - **Maintaining a strong reinforcement income is crucial for long-term survival.** Bot2 maintained a high reinforcement income (+43/turn) even after losing several key territories and bonuses, which contributed to their eventual domination win. (1 game, last 8VALR5)
 - **High reinforcement income from key bonuses can offset lack of capital control.** Bot4 secured multiple continental bonuses, out-producing capital holders (+114 income) and overwhelming them through sheer army count. (2 games, last 4J2YAV)
 - **Scout with card-taking attacks before committing stacks.** Under fog of war, single-territory probes reveal neighboring enemy garrison counts without exposing main armies. (1 game, last 3ZP4C4)
-- **Judge hidden threats by reinforcement income and card count.** Under fog of war, opponents' territory counts and army totals are hidden; players can only see public turn reinforcement income (+N/turn), card counts, and visible border stacks to gauge rival strength. (1 game, last 8SR5HD)
+- **Judge hidden threats by income.** When enemy stacks are concealed by fog, turn income provides the only reliable estimate of rival strength. Bot4 used this to target Bot1 effectively. (1 game, last 8SR5HD)
 
 ### Progressive Cards & Escalating Spoils
 - **Eliminations funded the winners.** Lux knocked out Darius (round 4), Shaco (round 6) and Leona (round 38) and survived to 2nd; Ahri swept every capital. The three first players out (Darius, Shaco, Thresh) never made a kill. (1 game, last MVAPM8)

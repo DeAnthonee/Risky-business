@@ -91,6 +91,45 @@ describe('game archive', () => {
     store.stopTimers();
   });
 
+  it('keeps only the newest records, deleting the oldest files and index lines', () => {
+    const dir = dataDir();
+    const store = new Store(join(dir, 'games.json'));
+    expect(store.archive.keep).toBe(1000);
+    store.archive.keep = 2;
+    const filed: string[] = [];
+    for (let n = 0; n < 4; n++) {
+      const room = startedGame(store);
+      play(room, 5 + n);
+      filed.push(room.recordId!);
+      store.delete(room.id, 'host');
+    }
+    const list = store.archive.list();
+    expect(list.map((e) => e.id)).toEqual([filed[3], filed[2]]);
+    const files = readdirSync(join(dir, 'archive', 'games'), { recursive: true }).filter((f) => String(f).endsWith('.json'));
+    expect(files).toHaveLength(2);
+    expect(store.archive.get(filed[0])).toBeNull();
+    expect(store.archive.get(filed[3])!.steps).toHaveLength(8);
+
+    // 0 keeps everything.
+    store.archive.keep = 0;
+    const room = startedGame(store);
+    store.delete(room.id, 'host');
+    expect(store.archive.list()).toHaveLength(3);
+    store.stopTimers();
+  });
+
+  it('reads the number of records to keep from RISK_ARCHIVE_KEEP', () => {
+    const dir = dataDir();
+    process.env.RISK_ARCHIVE_KEEP = '25';
+    try {
+      expect(new Store(join(dir, 'games.json')).archive.keep).toBe(25);
+      process.env.RISK_ARCHIVE_KEEP = 'lots';
+      expect(new Store(join(dir, 'games.json')).archive.keep).toBe(1000);
+    } finally {
+      delete process.env.RISK_ARCHIVE_KEEP;
+    }
+  });
+
   it('records nothing for lobbies that never start, or without persistence', () => {
     const dir = dataDir();
     const store = new Store(join(dir, 'games.json'));

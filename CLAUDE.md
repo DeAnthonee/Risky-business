@@ -99,6 +99,6 @@ process, never imported by the server),
 - Game records (`packages/engine/src/record.ts`, written by `packages/server/src/archive.ts`): every started game is
   journalled to `RISK_DATA_DIR/archive/` from `GameRoom.commit` (the `commit` event) and filed when it ends, with the
   true board and per-player fog views; records replay exactly with `stateAtStep`/`verifyRecord`. Admin-only (they show
-  hidden boards and hands). Bump `RECORD_VERSION` for any breaking format change; format in `docs/game-records.md`.
+  hidden boards and hands). Only the newest `RISK_ARCHIVE_KEEP` (default 1000) are kept. Bump `RECORD_VERSION` for any breaking format change; format in `docs/game-records.md`.
 - Known gaps left open on purpose (open tournaments, fog spectating, ...) are tracked in
   `docs/hardening.md`. Read it before touching those features; remove an item only in the PR that fixes it.

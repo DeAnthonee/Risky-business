@@ -65,6 +65,7 @@ def main() -> int:
     ap.add_argument("--ranker", default="delove@2", help="with --models: the branch ranker (its .pt and .onnx in --models)")
     ap.add_argument("--seed", type=int, default=None, help="default: from the clock, so every run plays new games")
     ap.add_argument("--no-build", action="store_true")
+    ap.add_argument("--parallel", type=int, default=0, help="CPU processes for the matrix suites' logged games (0: every thread but one)")
     ap.add_argument("--matrix-scale", type=float, default=0.1,
                     help="every map, table size and setting (tests/matrix.py suites rules and settings, and branch with --models) at"
                          " this scale of their game counts; 0 skips them (then only Classic 2-player is verified)")
@@ -224,7 +225,7 @@ def main() -> int:
         for suite in suites:
             print(f"  every map, table size and setting: tests/matrix.py --suite {suite} --scale {args.matrix_scale}")
             cmd = [py, "-u", str(HERE / "tests" / "matrix.py"), "--suite", suite, "--scale", str(args.matrix_scale), "--seed", str(seed),
-                   "--out", str(out / f"matrix-{suite}")] + (["--models", str(models)] if args.models else [])
+                   "--out", str(out / f"matrix-{suite}")] + (["--parallel", str(args.parallel)] if args.parallel else []) + (["--models", str(models)] if args.models else [])
             r = run(cmd, capture_output=True, text=True)
             text = r.stdout + r.stderr
             tail = [line for line in text.splitlines() if line.startswith(("ok ", "BAD")) or "cases identical" in line]

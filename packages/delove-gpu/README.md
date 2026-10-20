@@ -526,6 +526,82 @@ What the numbers say:
   (fp16 picks a different top move on ~2% of decisions, near-ties; TF32 is 18% faster than fp32 and differs on
   0.14%). Beyond ~8k games the GPU is saturated and larger batches only cost memory.
 
+## Cloud workers
+
+`cloud/` plays a cycle's GPU steps on rented cloud GPUs (RunPod first; RTX 4090 by default), so the training PC's GPU
+is free and a cycle's generation is spread over several GPUs. Nothing in it is a rule: the pods run this package's
+`delove_gpu.generate` at a given commit, with the cycle's seed, tables and branch settings.
+
+| file | what it does |
+| --- | --- |
+| `cloud/remote.py` | runs on the training PC: splits the GPU steps over lanes, launches pods through the RunPod REST API, uploads, polls, downloads, terminates, merges (`plan`, `run`, `pods`, `terminate`) |
+| `cloud/worker.sh` | runs on a pod: unpacks the commit (`git archive`), Node 22, `npm ci` and builds the engine and self-play, installs the training PC's PyTorch version, loads the uploaded `_cache/` kernels, checks the fingerprint, runs every lane, deletes the models, packs `out.tar.gz` (gzip -1: the arrays shrink 11-25x) |
+| `cloud/merge.py` | joins several workers' map folders into one `DATA/<name>-<step>/<map>` (rows appended, `cand_offset` continued, `game` renumbered, counts summed; any per-row array such as `branch_tag.npy` included) and their summaries into the step's `gpu.json` |
+| `tests/cloud_check.py` | offline checks (no GPU, no pods): a real map folder cut into workers and merged back is identical game for game; the split places every table once and its jobs lines round-trip; `remote.py run` against a fake API terminates every pod on success, on a worker failure and on Ctrl+C |
+
+**How a step is split.** The unit is a configuration (map, seats, settings): `generate` plays all of a configuration's
+tables in one engine, and a configuration takes about as long as its longest games whatever their number (a lockstep
+step costs far less than in proportion to its games). So each configuration plays whole on one lane, and its games
+are the same games as at home (same tables, seeds and batch for the same `--gpu-gb`). Lanes are pods x GPUs per pod
+(`--gpus`) x processes per GPU (`--procs`); configurations go longest first onto the least-loaded lane, their cost
+read from the `... games in N s (batch B)` lines of earlier `gpu.log` files (`--timings`, any number; a configuration
+never measured is guessed from the same map and table size, else the board size, and marked "(guess)"). A lane runs
+one `generate` per step, so the workers' arrays come back per lane and step, and `merge.py` joins them.
+
+**What it can and cannot shorten.** Cycle 6 on the RTX 4060 is about 6 hours of GPU generation; split over 6 lanes
+it is about 72 minutes of games per lane at the 4060's speed (`remote.py plan` on cycle 6's jobs and timings), and no
+number of lanes goes below the slowest configuration (Greater Europe 6-player, 500 games: 47 minutes on the 4060).
+Getting under that needs a faster GPU per game (the first test below measures it), several processes per GPU
+(`--procs`, which overlapped straggler tails at home: `GPU_LANES`), or the big-table speed-ups in "What is left".
+
+**Cost and shutdown.** `plan` (and `run` before it launches) prints every lane with its configurations and minutes
+and the estimate: setup (~10 minutes) + the longest lane + download, times pods x GPUs x `--price` ($/GPU-hour;
+default 0.69, the pods report their real price). `--max-gpu-hours` (default 4) is a hard cap: `run` refuses a bigger
+estimate, and terminates every pod when the cap's share of wall time is spent. Pods end on every path: each pod is
+terminated as soon as its arrays are downloaded, and every pod on failure, timeout or Ctrl+C (their ids are kept in
+`OUT/remote/pods.json`; `remote.py terminate --all` ends every `delove-*` pod of the account if this script was
+killed). Inside each pod a watchdog in the start command terminates it at the run's deadline (cap + 15 minutes) with
+`runpodctl` and the pod's own key, even if the training PC is gone. Without `--yes`, `run` only prints the plan.
+
+**Secrets and models.** The API key is read from `RUNPOD_API_KEY` (set by the owner in the environment) and only sent
+in the `Authorization` header: never printed, logged or written. SSH uses a fresh ed25519 key per run, generated
+under `OUT/remote/` and deleted at the end. The pods get only the models the tables need (each network seat's and the
+ranker's `.pt`, the teachers' `.json`), uploaded straight to the owner's pods; the worker deletes them once its games
+are played, `remote.py` deletes them again before terminating, terminating destroys the pod's disk (no network
+volume is used), and the local upload tar is deleted right after the upload.
+
+**Running it.** From a cycle: `REMOTE_GPUS=6` (and `REMOTE_TIMINGS`, `REMOTE_MAX_GPU_HOURS`, `REMOTE_PROCS`,
+`REMOTE_GPU_TYPE`, `REMOTE_CLOUD`) makes cycle.sh hand every GPU step to `remote.py run` with the same generate
+arguments as a local step; progress goes to `OUT/remote.log`, the merged arrays to `DATA/<name>-<step>/<map>` and each
+step's `gpu.json` and `gpu.log` to `OUT/<step>/`, so training, `summary.mjs` and the dashboard are unchanged. By hand
+(from `packages/delove-gpu`; the generate arguments go after `--`):
+
+```bash
+python cloud/remote.py plan --name c7 --step big=../delove/scripts/cycles/c7-big.jobs --pods 6 --timings <runs>/c6/big/gpu.log
+python cloud/remote.py run --name c7 --step big=... --pods 6 --models <models> --data <data> --out <runs>/c7 \
+    --timings <runs>/c6/big/gpu.log --max-gpu-hours 8 --yes -- --seed 307 --gpu-gb 6 --ranker delove@3 --teacher jacob-sensei@1 --horizon 1 --margin 0.01
+python cloud/remote.py pods                  # every delove-* pod of the account
+python cloud/remote.py terminate --all       # end them all
+```
+
+`--commit` (default `HEAD`) is the commit the pods run, by `git archive`, so it need not be pushed; uncommitted
+changes to the mirror, engine or self-play are warned about, since the pods will not have them. `--cache` (default
+`_cache/`) uploads the NVRTC kernels and odds tables: the cache key holds the GPU's compute capability and the
+PyTorch version, so the 4060's kernels load on a 4090 (both Ada, sm_89) and other GPUs compile their own (about a
+minute per configuration). `--verify '<verify.py args>'` runs `verify.py --models` on each pod before its games.
+
+**Bit-exactness on a new GPU.** Before trusting a GPU type's data, play tables the training PC has already played,
+with the same seed and `--gpu-gb` (so the same batch), and compare game for game; `--subset` asks that every game of
+the first folder be among the second's:
+
+```bash
+python tests/dataset_compare.py --subset <data>/<name>-big/world <training PC data>/c6-big/world
+```
+
+or run `verify.py --models` on it (`--verify`). First test (pending the owner's go-ahead): one RTX 4090, cycle 6's
+`w10b`, `ge6b` and `c4b` with cycle 6's seed, settings and commit, for games/s against the 4060's `gpu.log` and this
+comparison; its results go here.
+
 ## What is left
 
 Done (above): the rules, the tuned teacher, branch and score, the outcome and the training arrays of every cycle step,

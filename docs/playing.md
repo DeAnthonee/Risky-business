@@ -10,7 +10,7 @@ Maps: [maps.md](maps.md). Tournaments: [tournaments.md](tournaments.md).
 Open http://localhost:8080, enter a name, press **Create room** (it opens the setup in place: maps as silhouette tiles
 with a live preview, settings grouped into Players and setup, Cards and combat, Board twists; the lobby uses the same
 groups), add a bot or share the 6-letter join code (or the invite link `?game=CODE`), and press **Start**. The home
-page lists open games as tickets (joinable rooms first, then live and finished ones) next to the leaderboard. Anyone can **watch** a game without playing:
+page lists open games as tickets (joinable rooms first, then live and finished ones) next to the leaderboard (once a season has been archived, a season picker above it shows past seasons; the current one is the default). Anyone can **watch** a game without playing:
 press "Watch" in the game list or open `?game=CODE&spectate=1`. Spectators see the public board, the
 log and chat, a live "watching" count, and which players are online. In fog-of-war games they can
 see the board as any player sees it (click a player, or "Follow turn") and press **F** ("Hide fog" /

@@ -61,7 +61,13 @@ export class LocalRiskApi implements RiskApi {
     room.bindCharacter(player, canonical);
     return { ok: true };
   }
-  async rankings() { return { rankings: this.store.rankings.rows() }; }
+  async rankings(season?: string) {
+    const r = this.store.rankings;
+    const rankings = r.seasonRows(season);
+    if (!rankings) throw new RiskHttpError(`No leaderboard season ${season}`, 404);
+    return { season: season || String(r.season), current: !season || season === String(r.season), rankings };
+  }
+  async rankingSeasons() { return { current: this.store.rankings.season, seasons: this.store.rankings.seasons() }; }
   async rankedProfile(key: string) {
     let profile: string | null = null;
     try { profile = this.characters.get(key).markdown; } catch { /* a plain player */ }

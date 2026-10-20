@@ -5,6 +5,7 @@ Covers `packages/client` (lobby, board, animations, chat, spectator features). G
 Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. Changes from before pull requests carry the
 commit hash instead. **Append a line in the same PR** as any change to this area (README hard rule 12).
 
+- 2026-10-20 #119 leaderboard season picker (current by default; shown once a season is archived), profiles open with that season's numbers
 - 2026-10-20 #109 phone held sideways gets its own layout: one-line top bar, tab rail on the right, panels beside the map, short scrolling action bar; wide touch screens up to 540px tall get the phone layout instead of desktop
 - 2026-10-20 #108 the current player's territories sit slightly raised (larger, rim, drop shadow) and rock gently during their turn; still under reduced motion
 - 2026-10-20 #104 animated water behind the board: depth gradient, drifting wave marks, coastline surf glow (still under reduced motion)

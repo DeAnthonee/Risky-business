@@ -66,6 +66,9 @@ status tracker) is in [map-making.md](map-making.md). More in
   true board and per-player fog views; records replay exactly with `stateAtStep`/`verifyRecord`. Admin-only (they show
   hidden boards and hands). Only the newest `RISK_ARCHIVE_KEEP` (default 1000) are kept. Format in
   [game-records.md](game-records.md).
+- Leaderboard seasons live only in `packages/server/src/rankings.ts`: archive with `POST /api/admin/rankings/new-season`
+  or a `RANKINGS_SEASON` bump, never by changing `packages/engine/src/ranking.ts` or a `RULE_FILES` file (Delove's GPU
+  mirror); see [leaderboard-seasons.md](leaderboard-seasons.md).
 
 ## Client
 

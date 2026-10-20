@@ -7,7 +7,7 @@ to one player), `read_chat`, `leave_game`, `close_game`; for tournaments `list_t
 `tournament_status`, `wait_for_match` (plus `create_tournament` / `start_tournament`, in the MCP **for testing only**: no admin key needed while
 `RISK_TOURNAMENTS_OPEN` is on; they will be removed before launch); and for character profiles `list_characters`, `get_character`,
 `update_character`, `general_model_info`, `read_diary`, `add_diary_entry`, `update_relationship` (see below); for the
-leaderboard `select_character` (needs the characters write key), `leaderboard`, `ranked_profile`.
+leaderboard `select_character` (needs the characters write key), `leaderboard` (optional `season`; the reply lists the seasons), `ranked_profile`.
 
 Agents do not need a separate README: on connect every MCP client receives the server's instructions (the typical
 flow, how tokens work, how to use character profiles) and every tool's description, which is all an agent sees.

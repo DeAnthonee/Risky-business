@@ -165,7 +165,7 @@ def main() -> int:
             r = run([py, "-u", replay, *dirs, *opts, *fused], capture_output=True, text=True)
             text = r.stdout + r.stderr
             print("    " + "\n    ".join(line for line in text.splitlines() if line.strip()))
-            m = re.search(r"TOTAL: (\d+)/(\d+) games identical, (\d+) steps, (\d+) failed", text)
+            m = re.search(r"TOTAL: (\d+)/(\d+) games identical, (\d+) steps[^\n]*?, (\d+) failed", text)
             ok = r.returncode == 0 and m and m.group(1) == m.group(2) and m.group(4) == "0"
             if net_agent and "--net" in opts:
                 # every top move the same, except fp32 near-ties between ONNX Runtime and PyTorch (replay.py NEAR_TIE)

@@ -253,7 +253,7 @@ Fog of war off (enforced by `delove-seat`); one seat per agent. For full environ
 | Jacob Sensei on the GPU mirror (teacher kernel, per-seat teacher versions, verified by replay) | session "Port Jacob Sensei to the GPU mirror" | done, **PR #110**: 0 mismatches (verify.py on the pre-Bohemia engine, fingerprint at `da9ec34`; matrix `jacob` suite 118/118) |
 | cycle 6: Jacob Sensei as teacher, branch-tag weighted training (`branch_tag.npy`, `--branch-weights`), cycle 5 big tables as value-only data | coordinator | ready, unblocked: runs on the Jacob-verified mirror (`da9ec34`, #110) |
 | points-aware branch score (kills and placement in the rollout score, opt-in), mirrored and verified on the GPU | session "Points-aware branch score" | done in #112, opt-in (`DELOVE_BRANCH_SCORE=points\|kills`): points loses at 4p (-0.51 ± 0.39 points/game, World), kills no different (Classic 4p), 2p no different; cycle 7 keeps share |
-| range specialists (4+ alive / 3 alive / 1v1, routed by players alive) | coordinator | after a cycle with a clear gain (owner's plan) |
+| range specialists (4+ alive / 3 alive / 1v1, routed by players alive) | coordinator | tooling in **#114**: `train.py --alive LO-HI` and the routed `delove-range@N` player (Delove Long / Mid / Close Range); training the specialists waits on a cycle with a clear gain (owner's plan) |
 | Jacob Sensei, a teacher that doesn't stall (section 9 item 1) | session "Jacob Sensei" | done, **PR #98** merged; GPU port (`delove_gpu/teacher.py`) done in **#110** (closes #99) |
 | all-map strength data | coordinator | 147 of 296 chunks (about 5k games, 5 maps), stopped to free the machine; finish on the GPU |
 | #39 tournament Earth map | other work | on hold (owner) |

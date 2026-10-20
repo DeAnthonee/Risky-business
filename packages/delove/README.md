@@ -120,6 +120,31 @@ teacher's move 77% of the time on held-out games), `--seed 5`:
 | `delove-teacher@1` | World, 2 players | 200 | 0.605 | +74 (a map it never trained on) |
 | `delove-teacher@1` | Classic, 4 players | 200 | 0.415 | (trained on 2-player games only) |
 
+## Range specialists: Delove Long, Mid and Close Range
+
+The owner's plan for a stronger player in real games: three networks that take turns within one game, picked by how
+many players are still alive. Each is fine-tuned from the best general model on the positions of its range.
+
+| specialist | plays when | aims for |
+| --- | --- | --- |
+| **Delove Long Range** (`delove-long@N`) | 4 or more players alive | stay in the top 3: grow, don't become the target, take cheap kills |
+| **Delove Mid Range** (`delove-mid@N`) | 3 alive | finish top 2: hit the right player |
+| **Delove Close Range** (`delove-close@N`) | 2 alive | win the duel |
+
+- **Training:** `train.py --alive LO-HI` keeps only decisions with LO..HI players alive (counted from the
+  `slot<i>_alive` features of each dataset), e.g. `--alive 4-10 --init <best>.pt --out .../delove-long@1`, then
+  `3-3` (mid) and `2-2` (close). In cycle 5's data, Classic 4p has 92k / 203k / 355k decisions for close / mid / long,
+  World's big tables 90k / 320k / 709k, Classic 2p 1.5M close.
+- **Playing them as one player:** `models/delove/delove-range@N.json` holds the routes,
+  `{"close": "delove-close@1", "mid": "delove-mid@1", "long": "delove-long@1"}`. The loader then registers
+  `delove-range@N`, which plays each decision with the network for the players still alive (`rangeOf`), each network's
+  top move. Specialists named `delove-long@N` / `delove-mid@N` / `delove-close@N` (or a cycle's `cN-long` / `cN-mid` /
+  `cN-close`) are also players on their own. A route to a missing model skips the router rather than failing games.
+- **Gate:** the router against the best single model at 2-10 players, judged on leaderboard points
+  (`npm run delove -- ladder --candidate delove-range@1 --best delove@N --players 6 ...`). Keep it only if it wins.
+- Not on the GPU mirror yet: `delove_gpu.generate` / `ladder` would need a per-decision model choice by players alive in
+  their network seats.
+
 ## Jacob Sensei (`jacob-sensei@1`): a teacher that doesn't stall
 
 Sensei 2 (`delove-teacher@2`) was tuned on 2- and 4-player Classic and stalls on big boards and big tables: with

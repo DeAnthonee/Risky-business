@@ -18,16 +18,38 @@ log(`Testing Delove@3 & Sensei@2 (no learnings) vs 4 LLM Characters (with shared
 log(`Fog of War: OFF. Mode: Generation 5.`);
 
 let gamesCompleted = 0;
+let lastMap = 'fantasy'; // Match 1 & 2 ran on fantasy; ensure Match 3+ never duplicates previous
+
+const MAP_POOL = [
+  'classic',
+  'world',
+  'world_large',
+  'europe',
+  'greater_europe',
+  'europe_classic',
+  'usa',
+  'asia',
+  'fantasy',
+];
+
+function pickNextMap(prevMap) {
+  const eligible = MAP_POOL.filter((m) => m !== prevMap);
+  return eligible[Math.floor(Math.random() * eligible.length)];
+}
 
 for (let g = 1; g <= TOTAL_GAMES; g++) {
+  const selectedMap = pickNextMap(lastMap);
+  lastMap = selectedMap;
+
   log(`================================================================`);
-  log(`Starting Generation 5 Match ${g}/${TOTAL_GAMES} on ${SERVER_URL}`);
+  log(`Starting Generation 5 Match ${g}/${TOTAL_GAMES} on ${SERVER_URL} (Map: ${selectedMap})`);
   log(`================================================================`);
 
   // Spawn runner for 1 game: 4 LLM characters + 2 open seats = 6 total
   const runner = spawn('node', [
     'packages/runner/dist/cli.js',
     '--server', SERVER_URL,
+    '--map', selectedMap,
     '--players', '6',
     '--open-seats', '2',
     '--options', JSON.stringify({ fogOfWar: false }),

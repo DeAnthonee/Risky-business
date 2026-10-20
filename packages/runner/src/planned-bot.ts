@@ -612,7 +612,8 @@ class Chooser {
         const holder = this.view.continentOwners[cont];
         const isFocus = this.inFocus(a.to) > 0 || this.nearFocus(a.to) || this.inFocus(a.from) > 0 || this.nearFocus(a.from) || this.plan.route.includes(a.to);
         const isBonusConquest = share.missing.includes(a.to) && share.missing.length <= 3 && share.mine * 2 >= share.total;
-        const breaksOpponentBonus = !!(holder && holder !== this.me);
+        const steppingBreak = this.steppingStoneBonus(a.to);
+        const breaksOpponentBonus = !!(holder && holder !== this.me) || steppingBreak !== null;
         const capturesCapital = this.capitalOf.has(a.to);
         const eliminatesPlayer = isElimination;
         const isStrategic = hasSurplusFromBorder || isFocus || isBonusConquest || breaksOpponentBonus || capturesCapital || eliminatesPlayer;
@@ -781,6 +782,34 @@ class Chooser {
     return false;
   }
 
+  /**
+   * Evaluates whether attacking `to` serves as a thin stepping stone (<= 2 armies)
+   * that directly unlocks an attack path into an opponent's held continent bonus.
+   */
+  private steppingStoneBonus(to: TerritoryId): { bonus: number; holder: PlayerId; isLeader: boolean } | null {
+    if (this.armies(to) > 2) return null;
+    const toCont = this.map.territoryById[to].continent;
+    if (this.view.continentOwners[toCont] && this.view.continentOwners[toCont] !== this.me) {
+      // `to` is already directly inside an opponent held bonus
+      return null;
+    }
+    let bestBreak: { bonus: number; holder: PlayerId; isLeader: boolean } | null = null;
+    for (const adj of this.map.adjacency[to]) {
+      const adjOwner = this.owner(adj);
+      if (!adjOwner || adjOwner === this.me) continue;
+      const adjCont = this.map.territoryById[adj].continent;
+      const holder = this.view.continentOwners[adjCont];
+      if (holder && holder !== this.me && this.armies(adj) <= 3) {
+        const bonus = this.map.continentById[adjCont].bonus;
+        const isLeader = holder === this.leader;
+        if (!bestBreak || (isLeader && !bestBreak.isLeader) || bonus > bestBreak.bonus) {
+          bestBreak = { bonus, holder, isLeader };
+        }
+      }
+    }
+    return bestBreak;
+  }
+
   private purpose(from: TerritoryId, to: TerritoryId, wins: boolean): number {
     const path = this.plan.winPath;
     let s = 0;
@@ -796,7 +825,12 @@ class Chooser {
     const holder = this.view.continentOwners[cont];
     if (holder && holder !== this.me && holder === toOwner) {
       const breakWeight = this.plan.aggression >= 0.6 ? 8.5 + bonus * 1.5 : 6.0 + bonus * 1.0;
-      cs += breakWeight;
+      cs += breakWeight + (holder === this.leader ? 4.0 + bonus * 0.5 : 0);
+    }
+    const stepping = this.steppingStoneBonus(to);
+    if (stepping) {
+      const stepWeight = stepping.isLeader ? 5.5 + stepping.bonus * 0.8 : 3.5 + stepping.bonus * 0.5;
+      cs += stepWeight;
     }
     s += path === 'bonuses' ? cs * 1.5 : cs;
 
@@ -818,7 +852,12 @@ class Chooser {
     else if (p && p.cardCount >= 4) s += (path === 'kills' || path === 'cards' ? 4.5 : 2.5);
     else if (p && p.cardCount >= 3) s += path === 'cards' ? 3 : 1.2;
     if (path === 'kills' && p && (p.territoryCount === null || p.territoryCount <= 4)) s += 4 + p.cardCount * 1.2;
-    if (toOwner === this.leader) s += 1;
+    if (toOwner === this.leader) {
+      const myIncome = this.view.players.find((x) => x.id === this.me)?.income?.total ?? 3;
+      const leaderIncome = this.view.players.find((x) => x.id === this.leader)?.income?.total ?? 3;
+      const leaderAdvantage = Math.max(0, leaderIncome - myIncome);
+      s += 1.5 + Math.min(4.0, leaderAdvantage / 4);
+    }
     // Taking it makes the launch point interior.
     if (this.hostileNeighbours(from).length === 1) s += 1.5;
     if (!this.conquered) s += 1;
@@ -1002,9 +1041,14 @@ class Chooser {
 
   private need(t: TerritoryId): number {
     const have = this.armies(t);
-    let n = Math.max(0, this.threat(t) * 0.9 + 1 - have);
+    const thr = this.threat(t);
+    let n = Math.max(0, thr * 0.9 + 1 - have);
     if (this.myCapitals.has(t)) n += Math.max(0, this.capWanted(t) - have) * 1.5;
-    if (this.isBonusBorder(t)) n += 2 * this.plan.borderGuard;
+    if (this.isBonusBorder(t)) {
+      if (have < 5) n += (5 - have) * 2.0;
+      else if (have > Math.max(8, thr * 1.5)) n -= Math.min(10, (have - Math.max(8, thr * 1.5)) * 0.6);
+      n += 2 * this.plan.borderGuard;
+    }
     n += this.inFocus(t) * 1.5 + (this.nearFocus(t) ? 1.5 : 0);
     if (this.plan.fortifyTo === t) n += 25;
     return n;
@@ -1021,7 +1065,11 @@ class Chooser {
     for (const f of opts) {
       if (!mayLeave(f.from) || isBorder(f.from)) continue;
       if (!isBorder(f.to) && !this.myCapitals.has(f.to) && f.to !== this.plan.fortifyTo) continue;
-      const score = this.need(f.to) + this.threat(f.to) * 0.15 + f.maxArmies * 0.2 + this.random() * 0.2;
+      const destHave = this.armies(f.to);
+      const destThr = this.threat(f.to);
+      const overstackPenalty = destHave > Math.max(8, destThr * 1.5) ? Math.min(8, (destHave - Math.max(8, destThr)) * 0.5) : 0;
+      const thinBorderBonus = isBorder(f.to) && destHave < 5 ? (5 - destHave) * 1.5 : 0;
+      const score = this.need(f.to) + destThr * 0.15 + f.maxArmies * 0.2 - overstackPenalty + thinBorderBonus + this.random() * 0.2;
       if (!best || score > best.score) best = { from: f.from, to: f.to, armies: f.maxArmies, score };
     }
     if (best) return { from: best.from, to: best.to, armies: best.armies };

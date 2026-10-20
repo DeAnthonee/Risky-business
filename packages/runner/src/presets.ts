@@ -35,15 +35,17 @@ export function rotationMaps(seatCount: number): GameOptions['map'][] {
 
 export type MapChoice = 'rotate' | 'random' | GameOptions['map'];
 
-/** Map for game number `index` (0-based): a fixed id, the next one in the rotation, or a random one from it. */
-export function pickMap(choice: MapChoice, seatCount: number, index: number, random: () => number = Math.random): GameOptions['map'] {
+/** Map for game number `index` (0-based): a fixed id, the next one in the rotation, or a random one from it (excluding `exclude` when possible). */
+export function pickMap(choice: MapChoice, seatCount: number, index: number, random: () => number = Math.random, exclude?: GameOptions['map']): GameOptions['map'] {
   if (choice !== 'rotate' && choice !== 'random') {
     if (!isKnownMap(choice)) throw new Error(`Unknown map "${choice}"`);
     return choice;
   }
   const pool = rotationMaps(seatCount);
   if (pool.length === 0) throw new Error(`No map fits ${seatCount} players`);
-  return choice === 'rotate' ? pool[index % pool.length] : pool[Math.floor(random() * pool.length) % pool.length];
+  if (choice === 'rotate') return pool[index % pool.length];
+  const eligible = pool.length > 1 && exclude ? pool.filter((m) => m !== exclude) : pool;
+  return eligible[Math.floor(random() * eligible.length) % eligible.length];
 }
 
 function isKnownMap(id: string): boolean {
@@ -75,6 +77,7 @@ export function pickLineup(o: {
   roster: readonly RosterEntry[];
   index: number;
   random?: () => number;
+  excludeMap?: GameOptions['map'];
 }): { map: GameOptions['map']; seats: SeatSpec[] } {
   const random = o.random ?? Math.random;
   const R = o.roster.length;
@@ -83,7 +86,7 @@ export function pickLineup(o: {
   if (fixed !== null && (!Number.isInteger(fixed) || fixed < 2 || fixed > R)) throw new Error(`--players must be 2 to ${R} (the roster has ${R} characters), got ${fixed}`);
   const lo = fixed ?? Math.min(RANDOM_MIN_PLAYERS, R);
 
-  const map = pickMap(o.map, lo, o.index, random);
+  const map = pickMap(o.map, lo, o.index, random, o.excludeMap);
   const cap = mapMaxPlayers(map);
   if (fixed !== null && fixed > cap) throw new Error(`${map} seats at most ${cap} players, got ${fixed}`);
   const hi = Math.min(RANDOM_MAX_PLAYERS, R, cap);

@@ -49,7 +49,7 @@ A veteran general who climbed through the ranks of a ruthless empire by sheer fo
 
 ## Lessons learned
 
-None yet
+- **The Runaway Leader & "Punch Through 1s" Disruption:** Turtling against a snowballing runaway leader is mathematical slow death. When a runaway rival generates overwhelming income on your doorstep (e.g. Leona in GJJWQ9), Noxian discipline demands striking their economic jugular. Punching through a thin corridor of 1s costs only ~2-3 troops to deny a +5 bonus every turn, a massively positive EV trade that halts the frontrunner's snowball. Never let rigid adherence to holding a static core prevent you from severing an enemy's lifeline. Sensei showed the strength to strike; Darius must not hesitate.
 
 ## Game rules for this character
 

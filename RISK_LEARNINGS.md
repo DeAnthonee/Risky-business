@@ -307,6 +307,50 @@ Fundamental rules, mechanics, and tournament scoring for the Risk engine, follow
     3. **Taxing Enemy Dice**: Even if the neighbor retakes the territory on their turn, they must spend attacking dice (~1.2 casualties per conquer) and forfeit that round's bonus troops, resetting the border arms race in your favor.
   * **The Rule of Engagement**: If an adjacent neighbor is holding a continent bonus and their border stack is growing, **do not assume peace**. Factor breaking their bonus into your plan for that turn. Break their bonus before they break yours.
 
+### 19. Runaway Leader Asymmetry & The "Punch Through 1s" Net-EV Break (Turtling Is Slow Death Against a Snowballing Leader)
+* **The Snowballing Deficit (Why Turtling Guarantees Slow Defeat)**:
+  * In Free-For-All Risk without binding diplomacy, when a runaway leader starts dominating the map (e.g., Leona holding Solmara (+5), Odrun (+4), Kethran (+5), Hrimvald (+3) etc., generating +35 to +50+ troops/turn), the mathematical baseline of the game completely changes.
+  * For a mid-tier or nearest-neighbor rival (e.g. Darius with 20–25 troops and +3 income), **turtling behind your borders out of fear of thinning your stack is mathematical slow suicide**.
+  * If the runaway leader earns +45/turn while you earn +3/turn, every turn of inaction expands the army deficit by 42 troops. After two rounds, the leader has built a massive surplus that sweeps your entire empire effortlessly.
+  * Even if a solo attack does not guarantee an immediate path to 1st place, **passively doing nothing guarantees 0% chance to win**. The only viable EV move for the table—and specifically for the nearest neighbor at the doorstep—is aggressively severing the leader's astronomical production lines.
+
+* **The "Punch Through 1s" Net-EV Trade (Dice Math vs. Production Denial)**:
+  * Over-expanded runaway leaders frequently leave thin corridors of 1-army territories connecting the frontline to their interior continent bonuses (e.g., a path of three 1-army territories leading directly into a +5 continent like Solmara).
+  * **The Dice Cost vs. Value Equation**:
+    * Under Balanced Blitz (and standard 3v1 dice math), rolling 3 attacker dice against a 1-army defender has an ~85% win probability and costs only ~0.6–0.8 attacking troops per conquest.
+    * Punching through a chain of three 1-army territories costs an attacker approximately **2 to 3 troops total**.
+    * A strike stack of 7 armies can comfortably penetrate three 1-army stepping stones and still arrive at the target continent with 4–5 viable armies.
+  * **The Return on Investment (ROI)**:
+    * Breaking a +5 continent bonus strips 5 reinforcement troops from the leader on their very next turn, and continues denying +5 every subsequent turn until retaken.
+    * In addition, the leader is forced to expend more armies and attack dice to reclaim and reconnect the severed region.
+    * **Net-Positive EV Calculation**: Spending 2–3 attacking troops to strip 5+ enemy troops *per turn* from the #1 runaway threat is an overwhelmingly positive trade ($\Delta \text{Net Armies} \ge +2$ to $+3$ on turn 1, growing to $+7$ to $+12$ over two turns).
+  * **Nearest-Neighbor Strategic Duty**: The closest neighbor holding the doorstep and attack geometry has the clearest duty to deliver the disruption strike. Do not let the fear of leaving a thin border prevent you from shattering the leader's economic engine.
+
+* **Sensei@2's Heuristic (Proactive Disruption Over Turtling)**:
+  * In Game `GJJWQ9`, while Darius hesitated with a 7-stack and turtled in fear of thinning his garrison, Sensei@2 recognized the runaway leader threat and drove directly through the thin corridor, breaching Blackscree, Aurum Gate, Sarrach, and Witchmire to shatter Leona's bonuses.
+  * Sensei demonstrated the correct strategic heuristic: against a dominant frontrunner, attack through their thin underbelly to break their bonuses, regardless of whether you can permanently hold the conquered ground.
+
+---
+
+### 20. Defensive Elimination & Border Consolidation (Offensive Strikes That Yield Superior Defense)
+* **The Elimination Hesitation Blunder**:
+  * In Game `GJJWQ9`, Sensei was down to just 5 armies and held 3 cards, directly adjacent to runaway leader Leona, who commanded a massive stack of 30+ troops and held a dominant lead.
+  * Rather than swiftly finishing Sensei off, Leona hesitated and diverted attacks elsewhere.
+  * This hesitation proved immediately costly: Sensei used those surviving troops to launch a desperate counter-offensive into Wyrmgrave, Hrim Fjord, and Icewake, successfully breaking Leona's Hrimvald (+3) continent bonus before being eliminated a turn later.
+  * When an adjacent rival is reduced to a low army count (3–6 troops) and holds cards (3+ cards), **delaying the kill is an unforced error**. Wounded opponents have nothing to lose and will inevitably strike to break your bonuses on their turn.
+
+* **Offense That Improves Defense (Border Geometry Reduction $\Delta \text{Borders} < 0$)**:
+  * Eliminating a wounded rival nestled on your perimeter is not just an offensive play for +1 kill point and stolen cards—it is often the **single best defensive move available**.
+  * In `GJJWQ9`, Sensei held an awkward salient in the Grimward Wastes that forced Leona to defend along a porous 5-point border.
+  * By sweeping through Sensei's remaining 5 troops and occupying Grimward Wastes, Leona's perimeter naturally collapsed into a compact, contiguous 4-point bottleneck!
+  * **The Border Reduction Principle**:
+    * Whenever an elimination simultaneously:
+      1. Costs negligible armies (crushing 5 troops with a 30-stack loses ~1–2 armies).
+      2. Steals 3+ cards (refueling your hand for immediate or impending set trades).
+      3. Permanently removes a hostile bonus breaker from your doorstep.
+      4. **Reduces the total number of external border chokeholds** ($\Delta \text{External Chokepoints} < 0$, e.g., 5 doorways down to 4).
+    * It is a double-value imperative: you gain offensive bounty while drastically simplifying and strengthening your defensive posture.
+
 ---
 
 ## Findings from AI self-play games

@@ -58,6 +58,7 @@ const LLM_POOL = [
 ];
 
 const MODEL_POOL = [
+  { name: 'Sensei@3', agent: 'jacob-sensei@1' },
   { name: 'Ronny@3', agent: 'delove@3' },
   { name: 'Joey@3', agent: 'delove@3' },
   { name: 'Hans@3', agent: 'delove@3' },

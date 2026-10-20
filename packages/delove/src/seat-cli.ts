@@ -5,6 +5,7 @@ import { HttpRiskApi } from '@risk/mcp';
 import type { Agent } from '@risk/selfplay';
 import { discoverNetAgents } from './net-agent.js';
 import { defaultName, discoverTunedTeachers, playSeat } from './seat.js';
+import { jacob } from './jacob.js';
 import { teacher } from './teacher.js';
 
 const USAGE = `delove-seat: seat Delove players in a real game over the HTTP API (no chat, no character)
@@ -44,12 +45,13 @@ async function main() {
   if (!values.join === !values.create) fail('give exactly one of --join CODE or --create');
 
   const tuned = discoverTunedTeachers();
-  const allAgents = [teacher, ...tuned, ...discoverNetAgents()];
+  const allAgents = [teacher, jacob, ...tuned, ...discoverNetAgents()];
   const known = new Map<string, Agent>(
     allAgents.flatMap((a) => {
       const entries: [string, Agent][] = [[a.id, a]];
       if (a.id === 'delove-teacher@1') entries.push(['sensei@1', a], ['sensei', a]);
       if (a.id === 'delove-teacher@2') entries.push(['sensei@2', a]);
+      if (a.id === jacob.id) entries.push(['jacob', a], ['sensei@3', a]);
       return entries;
     }),
   );

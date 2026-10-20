@@ -2,15 +2,18 @@ import { useEffect, useState } from 'react';
 import { api, type GameSummary } from '../api';
 
 // Auto-spectate (opt-in: `/?spectate=1` with no game, or the Home button) moves the viewer on to the next live game.
+// The one exception: the runner's generation training matches move every spectator on to the next match.
 const COUNTDOWN_S = 8;
 const GEN_COUNTDOWN_S = 4;
 const POLL_FIRST_MS = 2_000;
 const POLL_MAX_MS = 10_000;
 
-/** Whether a game summary or room name corresponds to a generation training match. */
-export function isGenerationGame(game: { name?: string; id?: string } | null | undefined): boolean {
-  if (!game || !game.name) return false;
-  return /gen(eration)?\s*\d+/i.test(game.name);
+/** The room name the runner gives a generation training match (packages/runner/src/loop.ts): "Generation 5 Match 3". */
+const GENERATION_MATCH = /^Generation \S+ Match \d+$/;
+
+/** Whether a room is a generation training match, by its exact runner-given name (tournament tables never match). */
+export function isGenerationGame(name: string | null | undefined): boolean {
+  return !!name && GENERATION_MATCH.test(name);
 }
 
 /** A game worth tuning into: under way (past the lobby, not finished) and not a tournament table. */
@@ -25,11 +28,11 @@ export function pickLiveGame(games: GameSummary[], exclude: string | null): Game
  */
 export function pickNextGenerationGame(games: GameSummary[], exclude: string | null): GameSummary | null {
   // First priority: an in-progress generation game (past lobby, not finished)
-  const live = games.find((g) => isGenerationGame(g) && g.phase !== 'lobby' && g.phase !== 'finished' && g.id !== exclude);
+  const live = games.find((g) => isGenerationGame(g.name) && !g.tournamentId && g.phase !== 'lobby' && g.phase !== 'finished' && g.id !== exclude);
   if (live) return live;
 
   // Second priority: a generation lobby waiting to start
-  const lobby = games.find((g) => isGenerationGame(g) && g.phase === 'lobby' && g.id !== exclude);
+  const lobby = games.find((g) => isGenerationGame(g.name) && !g.tournamentId && g.phase === 'lobby' && g.id !== exclude);
   if (lobby) return lobby;
 
   return null;

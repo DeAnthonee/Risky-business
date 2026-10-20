@@ -157,16 +157,12 @@ function Connected({
   autoSpectate?: AutoSpectate;
 }) {
   const conn = useGame(gameId, spectating ? undefined : session?.token);
-  const [isGen, setIsGen] = useState(false);
+  // The room name arrives with the first state; "Stay here" turns the move off for this game.
+  const [stayed, setStayed] = useState(false);
+  const isGen = !stayed && isGenerationGame(conn.name);
 
-  useEffect(() => {
-    if (conn.view && isGenerationGame(conn.view)) {
-      setIsGen(true);
-    }
-  }, [conn.view]);
-
-  // Generation training matches refresh into the next generation match lobby even if global autoSpectate was not toggled
-  const genAuto = isGen && onWatch && spectating ? { advance: (nextId: string) => onWatch(nextId), stay: () => setIsGen(false) } : undefined;
+  // Generation training matches move spectators on to the next match even without auto-spectate (hard rule 10)
+  const genAuto = isGen && onWatch && spectating ? { advance: (nextId: string) => onWatch(nextId), stay: () => setStayed(true) } : undefined;
   const auto = spectating ? (autoSpectate ?? genAuto) : undefined;
 
   if (conn.closedReason) {

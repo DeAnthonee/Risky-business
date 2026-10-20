@@ -5,6 +5,7 @@ Covers `packages/client` (lobby, board, animations, chat, spectator features). G
 Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. Changes from before pull requests carry the
 commit hash instead. **Append a line in the same PR** as any change to this area (README hard rule 12).
 
+- 2026-10-20 #96 generation-match auto-move actually runs (the name comes from the connection), matches only the runner's exact `Generation <tag> Match <n>` names and skips tournament tables; hard rule 10 and playing.md describe it
 - 2026-10-20 #94 Persona orange-cream theme for the game screen, lobby, join pages and dialogs (shared `theme.css`); the board itself is unchanged
 - 2026-10-20 #95 auto-refresh into next match lobby for generation training spectators
 - 2026-10-20 #90 home page redesign: expanding Create room panel, map tiles, grouped settings (shared with the lobby), game tickets, leaderboard board; fonts bundled

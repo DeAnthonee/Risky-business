@@ -164,8 +164,9 @@ These keep the deploy, the game and the training pipeline from breaking. Everyth
 10. **Keep the boundaries.** Self-play stays deterministic from the seed (no `Math.random`, no clocks in decisions).
     `packages/selfplay`, `llm-player`, `runner`, `delove` and `delove-gpu` are never imported by the server; Delove is
     never imported by the character code. The web client moves a spectator to another game only in opt-in
-    auto-spectate (`/?spectate=1` with no game), never from a game opened on purpose, never a player, and never onto
-    or off a tournament table.
+    auto-spectate (`/?spectate=1` with no game) or when a runner generation training match ends (rooms named exactly
+    `Generation <tag> Match <n>`, e.g. `Generation 5 Match 3`: on to the next such match or its lobby); never a player,
+    and never onto or off a tournament table. Any other game opened on purpose never moves you on.
 11. **Character data is data.** Agents' saves live under `RISK_DATA_DIR/characters/`, never written back into the
     repo automatically (a sync back is a PR read by hand). Every save needs the write key (`RISK_CHARACTERS_KEY` or the
     admin token; none set = read-only), and everything served is framed as data, not instructions

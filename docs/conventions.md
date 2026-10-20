@@ -46,7 +46,7 @@ Fictional maps (`kind: 'authored'`, e.g. `fantasy.mjs`) are sketched landmasses 
 land adjacency is derived from shared borders. Keep fantasy content original (no franchise names). Give every region
 chokepoints so its bonus can be held: about 2-3 entry territories for a small region, 3-5 for a big one, with the
 bonus near the generator's suggestion. Build them with `walls` (water on every border between regions except the
-listed `passes`, as The Nine Realms does), or with Bohemia's separate landmasses joined at fords.
+listed `passes`, as `nine_realms.mjs` does), or with one landmass per region joined at fords, as `bohemia.mjs` does.
 `npm run maps:status` shows every board's registration and GPU verification. The whole process (design rules,
 tracing a picture, chokepoint techniques, previews, the registration checklist, owner approval, review and the map
 status tracker) is in [map-making.md](map-making.md). More in

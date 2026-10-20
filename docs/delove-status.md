@@ -241,6 +241,7 @@ Fog of war off (enforced by `delove-seat`); one seat per agent. For full environ
 | GPU rules, teacher and branch-and-score for every map, 2-10 seats and every setting; points arrays from the GPU; `cycle.sh` GPU steps for any step | session "GPU engine for every map and 2-10 players" | **PR #82**, verified, in review |
 | all-map strength data | coordinator | 147 of 296 chunks (about 5k games, 5 maps), stopped to free the machine; finish on the GPU |
 | #39 tournament Earth map | other work | on hold (owner) |
+| re-verify the GPU fingerprint for the new `bohemia` map (#100): until `verify.py` runs, `Engine(...)` / `TeacherEngine(...)` / `BranchEngine(...)` raise `StaleMirror`, so new GPU runs refuse to start | coordinator, on the training PC | pending: one `verify.py` run covers every map merged on 2026-10-20 |
 
 ## 9. What comes next, and why
 

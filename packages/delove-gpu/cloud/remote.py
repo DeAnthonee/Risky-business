@@ -203,7 +203,8 @@ class Pod:
 
 
 def create_pod(name: str, args, pub: str, deadline_s: int) -> Pod:
-    body = {"name": name, "imageName": args.image, "gpuTypeIds": [args.gpu_type], "gpuCount": args.gpus, "cloudType": args.cloud,
+    body = {"name": name, "imageName": args.image, "gpuTypeIds": [g.strip() for g in args.gpu_type.split(",")], "gpuTypePriority": "custom",
+            "gpuCount": args.gpus, "cloudType": args.cloud,
             "containerDiskInGb": args.disk_gb, "volumeInGb": 0, "ports": ["22/tcp"], "supportPublicIp": True,
             "env": {"PUBLIC_KEY": pub, "SSH_PUBLIC_KEY": pub}, "allowedCudaVersions": ["12.8", "12.9", "13.0"],
             "dockerStartCmd": watchdog_cmd(deadline_s)}
@@ -561,7 +562,7 @@ def main(argv=None) -> int:
             p.add_argument("--out", required=True, help="the cycle's runs folder (OUT): OUT/<step>/gpu.json, OUT/remote/")
             p.add_argument("--commit", default="HEAD", help="the commit the pods run (git archive; need not be pushed)")
             p.add_argument("--torch", help="PyTorch version for the pods (default: this Python's, e.g. 2.11.0+cu128)")
-            p.add_argument("--gpu-type", default=GPU_4090)
+            p.add_argument("--gpu-type", default=GPU_4090, help="RunPod GPU type id, or several comma-separated, tried in that order")
             p.add_argument("--cloud", default="SECURE", choices=["SECURE", "COMMUNITY"])
             p.add_argument("--image", default=IMAGE)
             p.add_argument("--disk-gb", type=int, default=80)

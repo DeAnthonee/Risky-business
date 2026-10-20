@@ -164,7 +164,9 @@ def api(method: str, path: str, body: dict | None = None):
     if not key:
         raise SystemExit("RUNPOD_API_KEY is not set (the RunPod API key, in the environment only)")
     req = urllib.request.Request(API + path, method=method, data=None if body is None else json.dumps(body).encode(),
-                                 headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
+                                 headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json",
+                                          # RunPod's Cloudflare refuses urllib's default agent (HTTP 403, error code 1010)
+                                          "User-Agent": "delove-gpu-cloud/1"})
     try:
         with urllib.request.urlopen(req, timeout=60) as r:
             text = r.read()

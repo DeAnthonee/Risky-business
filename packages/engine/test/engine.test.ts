@@ -1263,28 +1263,24 @@ describe('nine_realms map (The Nine Realms)', () => {
     expect(MAP_IDS).toContain('nine_realms');
     expect(m.territories).toHaveLength(58);
     expect(m.continents.map((c) => c.id)).toEqual(['hoarlands', 'cloudvale', 'fordlands', 'rustcrag', 'goldfells', 'throneland', 'galewatch', 'verdance', 'sunmarches']);
-    expect(m.continents.map((c) => c.bonus)).toEqual([6, 4, 5, 2, 3, 3, 3, 5, 4]);
+    expect(m.continents.map((c) => c.bonus)).toEqual([6, 4, 5, 2, 3, 3, 3, 5, 3]);
     expect(m.maxPlayers).toBe(8);
     expect(m.viewBox[1]).toBeGreaterThan(m.viewBox[0]); // a tall board
   });
 
-  it('enters every region through a few chokepoints (barriers cut the rest of each border)', () => {
-    const gates: Record<string, string[]> = {
-      hoarlands: ['bogneck', 'gullhook', 'silverquay'],
-      cloudvale: ['bloodgate', 'fingerstrand', 'gullhaven', 'mistcliffs'],
-      fordlands: ['redford', 'seawatch', 'stonyford', 'tridentfork', 'twinford'],
-      rustcrag: ['blackbrine', 'rustcrag', 'saltholm'],
-      goldfells: ['cragmouth', 'goldenway'],
-      throneland: ['clawpoint', 'mirewood', 'throneport'],
-      galewatch: ['bluestone', 'oakwold', 'rainmarch', 'thornpass'],
-      verdance: ['goldmeadow', 'longfield', 'oldspire', 'rushwater'],
-      sunmarches: ['bonepass', 'dunmarch', 'starcliff', 'suncrest'],
-    };
-    for (const [c, ids] of Object.entries(gates)) expect(entries(c).sort()).toEqual(ids);
-    // the single passes between neighbouring regions
-    expect(m.adjacency.goldenway.filter((n) => m.territoryById[n].continent === 'verdance')).toEqual(['rushwater']);
-    expect(m.adjacency.longfield.filter((n) => m.territoryById[n].continent === 'galewatch')).toEqual(['rainmarch']);
-    expect(m.adjacency.bonepass.filter((n) => m.territoryById[n].continent === 'galewatch')).toEqual(['thornpass']);
+  it('joins neighbouring regions only at their passes: one link per pair of regions', () => {
+    const links = new Map<string, string[]>();
+    for (const [a, b] of m.edges) {
+      const [ca, cb] = [m.territoryById[a].continent, m.territoryById[b].continent];
+      if (ca === cb) continue;
+      const key = [ca, cb].sort().join('|');
+      links.set(key, [...(links.get(key) ?? []), [a, b].sort().join('-')]);
+    }
+    for (const [pair, ls] of links) expect([pair, ls.length]).toEqual([pair, 1]);
+    expect(entries('hoarlands').sort()).toEqual(['bogneck', 'gullhook', 'silverquay']);
+    expect(entries('goldfells').sort()).toEqual(['cragmouth', 'goldenway']);
+    expect(entries('galewatch').sort()).toEqual(['oakwold', 'rainmarch']);
+    expect(entries('sunmarches').sort()).toEqual(['bonepass', 'dunmarch']);
   });
 
   it('reaches every offshore isle only by sea, and has symmetric, connected adjacency', () => {

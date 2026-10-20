@@ -14,45 +14,6 @@ const grow = (pts, k) => {
   return pts.map(([x, y]) => [cx + (x - cx) * k, cy + (y - cy) * k]);
 };
 
-/**
- * A barrier (a gorge, river or mountain wall) cut into the land as a thin channel along a sketched polyline, so the
- * territories on either side stop sharing a border. Barriers run along region borders and leave gaps: the gaps are
- * the passes, so every region is entered through a few chokepoints.
- */
-const channel = (line, width = 6) => {
-  const pts = [];
-  for (let i = 0; i < line.length - 1; i++) {
-    const [a, b] = [line[i], line[i + 1]];
-    const n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / 2));
-    for (let k = 0; k < n; k++) pts.push([a[0] + ((b[0] - a[0]) * k) / n, a[1] + ((b[1] - a[1]) * k) / n]);
-  }
-  pts.push(line[line.length - 1]);
-  const side = (sign) =>
-    pts.map((p, i) => {
-      const q = pts[Math.min(i + 1, pts.length - 1)], o = pts[Math.max(i - 1, 0)];
-      const len = Math.hypot(q[0] - o[0], q[1] - o[1]);
-      return [p[0] - (sign * (q[1] - o[1]) * width) / 2 / len, p[1] + (sign * (q[0] - o[0]) * width) / 2 / len];
-    });
-  return P([...side(1), ...side(-1).reverse()]);
-};
-
-const BARRIERS = {
-  // the Goldfells' eastern ridge: the only ways east are the coast road (Cragmouth-Seawatch) and Goldenway
-  goldfellsRidge: [[170, 400], [176, 414], [186, 436], [184, 455], [189, 468], [192, 474]],
-  // the Goldfells' southern scarp: the Verdance is entered from Goldenway alone
-  goldfellsScarp: [[80, 545], [130, 546], [165, 546], [178, 535], [198, 530]],
-  // the Moon Wall, the Cloudvale's southern front: passes at Bloodgate (to Redford) and Gullhaven (to Clawpoint)
-  moonWall: [[234, 403], [240, 410], [260, 413], [274, 408], [282, 398], [296, 398], [306, 404], [310, 416], [318, 428], [333, 440]],
-  // cliffs between Skyhold and the claw
-  clawCliffs: [[400, 407], [380, 408], [368, 410]],
-  // the storm coast's western woods: the Verdance reaches the Galewatch only at Longfield-Rainmarch
-  stormwood: [[296, 514], [298, 530], [296, 545], [286, 551], [280, 556], [280, 568]],
-  // the Sunmarches' mountains, with three passes: Oldspire-Starcliff, Longfield-Dunmarch and Thornpass-Bonepass
-  sunPeaksWest: [[157, 652], [185, 656], [215, 652], [217, 630], [216, 612], [221, 606]],
-  sunPeaksMid: [[274, 614], [284, 610], [290, 605], [315, 606]],
-  sunPeaksEast: [[338, 655], [344, 649], [349, 645], [360, 641], [378, 636], [396, 633]],
-};
-
 const MAINLAND = [
   // the Wall's coast across the top of the north, then the north-east shore
   [232, 64], [255, 54], [285, 50], [315, 48], [340, 56], [350, 72], [358, 95], [368, 120], [372, 148], [380, 175],
@@ -112,8 +73,28 @@ export default {
     { id: 'throneland', name: 'Throneland', bonus: 3, label: [690, 585] },
     { id: 'galewatch', name: 'Galewatch', bonus: 3, label: [690, 760] },
     { id: 'verdance', name: 'Verdance', bonus: 5, label: [70, 830] },
-    { id: 'sunmarches', name: 'Sunmarches', bonus: 4, label: [680, 880] },
+    { id: 'sunmarches', name: 'Sunmarches', bonus: 3, label: [680, 880] },
   ],
+  // Chokepoints: water cuts every border between two regions except these passes, one per pair of neighbouring
+  // regions, each a narrow land bridge (see cutWalls in scripts/authored-map.mjs).
+  walls: {
+    width: 7,
+    passWidth: 22,
+    passes: [
+      ['bogneck', 'twinford'], // the Neck, the only land way out of the north
+      ['redford', 'bloodgate'], // the gate into the Cloudvale
+      ['seawatch', 'cragmouth'], // the coast road into the Goldfells
+      ['tridentfork', 'throneport'], // the river crossing to the crown's seat
+      ['stonyford', 'rushwater'], // the ford into the Verdance
+      ['goldenway', 'rushwater'], // the gold road south
+      ['gullhaven', 'clawpoint'], // the vale's back door to the claw
+      ['mirewood', 'goldmeadow'], // the rose road
+      ['throneport', 'oakwold'], // the king's wood
+      ['longfield', 'rainmarch'], // the storm road
+      ['longfield', 'dunmarch'], // the prince's pass
+      ['rainmarch', 'bonepass'], // the boneway
+    ],
+  },
   landmasses: [
     {
       id: 'mainland',
@@ -121,9 +102,8 @@ export default {
       lakes: [
         // a black tarn in the northern forest
         P([[176, 196], [186, 192], [194, 200], [190, 212], [178, 212]]),
-        // the Sunken Eye, in the river heartland: it keeps the Throneland's Mirewood off Cinderhall and Trident Fork
-        P([[244, 446], [258, 437], [276, 438], [292, 446], [300, 459], [288, 469], [270, 470], [252, 466]]),
-        ...Object.values(BARRIERS).map((line) => channel(line)),
+        // the Sunken Eye, in the river heartland
+        P([[262, 440], [274, 434], [286, 442], [284, 458], [270, 464], [260, 454]]),
       ],
     },
     ...Object.entries(ISLES).map(([id, outline]) => ({ id, territory: id, outline: P(grow(outline, RUSTCRAG.includes(id) ? 1.2 : 1.6)) })),
@@ -210,7 +190,7 @@ export default {
     // Wyrmrock off the claw
     ['wyrmrock', 'clawpoint'], ['wyrmrock', 'throneport'],
     // Bluestone Isle off the storm coast
-    ['bluestone', 'galehold'], ['bluestone', 'suncrest'],
+    ['bluestone', 'galehold'],
     // Vintner's Isle off the south-west cape
     ['vintners_isle', 'oldspire'],
   ],

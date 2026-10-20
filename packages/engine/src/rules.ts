@@ -25,9 +25,9 @@ kingdoms (+2 each) ring the Heartland (+4); each kingdom has one gate into the H
 Waystones (+3), four lone isles that carry the sea lanes from one kingdom to the next. It does not wrap.
 The Nine Realms ("nine_realms"): an original board, 58 territories in 9 regions (2-8 players) on one long north-south
 continent. Hoarlands +6, Cloudvale +4, Fordlands +5, Rustcrag Isles +2 (a raider archipelago off the west coast),
-Goldfells +3, Throneland +3, Galewatch +3, Verdance +5, Sunmarches +4. Gorges, rivers and mountain walls cut most
-region borders, so each region is entered through a few chokepoint territories (the frozen north only through
-Bogneck, Gullhook Cape and Silverquay); offshore isles are reached by sea lanes. It does not wrap.
+Goldfells +3, Throneland +3, Galewatch +3, Verdance +5, Sunmarches +3. Water cuts every border between two regions
+except one narrow pass per pair of neighbouring regions (the frozen north's only land way out is Bogneck-Twinford),
+so every region is held at a few chokepoints; offshore isles are reached by sea lanes. It does not wrap.
 Use the "map" tool for the exact territories, regions and adjacency of the map a game is using. On the classic,
 World and Grand World maps Alaska and Kamchatka are adjacent (the map wraps); on every map some adjacencies
 cross water.

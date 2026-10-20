@@ -1858,3 +1858,30 @@ label.check input {
 .pulse {
   animation: pulse-opacity 1.5s infinite;
 }
+
+/* ---------- Whose turn: the current player's land is lifted and rocks gently ---------- */
+.turn-lift {
+  transform-box: fill-box;
+  transform-origin: center;
+  filter: drop-shadow(0 3px 2.5px rgba(0, 0, 0, 0.55));
+  animation: turn-rock 3.2s ease-in-out infinite;
+}
+.turn-lift .territory:not([class*="hl-"]) {
+  stroke: rgba(255, 255, 255, 0.55);
+  stroke-width: 1.4;
+}
+@keyframes turn-rock {
+  0%,
+  100% {
+    transform: translateY(-1.5px) scale(1.035) rotate(-1.2deg);
+  }
+  50% {
+    transform: translateY(-2.5px) scale(1.045) rotate(1.2deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .turn-lift {
+    animation: none;
+    transform: translateY(-2px) scale(1.04);
+  }
+}

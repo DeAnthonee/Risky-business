@@ -24,6 +24,10 @@ The board sits on animated water: a lit sea that darkens toward the edges, small
 and fade in and out, and a soft surf glow that swells along every coast. It is ambient decoration (Fast-forward
 does not touch it) and holds still when the system asks for reduced motion.
 
+The territories of the player whose turn it is sit slightly raised: a little larger, with a light rim and a drop
+shadow, rocking gently so you can see at a glance what they hold. Under fog only the land you can see is raised;
+with reduced motion they stay raised but still.
+
 **Auto-spectate** is a hands-off live stream: press **Auto-Spectate Live Stream** above the game list (shown while a
 game is being played) or open `/?spectate=1` with no game. It tunes into a game in progress and, when that game ends
 or its room closes, shows a countdown to the next live game, with **Stay here** to keep watching where you are (which

@@ -282,6 +282,17 @@ export function GameMap(props: MapProps) {
   const zoomed = scale > 1.05;
   const showNames = !dense || scale >= 1.7;
 
+  // Territories of the player whose turn it is, drawn last so their lifted edges sit above their neighbours.
+  const turnPlayer = !bonusView && view.phase !== 'lobby' && view.phase !== 'finished' ? view.currentPlayer : null;
+  const lifted = useMemo(
+    () => new Set(turnPlayer ? map.territories.filter((t) => view.territories[t.id]?.owner === turnPlayer).map((t) => t.id) : []),
+    [turnPlayer, map, view.territories],
+  );
+  const liftOrder = useMemo(
+    () => (lifted.size ? [...map.territories.filter((t) => !lifted.has(t.id)), ...map.territories.filter((t) => lifted.has(t.id))] : map.territories),
+    [lifted, map],
+  );
+
   const continentLabels = useMemo(
     () =>
       map.continents.map((c) => {
@@ -407,7 +418,7 @@ export function GameMap(props: MapProps) {
 
       {/* Territories */}
       <g className="territories">
-        {map.territories.map((t) => {
+        {liftOrder.map((t, i) => {
           const ts = view.territories[t.id];
           const hl = effectiveHighlights[t.id];
           const fog = isHidden(t.id);
@@ -430,7 +441,7 @@ export function GameMap(props: MapProps) {
               </path>
             );
           }
-          return (
+          const path = (
             <path
               key={t.id}
               d={t.path}
@@ -444,6 +455,14 @@ export function GameMap(props: MapProps) {
               </title>
             </path>
           );
+          // The player whose turn it is: their land is lifted a little and rocks gently, so watchers spot it at a glance.
+          if (!fog && lifted.has(t.id))
+            return (
+              <g key={t.id} className="turn-lift" style={{ animationDelay: `${-(i % 7) * 0.45}s` } as CSSProperties}>
+                {path}
+              </g>
+            );
+          return path;
         })}
       </g>
 

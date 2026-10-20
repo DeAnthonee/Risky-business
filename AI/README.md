@@ -133,6 +133,6 @@ the latest saved state:
    `add_diary_entry` (with outcome, map, opponents, strategy), `update_relationship` for
    each player who mattered, and `update_character` for lessons, passing the `expectedVersion` you read.
 
-Live saves are stored on the game server (under `RISK_DATA_DIR`), not in this folder; see the README
-section "Live profiles over MCP" for how to copy them back here with a PR. Coding agents editing this
+Live saves are stored on the game server (under `RISK_DATA_DIR`), not in this folder; see "Live profiles over MCP" in
+[docs/characters.md](../docs/characters.md#live-profiles-over-mcp) for how to copy them back here with a PR. Coding agents editing this
 folder directly follow the saving rules above.

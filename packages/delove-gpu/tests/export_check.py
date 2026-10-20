@@ -22,9 +22,10 @@ import torch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from delove_gpu.branch import BranchEngine  # noqa: E402
 from delove_gpu.encode import Encoder  # noqa: E402
-from delove_gpu.generate import Recorder  # noqa: E402
+from delove_gpu.config import GameConfig  # noqa: E402
+from delove_gpu.generate import Recorder, ts_constants  # noqa: E402
 from delove_gpu.logs import cand_to_action, games  # noqa: E402
-from tests.branch_replay import Snap  # noqa: E402
+from tests.branch_replay import Snap, log_options  # noqa: E402
 
 NAMES = ["territory", "global", "cand", "cand_from", "cand_to", "cand_offset", "choice", "z", "game", "seat"]
 
@@ -43,10 +44,11 @@ def main():
             break
     t0 = time.time()
     B = len(recs)
-    e = BranchEngine(B, allow_unverified=True)
+    gcfg = GameConfig.make(recs[0][0]["players"], {**log_options(args.log), "map": recs[0][0]["map"]})
+    e = BranchEngine(B, gcfg, allow_unverified=True)
     enc = Encoder(e)
     tmp = Path(tempfile.mkdtemp(prefix="gpu-export-"))
-    rec = Recorder(tmp, e)
+    rec = Recorder(tmp, e.m, ts_constants())
     g = torch.arange(B, device=e.dev)
     e.reset(g, torch.tensor([r[0]["seed"] for r in recs]))
     uid = torch.arange(B, device=e.dev)
@@ -81,8 +83,8 @@ def main():
         rec.finish_game(b, z)
     rec.close([args.log])
 
-    mine = {n: np.load(tmp / "classic" / f"{n}.npy") for n in NAMES}
-    ref = {n: np.load(Path(args.export) / "classic" / f"{n}.npy") for n in NAMES}
+    mine = {n: np.load(tmp / gcfg.map / f"{n}.npy") for n in NAMES}
+    ref = {n: np.load(Path(args.export) / gcfg.map / f"{n}.npy") for n in NAMES}
     perm = np.array(sorted(range(len(rec.keys)), key=lambda k: rec.keys[k]))
     problems = []
     N = len(perm)

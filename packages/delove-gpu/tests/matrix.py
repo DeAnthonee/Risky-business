@@ -80,7 +80,46 @@ def settings_suite(scale: float) -> list[tuple]:
     return cases
 
 
-SUITES = {"rules": rules_suite, "settings": settings_suite}
+# Branch and score (delove-branch@1 with the CPU's DELOVE_BRANCH_TRACE) on the cycle's tables and beyond: the GPU must
+# compare the same options, get the same mean scores (same doubles) and pick the same move. Rules and teacher checked too.
+BR, NETP = "delove-branch@1", "delove@3"
+
+
+def branch_suite(scale: float) -> list[tuple]:
+    g = lambda n: max(2, int(n * scale))  # noqa: E731
+    return [
+        ("br-skirmish-2p-branch", "skirmish", 2, f"{BR},{T2}", g(200), {}),
+        ("br-skirmish-4p-branch", "skirmish", 4, f"{BR},{T2},{NETP},{T1}", g(100), {}),
+        ("br-classic-2p-branch", "classic", 2, f"{BR},{NETP}", g(200), {}),
+        ("br-classic-4p-branch", "classic", 4, f"{BR},{T2},{NETP},{T1}", g(100), {}),
+        ("br-world-6p-branch", "world", 6, seats(6, BR, T2, NETP), g(30), {}),
+        ("br-greater_europe-10p-branch", "greater_europe", 10, seats(10, BR, T2, T1, NETP), g(12), {}),
+        ("br-classic-2p-settings-branch", "classic", 2, f"{BR},{T2}", g(100),
+         {"capitals": True, "cardValues": "fixed", "balancedBlitz": True, "blizzards": 4}),
+        ("br-skirmish-3p-settings-branch", "skirmish", 3, f"{BR},{T2},{NETP}", g(100),
+         {"fortifyMode": "adjacent", "cardValues": "exponential", "neutrals": 3, "firstRoundBonus": False}),
+        ("br-europe-5p-settings-branch", "europe", 5, seats(5, BR, T2, NETP), g(30),
+         {"capitals": True, "chooseCapitals": True, "randomDeal": False, "setupBatch": 3, "blizzards": 5}),
+        ("br-greater_europe-6p-settings-branch", "greater_europe", 6, seats(6, BR, T2, NETP), g(12),
+         {"autoSetup": True, "balancedBlitz": True, "neutrals": 10, "neutralArmies": 4, "fortifyMode": "adjacent"}),
+    ]
+
+
+# Games with Delove network seats: the rules replay, and (slow path) the GPU network's top move against the logged ONNX
+# move at every network decision.
+def net_suite(scale: float) -> list[tuple]:
+    g = lambda n: max(2, int(n * scale))  # noqa: E731
+    return [
+        ("net-classic-2p-net", "classic", 2, f"{NETP},{T2}", g(100), {}),
+        ("net-skirmish-4p-net", "skirmish", 4, f"{NETP},{T2},{RK},{T1}", g(60), {}),
+        ("net-world-8p-net", "world", 8, seats(8, NETP, T2, RK), g(12), {}),
+        ("net-greater_europe-10p-net", "greater_europe", 10, seats(10, NETP, T2, T1), g(8), {"capitals": True, "blizzards": 6}),
+        ("net-fantasy-6p-net", "fantasy", 6, seats(6, NETP, RK), g(16), {"cardValues": "exponential", "fortifyMode": "adjacent", "randomDeal": False}),
+    ]
+
+
+SUITES = {"rules": rules_suite, "settings": settings_suite, "branch": branch_suite, "net": net_suite}
+BRANCH_ENV = {"DELOVE_BRANCH_RANKER": NETP, "DELOVE_BRANCH_HORIZON": "1", "DELOVE_BRANCH_MARGIN": "0.01"}
 
 
 def resolve_options(m: str, o: dict) -> dict:
@@ -96,6 +135,9 @@ def node_play(agents: str, games: int, start: int, seed: int, options: dict, log
     env = dict(os.environ)
     if models:
         env["DELOVE_MODELS"] = models
+    if BR in agents:
+        env.update(BRANCH_ENV)
+        env["DELOVE_BRANCH_TRACE"] = str(log.parent / f"trace-{log.name}-x.jsonl")
     cmd = ["node", "--import", "./packages/delove/dist/register.js", "packages/selfplay/dist/cli.js", "play", "--agents", agents,
            "--games", str(games), "--start", str(start), "--seed", str(seed), "--options", json.dumps(options), "--log", str(log)]
     return subprocess.run(cmd, cwd=REPO, capture_output=True, text=True, env=env)
@@ -144,10 +186,23 @@ def replay_case(name: str, d: Path, args) -> dict:
     cmd = [PYTHON, str(HERE / "replay.py"), *logs, "--fused", "--batch", str(args.batch)]
     if args.models:
         cmd += ["--teacher", f"{T1}=", "--teacher", f"{T2}={Path(args.models) / (T2 + '.json')}"]
+    if name.endswith("-net") and args.models:
+        cmd += ["--net", NETP, str(Path(args.models) / f"{NETP}.pt")]
     r = subprocess.run(cmd, capture_output=True, text=True)
     res["rules"] = r.stdout.strip().splitlines()[-1] if r.stdout.strip() else r.stderr[-500:]
     res["rules_ok"] = r.returncode == 0
     res["rules_log"] = r.stdout[-3000:] + r.stderr[-3000:]
+    if name.endswith("-net"):
+        net = [x for x in r.stdout.splitlines() if x.startswith("network:")]
+        res["rules"] += " | " + (net[0] if net else "no network line")
+    if name.endswith("-branch") and args.models:
+        cmd = [PYTHON, str(HERE / "branch_replay.py"), *logs, "--trace", str(d / "trace-*.jsonl"), "--models", args.models,
+               "--ranker", NETP, "--teacher", T2, "--horizon", BRANCH_ENV["DELOVE_BRANCH_HORIZON"], "--margin", BRANCH_ENV["DELOVE_BRANCH_MARGIN"],
+               "--batch", str(args.batch)]
+        r = subprocess.run(cmd, capture_output=True, text=True)
+        res["rules"] += " | branch: " + (r.stdout.strip().splitlines()[0] if r.stdout.strip() else r.stderr[-500:])
+        res["rules_ok"] = res["rules_ok"] and r.returncode == 0
+        res["rules_log"] += r.stdout[-3000:] + r.stderr[-3000:]
     return res
 
 
@@ -164,6 +219,7 @@ def main():
     ap.add_argument("--chunk", type=int, default=25)
     ap.add_argument("--batch", type=int, default=400)
     ap.add_argument("--no-generate", action="store_true")
+    ap.add_argument("--no-replay", action="store_true", help="only generate the logs")
     args = ap.parse_args()
     cases = SUITES[args.suite](args.scale)
     if args.only:
@@ -172,6 +228,8 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     if not args.no_generate:
         generate(cases, out, args.seed, args.models, args.parallel, args.chunk)
+    if args.no_replay:
+        return
     t0 = time.time()
     with ThreadPoolExecutor(args.replay_parallel) as ex:
         results = list(ex.map(lambda c: replay_case(c[0], out / c[0], args), cases))

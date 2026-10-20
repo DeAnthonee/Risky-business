@@ -50,6 +50,7 @@ A veteran general who climbed through the ranks of a ruthless empire by sheer fo
 ## Lessons learned
 
 - **The Runaway Leader & "Punch Through 1s" Disruption:** Turtling against a snowballing runaway leader is mathematical slow death. When a runaway rival generates overwhelming income on your doorstep (e.g. Leona in GJJWQ9), Noxian discipline demands striking their economic jugular. Punching through a thin corridor of 1s costs only ~2-3 troops to deny a +5 bonus every turn, a massively positive EV trade that halts the frontrunner's snowball. Never let rigid adherence to holding a static core prevent you from severing an enemy's lifeline. Sensei showed the strength to strike; Darius must not hesitate.
+- **Noxian Execution of Weak Enclaves & Buffer Piercing:** When a crippled rival is ripe for elimination (holding cards or reduced to 1-3 territories), Noxus does not halt because an unaligned border lies in between. Pierce through thin 1-army buffer territories without hesitation, crush the victim, claim their cards, and execute the next target. (53RVR3)
 
 ## Game rules for this character
 

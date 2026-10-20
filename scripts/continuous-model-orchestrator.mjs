@@ -15,7 +15,7 @@ const log = (msg) => {
 
 log(`Risk continuous model orchestrator targeting ${SERVER_URL}`);
 log(`Testing Delove@3 & Sensei@2 (no learnings) vs 4 LLM Characters (with shared learnings, qwen3:14b)`);
-log(`Fog of War: OFF. Mode: Generation 5.`);
+log(`Mode: Generation 5 (50/50 Fog of War setting).`);
 
 let gamesCompleted = 0;
 let lastMap = 'fantasy'; // Match 1 & 2 ran on fantasy; ensure Match 3+ never duplicates previous
@@ -41,8 +41,9 @@ for (let g = 1; g <= TOTAL_GAMES; g++) {
   const selectedMap = pickNextMap(lastMap);
   lastMap = selectedMap;
 
+  const fogOfWar = Math.random() < 0.5;
   log(`================================================================`);
-  log(`Starting Generation 5 Match ${g}/${TOTAL_GAMES} on ${SERVER_URL} (Map: ${selectedMap})`);
+  log(`Starting Generation 5 Match ${g}/${TOTAL_GAMES} on ${SERVER_URL} (Map: ${selectedMap}, Fog: ${fogOfWar ? 'ON' : 'OFF'})`);
   log(`================================================================`);
 
   // Spawn runner for 1 game: 4 LLM characters + 2 open seats = 6 total
@@ -52,7 +53,7 @@ for (let g = 1; g <= TOTAL_GAMES; g++) {
     '--map', selectedMap,
     '--players', '6',
     '--open-seats', '2',
-    '--options', JSON.stringify({ fogOfWar: false }),
+    '--options', JSON.stringify({ fogOfWar }),
     '--games', '1',
     '--pace', '0',
     '--model', 'qwen3:14b',

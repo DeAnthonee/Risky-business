@@ -262,10 +262,31 @@ export function killList(victims: Record<string, number>): string {
   return list.length ? ` (${list.map(([k, n]) => `${k} x${n}`).join(', ')})` : '';
 }
 
+const LEAGUE_NAMES = new Set(['jinx', 'shaco', 'leona', 'tryndamere', 'teemo', 'shen', 'thresh', 'darius', 'lux', 'ahri']);
+
+/** Normalizes seat and player keys so versioned names (e.g. Delove@3) merge with canonical entries. */
+export function normalizeLeaderboardKey(raw: string): string {
+  if (!raw) return 'unknown';
+  let clean = raw.trim();
+  if (clean.startsWith('player:')) clean = clean.slice(7);
+  clean = clean.replace(/@\d+$/, '');
+  const lower = clean.toLowerCase();
+  if (LEAGUE_NAMES.has(lower)) {
+    return `league/${lower}`;
+  }
+  if (lower.startsWith('league/')) {
+    const sub = lower.slice(7);
+    if (LEAGUE_NAMES.has(sub)) return `league/${sub}`;
+  }
+  if (lower === 'delove') return 'Delove';
+  if (lower === 'sensei' || lower === 'delove-teacher') return 'Sensei';
+  return clean;
+}
+
 export function computeLeaderboard(results: GameResult[]): Leaderboard {
   results = [...new Map(results.filter(r => r.winner && r.reason !== 'unfinished').map(r => [r.gameId, r])).values()];
-  const ratings = rankLeaderboard(results.map(r => ({ gameId: r.gameId, seats: r.seats.map(s => ({ key: s.character ?? s.name, name: s.name, placement: s.placement,
-    killed: r.seats.filter(v => v.eliminatedBy === s.name).map(v => v.character ?? v.name) })) })));
+  const ratings = rankLeaderboard(results.map(r => ({ gameId: r.gameId, seats: r.seats.map(s => ({ key: normalizeLeaderboardKey(s.character ?? s.name), name: normalizeLeaderboardKey(s.character ?? s.name), placement: s.placement,
+    killed: r.seats.filter(v => v.eliminatedBy === s.name).map(v => normalizeLeaderboardKey(v.character ?? v.name)) })) })));
   const chars = new Map<string, { games: number; wins: number; place: number }>();
   const maps = new Map<string, { games: number; wins: Record<string, number> }>();
   for (const r of results) {
@@ -273,12 +294,12 @@ export function computeLeaderboard(results: GameResult[]): Leaderboard {
     m.games++;
     if (r.winner) {
       const w = r.seats.find((s) => s.name === r.winner);
-      const key = w?.character ?? r.winner;
+      const key = normalizeLeaderboardKey(w?.character ?? r.winner);
       m.wins[key] = (m.wins[key] ?? 0) + 1;
     }
     maps.set(r.map, m);
     for (const s of r.seats) {
-      const key = s.character ?? s.name;
+      const key = normalizeLeaderboardKey(s.character ?? s.name);
       const c = chars.get(key) ?? { games: 0, wins: 0, place: 0 };
       c.games++;
       c.place += s.placement;

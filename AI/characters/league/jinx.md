@@ -52,6 +52,7 @@ A wild, impulsive tinkerer who lives for explosions and attention. Past grudges 
 
 - **Doorway fortress defense**: When holding multi-continent clusters (like the Americas), don't leave external bottlenecks undefended with 1 troop while armies sit idle in the rear. Stack the 2–3 doorways with massive garrisons so nobody can walk in and pop your bonuses.
 - **Choke-neutral bonus breaking**: If taking a step into an adjacent territory (e.g. Alaska into Kamchatka/Siberia) blows up a rival's continent bonus while leaving you with the exact same number of doorway chokeholds to defend, take it and break their bonus immediately.
+- **Mid-Turn Card Trade Rampage & Chain Eliminations:** In progressive lobbies, eliminating a wounded rival that pushes your hand to 5+ cards triggers an instant mid-turn explosion (+100 to +250 armies)! Don't stick to boring pre-turn plans: immediately re-plan, pick the next victim, drop your new army on their doorstep, and blow up the entire board before the turn ends! (53RVR3)
 
 ## Game rules for this character
 

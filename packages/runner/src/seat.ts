@@ -153,12 +153,12 @@ export class SeatRunner {
   }
 
   /** Waits (bounded by the commander's own timeout) for this turn's plan, or the capital pick. */
-  private async consult(view: GameView) {
+  private async consult(view: GameView, force = false) {
     const c = this.o.commander;
     if (!c) return;
     try {
       if (view.phase === 'capitals' && (view.legal?.capitalChoices.length ?? 0) > 0) await c.chooseCapital(view);
-      else if (view.phase === 'reinforce' && view.turnNumber !== this.lastPlanned) {
+      else if ((view.phase === 'reinforce' && view.turnNumber !== this.lastPlanned) || force) {
         this.lastPlanned = view.turnNumber;
         await c.planFor(view);
       }
@@ -176,8 +176,21 @@ export class SeatRunner {
       this.lastGreeted = view.turnNumber;
       this.fire(this.o.diplomat.onTurnStart(view));
     }
+    let prevArmiesToPlace = view.legal?.armiesToPlace ?? 0;
     while (!this.stopped && view.phase !== 'finished' && view.legal?.yourTurn) {
-      if (view.phase === 'reinforce' && view.turnNumber !== this.lastPlanned) await this.consult(view);
+      const currentArmiesToPlace = view.legal?.armiesToPlace ?? 0;
+      const midTurnSurge =
+        (view.phase === 'attack' || view.phase === 'reinforce') &&
+        currentArmiesToPlace > 0 &&
+        currentArmiesToPlace > prevArmiesToPlace;
+
+      if (midTurnSurge) {
+        this.o.log(`${name}: mid-turn card surge detected (+${currentArmiesToPlace} armies)! Triggering full turn re-plan.`);
+        await this.consult(view, true);
+      } else if (view.phase === 'reinforce' && view.turnNumber !== this.lastPlanned) {
+        await this.consult(view);
+      }
+      prevArmiesToPlace = currentArmiesToPlace;
       const action =
         this.o.chooser === 'engine' ? chooseMove(view, playerId, this.random) : choosePlannedAction(view, playerId, this.o.commander?.currentPlan() ?? null, this.random, this.stall.stall);
       if (!action) {

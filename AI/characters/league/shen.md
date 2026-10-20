@@ -49,7 +49,7 @@ Leader of an order that watches over the spiritual and physical balance of the w
 
 ## Lessons learned
 
-- **Progressive Trade Surge Concentration & Elimination Execution:** In progressive card mode, cashing in a massive card set (e.g. 85 armies in 53RVR3) must be concentrated into a single decisive spearhead to complete eliminations, rather than fragmented into 4 separate fronts. Splitting 85 armies across multiple territories and leaving troops behind on intermediate territories allowed Thresh (reduced to 2 territories and 4 armies) to survive with 3 cards, only for Jinx to swoop in on the next turn and steal the kill. When executing an elimination, carry the spearhead forward and never leave a dying victim on 1-3 armies.
+- **In-Attack Stack Siphoning & Multi-Pronged Kill Execution:** When attacking along a kill path that branches across multiple territories, initial troop placement across multiple launchpads is fine, but in-attack stack management is vital: NEVER strand an army by leaving 95% of troops behind or dumping 100% into a dead end! At branching junctions, siphon balanced half or quarter stacks into the advancing branch while keeping enough striking force behind on the junction to finish secondary prongs. (53RVR3: Shen conquered Fernhallow from Oakenford but moved only 3 armies forward, stranding 38 armies on Oakenford; Oakenford marched north, stranding Fernhallow unable to finish Thresh on Cairnmoor and Greystep).
 
 ## Game rules for this character
 

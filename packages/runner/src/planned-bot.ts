@@ -571,7 +571,23 @@ class Chooser {
     const carry = Math.max(0, ceiling);
     const continues = toHostile.some((e) => this.chance(Math.max(1, carry), e) >= this.threshold() && !this.plan.avoid.has(this.owner(e)!) && !this.plan.noAttack.has(e));
     if (this.plan.route.includes(to) && this.plan.route.slice(this.plan.route.indexOf(to) + 1).some((r) => this.hostile(r))) return ceiling;
-    if (continues) return ceiling;
+    if (continues) {
+      // In-attack stack siphoning at offensive junctions:
+      // If `fromHostile` ALSO has viable attack targets, do not dump 100% of armies into `to` and leave 1 on `from`!
+      const fromContinues = fromHostile.some((e) => this.chance(Math.max(1, Math.floor(have * 0.5)), e) >= this.threshold() && !this.plan.avoid.has(this.owner(e)!) && !this.plan.noAttack.has(e));
+      if (fromContinues && have >= 10) {
+        const maxToDef = Math.max(...toHostile.map((e) => this.armies(e)), 1);
+        const maxFromDef = Math.max(...fromHostile.map((e) => this.armies(e)), 1);
+        const toNeed = Math.min(ceiling, Math.max(min, Math.ceil(maxToDef * 1.5) + 3));
+        const fromNeed = Math.max(1, Math.ceil(maxFromDef * 1.5) + 3);
+        if (have >= toNeed + fromNeed) {
+          const surplus = have - toNeed - fromNeed;
+          return clamp(toNeed + Math.floor(surplus * 0.5));
+        }
+        return clamp(Math.floor(have * 0.5));
+      }
+      return ceiling;
+    }
     // Never strand the stack in a dead-end interior pocket while enemies still border `from`.
     if (toHostile.length === 0 && !this.capitalOf.has(to) && this.plan.fortifyTo !== to) return min;
     // Otherwise leave a guard on the old border, and a garrison on a freshly captured capital.
@@ -953,25 +969,35 @@ class Chooser {
       return result;
     }
 
-    // If the Commander specified an explicit attack route, stage reinforcements at its launch pad.
-    if (this.plan.route.length > 0 && left > 0) {
-      const firstStep = this.plan.route[0];
-      const launch = mine.includes(firstStep)
-        ? firstStep
-        : mine
-          .filter((t) => this.map.adjacency[t].includes(firstStep) && !this.blizzards.has(firstStep))
-          .sort((a, b) => this.armies(b) - this.armies(a))[0];
-      if (launch) {
-        add(launch, left);
-        return result;
+    // Prioritize funding high-value eliminations (especially progressive sets)
+    const killCampaign = this.elimination(pool);
+    let activeCampaign: (Campaign & { score?: number }) | null = null;
+    if (killCampaign && Object.keys(killCampaign.placements).every((t) => mine.includes(t))) {
+      activeCampaign = killCampaign;
+      for (const [t, n] of Object.entries(killCampaign.placements)) add(t, n);
+      for (const t of Object.keys(killCampaign.requirements)) funded.add(t);
+    } else {
+      // If the Commander specified an explicit attack route, stage reinforcements at its launch pad.
+      if (this.plan.route.length > 0 && left > 0) {
+        const firstStep = this.plan.route[0];
+        const launch = mine.includes(firstStep)
+          ? firstStep
+          : mine
+              .filter((t) => this.map.adjacency[t].includes(firstStep) && !this.blizzards.has(firstStep))
+              .sort((a, b) => this.armies(b) - this.armies(a))[0];
+        if (launch) {
+          add(launch, left);
+          return result;
+        }
       }
-    }
 
-    // First fund the entire objective, not just its most attractive first attack.
-    const campaign = this.elimination(pool) ?? this.bonusCampaign(pool);
-    if (campaign && Object.keys(campaign.placements).every(t => mine.includes(t))) {
-      for (const [t, n] of Object.entries(campaign.placements)) add(t, n);
-      for (const t of Object.keys(campaign.requirements)) funded.add(t);
+      // First fund the entire objective, not just its most attractive first attack.
+      const campaign = this.bonusCampaign(pool);
+      if (campaign && Object.keys(campaign.placements).every((t) => mine.includes(t))) {
+        activeCampaign = campaign;
+        for (const [t, n] of Object.entries(campaign.placements)) add(t, n);
+        for (const t of Object.keys(campaign.requirements)) funded.add(t);
+      }
     }
     if (this.plan.commitArmies > 0 && this.plan.target && left > 0) {
       const commitFront = mine
@@ -1031,26 +1057,12 @@ class Chooser {
       return result;
     }
     const surplus = left;
-    // When holding a massive reinforcement surge (>= 20 armies, e.g. progressive card trade),
-    // CONCENTRATE the surplus onto the primary offensive launch point rather than scattering into 4 weak fractions!
-    if (surplus >= 20 && reserves.length > 0) {
-      const primary = reserves.slice().sort((a, b) => {
-        const valA = Math.max(...this.hostileNeighbours(a).map((n) => this.targetValue(a, n)), 0);
-        const valB = Math.max(...this.hostileNeighbours(b).map((n) => this.targetValue(b, n)), 0);
-        return valB - valA;
-      })[0] ?? reserves[0];
-      const spearhead = Math.ceil(surplus * 0.75);
-      add(primary, spearhead);
-    }
-    const remSurplus = left;
-    if (remSurplus > 0) {
-      const weights = reserves.map(t => Math.sqrt(Math.max(1, (campaign?.requirements[t] ?? this.threat(t) * 0.25 + 2) - 1)));
-      const total = weights.reduce((s, n) => s + n, 0);
-      const fractions = reserves.map((t, i) => ({ t, exact: remSurplus * weights[i] / total }));
-      for (const r of fractions) add(r.t, Math.floor(r.exact));
-      fractions.sort((a, b) => (b.exact % 1) - (a.exact % 1));
-      for (const r of fractions) if (left > 0) add(r.t, 1);
-    }
+    const weights = reserves.map(t => Math.sqrt(Math.max(1, (activeCampaign?.requirements[t] ?? this.threat(t) * 0.25 + 2) - 1)));
+    const total = weights.reduce((s, n) => s + n, 0);
+    const fractions = reserves.map((t, i) => ({ t, exact: surplus * weights[i] / total }));
+    for (const r of fractions) add(r.t, Math.floor(r.exact));
+    fractions.sort((a, b) => (b.exact % 1) - (a.exact % 1));
+    for (const r of fractions) if (left > 0) add(r.t, 1);
     return result;
   }
 

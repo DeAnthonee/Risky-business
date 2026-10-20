@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { finalPlacements, rankLeaderboard, type GameState, type RankedGame, type RankingRow } from '@risk/engine';
+import { finalPlacements, normalizeLeaderboardKey, rankLeaderboard, type GameState, type RankedGame, type RankingRow } from '@risk/engine';
 
 /** Server-owned, append-only results, kept independently of expiring game rooms. */
 export class Rankings {
@@ -81,7 +81,8 @@ export class Rankings {
   rows(): RankingRow[] { return rankLeaderboard(this.games); }
 
   profile(key: string, name: string): RankingRow {
-    return this.rows().find(r => r.key === key) ?? { key, name, rank: 0, points: 0, games: 0, wins: 0, losses: 0, winRate: 0, avgPlacement: 0, kills: 0, victims: {} };
+    const norm = normalizeLeaderboardKey(key);
+    return this.rows().find(r => r.key === norm.key) ?? { key: norm.key, name: norm.name || name, rank: 0, points: 0, games: 0, wins: 0, losses: 0, winRate: 0, avgPlacement: 0, kills: 0, victims: {}, playerIds: [] };
   }
 
   record(state: GameState, identities: Record<string, string>, eliminated: string[]) {
@@ -91,12 +92,24 @@ export class Rankings {
     const byId = new Map(state.players.map((p) => [p.id, p]));
     const keyOf = (id: string) => {
       const p = byId.get(id)!;
-      return identities[p.id] ?? `${p.isBot ? 'bot' : 'player'}:${p.name.trim().toLowerCase()}`;
+      const raw = identities[p.id] ?? `${p.isBot ? 'bot' : 'player'}:${p.name.trim().toLowerCase()}`;
+      return normalizeLeaderboardKey(raw).key;
     };
     // Kills: ranked players this seat eliminated (surrenders and neutral armies credit nobody).
     const result = {
       gameId: state.id,
-      seats: standings.map((s) => ({ key: keyOf(s.id), name: byId.get(s.id)!.name, placement: s.placement, killed: s.killed.map(keyOf) })),
+      seats: standings.map((s) => {
+        const p = byId.get(s.id)!;
+        const raw = identities[p.id] ?? `${p.isBot ? 'bot' : 'player'}:${p.name.trim().toLowerCase()}`;
+        const norm = normalizeLeaderboardKey(raw);
+        return {
+          key: norm.key,
+          name: norm.name || p.name,
+          playerId: s.id,
+          placement: s.placement,
+          killed: s.killed.map(keyOf),
+        };
+      }),
     };
     this.games.push(result);
     this.ids.add(state.id);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { finalPlacements, gamePoints, placementPoints, rankLeaderboard } from '../src/ranking.js';
+import { finalPlacements, gamePoints, normalizeLeaderboardKey, placementPoints, rankLeaderboard } from '../src/ranking.js';
 import { addPlayer, createGame, startGame } from '../src/engine.js';
 import type { GameState } from '../src/types.js';
 
@@ -27,6 +27,51 @@ describe('placement ratings', () => {
     const rows = rankLeaderboard([{gameId:'1',seats},{gameId:'2',seats:[{key:'r',name:'R',placement:1,killed:['d']},{key:'d',name:'D',placement:2}]}]);
     expect(rows[0]).toMatchObject({key:'r',rank:1,points:7,kills:4,victims:{d:2,e:1,f:1}});
     expect(rows.find(r=>r.key==='w')).toMatchObject({points:4,kills:1,victims:{c:1}});
+  });
+
+  it('normalizes and merges duplicate listings across player:, league/, and versioned keys', () => {
+    expect(normalizeLeaderboardKey('player:jinx')).toMatchObject({ key: 'league/jinx', name: 'Jinx', playerId: 'league/jinx' });
+    expect(normalizeLeaderboardKey('Jinx')).toMatchObject({ key: 'league/jinx', name: 'Jinx', playerId: 'league/jinx' });
+    expect(normalizeLeaderboardKey('player:delove@3')).toMatchObject({ key: 'Delove', name: 'Delove', playerId: 'delove' });
+    expect(normalizeLeaderboardKey('Delove@1')).toMatchObject({ key: 'Delove', name: 'Delove', playerId: 'delove' });
+    expect(normalizeLeaderboardKey('player:sensei@2')).toMatchObject({ key: 'Sensei', name: 'Sensei', playerId: 'sensei' });
+
+    // Merging duplicate games in rankLeaderboard
+    const games = [
+      {
+        gameId: 'g1',
+        seats: [
+          { key: 'player:jinx', name: 'Jinx', playerId: 'p_jinx1', placement: 1, killed: ['player:delove@3'] },
+          { key: 'player:delove@3', name: 'Delove@3', playerId: 'p_delove1', placement: 2, killed: [] },
+        ],
+      },
+      {
+        gameId: 'g2',
+        seats: [
+          { key: 'league/jinx', name: 'Jinx', playerId: 'p_jinx2', placement: 2, killed: [] },
+          { key: 'Delove', name: 'Delove', playerId: 'p_delove2', placement: 1, killed: ['league/jinx'] },
+        ],
+      },
+    ];
+    const rows = rankLeaderboard(games);
+    expect(rows).toHaveLength(2);
+    const jinxRow = rows.find(r => r.key === 'league/jinx');
+    const deloveRow = rows.find(r => r.key === 'Delove');
+    expect(jinxRow).toBeDefined();
+    expect(deloveRow).toBeDefined();
+    expect(jinxRow?.games).toBe(2);
+    expect(jinxRow?.wins).toBe(1);
+    expect(jinxRow?.kills).toBe(1);
+    expect(jinxRow?.victims).toEqual({ Delove: 1 });
+    expect(jinxRow?.playerIds).toContain('p_jinx1');
+    expect(jinxRow?.playerIds).toContain('p_jinx2');
+
+    expect(deloveRow?.games).toBe(2);
+    expect(deloveRow?.wins).toBe(1);
+    expect(deloveRow?.kills).toBe(1);
+    expect(deloveRow?.victims).toEqual({ 'league/jinx': 1 });
+    expect(deloveRow?.playerIds).toContain('p_delove1');
+    expect(deloveRow?.playerIds).toContain('p_delove2');
   });
 });
 

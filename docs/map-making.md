@@ -2,9 +2,9 @@
 
 The end-to-end process for a new board: the design rules, tracing a reference picture, building chokepoints,
 previewing, registering the map id everywhere it must appear, the workflow from design to deploy, and tracking every
-map's state with `npm run maps:status`. It is written from the two boards made this way, The Nine Realms
-(`scripts/maps/nine_realms.mjs`, one landmass with `walls`) and Bohemia (`scripts/maps/bohemia.mjs`, one landmass per
-region joined at fords). Read [CONTRIBUTING.md](../CONTRIBUTING.md#5-maps) for the build commands and [maps.md](maps.md) for the boards that exist.
+map's state with `npm run maps:status`. It is written from the two boards made this way: Bohemia (`scripts/maps/bohemia.mjs`,
+one landmass per region joined at fords) and The Nine Realms (`scripts/maps/nine_realms.mjs`, one landmass with
+`walls`; it lands with its own PR, so until then the runnable examples here use `bohemia`). Read [CONTRIBUTING.md](../CONTRIBUTING.md#5-maps) for the build commands and [maps.md](maps.md) for the boards that exist.
 
 New original boards use `kind: 'authored'`: hand-drawn outlines in the map's own coordinate space, one `site` per
 territory, split by a seeded Voronoi partition (`scripts/authored-map.mjs`). Land adjacency comes from the shapes;
@@ -42,19 +42,18 @@ const at = (x, y) => P([[x, y]])[0]; // one point (territory sites)
   dense maps (more than 50 territories, 10px), about 9.5 on others (12px). A label must not cross land of another
   region or a badge.
 - Islets drawn small on the picture are hard to click: enlarge them about their centre (`grow()` in
-  nine_realms.mjs).
+  nine_realms.mjs, which lands with its PR).
 - Write the grid and the scale in a comment at the top of the map file, as both boards do.
 
 ## 3. Building chokepoints
 
 Voronoi cells on one landmass touch all their neighbours, so a region drawn on open land has many entry points. New
 authored maps cut them down with **`walls`** (the main technique); Bohemia's separate landmasses are the alternative.
-`walls` arrives in `scripts/authored-map.mjs` with The Nine Realms' PR (branch `feat/map-nine-realms`); a map that
-uses it needs that change merged first.
+`walls` lands in `scripts/authored-map.mjs` with The Nine Realms' PR; a map that uses it needs that PR merged first.
 
 | technique | how | use it when | example |
 | --- | --- | --- | --- |
-| **`walls` (main)** | `walls: { width, passWidth, passes: [[a, b], ...] }` in the map definition. The generator cuts every land border between territories of **different regions** with a water channel `width` wide, except the listed `passes`, which keep a land bridge `passWidth` wide in the middle of their border. Borders inside a region are untouched. | Almost always: one continent, regions that meet only where you say, and the passes listed in one place. | `walls` in `scripts/maps/nine_realms.mjs`; `cutWalls()` in `scripts/authored-map.mjs` |
+| **`walls` (main)** | `walls: { width, passWidth, passes: [[a, b], ...] }` in the map definition. The generator cuts every land border between territories of **different regions** with a water channel `width` wide, except the listed `passes`, which keep a land bridge `passWidth` wide in the middle of their border. Borders inside a region are untouched. | Almost always: one continent, regions that meet only where you say, and the passes listed in one place. | `walls` in `scripts/maps/nine_realms.mjs` and `cutWalls()` in `scripts/authored-map.mjs` (both land with The Nine Realms' PR) |
 | **One landmass per region, joined at fords** | The whole area minus all waterways is split into pieces; each region's piece is its own landmass (`land: <region>` on its territories). Regions share no land border; every crossing is a `seaLanes` pair, drawn dashed. | Every region border should read as a river you cross at a ford or bridge (the links are drawn as crossings, not land bridges). | `WATERWAYS`, `outlineOf()` and `seaLanes` in `scripts/maps/bohemia.mjs` |
 
 With `walls`:
@@ -63,9 +62,9 @@ With `walls`:
   `pass a/b is not a land border between two regions`: move a site so the two cells touch, or pick another pair.
 - Slivers a wall cuts off a territory become water. A wall that splits a territory into real pieces warns
   `walls split <id> into N pieces`: move a site or a pass.
-- The Nine Realms uses exactly one pass per pair of neighbouring regions (12 passes; `width` 7 and `passWidth` 22,
-  the defaults are 7 and 16), and its engine test checks for exactly one link per region pair. Start from that and
-  add a second pass between two regions only on purpose.
+- The Nine Realms (lands with its PR) uses exactly one pass per pair of neighbouring regions (12 passes; `width` 7
+  and `passWidth` 22, the defaults are 7 and 16), and its engine test checks for exactly one link per region pair.
+  Start from that and add a second pass between two regions only on purpose.
 - Islands and archipelagos stay separate landmasses with `territory: <id>`, reached by `seaLanes`.
 - `seaLanes` that duplicate a land border are reported as redundant: remove them.
 
@@ -78,14 +77,14 @@ List each region's entry territories and the edges that leave it, from the gener
 border or pass, `(sea)` a drawn crossing). Every `(LAND)` link between regions should be one of your passes:
 
 ```bash
-node -e "const m=require('./packages/engine/src/generated/'+process.argv[1]+'.json');const reg=Object.fromEntries(m.territories.map(t=>[t.id,t.continent]));const sea=new Set(m.seaLinks.map(l=>[l.a,l.b].sort().join('|')));for(const c of m.continents){const out=m.edges.filter(([a,b])=>(reg[a]===c.id)!==(reg[b]===c.id)).map(([a,b])=>(reg[a]===c.id?a+'>'+b:b+'>'+a)+(sea.has([a,b].sort().join('|'))?' (sea)':' (LAND)'));console.log(c.id,new Set(out.map(e=>e.split('>')[0])).size,'entries:',out.join(', '))}" nine_realms
+node -e "const m=require('./packages/engine/src/generated/'+process.argv[1]+'.json');const reg=Object.fromEntries(m.territories.map(t=>[t.id,t.continent]));const sea=new Set(m.seaLinks.map(l=>[l.a,l.b].sort().join('|')));for(const c of m.continents){const out=m.edges.filter(([a,b])=>(reg[a]===c.id)!==(reg[b]===c.id)).map(([a,b])=>(reg[a]===c.id?a+'>'+b:b+'>'+a)+(sea.has([a,b].sort().join('|'))?' (sea)':' (LAND)'));console.log(c.id,new Set(out.map(e=>e.split('>')[0])).size,'entries:',out.join(', '))}" bohemia
 ```
 
 To see where two territories touch (to choose a pass, or to find an unexpected contact), list the points their paths
 share:
 
 ```bash
-node -e "const m=require('./packages/engine/src/generated/'+process.argv[1]+'.json');const pts=id=>new Set(m.territories.find(t=>t.id===id).path.match(/-?[\d.]+,-?[\d.]+/g));const b=pts(process.argv[3]);const s=[...pts(process.argv[2])].filter(p=>b.has(p)).map(p=>p.split(',').map(Number));console.log(s.length?s.length+' shared points, x '+Math.min(...s.map(p=>p[0]))+'..'+Math.max(...s.map(p=>p[0]))+', y '+Math.min(...s.map(p=>p[1]))+'..'+Math.max(...s.map(p=>p[1])):'no shared points')" nine_realms cragmouth seawatch
+node -e "const m=require('./packages/engine/src/generated/'+process.argv[1]+'.json');const pts=id=>new Set(m.territories.find(t=>t.id===id).path.match(/-?[\d.]+,-?[\d.]+/g));const b=pts(process.argv[3]);const s=[...pts(process.argv[2])].filter(p=>b.has(p)).map(p=>p.split(',').map(Number));console.log(s.length?s.length+' shared points, x '+Math.min(...s.map(p=>p[0]))+'..'+Math.max(...s.map(p=>p[0]))+', y '+Math.min(...s.map(p=>p[1]))+'..'+Math.max(...s.map(p=>p[1])):'no shared points')" bohemia sazava lower_meadows
 ```
 
 The contact is in viewBox units; divide back through `P()` to find it on the sketch grid. Very short contacts (under
@@ -98,17 +97,17 @@ region outlines, sea links dashed, badges at the anchors, territory names and re
 them. It is Node only, has no dependencies and is not part of any build.
 
 ```bash
-npm run build:map -- nine_realms
-node scripts/preview-map.mjs nine_realms
+npm run build:map -- bohemia
+node scripts/preview-map.mjs bohemia
 ```
 
 It writes to the OS temp folder (`risky-map-preview/<id>.html`) unless you pass `--out page.html`, and prints the
 path and a PNG command. To check the tracing, lay the reference picture under the board, placed in viewBox units
-(`P()` of the picture's top-left corner, and its size times the scale; for nine_realms.mjs, `P([[0, 0]])` is
-`[33, -35]` and 490x745 times 1.4 is 686x1043):
+(`P()` of the picture's top-left corner, and its size times the scale; bohemia.mjs traced an 820x1004 grid and its
+`P()` only shifts it down 15, so the picture goes at 0, 15, 820x1004):
 
 ```bash
-node scripts/preview-map.mjs nine_realms --ref <picture.png> 33 -35 686 1043 --ref-opacity 0.4
+node scripts/preview-map.mjs bohemia --ref <picture.png> 0 15 820 1004 --ref-opacity 0.4
 ```
 
 Rasterize the page with headless Edge (Chrome or Chromium take the same flags) to send the owner a PNG:
@@ -122,7 +121,7 @@ reference pictures (README hard rule 13).
 
 ## 5. Registering a new map id
 
-Everything a new board touches (as in the Bohemia PR #100 and the Nine Realms branch `feat/map-nine-realms`).
+Everything a new board touches (as in the Bohemia PR #100).
 Replace `<id>` and keep every list in the same order as `MAP_IDS`.
 
 | file | what to add |
@@ -139,7 +138,7 @@ Replace `<id>` and keep every list in the same order as `MAP_IDS`.
 | `packages/delove-gpu/delove_gpu/fingerprint.py` | the generated JSON in `RULE_FILES` |
 | `packages/delove-gpu/tests/matrix.py` | `<id>: maxPlayers` in the rules suite |
 | `packages/delove-gpu/README.md` | the map listed as wired in but **not yet verified** |
-| `docs/maps.md` | the board count and a table row |
+| `docs/maps.md` | the board count, the sentence naming the hand-drawn boards (for an authored map), and a table row |
 | `README.md` | the board count in the table-of-contents line for docs/maps.md |
 | `docs/playing.md` | the `map` and `maxPlayers` rows of the options table |
 | `docs/game-settings.md` | the map pool row, if it fits the league's table sizes |
@@ -159,7 +158,7 @@ touch `packages/delove-gpu/engine-fingerprint.json` in the map PR (section 6).
 | 3. Register | map session | Section 5; `npm test` and `npm run build` green; `npm run maps:status` shows the map offered, in RULE_FILES and the matrix; open the board in the real client (`npm start`, a lobby on the new map) and look at labels, badges and sea links |
 | 4. PR | map session | One PR against the deploy branch, opened ready for review, with the preview and the template's "New map" checklist |
 | 5. Review | "Risky Business game PR reviews" session | Reviews the PR; corrections go back to the PR's session, which fixes and asks for re-review until approved |
-| 6. Merge | **owner** | The owner merges; the deploy branch auto-deploys |
+| 6. Merge | **owner** (or the review session, when the owner allows it) | The approved PR is merged; the deploy branch auto-deploys |
 | 7. GPU mirror | coordinator, training PC | Re-verify the fingerprint (`packages/delove-gpu/verify.py`); afterwards `npm run maps:status` shows the map GPU-verified |
 
 The GPU re-verification is **not run per map PR**. Until it runs, the GPU mirror refuses to start (`StaleMirror`),

@@ -254,6 +254,12 @@ DELOVE_MODELS=models/delove PYTHON=.venv/Scripts/python bash packages/delove/scr
 Each invocation writes its phase times to `times.tsv` and a copy to `times-<YYYYmmdd-HHMMSS>.tsv` (its start), so a
 cycle stopped and resumed keeps every invocation's times.
 
+**GPU lanes and league settings.** `GPU_LANES=N` runs N GPU processes at once and deals the config's GPU steps to them
+in turn: split a long step (the big tables) into several so every lane stays busy (cycle 6's second lane idled 5 hours
+behind a single big-tables step). Cycle 6's jobs files show the league settings every table now uses (auto setup,
+balanced blitz, chosen capitals, and four card/capitals/blizzard variants: `docs/game-settings.md`); cycles 1-5 trained
+on the defaults only, and that blind spot was the largest gain of cycle 6.
+
 **Watching a cycle, its history and where the time went.** `scripts/dashboard.mjs` is a local, read-only page over the
 run folders (binds 127.0.0.1 only, no external scripts):
 
@@ -302,6 +308,13 @@ cycle.sh checks the mirror's fingerprint: if the engine changed since the last v
 `packages/delove-gpu/verify.py --models <models dir>` first. Games in flight are sized per table configuration to
 `GPU_GB` of game state (default 3, fits the RTX 4060's 8 GB with the networks); `GPU_BATCH` fixes the number.
 
+**GPU steps on rented cloud GPUs.** `REMOTE_GPUS=N` hands every GPU step to `packages/delove-gpu/cloud/remote.py`
+instead: the steps' configurations are split over N RunPod GPUs (RTX 4090 by default) by their cost in earlier
+`gpu.log` files (`REMOTE_TIMINGS`), played with the same generate arguments, downloaded and merged into the same
+`DATA/<name>-<step>/<map>` and `OUT/<step>/gpu.json`. `RUNPOD_API_KEY` must be in the environment; the estimated cost
+is printed first, `REMOTE_MAX_GPU_HOURS` (default 4) caps it, and every pod is terminated at the end. Progress goes to
+`OUT/remote.log`. See [packages/delove-gpu, Cloud workers](../delove-gpu/README.md#cloud-workers).
+
 **Gates on the GPU.** `gpu_gates=(all)` in the config, or a list of gate indices (`gpu_gates=(4 6 7)`, 0-based in
 `gates=(...)`), plays those gates on the GPU (`python -m delove_gpu.ladder`, [packages/delove-gpu](../delove-gpu/README.md#ladder-gates-on-the-gpu))
 and the rest on the CPU, at the same time; `GPU_GATES=1` (all), `GPU_GATES="4 6"` or `GPU_GATES=0` (none) overrides
@@ -337,6 +350,12 @@ promotions are judged mainly on the points difference at 4-10 players (`docs/del
   gives the same validation loss as float32 (0.9455 vs 0.9449 on cycle 5 data) at 1.9x the speed, and less memory.
 - `<dataset>#F` (in `train_data`, or `--data <path>#F`): each epoch trains on a fresh random fraction F of that
   dataset's training decisions, so older cycles keep their influence at a fraction of their cost.
+- `<dataset>:value` (mode): the value head learns from those positions and outcomes, the policy ignores their moves
+  (weight 0): for data whose moves shouldn't be copied, e.g. cycle 5's big tables, whose moves were mostly Sensei 2's.
+- `--branch-weights W0,W1,W2`: weights the policy by what branch and score did at each decision (`branch_tag.npy`,
+  written by `delove_gpu.generate`): 0 the teacher's move without comparing, 1 compared and kept, 2 changed. Cycle 6
+  used `0.5,1,2`. Datasets without `branch_tag.npy` (CPU exports, older cycles) keep weight 1.
+- `--alive LO-HI` (range specialists): only decisions with LO..HI players alive.
 - Keep a batch within the card: on big maps (Greater Europe, Fantasy) batch 1024 spilled past the RTX 4060's 8 GB into
   shared memory and ran 5x slower; batch 512 fits.
 
@@ -383,6 +402,53 @@ Every step can also run on the GPU (`packages/delove-gpu`, `python -m delove_gpu
 decisions and bit-identical training arrays (checked by replay), on every map and table size; 4.6x faster than this
 pool for cycle 3's 6,000 Classic 2-player games (other steps: packages/delove-gpu/README.md, "Speed"). `DELOVE_BRANCH_TRACE=<file>` makes the branch player write each branched decision's options and mean
 scores, which the GPU's replay test compares option by option.
+
+### Scoring rollouts by leaderboard points (`DELOVE_BRANCH_SCORE`): tried, not better
+
+The default branch score (`positionScore`, `score: 'share'`) is won 1, lost 0, otherwise the weighted share of
+armies, income, territories, cards and continents. It aims at the leaderboard (placement points plus `KILL_POINTS`
+per elimination) only indirectly: it gives nothing for a kill made inside the horizon, for the decider's standing
+among the players left, or for how early a knock-out comes in a big game. Two opt-in scores (the `score` field of the
+branch settings, `DELOVE_BRANCH_SCORE`, `--score` on the GPU) aim at the leaderboard directly:
+
+- **`points`** (`pointsScore`): the decider's expected place among the players still alive (1 plus, for each rival,
+  its chance of finishing above, read off the gap in share score: `clamp(0.5 + 0.5 * n * (mine - theirs), 0, 1)` with
+  n players alive), turned into the table's placement points (`placementPoints`, interpolated between whole places;
+  the place just below the players still alive when the decider is out, first when it won), plus `KILL_POINTS` per
+  player the decider has eliminated, scaled so last place is 0 and first place 1;
+- **`kills`**: the share score plus the kill credit alone (`killCredit`: `KILL_POINTS` per player eliminated over the
+  placement spread, so 0.5 at 2 players, 0.25 at 4, 0.17 at 6, 0.1 at 10).
+
+Both are cheap, deterministic functions of the board, mirrored bit for bit on the GPU. Share stays the default, so the
+golden lock and every earlier result are unchanged.
+
+Measured on the GPU (horizon 1, margin 0.01, ranker `delove@3`, Sensei 2 rollouts; `packages/delove-gpu/scripts/
+score_compare.py`). 2 players: the share and points runs on the same 1,000 Classic seeds against `delove@3` and Sensei
+2 in both seat orders. 4+ players: head to head, both scores at the same table (GPU-only seats
+`delove-branch@1:share` / `:points` / `:kills`, spread round it in every order and from every seat; the other seats
+`delove@3` and one Sensei 2), so each game is a pair. Leaderboard points per game (placement + kills; a turn-limit game
+scores last place for everyone), 95% intervals:
+
+| table | games | share | points | kills | points - share | kills - share | wins share / points / kills | turn limit |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Classic 2p (separate runs, same seeds) | 1,000 | +0.722 | +0.680 | | -0.042 ± 0.074 | | 0.574 / 0.560 / | 0% / 0% |
+| World 4p (share vs points) | 520 | +1.413 | +0.906 | | **-0.508 ± 0.387** | | 0.400 / 0.290 / | 14.6% |
+| Classic 4p (share vs kills) | 520 | +1.558 | | +1.521 | | -0.037 ± 0.398 | 0.385 / / 0.363 | 1.0% |
+| 6 and 10 players (share vs points vs kills) | | | | | | | | deferred (below) |
+
+The 6- and 10-player rows are deferred (the GPU was booked for cycles 6 and 7); they suit a cloud GPU. To run them,
+from `packages/delove-gpu` (about an hour of GPU per map and size; results per group, so a run can stop and resume):
+
+```bash
+python scripts/score_compare.py h2h-jobs h3.jobs --variants share,points,kills --sizes 6:528,10:510
+python -m delove_gpu.generate --jobs h3.jobs --seed 7 --models <models dir> --ranker delove@3 --teacher delove-teacher@2 --horizon 1 --margin 0.01 --gpu-gb 1 --results h3.jsonl
+python scripts/score_compare.py h2h-report h3.jsonl
+```
+
+The points score loses: it turns small share gaps into whole places, at about twice the share score's slope, so the
+same `margin` lets rollout noise change more moves, and it pays for pulling level with the nearest rival rather than
+for growing. The kill credit alone makes no measurable difference. **Cycle 7 should keep the share score.** Kills and
+placements are already in the value target (cycle 5, points), which is where the leaderboard reaches the network.
 
 Speed work has two guards. `scripts/golden.mjs record|check <file>` replays ~60 seeded games across maps, player
 counts, settings and players (teachers, `risky@1`, the network, the branch player) and fails if any logged decision,

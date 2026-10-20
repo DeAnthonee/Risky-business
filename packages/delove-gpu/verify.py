@@ -15,14 +15,15 @@ or a StaleMirror error) says the engine changed:
    with --models (a folder with delove-teacher@N.json and the ranker's .pt and .onnx), also the GPU teachers
    (tests/teacher_replay.py: the logged pick at every step of the newest Sensei and of Jacob Sensei, jacob-sensei@1),
    branch and score at branch.ts's defaults and at the cycle settings, with Sensei and with Jacob as the rollout
-   teacher (tests/branch_replay.py against the CPU's DELOVE_BRANCH_TRACE: options, exact mean scores, picks), the
-   training-array writer (tests/export_check.py: bit for bit against export) and the kernel's Math.log1p
-   (tests/log1p_check.py);
+   teacher, and with the points and kills scores at four seats (tests/branch_replay.py against the CPU's
+   DELOVE_BRANCH_TRACE: options, exact mean scores, picks), the training-array writer (tests/export_check.py: bit for
+   bit against export) and the kernel's Math.log1p (tests/log1p_check.py);
 4. only if everything matches, writes engine-fingerprint.json (hashes of the engine files the mirror copies, and
    what was replayed). Commit it with the mirror changes.
 
 A mismatch means the mirror is wrong for this engine: fix packages/delove-gpu (never packages/engine), and run this
-again. Logs go to runs/gpu-verify/<date>-<seed>/ (ignored by git).
+again. Logs go to runs/gpu-verify/<date>-<seed>/ (ignored by git). On a shared machine, --parallel caps the CPU
+processes playing logs and --gpu-parallel the matrix replays on the GPU.
 """
 from __future__ import annotations
 
@@ -65,7 +66,9 @@ def main() -> int:
     ap.add_argument("--ranker", default="delove@2", help="with --models: the branch ranker (its .pt and .onnx in --models)")
     ap.add_argument("--seed", type=int, default=None, help="default: from the clock, so every run plays new games")
     ap.add_argument("--no-build", action="store_true")
-    ap.add_argument("--parallel", type=int, default=0, help="CPU processes for the matrix suites' logged games (0: every thread but one)")
+    ap.add_argument("--parallel", type=int, default=0,
+                    help="CPU processes for the logged games: the logs here and the matrix suites' (0: one per log here, every thread but one in the matrix)")
+    ap.add_argument("--gpu-parallel", type=int, default=6, help="matrix replay processes sharing the GPU at once")
     ap.add_argument("--matrix-scale", type=float, default=0.1,
                     help="every map, table size and setting (tests/matrix.py suites rules and settings, and branch with --models) at"
                          " this scale of their game counts; 0 skips them (then only Classic 2-player is verified)")
@@ -116,10 +119,14 @@ def main() -> int:
         logs["teacher-jacob"] = (f"{JACOB},{JACOB}", g)
         nb = max(20, g // 5)
         for name, h, mg, rt in [("branch-default", None, None, teacher_id), ("branch-cycle", "1", "0.01", teacher_id),
-                                ("branch-jacob", "1", "0.01", JACOB)]:
-            logs[name] = (f"delove-branch@1,{rt}", nb)
+                                ("branch-jacob", "1", "0.01", JACOB), ("branch-points", "1", "0.01", teacher_id),
+                                ("branch-kills", "1", "0.01", teacher_id)]:
+            # branch-points / branch-kills: DELOVE_BRANCH_SCORE at four seats, where places and kills count
+            score = name.split("-")[1] if name in ("branch-points", "branch-kills") else None
+            logs[name] = (",".join(["delove-branch@1"] + [rt] * (3 if score else 1)), nb)
             extra_env[name] = {"DELOVE_BRANCH_RANKER": args.ranker, "DELOVE_BRANCH_TRACE": str(out / f"trace-{name}.jsonl"),
-                               "DELOVE_BRANCH_TEACHER": rt, **({"DELOVE_BRANCH_HORIZON": h, "DELOVE_BRANCH_MARGIN": mg} if h else {})}
+                               "DELOVE_BRANCH_TEACHER": rt, **({"DELOVE_BRANCH_HORIZON": h, "DELOVE_BRANCH_MARGIN": mg} if h else {}),
+                               **({"DELOVE_BRANCH_SCORE": score} if score else {})}
     if args.model:
         model = Path(args.model).resolve()
         net_agent = model.stem  # delove@N, as net-agent.ts registers models/delove/<id>.onnx
@@ -131,7 +138,10 @@ def main() -> int:
         logs["net"] = (f"{net_agent},delove-teacher@1", max(20, g // 5))
     node = shutil.which("node") or "node"
     procs = []
+    running: list = []
     for i, (name, (agents, n)) in enumerate(logs.items()):
+        while args.parallel and len([p for _, p in running if p.poll() is None]) >= args.parallel:
+            time.sleep(1)
         cmd = [node, "--import", "./packages/delove/dist/register.js", "packages/selfplay/dist/cli.js", "play",
                "--agents", agents, "--games", str(n), "--seed", str(seed + i), "--log", str(out / name)]
         print("  $", " ".join(cmd), flush=True)
@@ -139,6 +149,7 @@ def main() -> int:
         if trace and Path(trace).exists():
             Path(trace).unlink()
         procs.append((name, subprocess.Popen(cmd, cwd=REPO, env={**env, **extra_env.get(name, {})}, stdout=subprocess.DEVNULL)))
+        running.append(procs[-1])
     for name, p in procs:
         if p.wait():
             print(f"playing {name} failed")
@@ -194,7 +205,9 @@ def main() -> int:
             ("teacher", [str(tests / "log1p_check.py")], r"(\d+) of (\d+) values bit-identical", 1),
         ]
         for name, extra, rt in [("branch-default", [], teacher_id), ("branch-cycle", ["--horizon", "1", "--margin", "0.01"], teacher_id),
-                                ("branch-jacob", ["--horizon", "1", "--margin", "0.01"], JACOB)]:
+                                ("branch-jacob", ["--horizon", "1", "--margin", "0.01"], JACOB),
+                                ("branch-points", ["--horizon", "1", "--margin", "0.01", "--score", "points"], teacher_id),
+                                ("branch-kills", ["--horizon", "1", "--margin", "0.01", "--score", "kills"], teacher_id)]:
             jobs.append(("branch", [str(tests / "branch_replay.py"), str(out / name), "--trace", str(out / f"trace-{name}.jsonl"), "--models",
                                     str(models), "--ranker", args.ranker, "--teacher", rt, *extra],
                          r"(\d+) games, (\d+) branch-player decisions .*means identical on \d+, different on 0;", 2))
@@ -225,7 +238,8 @@ def main() -> int:
         for suite in suites:
             print(f"  every map, table size and setting: tests/matrix.py --suite {suite} --scale {args.matrix_scale}")
             cmd = [py, "-u", str(HERE / "tests" / "matrix.py"), "--suite", suite, "--scale", str(args.matrix_scale), "--seed", str(seed),
-                   "--out", str(out / f"matrix-{suite}")] + (["--parallel", str(args.parallel)] if args.parallel else []) + (["--models", str(models)] if args.models else [])
+                   "--out", str(out / f"matrix-{suite}")] + (["--parallel", str(args.parallel)] if args.parallel else [])
+            cmd += (["--models", str(models)] if args.models else []) + ["--replay-parallel", str(args.gpu_parallel)]
             r = run(cmd, capture_output=True, text=True)
             text = r.stdout + r.stderr
             tail = [line for line in text.splitlines() if line.startswith(("ok ", "BAD")) or "cases identical" in line]

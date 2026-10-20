@@ -18,7 +18,8 @@
 #                              branch, teacher and network seats); same games as on the CPU, training arrays
 #                              written directly (no export). GPU_STEPS (space-separated, or all) overrides it.
 #   export_agents=delove-branch@1                  whose decisions are exported (--only-agents)
-#   train_data=("<step>/<map>[:mode][*N]" | "<dataset under DATA or path>[:mode][*N]" ...)   *N repeats it N times
+#   train_data=("<step>/<map>[:mode][#F][*N]" | "<dataset under DATA or path>[:mode][#F][*N]" ...)   *N repeats it N
+#                              times; #F trains on a fresh random fraction F of it each epoch (older cycles' data)
 #   train_init=<model id, or empty for a fresh network>  candidate=<cN-candidate>  train_args="--epochs 1.5 --lr 3e-4"
 #   gates=("<opponent> <players> <games> [options JSON]" ...)   ladder matches of the candidate
 #   gpu_gates=(<gate index> ... | all)   optional: gates played on the GPU (delove_gpu.ladder: the same games and the
@@ -27,9 +28,14 @@
 # Environment: CYCLE_NAME (overrides name, e.g. for a trial run), DELOVE_MODELS (models folder, default models/delove), OUT (default runs/delove/<name>), DATA (default
 # data/delove), PYTHON (default .venv/Scripts/python), PARALLEL, CHUNKS (chunks per process and step, default 4; or
 # CHUNK = fixed games per chunk), GATE_CHUNK (games per gate chunk, default 20), GPU_BATCH (games in flight on the
-# GPU per configuration; default: sized to GPU_GB of game state, default 3). Re-running resumes: finished chunks, exports, GPU steps, the trained model and finished gate
+# GPU per configuration; default: sized to GPU_GB of game state, default 3), GPU_LANES (N GPU processes at once, the
+# config's GPU steps dealt to them in turn; split a long step into several so the lanes stay busy). Re-running resumes: finished chunks, exports, GPU steps, the trained model and finished gate
 # chunks are kept. GPU gates refuse a stale GPU mirror (fingerprint.py check) unless GPU_GATES_ALLOW_UNVERIFIED=1;
 # GPU_GATE_PROCS (default 1) GPU processes share the gate configurations, each sizing its batch to GPU_GATE_GB (default 1).
+# REMOTE_GPUS=N plays the GPU steps on N rented cloud GPUs instead (RunPod; RUNPOD_API_KEY in the environment; see
+# packages/delove-gpu/README.md "Cloud workers"): REMOTE_MAX_GPU_HOURS (default 4) caps the spend, REMOTE_TIMINGS
+# (space-separated gpu.log files of earlier cycles) sizes the split, REMOTE_PROCS (default 1) processes per GPU,
+# REMOTE_GPU_TYPE (default NVIDIA GeForce RTX 4090), REMOTE_CLOUD (SECURE or COMMUNITY); progress in OUT/remote.log.
 set -euo pipefail
 config=$1
 export_agents=delove-branch@1
@@ -96,10 +102,9 @@ echo "$(wc -l < "$pool") chunks over $(wc -l < "$out/steps.txt") steps, $paralle
 
 # The GPU steps, one after another in the background while the pool plays: same tables, seeds and branch settings
 # (the DELOVE_BRANCH_* environment) as the pool would use; gpu.json holds the per-table results for summary.mjs.
-run_gpu_step() {
-  local step=$1 jobs=$2
-  [[ -f "$out/$step/gpu.json" ]] && return 0
-  local args=(--models "$(absdir "$models")" --seed "$seed" --batch "${GPU_BATCH:-0}" --gpu-gb "${GPU_GB:-3}" --jobs "$(abs "$jobs")")
+# gen_args: delove_gpu.generate's seed and branch settings, the same for a local and a remote (REMOTE_GPUS) step.
+gen_args() {
+  args=(--seed "$seed" --batch "${GPU_BATCH:-0}" --gpu-gb "${GPU_GB:-3}")
   [[ -n ${DELOVE_BRANCH_TEACHER:-} ]] && args+=(--teacher "$DELOVE_BRANCH_TEACHER")
   [[ -n ${DELOVE_BRANCH_RANKER:-} ]] && args+=(--ranker "$DELOVE_BRANCH_RANKER")
   [[ -n ${DELOVE_BRANCH_OPTIONS:-} ]] && args+=(--options "$DELOVE_BRANCH_OPTIONS")
@@ -107,9 +112,16 @@ run_gpu_step() {
   [[ -n ${DELOVE_BRANCH_HORIZON:-} ]] && args+=(--horizon "$DELOVE_BRANCH_HORIZON")
   [[ -n ${DELOVE_BRANCH_MARGIN:-} ]] && args+=(--margin "$DELOVE_BRANCH_MARGIN")
   [[ -n ${DELOVE_BRANCH_SKIP+x} ]] && args+=(--skip "$DELOVE_BRANCH_SKIP")
+  [[ -n ${DELOVE_BRANCH_SCORE:-} ]] && args+=(--score "$DELOVE_BRANCH_SCORE")
   if [[ -n ${DELOVE_BRANCH_VALUE:-} && ${DELOVE_BRANCH_VALUE} != 0 ]]; then
-    echo "GPU step $step: DELOVE_BRANCH_VALUE is not mirrored on the GPU"; return 1
+    echo "GPU steps: DELOVE_BRANCH_VALUE is not mirrored on the GPU"; return 1
   fi
+}
+run_gpu_step() {
+  local step=$1 jobs=$2 args
+  [[ -f "$out/$step/gpu.json" ]] && return 0
+  gen_args || return 1
+  args+=(--models "$(absdir "$models")" --jobs "$(abs "$jobs")")
   # The jobs file's tables as they are (options JSON included); generate.py refuses any setting the mirror does not
   # cover (fog of war) and any agent it cannot play on the GPU (risky@1, -explore seats).
   mkdir -p "$data"
@@ -128,12 +140,44 @@ if (( ${#gpu_steps[@]} )); then
     "$python" packages/delove-gpu/delove_gpu/fingerprint.py check || { echo "run packages/delove-gpu/verify.py first"; exit 1; }
     break
   done
-  (
-    for s in "${steps[@]}"; do
-      read -r step jobs _ <<< "$s"
-      if on_gpu "$step"; then run_gpu_step "$step" "$jobs" || exit 1; fi
-    done
-  ) &
+  if [[ -n ${REMOTE_GPUS:-} ]]; then
+    # REMOTE_GPUS=N: every GPU step at once on N rented cloud GPUs (packages/delove-gpu/cloud/remote.py), split by
+    # configuration and merged back into the same DATA and OUT/<step>/gpu.json; the local GPU stays free.
+    (
+      mkdir -p "$data"
+      remote=(--name "$name" --pods "$REMOTE_GPUS" --procs "${REMOTE_PROCS:-1}" --models "$(absdir "$models")" --data "$(absdir "$data")"
+        --out "$(absdir "$out")" --max-gpu-hours "${REMOTE_MAX_GPU_HOURS:-4}" --yes)
+      for s in "${steps[@]}"; do
+        read -r step jobs _ <<< "$s"
+        on_gpu "$step" && remote+=(--step "$step=$(abs "$jobs")")
+      done
+      for t in ${REMOTE_TIMINGS:-}; do remote+=(--timings "$(abs "$t")"); done
+      [[ -n ${REMOTE_GPU_TYPE:-} ]] && remote+=(--gpu-type "$REMOTE_GPU_TYPE")
+      [[ -n ${REMOTE_CLOUD:-} ]] && remote+=(--cloud "$REMOTE_CLOUD")
+      gen_args || exit 1
+      "$python" packages/delove-gpu/cloud/remote.py run "${remote[@]}" -- "${args[@]}" > "$out/remote.log" 2>&1         || { echo "FAILED remote GPU steps (see $out/remote.log)"; exit 1; }
+      stamp "generated and exported the GPU steps (remote, $REMOTE_GPUS GPUs)"
+    ) &
+  else
+    # GPU_LANES=N: N GPU processes at once, the config's GPU steps dealt to them in turn (config order), so their
+    # straggler tails overlap (a configuration's last few games step alone; one configuration's game state takes
+    # about 1 GB of the card). Split a long step into several so every lane stays busy.
+    (
+      lanes=${GPU_LANES:-1}
+      lane() {  # lane <k>: every lanes-th GPU step, starting at the k-th
+        local i=0
+        for s in "${steps[@]}"; do
+          read -r step jobs _ <<< "$s"
+          on_gpu "$step" || continue
+          (( i % lanes == $1 )) && { run_gpu_step "$step" "$jobs" || return 1; }
+          i=$((i + 1))
+        done
+      }
+      pids=()
+      for ((k = 0; k < lanes; k++)); do lane "$k" & pids+=($!); done
+      for p in "${pids[@]}"; do wait "$p" || exit 1; done
+    ) &
+  fi
   gpu_runner=$!
 fi
 
@@ -199,11 +243,12 @@ if [[ ! -f "$cand.onnx" ]]; then
   args=()
   for d in "${train_data[@]}"; do
     reps=1; [[ $d == *"*"* ]] && reps=${d##*"*"} && d=${d%"*"*}
+    frac=""; [[ $d == *"#"* ]] && frac="#${d##*#}" && d=${d%#*}
     mode=""; [[ $d == *:* ]] && mode=":${d##*:}" && d=${d%:*}
     # <step>/<map> of this cycle, else a dataset under DATA, else a path.
     path="$data/$name-$d"; [[ -e $path ]] || path="$data/$d"; [[ -e $path ]] || path=$d
     [[ -e $path ]] || { echo "no training data $path"; exit 1; }
-    for ((i = 0; i < reps; i++)); do args+=(--data "$(absdir "$path")$mode"); done
+    for ((i = 0; i < reps; i++)); do args+=(--data "$(absdir "$path")$mode$frac"); done
   done
   cand_path=$(abs "$cand")
   # An empty train_init trains a fresh network (its size from train_args, e.g. --hidden 192 --rounds 6).

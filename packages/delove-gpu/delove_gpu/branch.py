@@ -9,9 +9,11 @@ lists, mean scores and picks, with the CPU's DELOVE_BRANCH_TRACE). Per decision 
    `rollouts` seeds drawn from it: Math.floor(random() * 0xffffffff);
 3. options x seeds copies of the board, each with rngState = seed and its deck reshuffled with mulberry32(seed ^
    0x5bd1e995) (common random numbers: the same copies for every option), the option played, then `horizon` rounds of
-   the teacher in every seat on one stream seeded with the seed (k_branch_sim, one CUDA thread per copy);
+   the teacher in every seat on one stream seeded with the seed (k_branch_sim, one group of SIM_LANES lanes per copy);
 4. positionScore of each end position from the decider's side (in double precision, the same operations as the
-   TypeScript), averaged over the seeds in order; the best option wins unless it beats the teacher's move by less than
+   TypeScript; with score 'points', pointsScore: placement points interpolated at the expected place plus kills; with
+   'kills', the share score plus killCredit),
+   averaged over the seeds in order; the best option wins unless it beats the teacher's move by less than
    `margin`.
 
 Setup decisions, decisions with one candidate and the `skip` kinds (occupy) are the teacher's move, as in branch.ts.
@@ -26,11 +28,13 @@ import torch
 from .engine import ATTACK, FORTIFY, REINFORCE
 from .fingerprint import REPO
 from .fused import STATE_FIELDS
+from .outcome import ranking_constants
 from .teacher import TeacherEngine
 
 BRANCH_TS = REPO / "packages" / "delove" / "src" / "branch.ts"
 SCORE_PARTS = ["score", "armies", "income", "territories", "cards", "continents", "won", "lost"]
 WEIGHT_KEYS = ["armies", "income", "territories", "cards", "continents"]
+SCORE_MODES = {"share": 0, "points": 1, "kills": 2}
 BIG_TURNS = 0x7FFFFFFF
 MAX_ROLLOUT_STEPS = 4000
 
@@ -43,6 +47,7 @@ class BranchConfig:
     margin: float
     skip: list[str]
     weights: dict[str, float] = field(default_factory=dict)
+    score: str = "share"  # 'share', 'points' or 'kills' (branch.ts BranchOptions.score)
 
 
 def default_branch() -> BranchConfig:
@@ -58,21 +63,57 @@ def default_branch() -> BranchConfig:
     if mv := re.search(r"valueWeight:\s*(-?[\d.]+)", body):
         if float(mv.group(1)) != 0:
             raise RuntimeError("branch.ts blends the value head in by default; the GPU branch does not mirror that")
+    score = re.search(r"\bscore:\s*'(\w+)'", body).group(1)
     return BranchConfig(int(num("options")), int(num("rollouts")), int(num("horizon")), num("margin"), skip,
-                        {k: float(w[k]) for k in WEIGHT_KEYS})
+                        {k: float(w[k]) for k in WEIGHT_KEYS}, score)
 
 
 BRANCH_BODY = r"""
 // ---- branch and score (packages/delove/src/branch.ts) ------------------------------------------------------------
-// positionScore(state, me, weights): out = score, armies, income, territories, cards, continents, won, lost.
-__device__ void position_score(S& s, int me, const double* w, double* out) {
+// positionScore(state, me, weights, mode): out = score, armies, income, territories, cards, continents, won, lost.
+// mode 1 ('points'): score = pointsScore, with place = placementPoints(1..NS, NS) then KILL_POINTS (place[NS]).
+// mode 2 ('kills'): score = the share score + killCredit.
+__device__ double kill_credit(S& s, int me, const double* place) {
+  int kills = 0;
+  for (int q = 0; q < NS; q++) if (!s.alive[q] && s.elim_by[q] == me) kills++;
+  return place[NS] * (double)kills / (place[0] - place[NS - 1]);
+}
+
+__device__ double points_score(S& s, int me, const double* place, double at) {
+  int kills = 0, alive = 0;
+  for (int q = 0; q < NS; q++) {
+    if (s.alive[q]) alive++;
+    else if (s.elim_by[q] == me) kills++;
+  }
+  double pts;
+  if (at < 0.0) {
+    pts = place[(alive + 1 > NS ? NS : alive + 1) - 1];
+  } else {
+    double fl = floor(at);
+    int i = (int)fl;
+    double f = at - fl;
+    pts = i >= NS ? place[NS - 1] : place[i - 1] + f * (place[i] - place[i - 1]);
+  }
+  return (pts + place[NS] * (double)kills - place[NS - 1]) / (place[0] - place[NS - 1]);
+}
+
+__device__ void position_score(S& s, int me, const double* w, int mode, const double* place, double* out) {
   if (*s.phase == FINISHED) {
-    double v = *s.winner == me ? 1.0 : 0.0;
+    bool won = *s.winner == me;
+    double v = won ? 1.0 : 0.0;
     for (int i = 0; i < 7; i++) out[i] = v;
     out[7] = 1.0 - v;
+    if (mode == 1) out[0] = points_score(s, me, place, won ? 1.0 : -1.0);
+    if (mode == 2) out[0] = v + kill_credit(s, me, place);
     return;
   }
-  if (!s.alive[me]) { for (int i = 0; i < 7; i++) out[i] = 0.0; out[7] = 1.0; return; }
+  if (!s.alive[me]) {
+    for (int i = 0; i < 7; i++) out[i] = 0.0;
+    out[7] = 1.0;
+    if (mode == 1) out[0] = points_score(s, me, place, -1.0);
+    if (mode == 2) out[0] = 0.0 + kill_credit(s, me, place);
+    return;
+  }
   int terr[NS], arm[NS], inc[NS], con[NS], cards[NS], n = 0;
   long long sum[5] = {0, 0, 0, 0, 0};
   for (int q = 0; q < NS; q++) {
@@ -85,12 +126,28 @@ __device__ void position_score(S& s, int me, const double* w, double* out) {
     cards[q] = (int)s.hand_n[q];
     sum[0] += arm[q]; sum[1] += inc[q]; sum[2] += terr[q]; sum[3] += cards[q]; sum[4] += con[q];
   }
-  int mine[5] = {arm[me], inc[me], terr[me], cards[me], con[me]};
-  double sc[5];
-  for (int k = 0; k < 5; k++) sc[k] = sum[k] > 0 ? (double)mine[k] / (double)sum[k] : 1.0 / (double)n;
-  out[0] = w[0] * sc[0] + w[1] * sc[1] + w[2] * sc[2] + w[3] * sc[3] + w[4] * sc[4];
-  for (int k = 0; k < 5; k++) out[1 + k] = sc[k];
+  double ws[NS];
+  for (int q = 0; q < NS; q++) {
+    if (!s.alive[q]) continue;
+    int mine[5] = {arm[q], inc[q], terr[q], cards[q], con[q]};
+    double sc[5];
+    for (int k = 0; k < 5; k++) sc[k] = sum[k] > 0 ? (double)mine[k] / (double)sum[k] : 1.0 / (double)n;
+    ws[q] = w[0] * sc[0] + w[1] * sc[1] + w[2] * sc[2] + w[3] * sc[3] + w[4] * sc[4];
+    if (q == me) for (int k = 0; k < 5; k++) out[1 + k] = sc[k];
+  }
+  out[0] = ws[me];
   out[6] = 0.0; out[7] = 0.0;
+  if (mode == 2) out[0] = ws[me] + kill_credit(s, me, place);
+  if (mode == 1) {
+    // expected place among the players alive: 1 + each rival's chance of finishing above, from the share-score gap
+    double at = 1.0;
+    for (int q = 0; q < NS; q++) {
+      if (!s.alive[q] || q == me) continue;
+      double beat = 0.5 + 0.5 * (double)n * (ws[me] - ws[q]);
+      at += 1.0 - (beat < 0.0 ? 0.0 : beat > 1.0 ? 1.0 : beat);
+    }
+    out[0] = points_score(s, me, place, at);
+  }
 }
 
 // Complete each game's options (a fortify_from gets the teacher's fortify_to, on the decider's stream, in option
@@ -120,7 +177,8 @@ extern "C" __global__ void k_branch_prep(STATE_ARGS, TP_ARGS, i64* arng, int rst
 // makes each pick (its candidate loops split over the lanes); lane 0 alone changes the board, between two
 // __syncwarp()s. a1 < 0: no such option (score -inf). Launched with n * SIM_G threads, blocks a multiple of 32.
 extern "C" __global__ void k_branch_sim(STATE_ARGS, TP_ARGS, const i64* seeds, const i64* a1, const i64* a2, const i64* mes,
-                                        const double* w, int horizon, double* out, i64* moves_out, int n) {
+                                        const double* w, int mode, const double* place, int horizon, double* out, i64* moves_out,
+                                        int n) {
   int i = blockIdx.x * blockDim.x + threadIdx.x, j = i / SIM_G;
   if (j >= n) return;  // the whole group
   Grp g = make_grp(i, SIM_G);
@@ -152,7 +210,7 @@ extern "C" __global__ void k_branch_sim(STATE_ARGS, TP_ARGS, const i64* seeds, c
     if (!(a >= FFROM && a < FTO)) moves++;  // a fortify is one move of two steps
   }
   if (lead) {
-    position_score(s, (int)mes[j], w, o);
+    position_score(s, (int)mes[j], w, mode, place, o);
     moves_out[j] = moves;
   }
 }
@@ -160,7 +218,7 @@ extern "C" __global__ void k_branch_sim(STATE_ARGS, TP_ARGS, const i64* seeds, c
 """
 
 BRANCH_KERNELS = ("k_branch_prep", "k_branch_sim")
-SIM_LANES = 16  # lanes per rollout copy (k_branch_sim): see "Speed of every cycle step" in the README
+SIM_LANES = 16  # lanes per rollout copy (k_branch_sim): see "Big tables: lane groups" in the README
 
 
 def branch_defs(sim_lanes: int) -> str:
@@ -223,6 +281,12 @@ class GpuBranch:
     def __init__(self, main: BranchEngine, ranker, cfg: BranchConfig, max_games: int | None = None):
         self.e, self.ranker, self.cfg = main, ranker, cfg
         self.w = torch.tensor([cfg.weights[k] for k in WEIGHT_KEYS], dtype=torch.float64, device=main.dev)
+        if cfg.score not in SCORE_MODES:
+            raise ValueError(f"branch score {cfg.score!r}: one of {list(SCORE_MODES)}")
+        self.mode = SCORE_MODES[cfg.score]
+        # pointsScore's table: placementPoints(1..n, n) then KILL_POINTS, read from the built engine (outcome.py)
+        rc = ranking_constants()
+        self.place = torch.tensor(rc["place"][main.n] + [rc["kill"]], dtype=torch.float64, device=main.dev)
         L = main.L
         self.skip_lo_hi = []
         for kind in cfg.skip:
@@ -290,7 +354,8 @@ class GpuBranch:
             out = torch.empty(S, 8, dtype=torch.float64, device=dev)
             mv = torch.empty(S, dtype=torch.long, device=dev)
             se = self.sims.e
-            se.branch_sim(S, sd.contiguous(), a1.contiguous(), a2.contiguous(), me.contiguous(), self.w, cfg.horizon, out, mv)
+            se.branch_sim(S, sd.contiguous(), a1.contiguous(), a2.contiguous(), me.contiguous(), self.w, self.mode, self.place,
+                          cfg.horizon, out, mv)
             moves = int(mv.sum())
             parts = out.view(k, OPT, R, 8)
             acc = torch.zeros(k, OPT, 8, dtype=torch.float64, device=dev)

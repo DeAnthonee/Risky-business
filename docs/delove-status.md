@@ -64,10 +64,11 @@ written here because the repo is public).
 
 ## 3. Where we are
 
-**Current best: `delove@3`.** It's a graph network over the map, hidden size 192, 6 message-passing rounds, about
-2.4M parameters. The map's adjacency is an input, so one model plays every map. It scores every legal candidate
-(policy) and predicts the outcome (value). It came from cycle 4: a fresh network trained on every branch-and-score
-decision collected so far.
+**Current best: `delove@4`** (cycle 6, promoted 2026-10-20; published in the private models repo). It's a graph
+network over the map, hidden size 192, 6 message-passing rounds, about 2.4M parameters. The map's adjacency and the
+game settings are inputs, so one model plays every map and mode. It scores every legal candidate (policy) and predicts
+the leaderboard outcome (value). It is `delove@3` (cycle 4's fresh network) fine-tuned in cycle 6 with Jacob Sensei as
+teacher and on the live league's settings.
 
 | model | how it was made | key results |
 | --- | --- | --- |
@@ -77,6 +78,7 @@ decision collected so far.
 | `delove@2` | copying Sensei 2 (2p) + Sensei 1 (multiplayer), from `delove@1` | vs `delove@1`: 0.593 (2p), 0.555 (4p), 0.60 (6p) |
 | **`delove@3`** | fresh larger net on branch-and-score decisions (cycle 4) | vs `delove@2`: **0.541** (2p, 800 games, 95% 0.513-0.569), **0.600** (4p), **0.610** (6p); 0.560 vs Sensei 2 |
 | `jacob-sensei@1` ("Jacob Sensei", #98) | Sensei 2's numbers plus tunable terms from `AI/general-player/risk-learnings.md` (hunt weak players, late-game ramp, leader pressure), tuned with a self-play length penalty | 0 of 960 self-play games hit the turn limit (Sensei 2: up to 100% on big boards); vs Sensei 2: 0.521 Classic 2p, 0.504 World 2p (1,000 games each), 0.64-0.83 at 4-10p. **vs `delove@3`:** 0.440 Classic 2p, 0.575 Classic 4p, 0.735 World 6p, 0.76 Fantasy 6p, 0.82 World 10p (+0.5 to +1.2 points per seat at 4-10p). Cycle 6's teacher; on the GPU mirror since #110 (verified by replay). Published in the private models repo |
+| **`delove@4`** | `delove@3` fine-tuned on cycle 6 (30,000 games, every map 2-10p, league settings, Jacob Sensei teacher, search-weighted lessons) | vs `delove@3`: **0.532** (2p, 800 games, 95% 0.503-0.562; +0.20 points per seat), **0.728 / 0.645 / 0.698 at league settings** (+0.74 / +0.44 / +1.19 points per seat), 0.595 World 6p, even at default Classic 4-6p; 0.600 vs Sensei 2; 0.330 vs Jacob Sensei (World 6p) |
 | `c5-candidate` (not promoted) | `delove@3` fine-tuned on cycle 5 (37,600 games on six maps, 2-10 players, points value target) | vs `delove@3`: 0.502 (2p, 800 games, 95% 0.475-0.530), even at 4-6p, **-0.57 / -0.55 points per seat at World 10p / 6p**; 0.574 vs Sensei 2. Why: 83% of its labels were Sensei 2's own move, weaker than `delove@3` in multiplayer (`CYCLES.md`) |
 
 Chained, roughly: `delove@3` is about +95 Elo over `delove@1` at 2 players, +110 at 4 and +150 at 6. That's
@@ -157,6 +159,7 @@ Full tables: `packages/delove/CYCLES.md`. Summary, oldest first:
 | cycle 3 | horizon 1, 4x the 2-player data | 7.8k | 2p 0.525 | the student matched the teacher only 62-71% of the time |
 | cycle 4 | fresh, larger network | 7.8k | **`delove@3`** | **network size was the 2-player bottleneck** |
 | strength meter (#79) | fit share weights to final points (4.7k games, 5 maps) | | hand weights order players best (58% vs 56%) | share-based meters top out around 65%; richer signals needed |
+| cycle 6 | Jacob Sensei teacher, league settings, search-weighted lessons, cycle 5 as value-only data, AMP, 2 GPU lanes | 30k, 47.5M sims | **`delove@4`**: 2p 0.532, **league settings 0.65-0.73 (+0.4 to +1.2 points per seat)** | **train on the settings that are played**: the defaults-only cycles had a blind spot. 6.7 h: the 10-player huge boards took 5.9 h of generation |
 | cycle 5 | all maps 2-10p, mostly on the GPU (37.6k games, 70M sims), points value target, from `delove@3` | 37.6k | 2p 0.502, 4-6p even, **World -0.55 points per seat** | **83% of branch labels are the teacher's own move**: with Sensei 2 weaker than the student in multiplayer, more data copied a weaker player. The branch player itself won ~3x its share at big tables |
 | Jacob Sensei (#98) | learnings-based teacher, tuned with a length/stall penalty | ~100k | vs `delove@3` 0.58-0.82 at 4-10p, 0.44 at 2p; never stalls | a plain head-to-head fitness rewarded sitting back; penalise slow games when tuning |
 
@@ -209,6 +212,9 @@ exporter. None of them is imported by the server or the character code.
   - **Long games are the tail.** Games running to the turn limit step alone at the end (384 of 400 Greater Europe
     games did). Fixing Sensei's stalling (section 9) speeds the GPU up as well as improving the data.
   - **The first run of a new map / table size / settings compiles for 40-60 s**, then it's cached in `_cache/`.
+  - **Rented GPUs:** `REMOTE_GPUS=N` plays a cycle's GPU steps on N RunPod GPUs (`packages/delove-gpu/cloud/`,
+    "Cloud workers" in its README): split by configuration, merged back into the same data, pods always terminated,
+    a hard GPU-hour cap. The floor is the slowest configuration (Greater Europe 6p: 47 minutes on the 4060).
   - **`cycle.sh` runs GPU steps alongside the CPU pool:** `gpu_steps=(...)` in the config (or `all`), overridden by
     `GPU_STEPS`. Give the GPU the big-map and Classic 2-player steps; let the CPU keep small ones if both are busy.
 - **The rule:** whenever `packages/engine` or the self-play files it mirrors change, re-run
@@ -255,13 +261,15 @@ Fog of war off (enforced by `delove-seat`); one seat per agent. For full environ
 | GPU rules, teacher and branch-and-score for every map, 2-10 seats and every setting; points arrays from the GPU; `cycle.sh` GPU steps for any step | session "GPU engine for every map and 2-10 players" | done, **PR #82** merged |
 | cycle 5: all maps 2-10p on the GPU, points target; gate table with points; live dashboard (`scripts/dashboard.mjs`); `train.py --amp` and `#F` fractions | coordinator | done, not promoted (section 3); PR #105 |
 | Jacob Sensei on the GPU mirror (teacher kernel, per-seat teacher versions, verified by replay) | session "Port Jacob Sensei to the GPU mirror" | done, **PR #110**: 0 mismatches (verify.py on the pre-Bohemia engine, fingerprint at `da9ec34`; matrix `jacob` suite 118/118) |
-| cycle 6: Jacob Sensei as teacher, branch-tag weighted training (`branch_tag.npy`, `--branch-weights`), cycle 5 big tables as value-only data | coordinator | ready, unblocked: runs on the Jacob-verified mirror (`da9ec34`, #110) |
-| points-aware branch score (kills and placement in the rollout score, opt-in), mirrored and verified on the GPU | session "Points-aware branch score" | in progress, for cycle 7 |
+| cycle 6: Jacob Sensei as teacher, league settings, branch-tag weighted training (`branch_tag.npy`, `--branch-weights`), cycle 5 big tables as value-only data, `GPU_LANES=N` | coordinator | done: **`delove@4`** (section 3); this PR |
+| faster big-table branch search on the GPU (rollouts split over threads; 8.8x on the rollout kernel in early tests, bit-identical) | session "Faster big-table branch search on the GPU" | in progress, for cycle 7 |
+| cloud GPU workers (RunPod; cycle steps split by cost over N rented GPUs, merged back) | session "Cloud GPU workers" | done, **PR #115**; first paid test waits for the owner's key |
+| points-aware branch score (kills and placement in the rollout score, opt-in), mirrored and verified on the GPU | session "Points-aware branch score" | done in #112, opt-in (`DELOVE_BRANCH_SCORE=points\|kills`): points loses at 4p (-0.51 ± 0.39 points/game, World), kills no different (Classic 4p), 2p no different; cycle 7 keeps share |
 | range specialists (4+ alive / 3 alive / 1v1, routed by players alive) | coordinator | tooling in **#114**: `train.py --alive LO-HI` and the routed `delove-range@N` player (Delove Long / Mid / Close Range); training the specialists waits on a cycle with a clear gain (owner's plan) |
 | Jacob Sensei, a teacher that doesn't stall (section 9 item 1) | session "Jacob Sensei" | done, **PR #98** merged; GPU port (`delove_gpu/teacher.py`) done in **#110** (closes #99) |
 | all-map strength data | coordinator | 147 of 296 chunks (about 5k games, 5 maps), stopped to free the machine; finish on the GPU |
 | #39 tournament Earth map | other work | on hold (owner) |
-| re-verify the GPU fingerprint for the new `bohemia` (#100) and `nine_realms` (#102) maps: until `verify.py` runs, `Engine(...)` / `TeacherEngine(...)` / `BranchEngine(...)` raise `StaleMirror`, so new GPU runs refuse to start | coordinator, on the training PC | pending: one `verify.py` run covers every map merged on 2026-10-20 |
+| re-verify the GPU fingerprint for the new `bohemia` (#100) and `nine_realms` (#102) maps | session "Points-aware branch score" | done in **#112** (4,764,579 steps identical; covers both maps, Jacob and the new branch scores) |
 
 ## 9. What comes next, and why
 

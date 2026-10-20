@@ -76,6 +76,7 @@ decision collected so far.
 | `delove-teacher@2` ("Sensei 2") | Sensei 1's 28 judgement numbers tuned by self-play evolution | 0.608 vs Sensei 1 over 1,000 two-player games (+76 Elo); even at 4-6p |
 | `delove@2` | copying Sensei 2 (2p) + Sensei 1 (multiplayer), from `delove@1` | vs `delove@1`: 0.593 (2p), 0.555 (4p), 0.60 (6p) |
 | **`delove@3`** | fresh larger net on branch-and-score decisions (cycle 4) | vs `delove@2`: **0.541** (2p, 800 games, 95% 0.513-0.569), **0.600** (4p), **0.610** (6p); 0.560 vs Sensei 2 |
+| `jacob-sensei@1` ("Jacob Sensei", #98) | Sensei 2's numbers plus tunable terms from `AI/general-player/risk-learnings.md` (hunt weak players, late-game ramp, leader pressure), tuned with a self-play length penalty | 0 of 960 self-play games hit the turn limit (Sensei 2: up to 100% on big boards); vs Sensei 2: 0.521 Classic 2p, 0.504 World 2p (1,000 games each), 0.64-0.83 at 4-10p. Candidate rollout teacher (`DELOVE_BRANCH_TEACHER=jacob-sensei@1`); not on the GPU yet |
 
 Chained, roughly: `delove@3` is about +95 Elo over `delove@1` at 2 players, +110 at 4 and +150 at 6. That's
 about +600 Elo over the built-in bot at 2 players. The gains are largest in multiplayer, which used to be the weak spot.
@@ -238,7 +239,8 @@ Fog of war off (enforced by `delove-seat`); one seat per agent. For full environ
 
 | what | who | state |
 | --- | --- | --- |
-| GPU rules, teacher and branch-and-score for every map, 2-10 seats and every setting; points arrays from the GPU; `cycle.sh` GPU steps for any step | session "GPU engine for every map and 2-10 players" | **PR #82**, verified, in review |
+| GPU rules, teacher and branch-and-score for every map, 2-10 seats and every setting; points arrays from the GPU; `cycle.sh` GPU steps for any step | session "GPU engine for every map and 2-10 players" | done, **PR #82** merged |
+| Jacob Sensei, a teacher that doesn't stall (section 9 item 1) | session "Jacob Sensei" | **PR #98**; port to `delove_gpu/teacher.py` still to do |
 | all-map strength data | coordinator | 147 of 296 chunks (about 5k games, 5 maps), stopped to free the machine; finish on the GPU |
 | #39 tournament Earth map | other work | on hold (owner) |
 
@@ -252,7 +254,11 @@ In order. Each step has a measurable bar.
    with the stall penalty and `lateRound` / `lateRamp`) on a mix of 4-10 player tables and big maps, now
    affordable on the GPU (teacher-only games run 12-1,600x faster there). Bar: turn-limit games under ~2% at every
    table size, and no loss at 2 players against Sensei 2.
-2. **Points cycles on all maps, mostly on the GPU** (after #82 merges). Branch and score on a mix of every map and 2-10 players, trained with
+   **Bar met in self-play by Jacob Sensei (`jacob-sensei@1`, #98)**, a new teacher rather than a Sensei 3: 0 of 960
+   self-play games hit the limit, and no loss at 2 players. Left: port it to the GPU mirror (`delove_gpu/teacher.py`,
+   then add `src/jacob.ts` to `RULE_FILES` and re-run `verify.py`) so cycles can use it there; tables that seat
+   Sensei 2 as an opponent still stall on big boards (Greater Europe 25-34%). Details: `packages/delove/README.md`.
+2. **Points cycles on all maps, mostly on the GPU** (#82 merged). Branch and score on a mix of every map and 2-10 players, trained with
    `--value-target points`, gated by **mean leaderboard points** at 4-10 players (the ladder already reports them)
    and by win share at 2 players.
    *Why:* trains for what is ranked, on the maps that are played.
@@ -302,6 +308,7 @@ In order. Each step has a measurable bar.
 ## 11. Glossary
 
 - **Sensei 1 / 2:** the hand-coded teachers `delove-teacher@1` / `delove-teacher@2`.
+- **Jacob Sensei:** the hand-coded teacher for big tables, `jacob-sensei@1` (`src/jacob.ts`, #98).
 - **Branch and score:** the decision-by-decision search player (`delove-branch@1`).
 - **Candidate:** a trained model awaiting its ladder gate (`rNN-candidate`, `cN-candidate`). Only promoted models
   get the next `delove@N`.

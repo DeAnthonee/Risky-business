@@ -246,8 +246,8 @@ stamp "summary"
   node -e '
 const fs = require("fs");
 const [dir, ...gates] = process.argv.slice(1);
-// Points: the leaderboard's mean points per seat (candidate, opponent) and their difference, with a 95% interval from
-// the spread of the chunks' differences; the candidate's mean place and kills per seat; games at the turn limit.
+// Points: mean leaderboard points per seat (candidate, opponent) and their difference, with a 95% interval from
+// the spread of the chunk differences; the candidate mean place and kills per seat; games at the turn limit.
 console.log("| opponent | players | options | games | score | 95% interval | Elo | points | opp. points | points diff (95%) | place | kills | turn limit |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |");
 gates.forEach((g, i) => {
   const [opp, players, , ...opt] = g.split(" ");

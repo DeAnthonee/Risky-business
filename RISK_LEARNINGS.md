@@ -173,6 +173,85 @@ Fundamental rules, mechanics, and tournament scoring for the Risk engine, follow
   * *Coalition Counterplay*: The only way to stop a runaway leader is through coordinated multi-player coalitions via table chat (e.g. all-chat calls to strike the leader's key bonuses simultaneously from multiple borders).
   * *Placement Preservation (Playing for 2nd/3rd)*: If rivals refuse to coordinate a coalition and 1st place is currently unachievable solo, pivot immediately to disciplined placement survival. Fortify your capital and core borders, let other players get eliminated first to secure 2nd or 3rd place (+1 or +2 placement tiers), avoid triggering the leader's wrath, and look for late-game opportunities (e.g. a sudden cap run or an elimination chain) if the leader over-extends.
 
+### 10. The "Hold & Fortify" Blueprint (Card, Fortify Inside-Out, and Sit on It)
+* **The Compounding Power of Held Bonuses**:
+  * In Fixed Cards mode (and early rounds of Progressive before trade values scale), **continent bonuses are your single biggest engine**.
+  * Holding an unbroken continent bonus (even a modest +2 or +3/turn) for just 3–5 rounds generates +10 to +25 extra draft armies. In a game where base income is only +3 to +5/turn, this creates a decisive, uncatchable army lead.
+* **The "Hold & Fortify" Loop**:
+  1. **Identify the Exact 2–3 Chokepoint Border Holds**: For example, holding Southeast Asia requires guarding only South China, Southwest China, and Myanmar. Holding North Africa requires guarding Algeria and Southern Italy.
+  2. **Do NOT Push Into Massive Neighboring Continents**: When you secure Southeast Asia, do NOT push into China or Central Asia! Pushing into a massive 12-territory continent spreads your armies across 5+ borders, fails to secure the new bonus, and leaves your newly conquered continent wide open to counter-attacks.
+  3. **The 1-Card Rule**: Each turn, make **one safe attack** on a weak neighboring territory just to earn your turn's card.
+  4. **Fortify Inside-Out**: Never leave internal 3-stacks or reserve troops idling behind friendly lines. Use your fortify phase every turn to pull interior troops forward onto your frontline chokepoint stacks.
+  5. **Sit on It and Bank Surplus**: Park impenetrable 8–15+ army stacks on the 2–3 chokepoints. Let opponents waste their armies fighting each other. Only think about expanding to a second bonus once you have banked a massive secondary army surplus!
+
+### 11. Multi-Capital Defense & Proportional Garrisoning (Cap-Run Prevention)
+* **Under-Defended Capitals Are Irresistible Targets**:
+  * Each capital held grants **+2 reinforcement armies per turn permanently**.
+  * In Capitals Conquest, leaving any capital—whether your starting home capital or a newly conquered capital—defended by only 1 troop is a catastrophic blunder.
+  * To any competent rival, a 1-troop capital is an irresistible prize: capturing it immediately strips +2/turn from you, adds +2/turn to the attacker, and locks in a 3-dice fortress for them.
+* **Capital 3-Dice Defense Advantage**:
+  * Capitals defend with **3 dice** instead of 2. An attacker must bring overwhelming odds ($\ge 8\text{--}12$ armies) to breach even a modest 4–5 army capital garrison.
+  * If a capital has only 1 army, it defends with only 1 die, throwing away the entire 3-dice defensive bonus!
+* **Proportional Capital Defense**:
+  * You do not need to bury 100% of your forces on every capital, but every held capital must maintain a garrison proportional to your army count (at least 3–5 troops).
+  * **Late-Game Cap-Run Deterrence**: In late game (Round 10+), as opponents amass 30–50+ army strike stacks, leaving any capital lightly guarded invites an instant **Cap Run**. Scale capital garrisons upward to ensure no opponent can sweep all capitals in a single turn.
+* **Capital Migration (Moving from Back-Pockets to Forward Doorways)**:
+  * When a player starts with a capital tucked in a back-pocket (e.g. Algeria with 0 hostile borders) but later captures an active forward capital on a major chokepoint (e.g. Southern Germany), treat the forward capital as your new primary stronghold!
+  * Migrate draft reinforcements and surplus fortifies up to the forward capital to anchor your front gate with 3-dice defense.
+
+### 12. Dormant Stack Activation Prevention (Do Not Open a Big Stack)
+* **The "Caged" Stack Principle**:
+  * In Risk, an opponent's dangerous heavy stack ($\ge 5\text{--}8$ armies) is often locked behind buffer territories or neutral dead ends, with zero direct border connection to you.
+  * In this state, the rival stack is **dormant and harmless to your empire**.
+* **The Activation Blunder (e.g. Southern France to Northern Spain)**:
+  * When an attacker breaks an opponent's bonus (e.g. taking Southern France breaks Western Europe), the strategic objective is complete!
+  * Pushing one step further into a buffer territory (e.g. Northern Spain) that borders a dormant 6-stack is fatal: taking Northern Spain leaves a weak 1-army outpost, opening an immediate highway for the 6-stack to roll right through on their next turn!
+* **The 1-Turn Delay Advantage**:
+  * Even if the rival could theoretically fortify that stack on their fortify phase, **forcing them to fortify delays their attack by at least one full turn** and leaves their rear territory at 1 army.
+  * A 1-turn delay gives you an entire round of bonus income, lets you build defenses, or forces the rival to attack another player instead.
+  * *The Rule*: Stop at the border! Leave buffer territories intact to keep heavy enemy stacks caged and dormant.
+
+### 13. The "Anti-Blitzkrieg" & Turtling Principle (Preventing Exhaustion Chains)
+* **The "Reckless Blitzkrieg" Vulnerability**:
+  * In non-fog and fog games alike, attacking through a long chain of 3–5 territories without massive reserve armies is suicidal.
+  * Every conquest leaves at least 1 army behind. An army of 15 attacking 4 territories in a row quickly bleeds out through dice attrition and mandatory garrisons, leaving a fragile trail of 1s and 2s that are effortlessly wiped out on the very next enemy turn.
+  * **The Classic Darius Blunder**: Charging from Tunisia through Algeria into Southern France, Alps, and Hungary without troop budget exhausts the entire mobile army, loses the core North Africa bonus, and exposes weak outposts to every neighbor on the board.
+* **The "Turtle & Consolidate" Counterplay**:
+  1. **Identify the Chokepoint Anchor**: For North Africa, sit on Libya and Southern France (or Algeria and Southern Italy).
+  2. **Card and Stop**: Take exactly one territory to earn your card for the turn.
+  3. **Switch to Turtling for 2–3 Turns**: If advancing does not win the game, eliminate a player, or take a capital, and leaves $< 4$ armies on the conquered territory, **STOP ATTACKING**.
+  4. **Bank Reinforcements on the Chokepoints**: Spend 2–3 turns accumulating thick defensive garrisons (8–15+ troops) on your chokepoints before even considering launching another offensive.
+
+### 14. Capital Selection: Doorway Capitals vs. Pocket & Neighbor-Clash Traps
+* **The Flaw of Pocket Capitals (e.g. Ireland, Northern England)**:
+  * Pocket capitals located in dead-end corners of the map suffer from catastrophic strategic defects:
+    * They have minimal board reach and cannot influence the wider game.
+    * Troops spawned on pocket capitals must march through multiple bottlenecks just to reach the frontline.
+    * They often do not even lock down the surrounding bonus (e.g. Northern England does not secure Great Britain on its own).
+* **The "Neighbor-Clash" Capital Trap**:
+  * Choosing a capital directly adjacent to an already-claimed enemy capital (e.g. Shen picking Northern England 4th right next to Tryndamere's Ireland) is mutually destructive.
+  * Neither player can hold the regional bonus because their capitals are locked in permanent, zero-sum friction.
+  * Both players waste armies bludgeoning each other while other players on the map expand freely.
+* **The Ideal "Doorway Capital" (e.g. Northern Germany)**:
+  * A true Doorway Capital holds a 1-point bottleneck defending an interior bonus (Northern Europe) while remaining highly connected and exposed to the rest of the board.
+  * It provides 3-dice defense at your front gate, allows rapid troop deployment anywhere on the map, and acts as an unbreachable launchpad for future expansion.
+
+### 15. The 2v1 Elimination EV Equation (Why Passing Is a Blunder)
+* **The Tactical Scenario (e.g. Teemo vs. Shaco on Sri Lanka)**:
+  * A victim is reduced to their final territory with 1 defender, and you have an adjacent 2-army stack.
+  * The victim holds $\ge 3\text{--}4$ cards. Standard attack thresholds might filter this out because Blitz win probability on 2v1 is $\approx 41.7\%$ (attacker rolls 1 die, defender rolls 1 die, attacker wins if $A > D$).
+* **The Mathematical Expected Value (EV)**:
+  * **Cost of Failure**: You lose 1 army. That's it ($-1$ troop).
+  * **Cost of Passing**: The victim survives with 3–4 cards, cashes in on their immediate next turn, gains $+10$ to $+30$ armies, and potentially eliminates you or wrecks your empire.
+  * **Reward of Success**:
+    * $+1$ permanent kill point on the tournament leaderboard.
+    * Higher tournament placement tier (+1 or +2 tiers).
+    * Steal all victim's cards ($\ge 3$ cards).
+    * If stolen cards reach $\ge 3$, you trigger an immediate mid-turn trade yielding $\mathbf{+10\text{ to }+30\text{ reinforcement armies}}$ right now!
+  * **The EV Equation**:
+    $$\text{EV} = (0.417 \times +10\text{ armies}) + (0.583 \times -1\text{ army}) = +4.17 - 0.58 = \mathbf{+3.59\text{ armies net gain}}$$
+  * Passing on a 2v1 elimination against a high-card victim is a massive EV blunder. When the bounty has $\ge 3$ cards, a $41.7\%$ gamble with game-winning upside must always be taken!
+
 ---
 
 ## Findings from AI self-play games
@@ -183,7 +262,7 @@ Fundamental rules, mechanics, and tournament scoring for the Risk engine, follow
 - **Securing continent bonuses early provides long-term reinforcement benefits.** Shen secured key bonuses by round 3, contributing to their high reinforcement income (+35/turn) and strategic expansion. (8 games, last 8HTXH4)
 
 ### Capitals Conquest
-- **Holding all capitals provides a massive reinforcement income and makes it nearly impossible for opponents to contest key regions.** Thresh held all capitals and had a +48/turn reinforcement income, which was critical to their victory. (7 games, last 8HTXH4)
+- **Holding all capitals provides a massive reinforcement income and makes it nearly impossible for opponents to contest key regions.** Shen held all capitals and had a +24/turn reinforcement income, which was critical to their victory. (8 games, last 9FDQUV)
 - **Failing to secure capitals leaves you vulnerable to sudden elimination.** Ahri had 0 capitals and was eliminated by Leona in round 7, despite holding 2 territories and 37 armies. (4 games, last 8HTXH4)
 - **Capitals defend with 3 dice and require overwhelming odds.** Jinx’s concentrated garrisons on key territories withstood attacks from multiple opponents, who had 0 capitals and were major threats. (5 games, last DGS35N)
 - **Failing to secure capitals leaves you vulnerable to sudden elimination.** Holding raw territories without a secure capital base leaves players exposed once larger rivals mobilize. Bot2 had 0 capitals and was eliminated by Bot9. (4 games, last H7NVFC)
@@ -196,7 +275,7 @@ Fundamental rules, mechanics, and tournament scoring for the Risk engine, follow
 - **Eliminations funded the winners.** Lux knocked out Darius (round 4), Shaco (round 6) and Leona (round 38) and survived to 2nd; Ahri swept every capital. The three first players out (Darius, Shaco, Thresh) never made a kill. (1 game, last MVAPM8)
 - **Focusing on card acquisition without securing territory is a losing strategy.** Teemo focused on gathering cards but failed to secure any bonuses or capitals, making him an easy target for elimination. (2 games, last UMQD5S)
 - **Securing key bonuses early allows for rapid card trade escalation.** Thresh secured 17 bonuses, enabling a high reinforcement income (+87/turn) that funded multiple card trades and eliminations. (1 game, last 7QS4UG)
-- **Inheriting cards from eliminated players can accelerate elimination chains.** Ahri inherited cards from Lux and others, which helped fund further eliminations and expansion. (2 games, last UMQD5S)
+- **Inheriting cards from eliminated players can accelerate elimination chains.** Ahri inherited cards from Lux and others, which helped fund further eliminations and expansion. (3 games, last 9FDQUV)
 
 ### Progressive Cards
 - **Elimination chains accelerate endgame conquest.** Inheriting cards from an eliminated player can push the attacker to 5+ cards, triggering a mid-turn trade that finances the next elimination on the same turn. (2 games, last CDCU2S)
@@ -208,7 +287,7 @@ Fundamental rules, mechanics, and tournament scoring for the Risk engine, follow
 - **Avoiding interior pockets with stranded troops helps prevent resource drain.** Ahri left large garrisons trapped behind friendly lines without hostile borders, wasting armies that should have been reinforcing frontlines. (4 games, last 8HTXH4)
 - **Sequential routing preserves offensive momentum.** Teemo ordered attacks along a single chain from weakest resistance outward, preserving attacking stacks and ensuring guaranteed card capture without splitting forces. (1 game, last VX6C5F)
 - **End-of-turn fortify pullbacks secure vulnerable borders.** Striking forward with mobile stacks to take territory and then fortifying back onto chokepoints or capitals prevents aggressive counter-attacks. (1 game, last 8ESC69)
-- **Maintaining strong connectivity between territories prevents leaving interior pockets vulnerable.** Ahri's fragmented territory holdings made defense impossible once Shaco launched a concentrated attack, leading to Ahri's elimination. (1 game, last D5HXP4)
+- **Maintaining strong connectivity between territories prevents leaving interior pockets vulnerable.** Darius's fragmented territory holdings made defense impossible once Shen launched a concentrated attack, leading to Darius's elimination. (1 game, last D5HXP4)
 
 ### Fog of War (Concealed Armies & Income Probing)
 - **Scouting with card-taking attacks reveals critical enemy garrison counts.** Jinx used single-territory probes to reveal enemy garrison counts before launching major offensives, allowing them to prepare for the scale of the attack. (3 games, last 8HTXH4)

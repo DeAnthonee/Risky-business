@@ -617,18 +617,62 @@ class Chooser {
         const eliminatesPlayer = isElimination;
         const isStrategic = hasSurplusFromBorder || isFocus || isBonusConquest || breaksOpponentBonus || capturesCapital || eliminatesPlayer;
         if (!isStrategic) continue;
+
+        // Anti-Chain Bleed / Anti-Reckless Blitzkrieg Filter:
+        // Once a card is secured this turn, DO NOT make chain attacks that bleed our stack
+        // into fragile 1s and 2s across the map!
+        // If advancing into `to` would leave fewer than 4 armies on `to`, and this attack
+        // does NOT win the game, does NOT eliminate a player, does NOT capture a capital,
+        // and does NOT complete a bonus this turn:
+        // STOP! Switch to turtling and consolidation so we gather armies on the chokepoint.
+        const completesBonus = share.missing.length === 1 && share.missing[0] === a.to;
+        const expectedRemaining = have - d - 1;
+        if (expectedRemaining < 4 && !completesBonus && !capturesCapital && !eliminatesPlayer && !this.plan.route.includes(a.to)) {
+          continue;
+        }
+      }
+
+      // Dormant Big Stack Activation Prevention (Do Not Open a Big Stack):
+      // Do NOT punch through a buffer territory if doing so directly opens/activates a dormant
+      // enemy stack (>= 5 armies) that currently has NO border with our empire!
+      // Leaving the buffer intact delays their stack by at least one full turn, forcing them to
+      // waste a fortify, attack someone else, or stay harmlessly trapped behind the buffer.
+      if (!wins && !hopeless && !isElimination && !this.is1v1()) {
+        const opensBigDormantStack = this.map.adjacency[a.to].some((adj) => {
+          if (adj === a.from) return false;
+          const adjOwner = this.owner(adj);
+          if (!adjOwner || adjOwner === this.me) return false;
+          const adjArmies = this.armies(adj);
+          if (adjArmies < 5) return false;
+          // Check if this enemy stack is currently dormant relative to us (borders NONE of our territories)
+          const currentlyBordersUs = this.map.adjacency[adj].some((t) => this.owner(t) === this.me);
+          if (currentlyBordersUs) return false;
+          // Expected remaining armies on a.to after taking it
+          const expectedRemaining = Math.max(1, have - d - 1);
+          return adjArmies >= expectedRemaining + 3;
+        });
+        if (opensBigDormantStack) {
+          const cont = this.map.territoryById[a.to].continent;
+          const holder = this.view.continentOwners[cont];
+          const breaksBonus = !!(holder && holder !== this.me);
+          if (!breaksBonus && !this.plan.route.includes(a.to) && this.inFocus(a.to) <= 0) {
+            continue;
+          }
+        }
       }
       const isCap = this.capitalOf.has(a.to);
+      const isHighValueKill = isElimination && (victim?.cardCount ?? 0) >= 3;
       const purpose = this.purpose(a.from, a.to, wins);
       // On the diplomacy path, players other than the target get a higher bar.
       const bar = this.plan.winPath === 'diplomacy' && this.plan.target && toOwner !== this.plan.target ? thr + 0.1 : thr;
       const accept = (commit: number, p: number): boolean => {
         if (commit < 1) return false;
         if (isCap && !wins && !hopeless && commit < this.capitalMargin() * d && p < 0.93) return false;
-        if (p < bar && !wins) return false;
+        // High-value eliminations (3+ cards): positive EV gambles (like 2v1 at ~42%) are accepted!
+        if (p < bar && !wins && !(isHighValueKill && p >= 0.35)) return false;
         const cardAttack = !this.conquered && !this.plan.skipCard && p >= Math.max(bar, this.cardMin());
         const lateAttack = late && p >= bar + 0.1;
-        return wins || hopeless || purpose >= this.plan.purposeMin || cardAttack || lateAttack;
+        return wins || hopeless || isHighValueKill || purpose >= this.plan.purposeMin || cardAttack || lateAttack;
       };
 
       // Full commit: everything above the floor.

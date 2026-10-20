@@ -51,7 +51,10 @@ absdir() { (cd "$1" || exit 1; pwd -W 2>/dev/null || pwd); }
 abs() { echo "$(absdir "$(dirname "$1")")/$(basename "$1")"; }
 times="$out/times.tsv"
 t_start=$(date +%s)
-stamp() { echo -e "$1\t$(( $(date +%s) - t_start ))" >> "$times"; echo "[$(date +%T)] $1"; }
+# times.tsv holds this invocation's phases; times-<start>.tsv keeps a copy, so a resumed cycle keeps every
+# invocation's phase times (scripts/timing-report.mjs and the dashboard read them all).
+times_copy="$out/times-$(date -d "@$t_start" +%Y%m%d-%H%M%S).tsv"
+stamp() { echo -e "$1\t$(( $(date +%s) - t_start ))" | tee -a "$times" >> "$times_copy"; echo "[$(date +%T)] $1"; }
 : > "$times"
 # Every step, where it plays and its jobs file, for the dashboard (scripts/dashboard.mjs).
 for s in "${steps[@]}"; do

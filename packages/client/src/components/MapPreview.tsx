@@ -74,3 +74,16 @@ export const MapPreview = memo(function MapPreview({ mapId, players }: { mapId: 
     </figure>
   );
 });
+
+/** A board's silhouette for a map picker: every territory in one ink, no labels or links. */
+export const MapThumb = memo(function MapThumb({ mapId }: { mapId: MapId }) {
+  const map = MAPS[mapId] ?? MAPS.classic;
+  const [W, H] = map.viewBox;
+  return (
+    <svg className="map-thumb" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+      {map.territories.map((t) => (
+        <path key={t.id} d={t.path} />
+      ))}
+    </svg>
+  );
+});

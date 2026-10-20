@@ -82,7 +82,12 @@ Every documentation file in the repo, what it covers and when to read it.
 | --- | --- | --- |
 | [AI/README.md](AI/README.md) | the `AI/` folder: general player, characters, model docs, **how to save each kind of file** | adding or editing anything under `AI/` |
 | [AI/general-player/README.md](AI/general-player/README.md) | the base player every character builds on (playbook, ways to win, findings, learnings) | changing base-player strategy docs |
+| [AI/general-player/playbook.md](AI/general-player/playbook.md) | the base player's turn routine: threat check, objective, attacks, cards, diplomacy, after-game routine | changing how every player takes a turn |
+| [AI/general-player/ways-to-win.md](AI/general-player/ways-to-win.md) | how to win under each victory condition and setting (capitals, fog, cards, blizzards) | changing per-setting strategy |
+| [AI/general-player/findings.md](AI/general-player/findings.md) | dated findings from real games that hold for every player, with evidence | recording a finding |
+| [AI/general-player/risk-learnings.md](AI/general-player/risk-learnings.md) | lessons from past games (troop movement, capitals, card modes, diplomacy, tool tips) | changing the base player's lessons |
 | [AI/general-model-info/README.md](AI/general-model-info/README.md) | docs about the models themselves (local models) | adding a model doc |
+| [AI/general-model-info/local-models.md](AI/general-model-info/local-models.md) | playing characters on local models: what is built, the goal, choosing a model | choosing or setting up a local model |
 | [docs/characters.md](docs/characters.md) | live character profiles over MCP and HTTP, write key, limits, syncing saves back; the local-model player | changing character saves or the local-model player |
 | [docs/character-league.md](docs/character-league.md) | the character league: profiles, placement points, persistent personality, in-game memory | changing rankings or league behaviour |
 | [docs/fog-power-rankings.md](docs/fog-power-rankings.md) | how AI commanders estimate opponent power under fog of war | changing the runner's threat assessment |
@@ -97,6 +102,7 @@ Every documentation file in the repo, what it covers and when to read it.
 | [packages/selfplay/README.md](packages/selfplay/README.md) | self-play, ladder, decision log format (`LOG_VERSION`), board encoder (`ENCODER_VERSION`), adding a player version | working on `packages/selfplay` or a log/encoder format |
 | [docs/delove.md](docs/delove.md) | Delove's plan of record: what it is, how it learns, the network, milestones | planning Delove work |
 | [docs/delove-status.md](docs/delove-status.md) | Delove's current state, strategy, what was tried, open work, coordination brief | **first** when coordinating Delove training |
+| [docs/game-settings.md](docs/game-settings.md) | the settings Gen 5 league games sample (fog, blizzards, capitals, card modes), the map pool, and the ready-made option files in `packages/delove/configs/` | testing Delove on league settings |
 | [docs/delove-fog.md](docs/delove-fog.md) | the plan for fog-of-war play: seat-view encoder, fog dropout, determinized branch teacher, GPU mirror, gates | planning Delove's fog work |
 | [packages/delove/README.md](packages/delove/README.md) | running, training and playing Delove; Stage 2 self-play rounds | working on `packages/delove` |
 | [packages/delove/CYCLES.md](packages/delove/CYCLES.md) | per-cycle training tables (appended by training runs) | reading or recording cycle results |

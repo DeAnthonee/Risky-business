@@ -25,7 +25,8 @@
 # Environment: CYCLE_NAME (overrides name, e.g. for a trial run), DELOVE_MODELS (models folder, default models/delove), OUT (default runs/delove/<name>), DATA (default
 # data/delove), PYTHON (default .venv/Scripts/python), PARALLEL, CHUNKS (chunks per process and step, default 4; or
 # CHUNK = fixed games per chunk), GATE_CHUNK (games per gate chunk, default 20), GPU_BATCH (games in flight on the
-# GPU per configuration; default: sized to GPU_GB of game state, default 3). Re-running resumes: finished chunks, exports, GPU steps, the trained model and finished gate
+# GPU per configuration; default: sized to GPU_GB of game state, default 3), GPU_LANES (2: the first GPU step in one
+# process, the other GPU steps in a second, at the same time). Re-running resumes: finished chunks, exports, GPU steps, the trained model and finished gate
 # chunks are kept.
 set -euo pipefail
 config=$1
@@ -122,11 +123,27 @@ if (( ${#gpu_steps[@]} )); then
     "$python" packages/delove-gpu/delove_gpu/fingerprint.py check || { echo "run packages/delove-gpu/verify.py first"; exit 1; }
     break
   done
+  # GPU_LANES=2: the config's first GPU step plays in one process and the other GPU steps, one after another, in a
+  # second, so their straggler tails overlap (a configuration's last few games step alone; game state of one
+  # configuration takes about 1 GB of the card).
   (
-    for s in "${steps[@]}"; do
-      read -r step jobs _ <<< "$s"
-      if on_gpu "$step"; then run_gpu_step "$step" "$jobs" || exit 1; fi
-    done
+    lane() {  # lane <k> <lanes>: this lane's GPU steps, in config order
+      local i=0
+      for s in "${steps[@]}"; do
+        read -r step jobs _ <<< "$s"
+        on_gpu "$step" || continue
+        if (( ${2} == 1 || (i == 0 && ${1} == 0) || (i > 0 && ${1} == 1) )); then run_gpu_step "$step" "$jobs" || return 1; fi
+        i=$((i + 1))
+      done
+    }
+    if (( ${GPU_LANES:-1} > 1 )); then
+      lane 0 2 & l0=$!
+      lane 1 2 & l1=$!
+      wait "$l0" || exit 1
+      wait "$l1" || exit 1
+    else
+      lane 0 1 || exit 1
+    fi
   ) &
   gpu_runner=$!
 fi

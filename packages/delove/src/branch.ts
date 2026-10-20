@@ -183,12 +183,6 @@ export function positionScore(s: GameState, me: PlayerId, w: BranchOptions['weig
   return { score: pointsScore(s, me, place), ...sc, won: 0, lost: 0 };
 }
 
-/**
- * The leaderboard's points for `me` at a rollout's end, scaled so last place is 0 and first place 1: placement points
- * (placementPoints for the table's ranked players) plus KILL_POINTS for each player `me` has eliminated. `place` is
- * the (possibly fractional, interpolated between the table's points) place while `me` is alive; null when `me` is out,
- * which places it just below the players still alive (players knocked out later in the same rollout are ignored).
- */
 /** KILL_POINTS for each player `me` has eliminated, over the table's placement spread (pointsScore's scale). */
 export function killCredit(s: GameState, me: PlayerId): number {
   const ranked = s.players.filter((p) => !p.isNeutral);
@@ -197,6 +191,12 @@ export function killCredit(s: GameState, me: PlayerId): number {
   return (KILL_POINTS * kills) / (placementPoints(1, N) - placementPoints(N, N));
 }
 
+/**
+ * The leaderboard's points for `me` at a rollout's end, scaled so last place is 0 and first place 1: placement points
+ * (placementPoints for the table's ranked players) plus KILL_POINTS for each player `me` has eliminated. `place` is
+ * the (possibly fractional, interpolated between the table's points) place while `me` is alive; null when `me` is out,
+ * which places it just below the players still alive (players knocked out later in the same rollout are ignored).
+ */
 export function pointsScore(s: GameState, me: PlayerId, place: number | null): number {
   const ranked = s.players.filter((p) => !p.isNeutral);
   const N = ranked.length;

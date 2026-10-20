@@ -205,6 +205,9 @@ exporter. None of them is imported by the server or the character code.
   - **Long games are the tail.** Games running to the turn limit step alone at the end (384 of 400 Greater Europe
     games did). Fixing Sensei's stalling (section 9) speeds the GPU up as well as improving the data.
   - **The first run of a new map / table size / settings compiles for 40-60 s**, then it's cached in `_cache/`.
+  - **Rented GPUs:** `REMOTE_GPUS=N` plays a cycle's GPU steps on N RunPod GPUs (`packages/delove-gpu/cloud/`,
+    "Cloud workers" in its README): split by configuration, merged back into the same data, pods always terminated,
+    a hard GPU-hour cap. The floor is the slowest configuration (Greater Europe 6p: 47 minutes on the 4060).
   - **`cycle.sh` runs GPU steps alongside the CPU pool:** `gpu_steps=(...)` in the config (or `all`), overridden by
     `GPU_STEPS`. Give the GPU the big-map and Classic 2-player steps; let the CPU keep small ones if both are busy.
 - **The rule:** whenever `packages/engine` or the self-play files it mirrors change, re-run

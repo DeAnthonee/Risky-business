@@ -4,6 +4,11 @@ Rows of one game keep their order in both writers, but the GPU generator interle
 (territory, global, candidates, choice, z, points, seat) are hashed and the two datasets compared as multisets of games.
 
     python tests/dataset_compare.py runs/gpu-gen/t100/classic runs/gpu-verify/branch3-export-all/classic
+
+With --subset, every game of the first dataset must be in the second (e.g. a cloud GPU's run of some of a cycle's
+tables against the training PC's whole map folder of that cycle):
+
+    python tests/dataset_compare.py --subset runs/cloud-test/w10b/world data/delove/c6-big/world
 """
 from __future__ import annotations
 
@@ -36,11 +41,13 @@ def game_hashes(d: Path) -> Counter:
 
 
 def main():
-    a, b = Path(sys.argv[1]), Path(sys.argv[2])
+    argv = sys.argv[1:]
+    subset = "--subset" in argv
+    a, b = (Path(x) for x in argv if x != "--subset")
     ha, hb = game_hashes(a), game_hashes(b)
     common = sum((ha & hb).values())
     print(f"{a}: {sum(ha.values())} games, {b}: {sum(hb.values())} games, identical games {common}")
-    sys.exit(0 if ha == hb else 1)
+    sys.exit(0 if (common == sum(ha.values()) if subset else ha == hb) else 1)
 
 
 if __name__ == "__main__":

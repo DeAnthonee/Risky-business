@@ -302,6 +302,13 @@ cycle.sh checks the mirror's fingerprint: if the engine changed since the last v
 `packages/delove-gpu/verify.py --models <models dir>` first. Games in flight are sized per table configuration to
 `GPU_GB` of game state (default 3, fits the RTX 4060's 8 GB with the networks); `GPU_BATCH` fixes the number.
 
+**GPU steps on rented cloud GPUs.** `REMOTE_GPUS=N` hands every GPU step to `packages/delove-gpu/cloud/remote.py`
+instead: the steps' configurations are split over N RunPod GPUs (RTX 4090 by default) by their cost in earlier
+`gpu.log` files (`REMOTE_TIMINGS`), played with the same generate arguments, downloaded and merged into the same
+`DATA/<name>-<step>/<map>` and `OUT/<step>/gpu.json`. `RUNPOD_API_KEY` must be in the environment; the estimated cost
+is printed first, `REMOTE_MAX_GPU_HOURS` (default 4) caps it, and every pod is terminated at the end. Progress goes to
+`OUT/remote.log`. See [packages/delove-gpu, Cloud workers](../delove-gpu/README.md#cloud-workers).
+
 **Gates on the GPU.** `gpu_gates=(all)` in the config, or a list of gate indices (`gpu_gates=(4 6 7)`, 0-based in
 `gates=(...)`), plays those gates on the GPU (`python -m delove_gpu.ladder`, [packages/delove-gpu](../delove-gpu/README.md#ladder-gates-on-the-gpu))
 and the rest on the CPU, at the same time; `GPU_GATES=1` (all), `GPU_GATES="4 6"` or `GPU_GATES=0` (none) overrides

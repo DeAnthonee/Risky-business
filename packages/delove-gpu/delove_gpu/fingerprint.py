@@ -51,6 +51,7 @@ RULE_FILES = [
     "packages/selfplay/src/traits.ts",
     # the GPU teacher, branch and score, and the training-array writer
     "packages/delove/src/teacher.ts",
+    "packages/delove/src/jacob.ts",
     "packages/engine/src/odds.ts",
     "packages/delove/src/branch.ts",
     "packages/selfplay/src/export.ts",

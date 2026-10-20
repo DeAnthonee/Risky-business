@@ -1,6 +1,4 @@
 {
-  "$schema": "http://json-schema.org/draft-07/schema#",
-  "description": "Generation 5 standard league options with Fog of War ON (for future Delove partial-observability vision models)",
   "autoSetup": true,
   "randomDeal": true,
   "setupBatch": 1,

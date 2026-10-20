@@ -15,11 +15,11 @@ The runner baseline settings (`packages/runner/src/presets.ts`) apply to all Gen
 | `autoSetup` | `true` | Territories and starting armies are dealt automatically; turn 1 starts immediately. |
 | `randomDeal` | `true` | Territories are distributed randomly to players at game start. |
 | `setupBatch` | `1` | One army placed per setup step. |
-| `balancedBlitz` | `true` | Balanced blitz dice (median of rolls to prevent extreme RNG upsets). |
+| `balancedBlitz` | `true` | A blitz plays out the middle of 5 real blitzes, so it lands close to the odds; single rolls stay random. |
 | `firstRoundBonus` | `true` | Offsets turn order disadvantage: seat $N$ receives at least $N$ armies on Round 1. |
 | `fortifyMode` | `'connected'` | Path fortify: armies can move across any unbroken chain of owned territories. |
 | `chooseCapitals` | `true` | When capitals are enabled, players choose capitals in turn order before Round 1. |
-| `neutrals` | `0` | Neutral territories disabled in multiplayer games of 3+ players. |
+| `neutrals` | `0` | No neutral territories (when set, neutrals only appear in games of 3+ players). |
 | `neutralArmies` | `2` | Default neutral army count if neutrals are activated. |
 | `spectatorChat` | `true` | Spectators can view and chat during the match. |
 
@@ -41,14 +41,14 @@ In standard Gen 5 character league play (`packages/runner/src/presets.ts:gameOpt
 - **50% Chance**: `blizzards: 0` (no impassable territories).
 
 ### C. Capitals Conquest (`capitals`)
-- **50% Chance**: `capitals: true` (Capital Conquest: each player selects a capital; capitals grant +2 armies/round and defend with 3 dice; holding all capitals wins immediately).
+- **50% Chance**: `capitals: true` (Capital Conquest: each player selects a capital; +2 armies per capital held, capitals defend with 3 dice; holding all capitals wins immediately).
 - **50% Chance**: `capitals: false` (Standard World Domination).
 
 ### D. Card Values (`cardValues`)
 Sampled with equal weight across three modes:
-1. `'progressive'` (lobby-wide escalation: 4, 6, 8, 10, 12, 15, 20, 25, 30... armies per set).
+1. `'progressive'` (escalating for the whole table: 4, 6, 8, 10, 12, 15, 20, 25, 30, then +5).
 2. `'fixed'` (Infantry = 4, Cavalry = 6, Cannon = 8, Mixed = 10 armies).
-3. `'exponential'` (per-player doubling: 2, 4, 8, 16, 32... armies).
+3. `'exponential'` (per player: 5, 7, 10, 13, ...; ceil(previous × 1.3) through trade 25, then +1000 per trade).
 
 ---
 
@@ -58,13 +58,13 @@ Gen 5 rotates through all supported engine maps that fit the table size (excludi
 
 | Map ID | Map Name | Territories | Max Players |
 | --- | --- | --- | --- |
-| `classic` | Classic Earth | 42 | 6 |
-| `world` | World (Medium) | 74 | 10 |
-| `world_large` | World (Large) | 104 | 10 |
+| `classic` | Classic World | 42 | 6 |
+| `world` | World | 74 | 10 |
+| `world_large` | Grand World | 104 | 10 |
 | `europe` | Europe | 44 | 8 |
 | `greater_europe` | Greater Europe | 116 | 10 |
 | `europe_classic` | Europe Advanced | 84 | 6 |
-| `usa` | United States | 45 | 10 |
+| `usa` | USA | 45 | 10 |
 | `asia` | Asia | 49 | 8 |
 | `fantasy` | Realms of Halvaren | 87 | 10 |
 
@@ -76,18 +76,21 @@ Gen 5 rotates through all supported engine maps that fit the table size (excludi
 - **Scoring**:
   - Placement points: 1st: `+3`, 2nd: `+2`, 3rd: `+1`, 4th: `-1`, 5th: `-2`, 6th: `-3`.
   - Elimination bonus: `+1` point per opponent eliminated.
-- **Generation Tag**: Results must be tagged with `--generation gen5` to be included in the active leaderboard.
+- **Generation Tag**: the runner's post-game leaderboard (`LEADERBOARD.md` in its learnings folder) ranks only results
+  with the run's `--generation` tag (default `gen5`). The live site's leaderboard does not use tags.
 
 ---
 
 ## 5. Ready-to-Use Config Files
 
-Pre-configured JSON options files are stored in `packages/delove/configs/`:
+Pre-configured JSON options files are stored in `packages/delove/configs/`. Each is a plain settings object (no extra
+keys: the server rejects unknown settings), so it can be passed as is, e.g. `--options "$(cat packages/delove/configs/gen5-nofog.json)"`.
+They fix the switches that league play samples (blizzards 8, capitals on):
 
 1. **`packages/delove/configs/gen5-nofog.json`**:
    Baseline Gen 5 options with `fogOfWar: false`, `blizzards: 8`, `capitals: true`, `cardValues: "progressive"`.
 2. **`packages/delove/configs/gen5-randomfog.json`**:
-   Standard league options with `fogOfWar: true` for testing future partial-observability vision models.
+   The same with `fogOfWar: true` (always on, despite the name) for testing future fog models; `delove-seat` refuses fog games today.
 3. **`packages/delove/configs/gen5-fixedcards.json`**:
    Options with `cardValues: "fixed"` for testing set-collection strategies without progressive escalation.
 
@@ -96,10 +99,11 @@ Pre-configured JSON options files are stored in `packages/delove/configs/`:
 ## 6. How to Run Model Tests on Gen 5 Settings
 
 ### A. Testing via Self-Play Ladder (Fast In-Memory Simulation)
-Run an in-memory mirrored ladder match between two models:
+Run an in-memory mirrored ladder match between two models (`npm run delove`, not `npm run selfplay`: it registers
+Delove's players):
 ```bash
 # Evaluate delove@3 vs delove-teacher@2 on 6-player Classic under Gen 5 settings
-npm run selfplay -- ladder \
+npm run delove -- ladder \
   --candidate delove@3 \
   --best delove-teacher@2 \
   --players 6 \

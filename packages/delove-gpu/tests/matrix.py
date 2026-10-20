@@ -1,7 +1,8 @@
 """The replay proof over every map, table size and covered setting: plays logged CPU games for each case of a suite
 (the TypeScript engine and agents, in parallel over the CPU's threads), then replays every log through the GPU
-(tests/replay.py --fused: board, cards, phase and legal moves at every step; tests/teacher_replay.py for teacher
-seats: the logged pick at every step) and prints one table.
+(tests/replay.py --fused: board, cards, phase and legal moves at every step; the teacher's logged pick at every step
+of delove-teacher@1, delove-teacher@2 and jacob-sensei@1 seats; tests/branch_replay.py for branch games) and prints one
+table.
 
     python tests/matrix.py --suite rules --out runs/gpu-verify/matrix [--seed 7] [--scale 1] [--models models/delove]
     python tests/matrix.py --suite rules --out ... --only greater_europe   # cases whose name contains this
@@ -26,7 +27,7 @@ sys.path.insert(0, str(HERE.parent))
 from delove_gpu.fingerprint import REPO  # noqa: E402
 
 PYTHON = sys.executable
-R, T1, T2, RK = "random@1", "delove-teacher@1", "delove-teacher@2", "risky@1"
+R, T1, T2, RK, J = "random@1", "delove-teacher@1", "delove-teacher@2", "risky@1", "jacob-sensei@1"
 
 
 def seats(n: int, *agents: str) -> str:
@@ -119,7 +120,41 @@ def net_suite(scale: float) -> list[tuple]:
     ]
 
 
-SUITES = {"rules": rules_suite, "settings": settings_suite, "branch": branch_suite, "net": net_suite}
+# Jacob Sensei (jacob-sensei@1, src/jacob.ts): self-play on every map at 2 seats, a middle size and the largest table;
+# mixed with Sensei 2 and risky@1 (several teacher versions in one game); every setting; and branch and score with
+# Jacob as the rollout teacher (cases named jb-*: DELOVE_BRANCH_TEACHER on the CPU, --teacher on the GPU).
+MAPS = {"classic": 6, "world": 10, "world_large": 10, "europe": 8, "greater_europe": 10, "europe_classic": 6, "usa": 10,
+        "asia": 8, "fantasy": 10, "skirmish": 4, "bohemia": 6, "nine_realms": 8}
+
+
+def jacob_suite(scale: float) -> list[tuple]:
+    g = lambda n: max(2, int(n * scale))  # noqa: E731
+    cases = []
+    for m, mx in MAPS.items():
+        for n in sorted({2, (2 + mx + 1) // 2, mx}):
+            cases.append((f"j-{m}-{n}p-teacher", m, n, seats(n, J), g(200 if n <= 4 else 60), {}))
+            if n > 2:
+                cases.append((f"jmix-{m}-{n}p-teacher", m, n, seats(n, J, T2, RK), g(100 if n <= 4 else 30), {}))
+    tail = "-classic-2p-teacher"
+    for name, o in [(c[0][: -len(tail)], c[5]) for c in settings_suite(1) if c[0].endswith(tail)]:
+        for m, n in [("classic", 2), ("skirmish", 3), ("world", 6), ("greater_europe", 10)]:
+            cases.append((f"js-{name}-{m}-{n}p-teacher", m, n, seats(n, J, T2), g(80 if n <= 3 else 16), dict(o)))
+    cases += [
+        ("jb-skirmish-2p-branch", "skirmish", 2, f"{BR},{J}", g(100), {}),
+        ("jb-classic-2p-branch", "classic", 2, f"{BR},{J}", g(100), {}),
+        ("jb-classic-2p-net-branch", "classic", 2, f"{BR},{NETP}", g(60), {}),
+        ("jb-classic-4p-branch", "classic", 4, f"{BR},{J},{NETP},{T2}", g(40), {}),
+        ("jb-world-6p-branch", "world", 6, seats(6, BR, J, NETP), g(12), {}),
+        ("jb-greater_europe-10p-branch", "greater_europe", 10, seats(10, BR, J, T2, NETP), g(6), {}),
+        ("jb-classic-2p-settings-branch", "classic", 2, f"{BR},{J}", g(60),
+         {"capitals": True, "cardValues": "fixed", "balancedBlitz": True, "blizzards": 4}),
+        ("jb-europe-5p-settings-branch", "europe", 5, seats(5, BR, J, NETP), g(12),
+         {"capitals": True, "chooseCapitals": True, "randomDeal": False, "setupBatch": 3, "blizzards": 5}),
+    ]
+    return cases
+
+
+SUITES = {"rules": rules_suite, "settings": settings_suite, "branch": branch_suite, "net": net_suite, "jacob": jacob_suite}
 BRANCH_ENV = {"DELOVE_BRANCH_RANKER": NETP, "DELOVE_BRANCH_HORIZON": "1", "DELOVE_BRANCH_MARGIN": "0.01"}
 
 
@@ -132,12 +167,18 @@ def resolve_options(m: str, o: dict) -> dict:
     return o
 
 
-def node_play(agents: str, games: int, start: int, seed: int, options: dict, log: Path, models: str | None) -> subprocess.CompletedProcess:
+def rollout_teacher(name: str) -> str:
+    return J if name.startswith("jb-") else T2
+
+
+def node_play(agents: str, games: int, start: int, seed: int, options: dict, log: Path, models: str | None,
+              teacher: str = T2) -> subprocess.CompletedProcess:
     env = dict(os.environ)
     if models:
         env["DELOVE_MODELS"] = models
     if BR in agents:
         env.update(BRANCH_ENV)
+        env["DELOVE_BRANCH_TEACHER"] = teacher
         env["DELOVE_BRANCH_TRACE"] = str(log.parent / f"trace-{log.name}-x.jsonl")
     cmd = ["node", "--import", "./packages/delove/dist/register.js", "packages/selfplay/dist/cli.js", "play", "--agents", agents,
            "--games", str(games), "--start", str(start), "--seed", str(seed), "--options", json.dumps(options), "--log", str(log)]
@@ -162,7 +203,7 @@ def generate(cases: list[tuple], out: Path, seed: int, models: str | None, paral
 
     def run(j):
         name, agents, games, st, sd, opts, log = j
-        r = node_play(agents, games, st, sd, opts, log, models)
+        r = node_play(agents, games, st, sd, opts, log, models, rollout_teacher(name))
         if r.returncode:
             raise RuntimeError(f"{name} c{st}: {r.stderr[-2000:]}")
         return name
@@ -179,14 +220,20 @@ def flatten(case_dir: Path) -> list[str]:
 
 
 def replay_case(name: str, d: Path, args) -> dict:
-    """One case: every chunk through replay.py --fused, with the teacher picks checked at teacher seats."""
+    """One case: every chunk through replay.py --fused, with the teacher picks checked at teacher seats. The result
+    is saved in the case's folder (replay.json); with --resume a case already replayed identically is not replayed again."""
+    done = d / "replay.json"
+    if args.resume and done.exists():
+        res = json.loads(done.read_text(encoding="utf8"))
+        if res.get("rules_ok"):
+            return res
     res = {"case": name}
     logs = flatten(d)
     for lg in logs:  # chunk dirs inherit the case's options
         shutil.copy(d / "options.json", Path(lg) / "options.json")
     cmd = [PYTHON, str(HERE / "replay.py"), *logs, "--fused", "--batch", str(args.batch)]
     if args.models:
-        cmd += ["--teacher", f"{T1}=", "--teacher", f"{T2}={Path(args.models) / (T2 + '.json')}"]
+        cmd += ["--teacher", f"{T1}=", "--teacher", f"{T2}={Path(args.models) / (T2 + '.json')}", "--teacher", f"{J}="]
     if name.endswith("-net") and args.models:
         cmd += ["--net", NETP, str(Path(args.models) / f"{NETP}.pt")]
     r = subprocess.run(cmd, capture_output=True, text=True)
@@ -198,12 +245,14 @@ def replay_case(name: str, d: Path, args) -> dict:
         res["rules"] += " | " + (net[0] if net else "no network line")
     if name.endswith("-branch") and args.models:
         cmd = [PYTHON, str(HERE / "branch_replay.py"), *logs, "--trace", str(d / "trace-*.jsonl"), "--models", args.models,
-               "--ranker", NETP, "--teacher", T2, "--horizon", BRANCH_ENV["DELOVE_BRANCH_HORIZON"], "--margin", BRANCH_ENV["DELOVE_BRANCH_MARGIN"],
+               "--ranker", NETP, "--teacher", rollout_teacher(name), "--horizon", BRANCH_ENV["DELOVE_BRANCH_HORIZON"], "--margin", BRANCH_ENV["DELOVE_BRANCH_MARGIN"],
                "--batch", str(args.batch)]
         r = subprocess.run(cmd, capture_output=True, text=True)
         res["rules"] += " | branch: " + (r.stdout.strip().splitlines()[0] if r.stdout.strip() else r.stderr[-500:])
         res["rules_ok"] = res["rules_ok"] and r.returncode == 0
         res["rules_log"] += r.stdout[-3000:] + r.stderr[-3000:]
+    done.write_text(json.dumps(res) + "\n", encoding="utf8")
+    print(f"{'ok ' if res['rules_ok'] else 'BAD'} {name}", flush=True)
     return res
 
 
@@ -221,6 +270,7 @@ def main():
     ap.add_argument("--batch", type=int, default=400)
     ap.add_argument("--no-generate", action="store_true")
     ap.add_argument("--no-replay", action="store_true", help="only generate the logs")
+    ap.add_argument("--resume", action="store_true", help="skip cases whose saved replay result (replay.json) is identical")
     args = ap.parse_args()
     cases = SUITES[args.suite](args.scale)
     if args.only:

@@ -33,7 +33,7 @@ from delove_gpu.encode import Encoder  # noqa: E402
 from delove_gpu.engine import KIND_NAMES  # noqa: E402
 from delove_gpu.logs import cand_to_action, games  # noqa: E402
 from delove_gpu.play import load_delove  # noqa: E402
-from delove_gpu.teacher import load_params  # noqa: E402
+from delove_gpu.teacher import agent_params  # noqa: E402
 
 BRANCH = "delove-branch@1"
 
@@ -174,7 +174,7 @@ def main():
     cfg = d
     cfg.options, cfg.rollouts, cfg.horizon, cfg.margin = args.options, args.rollouts, args.horizon, args.margin
     models = Path(args.models)
-    params = load_params(models / f"{args.teacher}.json")
+    params = agent_params(args.teacher, models)
     ranker_pt = load_delove(models / f"{args.ranker}.pt", "cuda")
     e_args = dict(params=params, allow_unverified=True)
     stats = defaultdict(int)

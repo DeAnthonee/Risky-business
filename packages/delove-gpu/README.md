@@ -49,7 +49,7 @@ turn + T capitals: 256 moves on Four Crowns, 474 on Classic, 1,326 on Greater Eu
 | `delove_gpu/rng.py` | the engine's mulberry32 as a counter-based generator on tensors, one stream per game |
 | `delove_gpu/engine.py` | `State` (the tensors of B games of one configuration) and the rules as batched tensor operations for Classic 2-player: the readable reference (`exact=False`: faster sampling, below) |
 | `delove_gpu/fused.py` | the rules of any configuration with one CUDA thread per game (NVRTC, one compile per configuration, binary cached in `_cache/`) |
-| `delove_gpu/teacher.py` | the hand-coded teacher (`packages/delove/src/teacher.ts`, any tuned numbers) inside the kernel |
+| `delove_gpu/teacher.py` | the hand-coded teachers inside the kernel: Sensei (`packages/delove/src/teacher.ts`, `delove-teacher@N`) and Jacob Sensei (`packages/delove/src/jacob.ts`, `jacob-sensei@N`), any tuned numbers, several versions at one table |
 | `delove_gpu/odds.py` | the blitz odds of `packages/engine/src/odds.ts` as exact double-precision tables for the teacher (both defence-dice limits, balanced blitz, every stack size) |
 | `delove_gpu/branch.py` | branch and score (`packages/delove/src/branch.ts`): options, common-random-number rollouts, scores, pick |
 | `delove_gpu/generate.py` | plays whole cycle steps (any mix of configurations; branch, teacher and network seats) and writes `export`'s training arrays directly |
@@ -63,7 +63,7 @@ turn + T capitals: 256 moves on Four Crowns, 474 on Classic, 1,326 on Greater Eu
 | `verify.py` | re-verifies the mirror against the current engine and updates the fingerprint |
 | `tests/replay.py` | the replay test (below): rules, teacher picks, outcome, encoder, network |
 | `tests/matrix.py` | the replay proof over every map, table size and setting (CPU logs in parallel, GPU replays) |
-| `tests/teacher_replay.py`, `tests/branch_replay.py`, `tests/export_check.py`, `tests/dataset_compare.py`, `tests/odds_check.py` | the teacher, branch, training-array and odds checks (below) |
+| `tests/teacher_replay.py`, `tests/branch_replay.py`, `tests/export_check.py`, `tests/dataset_compare.py`, `tests/odds_check.py`, `tests/log1p_check.py` | the teacher, branch, training-array, odds and `Math.log1p` checks (below) |
 | `tests/blitz_stats.py` | battle outcomes against the exact dice distribution |
 | `bench.py`, `bench_cpu.mjs`, `bench/` | GPU and CPU throughput; `bench/bench_cycle.sh` times a cycle step on both |
 
@@ -143,6 +143,7 @@ phase and the candidate list in order at every step, the teacher's pick at every
 | `settings` | 15 combinations of the settings (each alone, then all at once, with the claiming phase and with auto setup) on Classic 2p, Four Crowns 3p, World 6p, Greater Europe 10p | 7,020 | 10,378,222 | **0 mismatches**; 7,941,185 of 7,941,185 teacher picks; 7,020 of 7,020 outcomes |
 | `net` | `delove@3` seats on Classic 2p, Four Crowns 4p, World 8p, Greater Europe 10p (capitals, blizzards), Realms of Halvaren 6p (exponential cards, adjacent fortify, claiming) | 196 | 182,770 | **0 mismatches**; GPU network top move = the ONNX move logged in Node on 74,074 of 74,074 decisions |
 | `branch` (scale 0.5) | `delove-branch@1` (ranker `delove@3`, horizon 1, margin 0.01) on Four Crowns 2p / 4p, Classic 2p / 4p, World 6p, Greater Europe 10p, and four tables with settings | 442 | 264,095 | **0 mismatches** in the rules and teacher; 98,968 of 98,970 branch decisions the same pick; of 56,398 branched decisions, 56,381 compared the CPU's options and got every option's mean score identical (same doubles), 17 had the ranker order two alternatives differently (ONNX vs PyTorch near-ties; the 2 different picks are among them) |
+| `jacob` (scale 0.5, 2026-10-20) | Jacob Sensei (`jacob-sensei@1`): self-play on all 10 maps at 2 seats, a middle size and the largest table; mixed with Sensei 2 and `risky@1` above 2 seats; the 15 settings combinations on Classic 2p, Four Crowns 3p, World 6p, Greater Europe 10p (Jacob and Sensei 2 seats); branch and score with Jacob as the rollout teacher (`jb-*`: Four Crowns 2p, Classic 2p / 4p, World 6p, Greater Europe 10p, two tables with settings) | 3,955 | 3,414,946 | **0 mismatches**; 3,213,258 of 3,213,258 teacher picks (Jacob, Sensei 2, delove-teacher@1 seats); 3,955 of 3,955 outcomes; 25,124 of 25,125 branch decisions the same pick, all 13,700 branched decisions with the CPU's options with identical mean scores, 1 ranker near-tie (the different pick) |
 
 Also: `odds_check.py` 6,000 of 6,000 battles bit-identical to `blitzOdds` (win, balancedWin, losses; up to 10^6 attackers,
 both dice limits); `export_check.py` bit for bit on Four Crowns 4p (fixed cards, capitals), World 6p (blizzards,
@@ -169,12 +170,14 @@ a table here is the same set of games as on the CPU. Tables of one configuration
 one after another, each with as many games in flight as fit in `--gpu-gb` of game state (default 3 GB; `--batch`
 fixes it). Teacher seats whose moves are not recorded play on inside one kernel until a branch or network seat is to
 move (`k_teacher_run`: the same moves and random streams as one step at a time, without a round trip to Python per
-move; a 10-player table with eight teachers spends most of its moves there). The rollout teacher is the newest
-`delove-teacher@N.json` in `--models` (`--teacher`), the branch settings default to `DEFAULT_BRANCH` in `branch.ts`
+move; a 10-player table with eight teachers spends most of its moves there). The rollout teacher is `--teacher`
+(`DELOVE_BRANCH_TEACHER` in `cycle.sh`; e.g. `jacob-sensei@1`; default the newest `delove-teacher@N.json` in
+`--models`): it plays every seat of the rollouts and the branch player's own teacher moves, while each teacher seated
+at a table (`delove-teacher@N`, `jacob-sensei@N`, any mix) plays its own version, as `play` does. The branch settings default to `DEFAULT_BRANCH` in `branch.ts`
 (read from the file), networks play from their `.pt` weights in fp32, scored in chunks that fit the GPU on big maps.
 
-- **The teacher** (`teacher.py`) is `teacherPickWith(params)` in CUDA, one thread per game, inside the same kernel as the
-  rules. It must pick exactly what teacher.ts picks, ties included: every score is built with the same double-precision
+- **The teachers** (`teacher.py`) are `teacherPickWith(params)` (Sensei) and `jacobPickWith(params)` (Jacob Sensei,
+  below) in CUDA, one thread per game, inside the same kernel as the rules. It must pick exactly what teacher.ts picks, ties included: every score is built with the same double-precision
   operations in the same order (compiled with `--fmad=false`, so no fused multiply-adds), the 1e-3 tie-break jitter
   comes from the seat's own mulberry32 stream, candidates are visited in actions.ts order (fortify destinations in the
   engine's connected-search order), and the blitz odds are `odds.ts`'s numbers bit for bit (`odds.py` fills the tables
@@ -230,6 +233,37 @@ decisions, 395,729 branched, 7,099,734 simulations of 89,623,920 moves, 111,930 
 29,088/114,748, end_turn 10,122/18,601, fortify_from 9,170/26,503, trade 5,355/14,758), same wins per table. The only
 expected difference is the ranker near-tie above (about 1 in 20,000 branched decisions; when it changes a pick, the
 game diverges from the CPU's from there on, equally valid).
+
+### Jacob Sensei (`jacob-sensei@1`)
+
+Jacob Sensei (`packages/delove/src/jacob.ts`, PR #98) is Sensei's judgement plus terms for big tables. It runs in the
+same kernel as Sensei: a teacher version is one row of numbers (`PARAM_KEYS`, `JACOB_KEYS`, then a Jacob flag), and the
+kernel takes Jacob's code paths only where the flag is on:
+- `stats()`: armies, territories, income (`reinforcementsFor`) and power of every living seat, summed in seat order,
+  and the mean power; the leader term on captures and on a rival's armies lost;
+- the hunt (a share of an elimination once a stack outweighs a rival's whole army), in attacks and in placement scores
+  (with the largest amount being placed, as `pickPlace` passes it);
+- the card urge, the late-game win floor, and own losses divided by `1 + stackRamp * Math.log1p(surplus)`;
+- the interior-to-front pull in `bestFortify`.
+
+`Math.log1p` is V8's: `src/base/ieee754.cc`, FreeBSD's fdlibm `s_log1p.c`, ported operation for operation
+(`log1p_fd`). CUDA's `log1p` and the platform libm differ from it in the last bit on about 17% of inputs, which is
+enough to swap a near-tie. `tests/log1p_check.py` compares the two on 255,066 values.
+
+Numbers: `jacob-sensei@1` uses `JACOB_SENSEI_1_PARAMS`, read from `jacob.ts` (its JSON in the models folder is ignored,
+as `register.ts` does). Later versions use `models/delove/jacob-sensei@N.json` over `DEFAULT_JACOB_PARAMS`
+(`agent_params` in `teacher.py`). An engine holds several versions; `tver[game, seat]` says which row plays each seat.
+So `generate.py` seats `delove-teacher@N` and `jacob-sensei@N` at one table, and `--teacher jacob-sensei@1`
+(`DELOVE_BRANCH_TEACHER` in `cycle.sh`) makes Jacob the rollout teacher.
+
+Proof (2026-10-20, 0 mismatches; logs under `<training PC>\Risky-business-stage2\runs\gpu-verify\jacob` and `m-jacob`):
+
+| check | what was compared | result |
+| --- | --- | --- |
+| `teacher_replay.py` | 1,000 Jacob self-play games, Classic 2p | 258,651 of 258,651 decisions: the logged pick. With `DEFAULT_JACOB_PARAMS` instead, 178 of 200 games fail; with Jacob's numbers but the flag off (Sensei's code paths), 194 of 200 fail |
+| `branch_replay.py`, Jacob rollouts | 150 branch games at the cycle settings (ranker `delove@3`, horizon 1, margin 0.01), 100 at branch.ts's defaults (ranker `delove@2`) | 31,035 of 31,035 branch decisions the same pick; all 16,180 branched decisions with identical mean scores |
+| `tests/matrix.py --suite jacob` (scale 0.5) | every map and table size, mixed tables, every setting, branch with Jacob rollouts (the table above) | 118 of 118 cases identical: 3,213,258 teacher picks, 25,124 of 25,125 branch picks (1 ranker near-tie) |
+| `verify.py --models` | fresh logs: Jacob self-play, branch with Jacob rollouts, and the `jacob` suite at scale 0.1 next to the other suites | 4,563,002 steps identical on `engine.py`, `fused.py`, the teacher and branch; 500 Jacob self-play games (131,150 picks) and 100 branch games with Jacob rollouts (12,086 decisions, 6,309 branched, means identical); matrix rules 60/60, settings 120/120, branch 10/10, `jacob` 118/118 cases identical. Fingerprint written, `jacob.ts` in `RULE_FILES` |
 
 ### Speed of a cycle step
 
@@ -290,7 +324,7 @@ What decides these numbers:
 The mirror is only right for the engine it was checked against. `engine-fingerprint.json` records hashes of the engine
 and self-play files it copies (`RULE_FILES` in `delove_gpu/fingerprint.py`: `engine.ts`, `cards.ts`, `rng.ts`,
 `types.ts`, `maps.ts`, every map's generated JSON, `ranking.ts`, self-play's `actions.ts`, `encode.ts`, `log.ts`,
-`game.ts`, `traits.ts`, `export.ts`, `npy.ts`, and Delove's `teacher.ts`, `branch.ts` with the engine's `odds.ts`),
+`game.ts`, `traits.ts`, `export.ts`, `npy.ts`, and Delove's `teacher.ts`, `jacob.ts`, `branch.ts` with the engine's `odds.ts`),
 written only after logs made with exactly those files replayed identically.
 
 - **Training refuses a stale mirror.** `Engine(...)`, `FusedEngine(...)`, `TeacherEngine(...)` and `BranchEngine(...)`

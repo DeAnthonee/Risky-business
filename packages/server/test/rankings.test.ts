@@ -82,4 +82,26 @@ describe('persistent character rankings API',()=>{
     expect(new Rankings(file).rows()).toEqual([]);
     expect(existsSync(`${file}.corrupt`)).toBe(true);
   });
+  it('seeds initial rankings when file does not exist', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'rankings-'));
+    dirs.push(dir);
+    const file = join(dir, 'rankings.json');
+    const seed = [{ gameId: 'g_seed_1', seats: [{ key: 'league/jinx', name: 'Jinx', placement: 1, killed: [] }, { key: 'league/shaco', name: 'Shaco', placement: 2, killed: [] }] }];
+    const rankings = new Rankings(file, seed);
+    expect(rankings.rows()).toHaveLength(2);
+    expect(rankings.rows()[0].name).toBe('Jinx');
+    expect(existsSync(file)).toBe(true);
+  });
+  it('replaces obsolete legacy pre-seed file and backs it up', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'rankings-'));
+    dirs.push(dir);
+    const file = join(dir, 'rankings.json');
+    const legacy = [{ gameId: 'old_legacy_1', seats: [{ key: 'player:test', name: 'Test', placement: 1, killed: [] }] }];
+    writeFileSync(file, JSON.stringify(legacy), 'utf8');
+    const seed = [{ gameId: 'g_seed_1', seats: [{ key: 'league/jinx', name: 'Jinx', placement: 1, killed: [] }, { key: 'league/shaco', name: 'Shaco', placement: 2, killed: [] }] }];
+    const rankings = new Rankings(file, seed);
+    expect(rankings.rows()).toHaveLength(2);
+    expect(rankings.rows()[0].name).toBe('Jinx');
+    expect(existsSync(`${file}.legacy-unseeded.bak`)).toBe(true);
+  });
 });

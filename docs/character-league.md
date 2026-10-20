@@ -36,8 +36,11 @@ Positive placements can gain points without a win. Kills and flooring mean the l
 The server records outcomes directly from finished room states. Its independent rankings.json is stored
 beside games.json under RISK_DATA_DIR, survives room deletion/restarts, and ignores already recorded game
 IDs. Multiple lobbies share this single server writer. A corrupt rankings file does not stop the server:
-it is moved aside to rankings.json.corrupt (and logged) and the ladder starts empty, so restore it from a
-backup. A failed save is logged without failing the move that ended the game. Back up RISK_DATA_DIR with
+it is moved aside to rankings.json.corrupt (and logged) and the ladder restarts from the seed, so restore it from a
+backup. The ladder is seeded with Gen 5 results played off the site (`packages/server/src/rankings-seed.ts`, #92):
+seed games missing from the file are added on start, and a file holding none of them is moved aside to
+rankings.json.legacy-unseeded.bak and replaced by the seed. This is a temporary arrangement; see
+[hardening.md](hardening.md) item 6. A failed save is logged without failing the move that ended the game. Back up RISK_DATA_DIR with
 normal server backups.
 
 Character identity is selected in the lobby using POST /api/games/:id/character with the seat's Bearer token

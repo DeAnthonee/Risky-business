@@ -13,6 +13,9 @@
 # - Training: from delove@3, mixed precision (--amp: same validation loss, 1.9x faster), 1.5 epochs, older cycles as
 #   fractions (#F); cycle 5's big tables and 4-player games only teach the value head (:value: their moves were mostly
 #   Sensei 2's, their positions and final points are still good).
+# - League settings: every table uses the live league's base (auto setup, balanced blitz, chosen capitals) and half
+#   of each table plays one of four variants (progressive / fixed + capitals / exponential + 8 blizzards / progressive
+#   + capitals + 8 blizzards). Cycles 1-5 trained on the defaults only. Three gates use league settings too.
 name=c6
 seed=306
 steps=(
@@ -43,5 +46,8 @@ gates=(
   "delove@3 2 400 {\"map\":\"skirmish\"}"
   "delove@3 6 100 {\"map\":\"greater_europe\"}"
   "jacob-sensei@1 6 200 {\"map\":\"world\"}"
+  "delove@3 6 200 {\"autoSetup\":true,\"balancedBlitz\":true,\"chooseCapitals\":true,\"cardValues\":\"progressive\",\"capitals\":true,\"blizzards\":8}"
+  "delove@3 6 200 {\"map\":\"world\",\"autoSetup\":true,\"balancedBlitz\":true,\"chooseCapitals\":true,\"cardValues\":\"fixed\",\"capitals\":true}"
+  "delove@3 2 400 {\"autoSetup\":true,\"balancedBlitz\":true,\"chooseCapitals\":true,\"cardValues\":\"exponential\",\"blizzards\":8}"
   "delove-teacher@2 2 400"
 )

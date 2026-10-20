@@ -1,16 +1,30 @@
 # Cycle 6, step 4: big tables on every map but Bohemia (GPU). With Jacob Sensei in the teacher seats and the rollouts
 # the big tables no longer stall (0 of 960 Jacob self-play games hit the limit), so Greater Europe and 10-seat tables
 # are back. About half the seats are Jacob Sensei, the rest delove@3 / delove@2.
-w10   1500 delove-branch@1,jacob-sensei@1,delove@3,jacob-sensei@1,jacob-sensei@1,delove@2,jacob-sensei@1,delove@3,jacob-sensei@1,jacob-sensei@1 {"map":"world"}
-w6    1000 jacob-sensei@1,delove@3,delove-branch@1,jacob-sensei@1,delove@2,jacob-sensei@1 {"map":"world"}
-wl10  1000 jacob-sensei@1,jacob-sensei@1,delove@3,jacob-sensei@1,delove-branch@1,jacob-sensei@1,delove@2,jacob-sensei@1,delove@3,jacob-sensei@1 {"map":"world_large"}
-ge10  1000 delove-branch@1,jacob-sensei@1,delove@3,jacob-sensei@1,jacob-sensei@1,delove@2,jacob-sensei@1,delove@3,jacob-sensei@1,jacob-sensei@1 {"map":"greater_europe"}
-ge6   1000 delove@3,jacob-sensei@1,jacob-sensei@1,delove-branch@1,delove@2,jacob-sensei@1 {"map":"greater_europe"}
-ge2    500 delove-branch@1,jacob-sensei@1 {"map":"greater_europe"}
-fa10  1000 jacob-sensei@1,delove@3,jacob-sensei@1,jacob-sensei@1,delove-branch@1,jacob-sensei@1,delove@2,jacob-sensei@1,jacob-sensei@1,delove@3 {"map":"fantasy"}
-fa6   1000 delove-branch@1,jacob-sensei@1,delove@3,jacob-sensei@1,delove@2,jacob-sensei@1 {"map":"fantasy"}
-eu8   1000 jacob-sensei@1,delove@3,jacob-sensei@1,delove-branch@1,jacob-sensei@1,delove@2,jacob-sensei@1,delove@3 {"map":"europe"}
-us10  1000 jacob-sensei@1,jacob-sensei@1,delove@3,jacob-sensei@1,delove@2,jacob-sensei@1,delove-branch@1,jacob-sensei@1,delove@3,jacob-sensei@1 {"map":"usa"}
-as8   1000 delove-branch@1,jacob-sensei@1,delove@3,jacob-sensei@1,delove@2,jacob-sensei@1,delove@3,jacob-sensei@1 {"map":"asia"}
-ec6   1000 jacob-sensei@1,delove-branch@1,delove@3,jacob-sensei@1,delove@2,jacob-sensei@1 {"map":"europe_classic"}
-c6    1000 jacob-sensei@1,delove@3,jacob-sensei@1,delove@2,delove-branch@1,jacob-sensei@1
+# League settings (docs/game-settings.md): auto setup, balanced blitz, chosen capitals; each table half plays one of
+# four variants: progressive / fixed cards + capitals / exponential cards + 8 blizzards / progressive + capitals + 8 blizzards.
+w10a    750 delove-branch@1,jacob-sensei@1,delove@3,jacob-sensei@1,jacob-sensei@1,delove@2,jacob-sensei@1,delove@3,jacob-sensei@1,jacob-sensei@1 {"map":"world","autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"progressive"}
+w10b    750 delove-branch@1,jacob-sensei@1,delove@3,jacob-sensei@1,jacob-sensei@1,delove@2,jacob-sensei@1,delove@3,jacob-sensei@1,jacob-sensei@1 {"map":"world","autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"fixed","capitals":true}
+w6a     500 jacob-sensei@1,delove@3,delove-branch@1,jacob-sensei@1,delove@2,jacob-sensei@1 {"map":"world","autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"exponential","blizzards":8}
+w6b     500 jacob-sensei@1,delove@3,delove-branch@1,jacob-sensei@1,delove@2,jacob-sensei@1 {"map":"world","autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"progressive","capitals":true,"blizzards":8}
+wl10a   500 jacob-sensei@1,jacob-sensei@1,delove@3,jacob-sensei@1,delove-branch@1,jacob-sensei@1,delove@2,jacob-sensei@1,delove@3,jacob-sensei@1 {"map":"world_large","autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"progressive"}
+wl10b   500 jacob-sensei@1,jacob-sensei@1,delove@3,jacob-sensei@1,delove-branch@1,jacob-sensei@1,delove@2,jacob-sensei@1,delove@3,jacob-sensei@1 {"map":"world_large","autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"fixed","capitals":true}
+ge10a   500 delove-branch@1,jacob-sensei@1,delove@3,jacob-sensei@1,jacob-sensei@1,delove@2,jacob-sensei@1,delove@3,jacob-sensei@1,jacob-sensei@1 {"map":"greater_europe","autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"exponential","blizzards":8}
+ge10b   500 delove-branch@1,jacob-sensei@1,delove@3,jacob-sensei@1,jacob-sensei@1,delove@2,jacob-sensei@1,delove@3,jacob-sensei@1,jacob-sensei@1 {"map":"greater_europe","autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"progressive","capitals":true,"blizzards":8}
+ge6a    500 delove@3,jacob-sensei@1,jacob-sensei@1,delove-branch@1,delove@2,jacob-sensei@1 {"map":"greater_europe","autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"progressive"}
+ge6b    500 delove@3,jacob-sensei@1,jacob-sensei@1,delove-branch@1,delove@2,jacob-sensei@1 {"map":"greater_europe","autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"fixed","capitals":true}
+ge2     500 delove-branch@1,jacob-sensei@1 {"map":"greater_europe","autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"exponential","blizzards":8}
+fa10a   500 jacob-sensei@1,delove@3,jacob-sensei@1,jacob-sensei@1,delove-branch@1,jacob-sensei@1,delove@2,jacob-sensei@1,jacob-sensei@1,delove@3 {"map":"fantasy","autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"progressive","capitals":true,"blizzards":8}
+fa10b   500 jacob-sensei@1,delove@3,jacob-sensei@1,jacob-sensei@1,delove-branch@1,jacob-sensei@1,delove@2,jacob-sensei@1,jacob-sensei@1,delove@3 {"map":"fantasy","autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"progressive"}
+fa6a    500 delove-branch@1,jacob-sensei@1,delove@3,jacob-sensei@1,delove@2,jacob-sensei@1 {"map":"fantasy","autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"fixed","capitals":true}
+fa6b    500 delove-branch@1,jacob-sensei@1,delove@3,jacob-sensei@1,delove@2,jacob-sensei@1 {"map":"fantasy","autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"exponential","blizzards":8}
+eu8a    500 jacob-sensei@1,delove@3,jacob-sensei@1,delove-branch@1,jacob-sensei@1,delove@2,jacob-sensei@1,delove@3 {"map":"europe","autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"progressive","capitals":true,"blizzards":8}
+eu8b    500 jacob-sensei@1,delove@3,jacob-sensei@1,delove-branch@1,jacob-sensei@1,delove@2,jacob-sensei@1,delove@3 {"map":"europe","autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"progressive"}
+us10a   500 jacob-sensei@1,jacob-sensei@1,delove@3,jacob-sensei@1,delove@2,jacob-sensei@1,delove-branch@1,jacob-sensei@1,delove@3,jacob-sensei@1 {"map":"usa","autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"fixed","capitals":true}
+us10b   500 jacob-sensei@1,jacob-sensei@1,delove@3,jacob-sensei@1,delove@2,jacob-sensei@1,delove-branch@1,jacob-sensei@1,delove@3,jacob-sensei@1 {"map":"usa","autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"exponential","blizzards":8}
+as8a    500 delove-branch@1,jacob-sensei@1,delove@3,jacob-sensei@1,delove@2,jacob-sensei@1,delove@3,jacob-sensei@1 {"map":"asia","autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"progressive","capitals":true,"blizzards":8}
+as8b    500 delove-branch@1,jacob-sensei@1,delove@3,jacob-sensei@1,delove@2,jacob-sensei@1,delove@3,jacob-sensei@1 {"map":"asia","autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"progressive"}
+ec6a    500 jacob-sensei@1,delove-branch@1,delove@3,jacob-sensei@1,delove@2,jacob-sensei@1 {"map":"europe_classic","autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"fixed","capitals":true}
+ec6b    500 jacob-sensei@1,delove-branch@1,delove@3,jacob-sensei@1,delove@2,jacob-sensei@1 {"map":"europe_classic","autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"exponential","blizzards":8}
+c6a     500 jacob-sensei@1,delove@3,jacob-sensei@1,delove@2,delove-branch@1,jacob-sensei@1 {"autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"progressive","capitals":true,"blizzards":8}
+c6b     500 jacob-sensei@1,delove@3,jacob-sensei@1,delove@2,delove-branch@1,jacob-sensei@1 {"autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"progressive"}

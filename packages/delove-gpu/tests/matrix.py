@@ -39,7 +39,8 @@ def seats(n: int, *agents: str) -> str:
 def rules_suite(scale: float) -> list[tuple]:
     g = lambda n: max(4, int(n * scale))  # noqa: E731
     maps = {"classic": 6, "world": 10, "world_large": 10, "europe": 8, "greater_europe": 10, "europe_classic": 6, "usa": 10,
-            "asia": 8, "fantasy": 10, "skirmish": 4}
+            "asia": 8, "fantasy": 10, "skirmish": 4,
+            "bohemia": 6}
     cases = []
     for m, mx in maps.items():
         sizes = sorted({2, (2 + mx + 1) // 2, mx})

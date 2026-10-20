@@ -37,7 +37,8 @@ npm run delove-seat -- --server http://localhost:8080 --create --agents delove@1
 `--no-start`. Fog of war games are refused for now: Delove was trained on the full board.
 `--agents` takes `delove-teacher@1`, every tuned teacher in the models folder (`delove-teacher@N.json`, e.g.
 `delove-teacher@2`), and every `delove@N.onnx`. `sensei` / `sensei@1` and `sensei@2` are aliases for the two teachers,
-and their seats are named "Sensei 1" and "Sensei 2" unless `--names` says otherwise (#88).
+and their seats are named "Sensei 1" and "Sensei 2" unless `--names` says otherwise (#88). `jacob-sensei@1` (alias `jacob`)
+sits as "Jacob Sensei".
 
 ### Generation 5 Testing & Environment Parity
 
@@ -85,6 +86,7 @@ answer synchronously.
 | `delove@1` | network distilled from the teacher (Stage 1), loaded from `models/delove/` (ignored by git) | done |
 | `delove@2` | distilled from the tuned teacher delove-teacher@2 (round 5) | done |
 | `delove@3` | fresh hidden-192 / 6-round network on branch-and-score decisions (cycle 4, `CYCLES.md`): 0.541 / 0.600 / 0.610 against delove@2 at 2 / 4 / 6 players | current best |
+| `jacob-sensei@1` | Jacob Sensei: hand-coded teacher for big tables (`src/jacob.ts`, below); never stalls in self-play, even with Sensei 2 at 2 players, far ahead at 4-10 | candidate rollout teacher |
 
 `delove-teacher@1` picks only from the self-play candidates (never off-list), so every decision is a clean training
 label, and it is deterministic from the seed. Against `risky@1` (`--seed 3`):
@@ -117,6 +119,84 @@ teacher's move 77% of the time on held-out games), `--seed 5`:
 | `delove-teacher@1` | Classic, 2 players | 400 | 0.525 | (even: it learned the teacher) |
 | `delove-teacher@1` | World, 2 players | 200 | 0.605 | +74 (a map it never trained on) |
 | `delove-teacher@1` | Classic, 4 players | 200 | 0.415 | (trained on 2-player games only) |
+
+## Jacob Sensei (`jacob-sensei@1`): a teacher that doesn't stall
+
+Sensei 2 (`delove-teacher@2`) was tuned on 2- and 4-player Classic and stalls on big boards and big tables: with
+progressive cards every seat ends up on thousands of armies and nobody attacks, because in a many-player game the
+armies a fight costs mostly help the players who stay out of it (a stalled World 6-player game at turn 500: five
+players on 2,800-7,100 armies each, sets worth 790, two conquests a turn, all card grabs). Jacob Sensei
+(`src/jacob.ts`, named by the owner) keeps Sensei's judgement and adds terms from the LLM players' post-game notes
+(`AI/general-player/risk-learnings.md`), each a tunable number. `teacher.ts` is unchanged, so `delove-teacher@1/@2`
+and the GPU mirror are too.
+
+| learning (risk-learnings.md) | heuristic | number(s) | ablation: switched off |
+| --- | --- | --- | --- |
+| go for the kill; hunt weak players for their cards; plan the whole kill run | a capture from a rival whose whole army is under the attacking stack / `huntRatio` earns `huntValue` x elimination worth / their territories (attacks and placement) | `huntRatio`, `huntValue` | **the big one**: 0.22-0.32 against full Jacob at 4-10 players, games 35-50% longer |
+| late-game tactics; huge stacks must be used | every round past `lateRound` lowers the attack bar and own-loss weight (`lateRamp`) and the win chance needed (`lateWin`, floor `minWinFloor`) | `lateRound`, `lateRamp`, `lateWin`, `minWinFloor` | stall insurance: Greater Europe 10p self-play stalls 7 of 32 games without it |
+| check the leader's income and territory count, not just your neighbours | a rival's armies and territories are worth more the further its power (armies + `powerIncome` x income + `powerCards` x cards x card value) is above the table mean | `leaderLoss`, `leaderCapture`, `powerIncome`, `powerCards` | neutral (within noise) |
+| take at least one territory for the card | until the turn's first conquest the attack bar is lower by `cardUrge` | `cardUrge` | neutral |
+| sitting on troops is the most common mistake | own losses count less the more a stack exceeds its border's threat, in turns of income | `stackRamp`, `stackFree` | neutral |
+| never skip your fortify; move interior stacks onto a border | an interior stack is always fortified to the front, toward its best attack | `frontPull` | neutral |
+
+Skipped: anything needing chat, diplomacy, fog of war or memory of earlier turns (retaking a loss, kill-guarding,
+card-blocking). Ablations: 32 self-play games per big table and 200 mirrored games per table against full Jacob, on
+the generation-4 numbers.
+
+**Tuning.** `src/tune.ts --teacher jacob` from the untuned numbers (`DEFAULT_JACOB_PARAMS`: Sensei 2's 28 plus first
+guesses), 30 generations of 8 mutants x 300 games, confirmed on 800 (2 accepted), on Classic 2p 0.3, World 2p 0.1,
+Classic 4p 0.1, Asia 4p 0.1, World 6p 0.15, Fantasy 6p 0.1, Greater Europe 10p 0.15, 500-turn limit, `--stall 1`.
+A first run without a length term accepted a version that wins mixed tables by sitting back and drags self-play
+games to the edge of the limit (Greater Europe 10p 158 -> 442 turns). So `--selfplay greater_europe:10,world:6,fantasy:10,classic:4
+--length 0.3` also plays each candidate against itself and charges (candidate - best) for turn-limit games and mean
+length. The result is `JACOB_SENSEI_1_PARAMS`. Later versions: `models/delove/jacob-sensei@N.json` (N >= 2) register
+on their own. `src/tables.ts` runs these checks over many tables at once:
+
+```bash
+node --import ./packages/delove/dist/register.js packages/delove/dist/tables.js --agent jacob-sensei@1 \
+  [--vs delove-teacher@2] --tables classic:2,world:6,greater_europe:10 --games 64 --workers 6
+```
+
+**Results** (2026-10-20, 500-turn limit). Self-play, every seat the same teacher (Sensei 2: 16 games per table;
+Jacob: 64):
+
+| table | Sensei 2 turn-limit | Jacob turn-limit | Jacob mean turns |
+| --- | --- | --- | --- |
+| Classic 2 / 4 / 6p | 0 / 12.5 / 31% | 0 / 0 / 0 | 19 / 50 / 53 |
+| World 4 / 6 / 8 / 10p | 62 / 94 / 75 / 100% | 0 / 0 / 0 / 0 | 67 / 79 / 77 / 80 |
+| Greater Europe 4 / 6 / 10p | 100 / 100 / 100% | 0 / 0 / 0 | 115 / 129 / 120 |
+| Fantasy 6 / 10p | 94 / 100% | 0 / 0 | 83 / 81 |
+| Asia 8p, USA 10p, Europe 8p | 44 / 44 / 25% | 0 / 0 / 0 | 58 / 57 / 54 |
+
+Against Sensei 2, seats alternating, mirrored pairs (score = Jacob's share of wins, 0.5 even; points = mean
+leaderboard points per seat, placement + kills, a turn-limit game scoring last place for everyone):
+
+| table | games | Jacob score (95%) | Jacob points | Sensei 2 points | turn-limit |
+| --- | --- | --- | --- | --- | --- |
+| Classic 2p | 1,000 | 0.521 (0.499-0.543) | 0.56 | 0.44 | 0% |
+| World 2p | 1,000 | 0.504 (0.482-0.526) | 0.51 | 0.49 | 0% |
+| Classic 4p | 200 | 0.645 (0.587-0.703) | 1.11 | 0.39 | 0% |
+| Asia 4p | 200 | 0.650 | 1.17 | 0.33 | 0% |
+| World 4p | 200 | 0.698 | 1.22 | 0.14 | 2.5% |
+| Greater Europe 4p | 200 | 0.638 | 0.50 | -0.34 | 24.5% |
+| Classic 6p | 200 | 0.705 | 1.33 | 0.34 | 0% |
+| World 6p | 200 | 0.735 | 1.12 | 0.09 | 6% |
+| Fantasy 6p | 200 | 0.738 | 1.17 | -0.23 | 9.5% |
+| World 10p | 200 | 0.808 | 1.23 | -0.20 | 6.5% |
+| Fantasy 10p | 200 | 0.825 | 1.07 | -0.33 | 9% |
+| USA 10p | 200 | 0.713 | 1.11 | 0.63 | 0.5% |
+| Greater Europe 10p | 200 | 0.763 | -0.20 | -1.95 | 33.5% |
+
+Bar (docs/delove-status.md, section 9 item 1): turn-limit games under ~2% at every table size: met in self-play (0 of
+960), which is what rollouts play. No loss at 2 players against Sensei 2: met (1,000 games each on Classic and
+World). Tables that keep Sensei 2 in half the seats still stall on the big boards (Greater Europe 25-34%), because
+Jacob alone can't finish several turtling Sensei seats in 500 turns; as a cycle's rollout teacher Jacob plays every
+seat, so those tables don't arise there, but steps that seat Sensei 2 as an opponent will keep stalling.
+
+**Porting it to the GPU mirror** (`packages/delove-gpu/delove_gpu/teacher.py`, a later step): the same scoring as
+Sensei plus per-player armies, territories, income (`reinforcementsFor`) and cards for the power and hunt terms (one
+segment-sum over territories per position), the round for the late ramp, the conquest flag for the card urge, and the
+interior-to-front fortify branch; then add `src/jacob.ts` to `RULE_FILES` and re-verify with `verify.py`.
 
 ## Stage 2: self-play rounds
 

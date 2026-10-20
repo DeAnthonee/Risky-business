@@ -36,6 +36,8 @@ describe('Delove seat player', () => {
     expect(defaultName('sensei')).toBe('Sensei 1');
     expect(defaultName('delove-teacher@2')).toBe('Sensei 2');
     expect(defaultName('sensei@2')).toBe('Sensei 2');
+    expect(defaultName('jacob-sensei@1')).toBe('Jacob Sensei');
+    expect(defaultName('jacob')).toBe('Jacob Sensei');
     expect(defaultName('delove@3')).toBe('Delove 3');
     expect(defaultName('delove@3-explore')).toBe('Delove 3 (explore)');
     expect(defaultName('custom-agent')).toBe('custom-agent');

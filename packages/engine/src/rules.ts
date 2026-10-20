@@ -23,6 +23,11 @@ Mistveil Isle; island chains (Shardsea, Tanuvai, Saltreach, Hrimvald) are linked
 Four Crowns ("skirmish"): a small, fast original board, 24 territories in 6 regions (2-4 players). Four corner
 kingdoms (+2 each) ring the Heartland (+4); each kingdom has one gate into the Heartland and two harbours to the
 Waystones (+3), four lone isles that carry the sea lanes from one kingdom to the next. It does not wrap.
+Bohemia ("bohemia"): an inland kingdom with no sea, 42 territories in 8 regions (2-6 players). Skalice Uplands +3,
+Northern Woods +3, Talmberk Marches +4, Mrchojedy Lands +3, Sázava Valley +3, Ledeč Heartland +4, Vraník Forests +2,
+Rataje Domain +4. The Sázava river and forest brooks separate every region: regions never share a land border and
+meet only at 14 fords and bridges (drawn as dashed crossings), so each region has two or three entry territories.
+It does not wrap.
 Use the "map" tool for the exact territories, regions and adjacency of the map a game is using. On the classic,
 World and Grand World maps Alaska and Kamchatka are adjacent (the map wraps); on every map some adjacencies
 cross water.
@@ -39,6 +44,7 @@ share of the 6-player total (120 armies per 42 territories). Never fewer than 1.
   Asia: 2: 47, 3: 41, 4: 35, 5: 29, 6: 23, 7: 20, 8: 18.
   Realms of Halvaren: 2: 83, 3: 73, 4: 62, 5: 52, 6: 41, 7: 36, 8: 31, 9: 28, 10: 25.
   Four Crowns: 2: 23, 3: 20, 4: 17.
+  Bohemia: 2: 40, 3: 35, 4: 30, 5: 25, 6: 20.
 
 SETUP
 Territories are dealt randomly (default) and get 1 army each. Then, in turn order, each player places armies on their

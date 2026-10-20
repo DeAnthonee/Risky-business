@@ -28,9 +28,11 @@ cards are hidden).
 | `POST /games/:id/leave`            | leave the lobby, or surrender a running game                       |
 | `POST /games/:id/close`            | host: close and delete the room for everyone                       |
 | `POST /games/:id/character`        | seat token + `x-characters-key`: `{characterId}` binds your seat to a character for the leaderboard (lobby) |
-| `GET  /rankings`, `GET /rankings/profile?key=` | the leaderboard; one identity's ranking and profile (see [the character league guide](character-league.md)) |
+| `GET  /rankings?season=`, `GET /rankings/profile?key=&season=` | the leaderboard `{season, current, rankings}`; one identity's ranking and profile. `season` (optional, an id from `/rankings/seasons`) reads an archived season; unknown ids are 404 (see [the character league guide](character-league.md)) |
+| `GET  /rankings/seasons`           | `{current, seasons: [{id, season, current, games}]}`: the current season first, then archives newest first |
 | `GET  /games/:id/players/:player/profile` | a seat's ranking and profile                                  |
 | `GET  /admin/games`, `DELETE /admin/games/:id`, `POST /admin/sweep` | admin token only: inspect, delete, sweep rooms |
+| `POST /admin/rankings/new-season`  | admin: archive the leaderboard now and start the next season empty → `{archived, season}` (500 and no change if the archive fails) |
 | `GET  /admin/archive`, `GET /admin/archive/:id`, `GET /admin/archive/:id/steps/:step?viewer=` | admin: recorded games (index; one whole record; one moment rebuilt by replay, through a player's eyes under fog). See [game records](game-records.md) |
 | `POST /admin/scenarios`            | admin: `{recordId, step, seats?: {<playerId>: "bot" \| "open"}, keepDice?, name?}` → `{gameId, scenarioOf, seats: [{playerId, bot, token}]}`: a new live game from one moment of a recorded game (see [game records](game-records.md#scenarios-playing-a-recorded-moment-out-again)) |
 | `POST /games/:id/seat`             | scenario seat token: `{bot?: false}` takes the seat over from its bot; `{bot: true}` hands it back |

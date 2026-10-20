@@ -138,18 +138,28 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
     api.get('/model-info', (_req, res) => res.json(characters.modelInfo()));
   }
 
-  const rankedProfile = (key: string, name: string) => {
+  const rankedProfile = (key: string, name: string, season?: string) => {
     let profile: string | null = null;
     if (/^[a-z0-9][a-z0-9_-]*\/[a-z0-9][a-z0-9_-]*$/.test(key) && characters) {
       try { profile = characters.get(key).markdown; } catch { /* historical character may have been removed */ }
     }
-    return { stats: store.rankings.profile(key, name), profile };
+    return { stats: store.rankings.profile(key, name, season), profile };
   };
-  api.get('/rankings', (_req, res) => res.json({ rankings: store.rankings.rows() }));
+  // ?season=<id> reads an archived season (ids from /rankings/seasons); without it, the current one.
+  const seasonOf = (req: Request) => (req.query.season === undefined ? undefined : String(req.query.season).slice(0, 20));
+  api.get('/rankings', (req, res) => {
+    const season = seasonOf(req);
+    const rankings = store.rankings.seasonRows(season);
+    if (!rankings) return res.status(404).json({ error: `No leaderboard season ${season}` });
+    res.json({ season: season || String(store.rankings.season), current: !season || season === String(store.rankings.season), rankings });
+  });
+  api.get('/rankings/seasons', (_req, res) => res.json({ current: store.rankings.season, seasons: store.rankings.seasons() }));
   api.get('/rankings/profile', (req, res) => {
     const key = String(req.query.key ?? '').slice(0, 200);
     if (!key) return res.status(400).json({ error: 'Profile key is required' });
-    res.json(rankedProfile(key, key.split('/').pop()!));
+    const season = seasonOf(req);
+    if (!store.rankings.seasonRows(season)) return res.status(404).json({ error: `No leaderboard season ${season}` });
+    res.json(rankedProfile(key, key.split('/').pop()!, season));
   });
   api.get('/games/:id/players/:player/profile', loadRoom, (req: Req, res) => {
     const player = req.room!.state.players.find(p => p.id === req.params.player && !p.isNeutral);
@@ -264,6 +274,18 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
     '/admin/sweep',
     requireAdmin,
     wrap((_req, res) => res.json({ removed: store.sweep() })),
+  );
+  // Archive the leaderboard now (kept as rankings.season-<N>.json, still readable) and start season N+1 empty.
+  api.post(
+    '/admin/rankings/new-season',
+    requireAdmin,
+    wrap((_req, res) => {
+      try {
+        res.json(store.rankings.newSeason());
+      } catch (e) {
+        res.status(500).json({ error: (e as Error).message });
+      }
+    }),
   );
 
   // ---- game archive: every recorded game, move by move, with fog of war views (admin only: it shows hidden boards) ----

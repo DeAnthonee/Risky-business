@@ -102,4 +102,101 @@ describe('persistent character rankings API',()=>{
     expect(new Rankings(file, 3).rows()).toEqual([]);
     expect(existsSync(join(dir, 'rankings.season-2.json'))).toBe(true);
   });
+  it('keeps a saved season newer than the code one, and archives in memory without a file', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'rankings-'));
+    dirs.push(dir);
+    const file = join(dir, 'rankings.json');
+    const old = [{ gameId: 'g_old_1', seats: [{ key: 'league/jinx', name: 'Jinx', placement: 1, killed: [] }, { key: 'league/shaco', name: 'Shaco', placement: 2, killed: [] }] }];
+    writeFileSync(`${file}.season`, '5' + String.fromCharCode(10));
+    writeFileSync(file, JSON.stringify(old), 'utf8');
+    // An admin moved on to season 5; code still says 2, so nothing is archived.
+    const r = new Rankings(file, 2);
+    expect(r.season).toBe(5);
+    expect(r.rows()).toHaveLength(2);
+    expect(r.newSeason()).toEqual({ archived: 5, season: 6 });
+    expect(r.rows()).toEqual([]);
+    expect(r.seasonRows('5')).toHaveLength(2);
+    expect(r.seasonRows('4')).toBeNull();
+    expect(readFileSync(`${file}.season`, 'utf8').trim()).toBe('6');
+    // An archived game is never counted again in the new season, even after a restart.
+    const again = new Rankings(file, 2);
+    expect(again.season).toBe(6);
+    again.record({ id: 'g_old_1', phase: 'finished', winner: 'a', territories: {}, players: [] } as unknown as GameState, {}, []);
+    expect(again.rows()).toEqual([]);
+    const mem = new Rankings(null, 3);
+    expect(mem.newSeason()).toEqual({ archived: 3, season: 4 });
+    expect(mem.seasons()).toEqual([{ id: '4', season: 4, current: true, games: 0 }]);
+  });
+});
+
+describe('leaderboard seasons API', () => {
+  it('archives the board on an admin call, keeps old seasons readable, and loses no game finished meanwhile', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'rankings-'));
+    dirs.push(dir);
+    const store = new Store(join(dir, 'games.json'));
+    risk = createRiskServer(store, { clientDir: null, sweepIntervalMs: 0, adminToken: 'admin-secret' });
+    await new Promise<void>(r => risk!.server.listen(0, '127.0.0.1', r));
+    const base = `http://127.0.0.1:${(risk.server.address() as AddressInfo).port}`;
+    const api = new HttpRiskApi(base);
+    const season = store.rankings.season;
+    // Two-seat games that end when the second seat surrenders.
+    const table = async (a: string, b: string) => {
+      const g = await api.createGame(a, undefined, { map: 'classic', autoSetup: true, maxPlayers: 2 });
+      const j = await api.joinGame(g.gameId, b);
+      await api.start(g.gameId, g.token);
+      return { id: g.gameId, finish: () => api.act(g.gameId, j.token, { type: 'surrender' }) };
+    };
+    await (await table('Shen', 'Ahri')).finish();
+    const before = await api.rankings();
+    expect(before).toMatchObject({ season: String(season), current: true });
+    expect(before.rankings.map(r => r.key)).toEqual(['player:shen', 'player:ahri']);
+
+    const post = (token?: string) => fetch(`${base}/api/admin/rankings/new-season`, { method: 'POST', headers: token ? { authorization: `Bearer ${token}` } : {} });
+    expect((await post()).status).toBe(401);
+    expect((await post('wrong')).status).toBe(401);
+    expect((await api.rankings()).rankings).toHaveLength(2);
+
+    // Games finishing while the archive happens land wholly in one season or the other.
+    const tables = await Promise.all(['Garen', 'Lux', 'Jinx', 'Vi'].map((n, i) => table(n, `Foe${i}`)));
+    const [res] = await Promise.all([post('admin-secret'), ...tables.map(t => t.finish())]);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ archived: season, season: season + 1 });
+    expect(existsSync(join(dir, `rankings.season-${season}.json`))).toBe(true);
+    const archivedIds = JSON.parse(readFileSync(join(dir, `rankings.season-${season}.json`), 'utf8')).map((g: { gameId: string }) => g.gameId);
+    const currentIds = JSON.parse(readFileSync(join(dir, 'rankings.json'), 'utf8')).map((g: { gameId: string }) => g.gameId);
+    expect([...archivedIds, ...currentIds].sort()).toEqual(expect.arrayContaining(tables.map(t => t.id)));
+    expect(archivedIds.length + currentIds.length).toBe(5);
+    expect(archivedIds.filter((id: string) => currentIds.includes(id))).toEqual([]);
+
+    // A second archive never overwrites the first; the new season starts empty.
+    expect((await (await post('admin-secret')).json()).season).toBe(season + 2);
+    const now = await api.rankings();
+    expect(now).toMatchObject({ season: String(season + 2), current: true, rankings: [] });
+    const list = await api.rankingSeasons();
+    expect(list.current).toBe(season + 2);
+    expect(list.seasons.map(s => [s.id, s.current, s.games])).toEqual([[String(season + 2), true, 0], [String(season + 1), false, currentIds.length], [String(season), false, archivedIds.length]]);
+    const old = await api.rankings(String(season));
+    expect(old).toMatchObject({ season: String(season), current: false });
+    expect(old.rankings.find(r => r.key === 'player:shen')).toMatchObject({ wins: 1, points: 1 });
+    const profile = await fetch(`${base}/api/rankings/profile?key=player:shen&season=${season}`).then(r => r.json());
+    expect(profile.stats).toMatchObject({ key: 'player:shen', wins: 1 });
+    expect((await fetch(`${base}/api/rankings/profile?key=player:shen`).then(r => r.json())).stats).toMatchObject({ games: 0 });
+    await expect(api.rankings('99')).rejects.toMatchObject({ status: 404 });
+    await expect(api.rankings('../games')).rejects.toMatchObject({ status: 404 });
+
+    // The admin season survives a restart with the code season unchanged.
+    await risk.shutdown('reload'); risk = undefined;
+    const restored = new Store(join(dir, 'games.json'));
+    expect(restored.rankings.season).toBe(season + 2);
+    expect(restored.rankings.rows()).toEqual([]);
+    restored.stopTimers();
+  });
+  it('answers 404 for the admin route when no admin token is configured', async () => {
+    const store = new Store(null);
+    risk = createRiskServer(store, { clientDir: null, sweepIntervalMs: 0 });
+    await new Promise<void>(r => risk!.server.listen(0, '127.0.0.1', r));
+    const base = `http://127.0.0.1:${(risk.server.address() as AddressInfo).port}`;
+    expect((await fetch(`${base}/api/admin/rankings/new-season`, { method: 'POST' })).status).toBe(404);
+    expect(await fetch(`${base}/api/rankings/seasons`).then(r => r.json())).toEqual({ current: RANKINGS_SEASON, seasons: [{ id: String(RANKINGS_SEASON), season: RANKINGS_SEASON, current: true, games: 0 }] });
+  });
 });

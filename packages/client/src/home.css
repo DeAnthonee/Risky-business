@@ -352,6 +352,12 @@
   transform: rotate(-2deg) skewX(-8deg);
   box-shadow: 5px 5px 0 var(--red);
 }
+.board-season {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 800;
+}
 .board-count {
   display: flex;
   gap: 8px;

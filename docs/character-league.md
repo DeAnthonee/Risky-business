@@ -37,11 +37,28 @@ The server records outcomes directly from finished room states. Its independent 
 beside games.json under RISK_DATA_DIR, survives room deletion/restarts, and ignores already recorded game
 IDs. Multiple lobbies share this single server writer. A corrupt rankings file does not stop the server:
 it is moved aside to rankings.json.corrupt (and logged) and the ladder restarts empty, so restore it from a
-backup. The board holds only games finished on the site. It runs in **seasons**: `RANKINGS_SEASON` in
-`packages/server/src/rankings.ts` (season 2 since the wipe in #107). The season in force is written to
-`rankings.json.season`; when the code's season is newer, the old board is moved to `rankings.season-<old>.json` (kept,
-never deleted, never over an existing archive) and the new season starts empty; if that move fails the season file
-is not updated, so it is retried on the next start, so bumping the number and deploying wipes the leaderboard. Every row
+backup. The board holds only games finished on the site. It runs in **seasons** (season 3 since the wipe in #PR;
+season 2 ran from #107). The season in force is written to `rankings.json.season`. Starting a new season moves the
+old board to `rankings.season-<old>.json` (kept, never deleted, never over an existing archive: a second archive of
+the same season becomes `rankings.season-<old>-2.json`) and the new season starts empty. Past seasons stay readable:
+`GET /api/rankings/seasons` lists them, `GET /api/rankings?season=<id>` reads one, the web leaderboard has a season
+picker (current by default) and the MCP `leaderboard` tool takes an optional `season`. A game is counted in exactly
+one season, never again in a later one.
+
+**Archiving the board now** (no code change, no deploy): with the admin token,
+
+```bash
+curl -X POST -H "Authorization: Bearer $RISK_ADMIN_TOKEN" https://risky.deanthoneeking.com/api/admin/rankings/new-season
+```
+
+answers `{"archived": N, "season": N+1}`. It is atomic against games finishing at the same moment: each lands wholly
+in the archived season or in the new one. If the archive cannot be made it answers 500 and nothing changes.
+
+**Archiving on a deploy:** bump `RANKINGS_SEASON` in `packages/server/src/rankings.ts`; the first start on it
+archives the same way (if the move fails the season file is not updated and it is retried on the next start). The
+season in force is the **higher** of the code constant and the saved season: after admin archives have moved the
+saved season past the constant, a deploy changes nothing until the constant is bumped above the saved number. Both
+ways go through the same code (`Rankings.archiveTo`). Every row
 has its own display name (`uniqueBoardNames` in the engine): the identity that reached the board first keeps
 "Darius", later ones with the same name (any case) show as "Darius2", "Darius3" and so on. Keys and points do not
 change. A failed save is logged without failing the move that ended the game. Back up RISK_DATA_DIR with

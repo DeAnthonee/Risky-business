@@ -20,6 +20,10 @@ Press **Fast-forward** in the spectator bar to drop the replay and all animation
 happens (handy for long all-AI games); press it again for normal speed. It is spectator-only and resets to normal
 speed when you take a seat or reload.
 
+The board sits on animated water: a lit sea that darkens toward the edges, small cream wave marks that drift
+and fade in and out, and a soft surf glow that swells along every coast. It is ambient decoration (Fast-forward
+does not touch it) and holds still when the system asks for reduced motion.
+
 **Auto-spectate** is a hands-off live stream: press **Auto-Spectate Live Stream** above the game list (shown while a
 game is being played) or open `/?spectate=1` with no game. It tunes into a game in progress and, when that game ends
 or its room closes, shows a countdown to the next live game, with **Stay here** to keep watching where you are (which

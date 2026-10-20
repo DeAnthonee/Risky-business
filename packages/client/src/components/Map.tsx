@@ -339,6 +339,18 @@ export function GameMap(props: MapProps) {
         <pattern id="ocean-grid" width="40" height="40" patternUnits="userSpaceOnUse">
           <path d="M40 0H0V40" fill="none" stroke="rgba(255,255,255,0.045)" strokeWidth="1" />
         </pattern>
+        {/* Water: a lit centre fading to deep edges, and small hand-drawn wave marks that drift and fade */}
+        <radialGradient id="ocean-depth" gradientUnits="userSpaceOnUse" cx={W / 2} cy={H / 2} r={Math.max(W, H) * 0.75}>
+          <stop offset="0" stopColor="#15395a" />
+          <stop offset="0.55" stopColor="#0d2338" />
+          <stop offset="1" stopColor="#06111d" />
+        </radialGradient>
+        <pattern id="ocean-waves" width="180" height="120" patternUnits="userSpaceOnUse">
+          <path d="M14 30q9-8 18 0t18 0M104 88q9-8 18 0t18 0" />
+        </pattern>
+        <pattern id="ocean-waves-b" width="180" height="120" patternUnits="userSpaceOnUse" x="90" y="60">
+          <path d="M14 30q9-8 18 0t18 0M60 70q7-6 14 0" />
+        </pattern>
         <pattern id="blizzard" width="10" height="10" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
           <rect width="10" height="10" fill="#dfe8f2" />
           <line x1="0" y1="0" x2="0" y2="10" stroke="#b3c4d6" strokeWidth="4" />
@@ -347,7 +359,18 @@ export function GameMap(props: MapProps) {
 
       {/* Ocean (oversized so panning never shows the page background) */}
       <rect x={-W} y={-H} width={3 * W} height={3 * H} className="ocean" onPointerEnter={() => setHovered(null)} />
+      <rect x={-W} y={-H} width={3 * W} height={3 * H} fill="url(#ocean-depth)" pointerEvents="none" />
       <rect x={-W} y={-H} width={3 * W} height={3 * H} fill="url(#ocean-grid)" onPointerEnter={() => setHovered(null)} />
+      <g className="ocean-waves" pointerEvents="none">
+        <rect x={-W} y={-H} width={3 * W} height={3 * H} fill="url(#ocean-waves)" className="wave-layer a" />
+        <rect x={-W} y={-H} width={3 * W} height={3 * H} fill="url(#ocean-waves-b)" className="wave-layer b" />
+      </g>
+      {/* Surf: a soft pale band along every coast that slowly swells */}
+      <g className="ocean-surf" pointerEvents="none">
+        {map.continents.map((c) => (
+          <path key={c.id} d={c.outline} />
+        ))}
+      </g>
 
       {/* Continent outlines give the board its regions */}
       <g className="continents" filter="url(#land-shadow)">

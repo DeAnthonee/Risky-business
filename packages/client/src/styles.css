@@ -404,6 +404,46 @@ footer {
 .ocean {
   fill: #0b1b2b;
 }
+/* Wave marks: cream strokes (the page's paper colour) drifting one tile east while two offset
+   layers take turns fading in, so little waves seem to come and go. Transform/opacity only. */
+#ocean-waves path,
+#ocean-waves-b path {
+  fill: none;
+  stroke: #ffe9cc;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+.wave-layer {
+  opacity: 0;
+  animation: wave-drift 18s linear infinite, wave-fade 6s ease-in-out infinite;
+}
+.wave-layer.b {
+  animation-delay: -9s, -3s;
+}
+@keyframes wave-drift {
+  from { transform: translateX(0); }
+  to { transform: translateX(180px); }
+}
+@keyframes wave-fade {
+  0%, 100% { opacity: 0.03; }
+  50% { opacity: 0.16; }
+}
+.ocean-surf path {
+  fill: none;
+  stroke: #bfe3ff;
+  stroke-width: 22;
+  stroke-linejoin: round;
+  opacity: 0.06;
+  animation: surf-swell 5s ease-in-out infinite;
+}
+@keyframes surf-swell {
+  0%, 100% { opacity: 0.04; }
+  50% { opacity: 0.12; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wave-layer { animation: none; opacity: 0.1; }
+  .ocean-surf path { animation: none; }
+}
 .continent-outline {
   fill: rgba(255, 255, 255, 0.05);
   stroke-width: 7;

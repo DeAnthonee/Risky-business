@@ -76,15 +76,21 @@ decision collected so far.
 | `delove-teacher@2` ("Sensei 2") | Sensei 1's 28 judgement numbers tuned by self-play evolution | 0.608 vs Sensei 1 over 1,000 two-player games (+76 Elo); even at 4-6p |
 | `delove@2` | copying Sensei 2 (2p) + Sensei 1 (multiplayer), from `delove@1` | vs `delove@1`: 0.593 (2p), 0.555 (4p), 0.60 (6p) |
 | **`delove@3`** | fresh larger net on branch-and-score decisions (cycle 4) | vs `delove@2`: **0.541** (2p, 800 games, 95% 0.513-0.569), **0.600** (4p), **0.610** (6p); 0.560 vs Sensei 2 |
-| `jacob-sensei@1` ("Jacob Sensei", #98) | Sensei 2's numbers plus tunable terms from `AI/general-player/risk-learnings.md` (hunt weak players, late-game ramp, leader pressure), tuned with a self-play length penalty | 0 of 960 self-play games hit the turn limit (Sensei 2: up to 100% on big boards); vs Sensei 2: 0.521 Classic 2p, 0.504 World 2p (1,000 games each), 0.64-0.83 at 4-10p. Candidate rollout teacher (`DELOVE_BRANCH_TEACHER=jacob-sensei@1`); not on the GPU yet |
+| `jacob-sensei@1` ("Jacob Sensei", #98) | Sensei 2's numbers plus tunable terms from `AI/general-player/risk-learnings.md` (hunt weak players, late-game ramp, leader pressure), tuned with a self-play length penalty | 0 of 960 self-play games hit the turn limit (Sensei 2: up to 100% on big boards); vs Sensei 2: 0.521 Classic 2p, 0.504 World 2p (1,000 games each), 0.64-0.83 at 4-10p. **vs `delove@3`:** 0.440 Classic 2p, 0.575 Classic 4p, 0.735 World 6p, 0.76 Fantasy 6p, 0.82 World 10p (+0.5 to +1.2 points per seat at 4-10p). Cycle 6's teacher; GPU port in progress. Published in the private models repo |
+| `c5-candidate` (not promoted) | `delove@3` fine-tuned on cycle 5 (37,600 games on six maps, 2-10 players, points value target) | vs `delove@3`: 0.502 (2p, 800 games, 95% 0.475-0.530), even at 4-6p, **-0.57 / -0.55 points per seat at World 10p / 6p**; 0.574 vs Sensei 2. Why: 83% of its labels were Sensei 2's own move, weaker than `delove@3` in multiplayer (`CYCLES.md`) |
 
 Chained, roughly: `delove@3` is about +95 Elo over `delove@1` at 2 players, +110 at 4 and +150 at 6. That's
 about +600 Elo over the built-in bot at 2 players. The gains are largest in multiplayer, which used to be the weak spot.
 
 Scores are win shares in mirrored ladder matches (0.5 = even). With 4 or 6 players it's the share of games won by
-either of the candidate's seats. **Promotion rule:** at least 200 games, score at least 0.55 and the 95% interval
-above 0.5, at 2 players. `delove@3` was promoted by the owner at 0.541 (statistically better everywhere, just under
-the bar).
+either of the candidate's seats. Since cycle 5 the gate table also reports mean leaderboard points per seat for each
+side and their difference with a 95% interval.
+
+**Promotion rule (owner, 2026-10-20):** ranking high in every match is what counts, so a candidate is promoted to
+the next `delove@N` when it is clearly better on mean leaderboard points at 4-10 players (points-difference intervals
+above 0 at most table sizes, none clearly below) and not significantly worse at 2 players (800+ mirrored games); or
+when it is statistically better at 2 players and not worse on points. The coordinator promotes and publishes to the
+private models repo (`DeAnthonee/delove-models`) without waiting. `delove@3` was promoted at 0.541 (2 players).
 
 ## 4. The training flow, and why we think each part works
 
@@ -151,8 +157,11 @@ Full tables: `packages/delove/CYCLES.md`. Summary, oldest first:
 | cycle 3 | horizon 1, 4x the 2-player data | 7.8k | 2p 0.525 | the student matched the teacher only 62-71% of the time |
 | cycle 4 | fresh, larger network | 7.8k | **`delove@3`** | **network size was the 2-player bottleneck** |
 | strength meter (#79) | fit share weights to final points (4.7k games, 5 maps) | | hand weights order players best (58% vs 56%) | share-based meters top out around 65%; richer signals needed |
+| cycle 5 | all maps 2-10p, mostly on the GPU (37.6k games, 70M sims), points value target, from `delove@3` | 37.6k | 2p 0.502, 4-6p even, **World -0.55 points per seat** | **83% of branch labels are the teacher's own move**: with Sensei 2 weaker than the student in multiplayer, more data copied a weaker player. The branch player itself won ~3x its share at big tables |
+| Jacob Sensei (#98) | learnings-based teacher, tuned with a length/stall penalty | ~100k | vs `delove@3` 0.58-0.82 at 4-10p, 0.44 at 2p; never stalls | a plain head-to-head fitness rewarded sitting back; penalise slow games when tuning |
 
-Things that did **not** help: learning from whole-game wins, the one-move value lookahead, blending the value head
+Things that did **not** help: copying the teacher's unsearched moves when the teacher is weaker than the student
+(cycle 5), learning from whole-game wins, the one-move value lookahead, blending the value head
 into branch scores (no gain, 60% slower), 3-round rollouts, fitted share weights, and more cards or continents on
 their own. Each of these alone predicts a slightly *worse* finish.
 
@@ -240,6 +249,11 @@ Fog of war off (enforced by `delove-seat`); one seat per agent. For full environ
 | what | who | state |
 | --- | --- | --- |
 | GPU rules, teacher and branch-and-score for every map, 2-10 seats and every setting; points arrays from the GPU; `cycle.sh` GPU steps for any step | session "GPU engine for every map and 2-10 players" | done, **PR #82** merged |
+| cycle 5: all maps 2-10p on the GPU, points target; gate table with points; live dashboard (`scripts/dashboard.mjs`); `train.py --amp` and `#F` fractions | coordinator | done, not promoted (section 3); PR open |
+| Jacob Sensei on the GPU mirror (teacher kernel, per-seat teacher versions, verified by replay) | session "Port Jacob Sensei to the GPU mirror" | verify.py running on a pre-Bohemia base; PR next |
+| cycle 6: Jacob Sensei as teacher, branch-tag weighted training (`branch_tag.npy`, `--branch-weights`), cycle 5 big tables as value-only data | coordinator | ready, waits on the Jacob GPU fingerprint |
+| points-aware branch score (kills and placement in the rollout score, opt-in), mirrored and verified on the GPU | session "Points-aware branch score" | in progress, for cycle 7 |
+| range specialists (4+ alive / 3 alive / 1v1, routed by players alive) | coordinator | after a cycle with a clear gain (owner's plan) |
 | Jacob Sensei, a teacher that doesn't stall (section 9 item 1) | session "Jacob Sensei" | done, **PR #98** merged; GPU port (`delove_gpu/teacher.py`) is issue #99 |
 | all-map strength data | coordinator | 147 of 296 chunks (about 5k games, 5 maps), stopped to free the machine; finish on the GPU |
 | #39 tournament Earth map | other work | on hold (owner) |

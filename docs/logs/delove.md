@@ -7,6 +7,7 @@ numbers go in [packages/delove/CYCLES.md](../../packages/delove/CYCLES.md) and t
 Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. **Append a line in the same PR** as any change to
 this area (README hard rule 12).
 
+- 2026-10-20 #TBD Cycle 5 (all maps 2-10p on the GPU, points target; not promoted, CYCLES.md has why); gate table reports leaderboard points; `scripts/dashboard.mjs` live training view; `train.py --amp` and `#F` dataset fractions; delove-status sections 3, 5, 8 and the owner's promotion rule
 - 2026-10-20 #102 delove-status: `nine_realms` added to the map list and to the open-work row to re-verify the GPU fingerprint
 - 2026-10-20 #100 delove-status: `bohemia` added to the map list; open-work row to re-verify the GPU fingerprint for it
 - 2026-10-20 #98 `docs/delove-status.md`: Jacob Sensei in the models table, open work and section 9 item 1 (bar met in self-play); #82 marked merged

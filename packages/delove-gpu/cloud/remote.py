@@ -458,7 +458,7 @@ def run(args, gen_args: list[str]):
                     dest = work / f"pod-{k}.tar.gz"
                     try:
                         ssh.get(p, "/root/job/out.tar.gz", dest)
-                    except subprocess.CalledProcessError:
+                    except (subprocess.CalledProcessError, RuntimeError, ValueError):
                         print(f"  {p.name}: no out.tar.gz to download")
                     ssh.run(p, "rm -rf /root/job/models", check=False)
                     terminate(p)

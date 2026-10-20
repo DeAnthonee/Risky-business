@@ -1,4 +1,4 @@
-import { commitForOdds, getMap, nextTradeValue, type GameView, type PlayerId, type TerritoryId } from '@risk/engine';
+import { commitForOdds, exponentialTradeBonus, getMap, nextTradeValue, type GameView, type PlayerId, type TerritoryId } from '@risk/engine';
 import { planConquest, type Campaign, type CampaignOptions } from './campaigns.js';
 
 export interface KillOptions extends CampaignOptions { targetOnly?: PlayerId | null }
@@ -11,9 +11,35 @@ interface AttackStep {
 }
 
 /**
+ * Calculates the effective value of a card in the current game context.
+ * Progressive and Exponential modes share identical scaling EV logic in the mid-to-late game:
+ * both escalate dramatically with game progression (scaling sets of 30-200+ armies),
+ * making eliminations the decisive endgame mechanic in both modes.
+ */
+export function effectiveCardValue(view: GameView, me: PlayerId): number {
+  const mode = view.options.cardValues;
+  if (mode === 'fixed') return 3; // Fixed 4-10 armies per trade (~3.3 per card)
+  const mine = view.players.find((p) => p.id === me);
+  if (mode === 'progressive') {
+    return Math.max(12, nextTradeValue('progressive', view.tradeCount, 0)) / 3;
+  }
+  // Exponential mode: personal sequence scaling.
+  // In late-game exponential, set value reflects both personal trade progression and table round.
+  const personalTrades = mine?.tradesMade ?? 0;
+  const maxTableTrades = Math.max(...view.players.map((p) => p.tradesMade ?? 0), Math.floor(view.round / 3), personalTrades);
+  const projectedTradeBonus = Math.max(
+    exponentialTradeBonus(personalTrades),
+    exponentialTradeBonus(Math.min(personalTrades + 1, 24)),
+    exponentialTradeBonus(Math.min(maxTableTrades, 24)),
+    12 + view.round * 2.5
+  );
+  return Math.max(12, projectedTradeBonus) / 3;
+}
+
+/**
  * Advanced multi-hop mathematical kill pathfinder.
  * Finds the minimum-cost attack tree connecting owned territories to all victim territories,
- * including punching through low-defense 3rd party buffer/transit territories.
+ * including punching through 3rd-party buffer/transit territories when EV is high.
  */
 function findMultiHopKill(view: GameView, me: PlayerId, victimId: PlayerId, options: KillOptions): KillPlan | null {
   if (options.avoid.has(victimId)) return null;
@@ -46,6 +72,14 @@ function findMultiHopKill(view: GameView, me: PlayerId, victimId: PlayerId, opti
     return null;
   }
 
+  // Calculate EV metrics shared across Progressive and Exponential
+  const isScaling = view.options.cardValues === 'progressive' || view.options.cardValues === 'exponential';
+  const cardVal = effectiveCardValue(view, me);
+  const myCards = mine?.cardCount ?? 0;
+  const victimCards = victim.cardCount ?? 0;
+  const setsMe = (myCards + victimCards) >= 5;
+  const isHighEV = setsMe || (isScaling && (victimCards >= 3 || (victimCards >= 2 && cardVal >= 8))) || (victimCards * cardVal >= 25);
+
   const expectedLoss = (t: string): number => {
     const d = armies(t);
     const isCap = caps.has(t);
@@ -56,13 +90,22 @@ function findMultiHopKill(view: GameView, me: PlayerId, victimId: PlayerId, opti
     if (own(to)) return 0;
     if (blizzards.has(to) || options.noAttack.has(to)) return Infinity;
     const toOwner = view.territories[to]?.owner;
-    if (toOwner && options.avoid.has(toOwner) && victim.cardCount < 3) return Infinity;
+
+    // Avoidance check on 3rd parties:
+    // If EV is very high (setsMe, victim holds 3+ cards, or scaling bounty), do NOT be afraid to punch through!
+    if (toOwner && options.avoid.has(toOwner)) {
+      if (!isHighEV) return Infinity;
+    }
+
     const d = armies(to);
     const base = expectedLoss(to);
-    // Punching through 1s, 2s, 3s is heavily encouraged; large stacks carry a resistance penalty
+
+    // Punching through 3rd-party buffer territories:
+    // Realistic casualty cost with gentle preference for thinner garrisons (d * 0.25).
+    // Never impose artificial prohibitive penalties that scare the bot away from taking the path.
     if (toOwner !== victimId) {
-      if (d > 6) return base + 30 + d * 2;
-      return base + 1;
+      const avoidPenalty = toOwner && options.avoid.has(toOwner) ? 4 : 0;
+      return base + 1 + d * 0.25 + avoidPenalty;
     }
     return base;
   };
@@ -210,14 +253,12 @@ function findMultiHopKill(view: GameView, me: PlayerId, victimId: PlayerId, opti
   }
 
   const totalCost = attacks.reduce((sum, a) => sum + a.cost, 0);
-  const cardValue = view.options.cardValues === 'fixed' ? 3 : nextTradeValue(view.options.cardValues, view.tradeCount, mine?.tradesMade ?? 0) / 3;
-  const setsMe = ((mine?.cardCount ?? 0) + victim.cardCount) >= 5;
 
-  let score = 40 + victim.cardCount * cardValue;
-  if (setsMe) score += 350; // Guaranteed mid-turn progressive trade is game-winning!
-  if (victim.cardCount >= 3) score += 60;
+  let score = 40 + victimCards * cardVal;
+  if (setsMe) score += 350; // Guaranteed mid-turn trade in Progressive or Exponential is game-winning!
+  if (victimCards >= 3) score += isScaling ? 80 : 40;
   if (victimTerritories.length <= 3) score += 40;
-  score -= totalCost * 0.4 + totalDeficit * 0.2;
+  score -= totalCost * 0.35 + totalDeficit * 0.2;
 
   return {
     target: victimId,
@@ -232,13 +273,14 @@ function findMultiHopKill(view: GameView, me: PlayerId, victimId: PlayerId, opti
 }
 
 /**
- * Fully visible weak victims and high-EV progressive bounty targets.
+ * Fully visible weak victims and high-EV scaling bounty targets.
  * Evaluates both direct conquest campaigns and multi-hop transit paths.
  */
 export function planElimination(view: GameView, me: PlayerId, options: KillOptions): KillPlan | null {
   const map = getMap(view.options.map);
   const mine = view.players.find((p) => p.id === me);
-  const cardValue = view.options.cardValues === 'fixed' ? 3 : nextTradeValue(view.options.cardValues, view.tradeCount, mine?.tradesMade ?? 0) / 3;
+  const cardVal = effectiveCardValue(view, me);
+  const isScaling = view.options.cardValues === 'progressive' || view.options.cardValues === 'exponential';
 
   let best: KillPlan | null = null;
 
@@ -248,7 +290,6 @@ export function planElimination(view: GameView, me: PlayerId, options: KillOptio
     if (options.avoid.has(victim.id)) continue;
 
     const setsMe = ((mine?.cardCount ?? 0) + victim.cardCount) >= 5;
-
     const ts = map.territoryIds.filter((t) => !view.territories[t]?.hidden && view.territories[t]?.owner === victim.id);
     if (!ts.length) continue;
 
@@ -265,8 +306,8 @@ export function planElimination(view: GameView, me: PlayerId, options: KillOptio
     if (ts.length <= 5 && victim.territoryCount === ts.length) {
       const campaign = planConquest(view, me, ts, options);
       if (campaign) {
-        const score = 35 + victim.cardCount * cardValue + (victim.cardCount >= 3 ? 8 : 0) +
-          (setsMe ? cardValue * 2 : 0) - campaign.cost - campaign.deficit * 0.25;
+        const score = 35 + victim.cardCount * cardVal + (victim.cardCount >= 3 ? (isScaling ? 20 : 8) : 0) +
+          (setsMe ? cardVal * 2.5 : 0) - campaign.cost - campaign.deficit * 0.25;
         if (score > 0 && (!best || score > best.score)) {
           best = { ...campaign, target: victim.id, score };
         }

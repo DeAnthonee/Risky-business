@@ -621,7 +621,11 @@ class Chooser {
       const victimTerrs = victim?.territoryCount ?? 99;
       const isElimination = victimTerrs === 1;
       const isNearElimination = victimTerrs <= 3;
-      const isHighValueKill = (isElimination || isNearElimination) && (victim?.cardCount ?? 0) >= 3;
+      const isScalingCards = this.view.options.cardValues === 'progressive' || this.view.options.cardValues === 'exponential';
+      const myCardCount = this.view.players.find((p) => p.id === this.me)?.cardCount ?? 0;
+      const victimCardCount = victim?.cardCount ?? 0;
+      const setsMe = (myCardCount + victimCardCount) >= 5;
+      const isHighValueKill = (isElimination || isNearElimination) && (victimCardCount >= 3 || (setsMe && isScalingCards));
       if ((this.plan.avoid.has(toOwner) || this.plan.noAttack.has(a.to)) && !wins && !isElimination && !isHighValueKill) continue;
       // All-in against the one player chosen: nobody else is touched unless it wins the game.
       if (hopeless && toOwner !== this.plan.target && !wins) continue;

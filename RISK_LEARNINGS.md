@@ -386,6 +386,7 @@ Fundamental rules, mechanics, and tournament scoring for the Risk engine, follow
 - **Failing to secure capitals leaves you vulnerable to sudden elimination.** Shaco had 0 capitals and was eliminated in round 14 by Darius, despite inheriting card sets from eliminated players, making them vulnerable to elimination. (3 games, last WP588T)
 
 ### Progressive Cards (Escalating Spoils & Chain Eliminations)
+- **Never hesitate to punch through third-party buffer territories for high-EV kills.** When an elimination awards 3+ cards, guarantees a mid-turn set, or clears a crippled player, punching through a 1-to-5 army buffer of a third party costs negligible casualties (~2-8 armies) compared to the 100-250+ army card surge gained. (53RVR3)
 - **Always calculate multi-hop kill paths against low-troop victims with cards.** In late-game progressive lobbies, players holding cards are often tucked behind a single 1-army buffer territory of a 3rd party. Punching through a 1-troop buffer costs negligible casualties compared to a 200+ army card set. Map the whole kill path and punch through transit buffers immediately. (53RVR3)
 - **Siphon stacks at offensive junctions to prevent stranding armies.** When an attack path splits into multiple branches, calculate the required armies for each branch and siphon balanced forces (half or quarter stacks) into the advancing prong while retaining striking power on the hub to finish all targets. (53RVR3)
 - **Mid-turn card sets must trigger an immediate full turn re-plan.** When an elimination awards cards pushing your hand to 5+, the resulting trade surge (+100 to +250 armies) fundamentally transforms the board state. Re-plan immediately to hunt the next killable victim and chain-sweep the board in a single turn. (53RVR3)
@@ -400,6 +401,7 @@ Fundamental rules, mechanics, and tournament scoring for the Risk engine, follow
 - **Elimination chains accelerate endgame conquest.** Inheriting cards from an eliminated player can push the attacker to 5+ cards, triggering a mid-turn trade that finances the next elimination on the same turn. (2 games, last CDCU2S)
 
 ### Exponential Cards (Personal Sequences & Surge Timing)
+- **Exponential sets share the same scaling EV logic as progressive sets.** In the mid-to-late game, personal exponential set values escalate rapidly (scaling 1.3x each trade, reaching 50-300+ armies). Treat eliminations and card-steals with the exact same supreme priority as progressive mode; never treat exponential sets as small or static. (53RVR3)
 - **Monitor personal trade counts before engaging in card trades.** In exponential games where set values scale independently, timing a high-tier personal set cash-in allows sudden board-clearing strikes that static defenders cannot match. (1 game, last 8VALR5)
 
 ### Attack Routing & Troop Staging (Spearheads & Interior Pocket Prevention)

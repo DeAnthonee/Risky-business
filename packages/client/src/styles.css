@@ -438,6 +438,13 @@ footer {
   stroke-width: 1.5;
   stroke-dasharray: 5 4;
 }
+.sea-links line.attack-link,
+.sea-links g.attack-link line {
+  stroke: #ff5a5a;
+  stroke-width: 2.5;
+  stroke-dasharray: 5 4;
+  animation: target-pulse 1s ease-in-out infinite;
+}
 .territory {
   stroke: rgba(10, 16, 28, 0.9);
   stroke-width: 1;
@@ -464,13 +471,15 @@ footer {
 .territory.hl-source {
   filter: brightness(1.15);
 }
-.territory.hl-selected {
+.territory.hl-selected,
+.territory.hl-hover-source {
   stroke: #fff;
   stroke-width: 2.5;
   filter: brightness(1.25);
 }
 .territory.hl-target,
-.territory.hl-pending-target {
+.territory.hl-pending-target,
+.territory.hl-hover-target {
   stroke: #ff5a5a;
   stroke-width: 2.5;
   animation: target-pulse 1s ease-in-out infinite;
@@ -514,7 +523,8 @@ footer {
   stroke-width: 2.5;
 }
 .badge.hl-place .ring,
-.badge.hl-source .ring {
+.badge.hl-source .ring,
+.badge.hl-hover-source .ring {
   stroke: #fff;
   stroke-opacity: 0.8;
   stroke-dasharray: 4 4;
@@ -525,7 +535,8 @@ footer {
   stroke-width: 3;
   animation: pulse-ring 1s ease-in-out infinite;
 }
-.badge.hl-target .ring {
+.badge.hl-target .ring,
+.badge.hl-hover-target .ring {
   stroke: #ff5a5a;
   stroke-width: 3;
   animation: pulse-ring 1s ease-in-out infinite;
@@ -592,7 +603,9 @@ footer {
 .map.dense.show-names .badge .label,
 .map.dense .badge:hover .label,
 .map.dense .badge.hl-selected .label,
+.map.dense .badge.hl-hover-source .label,
 .map.dense .badge.hl-target .label,
+.map.dense .badge.hl-hover-target .label,
 .map.dense .badge.hl-pending-target .label {
   opacity: 1;
 }

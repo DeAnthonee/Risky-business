@@ -2,6 +2,8 @@
 
 Status: Stage 2 under way. Current best: `delove@3` (cycle 4 of branch-and-score training): 0.541 / 0.600 / 0.610 against
 `delove@2` at 2 / 4 / 6 players. History and per-step stats: `packages/delove/CYCLES.md`.
+Where things stand, the training flow and why each step should work, what has been tried, open work and the
+roadmap: **`docs/delove-status.md`** (read that first when coordinating Delove's training).
 
 ## What it is, and what it is not
 

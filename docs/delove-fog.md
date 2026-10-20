@@ -283,7 +283,7 @@ Two questions, gated separately: did fog cost anything on normal games, and is t
 - **What it does not risk:** the core skills (dice odds, card timing, continents, chokepoints) carry over, so the
   current cycles are not wasted. The risk is drift, not a dead end.
 
-**Earliest cycle for fog dropout:** the first cycle after `ENCODER_VERSION` 3 and the tracker land. Cycle 5 is the
+**Earliest cycle for fog dropout:** the first cycle after `ENCODER_VERSION` 3 and the tracker land. Cycle 5 is
 under way as this is written, so: build the encoder and tracker alongside the points cycles (delove-status section 9, steps 1-2), and
 start dropout at p = 0.2 in **cycle 6 or 7**, no later than the first cycle that trains a duel or table specialist
 (section 9 step 3), so the specialists inherit it instead of being retrained for it.

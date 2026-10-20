@@ -25,9 +25,10 @@ from delove_gpu.encode import Encoder  # noqa: E402
 from delove_gpu.config import GameConfig  # noqa: E402
 from delove_gpu.generate import Recorder, ts_constants  # noqa: E402
 from delove_gpu.logs import cand_to_action, games  # noqa: E402
+from delove_gpu.outcome import game_outcome  # noqa: E402
 from tests.branch_replay import Snap, log_options  # noqa: E402
 
-NAMES = ["territory", "global", "cand", "cand_from", "cand_to", "cand_offset", "choice", "z", "game", "seat"]
+NAMES = ["territory", "global", "cand", "cand_from", "cand_to", "cand_offset", "choice", "z", "points", "points01", "game", "seat"]
 
 
 def main():
@@ -76,11 +77,8 @@ def main():
         if rows:
             rec.add(enc, terr, glob, torch.tensor(rows, device=e.dev), ordered, cnt, chosen.to(e.dev), uid, e.cur, keys)
         e.step(action.to(e.dev))
-    for b, r in enumerate(recs):
-        z = [0.0] * r[0]["players"]
-        for x in r:
-            z[x["seat"]] = x["outcome"]["z"]
-        rec.finish_game(b, z)
+    for b in range(B):  # the GPU's own outcome of each replayed game (z, leaderboard points)
+        rec.finish_game(b, game_outcome(e, b))
     rec.close([args.log])
 
     mine = {n: np.load(tmp / gcfg.map / f"{n}.npy") for n in NAMES}
@@ -108,7 +106,7 @@ def main():
         counts = np.diff(off)[perm]
         if not np.array_equal(np.concatenate([[0], np.cumsum(counts)]), ref["cand_offset"]):
             problems.append("cand_offset differs")
-        for n in ["choice", "z", "seat"]:
+        for n in ["choice", "z", "points", "points01", "seat"]:
             if not np.array_equal(mine[n][perm], ref[n]):
                 problems.append(f"{n} differs")
         pairs = set(zip(mine["game"][perm].tolist(), ref["game"].tolist()))

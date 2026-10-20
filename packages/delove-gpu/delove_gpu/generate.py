@@ -35,6 +35,7 @@ from .encode import Encoder
 from .engine import FINISHED, KIND_NAMES
 from .fingerprint import REPO
 from .npy import NpyWriter
+from .outcome import game_outcome
 from .play import load_delove
 from .teacher import load_params, mix_seed
 
@@ -117,7 +118,7 @@ class Recorder:
         self.ncand = 0
         self.uids: list[np.ndarray] = []  # game uid of each row, for z at the end
         self.game_index: dict[int, int] = {}
-        self.z_of: dict[tuple[int, int], float] = {}
+        self.out_of: dict[tuple[int, int], tuple[float, float, float]] = {}  # (z, points, points01) per (game, seat)
         self.m = m
         self.keys: list = []
 
@@ -157,18 +158,20 @@ class Recorder:
         self.seat.append(seat[games].to(torch.int32).cpu().numpy())
         self.uids.append(np.stack([u, seat[games].cpu().numpy()], 1))
 
-    def finish_game(self, uid: int, z: list[float]):
-        for s, v in enumerate(z):
-            self.z_of[(uid, s)] = v
+    def finish_game(self, uid: int, out: dict):
+        """out: outcome.outcome() of the finished game (z, points, points01 per seat)."""
+        for s, z in enumerate(out["z"]):
+            self.out_of[(uid, s)] = (z, out["points"][s], out["points01"][s])
 
     def close(self, sources: list[str]) -> dict:
         for w in (self.territory, self.glob, self.cand, self.cand_from, self.cand_to, self.offset, self.choice, self.game, self.seat):
             w.close()
         us = np.concatenate(self.uids) if self.uids else np.zeros((0, 2), dtype=np.int64)
-        z = np.array([self.z_of[(int(u), int(s))] for u, s in us], dtype=np.float32)
-        zw = NpyWriter(self.dir / "z.npy", "<f4", [])
-        zw.append(z)
-        zw.close()
+        vals = np.array([self.out_of[(int(u), int(s))] for u, s in us], dtype=np.float64).reshape(-1, 3)
+        for k, name in enumerate(["z", "points", "points01"]):  # doubles rounded to float32 once, as export.ts stores them
+            w = NpyWriter(self.dir / f"{name}.npy", "<f4", [])
+            w.append(vals[:, k].astype(np.float32))
+            w.close()
         m = self.m
         result = {"map": m.id, "decisions": int(self.choice.rows), "candidates": self.ncand, "games": len(self.game_index),
                   "skipped": 0, "fogSkipped": 0}
@@ -325,12 +328,12 @@ class Group:
             t = self.tables[ti]
             won = int(e.phase[b]) == FINISHED
             winner = int(e.winner[b]) if won else None
-            alive = [bool(e.alive[b, s]) for s in range(e.n)]
-            z = [1.0 if s == winner else 0.0 for s in range(e.n)] if won else [1.0 / sum(alive) if a else 0.0 for a in alive]
+            out = game_outcome(e, b)
             self.r.results.append({"table": t.name, "index": t.start + i, "winner": winner, "turns": int(e.turn[b]), "agents": t.agents,
-                                   "decisions": int(self.decisions[b])})
+                                   "decisions": int(self.decisions[b]), "placement": out["placement"], "kills": out["kills"],
+                                   "points": out["points"]})
             if self.rec:
-                self.rec.finish_game(int(self.uid[b]), z)
+                self.rec.finish_game(int(self.uid[b]), out)
             self.slot_game[b] = None
         self.occupied[slots] = False
 
@@ -372,10 +375,24 @@ class Group:
     def run(self, progress: bool = True) -> dict:
         e, dev, B, r = self.e, self.dev, self.B, self.r
         ar = torch.arange(B, device=dev)
+        torch.cuda.reset_peak_memory_stats(dev)
         self.fill(list(range(B)))
         t0, it, total = time.time(), 0, sum(t.games for t in self.tables)
         done_games = 0
+        # teacher seats whose decisions are not recorded play their moves in place, inside one kernel, until a branch or
+        # network seat is to move: same moves and streams as one step at a time, without a round trip per move
+        fast = (self.agent_type == TEACHER).clone()
+        if self.rec is not None and self.export_idx.numel():
+            fast[self.export_idx] = False
         while bool(self.occupied.any()):
+            tseat = fast[self.seat_agent]  # [B, seats]
+            e.teacher_run(tseat, self.occupied & ~e.done, self.decisions)
+            done = (self.occupied & e.done).nonzero(as_tuple=True)[0]
+            if done.numel():
+                self.finish(done)
+                done_games += done.numel()
+                self.fill(done.tolist())
+                continue
             active = self.occupied & ~e.done
             mask = e.legal()
             ag = self.seat_agent[ar, e.cur]
@@ -421,7 +438,8 @@ class Group:
             it += 1
             if progress and it % 100 == 0:
                 print(f"    {self.cfg.label()} step {it}: {done_games}/{total} games, {time.time() - t0:.0f}s", flush=True)
-        return {"games": done_games, "seconds": round(time.time() - t0, 1), "steps": it, "odds_outside_tables": int(e.tstats[0])}
+        return {"games": done_games, "seconds": round(time.time() - t0, 1), "steps": it, "odds_outside_tables": int(e.tstats[0]),
+                "peak_gpu_gb": round(torch.cuda.max_memory_allocated(dev) / 2**30, 2)}
 
 
 def table_summary(results: list[dict]) -> list[dict]:

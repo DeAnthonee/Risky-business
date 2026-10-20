@@ -193,6 +193,7 @@ def replay_batch_fast(recs: list[list[dict]], max_turns: int, device: str, stats
     """replay_batch without the encoder and network checks, vectorised (delove_gpu/packed.py): the same state fields,
     and the candidate list compared in order (the GPU's legal moves in actions.ts order against the logged list)."""
     from delove_gpu.fused import FusedEngine
+    from delove_gpu.outcome import game_outcome
     from delove_gpu.packed import cand_rows, field_name, pack_record, pack_states
 
     B = len(recs)
@@ -259,6 +260,18 @@ def replay_batch_fast(recs: list[list[dict]], max_turns: int, device: str, stats
                 if not ok:
                     fail(b, i, f"end: expected {'the turn limit' if out['winner'] is None else 'seat ' + str(out['winner']) + ' to win'}, "
                                f"gpu phase {phase[b]} turn {turn[b]} winner {winner[b]}")
+                    continue
+                if "points" in out:  # log v3: every seat's placement, kills and points (finalPlacements)
+                    go = game_outcome(e, b)
+                    for r in recs[b]:
+                        s = r["seat"]
+                        got = (go["placement"][s], go["kills"][s], go["points"][s], go["z"][s])
+                        want = (r["outcome"]["placement"], r["outcome"]["kills"], r["outcome"]["points"], r["outcome"]["z"])
+                        if got != want:
+                            fail(b, i, f"outcome of seat {s}: engine (placement, kills, points, z) {want} vs gpu {got}")
+                            break
+                    else:
+                        stats["outcomes"] += 1
                 continue
             r = recs[b][i]
             if done[b]:
@@ -388,7 +401,7 @@ def main():
     if args.export and len(args.logs) != 1:
         ap.error("--export checks one log dir")
     total = {"games": 0, "ok_games": 0, "steps": 0, "fail": [], "net_total": 0, "net_agree": 0, "trade_order": 0, "net_near": 0, "net_gaps": [],
-             "teacher_checked": 0, "teacher_mismatch": 0}
+             "teacher_checked": 0, "teacher_mismatch": 0, "outcomes": 0}
     teachers = None
     if args.teacher:
         from delove_gpu.teacher import load_params
@@ -405,7 +418,7 @@ def main():
     t0 = time.time()
     for log in args.logs:
         stats = {"games": 0, "ok_games": 0, "steps": 0, "fail": [], "net_total": 0, "net_agree": 0, "trade_order": 0, "net_near": 0, "net_gaps": [],
-                 "teacher_checked": 0, "teacher_mismatch": 0}
+                 "teacher_checked": 0, "teacher_mismatch": 0, "outcomes": 0}
         opts = log_options(log)
         batch: list[list[dict]] = []
         cfg = None
@@ -433,7 +446,7 @@ def main():
         for f in stats["fail"][:10]:
             print("   ", f)
         total["net_gaps"] += stats["net_gaps"]
-        for k in ("games", "ok_games", "steps", "net_total", "net_agree", "trade_order", "net_near", "teacher_checked", "teacher_mismatch"):
+        for k in ("games", "ok_games", "steps", "net_total", "net_agree", "trade_order", "net_near", "teacher_checked", "teacher_mismatch", "outcomes"):
             total[k] += stats[k]
         total["fail"] += stats["fail"]
     if net:
@@ -444,7 +457,8 @@ def main():
     if enc:
         print(f"encoder: {enc.checked} decisions checked, max abs error {enc.max_err}")
     tch = f", teacher picks {total['teacher_checked'] - total['teacher_mismatch']}/{total['teacher_checked']} identical" if teachers else ""
-    print(f"TOTAL: {total['ok_games']}/{total['games']} games identical, {total['steps']} steps{tch}, {len(total['fail'])} failed, {time.time() - t0:.0f}s")
+    oc = f", outcomes (placement, kills, points) {total['outcomes']} games" if total["outcomes"] else ""
+    print(f"TOTAL: {total['ok_games']}/{total['games']} games identical, {total['steps']} steps{tch}{oc}, {len(total['fail'])} failed, {time.time() - t0:.0f}s")
     sys.exit(1 if total["fail"] else 0)
 
 

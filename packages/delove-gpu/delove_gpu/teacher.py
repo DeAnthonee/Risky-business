@@ -448,6 +448,28 @@ extern "C" __global__ void k_teacher_play(STATE_ARGS, TP_ARGS, i64* arng, int rs
   }
 }
 
+// Teacher seats play on, in place, until a seat that is not a teacher (tseat[b * NS + seat] == 0) is to move, the game
+// ends, or max_steps steps (each on the seat's own stream, exactly as one k_teacher + k_step per step). dec[b] counts
+// decisions as game.ts does (a fortify is one); steps[b] the steps played.
+extern "C" __global__ void k_teacher_run(STATE_ARGS, TP_ARGS, i64* arng, int rstride, const u8* tseat, const u8* active, i64* dec,
+                                         i64* steps, int max_steps, int max_turns, int B) {
+  int b = blockIdx.x * blockDim.x + threadIdx.x;
+  if (b >= B) return;
+  MAKE_S(b);
+  TP_MAKE
+  int n = 0;
+  if (active[b]) {
+    while (n < max_steps && !*s.done && tseat[(i64)b * NS + cur(s)]) {
+      int a = teacher_pick(s, tp, agent_rng(arng, rstride, b, cur(s)));
+      if (a < 0) break;
+      if (!(a >= FTO && a < END)) dec[b] += 1;
+      apply(s, a, max_turns);
+      n++;
+    }
+  }
+  steps[b] = n;
+}
+
 // Odds as the kernel computes them, for the tests: out = win, balancedWin, attacker losses, defender losses.
 extern "C" __global__ void k_odds(TP_ARGS, const i64* a, const i64* d, const i64* dl, double* out, int n) {
   int i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -458,7 +480,7 @@ extern "C" __global__ void k_odds(TP_ARGS, const i64* a, const i64* d, const i64
 }
 """
 
-TEACHER_KERNELS = ("k_teacher", "k_teacher_play", "k_odds")
+TEACHER_KERNELS = ("k_teacher", "k_teacher_play", "k_odds", "k_teacher_run")
 FMAD_OFF = ["--fmad=false"]
 
 _odds_dev: dict = {}
@@ -520,6 +542,14 @@ class TeacherEngine(FusedEngine):
         act = active.to(torch.uint8).contiguous() if active is not None else torch.ones(self.B, dtype=torch.uint8, device=self.dev)
         self._launch_t("k_teacher", self.B, *self._state(), *self._tp(prm), ar, rstride, act, out, self.B)
         return out
+
+    def teacher_run(self, tseat: torch.Tensor, active: torch.Tensor, dec: torch.Tensor, max_steps: int = 100_000) -> torch.Tensor:
+        """Teacher seats (tseat [B, seats] bool) play on in every active game until another seat is to move; returns
+        the steps each game played. dec (int64 [B]) gains the decisions played."""
+        steps = torch.zeros(self.B, dtype=torch.long, device=self.dev)
+        self._launch_t("k_teacher_run", self.B, *self._state(), *self._tp(), self.arng, self.n, tseat.to(torch.uint8).contiguous(),
+                       active.to(torch.uint8).contiguous(), dec, steps, max_steps, self.max_turns, self.B)
+        return steps
 
     def play_teacher(self, steps: int):
         self._launch_t("k_teacher_play", self.B, *self._state(), *self._tp(), self.arng, self.n, steps, self.max_turns, self.B)

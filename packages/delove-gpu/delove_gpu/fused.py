@@ -33,11 +33,11 @@ STATE_FIELDS = [
     ("discard_n", "i64"), ("order", "i64"), ("cur_pos", "i64"), ("phase", "i64"), ("turn", "i64"), ("round", "i64"),
     ("pend_from", "i64"), ("pend_to", "i64"), ("pend_min", "i64"), ("pend_max", "i64"), ("conquered", "u8"),
     ("fortified", "u8"), ("fort_src", "i64"), ("rng", "i64"), ("winner", "i64"), ("done", "u8"), ("capital", "i64"),
-    ("bliz", "u8"),
+    ("bliz", "u8"), ("elim_by", "i64"), ("elim_seq", "i64"), ("elim_n", "i64"),
 ]
 _STRIDES = {
     "owner": "T", "armies": "T", "alive": "P", "atp": "P", "hand": "P * H", "hand_n": "P", "trades_made": "P",
-    "deck": "NC", "discard": "NC", "order": "NS", "capital": "NS", "bliz": "T",
+    "deck": "NC", "discard": "NC", "order": "NS", "capital": "NS", "bliz": "T", "elim_by": "P", "elim_seq": "P",
 }
 
 CARD_MODES = {"progressive": 0, "fixed": 1, "exponential": 2}
@@ -87,7 +87,8 @@ typedef long long i64;
 typedef unsigned char u8;
 struct S {{
   i64 *owner, *armies, *atp, *hand, *hand_n, *trades_made, *trade_count, *deck, *deck_n, *discard, *discard_n, *order,
-      *cur_pos, *phase, *turn, *round, *pend_from, *pend_to, *pend_min, *pend_max, *fort_src, *rng, *winner, *capital;
+      *cur_pos, *phase, *turn, *round, *pend_from, *pend_to, *pend_min, *pend_max, *fort_src, *rng, *winner, *capital,
+      *elim_by, *elim_seq, *elim_n;
   u8 *alive, *conquered, *fortified, *done, *bliz;
 }};
 #define STATE_ARGS {args}
@@ -439,6 +440,8 @@ __device__ void attack(S& s, int e) {
   *s.pend_max = fa - 1;
   for (int t = 0; t < T; t++) if (s.owner[t] == def) return;
   s.alive[def] = 0;
+  s.elim_by[def] = p;  // eliminatedBy, and the elimination order (finalPlacements)
+  s.elim_seq[def] = (*s.elim_n)++;
   int dn = (int)s.hand_n[def];
   if (dn > 0) {
     for (int q = 0; q < dn; q++) append_hand(s, p, s.hand[def * H + q]);
@@ -663,6 +666,8 @@ __device__ void reset_game(S& s, unsigned int seed) {
   for (int t = 0; t < T; t++) if (!s.bliz[t]) list[L++] = t;  // playable, map order
   for (int p = 0; p < P; p++) { s.alive[p] = 1; s.hand_n[p] = 0; s.trades_made[p] = 0; for (int h = 0; h < H; h++) s.hand[p * H + h] = -1; }
   s.alive[NEU] = HAS_NEUTRAL;
+  for (int p = 0; p < P; p++) { s.elim_by[p] = -1; s.elim_seq[p] = -1; }
+  *s.elim_n = 0;
   for (int q = 0; q < NS; q++) s.atp[q] = START_ARMIES;
   s.atp[NEU] = HAS_NEUTRAL && NEUTRAL_TERR == 0 ? START_ARMIES : 0;
   if (NEUTRAL_TERR > 0) {  // neutral territories set aside at random from the playable ones, each with a fixed garrison

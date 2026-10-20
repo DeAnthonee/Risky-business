@@ -171,6 +171,9 @@ class State:
         self.done = torch.ones(B, dtype=torch.bool, device=dev)
         self.capital = lz(B, self.n) - 1  # capital territory per seat (-1 = none)
         self.bliz = bz(B, T)  # blizzards: impassable for the whole game
+        self.elim_by = lz(B, P) - 1  # who eliminated each player (-1: not eliminated)
+        self.elim_seq = lz(B, P) - 1  # the order players went out (0 = first)
+        self.elim_n = lz(B)
         self.tri_by_h = {h: triples(h, dev) for h in range(3, H + 1)}
 
     @property

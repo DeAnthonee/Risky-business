@@ -3,13 +3,17 @@ import { isGenerationGame, pickNextGenerationGame, pickLiveGame } from '../../cl
 import type { GameSummary } from '../../client/src/api.js';
 
 describe('Generation match lobby refresh and auto-advance', () => {
-  it('correctly identifies generation training matches by name', () => {
-    expect(isGenerationGame({ name: 'Generation 5 Match 74' })).toBe(true);
-    expect(isGenerationGame({ name: 'gen5' })).toBe(true);
-    expect(isGenerationGame({ name: 'Generation 6 Match 1' })).toBe(true);
-    expect(isGenerationGame({ name: 'Bot table' })).toBe(false);
-    expect(isGenerationGame({ name: 'Mechanics lab' })).toBe(false);
-    expect(isGenerationGame({ name: "Player's room" })).toBe(false);
+  it('identifies generation training matches by the runner\'s exact room name only', () => {
+    expect(isGenerationGame('Generation 5 Match 74')).toBe(true);
+    expect(isGenerationGame('Generation 6 Match 1')).toBe(true);
+    expect(isGenerationGame('Generation mechanics Match 2')).toBe(true);
+    // Loose matches a person might type, and tournament table names, never count
+    expect(isGenerationGame('gen5')).toBe(false);
+    expect(isGenerationGame('Imagen 3 night')).toBe(false);
+    expect(isGenerationGame('Gen5 Cup · R1 Table 1')).toBe(false);
+    expect(isGenerationGame('Bot table')).toBe(false);
+    expect(isGenerationGame('Mechanics lab')).toBe(false);
+    expect(isGenerationGame("Player's room")).toBe(false);
     expect(isGenerationGame(null)).toBe(false);
     expect(isGenerationGame(undefined)).toBe(false);
   });
@@ -36,5 +40,12 @@ describe('Generation match lobby refresh and auto-advance', () => {
 
     // Excludes the current game
     expect(pickNextGenerationGame(gamesWithLiveGen as GameSummary[], 'genLive')?.id).toBe('genLobby');
+
+    // Never picks a tournament table, whatever its name
+    const withTable: Partial<GameSummary>[] = [
+      { id: 'table', name: 'Generation 5 Match 77', phase: 'turn', tournamentId: 't1' },
+      { id: 'genLobby', name: 'Generation 5 Match 78', phase: 'lobby' },
+    ];
+    expect(pickNextGenerationGame(withTable as GameSummary[], null)?.id).toBe('genLobby');
   });
 });

@@ -27,6 +27,12 @@ ends auto-spectate). It is opt-in: a game you opened yourself (from the list, a 
 moves you on, players are never moved, and tournament tables are never picked. While waiting it polls the game list
 every 2 s, backing off to 10 s. The URL stays `/?spectate=1`, so a reload picks up whatever is live.
 
+**Generation training matches** are the exception to "opt-in" (#95): the runner names its rooms
+`Generation <tag> Match <n>` (e.g. `Generation 5 Match 3`), and when one ends or closes, every spectator gets a 4 s
+countdown to the next one, a running match first, otherwise its lobby (watch it fill and start), with **Stay here** to
+remain. Only that exact name counts (a room a person names that way counts too), tournament tables are never picked,
+and players are never moved.
+
 Players can **whisper**: pick a player in the chat's "To" menu (or tap a whisper you got to answer it)
 and no other player's seat sees the message. Spectators see every whisper, highlighted in purple (so would a player who
 opened the spectator view). Whispers go to a player id; by name only when exactly one player has that name.

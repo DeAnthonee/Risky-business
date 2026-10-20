@@ -11,7 +11,8 @@ lists, mean scores and picks, with the CPU's DELOVE_BRANCH_TRACE). Per decision 
    0x5bd1e995) (common random numbers: the same copies for every option), the option played, then `horizon` rounds of
    the teacher in every seat on one stream seeded with the seed (k_branch_sim, one CUDA thread per copy);
 4. positionScore of each end position from the decider's side (in double precision, the same operations as the
-   TypeScript; with score 'points', pointsScore: placement points interpolated at the expected place plus kills),
+   TypeScript; with score 'points', pointsScore: placement points interpolated at the expected place plus kills; with
+   'kills', the share score plus killCredit),
    averaged over the seeds in order; the best option wins unless it beats the teacher's move by less than
    `margin`.
 
@@ -33,7 +34,7 @@ from .teacher import TeacherEngine
 BRANCH_TS = REPO / "packages" / "delove" / "src" / "branch.ts"
 SCORE_PARTS = ["score", "armies", "income", "territories", "cards", "continents", "won", "lost"]
 WEIGHT_KEYS = ["armies", "income", "territories", "cards", "continents"]
-SCORE_MODES = {"share": 0, "points": 1}
+SCORE_MODES = {"share": 0, "points": 1, "kills": 2}
 BIG_TURNS = 0x7FFFFFFF
 MAX_ROLLOUT_STEPS = 4000
 
@@ -46,7 +47,7 @@ class BranchConfig:
     margin: float
     skip: list[str]
     weights: dict[str, float] = field(default_factory=dict)
-    score: str = "share"  # 'share' or 'points' (branch.ts BranchOptions.score)
+    score: str = "share"  # 'share', 'points' or 'kills' (branch.ts BranchOptions.score)
 
 
 def default_branch() -> BranchConfig:
@@ -71,6 +72,13 @@ BRANCH_BODY = r"""
 // ---- branch and score (packages/delove/src/branch.ts) ------------------------------------------------------------
 // positionScore(state, me, weights, mode): out = score, armies, income, territories, cards, continents, won, lost.
 // mode 1 ('points'): score = pointsScore, with place = placementPoints(1..NS, NS) then KILL_POINTS (place[NS]).
+// mode 2 ('kills'): score = the share score + killCredit.
+__device__ double kill_credit(S& s, int me, const double* place) {
+  int kills = 0;
+  for (int q = 0; q < NS; q++) if (!s.alive[q] && s.elim_by[q] == me) kills++;
+  return place[NS] * (double)kills / (place[0] - place[NS - 1]);
+}
+
 __device__ double points_score(S& s, int me, const double* place, double at) {
   int kills = 0, alive = 0;
   for (int q = 0; q < NS; q++) {
@@ -96,12 +104,14 @@ __device__ void position_score(S& s, int me, const double* w, int mode, const do
     for (int i = 0; i < 7; i++) out[i] = v;
     out[7] = 1.0 - v;
     if (mode == 1) out[0] = points_score(s, me, place, won ? 1.0 : -1.0);
+    if (mode == 2) out[0] = v + kill_credit(s, me, place);
     return;
   }
   if (!s.alive[me]) {
     for (int i = 0; i < 7; i++) out[i] = 0.0;
     out[7] = 1.0;
     if (mode == 1) out[0] = points_score(s, me, place, -1.0);
+    if (mode == 2) out[0] = 0.0 + kill_credit(s, me, place);
     return;
   }
   int terr[NS], arm[NS], inc[NS], con[NS], cards[NS], n = 0;
@@ -127,6 +137,7 @@ __device__ void position_score(S& s, int me, const double* w, int mode, const do
   }
   out[0] = ws[me];
   out[6] = 0.0; out[7] = 0.0;
+  if (mode == 2) out[0] = ws[me] + kill_credit(s, me, place);
   if (mode == 1) {
     // expected place among the players alive: 1 + each rival's chance of finishing above, from the share-score gap
     double at = 1.0;

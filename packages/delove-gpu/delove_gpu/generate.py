@@ -45,10 +45,10 @@ BRANCH_ID = "delove-branch@1"
 
 def branch_score(agent: str) -> str | None:
     """For a branch seat: None for delove-branch@1 (the run's --score), the score for a GPU-only comparison seat
-    `delove-branch@1:share` / `delove-branch@1:points` (both kinds can sit at one table); not a branch seat: raises."""
+    `delove-branch@1:share` / `:points` / `:kills` (several kinds can sit at one table); not a branch seat: raises."""
     if agent == BRANCH_ID:
         return None
-    if agent.startswith(BRANCH_ID + ":") and agent.split(":", 1)[1] in ("share", "points"):
+    if agent.startswith(BRANCH_ID + ":") and agent.split(":", 1)[1] in ("share", "points", "kills"):
         return agent.split(":", 1)[1]
     raise ValueError(agent)
 
@@ -496,7 +496,7 @@ def main():
     ap.add_argument("--horizon", type=int, default=d.horizon)
     ap.add_argument("--margin", type=float, default=d.margin)
     ap.add_argument("--skip", default=",".join(d.skip))
-    ap.add_argument("--score", default=d.score, choices=["share", "points"], help="branch score (DELOVE_BRANCH_SCORE)")
+    ap.add_argument("--score", default=d.score, choices=["share", "points", "kills"], help="branch score (DELOVE_BRANCH_SCORE)")
     ap.add_argument("--batch", type=int, default=0, help="games in flight per configuration (0: sized to --gpu-gb)")
     ap.add_argument("--gpu-gb", type=float, default=3.0, help="GPU memory for game states when sizing batches (networks come on top)")
     ap.add_argument("--out", help="write training arrays here (export's format, one folder per map)")

@@ -168,7 +168,7 @@ def main():
     ap.add_argument("--rollouts", type=int, default=d.rollouts)
     ap.add_argument("--horizon", type=int, default=d.horizon)
     ap.add_argument("--margin", type=float, default=d.margin)
-    ap.add_argument("--score", default=d.score, choices=["share", "points"], help="as DELOVE_BRANCH_SCORE for the log")
+    ap.add_argument("--score", default=d.score, choices=["share", "points", "kills"], help="as DELOVE_BRANCH_SCORE for the log")
     ap.add_argument("--batch", type=int, default=400)
     ap.add_argument("--games", type=int, default=0)
     args = ap.parse_args()

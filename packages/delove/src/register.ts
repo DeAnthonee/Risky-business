@@ -44,14 +44,15 @@ if (existsSync(dir)) {
  * newest tuned Sensei; a Jacob Sensei id such as jacob-sensei@1 also works), DELOVE_BRANCH_RANKER the network that proposes alternatives (default delove@2);
  * DELOVE_BRANCH_OPTIONS / _ROLLOUTS / _HORIZON / _MARGIN override the search size, DELOVE_BRANCH_VALUE (0-1) blends
  * the ranker's win chance into branch scores, DELOVE_BRANCH_SCORE=points scores rollouts by leaderboard points
- * (placement + kills, branch.ts pointsScore) instead of the share score, DELOVE_BRANCH_SKIP (comma-separated
+ * (placement + kills, branch.ts pointsScore) instead of the share score (=kills: the share score plus a kill credit),
+ * DELOVE_BRANCH_SKIP (comma-separated
  * decision kinds, e.g. occupy,trade) the kinds it plays without branching. With DELOVE_BRANCH_STATS=<dir> each process
  * writes what branching did to <dir>/stats-<pid>-<random>.json when it exits (the random part because Windows reuses
  * process ids, and a later process would overwrite an earlier one's stats).
  */
 function branchScore(v: string | undefined): BranchOptions['score'] {
   if (v === undefined || v === '') return DEFAULT_BRANCH.score;
-  if (v !== 'share' && v !== 'points') throw new Error(`DELOVE_BRANCH_SCORE must be share or points, not ${v}`);
+  if (v !== 'share' && v !== 'points' && v !== 'kills') throw new Error(`DELOVE_BRANCH_SCORE must be share, points or kills, not ${v}`);
   return v;
 }
 

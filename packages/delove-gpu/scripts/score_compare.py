@@ -7,10 +7,10 @@ field (delove@3 and one Sensei 2), the same games (seeds, seats, opponents) play
     python -m delove_gpu.generate ... --score points --results points.jsonl
     python scripts/score_compare.py report share.jsonl points.jsonl
 
-Or head to head, both scores at the same tables (GPU-only seats delove-branch@1:share and delove-branch@1:points, at
-opposite seats and then swapped, in every seat in turn; half the GPU time, and each game is still a pair):
+Or head to head, every score at the same tables (GPU-only seats delove-branch@1:share / :points / :kills, spread
+round the table in every order, from every seat; one run instead of one per score, and each game is still a pair):
 
-    python scripts/score_compare.py h2h-jobs OUT.jobs
+    python scripts/score_compare.py h2h-jobs OUT.jobs [--variants share,points,kills] [--sizes 4:520,6:528] [--maps world]
     python -m delove_gpu.generate --jobs OUT.jobs ... --results h2h.jsonl
     python scripts/score_compare.py h2h-report h2h.jsonl
 
@@ -53,44 +53,52 @@ def make_jobs(scale: float) -> list[str]:
     return lines
 
 
-def make_h2h_jobs(scale: float) -> list[str]:
+def make_h2h_jobs(scale: float, variants: list[str], sizes: dict[int, int], maps: dict[int, list[str]]) -> list[str]:
+    """Every variant at each table, spread evenly round it (variant j at seat k + j * n / V), in every cyclic order
+    and from every seat k; the seat after the first variant's is Sensei 2, the rest delove@3."""
     lines = []
-    for n, maps in MAPS.items():
-        per_map = {4: 520, 6: 528, 10: 500}[n]
-        for m in maps:
+    V = len(variants)
+    for n, per_map in sizes.items():
+        for m in maps[n]:
             for k in range(n):
-                for swap, (x, y) in enumerate([("share", "points"), ("points", "share")]):
+                for rot in range(V):
                     seats = [NET] * n
-                    seats[k] = f"{BR}:{x}"
-                    seats[(k + n // 2) % n] = f"{BR}:{y}"
                     seats[(k + 1) % n] = SENSEI
-                    games = max(1, int(per_map * scale) // (2 * n))
-                    lines.append(f"{m[:2]}{n}s{k}{'ab'[swap]} {games} {','.join(seats)} {k * 100000 + swap * 50000} {json.dumps({'map': m})}")
+                    for j in range(V):
+                        seats[(k + j * n // V) % n] = f"{BR}:{variants[(j + rot) % V]}"
+                    games = max(1, int(per_map * scale) // (V * n))
+                    lines.append(f"{m[:2]}{n}s{k}{'abcdef'[rot]} {games} {','.join(seats)} {k * 100000 + rot * 20000} {json.dumps({'map': m})}")
     return lines
 
 
 def h2h_report(paths: list[str]):
     rows = [json.loads(line) for p in paths for line in open(p, encoding="utf8")]
+    variants = sorted({a.split(":", 1)[1] for r in rows for a in r["agents"] if a.startswith(BR + ":")}, key=lambda v: (v != "share", v))
     by = defaultdict(list)
     for r in rows:
         by[len(r["agents"])].append(r)
         by[(len(r["agents"]), r["table"][:2])].append(r)
-    print(f"{len(rows)} games, both scores at every table\n")
-    print("| table | games | share points | points points | points - share (95%) | share wins | points wins | share kills | points kills | turn limit |")
-    print("|---|---|---|---|---|---|---|---|---|---|")
+    base = variants[0]
+    print(f"{len(rows)} games, every score at every table ({', '.join(variants)}); differences against {base}, paired by game\n")
+    head = " | ".join(f"{v} points" for v in variants) + " | " + " | ".join(f"{v} - {base} (95%)" for v in variants[1:])
+    head += " | " + " | ".join(f"{v} wins" for v in variants) + " | " + " | ".join(f"{v} kills" for v in variants)
+    print(f"| table | games | {head} | turn limit |")
+    print("|---|---|" + "---|" * (4 * len(variants) - 1) + "---|")
     for key in sorted(by, key=lambda k: (k if isinstance(k, int) else k[0], 0 if isinstance(k, int) else 1, str(k))):
         rs = by[key]
         st = {}
-        for v in ("share", "points"):
+        for v in variants:
             seat = [r["agents"].index(f"{BR}:{v}") for r in rs]
             st[v] = ([r["points"][i] for r, i in zip(rs, seat)], sum(r["winner"] == i for r, i in zip(rs, seat)) / len(rs),
                      sum(r["kills"][i] for r, i in zip(rs, seat)) / len(rs))
-        (ma, ea), (mb, eb) = ci(st["share"][0]), ci(st["points"][0])
-        d = ci([b - a for a, b in zip(st["share"][0], st["points"][0])])
+        cells = [f"{ci(st[v][0])[0]:+.3f} ± {ci(st[v][0])[1]:.3f}" for v in variants]
+        for v in variants[1:]:
+            d = ci([b - a for a, b in zip(st[base][0], st[v][0])])
+            cells.append(f"**{d[0]:+.3f} ± {d[1]:.3f}**")
+        cells += [f"{st[v][1]:.3f}" for v in variants] + [f"{st[v][2]:.2f}" for v in variants]
         lim = sum(r["winner"] is None for r in rs) / len(rs)
         name = f"**{key} players**" if isinstance(key, int) else f"{key[1]} {key[0]}p"
-        print(f"| {name} | {len(rs)} | {ma:+.3f} ± {ea:.3f} | {mb:+.3f} ± {eb:.3f} | **{d[0]:+.3f} ± {d[1]:.3f}** | {st['share'][1]:.3f}"
-              f" | {st['points'][1]:.3f} | {st['share'][2]:.2f} | {st['points'][2]:.2f} | {lim:.1%} |")
+        print(f"| {name} | {len(rs)} | {' | '.join(cells)} | {lim:.1%} |")
 
 
 def load(path: str) -> dict:
@@ -164,13 +172,22 @@ def main():
     hj = sub.add_parser("h2h-jobs")
     hj.add_argument("out")
     hj.add_argument("--scale", type=float, default=1.0)
+    hj.add_argument("--variants", default="share,points", help="scores at each table (delove-branch@1:<score> seats)")
+    hj.add_argument("--sizes", default="4:520,6:528,10:500", help="players:games per map")
+    hj.add_argument("--maps", default="", help="only these maps (comma-separated)")
     hr = sub.add_parser("h2h-report")
     hr.add_argument("results", nargs="+")
     args = ap.parse_args()
     if args.cmd == "h2h-report":
         h2h_report(args.results)
     elif args.cmd in ("jobs", "h2h-jobs"):
-        lines = (make_jobs if args.cmd == "jobs" else make_h2h_jobs)(args.scale)
+        if args.cmd == "jobs":
+            lines = make_jobs(args.scale)
+        else:
+            sizes = {int(a): int(b) for a, b in (x.split(":") for x in args.sizes.split(","))}
+            only = set(args.maps.split(",")) - {""}
+            maps = {n: [m for m in MAPS[n] if not only or m in only] for n in sizes}
+            lines = make_h2h_jobs(args.scale, args.variants.split(","), sizes, maps)
         with open(args.out, "w", encoding="utf8") as f:
             f.write("\n".join(lines) + "\n")
         print(f"{len(lines)} tables, {sum(int(x.split()[1]) for x in lines)} games -> {args.out}")

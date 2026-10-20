@@ -54,6 +54,10 @@ export interface Plan {
   route?: TerritoryId[];
   /** Territory the commander wants to fortify back to at the end of the turn (e.g. a capital or choke). */
   fortifyTo?: TerritoryId | null;
+  /** Stop attacking immediately once a focus/target continent bonus is secured/held and a card is earned; prevents bleeding troops into greedy attacks. Default true when winPath is 'bonuses'. Ignored in 1v1 where maximum territory denial dominates. */
+  stopAfterBonus?: boolean;
+  /** When true (default), stop attacking once all territories in an explicit `route` are conquered, rather than falling through to generic attacks. Ignored in 1v1. */
+  stopAfterRoute?: boolean;
 }
 
 interface CleanPlan {
@@ -78,6 +82,8 @@ interface CleanPlan {
   placeOn: TerritoryId[];
   route: TerritoryId[];
   fortifyTo: TerritoryId | null;
+  stopAfterBonus: boolean;
+  stopAfterRoute: boolean;
 }
 
 const DEFAULT_AGGRESSION = 0.5;
@@ -137,6 +143,8 @@ export function cleanPlan(plan: Plan | null | undefined, view: GameView, me: Pla
     placeOn: [...new Set((Array.isArray(raw.placeOn) ? raw.placeOn : typeof raw.placeOn === 'string' ? [raw.placeOn] : []).filter((x): x is string => typeof x === 'string' && map.isTerritory(x)))],
     route: [...new Set((Array.isArray(raw.route) ? raw.route : typeof raw.route === 'string' ? [raw.route] : []).filter((x): x is string => typeof x === 'string' && map.isTerritory(x)))],
     fortifyTo: typeof raw.fortifyTo === 'string' && map.isTerritory(raw.fortifyTo) ? raw.fortifyTo : null,
+    stopAfterBonus: flag(raw.stopAfterBonus, winPath === 'bonuses'),
+    stopAfterRoute: flag(raw.stopAfterRoute, true),
   };
 }
 
@@ -416,23 +424,41 @@ class Chooser {
     if (this.view.phase === 'attack') {
       // A complete, affordable elimination outranks routine bonus pokes or the once-per-turn card.
       const kill = this.elimination();
-      const hasExplicitRoute = this.plan.route.some((r) => this.lm.attacks.some((l) => l.to === r));
-      const objective = kill ?? (hasExplicitRoute ? null : this.bonusCampaign());
-      const route = objective?.attacks.find(a => this.lm.attacks.some(l => l.from === a.from && l.to === a.to));
-      if (route && !this.lm.attacks.some(a => this.winsGame(a.to) && this.chance(this.armies(a.from) - 1, a.to) >= 0.9)) {
-        return { type: 'attack', from: route.from, to: route.to, blitz: true, stopAt: route.keep };
-      }
-      const attack = this.bestAttack();
-      if (attack) {
-        const action: Action = { type: 'attack', from: attack.from, to: attack.to, blitz: true };
-        if (attack.keep > 1) action.stopAt = attack.keep;
-        return action;
-      }
-      const card = this.cardAttack();
-      if (card) {
-        const action: Action = { type: 'attack', from: card.from, to: card.to, blitz: true };
-        if (card.keep > 1) action.stopAt = card.keep;
-        return action;
+      const living = this.view.players.filter((p) => p.alive && !p.isNeutral);
+      const is1v1 = living.length <= 2;
+      const hasRouteTargets = this.plan.route.length > 0;
+      const hasRemainingRouteAttacks = this.plan.route.some((r) => this.lm.attacks.some((l) => l.to === r));
+
+      // In 1v1, there are no 3rd parties to punish over-expansion: break everything possible!
+      // In multi-player FFA, honor stopAfterRoute once the explicit route has finished:
+      if (!is1v1 && hasRouteTargets && !hasRemainingRouteAttacks && this.plan.stopAfterRoute && !this.lm.attacks.some((a) => this.winsGame(a.to))) {
+        // Route complete in FFA; stop attacking to preserve garrisons on frontline/choke
+      } else {
+        const objective = kill ?? (hasRemainingRouteAttacks ? null : this.bonusCampaign());
+        const route = objective?.attacks.find((a) => this.lm.attacks.some((l) => l.from === a.from && l.to === a.to));
+        if (route && !this.lm.attacks.some((a) => this.winsGame(a.to) && this.chance(this.armies(a.from) - 1, a.to) >= 0.9)) {
+          return { type: 'attack', from: route.from, to: route.to, blitz: true, stopAt: route.keep };
+        }
+
+        // In FFA, if stopAfterBonus is active and we hold our focus bonus (or any continent bonus) and have conquered a territory this turn:
+        // Do NOT make greedy secondary attacks that bleed our new bonus chokepoint!
+        const holdsBonus = Object.entries(this.view.continentOwners).some(([c, owner]) => owner === this.me && (!this.plan.focusContinent || c === this.plan.focusContinent));
+        const shouldStopForBonus = !is1v1 && this.plan.stopAfterBonus && holdsBonus && this.conquered && !this.lm.attacks.some((a) => this.winsGame(a.to));
+
+        if (!shouldStopForBonus) {
+          const attack = this.bestAttack();
+          if (attack) {
+            const action: Action = { type: 'attack', from: attack.from, to: attack.to, blitz: true };
+            if (attack.keep > 1) action.stopAt = attack.keep;
+            return action;
+          }
+          const card = this.cardAttack();
+          if (card) {
+            const action: Action = { type: 'attack', from: card.from, to: card.to, blitz: true };
+            if (card.keep > 1) action.stopAt = card.keep;
+            return action;
+          }
+        }
       }
     }
     if (this.view.phase === 'attack' || this.view.phase === 'fortify') {
@@ -641,6 +667,8 @@ class Chooser {
     const path = this.plan.winPath;
     let s = 0;
     if (wins) s += 100;
+    const living = this.view.players.filter((p) => p.alive && !p.isNeutral);
+    const is1v1 = living.length <= 2;
     const cont = this.map.territoryById[to].continent;
     const bonus = this.map.continentById[cont].bonus;
     const share = this.continentShare(cont);
@@ -651,6 +679,12 @@ class Chooser {
     const holder = this.view.continentOwners[cont];
     if (holder && holder !== this.me && holder === toOwner) cs += 4.5 + bonus * 0.8;
     s += path === 'bonuses' ? cs * 1.5 : cs;
+
+    // In 1v1, there are no 3rd parties: break every opponent continent and deny territories to crush their turn income!
+    if (is1v1) {
+      if (holder && holder !== this.me) s += 6 + bonus * 1.5;
+      s += 2.5; // each territory stripped from the sole rival directly starves their base income
+    }
     const capOwner = this.capitalOf.get(to);
     if (capOwner && capOwner !== this.me) s += path === 'capitals' ? 7 : 4;
     const focus = this.inFocus(to);

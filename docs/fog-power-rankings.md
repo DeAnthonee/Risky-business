@@ -162,10 +162,25 @@ $$\text{Power Score} = \text{Estimated Armies} + (\text{Income} \times 2.5) + \t
 3. **Tier 3 — Attrition Bleeder**:
    * Income $+3$ to $+4$/turn, high attack rate, declining estimated army reserves.
    * **Outcome**: Monitored for easy card elimination.
+4. **1v1 Endgame Threat Dynamics**:
+   * When living players drop to 2, multi-player restraint and anti-greed rules turn off.
+   * The AI pivots into maximum bonus-breaking and scorched-earth expansion: stripping every continent bonus and reducing the sole opponent below 12 territories directly starves them down to the $+3$ income floor without risk of third-party punishment.
 
 ---
 
-## 7. Implementation Reference
+## 7. Combat Mechanics & Dice Probability Profiles
+
+Combat resolution directly impacts army valuation and kill feasibility:
+
+| Combat Mode | Engine Mechanics | Win Probability Curve | Strategic Impact |
+| :--- | :--- | :--- | :--- |
+| **Balanced Blitz** (`balancedBlitz: true`) | Plays the median of 5 complete simulated blitzes ($n = 5$). | $b(p) = \sum_{k=3}^5 \binom{5}{k} p^k (1-p)^{5-k}$. Amplifies $\ge 80\%$ attacks to $94.2\% - 99.1\%$; drops $< 40\%$ underdogs below $16\%$. | Favorable attacks are near-guaranteed locks with minimal casualties. Catastrophic freak wipeouts are eliminated. Desperation underdogs are mathematically unviable. |
+| **True Random Blitz** (`balancedBlitz: false`) | Single continuous Markov-chain dice sequence. | Standard probability $p$ with full variance and fat tails. | 80% attacks fail 1 in 5 times. High troop loss variance requires maintaining $+3$ to $+5$ army buffers. |
+| **Single Random Dice** | Manual 1–3 attacker dice vs 1–2 defender dice. | Defender wins ties on matched pairs ($\approx 56\%$ defender edge on 2v2). | High attrition cost; reserved for 1-roll border probes and micro-stopping. |
+
+---
+
+## 8. Implementation Reference
 
 The logic described above is implemented across the following codebase modules:
 * [`packages/runner/src/game-memory.ts`](../packages/runner/src/game-memory.ts): Implements `getEstimatedArmies`, `PlayerActivityRecord`, `assessLeader`, and fog event tracking.

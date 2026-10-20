@@ -251,6 +251,13 @@ export function commanderFacts(view: GameView, me: PlayerId): string {
   lines.push(`Round ${view.round}, turn ${view.turnNumber}, phase ${view.phase}. ${living.length} players alive.`);
   const o = view.options;
   lines.push(`Settings: ${o.cardValues} cards, capitals ${o.capitals ? (o.chooseCapitals ? 'chosen' : 'assigned') : 'off'}, fog ${o.fogOfWar ? 'on' : 'off'}, ${o.fortifyMode} fortify, ${view.blizzards?.length ?? 0} blizzards.`);
+  const diceModeText = o.balancedBlitz
+    ? 'BALANCED BLITZ (median of 5 runs: steep S-curve, high-odds >=80% attacks are near-certain locks, underdog attacks <40% almost always fail)'
+    : 'TRUE RANDOM BLITZ (high variance: fat-tail losses, 80% attacks can fail, keep +3-5 extra army buffer)';
+  lines.push(`Dice Mode: ${diceModeText}.`);
+  if (living.length === 2) {
+    lines.push(`1v1 HEADS-UP ENDGAME: Only 2 players remain! Restraint turns off — break every opponent continent bonus and strip their territories to crush their turn income!`);
+  }
 
   // Cards.
   const next = o.cardValues === 'fixed' ? 'fixed 4-10 by set type' : o.cardValues === 'exponential' ? `${nextTradeValue('exponential', 0, view.players.find(p => p.id === me)?.tradesMade ?? 0)} armies (your personal exponential sequence)` : `${tradeBonus(view.tradeCount)} armies (progressive, ${view.tradeCount} sets traded so far)`;

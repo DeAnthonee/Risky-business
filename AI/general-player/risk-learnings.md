@@ -60,6 +60,26 @@ turn, ask: are any troops stuck on a territory that touches no enemy?
 - **Don't attack at near-even odds with a thin empire,** and don't blitz from a 3-army stack into a bigger
   one. Reinforce first. Weak neighbours that leave 1-3 army territories are the cheap targets: chain through
   them from a big stack.
+- **Disciplined attack termination vs. the greed trap:** in multi-player games (3-6 players), you do NOT have
+  to exhaust every good attack on your turn. Attacking past a newly secured continent bonus into adjacent lands
+  bleeds your breakthrough stack down to 1-2 armies and leaves your new bonus border undefended, virtually
+  guaranteeing a neighbour breaks it next turn. Take the guarantee: once you complete a continent bonus and
+  earn your card, stop attacking immediately. Park a heavy 8-15 army stack directly on the doorway chokepoint
+  (or fortify back to it), cash in your +2 to +5 income turn after turn, and only expand outward once you hold
+  a large secondary surplus stack.
+- **The 1v1 endgame exception:** restraint reverses completely when only two players remain (1-versus-1).
+  There are no third parties to punish over-expansion. Every territory conquered directly starves your opponent
+  of base reinforcement income (floor(territories / 3)) and strips their continent bonuses. In 1v1, break
+  everything you can reach to reduce their territory count below 12 and leave them paralyzed at the +3 minimum.
+- **Know your dice mode:**
+  - *Balanced Blitz (`balancedBlitz: true`):* rolls the median of 5 full simulated blitzes. The binomial
+    median curve dramatically amplifies favorable odds: an 80% random attack becomes 94.2% balanced, 85%
+    becomes 97.3%, and 90% becomes 99.1%. High-odds attacks (>=80%) are near-certain locks with minimal
+    losses; underdog gambles (<40%) drop below 16% and are mathematically suicidal.
+  - *True Random Blitz (`balancedBlitz: false`):* unfiltered Markov-chain dice with high variance and fat
+    tails. An 80% attack still has a real 20% failure risk; always hold a +3 to +5 army safety margin.
+  - *Single Random Dice:* attacker rolls 1-3 dice vs defender 1-2 dice; ties go to the defender (giving
+    defender ~56% win rate on equal 2v2 dice pairs). Use only for 1-roll probes or micro-stopping.
 
 ## Capitals (Capital Conquest)
 

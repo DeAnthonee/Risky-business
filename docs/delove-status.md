@@ -24,7 +24,7 @@ What "good" means, decided by the owner:
    -3, then +1 for every player you eliminate. A bot that places 2nd most of the time with kills is a good
    multiplayer bot. Training and gates should value what the leaderboard values.
 2. **Every map, 2 to 10 players.** One general model for all maps (`MAP_IDS` in `packages/engine/src/maps.ts`:
-   classic, world, world_large, europe, greater_europe, europe_classic, usa, asia, fantasy, skirmish, nine_realms). No per-map
+   classic, world, world_large, europe, greater_europe, europe_classic, usa, asia, fantasy, skirmish, bohemia, nine_realms). No per-map
    models unless one map later dominates live play.
 3. **Strong one-on-one as well.** Every multiplayer game ends as a duel, and the 1v1 has been Delove's weakest spot.
 4. **Fast iteration.** Training should run as much as possible on the training PC's GPU so we can try more ideas per
@@ -240,9 +240,10 @@ Fog of war off (enforced by `delove-seat`); one seat per agent. For full environ
 | what | who | state |
 | --- | --- | --- |
 | GPU rules, teacher and branch-and-score for every map, 2-10 seats and every setting; points arrays from the GPU; `cycle.sh` GPU steps for any step | session "GPU engine for every map and 2-10 players" | done, **PR #82** merged |
-| Jacob Sensei, a teacher that doesn't stall (section 9 item 1) | session "Jacob Sensei" | **PR #98**; port to `delove_gpu/teacher.py` still to do |
+| Jacob Sensei, a teacher that doesn't stall (section 9 item 1) | session "Jacob Sensei" | done, **PR #98** merged; GPU port (`delove_gpu/teacher.py`) is issue #99 |
 | all-map strength data | coordinator | 147 of 296 chunks (about 5k games, 5 maps), stopped to free the machine; finish on the GPU |
 | #39 tournament Earth map | other work | on hold (owner) |
+| re-verify the GPU fingerprint for the new `bohemia` (#100) and `nine_realms` (#102) maps: until `verify.py` runs, `Engine(...)` / `TeacherEngine(...)` / `BranchEngine(...)` raise `StaleMirror`, so new GPU runs refuse to start | coordinator, on the training PC | pending: one `verify.py` run covers every map merged on 2026-10-20 |
 
 ## 9. What comes next, and why
 

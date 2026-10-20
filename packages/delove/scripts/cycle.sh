@@ -110,6 +110,7 @@ gen_args() {
   [[ -n ${DELOVE_BRANCH_HORIZON:-} ]] && args+=(--horizon "$DELOVE_BRANCH_HORIZON")
   [[ -n ${DELOVE_BRANCH_MARGIN:-} ]] && args+=(--margin "$DELOVE_BRANCH_MARGIN")
   [[ -n ${DELOVE_BRANCH_SKIP+x} ]] && args+=(--skip "$DELOVE_BRANCH_SKIP")
+  [[ -n ${DELOVE_BRANCH_SCORE:-} ]] && args+=(--score "$DELOVE_BRANCH_SCORE")
   if [[ -n ${DELOVE_BRANCH_VALUE:-} && ${DELOVE_BRANCH_VALUE} != 0 ]]; then
     echo "GPU steps: DELOVE_BRANCH_VALUE is not mirrored on the GPU"; return 1
   fi

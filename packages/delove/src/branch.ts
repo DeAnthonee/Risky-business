@@ -3,7 +3,9 @@ import {
   applyAction,
   createRng,
   getMap,
+  KILL_POINTS,
   legalMoves,
+  placementPoints,
   reinforcementsFor,
   shuffle,
   type Action,
@@ -43,6 +45,10 @@ const END_ONLY: Candidate[] = [['end_turn']];
  * bonus lowers their share as surely as gaining my own. The option with the best average is played (the teacher's
  * own move unless another beats it by `margin`), so the game the logs record follows the improved choices.
  *
+ * With `score: 'points'` a copy is scored by what the leaderboard ranks instead (pointsScore): placement points plus
+ * KILL_POINTS per player the decider has eliminated, scaled so the placement spread is 0 to 1. `score: 'kills'` keeps
+ * the share score and only adds the kill credit (KILL_POINTS / the placement spread per player eliminated).
+ *
  * Setup and capital picks, decisions with a single option and the kinds in `skip` are played by the teacher directly.
  */
 export interface BranchOptions {
@@ -55,6 +61,11 @@ export interface BranchOptions {
   /** Decision kinds (of the teacher's move) played by the teacher without branching, e.g. 'occupy'. */
   skip: string[];
   weights: { armies: number; income: number; territories: number; cards: number; continents: number };
+  /**
+   * How a rollout's end position is scored: 'share' (positionScore's share score), 'points' (pointsScore) or 'kills'
+   * (the share score plus killCredit).
+   */
+  score: 'share' | 'points' | 'kills';
   /**
    * Blend of the network's win chance into a branch's score: score = (1 - valueWeight) * objective share +
    * valueWeight * V(end position), V from the valuer's batched value model (one call per decision). 0 = off.
@@ -74,6 +85,7 @@ export const DEFAULT_BRANCH: BranchOptions = {
   margin: 0.02,
   skip: ['occupy'],
   valueWeight: 0,
+  score: 'share',
   weights: { armies: 0.3, income: 0.3, territories: 0.15, cards: 0.15, continents: 0.1 },
 };
 
@@ -120,12 +132,23 @@ function share(mine: number, total: number, players: number): number {
   return total > 0 ? mine / total : 1 / players;
 }
 
-export function positionScore(s: GameState, me: PlayerId, w: BranchOptions['weights']): Score {
+/**
+ * A rollout end position from `me`'s side. `mode` 'share' (the default): won 1, lost 0, otherwise the weighted share
+ * score. `mode` 'points': pointsScore; 'kills': the share score plus killCredit. The other fields are the share parts
+ * either way.
+ */
+export function positionScore(s: GameState, me: PlayerId, w: BranchOptions['weights'], mode: BranchOptions['score'] = 'share'): Score {
   const zero = { armies: 0, income: 0, territories: 0, cards: 0, continents: 0 };
   const all1 = { armies: 1, income: 1, territories: 1, cards: 1, continents: 1 };
-  if (s.phase === 'finished') return s.winner === me ? { score: 1, ...all1, won: 1, lost: 0 } : { score: 0, ...zero, won: 0, lost: 1 };
+  const points = mode === 'points';
+  const kills = mode === 'kills';
+  if (s.phase === 'finished') {
+    const won = s.winner === me;
+    const score = points ? pointsScore(s, me, won ? 1 : null) : kills ? (won ? 1 : 0) + killCredit(s, me) : won ? 1 : 0;
+    return won ? { score, ...all1, won: 1, lost: 0 } : { score, ...zero, won: 0, lost: 1 };
+  }
   const alive = s.players.filter((p) => p.alive && !p.isNeutral);
-  if (!alive.some((p) => p.id === me)) return { score: 0, ...zero, won: 0, lost: 1 };
+  if (!alive.some((p) => p.id === me)) return { score: points ? pointsScore(s, me, null) : kills ? killCredit(s, me) : 0, ...zero, won: 0, lost: 1 };
   const map = getMap(s.options.map);
   const by = (p: PlayerId) => {
     let territories = 0;
@@ -135,18 +158,60 @@ export function positionScore(s: GameState, me: PlayerId, w: BranchOptions['weig
     return { territories, armies, income: r.total, continents: r.continents.length, cards: s.players.find((x) => x.id === p)!.cards.length };
   };
   const all = alive.map((p) => ({ id: p.id, ...by(p.id) }));
-  const mine = all.find((x) => x.id === me)!;
   const n = all.length;
   const sum = (k: keyof typeof zero) => all.reduce((a, x) => a + x[k], 0);
-  const sc = {
-    armies: share(mine.armies, sum('armies'), n),
-    income: share(mine.income, sum('income'), n),
-    territories: share(mine.territories, sum('territories'), n),
-    cards: share(mine.cards, sum('cards'), n),
-    continents: share(mine.continents, sum('continents'), n),
-  };
-  const score = w.armies * sc.armies + w.income * sc.income + w.territories * sc.territories + w.cards * sc.cards + w.continents * sc.continents;
-  return { score, ...sc, won: 0, lost: 0 };
+  const totals = { armies: sum('armies'), income: sum('income'), territories: sum('territories'), cards: sum('cards'), continents: sum('continents') };
+  const shares = (x: (typeof all)[number]) => ({
+    armies: share(x.armies, totals.armies, n),
+    income: share(x.income, totals.income, n),
+    territories: share(x.territories, totals.territories, n),
+    cards: share(x.cards, totals.cards, n),
+    continents: share(x.continents, totals.continents, n),
+  });
+  const weighted = (sc: typeof zero) => w.armies * sc.armies + w.income * sc.income + w.territories * sc.territories + w.cards * sc.cards + w.continents * sc.continents;
+  const sc = shares(all.find((x) => x.id === me)!);
+  const mine = weighted(sc);
+  if (!points) return { score: kills ? mine + killCredit(s, me) : mine, ...sc, won: 0, lost: 0 };
+  // Expected place among the players still alive: 1 + for each rival the chance it finishes above me, read off the
+  // gap in share score (even shares: a coin flip; a lead of 1/n of the board or more: certain).
+  let place = 1;
+  for (const x of all) {
+    if (x.id === me) continue;
+    const beat = 0.5 + 0.5 * n * (mine - weighted(shares(x)));
+    place += 1 - (beat < 0 ? 0 : beat > 1 ? 1 : beat);
+  }
+  return { score: pointsScore(s, me, place), ...sc, won: 0, lost: 0 };
+}
+
+/** KILL_POINTS for each player `me` has eliminated, over the table's placement spread (pointsScore's scale). */
+export function killCredit(s: GameState, me: PlayerId): number {
+  const ranked = s.players.filter((p) => !p.isNeutral);
+  const N = ranked.length;
+  const kills = ranked.filter((p) => !p.alive && p.eliminatedBy === me).length;
+  return (KILL_POINTS * kills) / (placementPoints(1, N) - placementPoints(N, N));
+}
+
+/**
+ * The leaderboard's points for `me` at a rollout's end, scaled so last place is 0 and first place 1: placement points
+ * (placementPoints for the table's ranked players) plus KILL_POINTS for each player `me` has eliminated. `place` is
+ * the (possibly fractional, interpolated between the table's points) place while `me` is alive; null when `me` is out,
+ * which places it just below the players still alive (players knocked out later in the same rollout are ignored).
+ */
+export function pointsScore(s: GameState, me: PlayerId, place: number | null): number {
+  const ranked = s.players.filter((p) => !p.isNeutral);
+  const N = ranked.length;
+  const P = (i: number) => placementPoints(i, N);
+  const kills = ranked.filter((p) => !p.alive && p.eliminatedBy === me).length;
+  let pts: number;
+  if (place === null) {
+    const alive = ranked.filter((p) => p.alive).length;
+    pts = P(alive + 1 > N ? N : alive + 1);
+  } else {
+    const i = Math.floor(place);
+    const f = place - i;
+    pts = i >= N ? P(N) : P(i) + f * (P(i + 1) - P(i));
+  }
+  return (pts + KILL_POINTS * kills - P(N)) / (P(1) - P(N));
 }
 
 const MAX_ROLLOUT_STEPS = 4000;
@@ -245,7 +310,7 @@ export function branchAgent(
           const r = rollout(after, opts.horizon, teacher, seededRandom(seed));
           branchStats.simulations++;
           branchStats.simulatedMoves += r.moves;
-          const sc = positionScore(r.state, dctx.me, opts.weights);
+          const sc = positionScore(r.state, dctx.me, opts.weights, opts.score);
           for (const k of Object.keys(parts) as (keyof Score)[]) parts[k] += sc[k];
           if (useValue) ends.push({ option, state: r.state });
         }

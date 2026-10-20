@@ -50,6 +50,7 @@ class Table:
     agents: list[str]
     start: int = 0
     options: dict = field(default_factory=dict)
+    seed: int | None = None  # this table's base seed (default: the run's); ladder.py gives every match its own
 
     @property
     def config(self) -> GameConfig:
@@ -308,7 +309,7 @@ class Group:
             ti, i = self.queue.pop()
             t = self.tables[ti]
             g.append(b)
-            seeds.append(mix_seed(r.seed, t.start + i))
+            seeds.append(mix_seed(r.seed if t.seed is None else t.seed, t.start + i))
             self.slot_game[b] = (ti, i)
             self.seat_agent[b] = torch.tensor([r.agent_ids.index(a) for a in t.agents], device=self.dev)
             self.uid[b] = r.next_uid

@@ -35,6 +35,8 @@ describe('placement ratings', () => {
     expect(normalizeLeaderboardKey('player:delove@3')).toMatchObject({ key: 'Delove', name: 'Delove', playerId: 'delove' });
     expect(normalizeLeaderboardKey('Delove@1')).toMatchObject({ key: 'Delove', name: 'Delove', playerId: 'delove' });
     expect(normalizeLeaderboardKey('player:sensei@2')).toMatchObject({ key: 'Sensei', name: 'Sensei', playerId: 'sensei' });
+    expect(normalizeLeaderboardKey('Ronny@3')).toMatchObject({ key: 'Ronny', name: 'Ronny', playerId: 'ronny' });
+    expect(normalizeLeaderboardKey('Joey@3')).toMatchObject({ key: 'Joey', name: 'Joey', playerId: 'joey' });
 
     // Merging duplicate games in rankLeaderboard
     const games = [

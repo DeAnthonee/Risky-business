@@ -14,7 +14,7 @@ const log = (msg) => {
 };
 
 log(`Risk continuous model orchestrator targeting ${SERVER_URL}`);
-log(`Testing Delove@3 & Sensei@2 (no learnings) vs 4 LLM Characters (with shared learnings, qwen3:14b)`);
+log(`Testing Delove@3, Sensei@2, Ronny@3 & Joey@3 vs 2 LLM Characters (with shared learnings, qwen3:14b)`);
 log(`Mode: Generation 5 (50/50 Fog of War setting).`);
 
 let gamesCompleted = 0;
@@ -46,13 +46,13 @@ for (let g = 1; g <= TOTAL_GAMES; g++) {
   log(`Starting Generation 5 Match ${g}/${TOTAL_GAMES} on ${SERVER_URL} (Map: ${selectedMap}, Fog: ${fogOfWar ? 'ON' : 'OFF'})`);
   log(`================================================================`);
 
-  // Spawn runner for 1 game: 4 LLM characters + 2 open seats = 6 total
+  // Spawn runner for 1 game: 2 LLM characters + 4 open seats = 6 total
   const runner = spawn('node', [
     'packages/runner/dist/cli.js',
     '--server', SERVER_URL,
     '--map', selectedMap,
     '--players', '6',
-    '--open-seats', '2',
+    '--open-seats', '4',
     '--options', JSON.stringify({ fogOfWar }),
     '--games', '1',
     '--pace', '0',
@@ -74,15 +74,15 @@ for (let g = 1; g <= TOTAL_GAMES; g++) {
     const m = /Lobby ([A-Z0-9]+) on/i.exec(text);
     if (m && !gameId) {
       gameId = m[1];
-      log(`Lobby detected: ${gameId}. Slotting Delove@3 and Sensei@2 into open seats...`);
+      log(`Lobby detected: ${gameId}. Slotting Delove@3, Sensei@2, Ronny@3 and Joey@3 into open seats...`);
       log(`Spectator link: ${SERVER_URL}/?game=${gameId}&spectate=1`);
 
       seatProcess = spawn('node', [
         'packages/delove/dist/seat-cli.js',
         '--server', SERVER_URL,
         '--join', gameId,
-        '--agents', 'delove@3,delove-teacher@2',
-        '--names', 'Delove@3,Sensei@2',
+        '--agents', 'delove@3,delove-teacher@2,delove@3,delove@3',
+        '--names', 'Delove@3,Sensei@2,Ronny@3,Joey@3',
         '--pace', '0',
       ], { cwd: REPO_DIR, stdio: ['ignore', 'pipe', 'pipe'] });
 

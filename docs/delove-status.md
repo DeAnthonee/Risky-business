@@ -276,6 +276,7 @@ In order. Each step has a measurable bar.
 6. **Merge the specialists into one network** (distil both into a single model) once both clearly win.
 7. **Later:** a live "power bar" for spectators from the strength meter; per-map fine-tunes if one map dominates;
    fog of war (needs a seat-view encoder); seating Delove in character-league tables for direct comparison.
+   Fog of war plan (seat-view encoder, fog dropout, determinized branch teacher, GPU, gates): `docs/delove-fog.md`.
 
 ## 10. Pitfalls we hit (don't repeat them)
 

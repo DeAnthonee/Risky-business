@@ -474,6 +474,7 @@ def main():
     ap.add_argument("--horizon", type=int, default=d.horizon)
     ap.add_argument("--margin", type=float, default=d.margin)
     ap.add_argument("--skip", default=",".join(d.skip))
+    ap.add_argument("--score", default=d.score, choices=["share", "points"], help="branch score (DELOVE_BRANCH_SCORE)")
     ap.add_argument("--batch", type=int, default=0, help="games in flight per configuration (0: sized to --gpu-gb)")
     ap.add_argument("--gpu-gb", type=float, default=3.0, help="GPU memory for game states when sizing batches (networks come on top)")
     ap.add_argument("--out", help="write training arrays here (export's format, one folder per map)")
@@ -497,12 +498,13 @@ def main():
     cfg = d
     cfg.options, cfg.rollouts, cfg.horizon, cfg.margin = args.options, args.rollouts, args.horizon, args.margin
     cfg.skip = [k for k in args.skip.split(",") if k]
+    cfg.score = args.score
     run = Run(tables, args.seed, models, args.ranker, teacher, cfg, args.export_agents.split(","), Path(args.out) if args.out else None,
               args.max_turns, args.precision, "cuda", args.allow_unverified)
     res = run.run(args.batch or None, args.gpu_gb * 2**30)
     res["tables"] = table_summary(run.results)
     res["config"] = {"seed": args.seed, "ranker": args.ranker, "teacher": teacher, "options": cfg.options, "rollouts": cfg.rollouts,
-                     "horizon": cfg.horizon, "margin": cfg.margin, "skip": cfg.skip, "weights": cfg.weights, "batch": args.batch,
+                     "horizon": cfg.horizon, "margin": cfg.margin, "skip": cfg.skip, "score": cfg.score, "weights": cfg.weights, "batch": args.batch,
                      "precision": args.precision}
     text = json.dumps(res, indent=2)
     print(text)

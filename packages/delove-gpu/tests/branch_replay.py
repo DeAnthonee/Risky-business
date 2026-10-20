@@ -11,7 +11,7 @@ the 2nd and 3rd options differently. Such a decision is reported as an option-or
 being checked only until the seat's random stream could have diverged (a fortify option draws from it).
 
     python tests/branch_replay.py runs/gpu-verify/branch3/c2t --trace "runs/gpu-verify/branch3/trace-c2t-*.jsonl" \\
-        --models models/delove --ranker c2-candidate --horizon 1 --margin 0.01
+        --models models/delove --ranker c2-candidate --horizon 1 --margin 0.01 [--score points]
 """
 from __future__ import annotations
 
@@ -168,11 +168,12 @@ def main():
     ap.add_argument("--rollouts", type=int, default=d.rollouts)
     ap.add_argument("--horizon", type=int, default=d.horizon)
     ap.add_argument("--margin", type=float, default=d.margin)
+    ap.add_argument("--score", default=d.score, choices=["share", "points"], help="as DELOVE_BRANCH_SCORE for the log")
     ap.add_argument("--batch", type=int, default=400)
     ap.add_argument("--games", type=int, default=0)
     args = ap.parse_args()
     cfg = d
-    cfg.options, cfg.rollouts, cfg.horizon, cfg.margin = args.options, args.rollouts, args.horizon, args.margin
+    cfg.options, cfg.rollouts, cfg.horizon, cfg.margin, cfg.score = args.options, args.rollouts, args.horizon, args.margin, args.score
     models = Path(args.models)
     params = load_params(models / f"{args.teacher}.json")
     ranker_pt = load_delove(models / f"{args.ranker}.pt", "cuda")

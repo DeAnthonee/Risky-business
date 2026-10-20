@@ -103,6 +103,12 @@ def branch_suite(scale: float) -> list[tuple]:
          {"capitals": True, "chooseCapitals": True, "randomDeal": False, "setupBatch": 3, "blizzards": 5}),
         ("br-greater_europe-6p-settings-branch", "greater_europe", 6, seats(6, BR, T2, NETP), g(12),
          {"autoSetup": True, "balancedBlitz": True, "neutrals": 10, "neutralArmies": 4, "fortifyMode": "adjacent"}),
+        # the points score (DELOVE_BRANCH_SCORE=points): 2 seats, the league's table sizes, neutrals (never ranked)
+        ("br-classic-2p-points-branch", "classic", 2, f"{BR},{T2}", g(100), {}),
+        ("br-classic-4p-points-branch", "classic", 4, f"{BR},{T2},{NETP},{T1}", g(100), {}),
+        ("br-world-6p-points-branch", "world", 6, seats(6, BR, T2, NETP), g(30), {}),
+        ("br-fantasy-10p-points-branch", "fantasy", 10, seats(10, BR, T2, T1, NETP), g(12), {}),
+        ("br-skirmish-3p-points-settings-branch", "skirmish", 3, f"{BR},{T2},{NETP}", g(100), {"neutrals": 3, "capitals": True}),
     ]
 
 
@@ -138,6 +144,8 @@ def node_play(agents: str, games: int, start: int, seed: int, options: dict, log
         env["DELOVE_MODELS"] = models
     if BR in agents:
         env.update(BRANCH_ENV)
+        if "-points-" in log.parent.name:
+            env["DELOVE_BRANCH_SCORE"] = "points"
         env["DELOVE_BRANCH_TRACE"] = str(log.parent / f"trace-{log.name}-x.jsonl")
     cmd = ["node", "--import", "./packages/delove/dist/register.js", "packages/selfplay/dist/cli.js", "play", "--agents", agents,
            "--games", str(games), "--start", str(start), "--seed", str(seed), "--options", json.dumps(options), "--log", str(log)]
@@ -199,7 +207,7 @@ def replay_case(name: str, d: Path, args) -> dict:
     if name.endswith("-branch") and args.models:
         cmd = [PYTHON, str(HERE / "branch_replay.py"), *logs, "--trace", str(d / "trace-*.jsonl"), "--models", args.models,
                "--ranker", NETP, "--teacher", T2, "--horizon", BRANCH_ENV["DELOVE_BRANCH_HORIZON"], "--margin", BRANCH_ENV["DELOVE_BRANCH_MARGIN"],
-               "--batch", str(args.batch)]
+               "--batch", str(args.batch)] + (["--score", "points"] if "-points-" in name else [])
         r = subprocess.run(cmd, capture_output=True, text=True)
         res["rules"] += " | branch: " + (r.stdout.strip().splitlines()[0] if r.stdout.strip() else r.stderr[-500:])
         res["rules_ok"] = res["rules_ok"] and r.returncode == 0

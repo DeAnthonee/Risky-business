@@ -91,6 +91,7 @@ Every documentation file in the repo, what it covers and when to read it.
 | [AI/general-model-info/local-models.md](AI/general-model-info/local-models.md) | playing characters on local models: what is built, the goal, choosing a model | choosing or setting up a local model |
 | [docs/characters.md](docs/characters.md) | live character profiles over MCP and HTTP, write key, limits, syncing saves back; the local-model player | changing character saves or the local-model player |
 | [docs/character-league.md](docs/character-league.md) | the character league: profiles, placement points, persistent personality, in-game memory | changing rankings or league behaviour |
+| [docs/leaderboard-seasons.md](docs/leaderboard-seasons.md) | wiping the live leaderboard by archiving it (one admin call, or the `RANKINGS_SEASON` bump), viewing past seasons, and the files not to touch (Delove's mirrored `ranking.ts` and `RULE_FILES`) | archiving or wiping the leaderboard; reading an old season |
 | [docs/fog-power-rankings.md](docs/fog-power-rankings.md) | how AI commanders estimate opponent power under fog of war | changing the runner's threat assessment |
 | [packages/llm-player/README.md](packages/llm-player/README.md) | setting up and running the local-model player, how it decides | working on `packages/llm-player` |
 | [packages/runner/README.md](packages/runner/README.md) | the bot runner: league loop, setup, learning loop, files it writes, move chooser, options | working on `packages/runner` |

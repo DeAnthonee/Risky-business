@@ -164,7 +164,9 @@ def api(method: str, path: str, body: dict | None = None):
     if not key:
         raise SystemExit("RUNPOD_API_KEY is not set (the RunPod API key, in the environment only)")
     req = urllib.request.Request(API + path, method=method, data=None if body is None else json.dumps(body).encode(),
-                                 headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
+                                 headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json",
+                                          # RunPod's Cloudflare refuses urllib's default agent (HTTP 403, error code 1010)
+                                          "User-Agent": "delove-gpu-cloud/1"})
     try:
         with urllib.request.urlopen(req, timeout=60) as r:
             text = r.read()
@@ -201,9 +203,10 @@ class Pod:
 
 
 def create_pod(name: str, args, pub: str, deadline_s: int) -> Pod:
-    body = {"name": name, "imageName": args.image, "gpuTypeIds": [args.gpu_type], "gpuCount": args.gpus, "cloudType": args.cloud,
+    body = {"name": name, "imageName": args.image, "gpuTypeIds": [g.strip() for g in args.gpu_type.split(",")], "gpuTypePriority": "custom",
+            "gpuCount": args.gpus, "cloudType": args.cloud,
             "containerDiskInGb": args.disk_gb, "volumeInGb": 0, "ports": ["22/tcp"], "supportPublicIp": True,
-            "env": {"PUBLIC_KEY": pub, "SSH_PUBLIC_KEY": pub}, "allowedCudaVersions": ["12.8", "12.9", "13.0"],
+            "env": {"PUBLIC_KEY": pub, "SSH_PUBLIC_KEY": pub},  # no allowedCudaVersions: any value refuses every placement (worker.sh checks the driver)
             "dockerStartCmd": watchdog_cmd(deadline_s)}
     r = api("POST", "/pods", body)
     return Pod(r["id"], name, float(r.get("costPerHr") or 0), started=time.time())
@@ -226,7 +229,6 @@ class Ssh:
         self.key = work / "ssh_key"
         self.known = work / "known_hosts"
         self.exe = os.environ.get("SSH", "ssh")
-        self.scp = os.environ.get("SCP", "scp")
         if not self.key.exists():
             subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "delove-cloud", "-f", str(self.key)], check=True)
 
@@ -244,11 +246,24 @@ class Ssh:
             raise RuntimeError(f"ssh {pod.name}: {cmd[:80]!r} failed: {r.stderr.strip()[:300]}")
         return r.stdout
 
+    # Files go through a plain ssh stream, not scp: OpenSSH 9's scp speaks SFTP, and RunPod's PyTorch image closed the
+    # channel mid-upload ("Couldn't send packet: Broken pipe"). The size is checked on the other side.
     def put(self, pod: Pod, local: Path, remote: str, timeout: float = 3600):
-        subprocess.run([self.scp, *self.opts("-P", pod), str(local), f"root@{pod.ip}:{remote}"], check=True, timeout=timeout)
+        q = shlex.quote(remote)
+        with open(local, "rb") as f:
+            subprocess.run([self.exe, *self.opts("-p", pod), f"root@{pod.ip}", f"cat > {q}.part && mv {q}.part {q}"],
+                           stdin=f, check=True, timeout=timeout)
+        size = int(self.run(pod, f"stat -c %s {q}").strip())
+        if size != local.stat().st_size:
+            raise RuntimeError(f"upload to {pod.name}: {size} bytes arrived of {local.stat().st_size}")
 
     def get(self, pod: Pod, remote: str, local: Path, timeout: float = 4 * 3600):
-        subprocess.run([self.scp, *self.opts("-P", pod), f"root@{pod.ip}:{remote}", str(local)], check=True, timeout=timeout)
+        q = shlex.quote(remote)
+        size = int(self.run(pod, f"stat -c %s {q}").strip())
+        with open(local, "wb") as f:
+            subprocess.run([self.exe, *self.opts("-p", pod), f"root@{pod.ip}", f"cat {q}"], stdout=f, check=True, timeout=timeout)
+        if local.stat().st_size != size:
+            raise RuntimeError(f"download from {pod.name}: {local.stat().st_size} bytes of {size}")
 
     def forget(self):
         for f in (self.key, self.key.with_suffix(".pub"), self.known):
@@ -320,9 +335,7 @@ def build_upload(work: Path, pod_index: int, lanes: list[Lane], gen_args: list[s
         (stage / "cache").mkdir()
         for c in list(cache.glob("*.cubin")) + list(cache.glob("*.npz")):
             shutil.copyfile(c, stage / "cache" / c.name)
-    (stage / "worker.sh").write_bytes((HERE / "worker.sh").read_bytes().replace(b"
-", b"
-"))  # a CRLF checkout
+    (stage / "worker.sh").write_bytes((HERE / "worker.sh").read_bytes().replace(b"\r\n", b"\n"))  # a CRLF checkout
     (stage / "job.json").write_text(json.dumps({"torch": torch_version, "verify": verify}), encoding="utf8")
     for lane in lanes:
         for step in dict.fromkeys(u.step for u in lane.units):
@@ -425,7 +438,7 @@ def run(args, gen_args: list[str]):
                     continue
                 try:
                     status = ssh.run(p, "cat /root/job/status 2>/dev/null || echo missing; pgrep -f '[w]orker.sh' >/dev/null && echo alive || echo dead; for f in /root/job/lanes/*/*/gpu.log; do [ -f \"$f\" ] &&"
-                                        " echo \"$f: $(grep -a ' step \\| games in ' \"$f\" | tail -n1 | cut -c1-160)\"; done", timeout=60)
+                                        " echo \"$f: $(grep -a ' step \\| games in ' \"$f\" | tail -n1 | cut -c1-160)\"; done; true", timeout=60)  # true: no gpu.log yet is not a failed poll
                 except (RuntimeError, subprocess.TimeoutExpired) as e:
                     print(f"  {p.name}: {e}", flush=True)
                     continue
@@ -445,7 +458,7 @@ def run(args, gen_args: list[str]):
                     dest = work / f"pod-{k}.tar.gz"
                     try:
                         ssh.get(p, "/root/job/out.tar.gz", dest)
-                    except subprocess.CalledProcessError:
+                    except (subprocess.CalledProcessError, RuntimeError, ValueError):
                         print(f"  {p.name}: no out.tar.gz to download")
                     ssh.run(p, "rm -rf /root/job/models", check=False)
                     terminate(p)
@@ -561,7 +574,7 @@ def main(argv=None) -> int:
             p.add_argument("--out", required=True, help="the cycle's runs folder (OUT): OUT/<step>/gpu.json, OUT/remote/")
             p.add_argument("--commit", default="HEAD", help="the commit the pods run (git archive; need not be pushed)")
             p.add_argument("--torch", help="PyTorch version for the pods (default: this Python's, e.g. 2.11.0+cu128)")
-            p.add_argument("--gpu-type", default=GPU_4090)
+            p.add_argument("--gpu-type", default=GPU_4090, help="RunPod GPU type id, or several comma-separated, tried in that order")
             p.add_argument("--cloud", default="SECURE", choices=["SECURE", "COMMUNITY"])
             p.add_argument("--image", default=IMAGE)
             p.add_argument("--disk-gb", type=int, default=80)

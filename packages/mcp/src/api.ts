@@ -172,6 +172,9 @@ export interface CharacterMemory {
  * `HttpRiskApi` (stdio MCP talking to a remote server) and directly over the in-memory
  * store when the MCP endpoint is embedded in the game server itself.
  */
+/** One leaderboard season as GET /rankings/seasons lists it. */
+export interface RankingSeasonInfo { id: string; season: number; current: boolean; games: number }
+
 export interface RiskApi {
   rules(): Promise<{ rules: string }>;
   /** Optional for adapters; HTTP servers advertise supported modes in their options catalogue. */
@@ -180,7 +183,10 @@ export interface RiskApi {
   listGames(): Promise<{ games: unknown[] }>;
   /** Needs the characters write key: binding credits the character on the leaderboard. */
   setCharacter(gameId: string, token: string, characterId: string, key?: string): Promise<unknown>;
-  rankings(): Promise<{ rankings: import('@risk/engine').RankingRow[] }>;
+  /** A season's leaderboard by id (from rankingSeasons); the current season when omitted. */
+  rankings(season?: string): Promise<{ season?: string; current?: boolean; rankings: import('@risk/engine').RankingRow[] }>;
+  /** Leaderboard seasons: the current one first, then archives newest first. */
+  rankingSeasons(): Promise<{ current: number; seasons: RankingSeasonInfo[] }>;
   rankedProfile(key: string): Promise<{ stats: import('@risk/engine').RankingRow; profile: string | null }>;
   createGame(playerName: string, gameName: string | undefined, options: Partial<GameOptions> | undefined): Promise<JoinResult>;
   joinGame(gameId: string, playerName: string): Promise<JoinResult>;
@@ -413,7 +419,8 @@ export class HttpRiskApi implements RiskApi {
   setCharacter(gameId: string, token: string, characterId: string, key?: string) {
     return this.request(`/games/${gameId}/character`, { method: 'POST', body: JSON.stringify({ characterId }) }, token, key ?? this.charactersKey);
   }
-  rankings() { return this.request<{ rankings: import('@risk/engine').RankingRow[] }>('/rankings'); }
+  rankings(season?: string) { return this.request<{ season?: string; current?: boolean; rankings: import('@risk/engine').RankingRow[] }>(`/rankings${season ? `?season=${encodeURIComponent(season)}` : ''}`); }
+  rankingSeasons() { return this.request<{ current: number; seasons: RankingSeasonInfo[] }>('/rankings/seasons'); }
   rankedProfile(key: string) { return this.request<{ stats: import('@risk/engine').RankingRow; profile: string | null }>(`/rankings/profile?key=${encodeURIComponent(key)}`); }
   getCharacter(id: string, version?: number) {
     return this.request<CharacterProfile>(`/characters/${characterPath(id)}${version !== undefined ? `?version=${version}` : ''}`);

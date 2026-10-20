@@ -23,6 +23,12 @@ trap 'fail "worker interrupted"' INT TERM
 status setup
 exec > >(tee -a "$job/setup.log") 2>&1
 
+# ---- the host driver: remote.py cannot filter hosts by CUDA (RunPod's allowedCudaVersions refuses every placement), so
+# a host whose driver is older than the image's CUDA 12.8 ends here and remote.py terminates the pod
+cuda=$(nvidia-smi 2>/dev/null | grep -o "CUDA Version: *[0-9.]*" | grep -o "[0-9.]*$" | head -1)
+echo "driver CUDA ${cuda:-unknown}"
+[[ -n $cuda && $( { echo 12.8; echo "$cuda"; } | sort -V | head -1) == 12.8 ]] || fail "host driver CUDA ${cuda:-unknown} < 12.8"
+
 # ---- Node 22 (the mirror reads the built engine and self-play packages through node) ------------------------------
 if ! command -v node >/dev/null || (( $(node -p 'process.versions.node.split(".")[0]') < 20 )); then
   v=v22.21.0

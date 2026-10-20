@@ -100,33 +100,50 @@ function ProfileDialog({ url, name, onClose, whisper }: { url: string; name: str
 function victimName(key: string): string { return key.slice(Math.max(key.lastIndexOf('/'), key.indexOf(':')) + 1) || key; }
 
 /** Opening the profile does not navigate, disconnect the game, or change spectator fog. */
-export function CharacterName({ name, gameId, playerId, profileKey, whisper }: { name: string; gameId?: string; playerId?: string; profileKey?: string; whisper?: Whisper }) {
+export function CharacterName({ name, gameId, playerId, profileKey, season, whisper }: { name: string; gameId?: string; playerId?: string; profileKey?: string; season?: string; whisper?: Whisper }) {
   const [open, setOpen] = useState(false);
-  const url = profileKey ? `${API}/rankings/profile?key=${encodeURIComponent(profileKey)}` : `${API}/games/${encodeURIComponent(gameId!)}/players/${encodeURIComponent(playerId!)}/profile`;
+  const url = profileKey ? `${API}/rankings/profile?key=${encodeURIComponent(profileKey)}${season ? `&season=${encodeURIComponent(season)}` : ''}` : `${API}/games/${encodeURIComponent(gameId!)}/players/${encodeURIComponent(playerId!)}/profile`;
   return <><button className="character-name" onClick={e => { e.stopPropagation(); setOpen(true); }}>{name}</button>{open && <ProfileDialog name={name} url={url} whisper={whisper} onClose={() => setOpen(false)} />}</>;
 }
+
+interface SeasonInfo { id: string; season: number; current: boolean; games: number }
 
 export function Leaderboard() {
   const [rows, setRows] = useState<RankingRow[]>([]);
   const [error, setError] = useState('');
   const [loaded, setLoaded] = useState(false);
   const [retry, setRetry] = useState(0);
+  // '' is the current season; archived seasons come from /rankings/seasons and never change, so they load once.
+  const [season, setSeason] = useState('');
+  const [seasons, setSeasons] = useState<SeasonInfo[]>([]);
   useEffect(() => {
     let alive = true;
-    const load = () => read<{ rankings: RankingRow[] }>(`${API}/rankings`).then(r => { if (alive) { setRows(r.rankings); setLoaded(true); setError(''); } }).catch(e => { if (alive) setError(e.message); });
+    setLoaded(false);
+    const load = () => Promise.all([
+      read<{ rankings: RankingRow[] }>(`${API}/rankings${season ? `?season=${encodeURIComponent(season)}` : ''}`),
+      read<{ seasons: SeasonInfo[] }>(`${API}/rankings/seasons`),
+    ]).then(([r, s]) => { if (alive) { setRows(r.rankings); setSeasons(s.seasons); setLoaded(true); setError(''); } }).catch(e => { if (alive) setError(e.message); });
     void load();
-    const timer = setInterval(load, 15_000);
+    const timer = season ? undefined : setInterval(load, 15_000);
     return () => { alive = false; clearInterval(timer); };
-  }, [retry]);
+  }, [retry, season]);
+  const current = seasons.find(s => s.current);
   return <section className="board leaderboard" aria-labelledby="leaderboard-title">
-    <div className="board-head"><h2 id="leaderboard-title">Leaderboard</h2></div>
+    <div className="board-head"><h2 id="leaderboard-title">Leaderboard</h2>
+      {seasons.length > 1 && <label className="board-season">Season{' '}
+        <select value={season} onChange={e => setSeason(e.target.value)}>
+          <option value="">{current ? `${current.season} (current)` : 'Current'}</option>
+          {seasons.filter(s => !s.current).map(s => <option key={s.id} value={s.id}>{s.id} ({s.games} games)</option>)}
+        </select>
+      </label>}
+    </div>
     {error && <p role="alert">{error} <button onClick={() => setRetry(n => n + 1)}>Retry</button></p>}
     {!loaded && !error && <p role="status">Loading leaderboard…</p>}
-    {loaded && !rows.length && <p className="board-empty">No completed games yet. The first finished game starts the standings.</p>}
+    {loaded && !rows.length && <p className="board-empty">{season ? 'No games were ranked in this season.' : 'No completed games yet this season. The first finished game starts the standings.'}</p>}
     {!!rows.length && <ol className="ranks">
       {rows.map(r => <li key={r.key} className={`rank-row${r.rank <= 3 ? ` podium podium-${r.rank}` : ''}`}>
         <span className="rank-num" aria-label={`Rank ${r.rank}`}>{r.rank}</span>
-        <span className="rank-name"><CharacterName name={r.name} profileKey={r.key} /></span>
+        <span className="rank-name"><CharacterName name={r.name} profileKey={r.key} season={season || undefined} /></span>
         <span className="rank-points"><strong>{r.points}</strong> pts</span>
         <span className="rank-stats">
           <span title="Wins and losses">{r.wins}–{r.losses}</span>

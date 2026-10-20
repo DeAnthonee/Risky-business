@@ -6,6 +6,7 @@ Guide: [packages/delove-gpu/README.md](../../packages/delove-gpu/README.md).
 Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. **Append a line in the same PR** as any change to
 this area (README hard rule 12), and say when the fingerprint (`engine-fingerprint.json`) was re-verified.
 
+- 2026-10-20 #PRNUM `cloud/remote.py` imports again: the CRLF replace in the upload builder had real line breaks inside its bytes literal (a SyntaxError on every `remote.py` command); `tests/cloud_check.py` with `--data`/`--jobs` passes; fingerprint not touched
 - 2026-10-20 #116 `generate.py` writes `branch_tag.npy` (what the search did per decision); progress-line labels with settings are parsed by the dashboard
 - 2026-10-20 #115 `cloud/`: a cycle's GPU steps on rented cloud GPUs (RunPod): `remote.py` (split by configuration and measured cost, launch, upload, poll, download, terminate on every path, GPU-hour cap, cost estimate), `worker.sh` (pod setup at a `git archive` commit with the training PC's PyTorch), `merge.py` (several workers' arrays into one map folder and gpu.json), `tests/cloud_check.py`, `dataset_compare.py --subset`; fingerprint not touched
 - 2026-10-20 #113 `delove_gpu/ladder.py`: ladder gates (candidate vs best, mirrored pairs) on the GPU with the CPU's seeds, seats and JSON (`--gates` for cycle.sh's chunks, `--procs`); `Table.seed` in `generate.py`; `tests/ladder_compare.py`; 1,198 of 1,200 games identical to the CPU (2 ONNX vs PyTorch near-ties), speed table in the README; fingerprint not touched

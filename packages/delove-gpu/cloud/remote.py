@@ -320,9 +320,7 @@ def build_upload(work: Path, pod_index: int, lanes: list[Lane], gen_args: list[s
         (stage / "cache").mkdir()
         for c in list(cache.glob("*.cubin")) + list(cache.glob("*.npz")):
             shutil.copyfile(c, stage / "cache" / c.name)
-    (stage / "worker.sh").write_bytes((HERE / "worker.sh").read_bytes().replace(b"
-", b"
-"))  # a CRLF checkout
+    (stage / "worker.sh").write_bytes((HERE / "worker.sh").read_bytes().replace(b"\r\n", b"\n"))  # a CRLF checkout
     (stage / "job.json").write_text(json.dumps({"torch": torch_version, "verify": verify}), encoding="utf8")
     for lane in lanes:
         for step in dict.fromkeys(u.step for u in lane.units):

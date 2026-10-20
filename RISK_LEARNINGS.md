@@ -252,6 +252,22 @@ Fundamental rules, mechanics, and tournament scoring for the Risk engine, follow
     $$\text{EV} = (0.417 \times +10\text{ armies}) + (0.583 \times -1\text{ army}) = +4.17 - 0.58 = \mathbf{+3.59\text{ armies net gain}}$$
   * Passing on a 2v1 elimination against a high-card victim is a massive EV blunder. When the bounty has $\ge 3$ cards, a $41.7\%$ gamble with game-winning upside must always be taken!
 
+### 16. The "4–5 Card Bounty Trap" under Fog of War
+* **The Public Target on a Foggy Board**:
+  * Under Fog of War, players cannot see each other's interior garrisons or exact army deployments.
+  * However, **card counts are 100% public information** in the scoreboard at all times!
+  * When a player reaches 4 or 5 cards, every competent opponent knows two things:
+    1. The target has an immediate trade or forced trade on their next turn.
+    2. Eliminating this player yields an instant 4–5 card inheritance, guaranteeing a mid-turn trade for the attacker right now.
+* **The Overextension Blunder (e.g. Ahri and Darius in Game 48 on USA)**:
+  * In Game 48 (`JPT2FS`), Ahri had 16 armies across 12 territories and was holding 5 cards. Instead of pulling her forces into a tight fortress to protect her cards until her trade turn, she attempted to conquer both Southwest and Rockies simultaneously.
+  * Spreading 16 armies across 12 territories left each border defended by only 1–2 troops.
+  * Shaco saw the 5-card bounty, punched through the paper-thin perimeter, eliminated Ahri in Round 6, cashed the 5 cards mid-turn, and rolled the board. Darius made the exact same mistake with 4 cards in Round 8 and was eliminated next.
+* **The High-Card Survival Protocol**:
+  1. **Tighten, Do Not Expand**: When holding 4 or 5 cards, **stop expanding across multi-territory fronts**.
+  2. **Fortify into a Single Dense Bastion**: Fortify all mobile troops onto your primary chokepoint or capital to raise the attacker's required troop threshold above what any opponent can bring.
+  3. **Trade First, Then Expand**: Wait until your turn to trade your cards for fresh reinforcements; only after the armies are safely in hand should you resume continental conquest.
+
 ---
 
 ## Findings from AI self-play games

@@ -4,7 +4,9 @@
 // curves; the ladder gates (score and leaderboard points with 95% intervals) as they finish; and the machine's GPU and
 // CPU load. Read-only: it only reads the run folders cycle.sh (and delove_gpu.generate) write.
 //
-//   node packages/delove/scripts/dashboard.mjs --runs C:/Users/espii/Projects/Risky-business-stage2/runs/delove [--port 8790]
+//   node packages/delove/scripts/dashboard.mjs [--runs runs/delove] [--port 8790]
+//
+// (--runs: the folder holding the run folders, i.e. cycle.sh's OUT parent, e.g. <training PC>/Risky-business-stage2/runs/delove)
 //
 // then open http://127.0.0.1:8790 (binds 127.0.0.1 only). ?run=<name> picks a run; the default is the newest one.
 import { createServer } from 'node:http';

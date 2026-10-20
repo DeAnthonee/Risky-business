@@ -15,7 +15,7 @@ const log = (msg) => {
 
 log(`Risk continuous model orchestrator targeting ${SERVER_URL}`);
 log(`Pool of 20: 10 League LLMs + 10 Models (5 DeLOVE@4 + 5 Models@3 including Sensei@3)`);
-log(`Matches: 50% LLMs vs 50% Models (Fog of War: OFF).`);
+log(`Matches: Random draws from pool of 20 (6 to 10 players, Fog of War: OFF).`);
 
 let gamesCompleted = 0;
 let lastMap = 'fantasy'; // ensure Match 3+ never duplicates previous
@@ -89,16 +89,21 @@ for (let g = 1; g <= TOTAL_GAMES; g++) {
   const fogOfWar = false;
   const mapCap = MAP_MAX_PLAYERS[selectedMap] ?? 6;
   const targetPlayers = 6 + Math.floor(Math.random() * 5); // 6 to 10
-  let playerCount = Math.min(targetPlayers, mapCap);
-  if (playerCount % 2 !== 0) playerCount -= 1; // ensure 50/50 balance
-  const half = playerCount / 2;
+  const playerCount = Math.min(targetPlayers, mapCap);
 
-  // Exact 50% LLMs and 50% Models
-  const shuffledLLMs = [...LLM_POOL].sort(() => Math.random() - 0.5);
-  const selectedLLMs = shuffledLLMs.slice(0, half).map((p) => ({ ...p, type: 'llm' }));
+  // Randomly select playerCount from the pool of 20
+  const shuffled = [...POOL_OF_20].sort(() => Math.random() - 0.5);
+  let selected = shuffled.slice(0, playerCount);
 
-  const shuffledModels = [...MODEL_POOL].sort(() => Math.random() - 0.5);
-  const selectedModels = shuffledModels.slice(0, half).map((p) => ({ ...p, type: 'model' }));
+  // Guarantee at least 1 LLM so runner hosts the game, captures the logs, and updates the leaderboard
+  let selectedLLMs = selected.filter((p) => p.type === 'llm');
+  let selectedModels = selected.filter((p) => p.type === 'model');
+  if (selectedLLMs.length === 0) {
+    const pickLLM = LLM_POOL[Math.floor(Math.random() * LLM_POOL.length)];
+    selected[0] = { ...pickLLM, type: 'llm' };
+    selectedLLMs = selected.filter((p) => p.type === 'llm');
+    selectedModels = selected.filter((p) => p.type === 'model');
+  }
 
   const llmSeatsArg = selectedLLMs.map((s) => `${s.name}=${s.id}`).join(',');
   const openSeats = selectedModels.length;

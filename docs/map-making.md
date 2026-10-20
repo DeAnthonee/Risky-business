@@ -77,14 +77,14 @@ List each region's entry territories and the edges that leave it, from the gener
 border or pass, `(sea)` a drawn crossing). Every `(LAND)` link between regions should be one of your passes:
 
 ```bash
-node -e "const m=require('./packages/engine/src/generated/'+process.argv[1]+'.json');const reg=Object.fromEntries(m.territories.map(t=>[t.id,t.continent]));const sea=new Set(m.seaLinks.map(l=>[l.a,l.b].sort().join('|')));for(const c of m.continents){const out=m.edges.filter(([a,b])=>(reg[a]===c.id)!==(reg[b]===c.id)).map(([a,b])=>(reg[a]===c.id?a+'>'+b:b+'>'+a)+(sea.has([a,b].sort().join('|'))?' (sea)':' (LAND)'));console.log(c.id,new Set(out.map(e=>e.split('>')[0])).size,'entries:',out.join(', '))}" bohemia
+node -e "const m=require('./packages/engine/src/generated/'+process.argv[1]+'.json');const reg=Object.fromEntries(m.territories.map(t=>[t.id,t.continent]));const sea=new Set(m.seaLinks.map(l=>[l.a,l.b].sort().join('|')));for(const c of m.continents){const out=m.edges.filter(([a,b])=>(reg[a]===c.id)!==(reg[b]===c.id)).map(([a,b])=>(reg[a]===c.id?a+'>'+b:b+'>'+a)+(sea.has([a,b].sort().join('|'))?' (sea)':' (LAND)'));console.log(c.id,new Set(out.map(e=>e.split('>')[0])).size,'entries:',out.join(', '))}" nine_realms
 ```
 
 To see where two territories touch (to choose a pass, or to find an unexpected contact), list the points their paths
 share:
 
 ```bash
-node -e "const m=require('./packages/engine/src/generated/'+process.argv[1]+'.json');const pts=id=>new Set(m.territories.find(t=>t.id===id).path.match(/-?[\d.]+,-?[\d.]+/g));const b=pts(process.argv[3]);const s=[...pts(process.argv[2])].filter(p=>b.has(p)).map(p=>p.split(',').map(Number));console.log(s.length?s.length+' shared points, x '+Math.min(...s.map(p=>p[0]))+'..'+Math.max(...s.map(p=>p[0]))+', y '+Math.min(...s.map(p=>p[1]))+'..'+Math.max(...s.map(p=>p[1])):'no shared points')" bohemia sazava lower_meadows
+node -e "const m=require('./packages/engine/src/generated/'+process.argv[1]+'.json');const pts=id=>new Set(m.territories.find(t=>t.id===id).path.match(/-?[\d.]+,-?[\d.]+/g));const b=pts(process.argv[3]);const s=[...pts(process.argv[2])].filter(p=>b.has(p)).map(p=>p.split(',').map(Number));console.log(s.length?s.length+' shared points, x '+Math.min(...s.map(p=>p[0]))+'..'+Math.max(...s.map(p=>p[0]))+', y '+Math.min(...s.map(p=>p[1]))+'..'+Math.max(...s.map(p=>p[1])):'no shared points')" nine_realms bogneck twinford
 ```
 
 The contact is in viewBox units; divide back through `P()` to find it on the sketch grid. Very short contacts (under

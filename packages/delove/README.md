@@ -302,6 +302,27 @@ cycle.sh checks the mirror's fingerprint: if the engine changed since the last v
 `packages/delove-gpu/verify.py --models <models dir>` first. Games in flight are sized per table configuration to
 `GPU_GB` of game state (default 3, fits the RTX 4060's 8 GB with the networks); `GPU_BATCH` fixes the number.
 
+**Gates on the GPU.** `gpu_gates=(all)` in the config, or a list of gate indices (`gpu_gates=(4 6 7)`, 0-based in
+`gates=(...)`), plays those gates on the GPU (`python -m delove_gpu.ladder`, [packages/delove-gpu](../delove-gpu/README.md#ladder-gates-on-the-gpu))
+and the rest on the CPU, at the same time; `GPU_GATES=1` (all), `GPU_GATES="4 6"` or `GPU_GATES=0` (none) overrides
+the config. CPU gates stay the default. The GPU plays the same chunks with the same seeds and writes the same
+`OUT/gates/g<i>-<k>.json` (byte for byte, but for rare ONNX vs PyTorch near-ties), so the gate table and a resumed run
+cannot tell them apart; its log is `OUT/gates/gpu.log`. One Python process takes every GPU gate chunk, one engine per
+table configuration, one configuration after another (`GPU_GATE_PROCS=N` runs N processes, each with whole
+configurations; `GPU_GATE_GB`, default 1, sizes each configuration's games in flight; `GPU_BATCH` fixes it). Before it
+starts, cycle.sh checks the mirror's fingerprint and stops on a stale mirror unless `GPU_GATES_ALLOW_UNVERIFIED=1`.
+Network and tuned-teacher opponents (and Jacob Sensei where the mirror has it) play on the GPU; it refuses fog of war
+and `delove-branch@1`, `risky@1` or `-explore` seats, so leave those gates on the CPU. To re-run gates only (after
+training), run cycle.sh again with the same config: finished generation, exports and the trained model are kept.
+
+Which gates to move: a GPU configuration takes about as long as its longest game, whatever the number of games, while
+the CPU plays a gate's chunks side by side. So the GPU wins on the big boards and loses on the small ones (200 games:
+Greater Europe 6p 541 s on the GPU against 878 s for the CPU's longest chunk with 6 busy processes; Greater Europe 10p
+took 1,572 s in cycle 5's full pool; World 10p 213 s against 166-415 s; Classic 2p 34 s against 21-40 s; Four Crowns 2p 71 s
+against 12-22 s). Put the big-board gates on the GPU and keep 2-4 player Classic and Four Crowns on the CPU; the gate
+phase then ends with the slower side. Measurements and the reasons:
+[packages/delove-gpu](../delove-gpu/README.md#speed-of-a-gate).
+
 The games are the CPU's: cycle 3's Classic 2-player step played this way (`c3.cycle` with `gpu_steps=(classic2)`,
 same environment as cycle 3) gives a `cycle.md` step table identical to cycle 3's CPU one, every number of it: wins
 per table, mean turns, decisions, and all branch-and-score statistics.

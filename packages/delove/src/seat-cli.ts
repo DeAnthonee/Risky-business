@@ -1,13 +1,11 @@
 #!/usr/bin/env node
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 import type { GameOptions } from '@risk/engine';
 import { HttpRiskApi } from '@risk/mcp';
 import type { Agent } from '@risk/selfplay';
-import { discoverNetAgents, modelsDir } from './net-agent.js';
-import { playSeat } from './seat.js';
-import { DEFAULT_TEACHER_PARAMS, makeTeacher, teacher, type TeacherParams } from './teacher.js';
+import { discoverNetAgents } from './net-agent.js';
+import { defaultName, discoverTunedTeachers, playSeat } from './seat.js';
+import { teacher } from './teacher.js';
 
 const USAGE = `delove-seat: seat Delove players in a real game over the HTTP API (no chat, no character)
 
@@ -27,24 +25,6 @@ Fog of war games are refused: Delove was trained on the full board.`;
 function fail(msg: string): never {
   console.error(`${msg}\n\n${USAGE}`);
   process.exit(2);
-}
-
-function discoverTunedTeachers(dir = modelsDir()): Agent[] {
-  if (!existsSync(dir)) return [];
-  const version = (f: string) => Number(/@(\d+)/.exec(f)![1]);
-  const files = readdirSync(dir).filter((f) => /^delove-teacher@\d+\.json$/.test(f));
-  return files.sort((a, b) => version(a) - version(b)).map((f) => {
-    const id = f.replace(/\.json$/, '');
-    const params: TeacherParams = { ...DEFAULT_TEACHER_PARAMS, ...JSON.parse(readFileSync(join(dir, f), 'utf8')) };
-    return makeTeacher(id, params);
-  });
-}
-
-function defaultName(id: string): string {
-  if (id === teacher.id || id === 'sensei@1' || id === 'sensei') return 'Sensei 1';
-  if (id === 'delove-teacher@2' || id === 'sensei@2') return 'Sensei 2';
-  const m = /^delove@(\d+)(-explore)?$/.exec(id);
-  return m ? `Delove ${m[1]}${m[2] ? ' (explore)' : ''}` : id;
 }
 
 async function main() {

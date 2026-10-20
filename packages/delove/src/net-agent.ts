@@ -127,10 +127,16 @@ export function netAgent(id: string, modelPath: string, temperature = 0): Agent 
   });
 }
 
-/** Which range specialist plays a decision, by players still alive: close (2), mid (3), long (4 or more). */
+/**
+ * Which range specialist plays a decision, by players still alive: close (2), mid (3), long (4 or more). The neutral
+ * army is not a player (it never takes a turn), as in the encoder's slot<i>_alive features that train.py --alive counts.
+ */
 export type Range = 'close' | 'mid' | 'long';
+export function alivePlayers(state: GameState): number {
+  return state.players.filter((p) => p.alive && !p.isNeutral).length;
+}
 export function rangeOf(state: GameState): Range {
-  const alive = state.players.filter((p) => p.alive).length;
+  const alive = alivePlayers(state);
   return alive <= 2 ? 'close' : alive === 3 ? 'mid' : 'long';
 }
 
@@ -188,7 +194,14 @@ export function discoverNetAgents(dir = modelsDir()): Agent[] {
   const ranges = [...files]
     .filter((f) => /^delove-range@\d+\.json$/.test(f))
     .flatMap((f) => {
-      const routes = JSON.parse(readFileSync(join(dir, f), 'utf8')) as Record<Range, string>;
+      let routes: Record<Range, string>;
+      try {
+        routes = JSON.parse(readFileSync(join(dir, f), 'utf8'));
+      } catch (e) {
+        // One bad routes file must not stop every other player from loading.
+        console.warn(`Delove: skipping ${f}: ${(e as Error).message}`);
+        return [];
+      }
       const paths = Object.fromEntries((['close', 'mid', 'long'] as const).map((r) => [r, join(dir, `${routes[r]}.onnx`)])) as Record<Range, string>;
       if (!Object.values(paths).every((p) => existsSync(p))) return [];
       return [rangeAgent(basename(f, '.json'), paths)];

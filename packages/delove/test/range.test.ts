@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { playGame, riskyBot, stepAgent } from '@risk/selfplay';
-import { discoverNetAgents, rangeAgent, rangeOf, type Range } from '../src/index.js';
+import { alivePlayers, discoverNetAgents, rangeAgent, rangeOf, type Range } from '../src/index.js';
 
 const TINY = fileURLToPath(new URL('./fixtures/tiny.onnx', import.meta.url));
 
@@ -12,7 +12,8 @@ describe('Delove Range (range specialists routed by players alive)', () => {
   it('routes by players still alive: long for 4+, mid for 3, close for 2', () => {
     const seen = new Map<number, Set<Range>>();
     const spy = stepAgent('spy@1', (ctx) => {
-      const alive = ctx.state.players.filter((p) => p.alive).length;
+      // An independent count (real seats from the seating, not rangeOf's own filter).
+      const alive = ctx.state.players.filter((p) => p.alive && ctx.state.turnOrder.includes(p.id)).length;
       const r = rangeOf(ctx.state);
       seen.set(alive, (seen.get(alive) ?? new Set()).add(r));
       return 0;
@@ -23,6 +24,19 @@ describe('Delove Range (range specialists routed by players alive)', () => {
       expect([...ranges]).toEqual([alive <= 2 ? 'close' : alive === 3 ? 'mid' : 'long']);
     }
     expect(seen.has(6)).toBe(true);
+  });
+
+  it('does not count the neutral army (2 players: the duel goes to close range from the start)', () => {
+    let checked = 0;
+    const spy = stepAgent('spy@1', (ctx) => {
+      expect(ctx.state.players.some((p) => p.isNeutral)).toBe(true);
+      expect(alivePlayers(ctx.state)).toBe(2);
+      expect(rangeOf(ctx.state)).toBe('close');
+      checked++;
+      return 0;
+    });
+    playGame({ seed: 7, seats: [{ agent: spy }, { agent: riskyBot }], maxTurns: 6 });
+    expect(checked).toBeGreaterThan(0);
   });
 
   it('plays whole games legally, deterministically, on several maps and table sizes', () => {
@@ -45,5 +59,10 @@ describe('Delove Range (range specialists routed by players alive)', () => {
     // A route to a missing model is skipped rather than failing every game later.
     writeFileSync(join(dir, 'delove-range@2.json'), JSON.stringify({ close: 'nope', mid: 'delove-mid@1', long: 'delove-long@1' }));
     expect(discoverNetAgents(dir).map((a) => a.id)).not.toContain('delove-range@2');
+    // A broken routes file is skipped with a warning; the other players still load.
+    writeFileSync(join(dir, 'delove-range@3.json'), '{ not json');
+    const after = discoverNetAgents(dir).map((a) => a.id);
+    expect(after).toContain('delove-range@1');
+    expect(after).not.toContain('delove-range@3');
   });
 });

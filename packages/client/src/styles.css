@@ -1860,15 +1860,20 @@ label.check input {
 }
 
 /* ---------- Whose turn: the current player's land is lifted and rocks gently ---------- */
+.turn-lift-layer {
+  filter: drop-shadow(0 3px 2.5px rgba(0, 0, 0, 0.55));
+}
 .turn-lift {
   transform-box: fill-box;
   transform-origin: center;
-  filter: drop-shadow(0 3px 2.5px rgba(0, 0, 0, 0.55));
   animation: turn-rock 3.2s ease-in-out infinite;
 }
 .turn-lift .territory:not([class*="hl-"]) {
   stroke: rgba(255, 255, 255, 0.55);
   stroke-width: 1.4;
+}
+.turn-lift .territory.hovered {
+  filter: brightness(1.2);
 }
 @keyframes turn-rock {
   0%,

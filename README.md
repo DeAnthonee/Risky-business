@@ -63,6 +63,7 @@ Every documentation file in the repo, what it covers and when to read it.
 | file | what it covers | read it when |
 | --- | --- | --- |
 | [docs/playing.md](docs/playing.md) | the web client for players and spectators (spectating, auto-spectate, whispers, animations, commit slider, views), the rules implemented and every game setting | changing the client, the rules text or a setting |
+| [docs/map-making.md](docs/map-making.md) | making a new board: design rules (original names, chokepoints, bonuses), tracing a picture, chokepoint techniques, `scripts/preview-map.mjs`, the registration checklist, owner approval, review and GPU verification | making or reworking a board |
 | [docs/maps.md](docs/maps.md) | the ten boards, starting armies, legacy maps, how map data is generated | changing or adding a map |
 | [docs/http-api.md](docs/http-api.md) | every `/api` route, the WebSocket protocol, the action JSON | changing or calling the API |
 | [docs/mcp.md](docs/mcp.md) | the MCP tools, remote `/mcp` connector, the stdio CLI and its env vars, an agent's loop | changing MCP tools or connecting an agent |

@@ -79,6 +79,9 @@ splits each landmass), single-territory islands, and `seaLanes` for crossings ov
 the shapes; the generator also warns about borders too short to count, badges that would overlap, and prints a
 suggested bonus per region (size plus entry points) next to the one you set.
 
+Making a new board (design rules, chokepoints, `scripts/preview-map.mjs`, the registration checklist and the
+approval workflow): [docs/map-making.md](docs/map-making.md).
+
 ## 6. Commands and running locally
 
 ```bash

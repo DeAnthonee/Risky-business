@@ -12,10 +12,12 @@ or a StaleMirror error) says the engine changed:
 3. replays every log through engine.py and fused.py (tests/replay.py): board, cards, phase and legal moves must be
    identical at every step; checks the GPU encoder against the export, and the GPU network against the logged
    network moves with --model;
-   with --models (a folder with delove-teacher@N.json and the ranker's .pt and .onnx), also the GPU teacher
-   (tests/teacher_replay.py: the logged pick at every step), branch and score at branch.ts's defaults and at the
-   cycle settings (tests/branch_replay.py against the CPU's DELOVE_BRANCH_TRACE: options, exact mean scores, picks) and
-   the training-array writer (tests/export_check.py: bit for bit against export);
+   with --models (a folder with delove-teacher@N.json and the ranker's .pt and .onnx), also the GPU teachers
+   (tests/teacher_replay.py: the logged pick at every step of the newest Sensei and of Jacob Sensei, jacob-sensei@1),
+   branch and score at branch.ts's defaults and at the cycle settings, with Sensei and with Jacob as the rollout
+   teacher (tests/branch_replay.py against the CPU's DELOVE_BRANCH_TRACE: options, exact mean scores, picks), the
+   training-array writer (tests/export_check.py: bit for bit against export) and the kernel's Math.log1p
+   (tests/log1p_check.py);
 4. only if everything matches, writes engine-fingerprint.json (hashes of the engine files the mirror copies, and
    what was replayed). Commit it with the mirror changes.
 
@@ -39,6 +41,7 @@ sys.path.insert(0, str(HERE))
 from delove_gpu import fingerprint  # noqa: E402
 
 REPO = fingerprint.REPO
+JACOB = "jacob-sensei@1"
 
 
 def run(cmd: list[str], **kw) -> subprocess.CompletedProcess:
@@ -109,11 +112,13 @@ def main() -> int:
                 sys.exit(f"{models / (args.ranker + ext)} missing (the CPU ranks with the ONNX, the GPU with the .pt)")
         env["DELOVE_MODELS"] = str(models)
         logs["teacher-tuned"] = (f"{teacher_id},{teacher_id}", g)
+        logs["teacher-jacob"] = (f"{JACOB},{JACOB}", g)
         nb = max(20, g // 5)
-        for name, h, mg in [("branch-default", None, None), ("branch-cycle", "1", "0.01")]:
-            logs[name] = (f"delove-branch@1,{teacher_id}", nb)
+        for name, h, mg, rt in [("branch-default", None, None, teacher_id), ("branch-cycle", "1", "0.01", teacher_id),
+                                ("branch-jacob", "1", "0.01", JACOB)]:
+            logs[name] = (f"delove-branch@1,{rt}", nb)
             extra_env[name] = {"DELOVE_BRANCH_RANKER": args.ranker, "DELOVE_BRANCH_TRACE": str(out / f"trace-{name}.jsonl"),
-                               **({"DELOVE_BRANCH_HORIZON": h, "DELOVE_BRANCH_MARGIN": mg} if h else {})}
+                               "DELOVE_BRANCH_TEACHER": rt, **({"DELOVE_BRANCH_HORIZON": h, "DELOVE_BRANCH_MARGIN": mg} if h else {})}
     if args.model:
         model = Path(args.model).resolve()
         net_agent = model.stem  # delove@N, as net-agent.ts registers models/delove/<id>.onnx
@@ -183,10 +188,14 @@ def main() -> int:
         jobs = [
             ("teacher", [str(tests / "teacher_replay.py"), str(out / "teacher-tuned"), "--agent", teacher_id, "--params", str(models / f"{teacher_id}.json")],
              r"(\d+)/(\d+) games replayed to the end, (\d+) steps, \d+ \S+ decisions checked, 0 mismatches", 3),
+            ("teacher", [str(tests / "teacher_replay.py"), str(out / "teacher-jacob"), "--agent", JACOB],
+             r"(\d+)/(\d+) games replayed to the end, (\d+) steps, \d+ \S+ decisions checked, 0 mismatches", 3),
+            ("teacher", [str(tests / "log1p_check.py")], r"(\d+) of (\d+) values bit-identical", 1),
         ]
-        for name, extra in [("branch-default", []), ("branch-cycle", ["--horizon", "1", "--margin", "0.01"])]:
+        for name, extra, rt in [("branch-default", [], teacher_id), ("branch-cycle", ["--horizon", "1", "--margin", "0.01"], teacher_id),
+                                ("branch-jacob", ["--horizon", "1", "--margin", "0.01"], JACOB)]:
             jobs.append(("branch", [str(tests / "branch_replay.py"), str(out / name), "--trace", str(out / f"trace-{name}.jsonl"), "--models",
-                                    str(models), "--ranker", args.ranker, "--teacher", teacher_id, *extra],
+                                    str(models), "--ranker", args.ranker, "--teacher", rt, *extra],
                          r"(\d+) games, (\d+) branch-player decisions .*means identical on \d+, different on 0;", 2))
         jobs.append(("branch", [str(tests / "export_check.py"), str(out / "branch-cycle"), str(out / "branch-export")],
                      r"(\d+) decisions, .*differs from the log at 0 steps; IDENTICAL", 1))
@@ -199,7 +208,8 @@ def main() -> int:
                 print(f"\nMISMATCH: the GPU {engine} does not match the TypeScript (see above). Fix packages/delove-gpu, then run"
                       " verify.py again. engine-fingerprint.json is unchanged.")
                 return 1
-            results.append({"engine": engine, "check": Path(cmd[0]).name, "logs": [rel(cmd[1])], "decisions": int(m.group(group))})
+            results.append({"engine": engine, "check": Path(cmd[0]).name, "logs": [rel(c) for c in cmd[1:2] if Path(c).is_dir()],
+                            "decisions": int(m.group(group))})
         engines += ["teacher", "branch"]
 
     if "fused.py" in engines:
@@ -210,7 +220,7 @@ def main() -> int:
             print("\nMISMATCH: the GPU odds tables differ from odds.ts. engine-fingerprint.json is unchanged.")
             return 1
     if args.matrix_scale > 0 and "fused.py" in engines:
-        suites = ["rules", "settings"] + (["branch"] if args.models else [])
+        suites = ["rules", "settings"] + (["branch", "jacob"] if args.models else [])
         for suite in suites:
             print(f"  every map, table size and setting: tests/matrix.py --suite {suite} --scale {args.matrix_scale}")
             cmd = [py, "-u", str(HERE / "tests" / "matrix.py"), "--suite", suite, "--scale", str(args.matrix_scale), "--seed", str(seed),
@@ -226,7 +236,7 @@ def main() -> int:
                 return 1
             steps = sum(int(x) for x in re.findall(r"games identical, (\d+) steps", text))
             total_steps += steps
-            results.append({"engine": "fused.py" if suite != "branch" else "branch", "check": f"matrix {suite}", "cases": int(m.group(2)),
+            results.append({"engine": {"branch": "branch", "jacob": "teacher"}.get(suite, "fused.py"), "check": f"matrix {suite}", "cases": int(m.group(2)),
                             "steps": steps, "logs": [rel(out / f"matrix-{suite}")]})
 
     commit = subprocess.run(["git", "rev-parse", "HEAD"], cwd=REPO, capture_output=True, text=True).stdout.strip()

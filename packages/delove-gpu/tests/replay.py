@@ -13,7 +13,7 @@ come from `options.json` in the log dir (written by tests/matrix.py; the engine'
 the table size from the records.
 With --net AGENT PT the GPU network's top move is compared with AGENT's logged choices.
 With --teacher AGENT[=PARAMS.json] (repeatable) the GPU teacher (teacher.py, with that version's tuned numbers; none =
-delove-teacher@1's) must pick AGENT's logged candidate at every step AGENT decided, drawing its tie-break jitter from
+the defaults: delove-teacher@1's, or jacob-sensei@1's for jacob-sensei@1 and DEFAULT_JACOB_PARAMS for later Jacobs) must pick AGENT's logged candidate at every step AGENT decided, drawing its tie-break jitter from
 the seat's own stream as playGame seeds it.
 With --export DIR (an `npm run delove -- export` of the same log), the GPU encoder's features are checked too.
 
@@ -404,12 +404,12 @@ def main():
              "teacher_checked": 0, "teacher_mismatch": 0, "outcomes": 0}
     teachers = None
     if args.teacher:
-        from delove_gpu.teacher import load_params
+        from delove_gpu.teacher import agent_params
 
         teachers = {}
         for t in args.teacher:
             agent, _, path = t.partition("=")
-            teachers[agent] = load_params(path or None)
+            teachers[agent] = agent_params(agent, path=path or None)
     net = None
     if args.net:
         from delove_gpu.play import load_delove

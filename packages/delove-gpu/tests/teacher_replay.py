@@ -1,17 +1,20 @@
 """Replay logged games and check that the GPU teacher (delove_gpu/teacher.py) picks the logged candidate at every step
-the teacher decided.
+the teacher decided, on any map, table size and covered setting (the map and seats from the records, the settings from
+options.json in the log dir, as replay.py reads them).
 
 Each game runs on the GPU from its seed (the rules mirror is checked by replay.py; the board is compared here too).
-At every step decided by AGENT (a teacher version, e.g. delove-teacher@2 with its tuned numbers in --params), the
-GPU teacher picks from the same position with the seat's own seeded stream (mixSeed(seed, 0x5eed + seat), as
+At every step decided by AGENT (a teacher version: delove-teacher@2 with its tuned numbers in --params or --models,
+jacob-sensei@1 with the numbers in jacob.ts), the GPU teacher picks from the same position with the seat's own seeded stream (mixSeed(seed, 0x5eed + seat), as
 playGame gives it), so the tie-break jitter must come out the same too. Then the logged choice is played, whoever
 made it. Zero mismatches expected.
 
     python tests/teacher_replay.py runs/gpu-verify/t2t2 --agent delove-teacher@2 --params models/delove/delove-teacher@2.json
+    python tests/teacher_replay.py runs/gpu-verify/jj-world-10p --agent jacob-sensei@1
 """
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import time
 from pathlib import Path
@@ -20,9 +23,10 @@ import numpy as np
 import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from delove_gpu.config import GameConfig  # noqa: E402
 from delove_gpu.engine import KIND_NAMES  # noqa: E402
 from delove_gpu.logs import Snapshot, cand_to_action, first_diff, games, record_view  # noqa: E402
-from delove_gpu.teacher import TeacherEngine, load_params  # noqa: E402
+from delove_gpu.teacher import TeacherEngine, agent_params  # noqa: E402
 
 
 def describe(e, a: int) -> str:
@@ -32,9 +36,9 @@ def describe(e, a: int) -> str:
     return f"{KIND_NAMES[int(L.kind[a])]}#{int(L.arg[a])}/{int(L.slot[a])}"
 
 
-def replay_batch(recs, agent: str, params, stats: dict, max_turns: int, check_board: bool):
+def replay_batch(recs, agent: str, params, stats: dict, max_turns: int, check_board: bool, cfg: GameConfig):
     B = len(recs)
-    e = TeacherEngine(B, params=params, max_turns=max_turns, allow_unverified=True)
+    e = TeacherEngine(B, cfg, params=params, max_turns=max_turns, allow_unverified=True)
     g = torch.arange(B, device=e.dev)
     seeds = torch.tensor([r[0]["seed"] for r in recs])
     e.reset(g, seeds)
@@ -98,29 +102,34 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("logs", nargs="+")
     ap.add_argument("--agent", default="delove-teacher@2", help="whose decisions to check")
-    ap.add_argument("--params", help="the teacher's tuned numbers (delove-teacher@N.json); default delove-teacher@1's")
+    ap.add_argument("--params", help="the teacher's tuned numbers (delove-teacher@N.json, jacob-sensei@N.json for N >= 2)")
+    ap.add_argument("--models", help="models folder: the numbers of --agent from <models>/<agent>.json, as register.ts reads them")
     ap.add_argument("--batch", type=int, default=1000)
     ap.add_argument("--games", type=int, default=0)
     ap.add_argument("--max-turns", type=int, default=500)
     ap.add_argument("--no-board", action="store_true", help="skip the board comparison (faster)")
     args = ap.parse_args()
-    params = load_params(args.params)
+    params = agent_params(args.agent, args.models, args.params)
     stats = {"games": 0, "ok_games": 0, "steps": 0, "checked": 0, "mismatch": 0, "by_kind": {}, "fail": [], "odds_out": 0}
     t0 = time.time()
     for log in args.logs:
-        batch, n = [], 0
+        f = Path(log) / "options.json"
+        opts = json.loads(f.read_text(encoding="utf8")) if f.exists() else {}
+        batch, n, cfg = [], 0, None
         for g in games(log):
-            if g[0]["map"] != "classic" or g[0]["players"] != 2 or any(g[0]["rules"]):
-                continue
+            c = GameConfig.make(g[0]["players"], {**opts, "map": g[0]["map"]})
+            if cfg is not None and c != cfg:
+                sys.exit(f"{log}: games of different configurations in one log ({cfg.label()} and {c.label()})")
+            cfg = c
             batch.append(g)
             n += 1
             if len(batch) == args.batch:
-                replay_batch(batch, args.agent, params, stats, args.max_turns, not args.no_board)
+                replay_batch(batch, args.agent, params, stats, args.max_turns, not args.no_board, cfg)
                 batch = []
             if args.games and n >= args.games:
                 break
         if batch:
-            replay_batch(batch, args.agent, params, stats, args.max_turns, not args.no_board)
+            replay_batch(batch, args.agent, params, stats, args.max_turns, not args.no_board, cfg)
     print(f"{stats['ok_games']}/{stats['games']} games replayed to the end, {stats['steps']} steps, "
           f"{stats['checked']} {args.agent} decisions checked, {stats['mismatch']} mismatches {stats['by_kind'] or ''}"
           f"{f', odds outside the tables {stats[chr(111) + 'dds_out']}' if stats['odds_out'] else ''}, {time.time() - t0:.0f}s")

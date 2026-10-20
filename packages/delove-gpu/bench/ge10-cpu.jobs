@@ -1,0 +1,2 @@
+# The CPU side of ge10.jobs: the same table, 54 games (2 per process), for its rate.
+ge10   54 delove-branch@1,delove-teacher@2,delove@3,delove-teacher@2,delove-teacher@2,delove-teacher@2,delove-teacher@2,delove-teacher@2,delove-teacher@2,delove-teacher@2 {"map":"greater_europe"}

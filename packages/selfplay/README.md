@@ -40,7 +40,11 @@ version's rating (anchored at 1000 for the first best) and the match history. `-
 with the two versions in alternating seats (even counts only); the score is then the share of games won by either of
 a version's seats, so its Elo is an approximation of 1v1 strength.
 
-## Decision log format (v2)
+Ladder results also carry the leaderboard view, which suits games with more players better than win share:
+`points` and `bestPoints` (mean leaderboard points per seat per game for each version), `pointsDiff`,
+`meanPlacement` and `killsPerGame` (the candidate's).
+
+## Decision log format (v3)
 
 A log directory holds:
 
@@ -66,14 +70,14 @@ A decision record (one per step: a fortify is two steps, everything else one):
 | `state.fortifyFrom` | on a `fortify_to` step, the source the step before picked; `-1` otherwise |
 | `cands` | the legal choices, broken into small decisions (below) |
 | `choice` | index into `cands` (`-1` and an `action` field when an agent played outside the list) |
-| `outcome` | `{winner, z, turns, reason}`; `z` is 1 for the winner, 0 for losers; at the turn limit survivors share 1 |
+| `outcome` | `{winner, z, turns, reason, placement, kills, points}`; `z` is 1 for the winner, 0 for losers (at the turn limit survivors share 1). v3: `placement`, `kills` and `points` are the decider's final place, players eliminated and leaderboard points, scored by the engine's `finalPlacements` / `gamePoints` (the server's ranking rule: placement points + 1 per kill). A turn-limit game counts for nothing on the leaderboard, so every seat gets last place's points there: stalling is never worth it |
 
 Candidates use territory indexes: `["place", t, n]` (n = all, half or 1), `["trade", [card ids]]`,
 `["capital", t]`, `["attack", from, to]` (a blitz; the move-in is the next decision), `["occupy", n]`
 (min, half or max), `["fortify_from", from]` then, as the next step on the same board, `["fortify_to", to, n]`
 (all or half), `["end_turn"]`. Splitting the fortify keeps lists short: about 18 candidates per step on Classic and 20
 on World, where one-step fortify pairs averaged 117 and 300 and peaked near 15,000 on Greater Europe.
-v1 logs (one-step `["fortify", from, to, n]`, no `order`/`fortifyFrom`/income/`rules`) still read with
+v2 logs (no placement / kills / points) still export, with `points` NaN. v1 logs (one-step `["fortify", from, to, n]`, no `order`/`fortifyFrom`/income/`rules`) still read with
 `risky_log.py`, but `export` needs v2: re-run the games.
 
 The full game state is logged (no fog): fog-of-war games are left for later. `python/risky_log.py` is a
@@ -100,6 +104,7 @@ unknown `--maps` ids and any record in another log format, and it leaves out fog
 | `cand_from.npy`, `cand_to.npy` | `[M]` int32 | territory a candidate moves from / targets (`-1` none): gather the territory embeddings it is about |
 | `cand_offset.npy` | `[N + 1]` int64 | decision k's candidates are rows `cand_offset[k]` to `cand_offset[k+1] - 1` |
 | `choice.npy`, `z.npy`, `game.npy`, `seat.npy` | `[N]` | chosen candidate (index within the decision), final result, game number (split by game), seat |
+| `points.npy`, `points01.npy` | `[N]` float32 | the decider's leaderboard points, and the same scaled to 0..1 (last place .. first with every rival eliminated); NaN for v2 logs |
 
 `features.json` names every column and carries the map's territory order and adjacency. Everything is from the
 decider's point of view: seat slots are renumbered by turn order starting with the decider, so one network plays

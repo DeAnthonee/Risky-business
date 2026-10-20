@@ -17,5 +17,6 @@
 ## Checklist
 
 - [ ] No direct push to the deploy branch; this PR targets `ccr-63b8112a-e2uk2g`
-- [ ] Hosting invariants kept (see CONTRIBUTING.md §4)
-- [ ] Docs updated (README / CLAUDE.md / rules text) if behaviour changed
+- [ ] Hard rules kept (README.md "Hard rules", including the hosting invariants)
+- [ ] The area's doc (README table of contents) and rules text updated if behaviour changed
+- [ ] A line appended to the area's running log in `docs/logs/`

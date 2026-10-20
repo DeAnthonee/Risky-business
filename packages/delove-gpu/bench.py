@@ -3,6 +3,7 @@
     python bench.py --engine fused --policy random --batch 1024,4096,16384,65536
     python bench.py --engine fused --policy net --model C:/.../models/delove/delove@2.pt --batch 1024,4096,16384 [--precision fp16]
     python bench.py --engine tensor-fast --policy random --batch 1024,65536
+    python bench.py --policy teacher --params C:/.../models/delove/delove-teacher@2.json --batch 4096,16384,65536
 
 Engines: `tensor` (engine.py, exact mulberry32 dice), `tensor-fast` (engine.py, multinomial blitz), `fused` (fused.py,
 one CUDA thread per game, exact dice). With `--engine fused --policy random` the moves are chosen inside the kernel
@@ -20,17 +21,21 @@ import time
 
 import torch
 
+from delove_gpu.config import GameConfig
 from delove_gpu.engine import Engine
 from delove_gpu.fingerprint import changed_files
 from delove_gpu.play import NetPlayer, load_delove, random_moves
+
+
+CFG = GameConfig.make(2)
 
 
 def make_engine(kind: str, B: int, max_turns: int):
     if kind == "fused":
         from delove_gpu.fused import FusedEngine
 
-        return FusedEngine(B, max_turns=max_turns, allow_unverified=True)
-    return Engine(B, max_turns=max_turns, exact=(kind == "tensor"), seed=1, allow_unverified=True)
+        return FusedEngine(B, CFG, max_turns=max_turns, allow_unverified=True)
+    return Engine(B, CFG, max_turns=max_turns, exact=(kind == "tensor"), seed=1, allow_unverified=True)
 
 
 def bench_fused_random(B: int, seconds: float, warmup: float, max_turns: int, chunk: int) -> dict:
@@ -52,10 +57,39 @@ def bench_fused_random(B: int, seconds: float, warmup: float, max_turns: int, ch
     span = time.perf_counter() - t0
     games, game_dec, turns, decided = stats.tolist()
     return {
-        "engine": "fused", "policy": "random (in kernel)", "batch": B, "seconds": round(span, 1),
+        "config": CFG.label(), "engine": "fused", "policy": "random (in kernel)", "batch": B, "seconds": round(span, 1),
         "decisions_per_s": round(B * chunk * launches / span), "games_per_s": round(games / span, 1),
         "finished_games": games, "decisions_per_game": round(game_dec / max(1, games), 1),
         "turns_per_game": round(turns / max(1, games), 1), "turn_limit_share": round(1 - decided / max(1, games), 3),
+    }
+
+
+def bench_teacher(B: int, params: str | None, max_turns: int, chunk: int) -> dict:
+    """B whole games with the GPU teacher (teacher.py) in both seats, every move chosen inside the kernel: the time
+    until the last one ends, so games/s counts every game of the batch, long ones included."""
+    from delove_gpu.teacher import TeacherEngine, load_params
+
+    B = (B + TeacherEngine.BLOCK - 1) // TeacherEngine.BLOCK * TeacherEngine.BLOCK
+    e = TeacherEngine(B, CFG, params=load_params(params), max_turns=max_turns, allow_unverified=True)
+    g = torch.arange(B, device=e.dev)
+    seeds = (torch.arange(B) * 2654435761) & 0xFFFFFFFF
+    e.reset(g, seeds)
+    e.seat_streams(g, seeds)
+    e.play_teacher(1)  # compile and warm up
+    torch.cuda.synchronize()
+    e.reset(g, seeds)
+    e.seat_streams(g, seeds)
+    e.tstats.zero_()
+    t0 = time.perf_counter()
+    while not bool(e.done.all()):
+        e.play_teacher(chunk)
+    torch.cuda.synchronize()
+    span = time.perf_counter() - t0
+    steps = int(e.tstats[2])
+    return {
+        "config": CFG.label(), "engine": "fused+teacher", "policy": "teacher (in kernel)", "batch": B, "seconds": round(span, 2), "decisions_per_s": round(steps / span),
+        "games_per_s": round(B / span, 1), "decisions_per_game": round(steps / B, 1), "turns_per_game": round(float(e.turn.float().mean()), 1),
+        "turn_limit_share": round(float((e.winner < 0).float().mean()), 3),
     }
 
 
@@ -111,7 +145,8 @@ def bench_stepwise(kind: str, B: int, policy: str, seconds: float, warmup: float
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--engine", choices=["tensor", "tensor-fast", "fused"], default="fused")
-    ap.add_argument("--policy", choices=["random", "net"], default="random")
+    ap.add_argument("--policy", choices=["random", "net", "teacher"], default="random")
+    ap.add_argument("--params", help="teacher: a tuned teacher's JSON (default delove-teacher@1)")
     ap.add_argument("--model")
     ap.add_argument("--batch", default="1024,4096,16384,65536")
     ap.add_argument("--seconds", type=float, default=30)
@@ -119,13 +154,20 @@ def main():
     ap.add_argument("--chunk", type=int, default=32, help="fused random: decisions per kernel launch")
     ap.add_argument("--precision", choices=["fp32", "tf32", "fp16"], default="fp32", help="network precision (play.py NetPlayer)")
     ap.add_argument("--max-turns", type=int, default=500)
+    ap.add_argument("--map", default="classic")
+    ap.add_argument("--seats", type=int, default=2)
+    ap.add_argument("--game-options", default="{}", help="game settings JSON (fused engine)")
     args = ap.parse_args()
+    global CFG
+    CFG = GameConfig.make(args.seats, {**json.loads(args.game_options), "map": args.map})
     stale = changed_files()
     if stale:
         print(f"note: the GPU mirror is not verified against this engine ({', '.join(stale)}); speed numbers only", file=sys.stderr)
     for B in [int(x) for x in args.batch.split(",")]:
         try:
-            if args.engine == "fused" and args.policy == "random":
+            if args.policy == "teacher":
+                r = bench_teacher(B, args.params, args.max_turns, args.chunk * 8)
+            elif args.engine == "fused" and args.policy == "random":
                 r = bench_fused_random(B, args.seconds, args.warmup, args.max_turns, args.chunk)
             else:
                 r = bench_stepwise(args.engine, B, args.policy, args.seconds, args.warmup, args.model, args.precision, args.max_turns)

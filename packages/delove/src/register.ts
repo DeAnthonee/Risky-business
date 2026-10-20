@@ -1,4 +1,5 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { registerAgent } from '@risk/selfplay';
 import { branchAgent, branchStats, DEFAULT_BRANCH, writeBranchStats } from './branch.js';
@@ -33,7 +34,8 @@ if (existsSync(dir)) {
  * DELOVE_BRANCH_OPTIONS / _ROLLOUTS / _HORIZON / _MARGIN override the search size, DELOVE_BRANCH_VALUE (0-1) blends
  * the ranker's win chance into branch scores, DELOVE_BRANCH_SKIP (comma-separated
  * decision kinds, e.g. occupy,trade) the kinds it plays without branching. With DELOVE_BRANCH_STATS=<dir> each process
- * writes what branching did to <dir>/stats-<pid>.json when it exits.
+ * writes what branching did to <dir>/stats-<pid>-<random>.json when it exits (the random part because Windows reuses
+ * process ids, and a later process would overwrite an earlier one's stats).
  */
 {
   const teacherId = process.env.DELOVE_BRANCH_TEACHER ?? [...tuned.keys()].pop() ?? 'delove-teacher@1';
@@ -53,10 +55,12 @@ if (existsSync(dir)) {
       margin: env('DELOVE_BRANCH_MARGIN', DEFAULT_BRANCH.margin),
       skip: process.env.DELOVE_BRANCH_SKIP === undefined ? DEFAULT_BRANCH.skip : process.env.DELOVE_BRANCH_SKIP.split(',').filter(Boolean),
       valueWeight: env('DELOVE_BRANCH_VALUE', DEFAULT_BRANCH.valueWeight),
+      // DELOVE_STRENGTH=<file>: the strength meter's fitted share weights (python/fit_strength.py) for branch scores.
+      weights: process.env.DELOVE_STRENGTH ? JSON.parse(readFileSync(process.env.DELOVE_STRENGTH, 'utf8')).weights : DEFAULT_BRANCH.weights,
     }, valuer),
   );
   const statsDir = process.env.DELOVE_BRANCH_STATS;
-  if (statsDir) process.on('exit', () => void (branchStats.decisions > 0 && writeBranchStats(join(statsDir, `stats-${process.pid}.json`))));
+  if (statsDir) process.on('exit', () => void (branchStats.decisions > 0 && writeBranchStats(join(statsDir, `stats-${process.pid}-${randomUUID().slice(0, 8)}.json`))));
 }
 
 for (const agent of discoverNetAgents()) registerAgent(agent);

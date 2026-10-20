@@ -30,7 +30,7 @@ MODES = ("imitate", "winners", "advantage")
 
 
 class Data:
-    def __init__(self, folder, mode="imitate", loser_weight=0.1):
+    def __init__(self, folder, mode="imitate", loser_weight=0.1, target="z"):
         if mode not in MODES:
             raise SystemExit(f"{folder}: unknown mode {mode!r} ({', '.join(MODES)})")
         self.name, self.mode, self.loser_weight = folder, mode, loser_weight
@@ -42,6 +42,14 @@ class Data:
         self.territory, self.glob, self.cand = load("territory"), load("global"), load("cand")
         self.cand_from, self.cand_to, self.offset = load("cand_from"), load("cand_to"), np.asarray(load("cand_offset"))
         self.choice, self.z, self.game = np.asarray(load("choice")), np.asarray(load("z")), np.asarray(load("game"))
+        # target "points": the value head (and :advantage / :winners weights) learn leaderboard points scaled to 0..1
+        # (points01.npy, log v3) instead of win/loss; decisions without points (v2 logs) keep z.
+        self.target = "z"
+        if target == "points" and os.path.exists(os.path.join(folder, "points01.npy")):
+            p01 = np.asarray(load("points01"))
+            if np.isfinite(p01).any():
+                self.z = np.where(np.isfinite(p01), p01, self.z).astype(np.float32)
+                self.target = "points"
         T = len(self.info["territoryIds"])
         adj = np.zeros((T, T), dtype=np.float32)
         for i, ns in enumerate(self.info["adjacency"]):
@@ -131,6 +139,8 @@ def main():
     ap.add_argument("--data", required=True, action="append",
                     help="export folder for one map, optionally :imitate (default), :winners or :advantage; repeat to mix exports of the same map")
     ap.add_argument("--beta", type=float, default=0.3, help="temperature of :advantage weights (smaller = sharper)")
+    ap.add_argument("--value-target", choices=["z", "points"], default="z",
+                    help="what the value head learns: z (win 1 / loss 0) or points (leaderboard points scaled 0..1)")
     ap.add_argument("--loser-weight", type=float, default=0.1, help="policy weight of a losing side's moves in :winners data")
     ap.add_argument("--out", required=True, help="output path without extension, e.g. models/delove/delove@1")
     ap.add_argument("--init", help="start from these weights (<path>.pt)")
@@ -151,8 +161,8 @@ def main():
     def parse(spec):
         for mode in MODES:
             if spec.endswith(":" + mode):
-                return Data(spec[: -len(mode) - 1], mode, args.loser_weight)
-        return Data(spec, "imitate", args.loser_weight)
+                return Data(spec[: -len(mode) - 1], mode, args.loser_weight, args.value_target)
+        return Data(spec, "imitate", args.loser_weight, args.value_target)
 
     datasets = [parse(d) for d in args.data]
     first = datasets[0]
@@ -178,7 +188,7 @@ def main():
     steps_total = int(args.epochs * n_train / args.batch)
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
     sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=args.lr, total_steps=max(1, steps_total), pct_start=0.05)
-    print(json.dumps(dict(device=device, datasets={d.name: dict(mode=d.mode, decisions=len(d)) for d in datasets},
+    print(json.dumps(dict(device=device, datasets={d.name: dict(mode=d.mode, target=d.target, decisions=len(d)) for d in datasets},
                           train=n_train, params=params, steps=steps_total)))
 
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)

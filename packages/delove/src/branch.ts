@@ -1,4 +1,4 @@
-import { writeFileSync } from 'node:fs';
+import { appendFileSync, writeFileSync } from 'node:fs';
 import {
   applyAction,
   createRng,
@@ -91,6 +91,13 @@ export const branchStats = {
   /** Average share-score components of the chosen branch end positions, summed (divide by branched). */
   chosen: { score: 0, armies: 0, income: 0, territories: 0, cards: 0, continents: 0, won: 0, lost: 0 },
 };
+
+/**
+ * DELOVE_BRANCH_TRACE=<file>: append one JSON line per branched decision (game id, turn, seat, the options as candidate
+ * indexes, each option's mean score, the pick). For checking other implementations of branch and score option by
+ * option (packages/delove-gpu/tests/branch_replay.py); off by default.
+ */
+const TRACE = process.env.DELOVE_BRANCH_TRACE;
 
 export function writeBranchStats(path: string): void {
   writeFileSync(path, JSON.stringify(branchStats, null, 2));
@@ -268,6 +275,10 @@ export function branchAgent(
         branchStats.changedByKind[kind] = (branchStats.changedByKind[kind] ?? 0) + 1;
       }
       branchStats.gain += results[best].mean - results[0].mean;
+      if (TRACE) {
+        const options = order.slice(0, actions.length);
+        appendFileSync(TRACE, JSON.stringify({ game: dctx.state.id, turn: dctx.state.turnNumber, seat: dctx.seat, options, means: results.map((r) => r.mean), best }) + '\n');
+      }
       for (const k of Object.keys(branchStats.chosen) as (keyof Score)[]) branchStats.chosen[k] += results[best].parts[k];
       return actions[best];
     },

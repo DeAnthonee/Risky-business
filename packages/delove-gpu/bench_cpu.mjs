@@ -17,6 +17,7 @@ const { values } = parseArgs({
     games: { type: 'string', default: '100' },
     procs: { type: 'string', default: '1' },
     seed: { type: 'string', default: '21' },
+    options: { type: 'string', default: '{}' },
   },
 });
 const procs = Number(values.procs);
@@ -25,7 +26,7 @@ const games = Number(values.games);
 function run(i) {
   return new Promise((resolve, reject) => {
     const args = ['--import', './packages/delove/dist/register.js', 'packages/selfplay/dist/cli.js', 'play', '--agents', values.agents,
-      '--games', String(games), '--start', String(i * games), '--seed', values.seed];
+      '--games', String(games), '--start', String(i * games), '--seed', values.seed, '--options', values.options];
     const p = spawn(process.execPath, args, { cwd: root, stdio: ['ignore', 'pipe', 'ignore'] });
     let out = '';
     p.stdout.on('data', (d) => (out += d));
@@ -39,7 +40,7 @@ const seconds = (performance.now() - t0) / 1000;
 const g = results.reduce((a, r) => a + r.games, 0);
 const d = results.reduce((a, r) => a + r.decisions, 0);
 console.log(JSON.stringify({
-  engine: 'typescript (cpu)', agents: values.agents, procs, games: g, seconds: +seconds.toFixed(1),
+  engine: 'typescript (cpu)', agents: values.agents, options: values.options, procs, games: g, seconds: +seconds.toFixed(1),
   games_per_s: +(g / seconds).toFixed(1), decisions_per_s: Math.round(d / seconds), decisions_per_game: +(d / g).toFixed(1),
   turn_limit_share: +(results.reduce((a, r) => a + r.turnLimit, 0) / g).toFixed(3),
 }));

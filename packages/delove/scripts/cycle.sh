@@ -4,7 +4,8 @@
 #   bash packages/delove/scripts/cycle.sh packages/delove/scripts/cycles/c2.cycle
 #
 # 1. generate: every step's games go into ONE pool of small chunks (most expensive step first), PARALLEL processes
-#    at a time (default: CPU threads - 1), so no step ends with a few processes running alone;
+#    at a time (default: CPU threads - 1), so no step ends with a few processes running alone; a step listed in
+#    gpu_steps is played on the GPU instead (packages/delove-gpu, delove_gpu.generate), alongside the pool;
 # 2. export: each step is exported (training arrays) as soon as its last chunk is done, while the pool goes on;
 # 3. train: on the GPU from the config's init model, then export to ONNX next to the other models;
 # 4. gate: every ladder match of the config at once, each split into chunks over all CPU threads;
@@ -13,18 +14,22 @@
 # The config is a bash file (see cycles/c2.cycle). Everything it names:
 #   name, seed                 cycle name (runs/delove/<name>, data/delove/<name>-<step>) and base seed
 #   steps=("<step> <jobs file> <title>" ...)       jobs files as for generate.sh; title for the summary
+#   gpu_steps=(<step> ... | all)   optional: steps played on the GPU (any map, 2-10 seats, every setting but fog of war;
+#                              branch, teacher and network seats); same games as on the CPU, training arrays
+#                              written directly (no export). GPU_STEPS (space-separated, or all) overrides it.
 #   export_agents=delove-branch@1                  whose decisions are exported (--only-agents)
 #   train_data=("<step>/<map>[:mode][*N]" | "<dataset under DATA or path>[:mode][*N]" ...)   *N repeats it N times
 #   train_init=<model id, or empty for a fresh network>  candidate=<cN-candidate>  train_args="--epochs 1.5 --lr 3e-4"
 #   gates=("<opponent> <players> <games> [options JSON]" ...)   ladder matches of the candidate
 # Environment: CYCLE_NAME (overrides name, e.g. for a trial run), DELOVE_MODELS (models folder, default models/delove), OUT (default runs/delove/<name>), DATA (default
 # data/delove), PYTHON (default .venv/Scripts/python), PARALLEL, CHUNKS (chunks per process and step, default 4; or
-# CHUNK = fixed games per chunk), GATE_CHUNK (games per gate chunk, default 20). Re-running resumes: finished
-# chunks, exports, the trained model and finished gate chunks are kept.
+# CHUNK = fixed games per chunk), GATE_CHUNK (games per gate chunk, default 20), GPU_BATCH (games in flight on the
+# GPU per configuration; default: sized to GPU_GB of game state, default 3). Re-running resumes: finished chunks, exports, GPU steps, the trained model and finished gate
+# chunks are kept.
 set -euo pipefail
 config=$1
 export_agents=delove-branch@1
-train_data=(); gates=(); train_args=""
+train_data=(); gates=(); train_args=""; gpu_steps=()
 # shellcheck source=/dev/null
 source "$config"
 name=${CYCLE_NAME:-$name}
@@ -39,6 +44,11 @@ parallel=${PARALLEL:-$((threads - 1))}
 export DELOVE_MODELS=$models
 export DELOVE_TEMPERATURE=${DELOVE_TEMPERATURE:-0.7}
 mkdir -p "$out"
+[[ -n ${GPU_STEPS:-} ]] && read -r -a gpu_steps <<< "$GPU_STEPS"
+on_gpu() { [[ " ${gpu_steps[*]} " == *" all "* || " ${gpu_steps[*]} " == *" $1 "* ]]; }
+# Absolute paths for Python (on Windows Git Bash, C:/... rather than /c/...).
+absdir() { (cd "$1" || exit 1; pwd -W 2>/dev/null || pwd); }
+abs() { echo "$(absdir "$(dirname "$1")")/$(basename "$1")"; }
 times="$out/times.tsv"
 t_start=$(date +%s)
 stamp() { echo -e "$1\t$(( $(date +%s) - t_start ))" >> "$times"; echo "[$(date +%T)] $1"; }
@@ -51,6 +61,7 @@ pool="$out/pool.txt"
 for s in "${steps[@]}"; do
   read -r step jobs _ <<< "$s"
   mkdir -p "$out/$step"
+  on_gpu "$step" && continue
   grep -v '^\s*\(#\|$\)' "$jobs" | while read -r g total agents options; do
     # Games per chunk: CHUNK, else enough for CHUNKS chunks per process across this step.
     total_step=$(grep -v '^\s*\(#\|$\)' "$jobs" | awk '{n += $2} END {print n}')
@@ -61,13 +72,57 @@ for s in "${steps[@]}"; do
   done > "$out/$step/chunks.txt"
   echo "$step $(wc -l < "$out/$step/chunks.txt")" >> "$out/steps.txt.tmp"
 done
+touch "$out/steps.txt.tmp"
 mv "$out/steps.txt.tmp" "$out/steps.txt"
 # Most expensive step first (by the agents' per-game cost, estimated from seats: more seats and bigger maps cost
 # more), cheapest last, so the pool ends on short chunks. The config's order is the tie-break.
-for s in "${steps[@]}"; do read -r step _ <<< "$s"; cat "$out/$step/chunks.txt"; done |
+for s in "${steps[@]}"; do read -r step _ <<< "$s"; on_gpu "$step" || cat "$out/$step/chunks.txt"; done |
   awk '{ seats = split($4, a, ","); cost = seats * ($6 ~ /skirmish/ ? 1 : 3); print cost "\t" NR "\t" $0 }' |
   sort -t$'\t' -k1,1nr -k2,2n | cut -f3- > "$pool"
-echo "$(wc -l < "$pool") chunks over ${#steps[@]} steps, $parallel at a time -> $out"
+echo "$(wc -l < "$pool") chunks over $(wc -l < "$out/steps.txt") steps, $parallel at a time -> $out"
+
+# The GPU steps, one after another in the background while the pool plays: same tables, seeds and branch settings
+# (the DELOVE_BRANCH_* environment) as the pool would use; gpu.json holds the per-table results for summary.mjs.
+run_gpu_step() {
+  local step=$1 jobs=$2
+  [[ -f "$out/$step/gpu.json" ]] && return 0
+  local args=(--models "$(absdir "$models")" --seed "$seed" --batch "${GPU_BATCH:-0}" --gpu-gb "${GPU_GB:-3}" --jobs "$(abs "$jobs")")
+  [[ -n ${DELOVE_BRANCH_TEACHER:-} ]] && args+=(--teacher "$DELOVE_BRANCH_TEACHER")
+  [[ -n ${DELOVE_BRANCH_RANKER:-} ]] && args+=(--ranker "$DELOVE_BRANCH_RANKER")
+  [[ -n ${DELOVE_BRANCH_OPTIONS:-} ]] && args+=(--options "$DELOVE_BRANCH_OPTIONS")
+  [[ -n ${DELOVE_BRANCH_ROLLOUTS:-} ]] && args+=(--rollouts "$DELOVE_BRANCH_ROLLOUTS")
+  [[ -n ${DELOVE_BRANCH_HORIZON:-} ]] && args+=(--horizon "$DELOVE_BRANCH_HORIZON")
+  [[ -n ${DELOVE_BRANCH_MARGIN:-} ]] && args+=(--margin "$DELOVE_BRANCH_MARGIN")
+  [[ -n ${DELOVE_BRANCH_SKIP+x} ]] && args+=(--skip "$DELOVE_BRANCH_SKIP")
+  if [[ -n ${DELOVE_BRANCH_VALUE:-} && ${DELOVE_BRANCH_VALUE} != 0 ]]; then
+    echo "GPU step $step: DELOVE_BRANCH_VALUE is not mirrored on the GPU"; return 1
+  fi
+  # The jobs file's tables as they are (options JSON included); generate.py refuses any setting the mirror does not
+  # cover (fog of war) and any agent it cannot play on the GPU (risky@1, -explore seats).
+  mkdir -p "$data"
+  args+=(--out "$(absdir "$data")/$name-$step" --summary "$(absdir "$out/$step")/gpu.json.tmp")
+  (cd packages/delove-gpu && "$python" -m delove_gpu.generate "${args[@]}") > "$out/$step/gpu.log" 2>&1     || { echo "FAILED GPU step $step (see $out/$step/gpu.log)"; return 1; }
+  mv "$out/$step/gpu.json.tmp" "$out/$step/gpu.json"
+  stamp "generated and exported $step (GPU)"
+}
+gpu_runner=""
+if (( ${#gpu_steps[@]} )); then
+  # A stale mirror would fail a GPU step still to play; say so now, before the pool spends its minutes.
+  for s in "${steps[@]}"; do
+    read -r st _ <<< "$s"
+    on_gpu "$st" || continue  # the config's steps, so gpu_steps=(all) is checked step by step too
+    [[ -f "$out/$st/gpu.json" ]] && continue
+    "$python" packages/delove-gpu/delove_gpu/fingerprint.py check || { echo "run packages/delove-gpu/verify.py first"; exit 1; }
+    break
+  done
+  (
+    for s in "${steps[@]}"; do
+      read -r step jobs _ <<< "$s"
+      if on_gpu "$step"; then run_gpu_step "$step" "$jobs" || exit 1; fi
+    done
+  ) &
+  gpu_runner=$!
+fi
 
 export out seed root
 run_chunk() {
@@ -83,8 +138,11 @@ export -f run_chunk
 export_step() {
   local step=$1
   [[ -f "$out/$step/export.json" ]] && return 0
-  local logs
-  logs=$(ls -d "$out/$step"/*/c* | paste -sd,)
+  local logs base
+  # Windows paths for node: Git Bash converts only the first path of a comma-separated list, so an absolute
+  # /c/... OUT would leave every other log directory unreadable.
+  base=$(absdir "$out/$step")
+  logs=$(cd "$out/$step" && ls -d */c* | sed "s|^|$base/|" | paste -sd,)
   node --import ./packages/delove/dist/register.js packages/selfplay/dist/cli.js export --log "$logs" --out "$data/$name-$step" \
     --only-agents "$export_agents" --force > "$out/$step/export.json.tmp" 2> "$out/$step/export.err"
   mv "$out/$step/export.json.tmp" "$out/$step/export.json"
@@ -94,6 +152,7 @@ export_step() {
 # Watch the pool: export each step once all its chunks are done.
 watch_exports() {
   declare -A started=()
+  [[ -s "$out/steps.txt" ]] || return 0
   while true; do
     local pending=0
     while read -r step n; do
@@ -117,14 +176,12 @@ watcher=$!
 tr '\n' '\0' < "$pool" | xargs -0 -P "$parallel" -I{} bash -c 'run_chunk "$1"' _ {} || touch "$out/pool.failed"
 stamp "generation done"
 wait "$watcher"
+[[ -n $gpu_runner ]] && { wait "$gpu_runner" || touch "$out/pool.failed"; }
 [[ -f "$out/pool.failed" ]] && { rm -f "$out/pool.failed"; echo "generation failed"; exit 1; }
 stamp "exports done"
 
 # ---- 3. train on the GPU ----------------------------------------------------------------------------------------
 cand="$models/$candidate"
-# Absolute paths for Python (on Windows Git Bash, C:/... rather than /c/...).
-absdir() { (cd "$1" || exit 1; pwd -W 2>/dev/null || pwd); }
-abs() { echo "$(absdir "$(dirname "$1")")/$(basename "$1")"; }
 if [[ ! -f "$cand.onnx" ]]; then
   args=()
   for d in "${train_data[@]}"; do

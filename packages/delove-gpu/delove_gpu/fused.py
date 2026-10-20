@@ -1,12 +1,19 @@
-"""The same rules as engine.py, one CUDA thread per game: a whole move (legal moves, blitz, cards, turn flow) is one
-kernel launch for every game at once instead of hundreds of small tensor operations.
+"""The rules (packages/engine/src/engine.ts) with one CUDA thread per game, for every map, table size (2-10 seats)
+and game setting the mirror covers: a whole move (legal moves, blitz, cards, turn flow) is one kernel launch for every
+game at once.
 
-TRAINING ONLY, like engine.py: a mirror of packages/engine checked by tests/replay.py --fused (the same replay test,
-bit for bit: the kernels draw from each game's mulberry32 stream exactly like the TypeScript engine). FusedEngine
-works on the very tensors Engine holds, so the encoder, snapshots and network player run unchanged on top of it.
+TRAINING ONLY: a mirror of packages/engine checked by the replay tests (tests/replay.py, tests/matrix.py), bit for
+bit: the kernels draw from each game's mulberry32 stream exactly like the TypeScript engine, in the same order (deal,
+blizzards, neutral territories, dice, reshuffles). The map (territories, adjacency in the engine's own order,
+continents), the table size and every setting are compile-time constants of the source: one NVRTC compile per
+configuration (GameConfig), its binary cached on disk.
+
+Covered settings: capitals (+ chooseCapitals), card values (progressive, fixed, exponential), fortify mode (connected,
+adjacent), balanced blitz, blizzards, firstRoundBonus, setupBatch, autoSetup, randomDeal (the claiming phase),
+neutrals / neutralArmies (3+ players; the classic Neutral at 2 players). Not covered: fog of war.
 
 The kernels are compiled at first use with NVRTC through torch.cuda._compile_kernel (no CUDA toolkit or C++ compiler
-needed; NVRTC ships with PyTorch). Map data is baked into the source as constants.
+needed; NVRTC ships with PyTorch).
 """
 from __future__ import annotations
 
@@ -15,18 +22,25 @@ from pathlib import Path
 
 import torch
 
-from .engine import ATTACK, FINISHED, FORTIFY, REINFORCE, SETUP, Engine
+from .engine import ATTACK, CAPITALS, FINISHED, FORTIFY, REINFORCE, SETUP, State
 
 _INCLUDE_STUB = Path(__file__).resolve().parent / "_nvrtc_home"
-_cache: dict[str, dict] = {}
+_cache: dict = {}
 
 STATE_FIELDS = [
     ("owner", "i64"), ("armies", "i64"), ("alive", "u8"), ("atp", "i64"), ("hand", "i64"), ("hand_n", "i64"),
     ("trades_made", "i64"), ("trade_count", "i64"), ("deck", "i64"), ("deck_n", "i64"), ("discard", "i64"),
     ("discard_n", "i64"), ("order", "i64"), ("cur_pos", "i64"), ("phase", "i64"), ("turn", "i64"), ("round", "i64"),
     ("pend_from", "i64"), ("pend_to", "i64"), ("pend_min", "i64"), ("pend_max", "i64"), ("conquered", "u8"),
-    ("fortified", "u8"), ("fort_src", "i64"), ("rng", "i64"), ("winner", "i64"), ("done", "u8"),
+    ("fortified", "u8"), ("fort_src", "i64"), ("rng", "i64"), ("winner", "i64"), ("done", "u8"), ("capital", "i64"),
+    ("bliz", "u8"), ("elim_by", "i64"), ("elim_seq", "i64"), ("elim_n", "i64"),
 ]
+_STRIDES = {
+    "owner": "T", "armies": "T", "alive": "P", "atp": "P", "hand": "P * H", "hand_n": "P", "trades_made": "P",
+    "deck": "NC", "discard": "NC", "order": "NS", "capital": "NS", "bliz": "T", "elim_by": "P", "elim_seq": "P",
+}
+
+CARD_MODES = {"progressive": 0, "fixed": 1, "exponential": 2}
 
 
 def _carr(name: str, rows) -> str:
@@ -36,39 +50,36 @@ def _carr(name: str, rows) -> str:
     return f"__constant__ int {name}[{len(rows)}] = {{{','.join(str(int(v)) for v in rows)}}};"
 
 
-def _source(e: Engine) -> str:
-    m, L = e.m, e.L
+def _source(e: State) -> str:
+    m, L, cfg = e.m, e.L, e.cfg
     T, D = m.T, m.D
     nbr = [a + [0] * (D - len(a)) for a in m.adj]
     ebase, acc = [], 0
     for a in m.adj:
         ebase.append(acc)
         acc += len(a)
-    cont_of = m.cont_of.tolist()
+    cmax = max(len(ts) for _, _, ts in m.continents)
+    cmem = [ts + [-1] * (cmax - len(ts)) for _, _, ts in m.continents]
+    o = cfg.opt
     defs = {
-        "T": T, "NC": m.NC, "NS": e.n, "P": e.P, "NEU": e.NEU, "H": e.H, "E": m.E, "A": L.A, "D": D, "K": m.K,
-        "TRADE": L.TRADE, "ATTACK": L.ATTACK, "OCCUPY": L.OCCUPY, "FFROM": L.FFROM, "FTO": L.FTO, "END": L.END,
-        "SETUP": SETUP, "REINFORCE": REINFORCE, "ATTACK_PH": ATTACK, "FORTIFY": FORTIFY, "FINISHED": FINISHED,
-        "START_ARMIES": m.starting_armies[e.n], "SETUP_BATCH": e.setup_batch, "FIRST_ROUND_BONUS": int(e.first_round_bonus),
+        "T": T, "NC": m.NC, "NS": e.n, "P": e.P, "NEU": e.NEU, "H": e.H, "E": m.E, "A": L.A, "D": D, "K": m.K, "CMAX": cmax,
+        "TRADE": L.TRADE, "ATTACK": L.ATTACK, "OCCUPY": L.OCCUPY, "FFROM": L.FFROM, "FTO": L.FTO, "END": L.END, "CAP": L.CAP,
+        "SETUP": SETUP, "CAPITALS": CAPITALS, "REINFORCE": REINFORCE, "ATTACK_PH": ATTACK, "FORTIFY": FORTIFY, "FINISHED": FINISHED,
+        "START_ARMIES": cfg.starting_armies, "SETUP_BATCH": o("setupBatch"), "FIRST_ROUND_BONUS": int(o("firstRoundBonus")),
+        "OPT_CAPITALS": int(o("capitals")), "OPT_CHOOSE_CAPITALS": int(o("chooseCapitals")), "CARD_MODE": CARD_MODES[o("cardValues")],
+        "FORT_ADJ": int(o("fortifyMode") == "adjacent"), "BALANCED": int(o("balancedBlitz")), "NBLIZ": o("blizzards"),
+        "NEUTRAL_TERR": cfg.neutral_territories, "NEUTRAL_ARMIES": o("neutralArmies"), "HAS_NEUTRAL": int(cfg.has_neutral),
+        "RANDOM_DEAL": int(o("randomDeal") or o("autoSetup")), "AUTO_SETUP": int(o("autoSetup")),
     }
     head = "\n".join(f"#define {k} {v}" for k, v in defs.items())
     consts = "\n".join([
         _carr("NBR", nbr), _carr("DEG", [len(a) for a in m.adj]), _carr("EBASE", ebase),
         _carr("EFROM", [x for x, _ in m.edges]), _carr("ETO", [y for _, y in m.edges]),
-        _carr("CONT_OF", cont_of), _carr("CBONUS", m.cont_bonus.tolist()), _carr("CSIZE", m.cont_size.tolist()),
-        _carr("TRI5", L.trade_tri.tolist()),
+        _carr("CONT_OF", m.cont_of.tolist()), _carr("CBONUS", m.cont_bonus.tolist()), _carr("CSIZE", m.cont_size.tolist()),
+        _carr("CMEM", cmem), _carr("CBORD", m.borders), _carr("TRI5", L.trade_tri.tolist()),
     ])
     args = ", ".join(f"{'long long' if t == 'i64' else 'unsigned char'}* {n}_" for n, t in STATE_FIELDS)
-    make = "\n".join(
-        f"  s.{n} = {n}_ + (long long)b * {stride};"
-        for n, stride in [
-            ("owner", "T"), ("armies", "T"), ("alive", "P"), ("atp", "P"), ("hand", "P * H"), ("hand_n", "P"),
-            ("trades_made", "P"), ("trade_count", "1"), ("deck", "NC"), ("deck_n", "1"), ("discard", "NC"),
-            ("discard_n", "1"), ("order", "NS"), ("cur_pos", "1"), ("phase", "1"), ("turn", "1"), ("round", "1"),
-            ("pend_from", "1"), ("pend_to", "1"), ("pend_min", "1"), ("pend_max", "1"), ("conquered", "1"),
-            ("fortified", "1"), ("fort_src", "1"), ("rng", "1"), ("winner", "1"), ("done", "1"),
-        ]
-    )
+    make = " ".join(f"s.{n} = {n}_ + (long long)b * {_STRIDES.get(n, '1')};" for n, _ in STATE_FIELDS)
     return f"""
 {head}
 {consts}
@@ -76,11 +87,12 @@ typedef long long i64;
 typedef unsigned char u8;
 struct S {{
   i64 *owner, *armies, *atp, *hand, *hand_n, *trades_made, *trade_count, *deck, *deck_n, *discard, *discard_n, *order,
-      *cur_pos, *phase, *turn, *round, *pend_from, *pend_to, *pend_min, *pend_max, *fort_src, *rng, *winner;
-  u8 *alive, *conquered, *fortified, *done;
+      *cur_pos, *phase, *turn, *round, *pend_from, *pend_to, *pend_min, *pend_max, *fort_src, *rng, *winner, *capital,
+      *elim_by, *elim_seq, *elim_n;
+  u8 *alive, *conquered, *fortified, *done, *bliz;
 }};
 #define STATE_ARGS {args}
-#define MAKE_S(b) S s; {{ {make.replace(chr(10), ' ')} }}
+#define MAKE_S(b) S s; {{ {make} }}
 {_BODY}
 """
 
@@ -100,15 +112,65 @@ __device__ __forceinline__ int mb_int(i64* st, int n) { return (int)(((unsigned 
 __device__ __forceinline__ int cur(S& s) { return (int)s.order[*s.cur_pos]; }
 __device__ __forceinline__ int ckind(int c) { return c < T ? c % 3 : 3; }
 __device__ __forceinline__ int cterr(int c) { return c < T ? c : -1; }
-__device__ __forceinline__ int trade_bonus(int i) {
-  const int tb[6] = {4, 6, 8, 10, 12, 15};
-  return i < 6 ? tb[i] : 15 + 5 * (i - 5);
-}
 __device__ __forceinline__ bool valid_set(int a, int b, int c) {
   if (a == 3 || b == 3 || c == 3) return true;
   return (a == b && b == c) || (a != b && b != c && a != c);
 }
 
+// ---- card values (packages/engine/src/cards.ts)
+__device__ __forceinline__ int trade_bonus(int i) {
+  const int tb[6] = {4, 6, 8, 10, 12, 15};
+  return i < 6 ? tb[i] : 15 + 5 * (i - 5);
+}
+// exponentialTradeBonus: 5, then ceil(v * 13 / 10) for the first 24 trades, then +1000 per trade
+__device__ __forceinline__ int exp_bonus(int i) {
+  int v = 5, k = i < 24 ? i : 24;
+  for (int q = 0; q < k; q++) v = (v * 13 + 9) / 10;
+  return v + (i > 24 ? i - 24 : 0) * 1000;
+}
+// nextTradeValue(mode, tradeCount, personal trades of p)
+__device__ __forceinline__ int next_value(S& s, int p) {
+  if (CARD_MODE == 1) return 10;
+  if (CARD_MODE == 2) return exp_bonus((int)s.trades_made[p]);
+  return trade_bonus((int)*s.trade_count);
+}
+// setValue(cards, mode, ...): fixedSetValue for fixed cards, else the next trade value
+__device__ __forceinline__ int set_value(S& s, int p, int k0, int k1, int k2) {
+  if (CARD_MODE != 1) return next_value(s, p);
+  int wilds = (k0 == 3) + (k1 == 3) + (k2 == 3);
+  if (wilds >= 2) return 10;
+  int a = -1;
+  bool same = true;
+  int ks[3] = {k0, k1, k2};
+  for (int q = 0; q < 3; q++) { if (ks[q] == 3) continue; if (a < 0) a = ks[q]; else if (ks[q] != a) same = false; }
+  if (same) { const int fv[3] = {4, 6, 8}; return fv[a]; }
+  return 10;
+}
+
+__device__ __forceinline__ bool is_capital(S& s, int t) {
+  if (!OPT_CAPITALS) return false;
+  for (int q = 0; q < NS; q++) if (s.capital[q] == t) return true;
+  return false;
+}
+
+// Open (non-blizzard) territories of continent c.
+__device__ __forceinline__ int open_count(S& s, int c) {
+  int n = 0;
+  for (int i = 0; i < CSIZE[c]; i++) if (!s.bliz[CMEM[c][i]]) n++;
+  return n;
+}
+
+// Continents p controls (every open territory, at least one): controlsContinent.
+__device__ int continents_held(S& s, int p) {
+  int held[K];
+  for (int c = 0; c < K; c++) held[c] = 0;
+  for (int t = 0; t < T; t++) if (s.owner[t] == p) held[CONT_OF[t]]++;
+  int n = 0;
+  for (int c = 0; c < K; c++) { int o = open_count(s, c); if (o > 0 && held[c] == o) n++; }
+  return n;
+}
+
+// reinforcementsFor(p).total: max(3, territories / 3) + continent bonuses + 2 per capital held (capitals on)
 __device__ int reinforcements(S& s, int p) {
   int cnt = 0;
   int held[K];
@@ -116,7 +178,8 @@ __device__ int reinforcements(S& s, int p) {
   for (int t = 0; t < T; t++) if (s.owner[t] == p) { cnt++; held[CONT_OF[t]]++; }
   int tot = cnt / 3;
   if (tot < 3) tot = 3;
-  for (int c = 0; c < K; c++) if (held[c] == CSIZE[c]) tot += CBONUS[c];
+  for (int c = 0; c < K; c++) { int o = open_count(s, c); if (o > 0 && held[c] == o) tot += CBONUS[c]; }
+  if (OPT_CAPITALS) for (int q = 0; q < NS; q++) { int t = (int)s.capital[q]; if (t >= 0 && s.owner[t] == p) tot += 2; }
   return tot;
 }
 
@@ -132,6 +195,7 @@ __device__ __forceinline__ void append_hand(S& s, int p, i64 c) {
   if (n < H) { s.hand[p * H + n] = c; s.hand_n[p] = n + 1; }
 }
 
+// tradeSet: the set's value, the counters, the cards to the discard pile, +2 on the first card showing an owned territory
 __device__ void trade_set(S& s, int p, int i, int j, int k, bool by_id) {
   i64* h = s.hand + p * H;
   int c[3] = {(int)h[i], (int)h[j], (int)h[k]};
@@ -140,9 +204,8 @@ __device__ void trade_set(S& s, int p, int i, int j, int k, bool by_id) {
     if (c[1] > c[2]) { int x = c[1]; c[1] = c[2]; c[2] = x; }
     if (c[0] > c[1]) { int x = c[0]; c[0] = c[1]; c[1] = x; }
   }
-  int tc = (int)*s.trade_count;
-  s.atp[p] += trade_bonus(tc);
-  *s.trade_count = tc + 1;
+  s.atp[p] += set_value(s, p, ckind(c[0]), ckind(c[1]), ckind(c[2]));
+  *s.trade_count += 1;
   s.trades_made[p] += 1;
   remove_hand(s, p, i, j, k);
   for (int q = 0; q < 3; q++) s.discard[(*s.discard_n)++] = c[q];
@@ -152,12 +215,13 @@ __device__ void trade_set(S& s, int p, int i, int j, int k, bool by_id) {
   }
 }
 
-// engine.ts autoTrade + bestSet (progressive values are equal, so: shows an owned territory, then fewest wilds, then first)
+// engine.ts autoTrade + bestSet: the most armies, then a card showing an owned territory, then fewest wilds, then first
 __device__ void auto_trade(S& s, int p) {
   while (s.hand_n[p] >= 5) {
     int n = (int)s.hand_n[p];
     i64* h = s.hand + p * H;
-    int best = -1, bi = 0, bj = 0, bk = 0;
+    long long best = -1;
+    int bi = 0, bj = 0, bk = 0;
     for (int i = 0; i < n; i++) for (int j = i + 1; j < n; j++) for (int k = j + 1; k < n; k++) {
       int c0 = (int)h[i], c1 = (int)h[j], c2 = (int)h[k];
       int k0 = ckind(c0), k1 = ckind(c1), k2 = ckind(c2);
@@ -165,7 +229,7 @@ __device__ void auto_trade(S& s, int p) {
       int t0 = cterr(c0), t1 = cterr(c1), t2 = cterr(c2);
       int bonus = (t0 >= 0 && s.owner[t0] == p) || (t1 >= 0 && s.owner[t1] == p) || (t2 >= 0 && s.owner[t2] == p);
       int wilds = (k0 == 3) + (k1 == 3) + (k2 == 3);
-      int key = bonus * 4 + 3 - wilds;
+      long long key = (long long)set_value(s, p, k0, k1, k2) * 16 + bonus * 4 + 3 - wilds;
       if (key > best) { best = key; bi = i; bj = j; bk = k; }
     }
     if (best < 0) return;
@@ -188,13 +252,83 @@ __device__ void begin_turn(S& s, int pos) {
   auto_trade(s, p);
 }
 
+__device__ __forceinline__ bool owns_any(S& s, int p) {
+  for (int t = 0; t < T; t++) if (s.owner[t] == p) return true;
+  return false;
+}
+
+// nextCapitalPicker: position in turn order of the first living player with territories and no capital, or -1
+__device__ int next_capital_picker(S& s) {
+  for (int i = 0; i < NS; i++) {
+    int q = (int)s.order[i];
+    if (s.alive[q] && s.capital[q] < 0 && owns_any(s, q)) return i;
+  }
+  return -1;
+}
+
+// assignCapitals: in seating order, each player's most garrisoned territory (ties: first in map order), +3 armies
+__device__ void assign_capitals(S& s) {
+  for (int q = 0; q < NS; q++) {
+    if (!s.alive[q] || s.capital[q] >= 0) continue;
+    int best = -1;
+    for (int t = 0; t < T; t++) if (s.owner[t] == q && (best < 0 || s.armies[t] > s.armies[best])) best = t;
+    if (best < 0) continue;
+    s.capital[q] = best;
+    s.armies[best] += 3;
+  }
+}
+
 __device__ void begin_first_turn(S& s) {
   *s.turn = 0;
   *s.round = 1;
+  if (OPT_CAPITALS) {
+    bool none = true;
+    for (int q = 0; q < NS; q++) if (s.capital[q] >= 0) none = false;
+    if (none) {
+      if (OPT_CHOOSE_CAPITALS) {
+        int pk = next_capital_picker(s);
+        if (pk >= 0) { *s.phase = CAPITALS; *s.cur_pos = pk; return; }
+      }
+      assign_capitals(s);
+    }
+  }
   for (int i = 0; i < NS; i++) if (s.alive[s.order[i]]) { begin_turn(s, i); return; }
 }
 
+__device__ void choose_capital(S& s, int t) {
+  int p = cur(s);
+  s.capital[p] = t;
+  s.armies[t] += 3;
+  int pk = next_capital_picker(s);
+  if (pk >= 0) { *s.cur_pos = pk; return; }
+  begin_first_turn(s);
+}
+
+// distributeEvenly: the player's remaining armies one by one over their territories (map order) from a random start.
+// Draws the start even with nothing left to place, as the engine does.
+__device__ void distribute_evenly(S& s, int p, i64* rng) {
+  int owned[T], n = 0;
+  for (int t = 0; t < T; t++) if (s.owner[t] == p) owned[n++] = t;
+  if (n == 0) { s.atp[p] = 0; return; }
+  int i = mb_int(rng, n);
+  while (s.atp[p] > 0) { s.armies[owned[i % n]] += 1; s.atp[p] -= 1; i++; }
+}
+
+// distributeRandomly (autoSetup): each remaining army on a uniformly random territory of the player's
+__device__ void distribute_randomly(S& s, int p, i64* rng) {
+  int owned[T], n = 0;
+  for (int t = 0; t < T; t++) if (s.owner[t] == p) owned[n++] = t;
+  if (n == 0) { s.atp[p] = 0; return; }
+  while (s.atp[p] > 0) { s.armies[owned[mb_int(rng, n)]] += 1; s.atp[p] -= 1; }
+}
+
+__device__ __forceinline__ bool any_unclaimed(S& s) {
+  for (int t = 0; t < T; t++) if (s.owner[t] < 0 && !s.bliz[t]) return true;
+  return false;
+}
+
 __device__ void advance_setup(S& s) {
+  if (HAS_NEUTRAL && s.atp[NEU] > 0 && !any_unclaimed(s)) distribute_evenly(s, NEU, s.rng);
   int idx = (int)*s.cur_pos;
   bool any = false;
   for (int i = 0; i < NS; i++) { int q = (int)s.order[i]; if (s.alive[q] && s.atp[q] > 0) any = true; }
@@ -224,6 +358,12 @@ __device__ void shuffle(i64* arr, int n, i64* rng) {
     i64 x = arr[i]; arr[i] = arr[j]; arr[j] = x;
   }
 }
+__device__ void shuffle_int(int* arr, int n, i64* rng) {
+  for (int i = n - 1; i > 0; i--) {
+    int j = mb_int(rng, i + 1);
+    int x = arr[i]; arr[i] = arr[j]; arr[j] = x;
+  }
+}
 
 __device__ void draw(S& s, int p) {
   if (*s.deck_n == 0) {
@@ -244,21 +384,48 @@ __device__ void end_turn(S& s) {
   next_turn(s);
 }
 
-__device__ void attack(S& s, int e) {
-  int from = EFROM[e], to = ETO[e], p = cur(s);
-  int fa = (int)s.armies[from], ta = (int)s.armies[to], last = 0;
+// rollBattle as a full blitz (stopAt 1): armies left on both sides and the attacker's dice in the last roll
+__device__ void blitz(i64* rng, int fa, int ta, int dlim, int* ofa, int* ota, int* olast) {
+  int last = 0;
   while (fa >= 2 && ta > 0) {
-    int ad = fa - 1 < 3 ? fa - 1 : 3, dd = ta < 2 ? ta : 2;
-    int a[3] = {0, 0, 0}, d[2] = {0, 0};
-    for (int q = 0; q < ad; q++) a[q] = 1 + mb_int(s.rng, 6);
-    for (int q = 0; q < dd; q++) d[q] = 1 + mb_int(s.rng, 6);
+    int ad = fa - 1 < 3 ? fa - 1 : 3, dd = ta < dlim ? ta : dlim;
+    int a[3] = {0, 0, 0}, d[3] = {0, 0, 0};
+    for (int q = 0; q < ad; q++) a[q] = 1 + mb_int(rng, 6);
+    for (int q = 0; q < dd; q++) d[q] = 1 + mb_int(rng, 6);
     if (a[0] < a[1]) { int x = a[0]; a[0] = a[1]; a[1] = x; }
     if (a[1] < a[2]) { int x = a[1]; a[1] = a[2]; a[2] = x; }
     if (a[0] < a[1]) { int x = a[0]; a[0] = a[1]; a[1] = x; }
     if (d[0] < d[1]) { int x = d[0]; d[0] = d[1]; d[1] = x; }
+    if (d[1] < d[2]) { int x = d[1]; d[1] = d[2]; d[2] = x; }
+    if (d[0] < d[1]) { int x = d[0]; d[0] = d[1]; d[1] = x; }
     int pairs = ad < dd ? ad : dd;
     for (int q = 0; q < pairs; q++) { if (a[q] > d[q]) ta--; else fa--; }
     last = ad;
+  }
+  *ofa = fa; *ota = ta; *olast = last;
+}
+
+__device__ void attack(S& s, int e) {
+  int from = EFROM[e], to = ETO[e], p = cur(s);
+  int dlim = OPT_CAPITALS && is_capital(s, to) ? 3 : 2;
+  int fa, ta, last;
+  if (BALANCED) {
+    // balanced blitz: 5 full blitzes with real dice, the median run (stable sort by how well it went) is played
+    int rf[5], rt[5], rl[5];
+    long long sc[5];
+    for (int r = 0; r < 5; r++) {
+      blitz(s.rng, (int)s.armies[from], (int)s.armies[to], dlim, &rf[r], &rt[r], &rl[r]);
+      sc[r] = rt[r] == 0 ? 1000000LL + rf[r] : -(long long)rt[r];
+    }
+    int pick = 0;
+    for (int r = 0; r < 5; r++) {
+      int rank = 0;
+      for (int q = 0; q < 5; q++) if (sc[q] < sc[r] || (sc[q] == sc[r] && q < r)) rank++;
+      if (rank == 2) pick = r;
+    }
+    fa = rf[pick]; ta = rt[pick]; last = rl[pick];
+  } else {
+    blitz(s.rng, (int)s.armies[from], (int)s.armies[to], dlim, &fa, &ta, &last);
   }
   s.armies[from] = fa;
   s.armies[to] = ta;
@@ -273,6 +440,8 @@ __device__ void attack(S& s, int e) {
   *s.pend_max = fa - 1;
   for (int t = 0; t < T; t++) if (s.owner[t] == def) return;
   s.alive[def] = 0;
+  s.elim_by[def] = p;  // eliminatedBy, and the elimination order (finalPlacements)
+  s.elim_seq[def] = (*s.elim_n)++;
   int dn = (int)s.hand_n[def];
   if (dn > 0) {
     for (int q = 0; q < dn; q++) append_hand(s, p, s.hand[def * H + q]);
@@ -282,6 +451,7 @@ __device__ void attack(S& s, int e) {
   }
 }
 
+// doOccupy + checkVictory: one real player left, or (capitals) every capital held by the mover
 __device__ void occupy(S& s, int slot) {
   int mx = (int)*s.pend_max, mn = (int)*s.pend_min;
   int mid = (mx + 1) / 2;
@@ -293,12 +463,30 @@ __device__ void occupy(S& s, int slot) {
   *s.pend_to = -1;
   int alive = 0, who = -1;
   for (int q = 0; q < NS; q++) if (s.alive[q]) { alive++; who = q; }
-  if (alive == 1) { *s.phase = FINISHED; *s.winner = who; }
+  if (alive == 1) { *s.phase = FINISHED; *s.winner = who; return; }
+  if (OPT_CAPITALS) {
+    int p = cur(s), ncap = 0;
+    bool all = true;
+    for (int q = 0; q < NS; q++) {
+      int t = (int)s.capital[q];
+      if (t < 0) continue;
+      ncap++;
+      if (s.owner[t] != p) all = false;
+    }
+    if (ncap > 1 && all) { *s.phase = FINISHED; *s.winner = p; }
+  }
 }
 
 __device__ void place(S& s, int t, int slot) {
   int p = cur(s);
   int a = (int)s.atp[p], ph = (int)*s.phase;
+  if (ph == SETUP && s.owner[t] < 0) {  // claiming phase: one army on an unclaimed territory
+    s.owner[t] = p;
+    s.armies[t] = 1;
+    s.atp[p] = a - 1;
+    advance_setup(s);
+    return;
+  }
   int lim = ph == SETUP ? (a < SETUP_BATCH ? a : SETUP_BATCH) : a;
   int n = slot == 0 ? lim : (slot == 1 ? (lim + 1) / 2 : 1);
   s.armies[t] += n;
@@ -327,7 +515,8 @@ __device__ void apply(S& s, int a, int max_turns) {
   else if (a < FFROM) occupy(s, a - OCCUPY);
   else if (a < FTO) *s.fort_src = a - FFROM;
   else if (a < END) fortify_to(s, (a - FTO) / 2, (a - FTO) % 2);
-  else end_turn(s);
+  else if (a == END) end_turn(s);
+  else choose_capital(s, a - CAP);
   if (*s.phase == FINISHED || *s.turn >= max_turns) *s.done = 1;
 }
 
@@ -348,11 +537,21 @@ __device__ void components(S& s, int* lab, int* size) {
   for (int t = 0; t < T; t++) size[t] = size[lab[t]];
 }
 
+// An owned neighbour of t (adjacent fortify).
+__device__ __forceinline__ bool own_neighbour(S& s, int t, int me) {
+  for (int k = 0; k < DEG[t]; k++) if (s.owner[NBR[t][k]] == me) return true;
+  return false;
+}
+
 // candidates() of actions.ts over the fixed action space; returns how many moves are legal.
 __device__ int legal(S& s, u8* m) {
   for (int a = 0; a < A; a++) m[a] = 0;
   if (*s.done) return 0;
   int me = cur(s), ph = (int)*s.phase, atp = (int)s.atp[me], hn = (int)s.hand_n[me], cnt = 0;
+  if (ph == CAPITALS) {
+    for (int t = 0; t < T; t++) if (s.owner[t] == me && !is_capital(s, t)) { m[CAP + t] = 1; cnt++; }
+    return cnt;
+  }
   bool must = (ph == REINFORCE || ph == ATTACK_PH) && hn >= 5;
   if (*s.pend_from >= 0) {
     int mx = (int)*s.pend_max, mn = (int)*s.pend_min;
@@ -365,13 +564,26 @@ __device__ int legal(S& s, u8* m) {
   int lab[T], size[T];
   if (*s.fort_src >= 0) {
     int src = (int)*s.fort_src;
-    components(s, lab, size);
     int fmax = (int)s.armies[src] - 1;
     bool ok0 = fmax >= 1, ok1 = (fmax + 1) / 2 != fmax;
+    if (FORT_ADJ) {
+      for (int k = 0; k < DEG[src]; k++) {
+        int t = NBR[src][k];
+        if (s.owner[t] != me) continue;
+        if (ok0) { m[FTO + 2 * t] = 1; cnt++; }
+        if (ok1) { m[FTO + 2 * t + 1] = 1; cnt++; }
+      }
+      return cnt;
+    }
+    components(s, lab, size);
     for (int t = 0; t < T; t++) if (t != src && lab[t] == lab[src] && s.owner[t] == me) {
       if (ok0) { m[FTO + 2 * t] = 1; cnt++; }
       if (ok1) { m[FTO + 2 * t + 1] = 1; cnt++; }
     }
+    return cnt;
+  }
+  if (ph == SETUP && any_unclaimed(s)) {  // claiming phase: one army on any unclaimed territory
+    for (int t = 0; t < T; t++) if (s.owner[t] < 0 && !s.bliz[t]) { m[3 * t] = 1; cnt++; }
     return cnt;
   }
   if (ph == SETUP || (ph == REINFORCE && !must) || (ph == ATTACK_PH && !must && atp > 0)) {
@@ -394,50 +606,197 @@ __device__ int legal(S& s, u8* m) {
   bool att = ph == ATTACK_PH && !must && atp == 0, fph = ph == FORTIFY;
   if (att) {
     for (int t = 0; t < T; t++) if (s.owner[t] == me && s.armies[t] >= 2)
-      for (int k = 0; k < DEG[t]; k++) if (s.owner[NBR[t][k]] != me) { m[ATTACK + EBASE[t] + k] = 1; cnt++; }
+      for (int k = 0; k < DEG[t]; k++) { int n = NBR[t][k]; if (s.owner[n] != me && !s.bliz[n]) { m[ATTACK + EBASE[t] + k] = 1; cnt++; } }
   }
   if ((att || fph) && !*s.fortified) {
-    components(s, lab, size);
-    for (int t = 0; t < T; t++) if (s.owner[t] == me && s.armies[t] >= 2 && size[t] >= 2) { m[FFROM + t] = 1; cnt++; }
+    if (FORT_ADJ) {
+      for (int t = 0; t < T; t++) if (s.owner[t] == me && s.armies[t] >= 2 && own_neighbour(s, t, me)) { m[FFROM + t] = 1; cnt++; }
+    } else {
+      components(s, lab, size);
+      for (int t = 0; t < T; t++) if (s.owner[t] == me && s.armies[t] >= 2 && size[t] >= 2) { m[FFROM + t] = 1; cnt++; }
+    }
   }
   if (att || fph) { m[END] = 1; cnt++; }
   return cnt;
 }
 
-// createGame(seed) + startGame with a random deal (engine.ts), for the 2-player classic setup.
+// openNetworkConnected: every open territory reachable from the first open one
+__device__ bool open_connected(const u8* blocked) {
+  u8 seen[T];
+  int stack[T], sp = 0, first = -1, nopen = 0, nseen = 0;
+  for (int t = 0; t < T; t++) { seen[t] = 0; if (!blocked[t]) { nopen++; if (first < 0) first = t; } }
+  if (first < 0) return false;
+  seen[first] = 1; stack[sp++] = first; nseen = 1;
+  while (sp) {
+    int u = stack[--sp];
+    for (int k = 0; k < DEG[u]; k++) { int v = NBR[u][k]; if (!blocked[v] && !seen[v]) { seen[v] = 1; nseen++; stack[sp++] = v; } }
+  }
+  return nseen == nopen;
+}
+
+// pickBlizzards: territories in a shuffled order, each kept if its continent keeps 2 open and the open map stays connected
+__device__ void pick_blizzards(S& s, i64* st) {
+  int sh[T];
+  u8 chosen[T];
+  for (int t = 0; t < T; t++) { sh[t] = t; chosen[t] = 0; }
+  shuffle_int(sh, T, st);
+  int cnt = 0;
+  for (int i = 0; i < T; i++) {
+    if (cnt >= NBLIZ) break;
+    int t = sh[i], c = CONT_OF[t], others = 0;
+    for (int q = 0; q < CSIZE[c]; q++) { int x = CMEM[c][q]; if (x != t && !chosen[x]) others++; }
+    if (others < 2) continue;
+    chosen[t] = 1; cnt++;
+    if (!open_connected(chosen)) { chosen[t] = 0; cnt--; }
+  }
+  for (int t = 0; t < T; t++) s.bliz[t] = chosen[t];
+}
+
+// createGame(seed) + addPlayer per seat + startGame (engine.ts), every setting of this configuration.
 __device__ void reset_game(S& s, unsigned int seed) {
   i64 st = (i64)seed;
-  s.order[0] = 0; s.order[1] = 1;
+  for (int i = 0; i < NS; i++) s.order[i] = i;
   shuffle(s.order, NS, &st);
   for (int i = 0; i < NC; i++) s.deck[i] = i;
   shuffle(s.deck, NC, &st);
-  i64 perm[T];
-  for (int i = 0; i < T; i++) perm[i] = i;
-  shuffle(perm, T, &st);
-  int dealt[NS + 1];
-  for (int d = 0; d <= NS; d++) dealt[d] = 0;
-  for (int i = 0; i < T; i++) {
-    int d = i % (NS + 1);
-    int who = d < NS ? (int)s.order[d] : NEU;
-    s.owner[perm[i]] = who;
-    s.armies[perm[i]] = 1;
-    dealt[d]++;
-  }
-  for (int d = 0; d < NS; d++) s.atp[s.order[d]] = START_ARMIES - dealt[d];
-  s.atp[NEU] = 0;
-  // the Neutral's remaining armies, spread evenly from a random start (distributeEvenly)
-  int ln = dealt[NS], extra = START_ARMIES - ln;
-  int i0 = mb_int(&st, ln);
-  int q = 0;
-  for (int t = 0; t < T; t++) if (s.owner[t] == NEU) {
-    int r = (q - i0) % ln; if (r < 0) r += ln;
-    s.armies[t] += extra / ln + (r < extra % ln ? 1 : 0);
-    q++;
-  }
+  for (int t = 0; t < T; t++) { s.owner[t] = -1; s.armies[t] = 0; s.bliz[t] = 0; }
+  for (int q = 0; q < NS; q++) s.capital[q] = -1;
+  if (NBLIZ > 0) pick_blizzards(s, &st);
+  int list[T], L = 0;
+  for (int t = 0; t < T; t++) if (!s.bliz[t]) list[L++] = t;  // playable, map order
   for (int p = 0; p < P; p++) { s.alive[p] = 1; s.hand_n[p] = 0; s.trades_made[p] = 0; for (int h = 0; h < H; h++) s.hand[p * H + h] = -1; }
+  s.alive[NEU] = HAS_NEUTRAL;
+  for (int p = 0; p < P; p++) { s.elim_by[p] = -1; s.elim_seq[p] = -1; }
+  *s.elim_n = 0;
+  for (int q = 0; q < NS; q++) s.atp[q] = START_ARMIES;
+  s.atp[NEU] = HAS_NEUTRAL && NEUTRAL_TERR == 0 ? START_ARMIES : 0;
+  if (NEUTRAL_TERR > 0) {  // neutral territories set aside at random from the playable ones, each with a fixed garrison
+    int sh[T];
+    for (int i = 0; i < L; i++) sh[i] = list[i];
+    shuffle_int(sh, L, &st);
+    int k = NEUTRAL_TERR < L - NS ? NEUTRAL_TERR : L - NS;
+    for (int i = 0; i < k; i++) { s.owner[sh[i]] = NEU; s.armies[sh[i]] = NEUTRAL_ARMIES; }
+    int w = 0;
+    for (int i = 0; i < L; i++) if (s.owner[list[i]] != NEU) list[w++] = list[i];
+    L = w;  // dealable
+  }
+  if (RANDOM_DEAL) {
+    shuffle_int(list, L, &st);
+    int k = NS + (NS == 2 ? 1 : 0);  // the deal order: turn order, plus the classic Neutral at 2 players
+    for (int i = 0; i < L; i++) {
+      int d = i % k;
+      int who = d < NS ? (int)s.order[d] : NEU;
+      s.owner[list[i]] = who;
+      s.armies[list[i]] = 1;
+      s.atp[who] -= 1;
+    }
+    if (HAS_NEUTRAL) distribute_evenly(s, NEU, &st);
+  }
   *s.trade_count = 0; *s.deck_n = NC; *s.discard_n = 0; *s.cur_pos = 0; *s.phase = SETUP; *s.turn = 0; *s.round = 0;
   *s.pend_from = -1; *s.pend_to = -1; *s.pend_min = 0; *s.pend_max = 0; *s.conquered = 0; *s.fortified = 0;
-  *s.fort_src = -1; *s.rng = st; *s.winner = -1; *s.done = 0;
+  *s.fort_src = -1; *s.winner = -1; *s.done = 0;
+  if (AUTO_SETUP) {
+    for (int q = 0; q < NS; q++) distribute_randomly(s, q, &st);
+    *s.rng = st;
+    begin_first_turn(s);
+    return;
+  }
+  *s.rng = st;
+  bool all0 = true;
+  for (int p = 0; p < P; p++) if ((p < NS || HAS_NEUTRAL) && s.atp[p] != 0) all0 = false;
+  if (all0) begin_first_turn(s);
+}
+
+// The legal moves in actions.ts candidate order (capitals, trades, placements, attacks, occupy, fortify sources, end
+// turn; fortify destinations in legalMoves' order: the engine's connected search, or adjacency order with adjacent
+// fortify). Returns how many; o[i] = action index.
+__device__ int ordered_moves(S& s, u8* m, i64* o) {
+  int n = legal(s, m), k = 0;
+  if (*s.fort_src >= 0 && n > 0 && FORT_ADJ) {
+    int src = (int)*s.fort_src;
+    for (int q = 0; q < DEG[src]; q++) {
+      int v = NBR[src][q];
+      for (int sl = 0; sl < 2; sl++) if (m[FTO + 2 * v + sl]) o[k++] = FTO + 2 * v + sl;
+    }
+  } else if (*s.fort_src >= 0 && n > 0) {
+    int src = (int)*s.fort_src, me = cur(s);
+    u8 seen[T];
+    int stack[T], sp = 0;
+    for (int t = 0; t < T; t++) seen[t] = 0;
+    seen[src] = 1; stack[sp++] = src;
+    while (sp) {
+      int u = stack[--sp];
+      for (int q = 0; q < DEG[u]; q++) {
+        int v = NBR[u][q];
+        if (!seen[v] && s.owner[v] == me) {
+          seen[v] = 1; stack[sp++] = v;
+          for (int sl = 0; sl < 2; sl++) if (m[FTO + 2 * v + sl]) o[k++] = FTO + 2 * v + sl;
+        }
+      }
+    }
+  } else {
+    for (int a = CAP; a < A; a++) if (m[a]) o[k++] = a;
+    for (int a = TRADE; a < ATTACK; a++) if (m[a]) o[k++] = a;
+    for (int a = 0; a < TRADE; a++) if (m[a]) o[k++] = a;
+    for (int a = ATTACK; a < CAP; a++) if (m[a]) o[k++] = a;
+  }
+  return k;
+}
+
+// A move as the decision log's candidate: [kind (CANDIDATE_KINDS index), x, y, z] (place t n, trade ids sorted,
+// capital t, attack from to, occupy n, end_turn, fortify_from t, fortify_to t n).
+__device__ void cand_tuple(S& s, int a, int* c) {
+  c[1] = 0; c[2] = 0; c[3] = 0;
+  int me = cur(s);
+  if (a < TRADE) {
+    int t = a / 3, sl = a % 3, atp = (int)s.atp[me], ph = (int)*s.phase;
+    int lim = ph == SETUP ? (atp < SETUP_BATCH ? atp : SETUP_BATCH) : atp;
+    int n = (ph == SETUP && s.owner[t] < 0) ? 1 : (sl == 0 ? lim : (sl == 1 ? (lim + 1) / 2 : 1));
+    c[0] = 0; c[1] = t; c[2] = n;
+  } else if (a < ATTACK) {
+    int k = a - TRADE;
+    i64* h = s.hand + me * H;
+    int x = (int)h[TRI5[k][0]], y = (int)h[TRI5[k][1]], z = (int)h[TRI5[k][2]], w;
+    if (x > y) { w = x; x = y; y = w; }
+    if (y > z) { w = y; y = z; z = w; }
+    if (x > y) { w = x; x = y; y = w; }
+    c[0] = 1; c[1] = x; c[2] = y; c[3] = z;
+  } else if (a < OCCUPY) {
+    c[0] = 3; c[1] = EFROM[a - ATTACK]; c[2] = ETO[a - ATTACK];
+  } else if (a < FFROM) {
+    int mx = (int)*s.pend_max, mn = (int)*s.pend_min, mid = (mx + 1) / 2, sl = a - OCCUPY;
+    if (mid < mn) mid = mn;
+    c[0] = 4; c[1] = sl == 0 ? mx : (sl == 1 ? mid : mn);
+  } else if (a < FTO) {
+    c[0] = 7; c[1] = a - FFROM;
+  } else if (a < END) {
+    int t = (a - FTO) / 2, sl = (a - FTO) % 2, mx = (int)s.armies[*s.fort_src] - 1;
+    c[0] = 8; c[1] = t; c[2] = sl == 0 ? mx : (mx + 1) / 2;
+  } else if (a == END) {
+    c[0] = 6;
+  } else {
+    c[0] = 2; c[1] = a - CAP;
+  }
+}
+
+extern "C" __global__ void k_cand_order(STATE_ARGS, i64* ord, i64* cnt, int B) {
+  int b = blockIdx.x * blockDim.x + threadIdx.x;
+  if (b >= B) return;
+  MAKE_S(b);
+  u8 m[A];
+  cnt[b] = ordered_moves(s, m, ord + (i64)b * A);
+}
+
+// ordered_moves plus each move as a candidate tuple (tup[b, i, 0..3], up to W per game; cnt may exceed W).
+extern "C" __global__ void k_cand_tuples(STATE_ARGS, i64* ord, int* tup, i64* cnt, int B, int W) {
+  int b = blockIdx.x * blockDim.x + threadIdx.x;
+  if (b >= B) return;
+  MAKE_S(b);
+  u8 m[A];
+  i64* o = ord + (i64)b * A;
+  int n = ordered_moves(s, m, o);
+  cnt[b] = n;
+  for (int i = 0; i < n && i < W; i++) cand_tuple(s, (int)o[i], tup + ((i64)b * W + i) * 4);
 }
 
 extern "C" __global__ void k_legal(STATE_ARGS, u8* mask, int B) {
@@ -450,6 +809,7 @@ extern "C" __global__ void k_legal(STATE_ARGS, u8* mask, int B) {
 extern "C" __global__ void k_step(STATE_ARGS, i64* action, int B, int max_turns) {
   int b = blockIdx.x * blockDim.x + threadIdx.x;
   if (b >= B) return;
+  if (action[b] < 0) return;  // no move for this game this step
   MAKE_S(b);
   apply(s, (int)action[b], max_turns);
 }
@@ -459,6 +819,14 @@ extern "C" __global__ void k_reset(STATE_ARGS, i64* seeds, u8* which, int B) {
   if (b >= B || !which[b]) return;
   MAKE_S(b);
   reset_game(s, (unsigned int)seeds[b]);
+}
+
+// Every seat's reinforcementsFor(seat).total (out[b, seat]) and continents held (out2[b, seat]).
+extern "C" __global__ void k_income(STATE_ARGS, i64* out, i64* out2, int B) {
+  int b = blockIdx.x * blockDim.x + threadIdx.x;
+  if (b >= B) return;
+  MAKE_S(b);
+  for (int q = 0; q < NS; q++) { out[(i64)b * NS + q] = reinforcements(s, q); out2[(i64)b * NS + q] = continents_held(s, q); }
 }
 
 // Self-play with uniformly random legal moves, `steps` decisions per game without leaving the GPU. A finished game is
@@ -494,31 +862,49 @@ extern "C" __global__ void k_random_play(STATE_ARGS, i64* agent_rng, i64* dec, u
 """
 
 
-def _kernels(e: Engine) -> dict:
-    src = _source(e)
-    if src in _cache:
-        return _cache[src]
+def compile_kernels(src: str, names, options: list[str] | None = None) -> dict:
+    """Compile `names` from `src` with NVRTC (cached per source). `options` go to NVRTC, e.g. --fmad=false so double
+    arithmetic rounds exactly like JavaScript's (no fused multiply-adds)."""
+    key = (src, tuple(names), tuple(options or ()))
+    if key in _cache:
+        return _cache[key]
     import torch.utils.cpp_extension as cpp
 
     if cpp.CUDA_HOME is None:  # NVRTC needs no headers here; torch only wants an include dir to pass along
         (_INCLUDE_STUB / "include").mkdir(parents=True, exist_ok=True)
         cpp.CUDA_HOME = str(_INCLUDE_STUB)
         os.environ.setdefault("CUDA_HOME", str(_INCLUDE_STUB))
-    ks = {name: torch.cuda._compile_kernel(src, name) for name in ("k_legal", "k_step", "k_reset", "k_random_play")}
-    _cache[src] = ks
+    # One NVRTC compile for all the (extern "C") kernels of a source, the binary cached on disk by source hash.
+    import hashlib
+
+    from torch.cuda._utils import _cuda_load_module, _nvrtc_compile
+
+    cc = "".join(map(str, torch.cuda.get_device_capability()))
+    h = hashlib.sha256("\0".join([src, *(options or ()), cc, torch.__version__]).encode()).hexdigest()[:24]
+    disk = _INCLUDE_STUB.parent / "_cache" / f"kernels-{h}.cubin"
+    if disk.exists():
+        binary = disk.read_bytes()
+    else:
+        binary, _ = _nvrtc_compile(src, names[0], None, None, list(options or []))
+        disk.parent.mkdir(exist_ok=True)
+        disk.write_bytes(binary)
+    ks = _cuda_load_module(binary, list(names))
+    _cache[key] = ks
     return ks
 
 
-class FusedEngine(Engine):
-    """Engine with legal(), step() and reset() as single CUDA kernels (always exact: mulberry32 like the engine)."""
+RULE_KERNELS = ("k_legal", "k_step", "k_reset", "k_income", "k_random_play", "k_cand_order", "k_cand_tuples")
+
+
+class FusedEngine(State):
+    """The rules as CUDA kernels for any configuration (cfg: GameConfig; default Classic 2-player)."""
 
     BLOCK = 128
     MIRROR = "fused.py"
 
-    def __init__(self, B: int, **kw):
-        kw["exact"] = True
-        super().__init__(B, **kw)
-        self.k = _kernels(self)
+    def __init__(self, B: int, cfg=None, compile_rules: bool = True, **kw):
+        super().__init__(B, cfg, **kw)
+        self.k = compile_kernels(_source(self), RULE_KERNELS) if compile_rules else None
         self._mask = torch.zeros(B, self.L.A, dtype=torch.bool, device=self.dev)
         self.agent_rng = torch.arange(B, dtype=torch.long, device=self.dev) * 7919 + 17
         self.dec = torch.zeros(B, dtype=torch.long, device=self.dev)
@@ -544,6 +930,30 @@ class FusedEngine(Engine):
         full[g] = seeds.to(self.dev).long() & 0xFFFFFFFF
         self.seed[g] = full[g]
         self._launch("k_reset", full, which, self.B)
+
+    def cand_order(self) -> tuple[torch.Tensor, torch.Tensor]:
+        """Legal moves in actions.ts candidate order: ord[b, :cnt[b]]."""
+        ord_ = torch.full((self.B, self.L.A), -1, dtype=torch.long, device=self.dev)
+        cnt = torch.zeros(self.B, dtype=torch.long, device=self.dev)
+        self._launch("k_cand_order", ord_, cnt, self.B)
+        return ord_, cnt
+
+    def cand_tuples(self, W: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """cand_order() plus each move as the log's candidate tuple [kind, x, y, z] (int32 [B, W, 4])."""
+        ord_ = torch.full((self.B, self.L.A), -1, dtype=torch.long, device=self.dev)
+        cnt = torch.zeros(self.B, dtype=torch.long, device=self.dev)
+        tup = torch.zeros(self.B, W, 4, dtype=torch.int32, device=self.dev)
+        self._launch("k_cand_tuples", ord_, tup, cnt, self.B, W)
+        return ord_, tup, cnt
+
+    def income_and_continents(self) -> tuple[torch.Tensor, torch.Tensor]:
+        out = torch.empty(self.B, self.n, dtype=torch.long, device=self.dev)
+        out2 = torch.empty(self.B, self.n, dtype=torch.long, device=self.dev)
+        self._launch("k_income", out, out2, self.B)
+        return out, out2
+
+    def income(self) -> torch.Tensor:
+        return self.income_and_continents()[0]
 
     def play_random(self, steps: int, stats: torch.Tensor, seed_counter: torch.Tensor, seed_base: int = 0x9E3779B9):
         """`steps` random-move decisions in every game, restarting finished games; stats (uint64 [4]) accumulates

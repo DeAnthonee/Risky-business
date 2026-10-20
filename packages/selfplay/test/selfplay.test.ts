@@ -146,7 +146,18 @@ describe('playGame', () => {
       expect(rec.choice).toBeGreaterThanOrEqual(0);
       expect(rec.choice).toBeLessThan(rec.cands.length);
       expect(rec.traits).toHaveLength(TRAIT_KEYS.length);
-      expect(rec.outcome).toEqual({ winner: r.winner, z: rec.seat === r.winner ? 1 : 0, turns: r.turns, reason: r.reason });
+      const won = rec.seat === r.winner;
+      // Two players: the winner places first and eliminated the other (+1 placement +1 kill), the loser gets -1.
+      expect(rec.outcome).toEqual({
+        winner: r.winner,
+        z: won ? 1 : 0,
+        turns: r.turns,
+        reason: r.reason,
+        placement: won ? 1 : 2,
+        kills: r.kills[rec.seat],
+        points: r.points[rec.seat],
+      });
+      expect(r.points[rec.seat]).toBe(won ? 1 + r.kills[rec.seat] : -1);
     });
     expect(recs.find((x) => x.seat === 0)!.traits[TRAIT_KEYS.indexOf('aggression')]).toBe(0.9);
     // The neutral (2-player games) is coded -2 and owns territories from the start.
@@ -186,7 +197,7 @@ describe('runBatch and decision logs', () => {
     const lines = gunzipSync(readFileSync(join(dir, 'decisions-0-2.jsonl.gz'))).toString().trim().split('\n');
     expect(lines.length).toBe(results.reduce((a, r) => a + r.steps, 0));
     const first = JSON.parse(lines[0]) as DecisionRecord;
-    expect(first).toMatchObject({ v: 2, game: 'g0', seed: gameSeed(9, 0), map: 'classic', players: 2, i: 0 });
+    expect(first).toMatchObject({ v: 3, game: 'g0', seed: gameSeed(9, 0), map: 'classic', players: 2, i: 0 });
     const games = readFileSync(join(dir, 'games-0-2.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
     expect(games.map((g) => g.index)).toEqual([0, 1, 2]);
     const meta = JSON.parse(readFileSync(join(dir, 'meta.json'), 'utf8'));

@@ -50,7 +50,8 @@ A wild, impulsive tinkerer who lives for explosions and attention. Past grudges 
 
 ## Lessons learned
 
-None yet
+- **Doorway fortress defense**: When holding multi-continent clusters (like the Americas), don't leave external bottlenecks undefended with 1 troop while armies sit idle in the rear. Stack the 2–3 doorways with massive garrisons so nobody can walk in and pop your bonuses.
+- **Choke-neutral bonus breaking**: If taking a step into an adjacent territory (e.g. Alaska into Kamchatka/Siberia) blows up a rival's continent bonus while leaving you with the exact same number of doorway chokeholds to defend, take it and break their bonus immediately.
 
 ## Game rules for this character
 

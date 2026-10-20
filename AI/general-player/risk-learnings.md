@@ -67,6 +67,15 @@ turn, ask: are any troops stuck on a territory that touches no enemy?
   earn your card, stop attacking immediately. Park a heavy 8-15 army stack directly on the doorway chokepoint
   (or fortify back to it), cash in your +2 to +5 income turn after turn, and only expand outward once you hold
   a large secondary surplus stack.
+- **Doorway fortress defense (Multi-continent clusters):** when holding contiguous multi-continent empires
+  (such as the Americas on World boards) that bottle-neck into 2–3 external doorways (e.g. Alaska, Greenland, Brazil),
+  concentrate the bulk of your armies directly onto those doorway chokeholds (15–30+ armies). Leaving 1–2 troops
+  on external chokeholds while armies sit in deep interior pockets invites adjacent rivals to punch through and
+  shatter multiple bonuses at trivial cost.
+- **Choke-neutral bonus disruption:** if taking an adjacent border territory breaks a leading rival's continent
+  bonus (e.g. stepping from Alaska into Kamchatka/Siberia to break a Siberian bonus) without increasing your net
+  doorway chokehold count ($\Delta \text{Chokepoints} \le 0$), execute the attack immediately. It denies the rival
+  bonus reinforcements turn after turn at zero defensive cost.
 - **The 1v1 endgame exception:** restraint reverses completely when only two players remain (1-versus-1).
   There are no third parties to punish over-expansion. Every territory conquered directly starves your opponent
   of base reinforcement income (floor(territories / 3)) and strips their continent bonuses. In 1v1, break

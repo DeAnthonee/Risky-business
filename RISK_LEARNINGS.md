@@ -268,6 +268,26 @@ Fundamental rules, mechanics, and tournament scoring for the Risk engine, follow
   2. **Fortify into a Single Dense Bastion**: Fortify all mobile troops onto your primary chokepoint or capital to raise the attacker's required troop threshold above what any opponent can bring.
   3. **Trade First, Then Expand**: Wait until your turn to trade your cards for fresh reinforcements; only after the armies are safely in hand should you resume continental conquest.
 
+### 17. Multi-Continent Doorway Defense & Choke-Neutral Bonus Disruption
+* **The Doorway Stacking Principle (The Fortress Chokepoint Rule)**:
+  * When a player controls an advantageous multi-continent cluster (such as the Americas on World/World Large), the entire empire often connects to the rest of the world through only **two or three bottleneck doorways** (e.g., Alaska–Kamchatka, Greenland–Iceland, and Brazil/Central America–North Africa).
+  * **The Blunder (e.g., Jinx in Game YHSFLR)**: Jinx successfully locked down the Americas (Western US, Eastern US, Central America, Northern South America, Southern South America) generating massive continent bonuses. However, Jinx left her 3 exterior doorway chokepoints paper-thin (defended by only 1–2 armies each), while troops were scattered or idling in deep interior territories. 
+  * Luckily, opponents failed to punish this immediately. But leaving external doorways undefended is a lethal gamble: any adjacent rival with a medium stack can punch through for 2 troops, break multiple continent bonuses simultaneously, and collapse the empire's income overnight.
+  * **The Doorway Garrison Rule**: When holding a multi-continent bloc on 2–3 bottlenecks, **pull every spare interior army to the exterior doorways**. The interior requires only 1 army per territory; the doorways should hold **heavy 15–30+ army fortress stacks**. A player with such geographic superiority must convert it into impenetrable border deterrence.
+
+* **Opponent Obligation: Punishing Ungarrisoned Chokepoints**:
+  * If an opponent secures multiple continents but fails to garrison their doorways, **adjacent rivals have a strategic imperative to break them**.
+  * In `YHSFLR`, Ahri held North Africa adjacent to Jinx's thin doorway but failed to break Central Africa/South America. Allowing a rival to sit comfortably on 5 continent bonuses without contest guarantees they will out-produce the table and snowball to victory.
+
+* **Choke-Neutral Expansion & Opponent Bonus Disruption**:
+  * When holding a secure bottleneck perimeter, evaluate whether an adjacent enemy territory can be taken to **shatter an opponent's lucrative continent bonus without increasing your net doorway exposure**.
+  * **The Siberian Disruption Opportunity**: In `YHSFLR`, Delove held a massive Siberian/Russian income bonus. Jinx, sitting in Alaska, had the opportunity to push across the Bering Strait into Kamchatka/Siberia. 
+  * By taking that single border territory, Jinx would have:
+    1. Instantly broken Delove's +4/+6 Siberia continent bonus.
+    2. Earned a card.
+    3. **Maintained the exact same 3-doorway bottleneck count** (the doorway simply shifts from Alaska to Kamchatka).
+  * **The Choke-Neutral Equation**: Whenever an offensive advance breaks a rival leader's bonus and the resulting defensive perimeter has $\le$ the original number of external chokeholds ($\Delta \text{Chokepoints} \le 0$), **execute the disruption attack immediately**. It starves the leading opponent of armies at zero defensive cost.
+
 ---
 
 ## Findings from AI self-play games

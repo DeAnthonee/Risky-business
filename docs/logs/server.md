@@ -1,0 +1,29 @@
+# Server and HTTP API: running log
+
+Covers `packages/server` (rooms, `/api`, `/ws`, persistence, bots, tournaments, rankings, game archive, scenarios),
+except character saves ([characters.md](characters.md)) and deploy behaviour ([hosting.md](hosting.md)). Guides:
+[docs/http-api.md](../http-api.md), [docs/tournaments.md](../tournaments.md), [docs/game-records.md](../game-records.md).
+
+Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. Changes from before pull requests carry the
+commit hash instead. **Append a line in the same PR** as any change to this area (README hard rule 12).
+
+- 2026-10-19 #79 rankings: the points Delove training uses as its value target
+- 2026-10-19 #75 store support for spectator auto-redirect
+- 2026-10-19 #69 scenarios: `POST /api/admin/scenarios` starts a live game from a recorded moment; `POST /games/:id/seat`
+- 2026-10-19 #68 game archive keeps only the newest `RISK_ARCHIVE_KEEP` (default 1000) records
+- 2026-10-19 #67 game archive: every game journalled to `RISK_DATA_DIR/archive/`; admin routes to read records
+- 2026-10-19 #64 leaderboard rewards kills and tracks who eliminated whom
+- 2026-10-18 #55 spectators can whisper to any player
+- 2026-10-18 #50 close finished and abandoned rooms after 2 minutes
+- 2026-10-17 #47 the server uses the engine's `chooseBotAction`
+- 2026-10-17 #46 blitz `stopAt` over the API
+- 2026-10-17 #40 host-run knockout tournaments (`tournaments.ts`, `/api/tournaments`, `/api/admin/tournaments`)
+- 2026-10-17 #29 placement bursts for spectators
+- 2026-10-17 #24 whispers (spectators see them) and player mentions
+- 2026-10-17 #16 spectator chat reaches every player, even under fog
+- 2026-10-17 #8 spectators can chat
+- 2026-10-17 #7 strict settings parsing from `OPTION_SPECS` (unknown keys are errors)
+- 2026-10-17 #5 idle room sweeper, host close, admin cleanup routes
+- 2026-10-17 8e2d796 spectate mode: watch any game, live presence, watch links
+- 2026-10-17 752d202 player name is part of creating and joining; rename in the lobby
+- 2026-10-16 bc20340 first multiplayer server: REST, WebSocket, bots, JSON persistence

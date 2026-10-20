@@ -45,7 +45,7 @@ The training PC (Windows 11, i7-14700F with 28 threads, 32 GB RAM, RTX 4060 8 GB
   heavy CPU/GPU jobs with a session that is measuring speed (three timing attempts on #80 were spoiled this way).
 - **The review session** ("PR review and README updates", a cloud session): reviews and merges PRs into the deploy
   branch. Message it when a PR is ready. It cannot reply to other sessions; its answers show in its own chat.
-- **Repo rules** (CLAUDE.md, CONTRIBUTING.md): never push to the deploy branch `ccr-63b8112a-e2uk2g`; feature
+- **Repo rules** (the hard rules in README.md, CONTRIBUTING.md): never push to the deploy branch `ccr-63b8112a-e2uk2g`; feature
   branch, PR, `npm test` green. Game rules live in `packages/engine` only. The one exception is
   `packages/delove-gpu`, a training-only mirror that must replay the engine exactly (section 6).
 
@@ -53,10 +53,13 @@ Where the training data lives (never in git):
 
 | what | where |
 | --- | --- |
-| models (`delove@N`, candidates, tuned teachers) | `C:\Users\espii\Projects\Risky-business-stage2\models\delove` (copies of the bests also in the main clone's `models\delove`, used by the live seat player) |
-| exported training arrays | `C:\Users\espii\Projects\Risky-business-stage2\data\delove` |
-| game logs, cycle outputs, tuner state | `C:\Users\espii\Projects\Risky-business-stage2\runs\delove` |
-| Python with CUDA PyTorch | `C:\Users\espii\Projects\Risky-business\.venv` (Python 3.12, torch 2.11 + cu128) |
+| models (`delove@N`, candidates, tuned teachers) | `<training PC>\Projects\Risky-business-stage2\models\delove` (copies of the bests also in the main clone's `models\delove`, used by the live seat player) |
+| exported training arrays | `<training PC>\Projects\Risky-business-stage2\data\delove` |
+| game logs, cycle outputs, tuner state | `<training PC>\Projects\Risky-business-stage2\runs\delove` |
+| Python with CUDA PyTorch | `<training PC>\Projects\Risky-business\.venv` (Python 3.12, torch 2.11 + cu128) |
+
+`<training PC>` stands for the owner's user folder on the training PC; the real locations are on that machine (not
+written here because the repo is public).
 
 ## 3. Where we are
 
@@ -203,7 +206,7 @@ exporter. None of them is imported by the server or the character code.
 **Running a cycle:**
 ```bash
 DELOVE_BRANCH_RANKER=<best> DELOVE_BRANCH_HORIZON=1 DELOVE_BRANCH_MARGIN=0.01 \
-  PYTHON=/c/Users/espii/Projects/Risky-business/.venv/Scripts/python \
+  PYTHON="<training PC>/Projects/Risky-business/.venv/Scripts/python" \
   bash packages/delove/scripts/cycle.sh packages/delove/scripts/cycles/<cN>.cycle
 ```
 A cycle config names its steps (jobs files), the training data mix and the gates. Re-running resumes. Output goes

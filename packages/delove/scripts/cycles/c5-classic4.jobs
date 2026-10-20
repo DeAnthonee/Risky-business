@@ -1,0 +1,5 @@
+# Cycle 5, step 3: Classic 4-player tables, the branch player in each seat once (GPU).
+c4a   750 delove-branch@1,delove-teacher@2,delove@3,delove@2
+c4b   750 delove@3,delove-branch@1,delove@2,delove-teacher@2
+c4c   750 delove@2,delove-teacher@2,delove-branch@1,delove@3
+c4d   750 delove-teacher@2,delove@3,delove@2,delove-branch@1

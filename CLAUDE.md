@@ -16,7 +16,7 @@ Online multiplayer Risk with bots and an MCP server for AI agents. npm-workspace
 process, never imported by the server),
 `packages/runner` (standalone bot runner: several seats over the HTTP API, plan-aware bot moves steered by an Ollama commander, table talk, post-game learnings; never imported by the server),
 `packages/delove` (Delove, our base model: a no-personality player trained on self-play, starting from the hand-coded `delove-teacher@1`; plugs into selfplay, never imported by the server or the character code; plan in `docs/delove.md`, current state, strategy and coordination brief in `docs/delove-status.md`).
-`packages/delove-gpu` (Python, not an npm workspace: a training-only GPU mirror of the Classic 2-player rules for fast self-play; checked against the engine by `tests/replay.py` on logged games, never imported by anything else and never used for live games).
+`packages/delove-gpu` (Python, not an npm workspace: a training-only GPU mirror of the rules (every map, 2-10 seats, every setting but fog of war) for fast self-play; checked against the engine by `tests/replay.py` on logged games, never imported by anything else and never used for live games).
 
 ## Commands
 

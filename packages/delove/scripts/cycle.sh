@@ -107,12 +107,16 @@ run_gpu_step() {
 }
 gpu_runner=""
 if (( ${#gpu_steps[@]} )); then
-  # A stale mirror would fail the GPU step; say so now, before the pool spends its minutes.
-  "$python" packages/delove-gpu/delove_gpu/fingerprint.py check || { echo "run packages/delove-gpu/verify.py first"; exit 1; }
+  # A stale mirror would fail a GPU step still to play; say so now, before the pool spends its minutes.
+  for st in "${gpu_steps[@]}"; do
+    [[ -f "$out/$st/gpu.json" ]] && continue
+    "$python" packages/delove-gpu/delove_gpu/fingerprint.py check || { echo "run packages/delove-gpu/verify.py first"; exit 1; }
+    break
+  done
   (
     for s in "${steps[@]}"; do
       read -r step jobs _ <<< "$s"
-      on_gpu "$step" && { run_gpu_step "$step" "$jobs" || exit 1; }
+      if on_gpu "$step"; then run_gpu_step "$step" "$jobs" || exit 1; fi
     done
   ) &
   gpu_runner=$!
@@ -132,8 +136,11 @@ export -f run_chunk
 export_step() {
   local step=$1
   [[ -f "$out/$step/export.json" ]] && return 0
-  local logs
-  logs=$(ls -d "$out/$step"/*/c* | paste -sd,)
+  local logs base
+  # Windows paths for node: Git Bash converts only the first path of a comma-separated list, so an absolute
+  # /c/... OUT would leave every other log directory unreadable.
+  base=$(absdir "$out/$step")
+  logs=$(cd "$out/$step" && ls -d */c* | sed "s|^|$base/|" | paste -sd,)
   node --import ./packages/delove/dist/register.js packages/selfplay/dist/cli.js export --log "$logs" --out "$data/$name-$step" \
     --only-agents "$export_agents" --force > "$out/$step/export.json.tmp" 2> "$out/$step/export.err"
   mv "$out/$step/export.json.tmp" "$out/$step/export.json"

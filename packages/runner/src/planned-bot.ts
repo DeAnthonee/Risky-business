@@ -599,6 +599,25 @@ class Chooser {
       if ((this.plan.avoid.has(toOwner) || this.plan.noAttack.has(a.to)) && !wins && !isElimination) continue;
       // All-in against the one player chosen: nobody else is touched unless it wins the game.
       if (hopeless && toOwner !== this.plan.target && !wins) continue;
+
+      // Non-strategic secondary attack filter: once a card is earned this turn,
+      // DO NOT make frivolous attacks in detached outposts that bleed defensive garrisons!
+      // Outpost stacks must remain thick as a defensive deterrent (forcing enemies to bleed against them).
+      // Attacks must have genuine strategic purpose: focus region, route, bonus completion, bonus break, capital, or elimination.
+      if (this.conquered && !this.is1v1() && !wins && !hopeless) {
+        const isFromBonusBorder = this.isBonusBorder(a.from);
+        const hasSurplusFromBorder = isFromBonusBorder && have >= this.guardFor(a.from) + 6;
+        const cont = this.map.territoryById[a.to].continent;
+        const share = this.continentShare(cont);
+        const holder = this.view.continentOwners[cont];
+        const isFocus = this.inFocus(a.to) > 0 || this.nearFocus(a.to) || this.inFocus(a.from) > 0 || this.nearFocus(a.from) || this.plan.route.includes(a.to);
+        const isBonusConquest = share.missing.includes(a.to) && share.missing.length <= 3 && share.mine * 2 >= share.total;
+        const breaksOpponentBonus = !!(holder && holder !== this.me);
+        const capturesCapital = this.capitalOf.has(a.to);
+        const eliminatesPlayer = isElimination;
+        const isStrategic = hasSurplusFromBorder || isFocus || isBonusConquest || breaksOpponentBonus || capturesCapital || eliminatesPlayer;
+        if (!isStrategic) continue;
+      }
       const isCap = this.capitalOf.has(a.to);
       const purpose = this.purpose(a.from, a.to, wins);
       // On the diplomacy path, players other than the target get a higher bar.

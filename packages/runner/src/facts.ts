@@ -314,6 +314,17 @@ export function commanderFacts(view: GameView, me: PlayerId): string {
     );
   }
 
+  const dominantLeader = rivals.find(
+    (r) =>
+      (r.armyCount !== null && (meP?.armyCount ?? 0) > 0 && r.armyCount >= (meP?.armyCount ?? 0) * 1.8 && r.armyCount >= 30) ||
+      ((r.income?.total ?? 0) >= (meP?.income?.total ?? 0) * 2 && (r.income?.total ?? 0) >= 10),
+  );
+  if (dominantLeader) {
+    lines.push(
+      `DOMINANT RUNAWAY LEADER: ${dominantLeader.name} is snowballing (${q(dominantLeader.armyCount)} armies, income ${q(dominantLeader.income?.total)}/turn). Solo attacks against them are suicidal! Use chat to organize multi-player coalitions or coordinate joint attacks. If a 1st-place win is currently unachievable, play for 2nd/3rd place placement points to protect your Elo rather than triggering a fatal counter-strike.`
+    );
+  }
+
   // Capitals.
   if (o.capitals) {
     const mine = view.capitals?.[me];

@@ -153,6 +153,26 @@ Fundamental rules, mechanics, and tournament scoring for the Risk engine, follow
   * *2 Border Entries (Strong)*: Continents with two entry points (e.g. South America) require only two guard stacks, offering an optimal ratio of bonus income to defense cost.
   * *4+ Border Entries (Sprawling Traps)*: Continents with 4 to 6 entry points (e.g. Russia, Asia, Europe) are fatal early-game traps on rounds 1–4. Attempting to hold them spreads armies paper-thin across too many borders, invites breaches, and drains reinforcements into endless defense.
 
+### 9. Outpost Defensive Deterrence, Contiguous Consolidation & Leader Counterplay
+* **The Outpost Defensive Deterrence Principle (Defending > Attacking for the Sake of Attacking)**:
+  * Making attacks from detached outposts (e.g. attacking into Africa when your main strategic bonus is Canada/North America) that do not break an enemy bonus or capture a capital is an expensive blunder.
+  * *Why Pointless Attacks Bleed You*: When an outpost attacks a neighboring 1- or 2-army territory (e.g. 3v1 or 3v2), the attacker suffers combat attrition, destroys its own single defensive stack, and leaves behind a fragile trail of 1s and 2s that any neighboring opponent can sweep up for free.
+  * *The 2-Dice Defender Advantage*: In Risk, defending with 2 dice gives a decisive statistical edge because **the defender wins all ties**. An attacker rolling 3 dice vs 2 defending dice loses both armies whenever the rolls tie.
+  * *Deterrence Value*: When an outpost outside your focus area **stays stacked** (4–8 armies), opponents need 8–12+ armies to roll through it and will incur heavy casualties. Consequently, rational players will leave it completely alone. Keep secondary outposts thick and let opponents waste their armies trying to dislodge them! Once your turn's card is earned, secondary outposts must NEVER attack non-strategically.
+* **Carving One Piece of the Map (Corner Consolidation vs. Sprawling Thin)**:
+  * Spreading initial reinforcements across 3–4 disconnected continents early game dilutes draft power and leaves every single border under-defended and vulnerable to counter-attacks.
+  * High-level play dictates picking one corner or defensible starting stronghold (e.g. Australia, South America, Scandinavia, or Southern Africa) and working outward contiguously from there.
+  * Clear local borders outward one by one, consolidating a single solid continental block with minimal exterior border chokepoints before expanding into adjacent regions.
+* **Card-Block Defense (The 1–2 Position Rule)**:
+  * While consolidating a single regional core, players in high-level games (especially under Fog of War) must maintain **1 or 2 solid secondary anchor positions/outposts** on the broader map.
+  * If a player retreats 100% of their troops into a single sealed corner behind one choke point, a rival can park a massive 20+ army guard on that single exit, completely "card-blocking" them. Unable to conquer an enemy territory, the cornered player receives 0 cards per turn and slowly suffocates.
+  * Keeping 1–2 secondary outposts ensures you always have a viable, low-cost target to conquer each turn for your card.
+* **Runaway Leader Dynamics vs. Placement Preservation**:
+  * In multi-player games, a player may snowball to dominant board control (e.g. 80–100+ armies and 35+ territories while rivals have 15–25 armies).
+  * *Suicidal Solo Attacks*: An underdog launching a solo attack into a runaway leader achieves nothing: it depletes the underdog's remaining armies, angers the leader, invites immediate retaliatory annihilation, and locks the attacker into a 5th or 6th place finish (-2 or -3 Elo).
+  * *Coalition Counterplay*: The only way to stop a runaway leader is through coordinated multi-player coalitions via table chat (e.g. all-chat calls to strike the leader's key bonuses simultaneously from multiple borders).
+  * *Placement Preservation (Playing for 2nd/3rd)*: If rivals refuse to coordinate a coalition and 1st place is currently unachievable solo, pivot immediately to disciplined placement survival. Fortify your capital and core borders, let other players get eliminated first to secure 2nd or 3rd place (+1 or +2 placement tiers), avoid triggering the leader's wrath, and look for late-game opportunities (e.g. a sudden cap run or an elimination chain) if the leader over-extends.
+
 ---
 
 ## Findings from AI self-play games

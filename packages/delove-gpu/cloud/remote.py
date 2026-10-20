@@ -206,7 +206,7 @@ def create_pod(name: str, args, pub: str, deadline_s: int) -> Pod:
     body = {"name": name, "imageName": args.image, "gpuTypeIds": [g.strip() for g in args.gpu_type.split(",")], "gpuTypePriority": "custom",
             "gpuCount": args.gpus, "cloudType": args.cloud,
             "containerDiskInGb": args.disk_gb, "volumeInGb": 0, "ports": ["22/tcp"], "supportPublicIp": True,
-            "env": {"PUBLIC_KEY": pub, "SSH_PUBLIC_KEY": pub}, "allowedCudaVersions": ["12.8", "12.9", "13.0"],
+            "env": {"PUBLIC_KEY": pub, "SSH_PUBLIC_KEY": pub},  # no allowedCudaVersions: any value refuses every placement (worker.sh checks the driver)
             "dockerStartCmd": watchdog_cmd(deadline_s)}
     r = api("POST", "/pods", body)
     return Pod(r["id"], name, float(r.get("costPerHr") or 0), started=time.time())

@@ -78,7 +78,7 @@ function findMultiHopKill(view: GameView, me: PlayerId, victimId: PlayerId, opti
   const myCards = mine?.cardCount ?? 0;
   const victimCards = victim.cardCount ?? 0;
   const setsMe = (myCards + victimCards) >= 5;
-  const isHighEV = setsMe || (isScaling && (victimCards >= 3 || (victimCards >= 2 && cardVal >= 8))) || (victimCards * cardVal >= 25);
+  const isHighEV = setsMe || victimCards >= 3 || (isScaling && (victimCards >= 2 || cardVal >= 12)) || (victimCards * cardVal >= 20);
 
   const expectedLoss = (t: string): number => {
     const d = armies(t);
@@ -102,173 +102,219 @@ function findMultiHopKill(view: GameView, me: PlayerId, victimId: PlayerId, opti
 
     // Punching through 3rd-party buffer territories:
     // Realistic casualty cost with gentle preference for thinner garrisons (d * 0.25).
-    // Never impose artificial prohibitive penalties that scare the bot away from taking the path.
+    // When EV is high, never impose artificial penalties that scare the bot away from taking the path.
     if (toOwner !== victimId) {
-      const avoidPenalty = toOwner && options.avoid.has(toOwner) ? 4 : 0;
+      const avoidPenalty = (!isHighEV && toOwner && options.avoid.has(toOwner)) ? 4 : 0;
       return base + 1 + d * 0.25 + avoidPenalty;
     }
     return base;
   };
 
-  // Find directed attack paths from our owned territories that cover all victimTerritories
-  const activeOwned = new Set(map.territoryIds.filter(own));
-  const activeNodes = new Set<string>(activeOwned);
-  const uncovered = new Set<string>(victimTerritories);
-  const attacks: AttackStep[] = [];
+  // Helper to construct an attack tree from a set of starting owned nodes
+  const buildAttackTree = (initialNodes: Set<string>): {
+    attacks: AttackStep[];
+    roots: string[];
+    requirements: Record<TerritoryId, number>;
+    placements: Record<TerritoryId, number>;
+    totalDeficit: number;
+    totalCost: number;
+    occupy?: number;
+  } | null => {
+    const activeNodes = new Set<string>(initialNodes);
+    const uncovered = new Set<string>(victimTerritories);
+    const attacks: AttackStep[] = [];
 
-  // Repeatedly find the cheapest path from any node in activeNodes to an uncovered victim territory
-  while (uncovered.size > 0) {
-    const dist = new Map<string, number>();
-    const prev = new Map<string, string>();
-    const queue: string[] = [];
+    // Repeatedly find the cheapest path from any node in activeNodes to an uncovered victim territory
+    while (uncovered.size > 0) {
+      const dist = new Map<string, number>();
+      const prev = new Map<string, string>();
+      const queue: string[] = [];
 
-    for (const node of activeNodes) {
-      dist.set(node, 0);
-      queue.push(node);
+      for (const node of activeNodes) {
+        dist.set(node, 0);
+        queue.push(node);
+      }
+
+      // Dijkstra from activeNodes
+      const visited = new Set<string>();
+      while (queue.length > 0) {
+        queue.sort((a, b) => (dist.get(a) ?? Infinity) - (dist.get(b) ?? Infinity));
+        const curr = queue.shift()!;
+        if (visited.has(curr)) continue;
+        visited.add(curr);
+
+        const dCurr = dist.get(curr) ?? Infinity;
+        if (!Number.isFinite(dCurr)) break;
+
+        const neighbours = map.adjacency[curr] ?? [];
+        for (const next of neighbours) {
+          if (blizzards.has(next) || options.noAttack.has(next)) continue;
+          const w = transitWeight(next);
+          if (!Number.isFinite(w)) continue;
+          const newDist = dCurr + w;
+          if (newDist < (dist.get(next) ?? Infinity)) {
+            dist.set(next, newDist);
+            prev.set(next, curr);
+            queue.push(next);
+          }
+        }
+      }
+
+      // Find the closest uncovered target
+      let bestTarget: string | null = null;
+      let bestDist = Infinity;
+      for (const target of uncovered) {
+        const d = dist.get(target) ?? Infinity;
+        if (d < bestDist) {
+          bestDist = d;
+          bestTarget = target;
+        }
+      }
+
+      if (!bestTarget || !Number.isFinite(bestDist)) {
+        return null;
+      }
+
+      // Reconstruct the path backwards from bestTarget to activeNodes
+      const path: string[] = [];
+      let curr: string | undefined = bestTarget;
+      while (curr && !activeNodes.has(curr)) {
+        path.unshift(curr);
+        curr = prev.get(curr);
+      }
+      if (!curr) return null;
+      path.unshift(curr);
+
+      // Add path segments to attacks and activeNodes
+      for (let i = 0; i < path.length - 1; i++) {
+        const u = path[i];
+        const v = path[i + 1];
+        attacks.push({ from: u, to: v, cost: expectedLoss(v) + 1 });
+        activeNodes.add(v);
+        uncovered.delete(v);
+      }
     }
 
-    // Dijkstra from activeNodes
-    const visited = new Set<string>();
-    while (queue.length > 0) {
-      queue.sort((a, b) => (dist.get(a) ?? Infinity) - (dist.get(b) ?? Infinity));
-      const curr = queue.shift()!;
-      if (visited.has(curr)) continue;
-      visited.add(curr);
+    // Roots of the attack tree in our territory
+    const roots = [...new Set(attacks.map((a) => a.from).filter(own))];
+    if (roots.length === 0) return null;
 
-      const dCurr = dist.get(curr) ?? Infinity;
-      if (!Number.isFinite(dCurr)) break;
+    // Build tree hierarchy for subtree cost calculation and stack siphoning
+    const childrenOf = new Map<string, string[]>();
+    for (const a of attacks) {
+      const list = childrenOf.get(a.from) ?? [];
+      if (!list.includes(a.to)) list.push(a.to);
+      childrenOf.set(a.from, list);
+    }
 
-      const neighbours = map.adjacency[curr] ?? [];
-      for (const next of neighbours) {
-        if (blizzards.has(next) || options.noAttack.has(next)) continue;
-        const w = transitWeight(next);
-        if (!Number.isFinite(w)) continue;
-        const newDist = dCurr + w;
-        if (newDist < (dist.get(next) ?? Infinity)) {
-          dist.set(next, newDist);
-          prev.set(next, curr);
-          queue.push(next);
+    const subtreeCostCache = new Map<string, number>();
+    const computeSubtreeCost = (node: string): number => {
+      if (subtreeCostCache.has(node)) return subtreeCostCache.get(node)!;
+      const directLoss = own(node) ? 0 : expectedLoss(node) + 1;
+      const children = childrenOf.get(node) ?? [];
+      const childrenCost = children.reduce((sum, c) => sum + computeSubtreeCost(c), 0);
+      const total = directLoss + childrenCost;
+      subtreeCostCache.set(node, total);
+      return total;
+    };
+
+    const requirements: Record<TerritoryId, number> = {};
+    const placements: Record<TerritoryId, number> = {};
+    let totalDeficit = 0;
+
+    for (const r of roots) {
+      const neededFromRoot = (childrenOf.get(r) ?? []).reduce((sum, c) => sum + computeSubtreeCost(c), 0);
+      const req = options.floor(r) + neededFromRoot + 1;
+      requirements[r] = req;
+      const def = Math.max(0, req - armies(r));
+      if (def > 0) placements[r] = def;
+      totalDeficit += def;
+    }
+
+    if (totalDeficit > (options.reinforcements ?? 0)) {
+      return null;
+    }
+
+    // Handle in-attack transfer / stack siphoning at junctions
+    let occupy: number | undefined;
+    const tr = options.transfer;
+    if (tr) {
+      const step = attacks.find((a) => a.from === tr.from && a.to === tr.to);
+      if (step) {
+        const toNeed = computeSubtreeCost(tr.to);
+        const otherChildren = (childrenOf.get(tr.from) ?? []).filter((c) => c !== tr.to);
+        const fromNeed = otherChildren.reduce((sum, c) => sum + computeSubtreeCost(c), 0);
+        const cap = options.floor(tr.from);
+        const available = Math.max(0, armies(tr.from) - cap);
+
+        if (fromNeed === 0) {
+          occupy = Math.min(tr.max, Math.max(tr.min, available));
+        } else {
+          const surplus = Math.max(0, available - toNeed - fromNeed);
+          const branchOccupy = Math.round(toNeed + surplus * 0.5);
+          occupy = Math.min(tr.max, Math.max(tr.min, branchOccupy));
         }
       }
     }
 
-    // Find the closest uncovered target
-    let bestTarget: string | null = null;
-    let bestDist = Infinity;
-    for (const target of uncovered) {
-      const d = dist.get(target) ?? Infinity;
-      if (d < bestDist) {
-        bestDist = d;
-        bestTarget = target;
-      }
-    }
-
-    if (!bestTarget || !Number.isFinite(bestDist)) {
-      // Cannot reach all victim territories
-      return null;
-    }
-
-    // Reconstruct the path backwards from bestTarget to activeNodes
-    const path: string[] = [];
-    let curr: string | undefined = bestTarget;
-    while (curr && !activeNodes.has(curr)) {
-      path.unshift(curr);
-      curr = prev.get(curr);
-    }
-    if (!curr) return null; // Broken path
-    path.unshift(curr);
-
-    // Add path segments to attacks and activeNodes
-    for (let i = 0; i < path.length - 1; i++) {
-      const u = path[i];
-      const v = path[i + 1];
-      attacks.push({ from: u, to: v, cost: expectedLoss(v) + 1 });
-      activeNodes.add(v);
-      uncovered.delete(v);
-    }
-  }
-
-  // Roots of the attack tree in our territory
-  const roots = [...new Set(attacks.map((a) => a.from).filter(own))];
-  if (roots.length === 0) return null;
-
-  // Build tree hierarchy for subtree cost calculation and stack siphoning
-  const childrenOf = new Map<string, string[]>();
-  for (const a of attacks) {
-    const list = childrenOf.get(a.from) ?? [];
-    if (!list.includes(a.to)) list.push(a.to);
-    childrenOf.set(a.from, list);
-  }
-
-  const subtreeCostCache = new Map<string, number>();
-  const computeSubtreeCost = (node: string): number => {
-    if (subtreeCostCache.has(node)) return subtreeCostCache.get(node)!;
-    const directLoss = own(node) ? 0 : expectedLoss(node) + 1;
-    const children = childrenOf.get(node) ?? [];
-    const childrenCost = children.reduce((sum, c) => sum + computeSubtreeCost(c), 0);
-    const total = directLoss + childrenCost;
-    subtreeCostCache.set(node, total);
-    return total;
+    const totalCost = attacks.reduce((sum, a) => sum + a.cost, 0);
+    return { attacks, roots, requirements, placements, totalDeficit, totalCost, occupy };
   };
 
-  const requirements: Record<TerritoryId, number> = {};
-  const placements: Record<TerritoryId, number> = {};
-  let totalDeficit = 0;
+  // Capable launch candidates:
+  // 1. First test dedicated launchpads (single-stack origins) with movable forces or available reinforcements.
+  //    This prevents a weak 1-or-2-troop border territory from "shadowing" and blocking a massive stack behind it!
+  const myOwned = map.territoryIds.filter(own);
+  const movableOwned = myOwned.filter((t) => armies(t) - options.floor(t) >= 2);
+  const candidateLaunchpads = (options.reinforcements ?? 0) > 0
+    ? [...myOwned].sort((a, b) => armies(b) - armies(a))
+    : movableOwned.sort((a, b) => armies(b) - armies(a));
 
-  for (const r of roots) {
-    const neededFromRoot = (childrenOf.get(r) ?? []).reduce((sum, c) => sum + computeSubtreeCost(c), 0);
-    const req = options.floor(r) + neededFromRoot + 1;
-    requirements[r] = req;
-    const def = Math.max(0, req - armies(r));
-    if (def > 0) placements[r] = def;
-    totalDeficit += def;
+  let bestTree: ReturnType<typeof buildAttackTree> = null;
+  let bestScore = -Infinity;
+
+  for (const root of candidateLaunchpads) {
+    const tree = buildAttackTree(new Set([root]));
+    if (!tree) continue;
+    let score = 40 + victimCards * cardVal;
+    if (setsMe) score += 350; // Guaranteed mid-turn trade in Progressive or Exponential is game-winning!
+    if (victimCards >= 3) score += isScaling ? 80 : 40;
+    if (victimTerritories.length <= 3) score += 40;
+    score -= tree.totalCost * 0.35 + tree.totalDeficit * 0.2;
+    if (score > bestScore) {
+      bestScore = score;
+      bestTree = tree;
+    }
   }
 
-  if (totalDeficit > (options.reinforcements ?? 0)) {
-    return null;
-  }
-
-  // Handle in-attack transfer / stack siphoning at junctions
-  let occupy: number | undefined;
-  const tr = options.transfer;
-  if (tr) {
-    const step = attacks.find((a) => a.from === tr.from && a.to === tr.to);
-    if (step) {
-      const toNeed = computeSubtreeCost(tr.to);
-      const otherChildren = (childrenOf.get(tr.from) ?? []).filter((c) => c !== tr.to);
-      const fromNeed = otherChildren.reduce((sum, c) => sum + computeSubtreeCost(c), 0);
-      const cap = options.floor(tr.from);
-      const available = Math.max(0, armies(tr.from) - cap);
-
-      if (fromNeed === 0) {
-        // `from` has finished all its planned attacks; whole stack carries forward
-        occupy = Math.min(tr.max, Math.max(tr.min, available));
-      } else {
-        // Multi-branch junction! Siphon what `to` needs + share of surplus, leaving enough on `from`
-        const surplus = Math.max(0, available - toNeed - fromNeed);
-        const branchOccupy = Math.round(toNeed + surplus * 0.5);
-        occupy = Math.min(tr.max, Math.max(tr.min, branchOccupy));
+  // 2. Also test multi-root attack tree across all capable owned nodes (if a multi-front assault is needed)
+  const multiRoots = (options.reinforcements ?? 0) > 0 ? myOwned : movableOwned;
+  if (multiRoots.length > 1) {
+    const multiTree = buildAttackTree(new Set(multiRoots));
+    if (multiTree) {
+      let score = 40 + victimCards * cardVal;
+      if (setsMe) score += 350;
+      if (victimCards >= 3) score += isScaling ? 80 : 40;
+      if (victimTerritories.length <= 3) score += 40;
+      score -= multiTree.totalCost * 0.35 + multiTree.totalDeficit * 0.2;
+      if (score > bestScore) {
+        bestScore = score;
+        bestTree = multiTree;
       }
     }
   }
 
-  const totalCost = attacks.reduce((sum, a) => sum + a.cost, 0);
-
-  let score = 40 + victimCards * cardVal;
-  if (setsMe) score += 350; // Guaranteed mid-turn trade in Progressive or Exponential is game-winning!
-  if (victimCards >= 3) score += isScaling ? 80 : 40;
-  if (victimTerritories.length <= 3) score += 40;
-  score -= totalCost * 0.35 + totalDeficit * 0.2;
+  if (!bestTree) return null;
 
   return {
     target: victimId,
-    score,
-    cost: totalCost,
-    deficit: totalDeficit,
-    requirements,
-    placements,
-    attacks: attacks.map((a) => ({ from: a.from, to: a.to, keep: 1 })),
-    occupy,
+    score: bestScore,
+    cost: bestTree.totalCost,
+    deficit: bestTree.totalDeficit,
+    requirements: bestTree.requirements,
+    placements: bestTree.placements,
+    attacks: bestTree.attacks.map((a) => ({ from: a.from, to: a.to, keep: 1 })),
+    occupy: bestTree.occupy,
   };
 }
 

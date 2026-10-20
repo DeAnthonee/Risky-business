@@ -124,4 +124,31 @@ describe('deliberate card-steal eliminations', () => {
     s.territories.indonesia.armies = 7;
     expect(planElimination(viewFor(s, 's0'), 's0', { ...opts(), transfer: { ...transfer, max: 6 } })).toBeNull();
   });
+
+  it('punches through a 3rd party buffer territory to eliminate a high-EV card holder', () => {
+    const s = board();
+    s.territories.brazil = { owner: 's0', armies: 30 };
+    s.territories.north_africa = { owner: 's4', armies: 2 };
+    s.territories.egypt = { owner: 's1', armies: 2 };
+    s.territories.east_africa = { owner: 's1', armies: 2 };
+    const v = viewFor(s, 's0');
+    const kill = planElimination(v, 's0', { ...opts(), avoid: new Set(['s4']) });
+    expect(kill).not.toBeNull();
+    expect(kill?.target).toBe('s1');
+    expect(kill?.attacks.some(a => a.from === 'brazil' && a.to === 'north_africa')).toBe(true);
+  });
+
+  it('selects a heavy stack launchpad to punch through instead of being blinded by a weak 1-troop border', () => {
+    const s = board();
+    s.territories.middle_east = { owner: 's0', armies: 1 };
+    s.territories.brazil = { owner: 's0', armies: 40 };
+    s.territories.north_africa = { owner: 's4', armies: 2 };
+    s.territories.egypt = { owner: 's1', armies: 2 };
+    s.territories.east_africa = { owner: 's1', armies: 2 };
+    const v = viewFor(s, 's0');
+    const kill = planElimination(v, 's0', { ...opts(), reinforcements: 0 });
+    expect(kill).not.toBeNull();
+    expect(kill?.target).toBe('s1');
+    expect(kill?.attacks[0].from).toBe('brazil');
+  });
 });

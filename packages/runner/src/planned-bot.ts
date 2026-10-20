@@ -569,12 +569,25 @@ class Chooser {
     if (touchesWeakVictim) return ceiling;
     // Does the attack go on from the new territory? Then the stack goes with it.
     const carry = Math.max(0, ceiling);
-    const continues = toHostile.some((e) => this.chance(Math.max(1, carry), e) >= this.threshold() && !this.plan.avoid.has(this.owner(e)!) && !this.plan.noAttack.has(e));
+    const isScalingCards = this.view.options.cardValues === 'progressive' || this.view.options.cardValues === 'exponential';
+    const myCards = this.view.players.find((p) => p.id === this.me)?.cardCount ?? 0;
+    const hasHighEVBounty = this.view.players.some((p) => {
+      if (!p.alive || p.isNeutral || p.id === this.me) return false;
+      const sets = (myCards + p.cardCount) >= 5;
+      return p.cardCount >= 3 || (sets && isScalingCards);
+    });
+    const isTargetBlockedByAvoid = (t: TerritoryId) => {
+      if (hasHighEVBounty) return false; // Fearless breakthrough: never let avoid disable stack siphoning when hunting high EV
+      const o = this.owner(t);
+      return o ? this.plan.avoid.has(o) : false;
+    };
+
+    const continues = toHostile.some((e) => this.chance(Math.max(1, carry), e) >= this.threshold() && !isTargetBlockedByAvoid(e) && !this.plan.noAttack.has(e));
     if (this.plan.route.includes(to) && this.plan.route.slice(this.plan.route.indexOf(to) + 1).some((r) => this.hostile(r))) return ceiling;
     if (continues) {
       // In-attack stack siphoning at offensive junctions:
       // If `fromHostile` ALSO has viable attack targets, do not dump 100% of armies into `to` and leave 1 on `from`!
-      const fromContinues = fromHostile.some((e) => this.chance(Math.max(1, Math.floor(have * 0.5)), e) >= this.threshold() && !this.plan.avoid.has(this.owner(e)!) && !this.plan.noAttack.has(e));
+      const fromContinues = fromHostile.some((e) => this.chance(Math.max(1, Math.floor(have * 0.5)), e) >= this.threshold() && !isTargetBlockedByAvoid(e) && !this.plan.noAttack.has(e));
       if (fromContinues && have >= 10) {
         const maxToDef = Math.max(...toHostile.map((e) => this.armies(e)), 1);
         const maxFromDef = Math.max(...fromHostile.map((e) => this.armies(e)), 1);
@@ -964,23 +977,25 @@ class Chooser {
       if (n > 0) { result[t] = (result[t] ?? 0) + n; left -= n; }
     };
 
-    // If the Commander explicitly chose placement territories, honor them directly.
-    const chosenPlace = this.plan.placeOn.filter((t) => mine.includes(t));
-    if (chosenPlace.length > 0) {
-      const per = Math.floor(left / chosenPlace.length);
-      for (const t of chosenPlace) add(t, per);
-      for (const t of chosenPlace) if (left > 0) add(t, 1);
-      return result;
-    }
-
-    // Prioritize funding high-value eliminations (especially progressive sets)
+    // Prioritize funding high-value eliminations (especially progressive/exponential sets or 3+ cards)
     const killCampaign = this.elimination(pool);
     let activeCampaign: (Campaign & { score?: number }) | null = null;
     if (killCampaign && Object.keys(killCampaign.placements).every((t) => mine.includes(t))) {
       activeCampaign = killCampaign;
       for (const [t, n] of Object.entries(killCampaign.placements)) add(t, n);
       for (const t of Object.keys(killCampaign.requirements)) funded.add(t);
-    } else {
+    }
+
+    // If the Commander explicitly chose placement territories, honor them directly with remaining pool.
+    const chosenPlace = this.plan.placeOn.filter((t) => mine.includes(t));
+    if (chosenPlace.length > 0 && left > 0) {
+      const per = Math.floor(left / chosenPlace.length);
+      for (const t of chosenPlace) add(t, per);
+      for (const t of chosenPlace) if (left > 0) add(t, 1);
+      return result;
+    }
+
+    if (!activeCampaign) {
       // If the Commander specified an explicit attack route, stage reinforcements at its launch pad.
       if (this.plan.route.length > 0 && left > 0) {
         const firstStep = this.plan.route[0];

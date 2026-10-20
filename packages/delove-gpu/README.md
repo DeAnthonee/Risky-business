@@ -301,6 +301,9 @@ written only after logs made with exactly those files replayed identically.
 - **CI warns, never blocks.** `.github/workflows/ci.yml` runs `fingerprint.py check --github`: a PR that changes one of
   those files gets a "GPU mirror needs re-verifying" warning. Engine and server work is never held up by this
   training-only package (CI has no GPU to run the replay on anyway).
+- **Per map:** `npm run maps:status` shows, for every board, whether it is in `RULE_FILES` and the rules matrix and
+  whether its JSON matches the fingerprint (GPU-verified); CI puts that table in the job summary and warns per
+  offered map that is not verified ([docs/map-making.md](../../docs/map-making.md#7-tracking-every-map)).
 - **Re-verify on the training PC** after such a change is merged:
 
   ```bash

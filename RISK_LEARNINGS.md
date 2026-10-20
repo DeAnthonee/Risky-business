@@ -67,6 +67,11 @@ Fundamental rules, mechanics, and tournament scoring for the Risk engine, follow
     * *Starting Troops + Cumulative Income*: Tracking initial troop allocations (e.g. 20 for 6p, 25 for 5p, 30 for 4p, 35 for 3p) and adding public turn incomes (+N/turn) provides an exact upper bound on total historical troops.
     * *Attack & Conquest Counts*: Every attack and conquest made by any player (even behind fog) is logged. Repeated attacks cost the attacker ~1.2 armies on average per roll, and each conquest leaves 1 army behind. An opponent with +3/turn income holds at most 11 territories and 0 bonuses.
     * *Capital Capture Alerts*: Capturing a capital grants +2 armies/turn. When an opponent's income jumps or capital capture events occur, track their capital holdings behind fog.
+    * *Visible Placement Accounting & Positional Anchors Under Fog*:
+      Correlating an opponent's public reinforcement income (+N/turn) with where their drafted troops physically appear on visible borders reveals their entire hidden posture:
+      1. **The +3 Income 100% Accounted Kill Confirmation**: If an opponent receives +3/turn income (proving $\le 11$ territories, 0 bonuses, 0 extra capitals) and you observe all 3 troops placed onto visible borders, you know with 100% certainty that **zero reinforcements went into the fog**! They have NO hidden interior stacks, NO hidden bonuses, and their hidden lands are neglected 1-army scraps. They are an exceptionally safe, high-confidence elimination target with near-zero ambush risk.
+      2. **The +5 Income Single-Position Anchor**: If an opponent receives +5/turn (+2 bonus or capital) and dumps all 5 troops onto a single visible border chokepoint or capital, that position is their **sole strategic lifeline and anchor on the map**; their interior is hollow. Cracking that single position shatters their bonus, collapses their income to +3, and cripples their position.
+      3. **Unseen Placement Ambush Warning**: If an opponent receives +5 to +9 income but places only 0-1 troops on visible borders, the remaining troops were placed deep in the fog; do not plunge blindly into their territory.
   * Scouting/probing attacks reveal neighboring garrison counts.
   * Staging reserve stacks 1 territory behind the visible frontline prevents rivals from discovering your primary strike force.
 
@@ -188,7 +193,7 @@ Fundamental rules, mechanics, and tournament scoring for the Risk engine, follow
 ### Fog of War (Concealed Armies & Income Probing)
 - **Scouting with card-taking attacks reveals critical enemy garrison counts.** Jinx used single-territory probes to reveal enemy garrison counts before launching major offensives, allowing them to prepare for the scale of the attack. (3 games, last 8HTXH4)
 - **Judging hidden threats by income is a reliable strategy.** Jinx used enemy turn income as a reliable estimate of rival strength to target weaker opponents effectively. (2 games, last 8HTXH4)
-- **Maintaining strong reinforcement income is crucial for long-term survival under fog.** Leona maintained a high reinforcement income despite losing several key territories, which contributed to her survival and elimination of multiple opponents. (3 games, last GURQZ8)
+- **Maintaining strong reinforcement income is crucial for long-term survival under fog.** Leona maintained a high reinforcement income despite losing several territories, contributing to her survival and elimination of multiple opponents. (3 games, last GURQZ8)
 - **Small border garrisons can project false weakness.** Opponents often assume lightly defended fog borders indicate an empty interior; keep mobile strike stacks one step behind the frontline. (1 game, last MVAPM8)
 
 ### Non-Fog of War (Public Board & Coalition Counterplay)

@@ -78,6 +78,58 @@ The AI inspects its own visible borders:
 
 ---
 
+## 3.1. Visible Placement Accounting & Positional Anchors Under Fog
+
+A critical tactical deduction occurs when correlating a player's **public turn income** ($+N$/turn) with **where their drafted reinforcements physically appear** on territories visible to you:
+
+```
+                           ┌───────────────────────────────┐
+                           │   Opponent Turn Income (+N)   │
+                           └───────────────┬───────────────┘
+                                           │
+                    ┌──────────────────────┴──────────────────────┐
+                    ▼                                             ▼
+       ┌─────────────────────────┐                   ┌─────────────────────────┐
+       │ 100% Placed on Visible  │                   │ Partial / 0 Placed on   │
+       │        Borders          │                   │     Visible Borders     │
+       └────────────┬────────────┘                   └────────────┬────────────┘
+                    │                                             │
+      ┌─────────────┴─────────────┐                               ▼
+      ▼                           ▼                  ┌─────────────────────────┐
+┌───────────┐               ┌───────────┐            │   HIDDEN STACK ALERT    │
+│ Income +3 │               │ Income +5 │            │ Armies reinforced behind│
+├───────────┤               ├───────────┤            │  fog! High ambush risk. │
+│ 0 in Fog! │               │ Single    │            └─────────────────────────┘
+│ Safe Kill │               │ Lifeline  │
+│ Target.   │               │ Anchor!   │
+└───────────┘               └───────────┘
+```
+
+### 1. The "+3 Income 100% Accounted" Kill Confirmation
+* **Telemetry**: An opponent receives $+3$/turn income (proving $\le 11$ territories, 0 bonuses, 0 extra capitals). During their draft phase, you observe them place all 3 troops onto visible territories.
+* **The Mathematical Deduction**:
+  $$\text{Fog Reinforcements} = \text{Total Income} - \text{Visible Placements} = 3 - 3 = 0$$
+  * Exactly zero reinforcements went into the fog!
+  * Behind the fog, there are **no hidden interior armies**, **no fortified capitals**, and **no secret bonuses**.
+  * Any hidden territories they possess are neglected, defenseless 1-army scraps.
+* **Strategic Outcome**: They are an **extremely safe, high-confidence elimination target**. You can commit to a kill run knowing with near-zero ambush risk that no surprise 10+ army stack lurks in the dark.
+
+### 2. The "+5 Income Single-Position Anchor"
+* **Telemetry**: An opponent receives $+5$/turn (base $+3$ plus a $+2$ continent bonus or capital), and dumps all 5 troops into a single visible territory.
+* **The Mathematical Deduction**:
+  * Because 100% of their draft was invested into that single territory, that position is their **sole strategic lifeline and anchor on the map**.
+  * They have zero spare troops to reinforce anything else; their interior is hollow.
+* **Strategic Outcome**: **Surgical Decapitation**. If you crack that single territory, their continent bonus or capital falls, their income collapses from $+5$ to $+3$, and their hollow interior is easily mopped up.
+
+### 3. The "Unseen Placement" Ambush Warning
+* **Telemetry**: An opponent receives $+5$ to $+9$/turn income, but places only 0 or 1 troop on visible borders.
+* **The Mathematical Deduction**:
+  $$\text{Hidden Interior Deployment} = \text{Income} - \text{Visible Placements} \ge +4 \text{ to } +8 \text{ armies}$$
+  * A massive strike stack or heavily garrisoned capital is being secretly constructed in the fog.
+* **Strategic Outcome**: **Do not plunge blindly into their territory**. Hold chokepoints and prepare for an impending concentrated breakout.
+
+---
+
 ## 4. Card Surge, Trade Value Formulas & Effective Power
 
 Card count is public information even when territory holdings are hidden. When combined with the game's card mode rules, the AI calculates the **Upcoming Trade Value** and **Effective Power Score** for every opponent.

@@ -3,7 +3,7 @@ import { api } from './api';
 import { Home } from './components/Home';
 import { Lobby } from './components/Lobby';
 import { Game } from './components/Game';
-import { AutoAdvance, useLiveGame, type AutoSpectate } from './components/AutoAdvance';
+import { AutoAdvance, isGenerationGame, useLiveGame, type AutoSpectate } from './components/AutoAdvance';
 import { Tournament } from './components/Tournament';
 import {
   clearSession,
@@ -116,6 +116,7 @@ export function App() {
           setSpectating(false);
           setAutoSpectate(false);
         }}
+        onWatch={watch}
         autoSpectate={autoSpectate ? auto : undefined}
       />
     );
@@ -143,6 +144,7 @@ function Connected({
   spectating = false,
   onLeave,
   onJoin,
+  onWatch,
   autoSpectate,
 }: {
   gameId: string;
@@ -150,11 +152,23 @@ function Connected({
   spectating?: boolean;
   onLeave: () => void;
   onJoin?: () => void;
+  onWatch?: (id: string) => void;
   /** Auto-spectate viewers only: move on to another live game when this one ends or closes. */
   autoSpectate?: AutoSpectate;
 }) {
   const conn = useGame(gameId, spectating ? undefined : session?.token);
-  const auto = spectating ? autoSpectate : undefined;
+  const [isGen, setIsGen] = useState(false);
+
+  useEffect(() => {
+    if (conn.view && isGenerationGame(conn.view)) {
+      setIsGen(true);
+    }
+  }, [conn.view]);
+
+  // Generation training matches refresh into the next generation match lobby even if global autoSpectate was not toggled
+  const genAuto = isGen && onWatch && spectating ? { advance: (nextId: string) => onWatch(nextId), stay: () => setIsGen(false) } : undefined;
+  const auto = spectating ? (autoSpectate ?? genAuto) : undefined;
+
   if (conn.closedReason) {
     const why: Record<string, string> = {
       host: 'The host closed this room.',
@@ -172,7 +186,7 @@ function Connected({
             <button className="primary" onClick={onLeave}>
               Back to games
             </button>
-            {auto && <AutoAdvance from={gameId} auto={auto} />}
+            {auto && <AutoAdvance from={gameId} auto={auto} generationOnly={isGen} />}
           </div>
         </div>
       </div>
@@ -190,7 +204,7 @@ function Connected({
     );
   }
   if (conn.view.phase === 'lobby') return <Lobby conn={conn} gameId={gameId} session={spectating ? null : session} onLeave={onLeave} onJoin={onJoin} />;
-  return <Game conn={conn} gameId={gameId} session={spectating ? null : session} onLeave={onLeave} onJoin={onJoin} autoSpectate={auto} />;
+  return <Game conn={conn} gameId={gameId} session={spectating ? null : session} onLeave={onLeave} onJoin={onJoin} autoSpectate={auto} isGeneration={isGen} />;
 }
 
 function JoinPrompt({

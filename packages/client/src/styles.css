@@ -192,11 +192,6 @@ input[type='range'] {
     grid-template-columns: 1fr;
   }
 }
-.options {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0 12px;
-}
 .map-preview {
   grid-column: 1 / -1;
   margin: 2px 0 12px;
@@ -1799,11 +1794,6 @@ label.check input {
 .profile-whisper { margin-top: 20px; padding-top: 16px; border-top: 1px solid #39516d; }
 .profile-whisper .row input { flex: 1; min-width: 0; }
 .profile-bio { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; margin-top: 16px; }
-.leaderboard { margin-bottom: 24px; }
-.leaderboard-scroll { overflow-x: auto; }
-.leaderboard table { width: 100%; border-collapse: collapse; text-align: left; font-variant-numeric: tabular-nums; }
-.leaderboard th, .leaderboard td { padding: 12px; border-bottom: 1px solid #ffffff18; white-space: nowrap; }
-.leaderboard th { color: #9db1c9; font-size: .8rem; }
 @media (max-width: 540px) { .profile-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } .profile-dialog { padding: 16px; } }
 
 /* Spectator auto-redirect banner */

@@ -1,4 +1,4 @@
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { MessageChannel, receiveMessageOnPort, Worker } from 'node:worker_threads';
@@ -127,6 +127,27 @@ export function netAgent(id: string, modelPath: string, temperature = 0): Agent 
   });
 }
 
+/** Which range specialist plays a decision, by players still alive: close (2), mid (3), long (4 or more). */
+export type Range = 'close' | 'mid' | 'long';
+export function rangeOf(state: GameState): Range {
+  const alive = state.players.filter((p) => p.alive).length;
+  return alive <= 2 ? 'close' : alive === 3 ? 'mid' : 'long';
+}
+
+/**
+ * The range specialists as one player (the owner's plan): each decision is played by the network for the players
+ * still alive (`rangeOf`): Delove Long Range for 4+, Mid Range for 3, Close Range for the final duel. Plays each
+ * network's top move, like `delove@N`; deterministic.
+ */
+export function rangeAgent(id: string, modelPaths: Record<Range, string>): Agent {
+  const scorers = new Map<string, NetScorer>();
+  const scorer = (path: string) => scorers.get(path) ?? (scorers.set(path, new NetScorer(path)), scorers.get(path)!);
+  return stepAgent(id, (ctx) => {
+    if (ctx.candidates.length === 1) return 0;
+    return argmax(scorer(modelPaths[rangeOf(ctx.state)]).score(ctx).logits);
+  });
+}
+
 function argmax(xs: Float32Array): number {
   let best = 0;
   for (let i = 1; i < xs.length; i++) if (xs[i] > xs[best]) best = i;
@@ -163,8 +184,17 @@ export function discoverNetAgents(dir = modelsDir()): Agent[] {
     Object.entries({ topK: env('DELOVE_LOOK_K'), samples: env('DELOVE_LOOK_SAMPLES'), priorWeight: env('DELOVE_LOOK_PRIOR'), confident: env('DELOVE_LOOK_CONFIDENT') }).filter(([, v]) => v !== undefined),
   );
   const files = new Set(readdirSync(dir));
-  return [...files]
-    .filter((f) => /^(delove@\d+|[rc]\d+-candidate)\.onnx$/.test(f))
+  // delove-range@N.json: {"close": "<model id>", "mid": "<model id>", "long": "<model id>"}, each a <model id>.onnx here.
+  const ranges = [...files]
+    .filter((f) => /^delove-range@\d+\.json$/.test(f))
+    .flatMap((f) => {
+      const routes = JSON.parse(readFileSync(join(dir, f), 'utf8')) as Record<Range, string>;
+      const paths = Object.fromEntries((['close', 'mid', 'long'] as const).map((r) => [r, join(dir, `${routes[r]}.onnx`)])) as Record<Range, string>;
+      if (!Object.values(paths).every((p) => existsSync(p))) return [];
+      return [rangeAgent(basename(f, '.json'), paths)];
+    });
+  return [...ranges, ...[...files]
+    .filter((f) => /^(delove@\d+|delove-(?:long|mid|close)@\d+|[rc]\d+-candidate|c\d+-(?:long|mid|close))\.onnx$/.test(f))
     .sort()
     .flatMap((f) => {
       const id = basename(f, '.onnx');
@@ -175,5 +205,5 @@ export function discoverNetAgents(dir = modelsDir()): Agent[] {
         agents.push(searchAgent(`${id}+look`, path, valuePath, look), searchAgent(`${id}+look-explore`, path, valuePath, { ...look, temperature: lookTemperature }));
       }
       return agents;
-    });
+    })];
 }

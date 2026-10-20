@@ -95,6 +95,17 @@ class Data:
         )
 
 
+def alive_mask(d, lo, hi, chunk=1 << 20):
+    """Decisions of dataset d with lo..hi players still alive, counted from the slot<i>_alive global features."""
+    names = d.info["globalFeatures"]
+    cols = [i for i, n in enumerate(names) if n.startswith("slot") and n.endswith("_alive")]
+    out = np.zeros(len(d), dtype=bool)
+    for i in range(0, len(d), chunk):
+        n = np.asarray(d.glob[i : i + chunk][:, cols]).sum(1)
+        out[i : i + chunk] = (n >= lo - 0.5) & (n <= hi + 0.5)
+    return out
+
+
 def split_by_game(game, val_fraction, seed=0):
     games = np.unique(game)
     rng = np.random.default_rng(seed)
@@ -163,6 +174,7 @@ def main():
     ap.add_argument("--val", type=float, default=0.05)
     ap.add_argument("--max-val", type=int, default=100_000, help="cap on validation decisions per evaluation")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--alive", help="LO-HI: train and validate only on decisions with LO..HI players still alive (range specialists: 2-2 close, 3-3 mid, 4-10 long)")
     ap.add_argument("--amp", action="store_true", help="mixed precision: the network in bfloat16 (CUDA only)")
     args = ap.parse_args()
 
@@ -185,9 +197,14 @@ def main():
     first = datasets[0]
     # Maps can differ between datasets: every batch comes from one dataset and uses that map's adjacency.
     adjs = [torch.as_tensor(d.adj, device=device) for d in datasets]
+    alive_range = tuple(int(x) for x in args.alive.split("-")) if args.alive else None
     splits = []
     for d in datasets:
         tr, va = split_by_game(d.game, args.val, args.seed)
+        if alive_range:
+            keep = alive_mask(d, *alive_range)
+            tr, va = tr[keep[tr]], va[keep[va]]
+            print(json.dumps(dict(dataset=d.name, alive=args.alive, kept=int(keep.sum()), of=len(d))), flush=True)
         cap = max(1, args.max_val // len(datasets))
         if len(va) > cap:
             va = np.sort(rng.choice(va, cap, replace=False))

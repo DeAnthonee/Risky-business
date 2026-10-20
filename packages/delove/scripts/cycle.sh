@@ -108,7 +108,9 @@ run_gpu_step() {
 gpu_runner=""
 if (( ${#gpu_steps[@]} )); then
   # A stale mirror would fail a GPU step still to play; say so now, before the pool spends its minutes.
-  for st in "${gpu_steps[@]}"; do
+  for s in "${steps[@]}"; do
+    read -r st _ <<< "$s"
+    on_gpu "$st" || continue  # the config's steps, so gpu_steps=(all) is checked step by step too
     [[ -f "$out/$st/gpu.json" ]] && continue
     "$python" packages/delove-gpu/delove_gpu/fingerprint.py check || { echo "run packages/delove-gpu/verify.py first"; exit 1; }
     break

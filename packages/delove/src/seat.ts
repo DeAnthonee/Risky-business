@@ -1,7 +1,10 @@
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { legalMoves, type Action, type GameState, type GameView, type PlayerId } from '@risk/engine';
 import { RiskHttpError, type RiskApi } from '@risk/mcp';
 import { candidates, makeTraits, type Agent } from '@risk/selfplay';
-import { seatOrder } from './net-agent.js';
+import { modelsDir, seatOrder } from './net-agent.js';
+import { DEFAULT_TEACHER_PARAMS, makeTeacher, teacher, type TeacherParams } from './teacher.js';
 
 /**
  * Plays one seat of a real game over the HTTP API with a Delove player version (the teacher or a trained network):
@@ -36,6 +39,24 @@ export function chooseFromView(agent: Agent, view: GameView, me: PlayerId, rando
   const cands = candidates(state, me, legal);
   if (cands.length === 0) return null;
   return agent.choose({ state, me, seat: seatOrder(state).indexOf(me), legal, candidates: cands, traits: makeTraits(), random });
+}
+
+export function discoverTunedTeachers(dir = modelsDir()): Agent[] {
+  if (!existsSync(dir)) return [];
+  const version = (f: string) => Number(/@(\d+)/.exec(f)![1]);
+  const files = readdirSync(dir).filter((f) => /^delove-teacher@\d+\.json$/.test(f));
+  return files.sort((a, b) => version(a) - version(b)).map((f) => {
+    const id = f.replace(/\.json$/, '');
+    const params: TeacherParams = { ...DEFAULT_TEACHER_PARAMS, ...JSON.parse(readFileSync(join(dir, f), 'utf8')) };
+    return makeTeacher(id, params);
+  });
+}
+
+export function defaultName(id: string): string {
+  if (id === teacher.id || id === 'sensei@1' || id === 'sensei') return 'Sensei 1';
+  if (id === 'delove-teacher@2' || id === 'sensei@2') return 'Sensei 2';
+  const m = /^delove@(\d+)(-explore)?$/.exec(id);
+  return m ? `Delove ${m[1]}${m[2] ? ' (explore)' : ''}` : id;
 }
 
 export interface SeatOptions {

@@ -515,6 +515,7 @@ def merge_all(args, steps, lanes: list[Lane], work: Path, pods: list[Pod], secon
         extra = {"lanes": [lane.index for lane, _ in logs], "pods": len(pods), "gpuType": args.gpu_type, "gpus": env,
                  "wallSeconds": round(seconds, 1), "costPerHour": [p.cost for p in pods]}
         merged = merge_step(parts, data / f"{args.name}-{step}", extra)
+        (out / step).mkdir(parents=True, exist_ok=True)  # cycle.sh makes it; a run by hand may not have
         with open(out / step / "gpu.log", "w", encoding="utf8", newline="\n") as f:
             for lane, log in logs:
                 f.write(f"==== lane {lane.index} (pod {lane.pod}, GPU {lane.gpu}) ====\n")

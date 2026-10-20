@@ -1,0 +1,16 @@
+# Cycle 6, step 4: big tables on every map but Bohemia (GPU). With Jacob Sensei in the teacher seats and the rollouts
+# the big tables no longer stall (0 of 960 Jacob self-play games hit the limit), so Greater Europe and 10-seat tables
+# are back. About half the seats are Jacob Sensei, the rest delove@3 / delove@2.
+w10   1500 delove-branch@1,jacob-sensei@1,delove@3,jacob-sensei@1,jacob-sensei@1,delove@2,jacob-sensei@1,delove@3,jacob-sensei@1,jacob-sensei@1 {"map":"world"}
+w6    1000 jacob-sensei@1,delove@3,delove-branch@1,jacob-sensei@1,delove@2,jacob-sensei@1 {"map":"world"}
+wl10  1000 jacob-sensei@1,jacob-sensei@1,delove@3,jacob-sensei@1,delove-branch@1,jacob-sensei@1,delove@2,jacob-sensei@1,delove@3,jacob-sensei@1 {"map":"world_large"}
+ge10  1000 delove-branch@1,jacob-sensei@1,delove@3,jacob-sensei@1,jacob-sensei@1,delove@2,jacob-sensei@1,delove@3,jacob-sensei@1,jacob-sensei@1 {"map":"greater_europe"}
+ge6   1000 delove@3,jacob-sensei@1,jacob-sensei@1,delove-branch@1,delove@2,jacob-sensei@1 {"map":"greater_europe"}
+ge2    500 delove-branch@1,jacob-sensei@1 {"map":"greater_europe"}
+fa10  1000 jacob-sensei@1,delove@3,jacob-sensei@1,jacob-sensei@1,delove-branch@1,jacob-sensei@1,delove@2,jacob-sensei@1,jacob-sensei@1,delove@3 {"map":"fantasy"}
+fa6   1000 delove-branch@1,jacob-sensei@1,delove@3,jacob-sensei@1,delove@2,jacob-sensei@1 {"map":"fantasy"}
+eu8   1000 jacob-sensei@1,delove@3,jacob-sensei@1,delove-branch@1,jacob-sensei@1,delove@2,jacob-sensei@1,delove@3 {"map":"europe"}
+us10  1000 jacob-sensei@1,jacob-sensei@1,delove@3,jacob-sensei@1,delove@2,jacob-sensei@1,delove-branch@1,jacob-sensei@1,delove@3,jacob-sensei@1 {"map":"usa"}
+as8   1000 delove-branch@1,jacob-sensei@1,delove@3,jacob-sensei@1,delove@2,jacob-sensei@1,delove@3,jacob-sensei@1 {"map":"asia"}
+ec6   1000 jacob-sensei@1,delove-branch@1,delove@3,jacob-sensei@1,delove@2,jacob-sensei@1 {"map":"europe_classic"}
+c6    1000 jacob-sensei@1,delove@3,jacob-sensei@1,delove@2,delove-branch@1,jacob-sensei@1

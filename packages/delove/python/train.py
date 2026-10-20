@@ -10,7 +10,8 @@
 Policy: cross-entropy on the candidate that was played, weighted per decision (mode "imitate": every move counts
 fully; mode "winners": weight loser_weight + (1 - loser_weight) * z, so mostly the winner's moves; mode
 "advantage": weight exp((z - V) / beta), V the model's own current value for the position (no gradient), so a move
-counts more the better the game went than expected from there, and weights are normalised per batch). Value: binary
+counts more the better the game went than expected from there, and weights are normalised per batch; mode "value":
+policy weight 0, so only the value head learns from those positions, for data whose moves should not be copied). Value: binary
 cross-entropy on the game result `z`, on every decision.
 Writes <out>.pt (weights + config) and <out>.json (training settings and validation metrics).
 
@@ -34,7 +35,7 @@ import torch.nn.functional as F
 from delove_model import DeloveNet, segment_log_softmax
 
 SUPPORTED_ENCODER = 2
-MODES = ("imitate", "winners", "advantage")
+MODES = ("imitate", "winners", "advantage", "value")
 
 
 class Data:
@@ -75,6 +76,8 @@ class Data:
 
     def policy_weight(self, ks):
         z = self.z[ks].astype(np.float32)
+        if self.mode == "value":  # positions and outcomes only: the value head learns, the policy ignores these moves
+            return np.zeros_like(z)
         w = self.loser_weight + (1 - self.loser_weight) * z if self.mode == "winners" else np.ones_like(z)
         return w * self.tag_weight[ks] if self.tag_weight is not None else w
 

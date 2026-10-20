@@ -142,6 +142,7 @@ phase and the candidate list in order at every step, the teacher's pick at every
 | `settings` | 15 combinations of the settings (each alone, then all at once, with the claiming phase and with auto setup) on Classic 2p, Four Crowns 3p, World 6p, Greater Europe 10p | 7,020 | 10,378,222 | **0 mismatches**; 7,941,185 of 7,941,185 teacher picks; 7,020 of 7,020 outcomes |
 | `net` | `delove@3` seats on Classic 2p, Four Crowns 4p, World 8p, Greater Europe 10p (capitals, blizzards), Realms of Halvaren 6p (exponential cards, adjacent fortify, claiming) | 196 | 182,770 | **0 mismatches**; GPU network top move = the ONNX move logged in Node on 74,074 of 74,074 decisions |
 | `branch` (scale 0.5) | `delove-branch@1` (ranker `delove@3`, horizon 1, margin 0.01) on Four Crowns 2p / 4p, Classic 2p / 4p, World 6p, Greater Europe 10p, and four tables with settings | 442 | 264,095 | **0 mismatches** in the rules and teacher; 98,968 of 98,970 branch decisions the same pick; of 56,398 branched decisions, 56,381 compared the CPU's options and got every option's mean score identical (same doubles), 17 had the ranker order two alternatives differently (ONNX vs PyTorch near-ties; the 2 different picks are among them) |
+| `jacob` (scale 0.5, 2026-10-20) | Jacob Sensei (`jacob-sensei@1`): self-play on all 10 maps at 2 seats, a middle size and the largest table; mixed with Sensei 2 and `risky@1` above 2 seats; the 15 settings combinations on Classic 2p, Four Crowns 3p, World 6p, Greater Europe 10p (Jacob and Sensei 2 seats); branch and score with Jacob as the rollout teacher (`jb-*`: Four Crowns 2p, Classic 2p / 4p, World 6p, Greater Europe 10p, two tables with settings) | 3,955 | 3,414,946 | **0 mismatches**; 3,213,258 of 3,213,258 teacher picks (Jacob, Sensei 2, delove-teacher@1 seats); 3,955 of 3,955 outcomes; 25,124 of 25,125 branch decisions the same pick, all 13,700 branched decisions with the CPU's options with identical mean scores, 1 ranker near-tie (the different pick) |
 
 Also: `odds_check.py` 6,000 of 6,000 battles bit-identical to `blitzOdds` (win, balancedWin, losses; up to 10^6 attackers,
 both dice limits); `export_check.py` bit for bit on Four Crowns 4p (fixed cards, capitals), World 6p (blizzards,
@@ -231,6 +232,37 @@ decisions, 395,729 branched, 7,099,734 simulations of 89,623,920 moves, 111,930 
 29,088/114,748, end_turn 10,122/18,601, fortify_from 9,170/26,503, trade 5,355/14,758), same wins per table. The only
 expected difference is the ranker near-tie above (about 1 in 20,000 branched decisions; when it changes a pick, the
 game diverges from the CPU's from there on, equally valid).
+
+### Jacob Sensei (`jacob-sensei@1`)
+
+Jacob Sensei (`packages/delove/src/jacob.ts`, PR #98) is Sensei's judgement plus terms for big tables. It runs in the
+same kernel as Sensei: a teacher version is one row of numbers (`PARAM_KEYS`, `JACOB_KEYS`, then a Jacob flag), and the
+kernel takes Jacob's code paths only where the flag is on:
+- `stats()`: armies, territories, income (`reinforcementsFor`) and power of every living seat, summed in seat order,
+  and the mean power; the leader term on captures and on a rival's armies lost;
+- the hunt (a share of an elimination once a stack outweighs a rival's whole army), in attacks and in placement scores
+  (with the largest amount being placed, as `pickPlace` passes it);
+- the card urge, the late-game win floor, and own losses divided by `1 + stackRamp * Math.log1p(surplus)`;
+- the interior-to-front pull in `bestFortify`.
+
+`Math.log1p` is V8's: `src/base/ieee754.cc`, FreeBSD's fdlibm `s_log1p.c`, ported operation for operation
+(`log1p_fd`). CUDA's `log1p` and the platform libm differ from it in the last bit on about 17% of inputs, which is
+enough to swap a near-tie. `tests/log1p_check.py` compares the two on 255,066 values.
+
+Numbers: `jacob-sensei@1` uses `JACOB_SENSEI_1_PARAMS`, read from `jacob.ts` (its JSON in the models folder is ignored,
+as `register.ts` does). Later versions use `models/delove/jacob-sensei@N.json` over `DEFAULT_JACOB_PARAMS`
+(`agent_params` in `teacher.py`). An engine holds several versions; `tver[game, seat]` says which row plays each seat.
+So `generate.py` seats `delove-teacher@N` and `jacob-sensei@N` at one table, and `--teacher jacob-sensei@1`
+(`DELOVE_BRANCH_TEACHER` in `cycle.sh`) makes Jacob the rollout teacher.
+
+Proof (2026-10-20, 0 mismatches; logs under `<training PC>\Risky-business-stage2\runs\gpu-verify\jacob` and `m-jacob`):
+
+| check | what was compared | result |
+| --- | --- | --- |
+| `teacher_replay.py` | 1,000 Jacob self-play games, Classic 2p | 258,651 of 258,651 decisions: the logged pick. With `DEFAULT_JACOB_PARAMS` instead, 178 of 200 games fail; with Jacob's numbers but the flag off (Sensei's code paths), 194 of 200 fail |
+| `branch_replay.py`, Jacob rollouts | 150 branch games at the cycle settings (ranker `delove@3`, horizon 1, margin 0.01), 100 at branch.ts's defaults (ranker `delove@2`) | 31,035 of 31,035 branch decisions the same pick; all 16,180 branched decisions with identical mean scores |
+| `tests/matrix.py --suite jacob` (scale 0.5) | every map and table size, mixed tables, every setting, branch with Jacob rollouts (the table above) | 118 of 118 cases identical: 3,213,258 teacher picks, 25,124 of 25,125 branch picks (1 ranker near-tie) |
+| `verify.py --models` | fresh logs: Jacob self-play, branch with Jacob rollouts, and the `jacob` suite at scale 0.1 next to the other suites | 4,563,002 steps identical on `engine.py`, `fused.py`, the teacher and branch; 500 Jacob self-play games (131,150 picks) and 100 branch games with Jacob rollouts (12,086 decisions, 6,309 branched, means identical); matrix rules 60/60, settings 120/120, branch 10/10, `jacob` 118/118 cases identical. Fingerprint written, `jacob.ts` in `RULE_FILES` |
 
 ### Speed of a cycle step
 

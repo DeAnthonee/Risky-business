@@ -250,8 +250,7 @@ def replay_case(name: str, d: Path, args) -> dict:
         res["rules"] += " | branch: " + (r.stdout.strip().splitlines()[0] if r.stdout.strip() else r.stderr[-500:])
         res["rules_ok"] = res["rules_ok"] and r.returncode == 0
         res["rules_log"] += r.stdout[-3000:] + r.stderr[-3000:]
-    done.write_text(json.dumps(res) + "
-", encoding="utf8")
+    done.write_text(json.dumps(res) + "\n", encoding="utf8")
     print(f"{'ok ' if res['rules_ok'] else 'BAD'} {name}", flush=True)
     return res
 

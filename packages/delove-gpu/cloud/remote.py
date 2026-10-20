@@ -438,7 +438,7 @@ def run(args, gen_args: list[str]):
                     continue
                 try:
                     status = ssh.run(p, "cat /root/job/status 2>/dev/null || echo missing; pgrep -f '[w]orker.sh' >/dev/null && echo alive || echo dead; for f in /root/job/lanes/*/*/gpu.log; do [ -f \"$f\" ] &&"
-                                        " echo \"$f: $(grep -a ' step \\| games in ' \"$f\" | tail -n1 | cut -c1-160)\"; done", timeout=60)
+                                        " echo \"$f: $(grep -a ' step \\| games in ' \"$f\" | tail -n1 | cut -c1-160)\"; done; true", timeout=60)  # true: no gpu.log yet is not a failed poll
                 except (RuntimeError, subprocess.TimeoutExpired) as e:
                     print(f"  {p.name}: {e}", flush=True)
                     continue

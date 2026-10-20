@@ -1,34 +1,32 @@
 # Risk Tournament Leaderboard
 
-*Empirical rankings across 175 AI self-play matches.*
+*Empirical rankings across 70 AI self-play matches.*
 
 ## Character / Seat Standings
 
-| Rank | Player / Character | Elo Points | Games | Wins (1st) | Win Rate | Losses | Avg Place | Eliminations |
+| Rank | Player / Character | Points | Games | Wins (1st) | Win Rate | Losses | Avg Place | Eliminations |
 | :---: | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| #1 | **league/tryndamere** | **128** | 108 | 20 | 18.5% | 88 | 3.34 | 100 |
-| #2 | **league/lux** | **89** | 107 | 18 | 16.8% | 89 | 3.33 | 57 |
-| #3 | **league/shaco** | **85** | 110 | 25 | 22.7% | 85 | 3.53 | 79 |
-| #4 | **league/teemo** | **83** | 107 | 18 | 16.8% | 89 | 3.54 | 72 |
-| #5 | **league/shen** | **83** | 109 | 18 | 16.5% | 91 | 3.42 | 68 |
-| #6 | **league/darius** | **77** | 108 | 17 | 15.7% | 91 | 3.51 | 66 |
-| #7 | **league/leona** | **72** | 109 | 18 | 16.5% | 91 | 3.64 | 78 |
-| #8 | **league/jinx** | **62** | 94 | 17 | 18.1% | 77 | 3.63 | 61 |
-| #9 | **league/thresh** | **44** | 97 | 12 | 12.4% | 85 | 3.68 | 52 |
-| #10 | **league/ahri** | **23** | 109 | 12 | 11.0% | 97 | 3.76 | 52 |
-| #11 | **Delove@1** | **0** | 1 | 0 | 0.0% | 1 | 5.00 | 0 |
-| #12 | **Sensei** | **0** | 1 | 0 | 0.0% | 1 | 6.00 | 0 |
+| #1 | **league/shaco** | **52** | 38 | 11 | 28.9% | 27 | 3.08 | 34 |
+| #2 | **league/tryndamere** | **52** | 37 | 7 | 18.9% | 30 | 3.22 | 36 |
+| #3 | **league/leona** | **45** | 47 | 7 | 14.9% | 40 | 3.43 | 38 |
+| #4 | **league/teemo** | **43** | 45 | 11 | 24.4% | 34 | 3.40 | 37 |
+| #5 | **league/jinx** | **39** | 42 | 11 | 26.2% | 31 | 3.50 | 42 |
+| #6 | **league/shen** | **35** | 43 | 7 | 16.3% | 36 | 3.37 | 23 |
+| #7 | **league/thresh** | **27** | 36 | 4 | 11.1% | 32 | 3.42 | 16 |
+| #8 | **league/darius** | **25** | 45 | 6 | 13.3% | 39 | 3.60 | 23 |
+| #9 | **league/ahri** | **11** | 53 | 3 | 5.7% | 50 | 3.96 | 25 |
+| #10 | **league/lux** | **10** | 34 | 3 | 8.8% | 31 | 3.91 | 10 |
 
 ## Map Breakdown
 
 | Map | Games | Dominant Winner(s) |
 | :--- | :---: | :--- |
-| asia | 24 | league/shaco (5 wins), league/teemo (5 wins), league/shen (4 wins) |
-| usa | 21 | league/shen (3 wins), league/shaco (3 wins), league/teemo (3 wins) |
-| classic | 21 | league/jinx (5 wins), league/leona (3 wins), league/tryndamere (3 wins) |
-| world_large | 21 | league/tryndamere (6 wins), league/darius (3 wins), league/jinx (3 wins) |
-| world | 19 | league/thresh (4 wins), league/shaco (3 wins), league/darius (3 wins) |
-| europe_classic | 19 | league/shaco (4 wins), league/darius (3 wins), league/leona (3 wins) |
-| europe | 18 | league/lux (4 wins), league/shen (3 wins), league/shaco (3 wins) |
-| greater_europe | 17 | league/tryndamere (4 wins), league/lux (2 wins), league/teemo (2 wins) |
-| fantasy | 15 | league/tryndamere (3 wins), league/thresh (2 wins), league/shen (2 wins) |
+| asia | 12 | league/teemo (3 wins), league/shaco (3 wins), league/shen (2 wins) |
+| world | 9 | league/jinx (2 wins), league/shaco (2 wins), league/darius (2 wins) |
+| usa | 9 | league/teemo (2 wins), league/ahri (2 wins), league/jinx (2 wins) |
+| greater_europe | 7 | league/tryndamere (2 wins), league/jinx (1 win), league/shaco (1 win) |
+| europe | 7 | league/thresh (2 wins), league/shen (2 wins), league/lux (1 win) |
+| world_large | 7 | league/jinx (3 wins), league/teemo (2 wins), league/tryndamere (1 win) |
+| fantasy | 7 | league/shaco (2 wins), league/jinx (1 win), league/thresh (1 win) |
+| europe_classic | 6 | league/leona (2 wins), league/tryndamere (2 wins), league/shaco (1 win) |
+| classic | 6 | league/teemo (3 wins), league/jinx (1 win), league/ahri (1 win) |

@@ -9,6 +9,7 @@ this area (README hard rule 12).
 
 - 2026-10-20 #89 Gen 5 testing parity configs in configs/ and status brief updates
 - 2026-10-20 #88 delove-seat: discover and seat tuned teachers (delove-teacher@N, Sensei 2)
+- 2026-10-20 #87 `docs/delove-fog.md`: plan for fog of war (seat-view encoder, fog dropout, determinized teacher, GPU, gates)
 - 2026-10-20 #83 docs: the GPU mirror covers every map, 2-10 seats and every setting but fog
 - 2026-10-20 #82 `cycle.sh` runs any step on the GPU (`gpu_steps=(all)`)
 - 2026-10-20 #81 `docs/delove-status.md`: status, strategy and coordination brief

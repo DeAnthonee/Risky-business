@@ -97,6 +97,7 @@ Every documentation file in the repo, what it covers and when to read it.
 | [packages/selfplay/README.md](packages/selfplay/README.md) | self-play, ladder, decision log format (`LOG_VERSION`), board encoder (`ENCODER_VERSION`), adding a player version | working on `packages/selfplay` or a log/encoder format |
 | [docs/delove.md](docs/delove.md) | Delove's plan of record: what it is, how it learns, the network, milestones | planning Delove work |
 | [docs/delove-status.md](docs/delove-status.md) | Delove's current state, strategy, what was tried, open work, coordination brief | **first** when coordinating Delove training |
+| [docs/delove-fog.md](docs/delove-fog.md) | the plan for fog-of-war play: seat-view encoder, fog dropout, determinized branch teacher, GPU mirror, gates | planning Delove's fog work |
 | [packages/delove/README.md](packages/delove/README.md) | running, training and playing Delove; Stage 2 self-play rounds | working on `packages/delove` |
 | [packages/delove/CYCLES.md](packages/delove/CYCLES.md) | per-cycle training tables (appended by training runs) | reading or recording cycle results |
 | [packages/delove-gpu/README.md](packages/delove-gpu/README.md) | the GPU rules mirror: coverage, replay proof, fingerprint and re-verification, speed | working on `packages/delove-gpu` or changing a mirrored engine file |

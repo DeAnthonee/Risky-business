@@ -15,7 +15,7 @@ const log = (msg) => {
 
 log(`Risk continuous model orchestrator targeting ${SERVER_URL}`);
 log(`Pool of 20: 10 League LLMs + 10 Delove Models (6 to 10 players, any composition)`);
-log(`Mode: Generation 5 (50/50 Fog of War setting).`);
+log(`Mode: Generation 5 (Fog of War: ON).`);
 
 let gamesCompleted = 0;
 let lastMap = 'fantasy'; // ensure Match 3+ never duplicates previous

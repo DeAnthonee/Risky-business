@@ -88,7 +88,7 @@ export function App() {
 
   if (!gameId && autoSpectate) {
     return (
-      <div className="center">
+      <div className="center p5 p5-page">
         <div className="card">
           <h2>Auto-spectate</h2>
           <p className="muted pulse">Looking for a live game…</p>
@@ -164,7 +164,7 @@ function Connected({
       gone: 'This room no longer exists.',
     };
     return (
-      <div className="center">
+      <div className="center p5 p5-page">
         <div className="card">
           <h2>Room {gameId} is closed</h2>
           <p className="muted">{why[conn.closedReason] ?? 'This room is no longer available.'}</p>
@@ -180,7 +180,7 @@ function Connected({
   }
   if (!conn.view) {
     return (
-      <div className="center">
+      <div className="center p5 p5-page">
         <div className="card">
           <h2>Connecting to game {gameId}…</h2>
           {!conn.connected && <p className="muted">Waiting for the server. If this never resolves the game may no longer exist.</p>}
@@ -233,7 +233,7 @@ function JoinPrompt({
   };
 
   return (
-    <div className="center">
+    <div className="center p5 p5-page">
       <div className="card">
         <h1>Join game {gameId}</h1>
         {info && (

@@ -72,7 +72,7 @@ function ProfileDialog({ url, name, onClose, whisper }: { url: string; name: str
     return () => { active = false; };
   }, [url, retry]);
   return createPortal(
-    <dialog ref={dialog} className="profile-dialog" aria-labelledby="profile-title" onCancel={onClose} onClick={e => { e.stopPropagation(); if (e.target === e.currentTarget) onClose(); }}>
+    <dialog ref={dialog} className="profile-dialog p5" aria-labelledby="profile-title" onCancel={onClose} onClick={e => { e.stopPropagation(); if (e.target === e.currentTarget) onClose(); }}>
       <div className="profile-header"><h2 id="profile-title">{name}</h2><button autoFocus onClick={onClose} aria-label="Close profile">Close ✕</button></div>
       {error ? <p role="alert">{error} <button onClick={() => setRetry(n => n + 1)}>Retry</button></p> : !data ? <p role="status">Loading profile…</p> : <>
         <p className="muted">{data.stats.key.startsWith('league/') ? 'League character' : 'Player profile'} · All completed ranked games</p>

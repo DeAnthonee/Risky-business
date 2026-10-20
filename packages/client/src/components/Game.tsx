@@ -438,7 +438,7 @@ export function Game({
   const unreadLog = conn.batches.filter((b) => b.id > seenBatchId).length;
 
   return (
-    <div className={`game ${isMobile ? 'mobile' : ''} ${isMobile && sheet ? 'has-sheet' : ''}`}>
+    <div className={`game p5 ${isMobile ? 'mobile' : ''} ${isMobile && sheet ? 'has-sheet' : ''}`}>
       <div className="map-area">
         <div className="topbar">
           <div className="topbar-left">

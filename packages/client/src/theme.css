@@ -1,0 +1,195 @@
+/* =====================================================================
+   Persona-style theme: cut paper on orange cream. Put `p5` on a page's root
+   to get the palette, type and controls; each page lays itself out in its
+   own stylesheet (home.css, game.css).
+   The game board (.map-wrap) is fenced off: these control styles skip it
+   (`:not(:where(.map-wrap *))`) and game.css restores its original tokens.
+   ===================================================================== */
+.p5 {
+  --cream: #ffe9cc;
+  --paper: #fff8ee;
+  --ink: #000;
+  --red: #e8231b;
+  --orange: #ff8a1f;
+  --sun: #ffc21a;
+  --teal: #00897b;
+  --brown: #6e4326;
+  /* Retune the shared tokens so the global buttons, inputs and labels come out light here. */
+  --bg: var(--cream);
+  --bg2: #fff;
+  --panel: var(--paper);
+  --panel2: #fff;
+  --text: var(--ink);
+  --muted: var(--brown);
+  --accent: var(--red);
+  --border: var(--ink);
+  --display: 'Dela Gothic One', 'Arial Black', Impact, sans-serif;
+  --serif: 'Abril Fatface', Georgia, serif;
+  --body: 'Barlow Semi Condensed', 'Arial Narrow', system-ui, sans-serif;
+  --dots: radial-gradient(circle, #f6c58e 1.3px, transparent 1.6px) 0 0 / 14px 14px;
+  color-scheme: light;
+  color: var(--ink);
+  font-family: var(--body);
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+/* Controls */
+.p5 button:not(:where(.map-wrap *)) {
+  font-family: var(--body);
+  font-weight: 800;
+  font-style: italic;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--ink);
+  background: #fff;
+  border: 2px solid var(--ink);
+  border-radius: 0;
+  padding: 8px 16px;
+  transform: skewX(-10deg);
+  box-shadow: 3px 3px 0 var(--ink);
+  transition: transform 0.12s, box-shadow 0.12s, background 0.12s;
+}
+.p5 button.small:not(:where(.map-wrap *)) {
+  padding: 4px 10px;
+  font-size: 0.85em;
+  box-shadow: 2px 2px 0 var(--ink);
+}
+.p5 button:not(:where(.map-wrap *)):hover:not(:disabled) {
+  background: var(--sun);
+  transform: skewX(-10deg) translate(-1px, -1px);
+  box-shadow: 4px 4px 0 var(--ink);
+}
+.p5 button:not(:where(.map-wrap *)):active:not(:disabled) {
+  transform: skewX(-10deg) translate(2px, 2px);
+  box-shadow: 1px 1px 0 var(--ink);
+}
+.p5 button:not(:where(.map-wrap *)):disabled {
+  opacity: 1;
+  background: var(--paper);
+  color: #a8876c;
+  border-style: dashed;
+  border-color: #a8876c;
+  box-shadow: none;
+}
+.p5 button.primary:not(:where(.map-wrap *)):not(:disabled) {
+  background: var(--red);
+  color: #fff;
+}
+.p5 button.primary:not(:where(.map-wrap *)):hover:not(:disabled) {
+  background: #c8140d;
+}
+.p5 button.danger:not(:where(.map-wrap *)):not(:disabled) {
+  background: var(--ink);
+  color: #fff;
+  box-shadow: 3px 3px 0 var(--red);
+}
+.p5 button.danger:not(:where(.map-wrap *)):hover:not(:disabled) {
+  background: var(--red);
+  box-shadow: 4px 4px 0 var(--ink);
+}
+.p5 button.watch:not(:where(.map-wrap *)):not(:disabled) {
+  background: var(--teal);
+  color: #fff;
+}
+.p5 button.watch:not(:where(.map-wrap *)):hover:not(:disabled) {
+  background: #006b60;
+}
+.p5 button.link:not(:where(.map-wrap *)),
+.p5 button.link:not(:where(.map-wrap *)):hover:not(:disabled) {
+  background: none;
+  border: 0;
+  box-shadow: none;
+  transform: none;
+  padding: 0 4px;
+  color: var(--red);
+  text-transform: none;
+  font-style: normal;
+  text-decoration: underline;
+}
+.p5 button:not(:where(.map-wrap *)):focus-visible,
+.p5 input:not(:where(.map-wrap *)):focus-visible,
+.p5 select:not(:where(.map-wrap *)):focus-visible,
+.p5 summary:focus-visible {
+  outline: 3px solid var(--red);
+  outline-offset: 3px;
+}
+.p5 input:not(:where(.map-wrap *)),
+.p5 select:not(:where(.map-wrap *)) {
+  font-family: var(--body);
+  font-weight: 700;
+  color: var(--ink);
+  background: #fff;
+  border: 2px solid var(--ink);
+  border-radius: 0;
+}
+.p5 input[type='range']:not(:where(.map-wrap *)) {
+  border: 0;
+  background: none;
+  accent-color: var(--red);
+}
+.p5 label:not(:where(.map-wrap *)) {
+  color: var(--ink);
+  font-weight: 700;
+  font-size: 0.92em;
+}
+.p5 .muted:not(:where(.map-wrap *)) {
+  color: var(--brown);
+  font-weight: 500;
+}
+.p5 code:not(:where(.map-wrap *)) {
+  font-family: var(--body);
+  font-weight: 800;
+  background: var(--ink);
+  color: var(--cream);
+  border-radius: 0;
+  padding: 1px 6px;
+  letter-spacing: 0.08em;
+}
+.p5 .error:not(:where(.map-wrap *)) {
+  background: var(--ink);
+  color: #fff;
+  padding: 6px 10px;
+  border-left: 6px solid var(--red);
+  margin: 0;
+}
+/* Character names open a profile: they read as underlined text, not as buttons. */
+.p5 .character-name,
+.p5 .character-name:hover:not(:disabled),
+.p5 .character-name:active:not(:disabled) {
+  background: none;
+  border: 0;
+  padding: 0;
+  box-shadow: none;
+  transform: none;
+  font: inherit;
+  text-transform: none;
+  letter-spacing: normal;
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: currentColor;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+.p5 .character-name:hover:not(:disabled) { color: var(--red); }
+
+/* A slanted black tag for a panel's title. */
+.p5 .p5-tag {
+  display: inline-block;
+  margin: 0;
+  font-family: var(--display);
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0.01em;
+  color: #fff;
+  background: var(--ink);
+  padding: 3px 14px 5px;
+  transform: rotate(-2deg) skewX(-8deg);
+  box-shadow: 4px 4px 0 var(--red);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .p5 button {
+    transition: none;
+  }
+}

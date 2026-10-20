@@ -7,7 +7,9 @@ import '@fontsource/barlow-semi-condensed/500.css';
 import '@fontsource/barlow-semi-condensed/700.css';
 import '@fontsource/barlow-semi-condensed/800-italic.css';
 import './styles.css';
+import './theme.css';
 import './home.css';
+import './game.css';
 
 createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

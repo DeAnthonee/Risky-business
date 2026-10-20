@@ -71,7 +71,9 @@ export function Game({
   const [showCards, setShowCards] = useState(false);
   const [tab, setTab] = useState<'log' | 'chat'>('log');
   // Phones/narrow screens: the board fills the screen; panels open underneath it so the map stays visible.
-  const isMobile = useMediaQuery('(max-width: 900px)');
+  // A phone held sideways is wide but short: it gets the phone layout too, laid out in a row (styles.css).
+  const isMobile = useMediaQuery('(max-width: 900px), (orientation: landscape) and (max-height: 540px) and (pointer: coarse)');
+  const isLandscape = useMediaQuery('(orientation: landscape) and (max-height: 540px)');
   const [sheet, setSheet] = useState<'players' | 'log' | 'chat' | null>(null);
   const [seenChatId, setSeenChatId] = useState(0);
   const [seenBatchId, setSeenBatchId] = useState(0);
@@ -442,7 +444,7 @@ export function Game({
   const unreadLog = conn.batches.filter((b) => b.id > seenBatchId).length;
 
   return (
-    <div className={`game p5 ${isMobile ? 'mobile' : ''} ${isMobile && sheet ? 'has-sheet' : ''}`}>
+    <div className={`game p5 ${isMobile ? 'mobile' : ''} ${isMobile && isLandscape ? 'landscape' : ''} ${isMobile && sheet ? 'has-sheet' : ''}`}>
       <div className="map-area">
         <div className="topbar">
           <div className="topbar-left">

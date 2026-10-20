@@ -4,6 +4,7 @@ import { GameMemory, type ObservedBatch } from './game-memory.js';
 import type { Commander } from './commander.js';
 import { cleanChat, type ChatMsg, type Diplomat, type Outgoing } from './diplomat.js';
 import { choosePlannedAction, StallTracker } from './planned-bot.js';
+import { formatPing, isModelName, type PingAction } from './pings.js';
 import { backoffMs, isTransient } from './resilient.js';
 import { chooseMove } from './view-state.js';
 
@@ -161,10 +162,45 @@ export class SeatRunner {
       else if ((view.phase === 'reinforce' && view.turnNumber !== this.lastPlanned) || force) {
         this.lastPlanned = view.turnNumber;
         await c.planFor(view);
+        const pingToSend = c.popPing();
+        if (pingToSend) {
+          this.sendPing(view, pingToSend);
+        }
       }
     } catch (e) {
       this.o.log(`${this.o.name}: commander failed: ${errText(e)}`);
     }
+  }
+
+  /** Send a fast diplomatic ping, guaranteeing model players are never messaged. */
+  private sendPing(view: GameView, ping: PingAction) {
+    if (!ping || !ping.type) return;
+    const text = formatPing(ping);
+    if (!text) return;
+
+    let toPlayerId: string | undefined;
+    if (ping.to) {
+      const targetPlayer = view.players.find(
+        (p) =>
+          p.alive &&
+          !p.isNeutral &&
+          !isModelName(p.name) &&
+          (p.name.toLowerCase() === ping.to!.toLowerCase() || p.id.toLowerCase() === ping.to!.toLowerCase())
+      );
+      if (targetPlayer) {
+        toPlayerId = targetPlayer.id;
+      } else {
+        // Recipient is a model or invalid: never ping model players!
+        return;
+      }
+    }
+
+    this.fire(
+      (async () => {
+        await this.o.api.sendChat(this.o.gameId, this.o.token, text, toPlayerId);
+        this.o.log(`[PING] ${this.o.name}${toPlayerId ? ` -> ${ping.to}` : ' (all)'}: ${text}`);
+      })()
+    );
   }
 
   /** Acts until the turn passes or the game ends; returns the latest view. */

@@ -999,7 +999,8 @@ async function runPostGameLocked(i: PostGameInput): Promise<PostGameOutput> {
         await updateExperience({ dir: i.learningsDir, id: seat.characterId, name: seat.name, gameId: i.gameId, note: note.text,
           ownWon: own.placement === 1, myPlacement: own.placement,
           opponentResults: Object.fromEntries(result.seats.filter(s=>s!==own).map(s=>[s.character ?? 'player:' + s.name.toLowerCase(), {won:s.placement===1,placement:s.placement}])),
-          opponents, watchers, deals: seat.observedDeals ?? [], llm: i.skipRivalries ? null : i.llm, log: i.log });
+          opponents, watchers, deals: seat.observedDeals ?? [], llm: i.skipRivalries ? null : i.llm, log: i.log,
+          chat: seat.chat, eliminatedBy: own?.eliminatedBy ?? null });
       }
     }
 

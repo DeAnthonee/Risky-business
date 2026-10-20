@@ -1,40 +1,41 @@
 # Risk Tournament Leaderboard
 
-*Empirical rankings across 15 AI self-play matches.*
+*Empirical rankings across 23 AI self-play matches.*
 
 ## Character / Seat Standings
 
 | Rank | Player / Character | Player ID | Points | Games | Wins (1st) | Win Rate | Losses | Avg Place | Eliminations |
 | :---: | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| #1 | **league/teemo** | `league/teemo` | **18** | 6 | 1 | 16.7% | 5 | 3.67 | 12 |
-| #2 | **league/leona** | `league/leona` | **16** | 6 | 2 | 33.3% | 4 | 3.17 | 8 |
-| #3 | **league/shaco** | `league/shaco` | **15** | 5 | 0 | 0.0% | 5 | 3.00 | 6 |
-| #4 | **league/tryndamere** | `league/tryndamere` | **14** | 5 | 1 | 20.0% | 4 | 3.00 | 4 |
-| #5 | **league/ahri** | `league/ahri` | **12** | 7 | 2 | 28.6% | 5 | 3.00 | 7 |
-| #6 | **league/shen** | `league/shen` | **12** | 6 | 1 | 16.7% | 5 | 4.00 | 7 |
-| #7 | **league/darius** | `league/darius` | **10** | 5 | 2 | 40.0% | 3 | 4.20 | 7 |
-| #8 | **league/lux** | `league/lux` | **9** | 5 | 1 | 20.0% | 4 | 5.20 | 5 |
-| #9 | **Kai** | `kai` | **9** | 8 | 1 | 12.5% | 7 | 4.13 | 4 |
-| #10 | **Demonte** | `demonte` | **8** | 6 | 2 | 33.3% | 4 | 3.83 | 6 |
-| #11 | **Lauren** | `lauren` | **4** | 2 | 0 | 0.0% | 2 | 5.00 | 3 |
-| #12 | **league/jinx** | `league/jinx` | **3** | 5 | 1 | 20.0% | 4 | 4.20 | 3 |
-| #13 | **league/thresh** | `league/thresh` | **3** | 6 | 0 | 0.0% | 6 | 4.50 | 1 |
-| #14 | **Joey** | `joey` | **2** | 4 | 0 | 0.0% | 4 | 3.75 | 2 |
-| #15 | **Jason** | `jason` | **1** | 3 | 0 | 0.0% | 3 | 5.33 | 2 |
-| #16 | **Hans** | `hans` | **0** | 6 | 1 | 16.7% | 5 | 5.50 | 5 |
-| #17 | **Sensei** | `sensei` | **0** | 8 | 0 | 0.0% | 8 | 5.13 | 3 |
-| #18 | **Ronny** | `ronny` | **0** | 6 | 0 | 0.0% | 6 | 6.67 | 3 |
-| #19 | **Diane** | `diane` | **0** | 4 | 0 | 0.0% | 4 | 4.25 | 1 |
-| #20 | **Dejean** | `dejean` | **0** | 4 | 0 | 0.0% | 4 | 4.25 | 0 |
-| #21 | **Demario** | `demario` | **0** | 3 | 0 | 0.0% | 3 | 5.67 | 0 |
+| #1 | **league/teemo** | `league/teemo` | **29** | 9 | 2 | 22.2% | 7 | 3.33 | 18 |
+| #2 | **league/darius** | `league/darius` | **20** | 7 | 3 | 42.9% | 4 | 3.43 | 11 |
+| #3 | **league/jinx** | `league/jinx` | **17** | 8 | 3 | 37.5% | 5 | 3.38 | 9 |
+| #4 | **league/tryndamere** | `league/tryndamere` | **17** | 7 | 1 | 14.3% | 6 | 2.86 | 4 |
+| #5 | **league/shaco** | `league/shaco` | **17** | 10 | 0 | 0.0% | 10 | 3.40 | 8 |
+| #6 | **league/leona** | `league/leona` | **14** | 7 | 2 | 28.6% | 5 | 3.57 | 8 |
+| #7 | **league/shen** | `league/shen` | **14** | 7 | 1 | 14.3% | 6 | 4.00 | 9 |
+| #8 | **league/ahri** | `league/ahri` | **13** | 14 | 2 | 14.3% | 12 | 3.79 | 12 |
+| #9 | **league/lux** | `league/lux` | **12** | 8 | 2 | 25.0% | 6 | 4.75 | 9 |
+| #10 | **league/thresh** | `league/thresh` | **9** | 8 | 1 | 12.5% | 7 | 3.88 | 2 |
+| #11 | **Demario** | `demario` | **8** | 6 | 1 | 16.7% | 5 | 4.00 | 2 |
+| #12 | **Diane** | `diane` | **5** | 8 | 0 | 0.0% | 8 | 3.63 | 2 |
+| #13 | **Demonte** | `demonte` | **4** | 7 | 2 | 28.6% | 5 | 4.43 | 6 |
+| #14 | **Kai** | `kai` | **4** | 11 | 1 | 9.1% | 10 | 4.55 | 4 |
+| #15 | **Jason** | `jason` | **3** | 6 | 1 | 16.7% | 5 | 4.83 | 5 |
+| #16 | **Joey** | `joey` | **1** | 7 | 0 | 0.0% | 7 | 3.86 | 3 |
+| #17 | **Hans** | `hans` | **0** | 7 | 1 | 14.3% | 6 | 5.43 | 5 |
+| #18 | **Sensei** | `sensei` | **0** | 9 | 0 | 0.0% | 9 | 5.11 | 4 |
+| #19 | **Lauren** | `lauren` | **0** | 4 | 0 | 0.0% | 4 | 6.00 | 3 |
+| #20 | **Ronny** | `ronny` | **0** | 10 | 0 | 0.0% | 10 | 6.00 | 3 |
+| #21 | **Dejean** | `dejean` | **0** | 5 | 0 | 0.0% | 5 | 5.00 | 0 |
 
 ## Map Breakdown
 
 | Map | Games | Dominant Winner(s) |
 | :--- | :---: | :--- |
-| classic | 4 | league/jinx (1 win), league/leona (1 win), Hans (1 win) |
-| asia | 3 | league/shen (1 win), league/darius (1 win), league/leona (1 win) |
-| greater_europe | 3 | Demonte (1 win), league/ahri (1 win), league/lux (1 win) |
-| fantasy | 2 | league/tryndamere (1 win), league/ahri (1 win) |
-| europe_classic | 2 | Kai (1 win), Demonte (1 win) |
+| asia | 5 | league/shen (1 win), league/darius (1 win), league/leona (1 win) |
+| classic | 5 | league/jinx (1 win), league/leona (1 win), Hans (1 win) |
+| greater_europe | 4 | Demonte (1 win), league/ahri (1 win), league/lux (1 win) |
+| europe_classic | 4 | Kai (1 win), Demonte (1 win), league/darius (1 win) |
+| fantasy | 3 | league/tryndamere (1 win), league/ahri (1 win), league/jinx (1 win) |
 | world | 1 | league/teemo (1 win) |
+| usa | 1 | Jason (1 win) |

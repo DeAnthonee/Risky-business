@@ -2,6 +2,7 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { Deal } from './deals.js';
 import type { Llm } from './llm.js';
+import { parsePing } from './pings.js';
 
 interface Relationship {
   name: string; role?: 'player' | 'watcher'; meetings: number; rapport: number;
@@ -40,6 +41,10 @@ export interface ExperienceInput {
   opponents: { key: string; name: string }[];
   /** Recognized watchers (spectators) who spoke or whispered during the game. */
   watchers?: { key: string; name: string; messages?: string[] }[];
+  /** Chat messages observed by this seat (includes pings). */
+  chat?: { name: string; message: string; spectator?: boolean; to?: string; toName?: string }[];
+  /** Who eliminated this player, if eliminated. */
+  eliminatedBy?: string | null;
   /** Only agreements and events observed by this character. */
   deals: Deal[];
   ownWon: boolean; myPlacement: number;
@@ -75,6 +80,78 @@ export async function updateExperience(i: ExperienceInput) {
       }
       if (text) relation.facts.push({gameId:i.gameId,text});
     }
+
+    if (i.chat && i.chat.length > 0) {
+      let pingRapportDelta = 0;
+      const pingEvents: string[] = [];
+      let alliancePinged = false;
+
+      for (const msg of i.chat) {
+        if (!msg.name || msg.name.toLowerCase() !== opponent.name.toLowerCase()) continue;
+        if (msg.spectator) continue;
+        const isToMe = !msg.toName || msg.toName.toLowerCase() === i.name.toLowerCase();
+        if (!isToMe) continue;
+
+        const parsed = parsePing(msg.message, msg.name, Boolean(msg.to || msg.toName));
+        if (!parsed) continue;
+
+        switch (parsed.type) {
+          case 'camaraderie':
+            pingRapportDelta += 10;
+            pingEvents.push('camaraderie');
+            break;
+          case 'agree':
+            pingRapportDelta += 8;
+            pingEvents.push('agree');
+            break;
+          case 'alliance':
+            pingRapportDelta += 5;
+            alliancePinged = true;
+            pingEvents.push('alliance offer');
+            break;
+          case 'decline':
+            pingRapportDelta -= 4;
+            pingEvents.push('decline');
+            break;
+          case 'taunt':
+            pingRapportDelta -= 10;
+            pingEvents.push('taunt');
+            break;
+          case 'anger':
+            pingRapportDelta -= 15;
+            pingEvents.push('anger');
+            break;
+          case 'attack':
+            if (parsed.target && parsed.target.toLowerCase() === i.name.toLowerCase()) {
+              pingRapportDelta -= 15;
+              pingEvents.push('called attack on me');
+            } else if (parsed.target) {
+              pingEvents.push(`called attack on ${parsed.target}`);
+            }
+            break;
+        }
+      }
+
+      if (alliancePinged && i.eliminatedBy && i.eliminatedBy.toLowerCase() === opponent.name.toLowerCase()) {
+        pingRapportDelta -= 25;
+        relation.facts.push({
+          gameId: i.gameId,
+          text: `${opponent.name} pinged alliance but eliminated me (backstab).`,
+        });
+      }
+
+      const clampedDelta = Math.max(-35, Math.min(25, pingRapportDelta));
+      relation.rapport += clampedDelta;
+
+      if (pingEvents.length > 0) {
+        const uniqueTags = [...new Set(pingEvents)];
+        relation.facts.push({
+          gameId: i.gameId,
+          text: `Diplomatic pings from ${opponent.name}: ${uniqueTags.join(', ')}.`,
+        });
+      }
+    }
+
     relation.rapport = Math.max(-100,Math.min(100,relation.rapport));
     relation.facts = relation.facts.slice(-20);
     state.relationships[opponent.key] = relation;

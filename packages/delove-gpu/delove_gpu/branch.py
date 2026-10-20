@@ -115,47 +115,73 @@ extern "C" __global__ void k_branch_prep(STATE_ARGS, TP_ARGS, i64* arng, int rst
   for (int r = 0; r < nseeds[i]; r++) seeds[i * maxseeds + r] = (i64)(unsigned int)floor(rnd(rng) * 4294967295.0);
 }
 
-// One copy per thread: reseed, reshuffle the deck, play the option (one or two steps), roll out `horizon` rounds
-// with the teacher in every seat, and score the end position for `me`. a1 < 0: no such option (score -inf).
+// One copy per group of SIM_G lanes (Grp in teacher.py): reseed, reshuffle the deck, play the option (one or two
+// steps), roll out `horizon` rounds with the teacher in every seat, and score the end position for `me`. Every lane
+// makes each pick (its candidate loops split over the lanes); lane 0 alone changes the board, between two
+// __syncwarp()s. a1 < 0: no such option (score -inf). Launched with n * SIM_G threads, blocks a multiple of 32.
 extern "C" __global__ void k_branch_sim(STATE_ARGS, TP_ARGS, const i64* seeds, const i64* a1, const i64* a2, const i64* mes,
                                         const double* w, int horizon, double* out, i64* moves_out, int n) {
-  int j = blockIdx.x * blockDim.x + threadIdx.x;
-  if (j >= n) return;
+  int i = blockIdx.x * blockDim.x + threadIdx.x, j = i / SIM_G;
+  if (j >= n) return;  // the whole group
+  Grp g = make_grp(i, SIM_G);
+  bool lead = g.lane == 0;
   double* o = out + (i64)j * 8;
-  if (a1[j] < 0) { o[0] = -DINF; for (int k = 1; k < 8; k++) o[k] = 0.0; moves_out[j] = 0; return; }
+  if (a1[j] < 0) {
+    if (lead) { o[0] = -DINF; for (int k = 1; k < 8; k++) o[k] = 0.0; moves_out[j] = 0; }
+    return;
+  }
   MAKE_S(j);
   TP_MAKE
   unsigned int seed = (unsigned int)seeds[j];
-  *s.rng = (i64)seed;
-  i64 st = (i64)(seed ^ 0x5bd1e995u);
-  shuffle(s.deck, (int)*s.deck_n, &st);
-  apply(s, (int)a1[j], BIG_TURNS);
-  if (a2[j] >= 0) apply(s, (int)a2[j], BIG_TURNS);
+  if (lead) {
+    *s.rng = (i64)seed;
+    i64 st = (i64)(seed ^ 0x5bd1e995u);
+    shuffle(s.deck, (int)*s.deck_n, &st);
+    apply(s, (int)a1[j], BIG_TURNS);
+    if (a2[j] >= 0) apply(s, (int)a2[j], BIG_TURNS);
+  }
+  __syncwarp(g.mask);
   i64 stop = *s.round + horizon, ar = (i64)seed;
   int moves = 0;
   while (!*s.done && *s.round < stop && moves < MAX_ROLLOUT_STEPS) {
-    int a = teacher_pick(s, tp, &ar);
+    int a = teacher_pick_g<SIM_G>(s, tp, &ar, g);
     if (a < 0) break;
-    apply(s, a, BIG_TURNS);
+    __syncwarp(g.mask);  // every lane has read the board for this pick
+    if (lead) apply(s, a, BIG_TURNS);
+    __syncwarp(g.mask);  // the move is on the board for every lane
     if (!(a >= FFROM && a < FTO)) moves++;  // a fortify is one move of two steps
   }
-  position_score(s, (int)mes[j], w, o);
-  moves_out[j] = moves;
+  if (lead) {
+    position_score(s, (int)mes[j], w, o);
+    moves_out[j] = moves;
+  }
 }
 
 """
 
 BRANCH_KERNELS = ("k_branch_prep", "k_branch_sim")
-BRANCH_DEFS = f"#define BIG_TURNS {BIG_TURNS}\n#define MAX_ROLLOUT_STEPS {MAX_ROLLOUT_STEPS}\n"
+SIM_LANES = 16  # lanes per rollout copy (k_branch_sim): see "Speed of every cycle step" in the README
+
+
+def branch_defs(sim_lanes: int) -> str:
+    return f"#define BIG_TURNS {BIG_TURNS}\n#define MAX_ROLLOUT_STEPS {MAX_ROLLOUT_STEPS}\n#define SIM_G {sim_lanes}\n"
 
 
 class BranchEngine(TeacherEngine):
-    """TeacherEngine plus the branch-and-score kernels."""
+    """TeacherEngine plus the branch-and-score kernels. `sim_lanes` (1, 2, 4, 8, 16 or 32): the lanes that play one
+    rollout copy together; any value plays the same moves."""
 
     MIRROR = "branch"
 
-    def __init__(self, B: int, cfg=None, **kw):
-        super().__init__(B, cfg, extra_source=BRANCH_DEFS + BRANCH_BODY, extra_kernels=BRANCH_KERNELS, **kw)
+    def __init__(self, B: int, cfg=None, sim_lanes: int = SIM_LANES, **kw):
+        if sim_lanes not in (1, 2, 4, 8, 16, 32):
+            raise ValueError(f"sim_lanes {sim_lanes}: want a power of two up to 32")
+        self.sim_lanes = sim_lanes
+        super().__init__(B, cfg, extra_source=branch_defs(sim_lanes) + BRANCH_BODY, extra_kernels=BRANCH_KERNELS, **kw)
+
+    def branch_sim(self, n: int, *args):
+        """k_branch_sim over n copies (sim_lanes lanes each)."""
+        self._launch_t("k_branch_sim", n * self.sim_lanes, *self._state(), *self._tp(), *args, n)
 
 
 class SimPool:
@@ -163,7 +189,8 @@ class SimPool:
 
     def __init__(self, main: BranchEngine, capacity: int):
         self.main = main
-        self.e = BranchEngine(capacity, main.cfg, params=None, device=main.dev, allow_unverified=True, max_turns=main.max_turns)
+        self.e = BranchEngine(capacity, main.cfg, params=None, device=main.dev, allow_unverified=True, max_turns=main.max_turns,
+                              sim_lanes=main.sim_lanes)
         self.e.prm, self.e.tstats = main.prm, main.tstats
         self.capacity = capacity
 
@@ -263,8 +290,7 @@ class GpuBranch:
             out = torch.empty(S, 8, dtype=torch.float64, device=dev)
             mv = torch.empty(S, dtype=torch.long, device=dev)
             se = self.sims.e
-            se._launch_t("k_branch_sim", S, *se._state(), *se._tp(), sd.contiguous(), a1.contiguous(), a2.contiguous(),
-                         me.contiguous(), self.w, cfg.horizon, out, mv, S)
+            se.branch_sim(S, sd.contiguous(), a1.contiguous(), a2.contiguous(), me.contiguous(), self.w, cfg.horizon, out, mv)
             moves = int(mv.sum())
             parts = out.view(k, OPT, R, 8)
             acc = torch.zeros(k, OPT, 8, dtype=torch.float64, device=dev)

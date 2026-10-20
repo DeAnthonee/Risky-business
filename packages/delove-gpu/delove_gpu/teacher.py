@@ -150,6 +150,45 @@ struct TP { const double* p; const double* ow; const double* ola; const double* 
 #define TP_MAKE TP tp = {prm, ow, ola, old, obw, ooff, olen, tstats};
 
 __device__ __forceinline__ double rnd(i64* st) { return (double)mb_next(st) / 4294967296.0; }
+
+// ---- lane groups: G lanes of a warp make one pick together (branch.py's rollouts, k_teacher_run; G = 1 in the other
+// kernels). Every lane of the group runs the same code on the same board; only the candidate loops are split,
+// candidate c to lane c % G.
+// A loop's jitter draws keep their order: mulberry32 adds 0x6D2B79F5 to its state per draw, so the k-th draw of the
+// loop comes from st0 + k * 0x6D2B79F5, and a lane works out k from how many earlier candidates draw (a ballot).
+// The best candidate is reduced over the group with the loop's own rule (the higher score, the earlier candidate on a
+// tie), so the pick, the scores and the stream are the ones the one-thread loop gives.
+struct Grp { int lane; unsigned mask, below; };  // lane in the group, the group's lanes and those before this one
+__device__ __forceinline__ double rnd_at(unsigned st0, int k) {  // the k-th draw from state st0 (k = 0: the next one)
+  i64 st = (i64)(unsigned)(st0 + (unsigned)k * 0x6D2B79F5u);
+  return rnd(&st);
+}
+__device__ __forceinline__ void rnd_skip(i64* st, int k) { *st = (i64)(unsigned)((unsigned)*st + (unsigned)k * 0x6D2B79F5u); }
+// Thread i's place in its group of G lanes (blocks a multiple of 32, so groups never straddle warps).
+__device__ __forceinline__ Grp make_grp(int i, int G) {
+  Grp g;
+  g.lane = i % G;
+  int wl = threadIdx.x & 31;
+  g.mask = G == 32 ? 0xffffffffu : ((1u << G) - 1u) << (wl - g.lane);
+  g.below = g.mask & ((1u << wl) - 1u);
+  return g;
+}
+// Draws of the lanes before this one (and of the whole group in *total): `n` (0..3) draws per lane, as two ballots.
+template <int G> __device__ __forceinline__ int draws_before(const Grp& g, int n, int* total) {
+  if (G == 1) { *total = n; return 0; }
+  unsigned b0 = __ballot_sync(g.mask, n & 1) & g.mask, b1 = __ballot_sync(g.mask, n & 2) & g.mask;
+  *total = __popc(b0) + 2 * __popc(b1);
+  return __popc(b0 & g.below) + 2 * __popc(b1 & g.below);
+}
+// The group's best (best, score) by `j > bs` in candidate order: the higher score, the lower action on a tie (-1: none).
+template <int G> __device__ __forceinline__ void best_of(const Grp& g, int* best, double* bs) {
+  if (G == 1) return;
+  for (int off = G / 2; off > 0; off >>= 1) {
+    int ob = __shfl_xor_sync(g.mask, *best, off);
+    double os = __shfl_xor_sync(g.mask, *bs, off);
+    if (ob >= 0 && (*best < 0 || os > *bs || (os == *bs && ob < *best))) { *best = ob; *bs = os; }
+  }
+}
 __device__ __forceinline__ double dmax(double a, double b) { return a > b ? a : (b > a ? b : a); }  // Math.max (no NaN here)
 __device__ __forceinline__ double dmin(double a, double b) { return a < b ? a : (b < a ? b : a); }
 
@@ -480,8 +519,9 @@ __device__ void best_fortify(Board& b, S& s, int* bf, int* bt) {
   }
 }
 
-// One step of teacherPickWith(params): the action index of the candidate it picks (-1 if there is none).
-__device__ int teacher_pick(S& s, const TP& tp, i64* rng) {
+// One step of teacherPickWith(params): the action index of the candidate it picks (-1 if there is none). G lanes of a
+// group make it together (see Grp); the result, the board and *rng are the same in every lane.
+template <int G> __device__ int teacher_pick_g(S& s, const TP& tp, i64* rng, const Grp& g) {
   u8 m[A];
   int cnt = legal(s, m);
   if (cnt == 0) return -1;
@@ -578,18 +618,26 @@ __device__ int teacher_pick(S& s, const TP& tp, i64* rng) {
       }
     int best = -1;
     double bs = -DINF;
-    for (int t = 0; t < T; t++) {
-      if (!m[3 * t]) continue;
+    unsigned st0 = (unsigned)*rng;
+    int drawn = 0;
+    for (int t0 = 0; t0 < T; t0 += G) {  // territory t on lane t % G
+      int t = t0 + g.lane;
+      int n = t < T && m[3 * t] ? m[3 * t] + m[3 * t + 1] + m[3 * t + 2] : 0;  // its draws: one per legal slot
+      int total, k = drawn + draws_before<G>(g, n, &total);
+      drawn += total;
+      if (n == 0) continue;
       double sc = placement_score(b, s, t, placing);
       bool claim = b.own[t] < 0;
       for (int sl = 0; sl < 3; sl++) {
         int a = 3 * t + sl;
         if (!m[a]) continue;
         int amount = claim ? 1 : (sl == 0 ? lim : (sl == 1 ? (lim + 1) / 2 : 1));
-        double j = (sc + (double)amount * 1e-6) + rnd(rng) * 1e-3;
+        double j = (sc + (double)amount * 1e-6) + rnd_at(st0, k++) * 1e-3;
         if (j > bs) { bs = j; best = a; }
       }
     }
+    rnd_skip(rng, drawn);
+    best_of<G>(g, &best, &bs);
     return best;
   }
 
@@ -603,15 +651,22 @@ __device__ int teacher_pick(S& s, const TP& tp, i64* rng) {
     int income = b.myinc > 3 ? b.myinc : 3;  // jacob.ts: Math.max(3, my income)
     int best = -1;
     double best_ev = 0.0;
-    for (int e = 0; e < E; e++) {
-      int a = ATTACK + e;
-      if (!m[a]) continue;
-      int from = EFROM[e], to = ETO[e];
-      int fa = b.arm[from];
-      if (fa < 2) continue;
-      Odds o = odds(tp, fa, b.arm[to], OPT_CAPITALS && is_capital(s, to) ? 3 : 2);
-      double pw = BALANCED ? o.bwin : o.win;
-      if (pw < min_win) continue;
+    unsigned st0 = (unsigned)*rng;
+    int drawn = 0;
+    for (int e0 = 0; e0 < E; e0 += G) {  // edge e on lane e % G
+      int e = e0 + g.lane, a = ATTACK + e, from = 0, to = 0, fa = 0;
+      bool go = e < E && m[a];
+      if (go) { from = EFROM[e]; to = ETO[e]; fa = b.arm[from]; go = fa >= 2; }
+      Odds o;
+      double pw = 0.0;
+      if (go) {
+        o = odds(tp, fa, b.arm[to], OPT_CAPITALS && is_capital(s, to) ? 3 : 2);
+        pw = BALANCED ? o.bwin : o.win;
+        go = !(pw < min_win);
+      }
+      int total, k = drawn + draws_before<G>(g, go ? 1 : 0, &total);  // the attacks weighed draw, in edge order
+      drawn += total;
+      if (!go) continue;
       int owner = b.own[to];
       double value = capture_value(b, s, to, card);
       double exposure = (1.0 - pw) * (p[P_EXPOSURE_BASE] + (double)b.thr[from] * p[P_EXPOSURE_THREAT] + defense_need(b, from) * p[P_EXPOSURE_NEED]);
@@ -624,9 +679,11 @@ __device__ int teacher_pick(S& s, const TP& tp, i64* rng) {
         double surplus = dmax(0.0, (double)(fa - b.thr[from]) / (double)income - p[P_STACK_FREE]);
         ol = p[P_OWN_LOSS] / (1.0 + late) / (1.0 + p[P_STACK_RAMP] * log1p_fd(surplus));
       }
-      double ev = pw * value + o.ld * dw - o.la * ol - exposure + rnd(rng) * 1e-3;
+      double ev = pw * value + o.ld * dw - o.la * ol - exposure + rnd_at(st0, k) * 1e-3;
       if (ev > min_ev && (best < 0 || ev > best_ev)) { best = a; best_ev = ev; }
     }
+    rnd_skip(rng, drawn);
+    best_of<G>(g, &best, &best_ev);
     if (best >= 0) return best;
   }
 
@@ -638,6 +695,11 @@ __device__ int teacher_pick(S& s, const TP& tp, i64* rng) {
   if (m[END]) return END;
   for (int a = 0; a < A; a++) if (m[a]) return a;
   return -1;
+}
+
+__device__ __forceinline__ int teacher_pick(S& s, const TP& tp, i64* rng) {
+  Grp g = {0, 1u, 0u};
+  return teacher_pick_g<1>(s, tp, rng, g);
 }
 
 __device__ __forceinline__ i64* agent_rng(i64* arng, int rstride, int b, int seat) {
@@ -678,24 +740,36 @@ extern "C" __global__ void k_teacher_play(STATE_ARGS, TP_ARGS, i64* arng, int rs
 
 // Teacher seats play on, in place, until a seat that is not a teacher (tseat[b * NS + seat] == 0) is to move, the game
 // ends, or max_steps steps (each on the seat's own stream, exactly as one k_teacher + k_step per step). dec[b] counts
-// decisions as game.ts does (a fortify is one); steps[b] the steps played.
+// decisions as game.ts does (a fortify is one); steps[b] the steps played. RUN_G lanes per game (Grp): each lane picks
+// on its own copy of the seat's stream, lane 0 writes the stream back and makes the move.
 extern "C" __global__ void k_teacher_run(STATE_ARGS, TP_ARGS, i64* arng, int rstride, const u8* tver, const u8* tseat, const u8* active,
                                          i64* dec, i64* steps, int max_steps, int max_turns, int B) {
-  int b = blockIdx.x * blockDim.x + threadIdx.x;
-  if (b >= B) return;
+  int i = blockIdx.x * blockDim.x + threadIdx.x, b = i / RUN_G;
+  if (b >= B) return;  // the whole group
+  Grp g = make_grp(i, RUN_G);
+  bool lead = g.lane == 0;
   MAKE_S(b);
   TP_MAKE
   int n = 0;
   if (active[b]) {
     while (n < max_steps && !*s.done && tseat[(i64)b * NS + cur(s)]) {
-      int a = teacher_pick(s, seat_tp(tp, tver, b, cur(s)), agent_rng(arng, rstride, b, cur(s)));
+      i64* rp = agent_rng(arng, rstride, b, cur(s));
+      i64 r = *rp;
+      int a = teacher_pick_g<RUN_G>(s, seat_tp(tp, tver, b, cur(s)), &r, g);
+      __syncwarp(g.mask);  // every lane has read the board and the stream
+      if (lead) {
+        *rp = r;
+        if (a >= 0) {
+          if (!(a >= FTO && a < END)) dec[b] += 1;
+          apply(s, a, max_turns);
+        }
+      }
+      __syncwarp(g.mask);
       if (a < 0) break;
-      if (!(a >= FTO && a < END)) dec[b] += 1;
-      apply(s, a, max_turns);
       n++;
     }
   }
-  steps[b] = n;
+  if (lead) steps[b] = n;
 }
 
 // Odds as the kernel computes them, for the tests: out = win, balancedWin, attacker losses, defender losses.
@@ -732,8 +806,11 @@ def odds_tensors(device) -> list[torch.Tensor]:
     return _odds_dev[key]
 
 
-def teacher_source(e) -> str:
-    return _source(e) + _consts(e) + TEACHER_BODY
+RUN_LANES = 8  # lanes per game in k_teacher_run (Grp)
+
+
+def teacher_source(e, run_lanes: int = 1) -> str:
+    return _source(e) + _consts(e) + f"#define RUN_G {run_lanes}\n" + TEACHER_BODY
 
 
 class TeacherEngine(FusedEngine):
@@ -743,7 +820,7 @@ class TeacherEngine(FusedEngine):
     MIRROR = "teacher"
 
     def __init__(self, B: int, cfg=None, params: dict[str, float] | list[dict[str, float]] | None = None, extra_source: str = "",
-                 extra_kernels=(), **kw):
+                 extra_kernels=(), run_lanes: int = RUN_LANES, **kw):
         allow = kw.get("allow_unverified", False)
         kw["allow_unverified"] = True  # checked below under this mirror's own name
         super().__init__(B, cfg, **kw)
@@ -756,7 +833,10 @@ class TeacherEngine(FusedEngine):
         self._tver0 = torch.zeros(B, self.n, dtype=torch.uint8, device=self.dev)
         self.ow, self.ola, self.old, self.obw, self.ooff, self.olen = odds_tensors(self.dev)
         self.tstats = torch.zeros(4, dtype=torch.int64, device=self.dev)  # [odds outside the tables, -, steps, -]
-        self.tk = compile_kernels(teacher_source(self) + extra_source, TEACHER_KERNELS + tuple(extra_kernels), FMAD_OFF)
+        if run_lanes not in (1, 2, 4, 8, 16, 32):
+            raise ValueError(f"run_lanes {run_lanes}: want a power of two up to 32")
+        self.run_lanes = run_lanes
+        self.tk = compile_kernels(teacher_source(self, run_lanes) + extra_source, TEACHER_KERNELS + tuple(extra_kernels), FMAD_OFF)
         # per (game, seat) agent streams, seeded like playGame: mixSeed(seed, 0x5eed + seat)
         self.arng = torch.zeros(B, self.n, dtype=torch.long, device=self.dev)
 
@@ -789,7 +869,7 @@ class TeacherEngine(FusedEngine):
         """Teacher seats (tseat [B, seats] bool, each playing its tver version) play on in every active game until
         another seat is to move; returns the steps each game played. dec (int64 [B]) gains the decisions played."""
         steps = torch.zeros(self.B, dtype=torch.long, device=self.dev)
-        self._launch_t("k_teacher_run", self.B, *self._state(), *self._tp(), self.arng, self.n, self.tver, tseat.to(torch.uint8).contiguous(),
+        self._launch_t("k_teacher_run", self.B * self.run_lanes, *self._state(), *self._tp(), self.arng, self.n, self.tver, tseat.to(torch.uint8).contiguous(),
                        active.to(torch.uint8).contiguous(), dec, steps, max_steps, self.max_turns, self.B)
         return steps
 

@@ -1,6 +1,4 @@
 {
-  "$schema": "http://json-schema.org/draft-07/schema#",
-  "description": "Generation 5 baseline game options for Delove testing and evaluation (Fog of War OFF)",
   "autoSetup": true,
   "randomDeal": true,
   "setupBatch": 1,

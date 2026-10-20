@@ -716,3 +716,43 @@ What changed against cycle 5, and what it did:
 Still open: Jacob Sensei beats `delove@4` 0.67 at World 6p, so imitation has headroom in multiplayer, and default
 Classic 4-6p did not move. Next: the range specialists from `delove@4` (#114), faster big-table search (in progress),
 cost-balanced lanes and cloud GPUs (#115) for shorter cycles.
+
+## Cycle 7
+
+### c7: the range specialists (no new games)
+
+The owner's plan: three networks fine-tuned from `delove@4`, each on the cycle 5-6 decisions with its number of
+players alive (`train.py --alive`), and routed by players alive within one game (`delove-range@1`, #114). Script:
+`scripts/cycles/c7-specialists.sh`. Each specialist trained for 1.5 epochs at lr 2e-4 with `--amp` and
+`--branch-weights 0.5,1,2`. Cycle 5's multiplayer tables were value-only data.
+
+| specialist | players alive | training decisions (cycle 6 + cycle 5 value-only) | steps | minutes |
+| --- | --- | --- | --- | --- |
+| Delove Long Range (`c7-long`) | 4-10 | 2.67M + 3.2M | 10,948 | 17.6 |
+| Delove Mid Range (`c7-mid`) | 3 | the 3-alive share of the same tables | 2,817 | 4.4 |
+| Delove Close Range (`c7-close`) | 2 | 2-alive positions plus Classic 2p and Four Crowns | 6,761 | 8.5 |
+
+### c7: ladder gate (`delove-range@1` vs `delove@4`)
+
+| opponent | players | options | games | score (95%) | points diff per seat (95%) | turn limit |
+| --- | --- | --- | --- | --- | --- | --- |
+| delove@4 | 2 | {} | 800 | 0.501 ± 0.022 | +0.01 ± 0.13 | 0 |
+| delove@4 | 4 | {} | 200 | 0.505 ± 0.054 | +0.08 ± 0.23 | 36 |
+| delove@4 | 6 | {} | 200 | 0.480 ± 0.065 | -0.08 ± 0.49 | 6 |
+| delove@4 | 6 | World | 200 | 0.515 ± 0.067 | +0.07 ± 0.33 | 0 |
+| delove@4 | 10 | World | 200 | 0.490 ± 0.076 | +0.03 ± 0.43 | 0 |
+| delove@4 | 6 | league: progressive, capitals, 8 blizzards | 200 | **0.557 ± 0.032** | **+0.53 ± 0.26** | 9 |
+| delove@4 | 6 | league: World, fixed cards, capitals | 200 | 0.522 ± 0.060 | +0.05 ± 0.30 | 1 |
+| delove@4 | 4 | league: exponential, 8 blizzards | 200 | 0.460 ± 0.055 | -0.26 ± 0.35 | 18 |
+| delove@4 | 2 | league: exponential, 8 blizzards | 400 | 0.497 ± 0.035 | -0.02 ± 0.21 | 14 |
+| jacob-sensei@1 | 6 | World | 200 | 0.305 ± 0.054 | -0.94 ± 0.19 | 0 |
+
+Time: 31 min of training (GPU) and 11 min of gates (CPU, 24 processes), 42 min in all.
+
+**Review.** Not promoted: the routed trio is even with `delove@4` everywhere but one league table (+0.53 points per
+seat at league Classic 6p), and no better on points elsewhere. Splitting the *same* lessons by players alive gives a
+network little it hadn't learned from all of them together: `delove@4` already saw every one of these positions.
+Mid Range also had the least data. Specialists need different lessons per phase rather than a split of the same
+ones: more games that reach 3 players, a duel-focused search or teacher for the 1v1, or phase-specific goals. That
+makes them a later experiment. The gap that remains is the teacher: Jacob Sensei still beats every Delove 0.69-0.70 at
+World 6p. Next: new games (cycle 8) with the faster big-table search (#117), more GPU lanes and `delove@4` as ranker.

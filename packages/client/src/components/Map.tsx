@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { getMap, type GameView, type MapDef } from '@risk/engine';
 
-export type Highlight = 'source' | 'target' | 'place' | 'selected' | 'pending-target';
+export type Highlight = 'source' | 'target' | 'place' | 'selected' | 'pending-target' | 'hover-source' | 'hover-target';
 
 export interface MoveAnim {
   id: number;
@@ -138,6 +138,44 @@ export function GameMap(props: MapProps) {
   const now = Date.now();
   const dense = map.territories.length > 50;
 
+  // Hovered territory and its attackable targets (for both watchers and players)
+  const [hovered, setHovered] = useState<string | null>(null);
+
+  const attackableFromHover = useMemo(() => {
+    if (!hovered || dimOthers || bonusView) return null;
+    if (isFrozen(hovered) || isHidden(hovered)) return null;
+    const ts = view.territories[hovered];
+    const owner = ts?.owner;
+    if (!owner) return null;
+    const player = view.players.find((p) => p.id === owner);
+    if (!player || player.isNeutral) return null;
+
+    const adj = map.adjacency[hovered] ?? [];
+    const targets = new Set<string>();
+    for (const n of adj) {
+      if (isFrozen(n)) continue;
+      const nTs = view.territories[n];
+      // Target must not be owned by the same player (cannot attack your own territory)
+      if (nTs && nTs.owner === owner) continue;
+      targets.add(n);
+    }
+    return { source: hovered, targets };
+  }, [hovered, dimOthers, bonusView, view, map, isFrozen, isHidden]);
+
+  const effectiveHighlights = useMemo(() => {
+    if (!attackableFromHover) return highlights;
+    const merged: Record<string, Highlight> = { ...highlights };
+    if (!merged[attackableFromHover.source]) {
+      merged[attackableFromHover.source] = 'hover-source';
+    }
+    for (const targetId of attackableFromHover.targets) {
+      if (!merged[targetId] || merged[targetId] === 'source') {
+        merged[targetId] = 'hover-target';
+      }
+    }
+    return merged;
+  }, [highlights, attackableFromHover]);
+
   // ---- zoom & pan (viewBox manipulation; wheel, drag, pinch, buttons) ----
   const [vb, setVb] = useState({ x: 0, y: 0, w: W, h: H });
   useEffect(() => setVb({ x: 0, y: 0, w: W, h: H }), [W, H]);
@@ -214,6 +252,7 @@ export function GameMap(props: MapProps) {
         zoomAt(d / gesture.current.pinch, (a.x + b.x) / 2, (a.y + b.y) / 2);
         gesture.current.pinch = d;
         gesture.current.moved = true;
+    setHovered(null);
       }
       return;
     }
@@ -223,6 +262,7 @@ export function GameMap(props: MapProps) {
     const dy = e.clientY - last.y;
     if (!gesture.current.moved && Math.hypot(dx, dy) < 4) return;
     gesture.current.moved = true;
+    setHovered(null);
     gesture.current.last = { x: e.clientX, y: e.clientY };
     const { s } = toMap(e.clientX, e.clientY) as { s?: number };
     const k = s ?? 1;
@@ -279,6 +319,7 @@ export function GameMap(props: MapProps) {
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
+      onPointerLeave={() => setHovered(null)}
       onDoubleClick={(e) => zoomAt(1.6, e.clientX, e.clientY)}
     >
       <defs>
@@ -305,8 +346,8 @@ export function GameMap(props: MapProps) {
       </defs>
 
       {/* Ocean (oversized so panning never shows the page background) */}
-      <rect x={-W} y={-H} width={3 * W} height={3 * H} className="ocean" />
-      <rect x={-W} y={-H} width={3 * W} height={3 * H} fill="url(#ocean-grid)" />
+      <rect x={-W} y={-H} width={3 * W} height={3 * H} className="ocean" onPointerEnter={() => setHovered(null)} />
+      <rect x={-W} y={-H} width={3 * W} height={3 * H} fill="url(#ocean-grid)" onPointerEnter={() => setHovered(null)} />
 
       {/* Continent outlines give the board its regions */}
       <g className="continents" filter="url(#land-shadow)">
@@ -322,17 +363,22 @@ export function GameMap(props: MapProps) {
         {map.seaLinks.map((l) => {
           const A = anchor(l.a);
           const B = anchor(l.b);
+          const isAttackLink = attackableFromHover && (
+            (attackableFromHover.source === l.a && attackableFromHover.targets.has(l.b)) ||
+            (attackableFromHover.source === l.b && attackableFromHover.targets.has(l.a))
+          );
+          const linkCls = isAttackLink ? 'attack-link' : '';
           if (l.wrap) {
             const left = A.x < B.x ? A : B;
             const right = A.x < B.x ? B : A;
             return (
-              <g key={`${l.a}-${l.b}`}>
-                <line x1={left.x} y1={left.y} x2={0} y2={left.y} />
-                <line x1={right.x} y1={right.y} x2={W} y2={right.y} />
+              <g key={`${l.a}-${l.b}`} className={linkCls}>
+                <line x1={left.x} y1={left.y} x2={0} y2={left.y} className={linkCls} />
+                <line x1={right.x} y1={right.y} x2={W} y2={right.y} className={linkCls} />
               </g>
             );
           }
-          return <line key={`${l.a}-${l.b}`} x1={A.x} y1={A.y} x2={B.x} y2={B.y} />;
+          return <line key={`${l.a}-${l.b}`} className={linkCls} x1={A.x} y1={A.y} x2={B.x} y2={B.y} />;
         })}
       </g>
 
@@ -340,7 +386,7 @@ export function GameMap(props: MapProps) {
       <g className="territories">
         {map.territories.map((t) => {
           const ts = view.territories[t.id];
-          const hl = highlights[t.id];
+          const hl = effectiveHighlights[t.id];
           const fog = isHidden(t.id);
           const owner = fog ? null : colorOf(ts?.owner ?? null);
           const flashing = !fog && flashes[t.id] && now - flashes[t.id] < 1200;
@@ -368,6 +414,7 @@ export function GameMap(props: MapProps) {
               className={cls}
               fill={fog ? '#2a3140' : (owner ?? continentColor(map, t.continent))}
               onClick={(e) => click(t.id, e.shiftKey)}
+              onPointerEnter={() => !gesture.current.moved && setHovered(t.id)}
             >
               <title>
                 {fog ? `${t.name} — hidden by fog` : `${t.name} — ${view.players.find((p) => p.id === ts?.owner)?.name ?? 'unowned'}, ${ts?.armies ?? 0} armies`}
@@ -468,7 +515,7 @@ export function GameMap(props: MapProps) {
       <g className="badges" style={bonusView ? { display: 'none' } : undefined}>
         {map.territories.map((t) => {
           const ts = view.territories[t.id];
-          const hl = highlights[t.id];
+          const hl = effectiveHighlights[t.id];
           const pending = pendingPlacements[t.id] ?? 0;
           const fog = isHidden(t.id);
           const owner = fog ? '#3a4152' : (colorOf(ts?.owner ?? null) ?? '#555');
@@ -489,7 +536,13 @@ export function GameMap(props: MapProps) {
             );
           const cls = ['badge', hl ? `hl-${hl}` : '', dim ? 'dim' : '', hl ? 'clickable' : '', fog ? 'fog' : '', cap ? 'capital' : ''].filter(Boolean).join(' ');
           return (
-            <g key={t.id} className={cls} transform={`translate(${t.x},${t.y})`} onClick={(e) => click(t.id, e.shiftKey)}>
+            <g
+              key={t.id}
+              className={cls}
+              transform={`translate(${t.x},${t.y})`}
+              onClick={(e) => click(t.id, e.shiftKey)}
+              onPointerEnter={() => !gesture.current.moved && setHovered(t.id)}
+            >
               <circle className="ring" r={dense ? 15 : 19} />
               <circle className="body" r={dense ? 11 : 14} fill={owner} />
               {cap && !fog && (

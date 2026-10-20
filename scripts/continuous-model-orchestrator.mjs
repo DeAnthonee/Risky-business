@@ -57,7 +57,7 @@ for (let g = 1; g <= TOTAL_GAMES; g++) {
     '--games', '1',
     '--pace', '0',
     '--model', 'qwen3:14b',
-    '--ctx', '20480',
+    '--ctx', '12288',
     '--curation-interval', '5',
     '--skip-rivalries',
     '--no-chat',

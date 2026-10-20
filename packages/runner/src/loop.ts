@@ -188,12 +188,13 @@ export async function runLoop(o: LoopOptions): Promise<GameResult[]> {
     }
     let setup;
     const totalSeats = order.length + openSeats;
+    const roundOptions = gameOptions(totalSeats, map, o.options, random, modes);
     try {
       setup = await createGame(api, order, {
         gameName: o.generation
           ? `Generation ${o.generation.replace(/^gen/i, '')} Match ${g + 1}`
           : (o.mechanicsOnly ? 'Mechanics lab' : 'Bot table'),
-        options: gameOptions(totalSeats, map, o.options, random, modes),
+        options: roundOptions,
         openSeats,
         onLobbyReady: (id) => {
           if (openSeats > 0) {
@@ -236,7 +237,7 @@ export async function runLoop(o: LoopOptions): Promise<GameResult[]> {
           seatName: id.name,
           playerId: id.playerId,
           profile: o.mechanicsOnly ? null : withRelationships([profileExcerpt(persona), personalContext].filter(Boolean).join('\n\n'), relationships),
-          learnings: condenseLearnings(learnings),
+          learnings: condenseLearnings(learnings, roundOptions),
           gameId,
           scoutingDir,
           timeoutMs: o.planTimeoutMs,

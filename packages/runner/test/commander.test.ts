@@ -179,6 +179,38 @@ describe('prompt helpers', () => {
     expect(cut.endsWith('TAIL')).toBe(true);
   });
 
+  it('condenseLearnings filters sections based on game mode options', () => {
+    const raw = [
+      '# Risk Rules',
+      '## Game Rules & Foundations',
+      'Core rules here.',
+      '### Fog of War & Information Control',
+      'Watch border troops closely.',
+      '### Non-Fog of War (Public Board & Coalition Counterplay)',
+      'Public troop counts are known.',
+      '### Fixed Cards (Continental Attrition & Border Defense)',
+      'Bonuses matter most.',
+      '### Progressive Cards (Escalating Spoils & Chain Eliminations)',
+      'Escalating trade values.',
+      '### Capitals Conquest',
+      'Capitals hold bonuses.',
+    ].join('\n\n');
+
+    const progFog = condenseLearnings(raw, { fogOfWar: true, cardValues: 'progressive', capitals: false });
+    expect(progFog).toContain('Fog of War & Information Control');
+    expect(progFog).not.toContain('Non-Fog of War');
+    expect(progFog).toContain('Progressive Cards');
+    expect(progFog).not.toContain('Fixed Cards');
+    expect(progFog).not.toContain('Capitals Conquest');
+
+    const fixedCaps = condenseLearnings(raw, { fogOfWar: false, cardValues: 'fixed', capitals: true });
+    expect(fixedCaps).not.toContain('Fog of War & Information Control');
+    expect(fixedCaps).toContain('Non-Fog of War');
+    expect(fixedCaps).not.toContain('Progressive Cards');
+    expect(fixedCaps).toContain('Fixed Cards');
+    expect(fixedCaps).toContain('Capitals Conquest');
+  });
+
   it('profileExcerpt keeps the intro and Strategy, and truncates', () => {
     const md = '# Shen\nWarrior.\n\n## Strategy\nHold the line.\n\n## History\nLong ago.';
     const ex = profileExcerpt(md)!;

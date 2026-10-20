@@ -32,7 +32,7 @@ sets plans, talks, and writes up what it learned after every game)
   --characters-key KEY    bind seats to their characters (leaderboard) and save diary entries and relationship updates
   --model NAME            Ollama model (default qwen3:14b)
   --ollama URL            Ollama base URL (default http://localhost:11434)
-  --ctx N                 Ollama context window, num_ctx (default 20480)
+  --ctx N                 Ollama context window, num_ctx (default 12288)
   --llm-concurrency N     simultaneous model requests (default 1)
   --plan-timeout SEC      how long a move waits for the commander's plan (default 45)
   --no-commander          plain planned bot, no model call per turn
@@ -75,7 +75,7 @@ async function main() {
       'characters-key': { type: 'string' },
       model: { type: 'string', default: 'qwen3:14b' },
       ollama: { type: 'string', default: 'http://localhost:11434' },
-      ctx: { type: 'string', default: '20480' },
+      ctx: { type: 'string', default: '12288' },
       'llm-concurrency': { type: 'string', default: '1' },
       'plan-timeout': { type: 'string', default: '45' },
       'no-commander': { type: 'boolean', default: false },

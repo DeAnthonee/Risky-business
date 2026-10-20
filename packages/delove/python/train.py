@@ -13,7 +13,12 @@ fully; mode "winners": weight loser_weight + (1 - loser_weight) * z, so mostly t
 counts more the better the game went than expected from there, and weights are normalised per batch). Value: binary
 cross-entropy on the game result `z`, on every decision.
 Writes <out>.pt (weights + config) and <out>.json (training settings and validation metrics).
+
+A dataset spec can end in #F (e.g. data/delove/c4-classic2/classic#0.4): each epoch then trains on a fresh random F of
+that dataset's training decisions, so older cycles keep their influence at a fraction of their cost. --amp runs the
+network in bfloat16 (mixed precision; losses, optimizer and weights stay float32).
 """
+import contextlib
 import argparse
 import json
 import os
@@ -30,10 +35,12 @@ MODES = ("imitate", "winners", "advantage")
 
 
 class Data:
-    def __init__(self, folder, mode="imitate", loser_weight=0.1, target="z"):
+    def __init__(self, folder, mode="imitate", loser_weight=0.1, target="z", fraction=1.0):
         if mode not in MODES:
             raise SystemExit(f"{folder}: unknown mode {mode!r} ({', '.join(MODES)})")
-        self.name, self.mode, self.loser_weight = folder, mode, loser_weight
+        if not 0 < fraction <= 1:
+            raise SystemExit(f"{folder}: fraction {fraction} must be in (0, 1]")
+        self.name, self.mode, self.loser_weight, self.fraction = folder, mode, loser_weight, fraction
         with open(os.path.join(folder, "features.json")) as f:
             self.info = json.load(f)
         if self.info["encoderVersion"] != SUPPORTED_ENCODER:
@@ -103,8 +110,11 @@ def blocks(idx, block, rng):
     return [chunks[i] for i in order]
 
 
-def step_loss(model, b, adj, value_weight, beta=0.3):
-    logits, value = model(b["territory"], b["glob"], adj, b["cand"], b["cand_from"], b["cand_to"], b["cand_batch"])
+def step_loss(model, b, adj, value_weight, beta=0.3, amp=False):
+    ctx = torch.autocast("cuda", dtype=torch.bfloat16) if amp else contextlib.nullcontext()
+    with ctx:
+        logits, value = model(b["territory"], b["glob"], adj, b["cand"], b["cand_from"], b["cand_to"], b["cand_batch"])
+    logits, value = logits.float(), value.float()
     logp = segment_log_softmax(logits, b["cand_batch"], b["n"])
     w = b["w"]
     if b["advantage"]:
@@ -119,14 +129,14 @@ def step_loss(model, b, adj, value_weight, beta=0.3):
 
 
 @torch.no_grad()
-def evaluate(model, data, idx, device, batch_size, value_weight, beta=0.3):
+def evaluate(model, data, idx, device, batch_size, value_weight, beta=0.3, amp=False):
     adj = torch.as_tensor(data.adj, device=device)
     model.eval()
     tot = np.zeros(4)
     n = 0
     for i in range(0, len(idx), batch_size):
         b = data.batch(idx[i : i + batch_size], device)
-        losses = step_loss(model, b, adj, value_weight, beta)
+        losses = step_loss(model, b, adj, value_weight, beta, amp)
         tot += np.array([x.item() for x in losses]) * b["n"]
         n += b["n"]
     model.train()
@@ -153,16 +163,23 @@ def main():
     ap.add_argument("--val", type=float, default=0.05)
     ap.add_argument("--max-val", type=int, default=100_000, help="cap on validation decisions per evaluation")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--amp", action="store_true", help="mixed precision: the network in bfloat16 (CUDA only)")
     args = ap.parse_args()
 
     torch.manual_seed(args.seed)
     rng = np.random.default_rng(args.seed)
     device = "cuda" if torch.cuda.is_available() else "cpu"
+    amp = args.amp and device == "cuda"
+
     def parse(spec):
+        fraction = 1.0
+        if "#" in spec:
+            spec, f = spec.rsplit("#", 1)
+            fraction = float(f)
         for mode in MODES:
             if spec.endswith(":" + mode):
-                return Data(spec[: -len(mode) - 1], mode, args.loser_weight, args.value_target)
-        return Data(spec, "imitate", args.loser_weight, args.value_target)
+                return Data(spec[: -len(mode) - 1], mode, args.loser_weight, args.value_target, fraction)
+        return Data(spec, "imitate", args.loser_weight, args.value_target, fraction)
 
     datasets = [parse(d) for d in args.data]
     first = datasets[0]
@@ -175,7 +192,8 @@ def main():
         if len(va) > cap:
             va = np.sort(rng.choice(va, cap, replace=False))
         splits.append((tr, va))
-    n_train = sum(len(tr) for tr, _ in splits)
+    # Decisions per epoch: a dataset with a fraction contributes that share of its training decisions.
+    n_train = int(sum(len(tr) * d.fraction for d, (tr, _) in zip(datasets, splits)))
     f_t, f_g, f_c = first.territory.shape[-1], first.glob.shape[-1], first.cand.shape[-1]
 
     if args.init:
@@ -188,8 +206,8 @@ def main():
     steps_total = int(args.epochs * n_train / args.batch)
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
     sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=args.lr, total_steps=max(1, steps_total), pct_start=0.05)
-    print(json.dumps(dict(device=device, datasets={d.name: dict(mode=d.mode, target=d.target, decisions=len(d)) for d in datasets},
-                          train=n_train, params=params, steps=steps_total)))
+    print(json.dumps(dict(device=device, datasets={d.name: dict(mode=d.mode, target=d.target, decisions=len(d), fraction=d.fraction) for d in datasets},
+                          train=n_train, params=params, steps=steps_total, amp=amp)))
 
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     step, t0, history = 0, time.time(), []
@@ -197,7 +215,12 @@ def main():
 
     def batches():
         """One epoch: every dataset's blocks shuffled together; each batch comes from a single dataset."""
-        tagged = [(di, blk) for di, (tr, _) in enumerate(splits) for blk in blocks(tr, block, rng)]
+        tagged = []
+        for di, (tr, _) in enumerate(splits):
+            bl = blocks(tr, block, rng)
+            if datasets[di].fraction < 1:  # a fresh random share of this dataset's blocks each epoch
+                bl = bl[: max(1, round(len(bl) * datasets[di].fraction))]
+            tagged += [(di, blk) for blk in bl]
         buffers = [[] for _ in datasets]
         for j in rng.permutation(len(tagged)):
             di, blk = tagged[j]
@@ -207,14 +230,15 @@ def main():
                 buffers[di] = []
 
     def label(d):
+        # "<dataset>/<map>" (one dataset can hold several maps, e.g. a GPU step's big tables).
         parts = os.path.normpath(d.name).split(os.sep)
-        return parts[-2] if len(parts) >= 2 else d.name
+        return "/".join(parts[-2:]) if len(parts) >= 2 else d.name
 
     def validate():
         per = {}
         tot, n = np.zeros(4), 0
         for d, (_, va) in zip(datasets, splits):
-            m = evaluate(model, d, va, device, args.batch, args.value_weight, args.beta)
+            m = evaluate(model, d, va, device, args.batch, args.value_weight, args.beta, amp)
             per[label(d)] = m
             tot += np.array([m["loss"], m["policy_loss"], m["value_loss"], m["top1"]]) * len(va)
             n += len(va)
@@ -226,7 +250,7 @@ def main():
             if step >= steps_total:
                 break
             b = datasets[di].batch(ks, device)
-            loss, pl, vl, acc = step_loss(model, b, adjs[di], args.value_weight, args.beta)
+            loss, pl, vl, acc = step_loss(model, b, adjs[di], args.value_weight, args.beta, amp)
             opt.zero_grad(set_to_none=True)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)

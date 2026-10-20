@@ -379,6 +379,7 @@ class Group:
         torch.cuda.reset_peak_memory_stats(dev)
         self.fill(list(range(B)))
         t0, it, total = time.time(), 0, sum(t.games for t in self.tables)
+        first = len(self.r.results)  # this configuration's games, for the turn-limit count in the progress line
         done_games = 0
         # teacher seats whose decisions are not recorded play their moves in place, inside one kernel, until a branch or
         # network seat is to move: same moves and streams as one step at a time, without a round trip per move
@@ -438,7 +439,12 @@ class Group:
                 self.fill(done.tolist())
             it += 1
             if progress and it % 100 == 0:
-                print(f"    {self.cfg.label()} step {it}: {done_games}/{total} games, {time.time() - t0:.0f}s", flush=True)
+                limit = sum(1 for r in self.r.results[first:] if r["winner"] is None)
+                # The branch statistics so far (the whole run's), for scripts/dashboard.mjs.
+                st = self.r.stats
+                print(f"    {self.cfg.label()} step {it}: {done_games}/{total} games, {limit} at the turn limit, {time.time() - t0:.0f}s"
+                      f" | branch {json.dumps({k: st[k] for k in ('decisions', 'branched', 'simulations', 'simulatedMoves', 'changed', 'gain', 'changedByKind', 'branchedByKind')})}",
+                      flush=True)
         return {"games": done_games, "seconds": round(time.time() - t0, 1), "steps": it, "odds_outside_tables": int(e.tstats[0]),
                 "peak_gpu_gb": round(torch.cuda.max_memory_allocated(dev) / 2**30, 2)}
 

@@ -242,6 +242,27 @@ The games are the CPU's: cycle 3's Classic 2-player step played this way (`c3.cy
 same environment as cycle 3) gives a `cycle.md` step table identical to cycle 3's CPU one, every number of it: wins
 per table, mean turns, decisions, and all branch-and-score statistics.
 
+**The gate table** reports, for each ladder match, the score (win share, 95% interval, Elo) and the leaderboard view:
+mean points per seat for the candidate and the opponent, their difference with a 95% interval (from the spread of the
+gate's chunks), the candidate's mean place and kills per seat, and the games that hit the turn limit. Since cycle 5
+promotions are judged mainly on the points difference at 4-10 players (`docs/delove-status.md` section 3).
+
+**Training options** (`python/train.py`, through `train_args` and `train_data`):
+- `--amp`: the network in bfloat16 mixed precision (losses, optimizer and weights stay float32). On the RTX 4060 it
+  gives the same validation loss as float32 (0.9455 vs 0.9449 on cycle 5 data) at 1.9x the speed, and less memory.
+- `<dataset>#F` (in `train_data`, or `--data <path>#F`): each epoch trains on a fresh random fraction F of that
+  dataset's training decisions, so older cycles keep their influence at a fraction of their cost.
+- Keep a batch within the card: on big maps (Greater Europe, Fantasy) batch 1024 spilled past the RTX 4060's 8 GB into
+  shared memory and ran 5x slower; batch 512 fits.
+
+**The dashboard.** `node packages/delove/scripts/dashboard.mjs --runs <runs folder> [--port 8790]` serves a live,
+read-only view of the runs under `--runs` (default `runs/delove`; on the training PC, the stage2 worktree's
+`runs/delove`) at `http://127.0.0.1:8790`, bound to 127.0.0.1 only, no external scripts. It shows the phase and
+pipeline of a cycle, each step's games per map and table size with turn-limit counts, games per minute and an
+estimate of the time left (from `delove_gpu.generate`'s progress lines), the branch-and-score statistics, training
+curves and validation by dataset, the gates with score and points intervals, and the machine's GPU and CPU load.
+`?run=<name>` picks a run; the default is the newest.
+
 A cycle-2-sized run (2,000 micro games, 3,000 Classic 2-player and 600 Classic 4-player branch games, training,
 1,800 gate games) takes **20 minutes**, where cycle 1's way took about 80 minutes before its gates:
 

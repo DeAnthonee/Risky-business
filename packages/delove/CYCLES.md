@@ -344,3 +344,167 @@ small map, even head to head. Cycle 2 builds on it (no worse anywhere) and is ga
 **Review:** a fresh, larger network (hidden 192, 6 rounds; 2 epochs on every branch decision so far) is the first candidate statistically better than delove@2 at 2 players (0.541, 95% interval 0.513-0.569), and +70/+78 Elo at 4/6 players. It misses the 0.55 promotion bar at 2 players by 0.009.
 
 **Promoted to delove@3** (owner's decision, 2026-10-19): statistically better than delove@2 at 2 players (0.541, 95% 0.513-0.569) and at 4 and 6 players, just under the automatic 0.55 bar at 2 players.
+
+## Cycle 5
+
+## c5
+
+### Cycle 5, step 4: big tables on seven maps (2-10 players)
+
+| table | games | seat wins | mean turns | turn limit | decisions |
+| --- | --- | --- | --- | --- | --- |
+| as4 | 1,000 | delove@3 219, branch@1 509, teacher@2 112, delove@2 147 | 71.5 | 13 | 1,078,011 |
+| as8a | 1,000 | branch@1 393, teacher@2 81, delove@3 84, teacher@2 76, delove@2 70, teacher@2 71, delove@3 104, teacher@2 64 | 100.0 | 57 | 1,292,409 |
+| as8b | 1,000 | teacher@2 83, delove@3 109, delove@2 59, teacher@2 64, branch@1 392, teacher@2 54, delove@3 98, teacher@2 76 | 102.8 | 65 | 1,310,072 |
+| c6 | 1,000 | branch@1 460, teacher@2 85, delove@3 117, delove@2 110, delove@3 124, teacher@2 95 | 62.7 | 9 | 806,842 |
+| eu6 | 1,000 | delove@3 98, teacher@2 99, branch@1 481, delove@2 87, teacher@2 100, delove@3 124 | 64.4 | 11 | 893,096 |
+| eu8a | 1,000 | branch@1 398, teacher@2 58, delove@3 108, teacher@2 83, delove@2 53, teacher@2 82, delove@3 93, teacher@2 80 | 83.0 | 45 | 1,053,483 |
+| eu8b | 1,000 | teacher@2 74, delove@3 103, teacher@2 66, delove@2 58, branch@1 408, teacher@2 74, delove@3 97, teacher@2 68 | 86.6 | 52 | 1,100,820 |
+| fa4 | 800 | delove@2 100, teacher@2 47, branch@1 389, delove@3 145 | 155.4 | 119 | 2,429,241 |
+| fa6n | 800 | branch@1 341, delove@3 92, teacher@2 30, delove@2 56, delove@3 75, teacher@2 35 | 191.5 | 171 | 2,804,368 |
+| ge2c | 500 | delove@3 227, branch@1 273 | 32.8 | 0 | 331,875 |
+| ge2d | 500 | branch@1 319, delove@2 181 | 32.7 | 0 | 326,926 |
+| ge2t | 500 | branch@1 339, teacher@2 161 | 35.0 | 0 | 351,135 |
+| us10a | 1,000 | branch@1 327, teacher@2 79, delove@3 88, teacher@2 66, delove@2 59, teacher@2 77, delove@3 68, teacher@2 72, delove@2 54, teacher@2 62 | 88.0 | 48 | 1,084,062 |
+| us10b | 1,000 | teacher@2 62, delove@3 79, teacher@2 77, delove@2 54, teacher@2 76, branch@1 355, teacher@2 63, delove@3 73, teacher@2 62, delove@2 51 | 88.3 | 48 | 1,087,496 |
+| us6 | 1,000 | delove@2 92, teacher@2 109, delove@3 110, branch@1 426, teacher@2 118, delove@3 132 | 68.3 | 13 | 938,254 |
+| w6n | 1,000 | delove@3 124, teacher@2 49, delove@2 85, branch@1 465, delove@3 120, teacher@2 55 | 140.7 | 102 | 2,399,921 |
+| w8n | 1,500 | branch@1 612, delove@3 158, teacher@2 81, delove@2 116, delove@3 125, teacher@2 80, delove@2 97, teacher@2 72 | 149.5 | 159 | 3,648,054 |
+
+**15,600 games.**
+
+| branch and score | |
+| --- | --- |
+| branching player's decisions | 4,801,884 |
+| branched (compared options) | 2,705,281 (56.3%) |
+| simulations run | 48,649,062 (1,677,720,416 simulated moves) |
+| changed the teacher's move | 809,437 (29.9% of branched) |
+| average score gain per branched decision | +0.0125 |
+| changes by kind | attack 557,981/1,823,693, place 129,299/525,755, fortify_from 74,553/202,407, trade 24,756/75,008, end_turn 22,848/78,418 |
+| chosen branches, 2 rounds on: share of armies / income / territories / cards / continents | 0.375 / 0.451 / 0.428 / 0.325 / 0.521 |
+| chosen branches that had won / lost within the horizon | 4.5% / 0.4% |
+
+### Cycle 5, step 2: scenario games on Classic (2 players)
+
+| table | games | seat wins | mean turns | turn limit | decisions |
+| --- | --- | --- | --- | --- | --- |
+| c2c | 4,000 | delove@3 1910, branch@1 2090 | 19.1 | 0 | 930,161 |
+| c2d | 4,000 | branch@1 2238, delove@2 1762 | 20.0 | 0 | 965,555 |
+| c2t | 4,000 | branch@1 2361, teacher@2 1638 | 20.4 | 1 | 998,116 |
+
+**12,000 games.**
+
+| branch and score | |
+| --- | --- |
+| branching player's decisions | 1,487,742 |
+| branched (compared options) | 771,097 (51.8%) |
+| simulations run | 13,825,044 (172,156,856 simulated moves) |
+| changed the teacher's move | 222,654 (28.9% of branched) |
+| average score gain per branched decision | +0.0117 |
+| changes by kind | attack 114,430/431,588, place 55,940/219,611, end_turn 20,943/37,102, fortify_from 20,941/54,593, trade 10,400/28,203 |
+| chosen branches, 2 rounds on: share of armies / income / territories / cards / continents | 0.591 / 0.605 / 0.600 / 0.551 / 0.643 |
+| chosen branches that had won / lost within the horizon | 7.8% / 1.1% |
+
+### Cycle 5, step 1: micro games (1v1, Four Crowns)
+
+| table | games | seat wins | mean turns | turn limit | decisions |
+| --- | --- | --- | --- | --- | --- |
+| m2 | 3,000 | branch@1 1583, delove@2 1417 | 16.9 | 0 | 480,515 |
+| mb | 3,000 | branch@1 1734, teacher@2 1266 | 17.0 | 0 | 486,928 |
+| md | 3,000 | delove@3 1672, branch@1 1328 | 16.0 | 0 | 451,484 |
+
+**9,000 games.**
+
+| branch and score | |
+| --- | --- |
+| branching player's decisions | 717,115 |
+| branched (compared options) | 397,557 (55.4%) |
+| simulations run | 7,129,206 (74,663,834 simulated moves) |
+| changed the teacher's move | 130,567 (32.8% of branched) |
+| average score gain per branched decision | +0.0165 |
+| changes by kind | attack 65,742/207,780, place 39,353/129,919, end_turn 11,287/21,403, fortify_from 9,888/23,419, trade 4,297/15,036 |
+| chosen branches, 2 rounds on: share of armies / income / territories / cards / continents | 0.578 / 0.585 / 0.587 / 0.543 / 0.639 |
+| chosen branches that had won / lost within the horizon | 8.9% / 1.4% |
+
+### Cycle 5, step 3: scenario games on Classic (4 players)
+
+| table | games | seat wins | mean turns | turn limit | decisions |
+| --- | --- | --- | --- | --- | --- |
+| c4a | 750 | branch@1 354, teacher@2 128, delove@3 148, delove@2 104 | 62.9 | 16 | 554,855 |
+| c4b | 750 | delove@3 161, branch@1 351, delove@2 122, teacher@2 103 | 60.6 | 13 | 542,192 |
+| c4c | 750 | delove@2 104, teacher@2 114, branch@1 368, delove@3 152 | 60.6 | 12 | 534,009 |
+| c4d | 750 | teacher@2 121, delove@3 163, delove@2 98, branch@1 352 | 63.2 | 16 | 553,165 |
+
+**3,000 games.**
+
+| branch and score | |
+| --- | --- |
+| branching player's decisions | 625,773 |
+| branched (compared options) | 363,974 (58.2%) |
+| simulations run | 6,543,276 (152,921,692 simulated moves) |
+| changed the teacher's move | 114,788 (31.5% of branched) |
+| average score gain per branched decision | +0.0137 |
+| changes by kind | attack 72,451/216,368, place 23,223/88,869, fortify_from 9,604/25,498, trade 5,296/13,250, end_turn 4,214/19,989 |
+| chosen branches, 2 rounds on: share of armies / income / territories / cards / continents | 0.417 / 0.445 / 0.436 / 0.386 / 0.523 |
+| chosen branches that had won / lost within the horizon | 5.4% / 0.7% |
+
+### c5: ladder gate (c5-candidate)
+
+| opponent | players | options | games | score | 95% interval | Elo | points | opp. points | points diff (95%) | place | kills | turn limit |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| delove@3 | 2 | {} | 800 | 0.502 | 0.475-0.530 | +2 | +0.51 | +0.49 | +0.01 (-0.14 to +0.17) | 1.50 | 0.50 | 0 |
+| delove@3 | 4 | {} | 200 | 0.480 | 0.422-0.538 | -14 | +0.32 | +0.30 | +0.02 (-0.37 to +0.41) | 2.43 | 0.60 | 32 |
+| delove@3 | 6 | {} | 200 | 0.515 | 0.450-0.580 | +10 | +0.78 | +0.81 | -0.03 (-0.46 to +0.40) | 3.52 | 0.86 | 2 |
+| delove@3 | 10 | {"map":"world"} | 200 | 0.507 | 0.439-0.576 | +5 | +0.41 | +0.98 | -0.57 (-1.01 to -0.13) | 5.67 | 0.84 | 7 |
+| delove@3 | 2 | {"map":"skirmish"} | 400 | 0.495 | 0.452-0.538 | -3 | +0.47 | +0.50 | -0.03 (-0.29 to +0.23) | 1.50 | 0.49 | 4 |
+| delove@3 | 6 | {"map":"world"} | 200 | 0.472 | 0.404-0.541 | -19 | +0.27 | +0.82 | -0.55 (-1.01 to -0.08) | 3.66 | 0.70 | 15 |
+| delove@3 | 10 | {"map":"greater_europe"} | 200 | 0.482 | 0.440-0.525 | -12 | -3.59 | -3.40 | -0.20 (-0.40 to +0.00) | 5.71 | 0.32 | 149 |
+| delove-teacher@2 | 2 | {} | 400 | 0.574 | 0.534-0.614 | +52 | +0.72 | +0.28 | +0.44 (+0.19 to +0.69) | 1.43 | 0.57 | 1 |
+| delove@2 | 2 | {} | 400 | 0.547 | 0.506-0.589 | +33 | +0.64 | +0.35 | +0.28 (+0.09 to +0.48) | 1.45 | 0.55 | 2 |
+
+### c5: time per phase
+
+Generation ran the GPU (big tables, then Classic 2-player) and the CPU pool (Four Crowns, Classic 4-player, 21
+processes) at the same time.
+
+| phase | where | minutes |
+| --- | --- | --- |
+| Four Crowns micro, 9,000 games, played and exported | CPU, 21 processes | 24.5 |
+| Classic 4-player, 3,000 games | CPU, 21 processes | 33.5 |
+| big tables, 15,600 games (17 tables, six maps plus Classic 6p) | GPU, 1,000-2,048 games in flight | 172 |
+| Classic 2-player, 12,000 games | GPU | 7.1 |
+| **generation, all 37,600 games** | GPU and CPU together | **179** |
+| training, 1st try (batch 1024: 1.5 GB spilled out of the 8 GB card, about 0.65 s a step, aborted) | GPU | 8 |
+| training (batch 512, 54,781 steps, 2 epochs over 14.75M decisions) | GPU | 76 |
+| gates (150 chunks of up to 20 games) | CPU, 21 processes | 32 |
+
+Big tables per map (GPU, games to training arrays): Europe 8p 2,000 games in 8.6 min, Europe 6p 1,000 in 8.4, USA 10p
+2,000 in 6.1, USA 6p 1,000 in 4.4, Asia 8p 2,000 in 5.3, Asia 4p 1,000 in 8.3, World 8p 1,500 in 20.4, World 6p 1,000
+in 23.0, Fantasy 6p 800 in 30.1, Fantasy 4p 800 in 30.3, Greater Europe 2p 1,500 in 7.0, Classic 6p 1,000. The slow
+maps are the stalling ones: their 500-turn games step alone at the end.
+
+**Pilots** (`runs/delove/c5-pilot*`, branch player + `delove@3` + `delove@2` + Sensei 2 in the other seats, 128-256
+games each) decided the big tables: turn-limit games Europe 8p 7%, USA 10p 13%, Asia 8p 16%, World 8p 30%, Fantasy
+6p 41%, **Greater Europe 10p 92% and 4p 59%**. Greater Europe therefore played 2-player tables only, and World and
+Fantasy smaller tables with more network seats; the cycle's big tables ended at 5.8% turn-limit games (Fantasy 15-21%,
+World 10%, the rest 1-6%).
+
+**Review.** Not promoted: even with `delove@3` at 2 players (0.502 over 800 games), at 4-6 players and on Four
+Crowns, and **worse on World points** (-0.57 per seat at 10p, -0.55 at 6p, both intervals below 0). It still beats
+Sensei 2 (0.574) and `delove@2` (0.547).
+
+The teacher was not the problem: the branch player won about 3x its share of the big tables (`delove@3` about 0.75x)
+and 0.52 / 0.59 against `delove@3` / Sensei 2 at 2 players. The labels were: on the big tables only 809k of the
+branch player's 4.8M decisions (17%) changed Sensei 2's move; the other 83% are Sensei 2's own move (not compared, or
+compared and kept). In multiplayer Sensei 2 is weaker than `delove@3` (Jacob Sensei, which beats Sensei 2 0.64-0.83,
+beats `delove@3` 0.58-0.82 at 4-10 players), so most of cycle 5 taught the network to play more like a weaker player.
+Its search won live; the network only got the labels.
+
+Also seen: networks stall too on Greater Europe 10p (149 of 200 gate games hit the limit) and on Classic 4p (32 of
+200). The points value target itself changed little (validation value loss 0.42 on points).
+
+What cycle 6 changes: Jacob Sensei as the teacher (its moves are the default labels and it plays the rollouts; it
+never stalls, so Greater Europe and 10-seat tables come back); every GPU decision records what the search did
+(`branch_tag.npy`: teacher's move without comparing / compared and kept / changed), and training weights the policy
+0.5 / 1 / 2 by it; cycle 5's big tables teach only the value head (`:value`); training runs in mixed precision
+(`--amp`: the same validation loss, 1.9x faster) with older cycles as fractions (`#F`).

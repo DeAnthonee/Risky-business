@@ -53,6 +53,12 @@ times="$out/times.tsv"
 t_start=$(date +%s)
 stamp() { echo -e "$1\t$(( $(date +%s) - t_start ))" >> "$times"; echo "[$(date +%T)] $1"; }
 : > "$times"
+# Every step, where it plays and its jobs file, for the dashboard (scripts/dashboard.mjs).
+for s in "${steps[@]}"; do
+  read -r step jobs title <<< "$s"
+  echo -e "$step\t$(on_gpu "$step" && echo gpu || echo cpu)\t$(abs "$jobs")\t$title"
+done > "$out/plan.tsv"
+echo -e "train\t$candidate\ngates\t${#gates[@]}" >> "$out/plan.tsv"
 stamp start
 
 # ---- 1. one pool of chunks over every step ----------------------------------------------------------------------
@@ -240,7 +246,9 @@ stamp "summary"
   node -e '
 const fs = require("fs");
 const [dir, ...gates] = process.argv.slice(1);
-console.log("| opponent | players | options | games | score | 95% interval | Elo |\n| --- | --- | --- | --- | --- | --- | --- |");
+// Points: mean leaderboard points per seat (candidate, opponent) and their difference, with a 95% interval from
+// the spread of the chunk differences; the candidate mean place and kills per seat; games at the turn limit.
+console.log("| opponent | players | options | games | score | 95% interval | Elo | points | opp. points | points diff (95%) | place | kills | turn limit |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |");
 gates.forEach((g, i) => {
   const [opp, players, , ...opt] = g.split(" ");
   const rs = fs.readdirSync(dir).filter((f) => new RegExp(`^g${i}-\\d+\\.json$`).test(f)).map((f) => JSON.parse(fs.readFileSync(`${dir}/${f}`, "utf8")));
@@ -249,7 +257,15 @@ gates.forEach((g, i) => {
   // Each chunk reports a pair-based interval; combine the chunks as independent samples.
   const se = Math.sqrt(rs.reduce((a, r) => a + (r.games * (r.scoreHigh - r.scoreLow) / 3.92) ** 2, 0)) / n;
   const elo = (x) => Math.round(400 * Math.log10(Math.min(0.999, Math.max(0.001, x)) / (1 - Math.min(0.999, Math.max(0.001, x)))));
-  console.log(`| ${opp} | ${players} | ${opt.join(" ") || "{}"} | ${n} | ${s.toFixed(3)} | ${(s - 1.96 * se).toFixed(3)}-${(s + 1.96 * se).toFixed(3)} | ${elo(s) > 0 ? "+" : ""}${elo(s)} |`);
+  const w = (k) => rs.reduce((a, r) => a + (r[k] ?? 0) * r.games, 0) / n;
+  const d = w("pointsDiff");
+  const k = rs.length;
+  const mk = rs.reduce((a, r) => a + (r.pointsDiff ?? 0), 0) / k;  // unweighted chunk mean, for the spread
+  const dse = k > 1 ? Math.sqrt(rs.reduce((a, r) => a + ((r.pointsDiff ?? 0) - mk) ** 2, 0) / (k - 1) / k) : 0;
+  const tl = rs.reduce((a, r) => a + (r.turnLimit ?? 0), 0);
+  const f2 = (x) => (x >= 0 ? "+" : "") + x.toFixed(2);
+  console.log(`| ${opp} | ${players} | ${opt.join(" ") || "{}"} | ${n} | ${s.toFixed(3)} | ${(s - 1.96 * se).toFixed(3)}-${(s + 1.96 * se).toFixed(3)} | ${elo(s) > 0 ? "+" : ""}${elo(s)} | ` +
+    `${f2(w("points"))} | ${f2(w("bestPoints"))} | ${f2(d)} (${f2(d - 1.96 * dse)} to ${f2(d + 1.96 * dse)}) | ${w("meanPlacement").toFixed(2)} | ${w("killsPerGame").toFixed(2)} | ${tl} |`);
 });
 ' "$out/gates" "${gates[@]}"
   echo

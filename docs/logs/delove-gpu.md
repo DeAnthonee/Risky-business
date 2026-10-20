@@ -6,7 +6,7 @@ Guide: [packages/delove-gpu/README.md](../../packages/delove-gpu/README.md).
 Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. **Append a line in the same PR** as any change to
 this area (README hard rule 12), and say when the fingerprint (`engine-fingerprint.json`) was re-verified.
 
-- 2026-10-20 #PRNUM `--score points|kills` mirrored bit for bit in `branch.py` (replayed on CPU logs: every mean identical); `generate.py` GPU-only comparison seats `delove-branch@1:<score>`; `scripts/score_compare.py`; verify/matrix cover both scores; `verify.py --parallel` caps the logs' CPU processes, `--gpu-parallel` the matrix replays. Fingerprint not yet re-verified (pending a batched run with Bohemia and Nine Realms)
+- 2026-10-20 #112 `--score points|kills` mirrored bit for bit in `branch.py` (replayed on CPU logs: every mean identical); `generate.py` GPU-only comparison seats `delove-branch@1:<score>`; `scripts/score_compare.py`; verify/matrix cover both scores; `verify.py --parallel` caps the logs' CPU processes, `--gpu-parallel` the matrix replays. Fingerprint not yet re-verified (pending a batched run with Bohemia and Nine Realms)
 - 2026-10-20 #110 Jacob Sensei (`jacob-sensei@1`) in the GPU teacher kernel, per-seat teacher versions, `generate.py --teacher jacob-sensei@1`; fingerprint re-verified (incl. `jacob.ts`, matrix `jacob` suite) on the engine before #100 and #102; Bohemia and Nine Realms still need a verify.py run
 - 2026-10-20 #105 `delove_gpu.generate` progress lines carry turn-limit counts and the branch statistics so far (for the dashboard)
 - 2026-10-20 #102 `nine_realms.json` added to `RULE_FILES` and the rules matrix; the mirror needs re-verifying on the training PC

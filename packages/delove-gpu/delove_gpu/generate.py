@@ -23,7 +23,7 @@ import os
 import subprocess
 import sys
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import numpy as np
@@ -41,6 +41,24 @@ from .teacher import load_params, mix_seed
 
 TEACHER, BRANCH, NET = 0, 1, 2
 BRANCH_ID = "delove-branch@1"
+
+
+def branch_score(agent: str) -> str | None:
+    """For a branch seat: None for delove-branch@1 (the run's --score), the score for a GPU-only comparison seat
+    `delove-branch@1:share` / `delove-branch@1:points` (both kinds can sit at one table); not a branch seat: raises."""
+    if agent == BRANCH_ID:
+        return None
+    if agent.startswith(BRANCH_ID + ":") and agent.split(":", 1)[1] in ("share", "points"):
+        return agent.split(":", 1)[1]
+    raise ValueError(agent)
+
+
+def is_branch(agent: str) -> bool:
+    try:
+        branch_score(agent)
+        return True
+    except ValueError:
+        return False
 
 
 @dataclass
@@ -190,8 +208,9 @@ def state_bytes(T: int, n: int, A: int, H: int = 12) -> int:
     return 8 * (2 * T + P * (H + 4) + 2 * NC + 2 * n + 24) + T + 9 * A
 
 
-def auto_batch(cfg: GameConfig, bcfg, branch: bool, budget: float) -> int:
-    """Games in flight for a configuration within `budget` bytes of GPU memory (rounded down to 256)."""
+def auto_batch(cfg: GameConfig, bcfg, branch: int, budget: float) -> int:
+    """Games in flight for a configuration within `budget` bytes of GPU memory (rounded down to 256). `branch`: the
+    branch players at the table (each has its own rollout copies)."""
     from .engine import Layout
     from .mapdata import MapData
 
@@ -199,7 +218,7 @@ def auto_batch(cfg: GameConfig, bcfg, branch: bool, budget: float) -> int:
     A = Layout(m).A
     per = state_bytes(m.T, cfg.seats, A)
     if branch:
-        per += bcfg.options * bcfg.rollouts * state_bytes(m.T, cfg.seats, A) + 24 * bcfg.options * bcfg.rollouts
+        per += branch * (bcfg.options * bcfg.rollouts * state_bytes(m.T, cfg.seats, A) + 24 * bcfg.options * bcfg.rollouts)
     per += 8 * m.T * 27 * 2 + 64 * A  # encoder features (float64 then float32) and per-move candidate features
     # x2: measured peaks on the RTX 4060 (allocator slack, network activations, temporaries) were 1.5-2x this estimate
     return max(256, int(budget // (2 * per)) // 256 * 256)
@@ -219,7 +238,7 @@ class Run:
         self.types: dict[str, int] = {}
         self.net_modules: dict[str, torch.nn.Module] = {}
         for a in self.agent_ids:
-            if a == BRANCH_ID:
+            if is_branch(a):
                 self.types[a] = BRANCH
             elif a.startswith("delove-teacher@"):
                 if a != teacher:
@@ -255,8 +274,8 @@ class Run:
         for t in self.tables:
             by_cfg.setdefault(t.config, []).append(t)
         for cfg, tables in by_cfg.items():
-            has_branch = any(BRANCH_ID in t.agents for t in tables)
-            B = batch or auto_batch(cfg, self.bcfg, has_branch, budget)
+            n_branch = len({a for t in tables for a in t.agents if is_branch(a)})
+            B = batch or auto_batch(cfg, self.bcfg, n_branch, budget)
             B = min(B, max(256, (sum(t.games for t in tables) + 255) // 256 * 256))
             g = Group(self, cfg, tables, B)
             info = g.run(progress)
@@ -286,7 +305,9 @@ class Group:
         ids = run.agent_ids
         self.agent_type = torch.tensor([run.types[a] for a in ids], device=e.dev)
         self.nets = {a: net_ranker(self.enc, mod, self.adj, run.precision) for a, mod in run.net_modules.items()}
-        self.branch = GpuBranch(e, self.nets[run.ranker], run.bcfg) if any(BRANCH_ID in t.agents for t in tables) else None
+        # one GpuBranch per branch seat kind at these tables (agent index -> its branch and score)
+        self.branches = {ids.index(a): GpuBranch(e, self.nets[run.ranker], replace(run.bcfg, score=branch_score(a) or run.bcfg.score))
+                         for a in sorted({a for t in tables for a in t.agents if is_branch(a)})}
         self.export_idx = torch.tensor([ids.index(a) for a in run.export_agents], dtype=torch.long, device=e.dev)
         self.rec = run.recorder(e.m)
         self.queue = [(ti, i) for ti, t in enumerate(tables) for i in range(t.games)]
@@ -413,12 +434,13 @@ class Group:
                 if g.numel():
                     act1[g] = first_max(rank(g, mask), self.cpu_order)  # ties: first candidate (fortify_to: territory order)
             act2 = torch.full((B,), -1, dtype=torch.long, device=dev)
-            bg = (active & (typ == BRANCH)).nonzero(as_tuple=True)[0]
-            if bg.numel():
-                d = self.branch.decide(bg, mask, tact)
-                act1[bg] = d.act1
-                act2[bg] = d.act2
-                self._branch_stats(d)
+            for idx, branch in self.branches.items():
+                bg = (active & (ag == idx)).nonzero(as_tuple=True)[0]
+                if bg.numel():
+                    d = branch.decide(bg, mask, tact)
+                    act1[bg] = d.act1
+                    act2[bg] = d.act2
+                    self._branch_stats(d)
             ordered, cnt = e.cand_order() if self.rec else (None, None)
             self._record(active.nonzero(as_tuple=True)[0], ordered, cnt, act1, terr, glob)
             counted = active & (act1 >= 0)

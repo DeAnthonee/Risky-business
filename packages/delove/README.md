@@ -286,6 +286,26 @@ decisions and bit-identical training arrays (checked by replay), on every map an
 pool for cycle 3's 6,000 Classic 2-player games (other steps: packages/delove-gpu/README.md, "Speed"). `DELOVE_BRANCH_TRACE=<file>` makes the branch player write each branched decision's options and mean
 scores, which the GPU's replay test compares option by option.
 
+### Scoring rollouts by leaderboard points (`DELOVE_BRANCH_SCORE=points`)
+
+The default branch score (`positionScore`, `score: 'share'`) is won 1, lost 0, otherwise the weighted share of
+armies, income, territories, cards and continents. It aims at the leaderboard (placement points plus `KILL_POINTS`
+per elimination) only indirectly: it gives nothing for a kill made inside the horizon, for the decider's standing
+among the players left, or for how early a knock-out comes in a big game. `DELOVE_BRANCH_SCORE=points` (the `score`
+field of the branch settings; `--score points` on the GPU) scores each rollout copy by `pointsScore` instead:
+
+- the decider's expected place among the players still alive: 1 plus, for each rival, its chance of finishing above,
+  read off the gap in share score (`clamp(0.5 + 0.5 * n * (mine - theirs), 0, 1)` with n players alive: even shares a
+  coin flip, a lead of 1/n of the board or more certain);
+- that place turned into the table's placement points (`placementPoints`, interpolated between whole places), or the
+  points of the place just below the players still alive when the decider is out, or first place when it won;
+- plus `KILL_POINTS` for each player the decider has eliminated;
+- scaled so last place is 0 and first place 1 (a kill adds 1 / the placement spread: 0.5 at 2 players, 0.25 at 4,
+  0.17 at 6, 0.1 at 10), so `margin` keeps about the same meaning.
+
+It is a cheap, deterministic function of the board (no network). Share stays the default, so the golden lock and
+every earlier result are unchanged. RESULTS_PLACEHOLDER
+
 Speed work has two guards. `scripts/golden.mjs record|check <file>` replays ~60 seeded games across maps, player
 counts, settings and players (teachers, `risky@1`, the network, the branch player) and fails if any logged decision,
 its features or a result changes: record before touching the engine, self-play or Delove code, check after.

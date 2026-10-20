@@ -185,6 +185,10 @@ move; a 10-player table with eight teachers spends most of its moves there). The
   deck reshuffled with mulberry32(seed ^ 0x5bd1e995)), each played `horizon` rounds by the teacher in one CUDA thread;
   `positionScore` in double precision, averaged seed by seed with true division (a CUDA tensor divided by a Python
   number is multiplied by the reciprocal, which differs from JavaScript in the last bit), and the `margin` rule.
+  `--score points` (branch.ts `pointsScore`, `DELOVE_BRANCH_SCORE=points`) scores the copies by leaderboard points
+  instead: every alive player's share score, the expected place from the pairwise gaps, the placement points table and
+  `KILL_POINTS` read from the built engine (as `outcome.py` does), kills from the kernel's record of who eliminated
+  whom; same doubles in the same order.
 - **Training arrays** (`generate.py` Recorder, `npy.py`): export.ts's files and `features.json`, with the feature names
   and versions read from the built self-play package. The encoder computes in float64 and rounds to float32 once, as
   encode.ts stores doubles into a Float32Array, so the arrays are bit-identical to `export`'s.

@@ -1,0 +1,7 @@
+# Cycle 6, step 3: Classic 4-player tables, the branch player in each seat once (GPU).
+# League settings (docs/game-settings.md): auto setup, balanced blitz, chosen capitals; each table half plays one of
+# four variants: progressive / fixed cards + capitals / exponential cards + 8 blizzards / progressive + capitals + 8 blizzards.
+c4a     750 delove-branch@1,jacob-sensei@1,delove@3,jacob-sensei@1 {"autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"progressive"}
+c4b     750 jacob-sensei@1,delove-branch@1,delove@3,delove@2 {"autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"fixed","capitals":true}
+c4c     750 delove@3,jacob-sensei@1,delove-branch@1,jacob-sensei@1 {"autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"exponential","blizzards":8}
+c4d     750 jacob-sensei@1,delove@2,jacob-sensei@1,delove-branch@1 {"autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"progressive","capitals":true,"blizzards":8}

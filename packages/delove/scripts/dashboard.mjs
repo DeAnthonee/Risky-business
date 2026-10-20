@@ -98,7 +98,7 @@ function gpuLog(path) {
   let branch = null;
   const get = (k) => cfgs.get(k) ?? (cfgs.set(k, { cfg: k, series: [], done: 0, total: 0, turnLimit: null, seconds: 0, step: 0 }), cfgs.get(k));
   for (const l of text.split(/\r?\n/)) {
-    let m = l.match(/^\s+(\S+\/\d+p) step (\d+): (\d+)\/(\d+) games(?:, (\d+) at the turn limit)?, (\d+)s(?: \| branch (.*))?$/);
+    let m = l.match(/^\s+(\S+\/\d+p(?: \{[^}]*\})?) step (\d+): (\d+)\/(\d+) games(?:, (\d+) at the turn limit)?, (\d+)s(?: \| branch (.*))?$/);
     if (m) {
       const c = get(m[1]);
       Object.assign(c, { step: +m[2], done: +m[3], total: +m[4], turnLimit: m[5] === undefined ? null : +m[5], seconds: +m[6] });
@@ -106,7 +106,7 @@ function gpuLog(path) {
       if (m[7]) { try { branch = JSON.parse(m[7]); } catch { /* partial line */ } }
       continue;
     }
-    m = l.match(/^\s+(\S+\/\d+p): (\d+) games in ([\d.]+)s \(batch (\d+)\)/);
+    m = l.match(/^\s+(\S+\/\d+p(?: \{[^}]*\})?): (\d+) games in ([\d.]+)s \(batch (\d+)\)/);
     if (m) {
       const c = get(m[1]);
       Object.assign(c, { done: +m[2], total: +m[2], seconds: +m[3], batch: +m[4], finished: true });
@@ -137,7 +137,7 @@ function stepStatus(sdir, step, where, jobs, title) {
   if (where === 'gpu') {
     const summary = json(join(sdir, 'gpu.json'));
     const log = gpuLog(join(sdir, 'gpu.log'));
-    const seen = new Set(log.cfgs.map((c) => c.cfg));
+    const seen = new Set(log.cfgs.map((c) => c.cfg.split(" ")[0]));  // map/seats; a label may carry its settings
     st.cfgs = [...log.cfgs, ...[...planned].filter(([k]) => !seen.has(k)).map(([k, n]) => ({ cfg: k, series: [], done: 0, total: n, turnLimit: null, seconds: 0, step: 0, waiting: true }))];
     for (const c of st.cfgs) {
       c.rate = c.finished ? (c.seconds ? c.done / c.seconds : null) : rate(c.series);

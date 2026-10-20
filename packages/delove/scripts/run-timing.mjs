@@ -107,7 +107,7 @@ function poolStats(chunks) {
 function gpuSeries(path) {
   const by = new Map();
   for (const l of (read(path) ?? '').split(/\r?\n/)) {
-    const m = l.match(/^\s+(\S+\/\d+p) step \d+: (\d+)\/(\d+) games(?:, (\d+) at the turn limit)?, (\d+)s/);
+    const m = l.match(/^\s+(\S+\/\d+p(?: \{[^}]*\})?) step \d+: (\d+)\/(\d+) games(?:, (\d+) at the turn limit)?, (\d+)s/);
     if (m) (by.get(m[1]) ?? by.set(m[1], []).get(m[1])).push([+m[5], +m[2], m[4] === undefined ? null : +m[4], +m[3]]);
   }
   return by;

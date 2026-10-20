@@ -254,6 +254,12 @@ DELOVE_MODELS=models/delove PYTHON=.venv/Scripts/python bash packages/delove/scr
 Each invocation writes its phase times to `times.tsv` and a copy to `times-<YYYYmmdd-HHMMSS>.tsv` (its start), so a
 cycle stopped and resumed keeps every invocation's times.
 
+**GPU lanes and league settings.** `GPU_LANES=N` runs N GPU processes at once and deals the config's GPU steps to them
+in turn: split a long step (the big tables) into several so every lane stays busy (cycle 6's second lane idled 5 hours
+behind a single big-tables step). Cycle 6's jobs files show the league settings every table now uses (auto setup,
+balanced blitz, chosen capitals, and four card/capitals/blizzard variants: `docs/game-settings.md`); cycles 1-5 trained
+on the defaults only, and that blind spot was the largest gain of cycle 6.
+
 **Watching a cycle, its history and where the time went.** `scripts/dashboard.mjs` is a local, read-only page over the
 run folders (binds 127.0.0.1 only, no external scripts):
 
@@ -344,6 +350,12 @@ promotions are judged mainly on the points difference at 4-10 players (`docs/del
   gives the same validation loss as float32 (0.9455 vs 0.9449 on cycle 5 data) at 1.9x the speed, and less memory.
 - `<dataset>#F` (in `train_data`, or `--data <path>#F`): each epoch trains on a fresh random fraction F of that
   dataset's training decisions, so older cycles keep their influence at a fraction of their cost.
+- `<dataset>:value` (mode): the value head learns from those positions and outcomes, the policy ignores their moves
+  (weight 0): for data whose moves shouldn't be copied, e.g. cycle 5's big tables, whose moves were mostly Sensei 2's.
+- `--branch-weights W0,W1,W2`: weights the policy by what branch and score did at each decision (`branch_tag.npy`,
+  written by `delove_gpu.generate`): 0 the teacher's move without comparing, 1 compared and kept, 2 changed. Cycle 6
+  used `0.5,1,2`. Datasets without `branch_tag.npy` (CPU exports, older cycles) keep weight 1.
+- `--alive LO-HI` (range specialists): only decisions with LO..HI players alive.
 - Keep a batch within the card: on big maps (Greater Europe, Fantasy) batch 1024 spilled past the RTX 4060's 8 GB into
   shared memory and ran 5x slower; batch 512 fits.
 

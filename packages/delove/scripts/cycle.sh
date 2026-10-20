@@ -18,7 +18,8 @@
 #                              branch, teacher and network seats); same games as on the CPU, training arrays
 #                              written directly (no export). GPU_STEPS (space-separated, or all) overrides it.
 #   export_agents=delove-branch@1                  whose decisions are exported (--only-agents)
-#   train_data=("<step>/<map>[:mode][*N]" | "<dataset under DATA or path>[:mode][*N]" ...)   *N repeats it N times
+#   train_data=("<step>/<map>[:mode][#F][*N]" | "<dataset under DATA or path>[:mode][#F][*N]" ...)   *N repeats it N
+#                              times; #F trains on a fresh random fraction F of it each epoch (older cycles' data)
 #   train_init=<model id, or empty for a fresh network>  candidate=<cN-candidate>  train_args="--epochs 1.5 --lr 3e-4"
 #   gates=("<opponent> <players> <games> [options JSON]" ...)   ladder matches of the candidate
 #   gpu_gates=(<gate index> ... | all)   optional: gates played on the GPU (delove_gpu.ladder: the same games and the
@@ -27,7 +28,8 @@
 # Environment: CYCLE_NAME (overrides name, e.g. for a trial run), DELOVE_MODELS (models folder, default models/delove), OUT (default runs/delove/<name>), DATA (default
 # data/delove), PYTHON (default .venv/Scripts/python), PARALLEL, CHUNKS (chunks per process and step, default 4; or
 # CHUNK = fixed games per chunk), GATE_CHUNK (games per gate chunk, default 20), GPU_BATCH (games in flight on the
-# GPU per configuration; default: sized to GPU_GB of game state, default 3). Re-running resumes: finished chunks, exports, GPU steps, the trained model and finished gate
+# GPU per configuration; default: sized to GPU_GB of game state, default 3), GPU_LANES (N GPU processes at once, the
+# config's GPU steps dealt to them in turn; split a long step into several so the lanes stay busy). Re-running resumes: finished chunks, exports, GPU steps, the trained model and finished gate
 # chunks are kept. GPU gates refuse a stale GPU mirror (fingerprint.py check) unless GPU_GATES_ALLOW_UNVERIFIED=1;
 # GPU_GATE_PROCS (default 1) GPU processes share the gate configurations, each sizing its batch to GPU_GATE_GB (default 1).
 # REMOTE_GPUS=N plays the GPU steps on N rented cloud GPUs instead (RunPod; RUNPOD_API_KEY in the environment; see
@@ -157,11 +159,23 @@ if (( ${#gpu_steps[@]} )); then
       stamp "generated and exported the GPU steps (remote, $REMOTE_GPUS GPUs)"
     ) &
   else
+    # GPU_LANES=N: N GPU processes at once, the config's GPU steps dealt to them in turn (config order), so their
+    # straggler tails overlap (a configuration's last few games step alone; one configuration's game state takes
+    # about 1 GB of the card). Split a long step into several so every lane stays busy.
     (
-      for s in "${steps[@]}"; do
-        read -r step jobs _ <<< "$s"
-        if on_gpu "$step"; then run_gpu_step "$step" "$jobs" || exit 1; fi
-      done
+      lanes=${GPU_LANES:-1}
+      lane() {  # lane <k>: every lanes-th GPU step, starting at the k-th
+        local i=0
+        for s in "${steps[@]}"; do
+          read -r step jobs _ <<< "$s"
+          on_gpu "$step" || continue
+          (( i % lanes == $1 )) && { run_gpu_step "$step" "$jobs" || return 1; }
+          i=$((i + 1))
+        done
+      }
+      pids=()
+      for ((k = 0; k < lanes; k++)); do lane "$k" & pids+=($!); done
+      for p in "${pids[@]}"; do wait "$p" || exit 1; done
     ) &
   fi
   gpu_runner=$!
@@ -229,11 +243,12 @@ if [[ ! -f "$cand.onnx" ]]; then
   args=()
   for d in "${train_data[@]}"; do
     reps=1; [[ $d == *"*"* ]] && reps=${d##*"*"} && d=${d%"*"*}
+    frac=""; [[ $d == *"#"* ]] && frac="#${d##*#}" && d=${d%#*}
     mode=""; [[ $d == *:* ]] && mode=":${d##*:}" && d=${d%:*}
     # <step>/<map> of this cycle, else a dataset under DATA, else a path.
     path="$data/$name-$d"; [[ -e $path ]] || path="$data/$d"; [[ -e $path ]] || path=$d
     [[ -e $path ]] || { echo "no training data $path"; exit 1; }
-    for ((i = 0; i < reps; i++)); do args+=(--data "$(absdir "$path")$mode"); done
+    for ((i = 0; i < reps; i++)); do args+=(--data "$(absdir "$path")$mode$frac"); done
   done
   cand_path=$(abs "$cand")
   # An empty train_init trains a fresh network (its size from train_args, e.g. --hidden 192 --rounds 6).

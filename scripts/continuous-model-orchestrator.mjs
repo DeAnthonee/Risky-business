@@ -15,7 +15,7 @@ const log = (msg) => {
 
 log(`Risk continuous model orchestrator targeting ${SERVER_URL}`);
 log(`Pool of 20: 10 League LLMs + 10 Delove Models (6 to 10 players, any composition)`);
-log(`Mode: Generation 5 (Fog of War: ON).`);
+log(`Mode: Generation 5 (Fog of War: OFF).`);
 
 let gamesCompleted = 0;
 let lastMap = 'fantasy'; // ensure Match 3+ never duplicates previous
@@ -85,7 +85,7 @@ for (let g = 1; g <= TOTAL_GAMES; g++) {
   const selectedMap = pickNextMap(lastMap);
   lastMap = selectedMap;
 
-  const fogOfWar = true;
+  const fogOfWar = false;
   const mapCap = MAP_MAX_PLAYERS[selectedMap] ?? 6;
   const targetPlayers = 6 + Math.floor(Math.random() * 5); // 6 to 10
   const playerCount = Math.min(targetPlayers, mapCap);

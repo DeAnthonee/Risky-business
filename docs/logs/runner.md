@@ -7,6 +7,7 @@ rankings it plays for. Guides: [packages/runner/README.md](../../packages/runner
 Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. Changes from before pull requests carry the
 commit hash instead. **Append a line in the same PR** as any change to this area (README hard rule 12).
 
+- 2026-10-20 set fog of war to false for continuous orchestrator matches
 - 2026-10-20 map out massive troop dominance eliminations, enable 1v1 fog eliminations, and lock fog of war on
 - 2026-10-20 support 1-seat hosting with open seats in parseSeats for arbitrary LLM/model compositions
 - 2026-10-20 prioritize breaking neighbor continent bonuses over passive good neighbor policy

@@ -23,7 +23,6 @@ import {
   type PlayerId,
   type ScenarioRef,
   type ScenarioSeat,
-  type RankedGame,
 } from '@risk/engine';
 import { chooseBotAction } from './bot.js';
 import { TournamentManager } from './tournaments.js';
@@ -601,10 +600,6 @@ export class GameRoom extends EventEmitter {
   }
 }
 
-export interface StoreOptions {
-  seedRankings?: RankedGame[];
-}
-
 export class Store {
   rooms = new Map<string, GameRoom>();
   tournaments: TournamentManager;
@@ -619,13 +614,9 @@ export class Store {
   constructor(
     private file: string | null,
     retention: Partial<RetentionPolicy> = {},
-    options?: StoreOptions,
   ) {
     this.retention = { ...DEFAULT_RETENTION, ...retention };
-    this.rankings = new Rankings(
-      file ? join(dirname(file), 'rankings.json') : null,
-      options?.seedRankings,
-    );
+    this.rankings = new Rankings(file ? join(dirname(file), 'rankings.json') : null);
     const keep = Number(process.env.RISK_ARCHIVE_KEEP || DEFAULT_KEEP);
     this.archive = new GameArchive(
       file && process.env.RISK_ARCHIVE !== '0' ? join(dirname(file), 'archive') : null,

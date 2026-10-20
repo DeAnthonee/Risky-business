@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { Store } from '../src/store.js';
 import { createRiskServer, DEFAULT_AI_DIR, type RiskServer } from '../src/app.js';
 import { CharacterStore } from '../src/characters.js';
-import { Rankings } from '../src/rankings.js';
+import { Rankings, RANKINGS_SEASON } from '../src/rankings.js';
 import { HttpRiskApi } from '@risk/mcp';
 import type { GameState } from '@risk/engine';
 
@@ -78,30 +78,28 @@ describe('persistent character rankings API',()=>{
   it('sets a corrupt rankings file aside instead of failing to start',()=>{
     const dir=mkdtempSync(join(tmpdir(),'rankings-'));dirs.push(dir);
     const file=join(dir,'rankings.json');
+    writeFileSync(`${file}.season`,`${RANKINGS_SEASON}
+`);
     writeFileSync(file,'{not json');
     expect(new Rankings(file).rows()).toEqual([]);
     expect(existsSync(`${file}.corrupt`)).toBe(true);
   });
-  it('seeds initial rankings when file does not exist', () => {
+  it('archives an older season and starts the new one empty', () => {
     const dir = mkdtempSync(join(tmpdir(), 'rankings-'));
     dirs.push(dir);
     const file = join(dir, 'rankings.json');
-    const seed = [{ gameId: 'g_seed_1', seats: [{ key: 'league/jinx', name: 'Jinx', placement: 1, killed: [] }, { key: 'league/shaco', name: 'Shaco', placement: 2, killed: [] }] }];
-    const rankings = new Rankings(file, seed);
-    expect(rankings.rows()).toHaveLength(2);
-    expect(rankings.rows()[0].name).toBe('Jinx');
-    expect(existsSync(file)).toBe(true);
-  });
-  it('replaces obsolete legacy pre-seed file and backs it up', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'rankings-'));
-    dirs.push(dir);
-    const file = join(dir, 'rankings.json');
-    const legacy = [{ gameId: 'old_legacy_1', seats: [{ key: 'player:test', name: 'Test', placement: 1, killed: [] }] }];
-    writeFileSync(file, JSON.stringify(legacy), 'utf8');
-    const seed = [{ gameId: 'g_seed_1', seats: [{ key: 'league/jinx', name: 'Jinx', placement: 1, killed: [] }, { key: 'league/shaco', name: 'Shaco', placement: 2, killed: [] }] }];
-    const rankings = new Rankings(file, seed);
-    expect(rankings.rows()).toHaveLength(2);
-    expect(rankings.rows()[0].name).toBe('Jinx');
-    expect(existsSync(`${file}.legacy-unseeded.bak`)).toBe(true);
+    const old = [{ gameId: 'g_old_1', seats: [{ key: 'league/jinx', name: 'Jinx', placement: 1, killed: [] }, { key: 'league/shaco', name: 'Shaco', placement: 2, killed: [] }] }];
+    // A file from before seasons existed counts as season 1.
+    writeFileSync(file, JSON.stringify(old), 'utf8');
+    expect(new Rankings(file, 2).rows()).toEqual([]);
+    expect(JSON.parse(readFileSync(join(dir, 'rankings.season-1.json'), 'utf8'))).toEqual(old);
+    expect(readFileSync(`${file}.season`, 'utf8').trim()).toBe('2');
+    // Same season on the next start: results are kept.
+    writeFileSync(file, JSON.stringify(old), 'utf8');
+    expect(new Rankings(file, 2).rows()).toHaveLength(2);
+    expect(existsSync(join(dir, 'rankings.season-2.json'))).toBe(false);
+    // Bumping again archives season 2.
+    expect(new Rankings(file, 3).rows()).toEqual([]);
+    expect(existsSync(join(dir, 'rankings.season-2.json'))).toBe(true);
   });
 });

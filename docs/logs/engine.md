@@ -6,6 +6,7 @@ bot, ranking and the game-record format. Map data has its own log ([maps.md](map
 Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. Changes from before pull requests carry the
 commit hash instead. **Append a line in the same PR** as any change to this area (README hard rule 12).
 
+- 2026-10-20 #107 `uniqueBoardNames` (board-names.ts): no two leaderboard rows share a display name ("Darius", "Darius2", ...)
 - 2026-10-20 #102 `nine_realms` map registered (MapId, MAP_IDS, starting armies, rules text, option descriptions)
 - 2026-10-20 #100 `bohemia` map registered (MapId, MAP_IDS, starting armies, rules text, option descriptions)
 - 2026-10-19 #79 `ranking.ts` changes so Delove can train on leaderboard points (placement + kills)

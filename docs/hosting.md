@@ -48,10 +48,9 @@ Behaviour that the deploy pipeline relies on:
   (WebSocket close 1012, exponential backoff) and MCP agents simply call `wait_for_turn` again.
   Updates therefore do not need to wait for `playing == 0`.
   The leaderboard keeps its own `$RISK_DATA_DIR/rankings.json` (every finished game, kept when rooms close). It
-  is seeded with Gen 5 results played off the site (#92): on start, seed games missing from the file are added, and a
-  file holding none of them is moved to `rankings.json.legacy-unseeded.bak` and replaced by the seed. A corrupt file is
-  moved to `rankings.json.corrupt`. See [character-league.md](character-league.md) and
-  [hardening.md](hardening.md) item 6.
+  runs in seasons (`RANKINGS_SEASON`, recorded in `rankings.json.season`): the first start on a newer season moves the
+  old board to `rankings.season-<old>.json` and starts empty. A corrupt file is moved to `rankings.json.corrupt`. See
+  [character-league.md](character-league.md).
 - **Room cleanup.** A sweeper runs every 30 seconds. Two quick rules come first, and spectators don't hold
   either one off:
   - a finished game closes 2 minutes after it ended (`RISK_FINISHED_CLOSE_MIN`);

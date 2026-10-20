@@ -36,11 +36,14 @@ Positive placements can gain points without a win. Kills and flooring mean the l
 The server records outcomes directly from finished room states. Its independent rankings.json is stored
 beside games.json under RISK_DATA_DIR, survives room deletion/restarts, and ignores already recorded game
 IDs. Multiple lobbies share this single server writer. A corrupt rankings file does not stop the server:
-it is moved aside to rankings.json.corrupt (and logged) and the ladder restarts from the seed, so restore it from a
-backup. The ladder is seeded with Gen 5 results played off the site (`packages/server/src/rankings-seed.ts`, #92):
-seed games missing from the file are added on start, and a file holding none of them is moved aside to
-rankings.json.legacy-unseeded.bak and replaced by the seed. This is a temporary arrangement; see
-[hardening.md](hardening.md) item 6. A failed save is logged without failing the move that ended the game. Back up RISK_DATA_DIR with
+it is moved aside to rankings.json.corrupt (and logged) and the ladder restarts empty, so restore it from a
+backup. The board holds only games finished on the site. It runs in **seasons**: `RANKINGS_SEASON` in
+`packages/server/src/rankings.ts` (season 2 since the wipe in #107). The season in force is written to
+`rankings.json.season`; when the code's season is newer, the old board is moved to `rankings.season-<old>.json` (kept,
+never deleted) and the new season starts empty, so bumping the number and deploying wipes the leaderboard. Every row
+has its own display name (`uniqueBoardNames` in the engine): the identity that reached the board first keeps
+"Darius", later ones with the same name (any case) show as "Darius2", "Darius3" and so on. Keys and points do not
+change. A failed save is logged without failing the move that ended the game. Back up RISK_DATA_DIR with
 normal server backups.
 
 Character identity is selected in the lobby using POST /api/games/:id/character with the seat's Bearer token

@@ -53,6 +53,7 @@ turn + T capitals: 256 moves on Four Crowns, 474 on Classic, 1,326 on Greater Eu
 | `delove_gpu/odds.py` | the blitz odds of `packages/engine/src/odds.ts` as exact double-precision tables for the teacher (both defence-dice limits, balanced blitz, every stack size) |
 | `delove_gpu/branch.py` | branch and score (`packages/delove/src/branch.ts`): options, common-random-number rollouts, scores, pick |
 | `delove_gpu/generate.py` | plays whole cycle steps (any mix of configurations; branch, teacher and network seats) and writes `export`'s training arrays directly |
+| `delove_gpu/ladder.py` | ladder matches (candidate vs best, mirrored pairs): the games and the JSON of `npm run delove -- ladder`; cycle.sh's GPU gates |
 | `delove_gpu/outcome.py` | a finished game's z and leaderboard placements, kills and points (`finalPlacements`, `gamePoints`) |
 | `delove_gpu/npy.py` | the `.npy` writer of `packages/selfplay/src/npy.ts` (same file layout) |
 | `delove_gpu/encode.py` | the board encoder of `packages/selfplay/src/encode.ts` (ENCODER_VERSION 2) on tensors, in float64 rounded once to float32 as in JavaScript |
@@ -64,6 +65,7 @@ turn + T capitals: 256 moves on Four Crowns, 474 on Classic, 1,326 on Greater Eu
 | `tests/replay.py` | the replay test (below): rules, teacher picks, outcome, encoder, network |
 | `tests/matrix.py` | the replay proof over every map, table size and setting (CPU logs in parallel, GPU replays) |
 | `tests/teacher_replay.py`, `tests/branch_replay.py`, `tests/export_check.py`, `tests/dataset_compare.py`, `tests/odds_check.py`, `tests/log1p_check.py` | the teacher, branch, training-array, odds and `Math.log1p` checks (below) |
+| `tests/ladder_compare.py` | a ladder match on the CPU (`--log`) against the same match on the GPU, game by game |
 | `tests/blitz_stats.py` | battle outcomes against the exact dice distribution |
 | `bench.py`, `bench_cpu.mjs`, `bench/` | GPU and CPU throughput; `bench/bench_cycle.sh` times a cycle step on both |
 
@@ -326,6 +328,95 @@ What decides these numbers:
 - **cycle.sh runs the GPU steps alongside the CPU pool**, so a cycle's generation takes as long as the slower of the
   two: give the GPU the steps it is best at (Classic 2-player, big maps with many games) and let the pool keep the
   small ones, or put every step on the GPU (`gpu_steps=(all)`) and free the CPU for the gates.
+
+## Ladder gates on the GPU
+
+A cycle's gates (candidate network vs the best, mirrored pairs at 2-10 players) play here too
+(`delove_gpu/ladder.py`): the same games as `npm run delove -- ladder`, and the same printed JSON (`summarizeMatch`'s
+score, interval and Elo, turn limit and mean turns, the leaderboard view `points` / `bestPoints` / `pointsDiff` /
+`meanPlacement` / `killsPerGame`, and `promotionDecision`), so `cycle.sh`'s gate table reads it unchanged. Game i of a
+match is seeded `gameSeed(seed, floor(i / 2))` and seated as `matchSeats` seats it (the candidate on even seats in even
+games, on odd seats in odd games): a match is two tables on one seed, run by `generate.py`'s engine loop with no
+recording. Network seats play from their `.pt` weights in fp32, teacher seats in the kernel.
+
+```bash
+# one match (run from packages/delove-gpu)
+.venv/Scripts/python -m delove_gpu.ladder --models models/delove --candidate c6-candidate --best delove@3 \
+  --players 6 --games 200 --seed 42 --options '{"map":"world"}'
+# many matches at once (cycle.sh's GPU gates): one line per match, OUT/gI-K.json per match, finished ones skipped
+.venv/Scripts/python -m delove_gpu.ladder --models models/delove --candidate c6-candidate --gates gpu.txt --out runs/c6/gates
+```
+
+A `--gates` line is `I K BEST PLAYERS GAMES SEED [OPTIONS JSON]`. Every match of one configuration (map, seats,
+settings) shares one engine, so a cycle's 2-player Classic gates (800 + 400 + 400 games over 80 chunks) are one batch of
+1,600 games in flight. `--results FILE` writes each game (winner, turns, placements, kills, points);
+`tests/ladder_compare.py` compares it with a CPU match's `--log`, game by game. Like generation, it refuses a stale
+mirror unless `--allow-unverified` (gates are evaluation, not training data, but a gate on a mirror that plays a
+different game would not be the CPU's gate). In `cycle.sh`: `gpu_gates=(all)` or `GPU_GATES=1` (see
+[packages/delove](../delove/README.md#a-whole-cycle-in-one-command)).
+
+### Proof: the CPU's gates, game for game
+
+`delove@3` against `delove@2`, each configuration as a cycle.sh gate of 200 games (10 chunks of 20, chunk k of gate i
+seeded `601 * 1000 + 100 * i + k`), played by `npm run delove -- ladder ... --log` and by `delove_gpu.ladder --gates`,
+compared with `tests/ladder_compare.py` (2026-10-20, `--allow-unverified`: the deploy branch's fingerprint was stale
+for the new Bohemia and Nine Realms maps, which none of these games use):
+
+| configuration | games | identical (winner, turns, placements, kills, points) | gate JSON (`g<i>-<k>.json`) |
+| --- | --- | --- | --- |
+| Classic, 2 players | 200 | 200 | 10 of 10 chunks equal |
+| Classic, 4 players | 200 | 200 | 10 of 10 |
+| Four Crowns (`skirmish`), 2 players | 200 | 200 | 10 of 10 |
+| World, 6 players | 200 | 200 | 10 of 10 |
+| World, 10 players | 200 | 200 | 10 of 10 |
+| Greater Europe, 6 players | 200 | 198 | 8 of 10 |
+| **total** | **1,200** | **1,198** | **58 of 60** |
+
+The two other games (game 17 of two Greater Europe chunks, 9,261 and 10,797 decisions) are ONNX vs PyTorch near-ties:
+replaying the CPU's log through the GPU (`tests/replay.py --fused --net`) gives the same rules at every step and the
+logged move at every network decision but one in each game, where the two best logits were 5.7e-6 apart (a
+`delove@2` decision) and 8.6e-6 apart (a `delove@3` one). From there each game goes on differently, equally valid, and
+so do its chunk's numbers: 2 games in 1,200 here, both on the biggest board.
+
+On cycle 6's tree (with Jacob Sensei in the mirror, fingerprint verified, no `--allow-unverified`), `c5-candidate`
+against cycle 6's other gate kinds, 40 games each: Jacob Sensei on World 6p, and two league-settings gates (Classic 6p
+with auto setup, balanced blitz, chosen capitals, progressive cards and 8 blizzards; Classic 2p with exponential cards):
+120 of 120 games identical, every gate file byte-identical to the CPU's. A cycle.sh run of a two-gate config, once
+with both gates on the GPU and once with one on each, wrote byte-identical gate files both times.
+
+### Speed of a gate
+
+The same 200-game gates (2026-10-20, RTX 4060 and i7-14700F). CPU: one `ladder` process per 20-game chunk, as cycle.sh
+plays them; a gate's wall time on the CPU is its longest chunk when it has a free process per chunk. GPU: one
+`delove_gpu.ladder` process, all 200 games of the configuration in flight (batch 256, 0.3 GB), kernels already
+compiled (a new configuration compiles once, about 1-2 minutes, cached in `_cache/`):
+
+| configuration | CPU, one chunk (mean / longest, 6 processes) | CPU, longest chunk in cycle 5's gates (21 busy processes) | GPU, all 200 games | GPU while cycle 6 trained (GPU at 99%) |
+| --- | --- | --- | --- | --- |
+| Classic, 2 players | 18 s / 21 s | 33-40 s | 34 s | 39 s |
+| Classic, 4 players | 44 s / 50 s | 100 s | 174 s | 131 s |
+| Four Crowns, 2 players | 10 s / 12 s | 22 s | 71 s | 84 s |
+| World, 6 players | 184 s / 230 s | 463 s | 463 s | 523 s |
+| World, 10 players | 130 s / 166 s | 415 s | 213 s | 317 s |
+| Greater Europe, 6 players | 658 s / 878 s | (10 players: 1,572 s) | 541 s | 1,594 s |
+| all six | 10,447 process-seconds | | 1,502 s one after another | |
+
+What decides it:
+
+- **A GPU match lasts as long as its longest game.** The loop steps every game in flight once per decision, so a
+  configuration takes (the longest game's decisions) x (one step: ~30 ms on Greater Europe, ~50 ms on World with 256
+  games, mostly the encoder and the two networks' many small kernels; the rules take under 2 ms), whatever the number
+  of games. 1,000 games cost about what 200 do: the GPU's gain is in games per gate, not in a single gate's latency.
+- **The CPU plays a gate's chunks side by side**, so with a free process per chunk a gate takes one chunk (20 games
+  one after another). Against that the GPU wins on the big boards (Greater Europe, World 10p) and loses on the small
+  ones, where 20 CPU games take less than the GPU's longest game.
+- **Sharing the GPU slows every step** (2-3x while training ran), and one process runs its configurations one after
+  another. `--procs N` (cycle.sh: `GPU_GATE_PROCS`) runs configurations in N processes at once, which should overlap
+  their latency-bound steps; it has not been timed yet (it needs the GPU to itself).
+
+So in a cycle: put on the GPU the gates whose CPU chunks are the longest (Greater Europe, World 10p and other big
+boards), keep the 2-4 player Classic and Four Crowns gates on the CPU, and the gate phase ends when the slower side
+does. The GPU is also the cheap way to more games per big-board gate (their 95% intervals are the widest).
 
 ## Keeping the mirror in step with the engine
 

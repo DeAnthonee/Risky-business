@@ -114,6 +114,9 @@ class Recorder:
         self.choice = w("choice", "<i4", [])
         self.game = w("game", "<i4", [])
         self.seat = w("seat", "<i4", [])
+        # What branch and score did at each recorded decision (not in export.ts's arrays; train.py --branch-weights):
+        # 0 the teacher's move without comparing options, 1 options compared and the teacher's move kept, 2 changed.
+        self.tag = w("branch_tag", "<i1", [])
         self.offset.append(np.array([0], dtype=np.int64))
         self.ncand = 0
         self.uids: list[np.ndarray] = []  # game uid of each row, for z at the end
@@ -123,7 +126,7 @@ class Recorder:
         self.keys: list = []
 
     def add(self, enc: Encoder, terr, glob, games: torch.Tensor, ordered: torch.Tensor, cnt: torch.Tensor, chosen: torch.Tensor,
-            uid: torch.Tensor, seat: torch.Tensor, keys: list | None = None):
+            uid: torch.Tensor, seat: torch.Tensor, keys: list | None = None, tag: torch.Tensor | None = None):
         """Rows for decisions in `games`: candidates ordered[g, :cnt[g]] (actions.ts order), chosen action. `keys`
         (one per game, optional) are kept in self.keys in row order, for tests that compare rows with export's."""
         if games.numel() == 0:
@@ -156,6 +159,7 @@ class Recorder:
                 self.game_index[x] = len(self.game_index)
         self.game.append(np.array([self.game_index[x] for x in u.tolist()], dtype=np.int32))
         self.seat.append(seat[games].to(torch.int32).cpu().numpy())
+        self.tag.append((tag[games] if tag is not None else torch.zeros_like(games)).to(torch.int8).cpu().numpy())
         self.uids.append(np.stack([u, seat[games].cpu().numpy()], 1))
 
     def finish_game(self, uid: int, out: dict):
@@ -164,7 +168,7 @@ class Recorder:
             self.out_of[(uid, s)] = (z, out["points"][s], out["points01"][s])
 
     def close(self, sources: list[str]) -> dict:
-        for w in (self.territory, self.glob, self.cand, self.cand_from, self.cand_to, self.offset, self.choice, self.game, self.seat):
+        for w in (self.territory, self.glob, self.cand, self.cand_from, self.cand_to, self.offset, self.choice, self.game, self.seat, self.tag):
             w.close()
         us = np.concatenate(self.uids) if self.uids else np.zeros((0, 2), dtype=np.int64)
         vals = np.array([self.out_of[(int(u), int(s))] for u, s in us], dtype=np.float64).reshape(-1, 3)
@@ -349,7 +353,7 @@ class Group:
         ag = self.seat_agent[games, self.e.cur[games]]
         keep = (ag[:, None] == self.export_idx[None, :]).any(1)
         g = games[keep]
-        self.rec.add(self.enc, terr, glob, g, ordered, cnt, chosen, self.uid, self.e.cur)
+        self.rec.add(self.enc, terr, glob, g, ordered, cnt, chosen, self.uid, self.e.cur, tag=self.btag)
 
     def _branch_stats(self, d):
         s = self.r.stats
@@ -381,6 +385,7 @@ class Group:
     def run(self, progress: bool = True) -> dict:
         e, dev, B, r = self.e, self.dev, self.B, self.r
         ar = torch.arange(B, device=dev)
+        self.btag = torch.zeros(B, dtype=torch.int8, device=dev)  # this step's branch tag per game (Recorder)
         torch.cuda.reset_peak_memory_stats(dev)
         self.fill(list(range(B)))
         t0, it, total = time.time(), 0, sum(t.games for t in self.tables)
@@ -420,10 +425,12 @@ class Group:
                     act1[g] = first_max(rank(g, mask), self.cpu_order)  # ties: first candidate (fortify_to: territory order)
             act2 = torch.full((B,), -1, dtype=torch.long, device=dev)
             bg = (active & (typ == BRANCH)).nonzero(as_tuple=True)[0]
+            self.btag.zero_()
             if bg.numel():
                 d = self.branch.decide(bg, mask, tact)
                 act1[bg] = d.act1
                 act2[bg] = d.act2
+                self.btag[bg] = d.branched.to(torch.int8) + d.changed.to(torch.int8)
                 self._branch_stats(d)
             ordered, cnt = e.cand_order() if self.rec else (None, None)
             self._record(active.nonzero(as_tuple=True)[0], ordered, cnt, act1, terr, glob)

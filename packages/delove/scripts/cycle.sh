@@ -18,7 +18,8 @@
 #                              branch, teacher and network seats); same games as on the CPU, training arrays
 #                              written directly (no export). GPU_STEPS (space-separated, or all) overrides it.
 #   export_agents=delove-branch@1                  whose decisions are exported (--only-agents)
-#   train_data=("<step>/<map>[:mode][*N]" | "<dataset under DATA or path>[:mode][*N]" ...)   *N repeats it N times
+#   train_data=("<step>/<map>[:mode][#F][*N]" | "<dataset under DATA or path>[:mode][#F][*N]" ...)   *N repeats it N
+#                              times; #F trains on a fresh random fraction F of it each epoch (older cycles' data)
 #   train_init=<model id, or empty for a fresh network>  candidate=<cN-candidate>  train_args="--epochs 1.5 --lr 3e-4"
 #   gates=("<opponent> <players> <games> [options JSON]" ...)   ladder matches of the candidate
 # Environment: CYCLE_NAME (overrides name, e.g. for a trial run), DELOVE_MODELS (models folder, default models/delove), OUT (default runs/delove/<name>), DATA (default
@@ -192,11 +193,12 @@ if [[ ! -f "$cand.onnx" ]]; then
   args=()
   for d in "${train_data[@]}"; do
     reps=1; [[ $d == *"*"* ]] && reps=${d##*"*"} && d=${d%"*"*}
+    frac=""; [[ $d == *"#"* ]] && frac="#${d##*#}" && d=${d%#*}
     mode=""; [[ $d == *:* ]] && mode=":${d##*:}" && d=${d%:*}
     # <step>/<map> of this cycle, else a dataset under DATA, else a path.
     path="$data/$name-$d"; [[ -e $path ]] || path="$data/$d"; [[ -e $path ]] || path=$d
     [[ -e $path ]] || { echo "no training data $path"; exit 1; }
-    for ((i = 0; i < reps; i++)); do args+=(--data "$(absdir "$path")$mode"); done
+    for ((i = 0; i < reps; i++)); do args+=(--data "$(absdir "$path")$mode$frac"); done
   done
   cand_path=$(abs "$cand")
   # An empty train_init trains a fresh network (its size from train_args, e.g. --hidden 192 --rounds 6).

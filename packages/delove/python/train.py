@@ -16,7 +16,10 @@ Writes <out>.pt (weights + config) and <out>.json (training settings and validat
 
 A dataset spec can end in #F (e.g. data/delove/c4-classic2/classic#0.4): each epoch then trains on a fresh random F of
 that dataset's training decisions, so older cycles keep their influence at a fraction of their cost. --amp runs the
-network in bfloat16 (mixed precision; losses, optimizer and weights stay float32).
+network in bfloat16 (mixed precision; losses, optimizer and weights stay float32). --branch-weights W0,W1,W2 weights
+the policy loss by what branch and score did at each decision (branch_tag.npy, written by delove_gpu.generate): 0 the
+teacher's move played without comparing options, 1 options compared and the teacher's move kept, 2 the move changed;
+datasets without branch_tag.npy keep weight 1.
 """
 import contextlib
 import argparse
@@ -35,7 +38,7 @@ MODES = ("imitate", "winners", "advantage")
 
 
 class Data:
-    def __init__(self, folder, mode="imitate", loser_weight=0.1, target="z", fraction=1.0):
+    def __init__(self, folder, mode="imitate", loser_weight=0.1, target="z", fraction=1.0, branch_weights=None):
         if mode not in MODES:
             raise SystemExit(f"{folder}: unknown mode {mode!r} ({', '.join(MODES)})")
         if not 0 < fraction <= 1:
@@ -57,6 +60,10 @@ class Data:
             if np.isfinite(p01).any():
                 self.z = np.where(np.isfinite(p01), p01, self.z).astype(np.float32)
                 self.target = "points"
+        self.tag_weight = None
+        tag_path = os.path.join(folder, "branch_tag.npy")
+        if branch_weights is not None and os.path.exists(tag_path):
+            self.tag_weight = np.asarray(branch_weights, dtype=np.float32)[np.asarray(np.load(tag_path, mmap_mode="r")).clip(0, 2)]
         T = len(self.info["territoryIds"])
         adj = np.zeros((T, T), dtype=np.float32)
         for i, ns in enumerate(self.info["adjacency"]):
@@ -68,7 +75,8 @@ class Data:
 
     def policy_weight(self, ks):
         z = self.z[ks].astype(np.float32)
-        return self.loser_weight + (1 - self.loser_weight) * z if self.mode == "winners" else np.ones_like(z)
+        w = self.loser_weight + (1 - self.loser_weight) * z if self.mode == "winners" else np.ones_like(z)
+        return w * self.tag_weight[ks] if self.tag_weight is not None else w
 
     def batch(self, ks, device):
         """Tensors for decisions `ks` (sorted for faster memmap reads)."""
@@ -164,12 +172,16 @@ def main():
     ap.add_argument("--max-val", type=int, default=100_000, help="cap on validation decisions per evaluation")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--amp", action="store_true", help="mixed precision: the network in bfloat16 (CUDA only)")
+    ap.add_argument("--branch-weights", help="W0,W1,W2: policy weight of teacher-only, compared-and-kept and changed decisions")
     args = ap.parse_args()
 
     torch.manual_seed(args.seed)
     rng = np.random.default_rng(args.seed)
     device = "cuda" if torch.cuda.is_available() else "cpu"
     amp = args.amp and device == "cuda"
+    bw = [float(x) for x in args.branch_weights.split(",")] if args.branch_weights else None
+    if bw is not None and len(bw) != 3:
+        raise SystemExit("--branch-weights needs three numbers")
 
     def parse(spec):
         fraction = 1.0
@@ -178,8 +190,8 @@ def main():
             fraction = float(f)
         for mode in MODES:
             if spec.endswith(":" + mode):
-                return Data(spec[: -len(mode) - 1], mode, args.loser_weight, args.value_target, fraction)
-        return Data(spec, "imitate", args.loser_weight, args.value_target, fraction)
+                return Data(spec[: -len(mode) - 1], mode, args.loser_weight, args.value_target, fraction, bw)
+        return Data(spec, "imitate", args.loser_weight, args.value_target, fraction, bw)
 
     datasets = [parse(d) for d in args.data]
     first = datasets[0]
@@ -206,7 +218,7 @@ def main():
     steps_total = int(args.epochs * n_train / args.batch)
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
     sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=args.lr, total_steps=max(1, steps_total), pct_start=0.05)
-    print(json.dumps(dict(device=device, datasets={d.name: dict(mode=d.mode, target=d.target, decisions=len(d), fraction=d.fraction) for d in datasets},
+    print(json.dumps(dict(device=device, datasets={d.name: dict(mode=d.mode, target=d.target, decisions=len(d), fraction=d.fraction, tagged=d.tag_weight is not None) for d in datasets},
                           train=n_train, params=params, steps=steps_total, amp=amp)))
 
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)

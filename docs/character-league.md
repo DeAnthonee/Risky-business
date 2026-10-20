@@ -40,7 +40,8 @@ it is moved aside to rankings.json.corrupt (and logged) and the ladder restarts 
 backup. The board holds only games finished on the site. It runs in **seasons**: `RANKINGS_SEASON` in
 `packages/server/src/rankings.ts` (season 2 since the wipe in #107). The season in force is written to
 `rankings.json.season`; when the code's season is newer, the old board is moved to `rankings.season-<old>.json` (kept,
-never deleted) and the new season starts empty, so bumping the number and deploying wipes the leaderboard. Every row
+never deleted, never over an existing archive) and the new season starts empty; if that move fails the season file
+is not updated, so it is retried on the next start, so bumping the number and deploying wipes the leaderboard. Every row
 has its own display name (`uniqueBoardNames` in the engine): the identity that reached the board first keeps
 "Darius", later ones with the same name (any case) show as "Darius2", "Darius3" and so on. Keys and points do not
 change. A failed save is logged without failing the move that ended the game. Back up RISK_DATA_DIR with

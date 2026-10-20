@@ -21,18 +21,24 @@ export class Rankings {
     if (!file) return;
     const seasonFile = `${file}.season`;
     const saved = existsSync(seasonFile) ? Number(readFileSync(seasonFile, 'utf8').trim()) || 1 : 1;
-    if (saved !== season && existsSync(file)) {
-      // A new season starts empty; the old board is archived beside it.
-      const archived = file.replace(/\.json$/, '') + `.season-${saved}.json`;
-      try {
-        renameSync(file, archived);
-        console.log(`rankings: season ${saved} archived to ${archived}; season ${season} starts empty`);
-      } catch (e) {
-        console.error(`rankings: could not archive ${file} (${(e as Error).message})`);
+    if (saved !== season) {
+      // A new season starts empty; the old board is archived beside it (never over an existing archive). The season
+      // file is written only once the old board is out of the way, so a failed archive is retried on the next start.
+      let archivedOk = !existsSync(file);
+      if (!archivedOk) {
+        const stem = file.replace(/\.json$/, '') + `.season-${saved}`;
+        let archived = `${stem}.json`;
+        for (let n = 2; existsSync(archived); n++) archived = `${stem}-${n}.json`;
+        try {
+          renameSync(file, archived);
+          archivedOk = true;
+          console.log(`rankings: season ${saved} archived to ${archived}; season ${season} starts empty`);
+        } catch (e) {
+          console.error(`rankings: could not archive ${file} (${(e as Error).message}); still on season ${saved}, retrying next start`);
+        }
       }
+      if (archivedOk) this.writeSeason(seasonFile);
     }
-    if (saved !== season) this.writeSeason(seasonFile);
-
     if (existsSync(file)) {
       try {
         const games = JSON.parse(readFileSync(file, 'utf8')) as unknown;

@@ -168,10 +168,31 @@ exporter. None of them is imported by the server or the character code.
 - **What it is:** a PyTorch/CUDA copy of the rules, the teacher and branch-and-score that plays thousands of games
   at once. It's verified step for step against the TypeScript engine by replaying logged games: board, cards,
   phase, legal moves and the teacher's choices must all match.
-- **Speed so far:**
-  - random play: 384x faster than all 28 CPU threads;
-  - games where the network picks every move: 6.5-13x faster;
-  - the Classic 2-player branch step: 4.6x faster (bit-identical games and arrays).
+- **Coverage** (#82): every map, 2-10 seats and every setting except fog of war, with branch, teacher and network
+  seats. It mirrors #79's leaderboard points (elimination order, `finalPlacements`, `gamePoints`), and `generate.py`
+  writes `points.npy` / `points01.npy` bit-identical to `export`. Verified with 0 mismatches over 3,895,342 replay
+  steps. Not on the GPU: fog of war, `risky@1` and `-explore` seats in `generate.py`, and `DELOVE_BRANCH_VALUE`.
+- **Speed of a branch-and-score cycle step, games to training arrays** (RTX 4060 vs 27 CPU processes, warm
+  kernels, `delove@3` ranking, horizon 1):
+
+  | step | games | CPU | GPU | speedup |
+  | --- | --- | --- | --- | --- |
+  | Four Crowns micro, 1v1 | 1,200 | 45 s | 17 s | 2.6x |
+  | Classic 2-player | 3,000 | 223 s | 68 s | 3.3x |
+  | Classic 4-player | 600 | 325 s | 186 s | 1.7x |
+  | Greater Europe 10-player, 512 games at once | 400 | 0.066 games/s | 0.31 games/s | 4.7x |
+  | **Greater Europe 10-player, 2,048 games at once** | 2,048 | 0.066 games/s | **1.06 games/s** | **16x** |
+
+  Teacher-only games run 12-1,600x faster; random play 384x.
+- **How to get the speed:**
+  - **Run many games at once.** The GPU steps all games in lockstep, and a step costs far less than in proportion
+    to its games, so thousands of games in flight beat hundreds. Make GPU steps large, or run several steps' worth
+    at once. `GPU_GB` sizes the batches (2,048 Greater Europe 10-player games fit in 1.44 GB).
+  - **Long games are the tail.** Games running to the turn limit step alone at the end (384 of 400 Greater Europe
+    games did). Fixing Sensei's stalling (section 9) speeds the GPU up as well as improving the data.
+  - **The first run of a new map / table size / settings compiles for 40-60 s**, then it's cached in `_cache/`.
+  - **`cycle.sh` runs GPU steps alongside the CPU pool:** `gpu_steps=(...)` in the config (or `all`), overridden by
+    `GPU_STEPS`. Give the GPU the big-map and Classic 2-player steps; let the CPU keep small ones if both are busy.
 - **The rule:** whenever `packages/engine` or the self-play files it mirrors change, re-run
   `python packages/delove-gpu/verify.py --models <dir>`. Until then CI warns and the GPU tools refuse to run
   (`engine-fingerprint.json`).
@@ -188,7 +209,10 @@ DELOVE_BRANCH_RANKER=<best> DELOVE_BRANCH_HORIZON=1 DELOVE_BRANCH_MARGIN=0.01 \
 A cycle config names its steps (jobs files), the training data mix and the gates. Re-running resumes. Output goes
 to `runs/delove/<name>/cycle.md`.
 - **The CPU path:** about 17-20 minutes on 27 threads (45 with a fresh large network).
-- **The GPU path:** `gpu_steps` (#77/#80) for the Classic 2-player step today, any step once the all-maps work lands.
+- **The GPU path:** `gpu_steps=(classic2 ...)` or `gpu_steps=(all)` in the config (#77/#80/#82); any step, any map.
+  Before the first GPU cycle after any engine or self-play change, run `verify.py --models <dir>`.
+- **Training on points:** add `--value-target points` to the config's `train_args`; gate multiplayer on the ladder's
+  mean points.
 
 **Live games:**
 ```bash
@@ -210,7 +234,7 @@ Fog of war off; one seat per agent.
 
 | what | who | state |
 | --- | --- | --- |
-| GPU rules, teacher and branch-and-score for every map, 2-10 players and the main settings; points arrays from the GPU; `cycle.sh` GPU steps for any step | session "GPU engine for every map and 2-10 players", branch `feat/delove-gpu-all-maps` | committed, running full-size verification and benchmarks; PR not opened yet |
+| GPU rules, teacher and branch-and-score for every map, 2-10 seats and every setting; points arrays from the GPU; `cycle.sh` GPU steps for any step | session "GPU engine for every map and 2-10 players" | **PR #82**, verified, in review |
 | all-map strength data | coordinator | 147 of 296 chunks (about 5k games, 5 maps), stopped to free the machine; finish on the GPU |
 | #39 tournament Earth map | other work | on hold (owner) |
 
@@ -218,9 +242,13 @@ Fog of war off; one seat per agent.
 
 In order. Each step has a measurable bar.
 
-1. **Land the all-maps GPU path.** The full cycle on the GPU on every map. Bar: zero replay mismatches and a
-   cycle-sized timing (per map and table size) against the CPU.
-2. **Points cycles on all maps.** Branch and score on a mix of every map and 2-10 players, trained with
+1. **Fix Sensei's stalling in big games first.** 384 of 400 Greater Europe 10-player games and about 15% of 4-player
+   games hit the turn limit. A stalling rollout teacher teaches stalling, wastes the GPU's tail, and every stall now
+   scores last place's points. Resume the Sensei 3 tuner (`runs/delove/tune/teacher3.json`, `src/tune.ts --from`
+   with the stall penalty and `lateRound` / `lateRamp`) on a mix of 4-10 player tables and big maps, now
+   affordable on the GPU (teacher-only games run 12-1,600x faster there). Bar: turn-limit games under ~2% at every
+   table size, and no loss at 2 players against Sensei 2.
+2. **Points cycles on all maps, mostly on the GPU** (after #82 merges). Branch and score on a mix of every map and 2-10 players, trained with
    `--value-target points`, gated by **mean leaderboard points** at 4-10 players (the ladder already reports them)
    and by win share at 2 players.
    *Why:* trains for what is ranked, on the maps that are played.
@@ -277,3 +305,17 @@ In order. Each step has a measurable bar.
 - **Score:** win share in a ladder match (0.5 = even).
 - **Elo:** a strength difference; +35 ≈ 0.55, +70 ≈ 0.60.
 - **GPU mirror:** `packages/delove-gpu`, verified against the engine by replay.
+
+## 12. Starting a coordinator session
+
+Once #82 has merged, start a new chat with:
+
+> You're the Delove training coordinator. Read `docs/delove-status.md` first, then `packages/delove/CYCLES.md` and
+> `packages/delove-gpu/README.md`. Goal: the strongest possible Delove on leaderboard points, on every map and 2-10
+> players, using the GPU as much as possible. Start by fixing Sensei's stalling in big games, then run training
+> cycles on all maps with the points target, each step on whichever of GPU or CPU runs it faster. Do the heavy work
+> in separate sessions, report each cycle's stats table, and promote only through the ladder gate.
+
+Its first job is writing the all-maps points cycle config: all maps, 2-10 players, big GPU steps,
+`--value-target points`, and gates on mean points at 4-10 players and win share at 2.
+

@@ -226,6 +226,45 @@ each phase to `runs/delove/<name>/cycle.md`. Re-running resumes where it stopped
 DELOVE_MODELS=models/delove PYTHON=.venv/Scripts/python bash packages/delove/scripts/cycle.sh packages/delove/scripts/cycles/c2.cycle
 ```
 
+Each invocation writes its phase times to `times.tsv` and a copy to `times-<YYYYmmdd-HHMMSS>.tsv` (its start), so a
+cycle stopped and resumed keeps every invocation's times.
+
+**Watching a cycle, its history and where the time went.** `scripts/dashboard.mjs` is a local, read-only page over the
+run folders (binds 127.0.0.1 only, no external scripts):
+
+```bash
+node packages/delove/scripts/dashboard.mjs [--runs runs/delove] [--port 8790] [--no-record]
+```
+
+`--runs` is the folder holding the run folders (cycle.sh's `OUT` parent; on the training PC, the stage2 worktree's
+`runs/delove`); open `http://127.0.0.1:8790`, `?run=<name>` picks a run (default: the newest).
+
+- **Live**: the phase and pipeline of a cycle, each step's games per map and table size with turn-limit counts, games
+  per minute and the time left (from `delove_gpu.generate`'s progress lines), branch-and-score statistics, training
+  curves and validation by dataset, the gates with score and points intervals, and the machine's GPU and CPU load over
+  the last 2 hours.
+- **History**: any run, finished or not. While it runs, the dashboard appends a compact sample every 30 s (phase,
+  games, turn-limit games, games/min, GPU load, memory and temperature, CPU load, training step and losses, gate
+  games) to `<run>/dashboard/samples.jsonl` for the active run (the newest one written to in the last 10 minutes),
+  and the machine's load to `<runs>/_machine/samples-<date>.jsonl`; a sample is skipped when nothing moved (one every
+  5 minutes at most then), so a cycle's file stays around 100 KB. The tab charts those samples and, for every run,
+  shows its phases on the clock, GPU and CPU busy time, generation per step and map / table size (with the last 5% of
+  each configuration's games) and a bottleneck list, worked out from the run's files when it has no samples (cycle 5
+  and older). One dashboard records at a time: a second one sees the first's heartbeat (`_machine/recorder.json`) and
+  only reads; `--no-record` never writes.
+- **Compare cycles**: every run with phase stamps, a bar per phase (CPU pool, each GPU step, training, gates, time
+  between invocations) in minutes, games and decisions per hour of generation, training samples/s, GPU and CPU busy
+  share, idle time and each cycle's top bottlenecks.
+
+`scripts/timing-report.mjs <run dir> [...more] [--batch N] [--out file.md]` writes the same as Markdown: time per
+invocation, phase, step and map / table size; GPU vs CPU share and the idle gaps; throughput (games/min, decisions/s,
+training samples/s, from the training batch in the cycle config next to the jobs files, or `--batch`); the slowest tail
+(the last 5% of each GPU configuration's games, the CPU and gate pools' tails and slowest chunks); and a short
+bottleneck list. It needs only `times*.tsv`, the chunk and gate files, `gpu.json` / `gpu.log` and `train.log`
+(`runs/delove/c5` works: its generation and its training and gates ran as two invocations, `times-generation.tsv` and
+`times-train-gates.tsv`); with the dashboard's samples it adds measured load and idle stretches. Chunk times come from
+the files' creation and last-write times. `scripts/run-timing.mjs` holds the reading both share.
+
 **A step on the GPU.** A config can list steps to play on the GPU instead, `gpu_steps=(classic2)`, or every step,
 `gpu_steps=(all)` (`GPU_STEPS="micro classic4"` or `GPU_STEPS=all` overrides the config): that step's tables
 go to `python -m delove_gpu.generate` (`packages/delove-gpu`), in the background while the CPU pool plays the other
@@ -241,6 +280,19 @@ cycle.sh checks the mirror's fingerprint: if the engine changed since the last v
 The games are the CPU's: cycle 3's Classic 2-player step played this way (`c3.cycle` with `gpu_steps=(classic2)`,
 same environment as cycle 3) gives a `cycle.md` step table identical to cycle 3's CPU one, every number of it: wins
 per table, mean turns, decisions, and all branch-and-score statistics.
+
+**The gate table** reports, for each ladder match, the score (win share, 95% interval, Elo) and the leaderboard view:
+mean points per seat for the candidate and the opponent, their difference with a 95% interval (from the spread of the
+gate's chunks), the candidate's mean place and kills per seat, and the games that hit the turn limit. Since cycle 5
+promotions are judged mainly on the points difference at 4-10 players (`docs/delove-status.md` section 3).
+
+**Training options** (`python/train.py`, through `train_args` and `train_data`):
+- `--amp`: the network in bfloat16 mixed precision (losses, optimizer and weights stay float32). On the RTX 4060 it
+  gives the same validation loss as float32 (0.9455 vs 0.9449 on cycle 5 data) at 1.9x the speed, and less memory.
+- `<dataset>#F` (in `train_data`, or `--data <path>#F`): each epoch trains on a fresh random fraction F of that
+  dataset's training decisions, so older cycles keep their influence at a fraction of their cost.
+- Keep a batch within the card: on big maps (Greater Europe, Fantasy) batch 1024 spilled past the RTX 4060's 8 GB into
+  shared memory and ran 5x slower; batch 512 fits.
 
 A cycle-2-sized run (2,000 micro games, 3,000 Classic 2-player and 600 Classic 4-player branch games, training,
 1,800 gate games) takes **20 minutes**, where cycle 1's way took about 80 minutes before its gates:

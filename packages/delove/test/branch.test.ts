@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { KILL_POINTS, placementPoints, type GameState } from '@risk/engine';
 import { playGame, type Agent } from '@risk/selfplay';
-import { DEFAULT_BRANCH, pointsScore, positionScore } from '../src/branch.js';
+import { DEFAULT_BRANCH, killCredit, pointsScore, positionScore } from '../src/branch.js';
 import { teacher } from '../src/index.js';
 
 /** A 4-player World position from the middle of a teacher game. */
@@ -49,5 +49,15 @@ describe('branch score', () => {
     for (const x of all) expect(x.points).toBeGreaterThanOrEqual(0);
     const best = all.reduce((a, b) => (b.share > a.share ? b : a));
     expect(Math.max(...all.map((x) => x.points))).toBe(best.points);
+  });
+
+  it('kills: the share score plus a kill credit on the points scale', () => {
+    const D = placementPoints(1, 4) - placementPoints(4, 4);
+    expect(killCredit(s, me)).toBe(0);
+    expect(positionScore(s, me, w, 'kills').score).toBe(positionScore(s, me, w).score);
+    const victim = s.players.find((p) => p.id !== me && !p.isNeutral)!;
+    const killed: GameState = { ...s, players: s.players.map((p) => (p.id === victim.id ? { ...p, alive: false, eliminatedBy: me } : p)) };
+    expect(killCredit(killed, me)).toBe(KILL_POINTS / D);
+    expect(positionScore(killed, me, w, 'kills').score).toBe(positionScore(killed, me, w).score + KILL_POINTS / D);
   });
 });

@@ -5,6 +5,8 @@ Covers `packages/client` (lobby, board, animations, chat, spectator features). G
 Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. Changes from before pull requests carry the
 commit hash instead. **Append a line in the same PR** as any change to this area (README hard rule 12).
 
+- 2026-10-20 #109 phone held sideways gets its own layout: one-line top bar, tab rail on the right, panels beside the map, short scrolling action bar; wide touch screens up to 540px tall get the phone layout instead of desktop
+- 2026-10-20 #108 the current player's territories sit slightly raised (larger, rim, drop shadow) and rock gently during their turn; still under reduced motion
 - 2026-10-20 #104 animated water behind the board: depth gradient, drifting wave marks, coastline surf glow (still under reduced motion)
 - 2026-10-20 #103 current player card over the board (desktop): this game's stats and leaderboard standing for whoever's turn it is; draggable, resizable, foldable, remembered per browser
 - 2026-10-20 #96 generation-match auto-move actually runs (the name comes from the connection), matches only the runner's exact `Generation <tag> Match <n>` names and skips tournament tables; hard rule 10 and playing.md describe it

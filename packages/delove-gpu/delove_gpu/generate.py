@@ -37,7 +37,7 @@ from .fingerprint import REPO
 from .npy import NpyWriter
 from .outcome import game_outcome
 from .play import load_delove
-from .teacher import load_params, mix_seed
+from .teacher import agent_params, is_teacher, mix_seed
 
 TEACHER, BRANCH, NET = 0, 1, 2
 BRANCH_ID = "delove-branch@1"
@@ -232,17 +232,19 @@ class Run:
         self.tables, self.seed, self.bcfg, self.models = tables, seed, bcfg, models
         self.ranker, self.teacher_id, self.max_turns, self.precision = ranker, teacher, max_turns, precision
         self.device, self.allow_unverified = torch.device(device), allow_unverified
-        tpath = models / f"{teacher}.json"
-        self.params = load_params(tpath if tpath.exists() else None)
         self.agent_ids = sorted({a for t in tables for a in t.agents} | {ranker})
+        # teacher versions: row 0 the rollout teacher (it also makes the branch player's own teacher moves), then every
+        # other teacher seated at a table (delove-teacher@N, jacob-sensei@N), each with its own numbers
+        self.versions = [teacher] + [a for a in self.agent_ids if is_teacher(a) and a != teacher]
+        if len(self.versions) > 255:
+            raise SystemExit("more than 255 teacher versions in one run")
+        self.params = [agent_params(v, models) for v in self.versions]
         self.types: dict[str, int] = {}
         self.net_modules: dict[str, torch.nn.Module] = {}
         for a in self.agent_ids:
             if is_branch(a):
                 self.types[a] = BRANCH
-            elif a.startswith("delove-teacher@"):
-                if a != teacher:
-                    raise SystemExit(f"{a} at the table but the rollout teacher is {teacher}: one teacher version per run")
+            elif is_teacher(a):
                 self.types[a] = TEACHER
             else:
                 pt = models / f"{a}.pt"
@@ -304,6 +306,8 @@ class Group:
         self.B, self.dev = B, e.dev
         ids = run.agent_ids
         self.agent_type = torch.tensor([run.types[a] for a in ids], device=e.dev)
+        # each agent's teacher version (row of e.prm): its own for teacher seats, the rollout teacher's (0) otherwise
+        self.agent_tver = torch.tensor([run.versions.index(a) if a in run.versions else 0 for a in ids], dtype=torch.uint8, device=e.dev)
         self.nets = {a: net_ranker(self.enc, mod, self.adj, run.precision) for a, mod in run.net_modules.items()}
         # one GpuBranch per branch seat kind at these tables (agent index -> its branch and score)
         self.branches = {ids.index(a): GpuBranch(e, self.nets[run.ranker], replace(run.bcfg, score=branch_score(a) or run.bcfg.score))
@@ -332,6 +336,7 @@ class Group:
             seeds.append(mix_seed(r.seed, t.start + i))
             self.slot_game[b] = (ti, i)
             self.seat_agent[b] = torch.tensor([r.agent_ids.index(a) for a in t.agents], device=self.dev)
+            self.e.tver[b] = self.agent_tver[self.seat_agent[b]]
             self.uid[b] = r.next_uid
             self.decisions[b] = 0
             r.next_uid += 1
@@ -400,6 +405,7 @@ class Group:
         torch.cuda.reset_peak_memory_stats(dev)
         self.fill(list(range(B)))
         t0, it, total = time.time(), 0, sum(t.games for t in self.tables)
+        first = len(self.r.results)  # this configuration's games, for the turn-limit count in the progress line
         done_games = 0
         # teacher seats whose decisions are not recorded play their moves in place, inside one kernel, until a branch or
         # network seat is to move: same moves and streams as one step at a time, without a round trip per move
@@ -460,7 +466,12 @@ class Group:
                 self.fill(done.tolist())
             it += 1
             if progress and it % 100 == 0:
-                print(f"    {self.cfg.label()} step {it}: {done_games}/{total} games, {time.time() - t0:.0f}s", flush=True)
+                limit = sum(1 for r in self.r.results[first:] if r["winner"] is None)
+                # The branch statistics so far (the whole run's), for scripts/dashboard.mjs.
+                st = self.r.stats
+                print(f"    {self.cfg.label()} step {it}: {done_games}/{total} games, {limit} at the turn limit, {time.time() - t0:.0f}s"
+                      f" | branch {json.dumps({k: st[k] for k in ('decisions', 'branched', 'simulations', 'simulatedMoves', 'changed', 'gain', 'changedByKind', 'branchedByKind')})}",
+                      flush=True)
         return {"games": done_games, "seconds": round(time.time() - t0, 1), "steps": it, "odds_outside_tables": int(e.tstats[0]),
                 "peak_gpu_gb": round(torch.cuda.max_memory_allocated(dev) / 2**30, 2)}
 
@@ -489,7 +500,8 @@ def main():
     ap.add_argument("--seed", type=int, required=True)
     ap.add_argument("--models", default=str(REPO / "models" / "delove"))
     ap.add_argument("--ranker", default="delove@2", help="network proposing the branch options (DELOVE_BRANCH_RANKER)")
-    ap.add_argument("--teacher", default=None, help="rollout teacher (default: the newest delove-teacher@N.json in --models)")
+    ap.add_argument("--teacher", default=None, help="rollout teacher, e.g. jacob-sensei@1 (DELOVE_BRANCH_TEACHER; default: the newest"
+                    " delove-teacher@N.json in --models). Teacher seats at the tables play their own version")
     d = default_branch()
     ap.add_argument("--options", type=int, default=d.options)
     ap.add_argument("--rollouts", type=int, default=d.rollouts)

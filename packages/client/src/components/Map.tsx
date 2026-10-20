@@ -282,6 +282,14 @@ export function GameMap(props: MapProps) {
   const zoomed = scale > 1.05;
   const showNames = !dense || scale >= 1.7;
 
+  // Territories of the player whose turn it is (not hidden or frozen): drawn again, raised, above the board.
+  const turnPlayer = !bonusView && view.phase !== 'lobby' && view.phase !== 'finished' ? view.currentPlayer : null;
+  const liftedList = useMemo(
+    () => (turnPlayer ? map.territories.filter((t) => view.territories[t.id]?.owner === turnPlayer && !isHidden(t.id) && !isFrozen(t.id)) : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [turnPlayer, map, view.territories, view.blizzards, hidden, bonusView],
+  );
+
   const continentLabels = useMemo(
     () =>
       map.continents.map((c) => {
@@ -446,6 +454,23 @@ export function GameMap(props: MapProps) {
           );
         })}
       </g>
+
+      {/* Whose turn: a raised copy of the current player's land that rocks gently, so watchers spot it at a glance.
+          Visual only: clicks and hovers fall through to the unmoved territories underneath. */}
+      {liftedList.length > 0 && (
+        <g className="turn-lift-layer" pointerEvents="none" aria-hidden="true">
+          {liftedList.map((t, i) => {
+            const hl = effectiveHighlights[t.id];
+            const flashing = flashes[t.id] && now - flashes[t.id] < 1200;
+            const cls = ['territory', hl ? `hl-${hl}` : '', flashing ? 'flash' : '', dimOthers && !hl ? 'dim' : '', hovered === t.id ? 'hovered' : ''].filter(Boolean).join(' ');
+            return (
+              <g key={t.id} className="turn-lift" style={{ animationDelay: `${-(i % 7) * 0.45}s` } as CSSProperties}>
+                <path d={t.path} className={cls} fill={colorOf(view.territories[t.id]?.owner ?? null) ?? continentColor(map, t.continent)} />
+              </g>
+            );
+          })}
+        </g>
+      )}
 
       {/* Region outlines above territory fills reveal inland bonus boundaries too.
           Clip each stroke inside its own region so adjacent regions both retain their colour. */}

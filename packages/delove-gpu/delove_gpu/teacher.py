@@ -1,4 +1,5 @@
-"""The hand-coded teacher (packages/delove/src/teacher.ts, teacherPickWith(params)) in the fused CUDA kernel.
+"""The hand-coded teachers in the fused CUDA kernel: Sensei (packages/delove/src/teacher.ts, teacherPickWith(params):
+delove-teacher@N) and Jacob Sensei (packages/delove/src/jacob.ts, jacobPickWith(params): jacob-sensei@N).
 
 TRAINING ONLY, like the rules mirror: teacher.ts is the authority and the replay tests (tests/replay.py --teacher,
 tests/teacher_replay.py) check that this picks the logged candidate at every step of logged teacher games. It must be
@@ -10,6 +11,13 @@ or adjacency order with adjacent fortify).
 
 Covered: everything the rules kernel covers (every map and table size; capitals and chosen capitals, card values,
 adjacent fortify, balanced blitz, blizzards, the claiming phase, neutrals). One thread per game, like the rules.
+
+A teacher version is one row of numbers (PARAM_KEYS, JACOB_KEYS, then the Jacob flag): Sensei's rows have the Jacob
+terms at 0 and the flag off, and the kernel takes Jacob's code paths (the table-wide player stats, the leader, the
+hunt, the card urge, the stack ramp, the late win floor, the front pull) only where the flag is on. An engine holds
+one or more rows; `tver[b, seat]` says which row plays a seat in k_teacher / k_teacher_run (row 0, the rollout
+teacher, by default; branch rollouts always play row 0). Math.log1p (the stack ramp) is V8's fdlibm log1p, ported
+below, so the last bit matches.
 """
 from __future__ import annotations
 
@@ -24,6 +32,8 @@ from .fingerprint import REPO, require_verified
 from .fused import FusedEngine, _source, compile_kernels
 
 TEACHER_TS = REPO / "packages" / "delove" / "src" / "teacher.ts"
+JACOB_TS = REPO / "packages" / "delove" / "src" / "jacob.ts"
+JACOB_PREFIX = "jacob-sensei@"
 
 # TeacherParams keys in the order the kernel reads them (prm[i]).
 PARAM_KEYS = [
@@ -33,42 +43,100 @@ PARAM_KEYS = [
     "minWin", "minEv", "exposureBase", "exposureThreat", "exposureNeed", "fortifyThreat", "interiorBonus", "lateRound",
     "lateRamp",
 ]
+# JacobParams' own keys (after TeacherParams'), then the flag that selects Jacob's code paths.
+JACOB_KEYS = [
+    "powerIncome", "powerCards", "leaderLoss", "leaderCapture", "huntRatio", "huntValue", "cardUrge", "stackRamp", "stackFree",
+    "lateWin", "minWinFloor", "frontPull",
+]
+ALL_KEYS = PARAM_KEYS + JACOB_KEYS + ["jacob"]
+NP = len(ALL_KEYS)
+
+
+def _numbers(path: Path, name: str) -> dict[str, float]:
+    """The numbers of an object literal `name: Type = { key: number, ... };` in a TypeScript file."""
+    m = re.search(rf"{name}: \w+ = \{{(.*?)\}};", path.read_text(encoding="utf8"), re.S)
+    if not m:
+        raise RuntimeError(f"{name} not found in {path}")
+    return {k: float(v) for k, v in re.findall(r"(\w+):\s*(-?[\d.e+-]+)", m.group(1))}
+
+
+def _check_keys(out: dict, want: list[str], what: str):
+    missing = [k for k in want if k not in out]
+    if missing or len(out) != len(want):
+        raise RuntimeError(f"{what} changed (missing here: {missing}; there: {sorted(set(out) - set(want))})")
 
 
 def default_params() -> dict[str, float]:
     """DEFAULT_TEACHER_PARAMS (delove-teacher@1), read from teacher.ts itself so the two cannot drift."""
-    src = TEACHER_TS.read_text(encoding="utf8")
-    m = re.search(r"DEFAULT_TEACHER_PARAMS: TeacherParams = \{(.*?)\};", src, re.S)
-    if not m:
-        raise RuntimeError(f"DEFAULT_TEACHER_PARAMS not found in {TEACHER_TS}")
-    out = {k: float(v) for k, v in re.findall(r"(\w+):\s*(-?[\d.e+-]+)", m.group(1))}
-    missing = [k for k in PARAM_KEYS if k not in out]
-    if missing or len(out) != len(PARAM_KEYS):
-        raise RuntimeError(f"teacher.ts params changed (missing here: {missing}; there: {sorted(set(out) - set(PARAM_KEYS))})")
-    return out
+    out = _numbers(TEACHER_TS, "DEFAULT_TEACHER_PARAMS")
+    _check_keys(out, PARAM_KEYS, "teacher.ts params")
+    return {**out, **{k: 0.0 for k in JACOB_KEYS}, "jacob": 0.0}
 
 
-def load_params(path: str | Path | None) -> dict[str, float]:
-    """A tuned teacher's JSON (models/delove/delove-teacher@N.json) over the defaults, as register.ts does."""
-    p = default_params()
+def jacob_default_params() -> dict[str, float]:
+    """DEFAULT_JACOB_PARAMS ({...DEFAULT_TEACHER_PARAMS, overrides}), read from jacob.ts."""
+    if "DEFAULT_JACOB_PARAMS: JacobParams = {\n  ...DEFAULT_TEACHER_PARAMS," not in JACOB_TS.read_text(encoding="utf8").replace("\r\n", "\n"):
+        raise RuntimeError(f"DEFAULT_JACOB_PARAMS in {JACOB_TS} no longer starts from DEFAULT_TEACHER_PARAMS")
+    out = {**{k: v for k, v in default_params().items() if k in PARAM_KEYS}, **_numbers(JACOB_TS, "DEFAULT_JACOB_PARAMS")}
+    _check_keys(out, PARAM_KEYS + JACOB_KEYS, "jacob.ts DEFAULT_JACOB_PARAMS")
+    return {**out, "jacob": 1.0}
+
+
+def jacob_sensei_1_params() -> dict[str, float]:
+    """JACOB_SENSEI_1_PARAMS: jacob-sensei@1's numbers, fixed in jacob.ts (register.ts ignores jacob-sensei@1.json)."""
+    out = _numbers(JACOB_TS, "JACOB_SENSEI_1_PARAMS")
+    _check_keys(out, PARAM_KEYS + JACOB_KEYS, "jacob.ts JACOB_SENSEI_1_PARAMS")
+    return {**out, "jacob": 1.0}
+
+
+def is_jacob(agent: str) -> bool:
+    return agent.startswith(JACOB_PREFIX)
+
+
+def is_teacher(agent: str) -> bool:
+    """A hand-coded teacher seat the kernel plays: delove-teacher@N or jacob-sensei@N."""
+    return agent.startswith("delove-teacher@") or is_jacob(agent)
+
+
+def load_params(path: str | Path | None, jacob: bool = False) -> dict[str, float]:
+    """A tuned teacher's JSON (models/delove/delove-teacher@N.json; with jacob, jacob-sensei@N.json) over the defaults
+    (DEFAULT_TEACHER_PARAMS; with jacob, DEFAULT_JACOB_PARAMS), as register.ts does."""
+    p = jacob_default_params() if jacob else default_params()
     if path:
         for k, v in json.loads(Path(path).read_text(encoding="utf8")).items():
-            if k not in p:
+            if k not in p or k == "jacob" or (not jacob and k in JACOB_KEYS):
                 raise ValueError(f"{path}: unknown teacher parameter {k}")
             p[k] = float(v)
     return p
 
 
-def params_tensor(params: dict[str, float], device) -> torch.Tensor:
-    return torch.tensor([params[k] for k in PARAM_KEYS], dtype=torch.float64, device=device)
+def agent_params(agent: str, models: str | Path | None = None, path: str | Path | None = None) -> dict[str, float]:
+    """The numbers register.ts plays `agent` with: delove-teacher@1 the defaults, delove-teacher@N models/<agent>.json,
+    jacob-sensei@1 JACOB_SENSEI_1_PARAMS (any JSON ignored, as register.ts does), jacob-sensei@N (N >= 2)
+    DEFAULT_JACOB_PARAMS + models/<agent>.json. `path` names the JSON file instead of `models`."""
+    if agent == JACOB_PREFIX + "1":
+        return jacob_sensei_1_params()
+    if not path and models is not None and agent != "delove-teacher@1":
+        path = Path(models) / f"{agent}.json"
+        if not path.exists():
+            raise FileNotFoundError(f"{path} missing (the numbers of {agent})")
+    return load_params(path or None, jacob=is_jacob(agent))
+
+
+def params_tensor(params: dict[str, float] | list[dict[str, float]], device) -> torch.Tensor:
+    """One teacher version's row [NP], or several versions' rows [V, NP] (row v plays the seats with tver == v)."""
+    rows = params if isinstance(params, list) else [params]
+    t = torch.tensor([[float(p[k]) for k in ALL_KEYS] for p in rows], dtype=torch.float64, device=device)
+    return t if isinstance(params, list) else t[0]
 
 
 def _consts(e) -> str:
-    names = [re.sub(r"([A-Z])", r"_\1", k).upper() for k in PARAM_KEYS]
+    names = [re.sub(r"([A-Z])", r"_\1", k).upper() for k in ALL_KEYS]
     defs = "\n".join(f"#define P_{n} {i}" for i, n in enumerate(names))
     return f"""
 #define DINF __longlong_as_double(0x7ff0000000000000LL)
 #define ODDS_DMAX {odds_mod.DMAX}
+#define NP {NP}
 {defs}
 """
 
@@ -113,18 +181,90 @@ __device__ Odds odds(const TP& tp, int a, int d, int dlim) {
   return o;
 }
 
-// Board of teacher.ts, from `me`'s side, over one game's state.
+// Math.log1p as V8 computes it (src/base/ieee754.cc: FreeBSD's fdlibm s_log1p.c), operation for operation.
+__device__ double log1p_fd(double x) {
+  const double ln2_hi = 6.93147180369123816490e-01, ln2_lo = 1.90821492927058770002e-10, two54 = 1.80143985094819840000e+16,
+               Lp1 = 6.666666666666735130e-01, Lp2 = 3.999999999940941908e-01, Lp3 = 2.857142874366239149e-01,
+               Lp4 = 2.222219843214978396e-01, Lp5 = 1.818357216161805012e-01, Lp6 = 1.531383769920937332e-01,
+               Lp7 = 1.479819860511658591e-01;
+  double hfsq, f = 0.0, c = 0.0, s, z, R, u;
+  int k, hx, hu = 0, ax;
+  hx = __double2hiint(x);
+  ax = hx & 0x7fffffff;
+  k = 1;
+  if (hx < 0x3FDA827A) {                       // 1+x < sqrt(2)+
+    if (ax >= 0x3ff00000) {                    // x <= -1.0
+      if (x == -1.0) return -DINF;
+      return (x - x) / (x - x);
+    }
+    if (ax < 0x3e200000) {                     // |x| < 2**-29
+      if (two54 + x > 0.0 && ax < 0x3c900000) return x;
+      return x - x * x * 0.5;
+    }
+    if (hx > 0 || hx <= (int)0xbfd2bec4) { k = 0; f = x; hu = 1; }  // sqrt(2)/2- <= 1+x < sqrt(2)+
+  }
+  if (hx >= 0x7ff00000) return x + x;
+  if (k != 0) {
+    if (hx < 0x43400000) {
+      u = 1.0 + x;
+      hu = __double2hiint(u);
+      k = (hu >> 20) - 1023;
+      c = (k > 0) ? 1.0 - (u - x) : x - (u - 1.0);  // correction term
+      c /= u;
+    } else {
+      u = x;
+      hu = __double2hiint(u);
+      k = (hu >> 20) - 1023;
+      c = 0;
+    }
+    hu &= 0x000fffff;
+    if (hu < 0x6a09e) {                        // u ~< sqrt(2): normalize u
+      u = __hiloint2double(hu | 0x3ff00000, __double2loint(u));
+    } else {                                   // normalize u/2
+      k += 1;
+      u = __hiloint2double(hu | 0x3fe00000, __double2loint(u));
+      hu = (0x00100000 - hu) >> 2;
+    }
+    f = u - 1.0;
+  }
+  hfsq = 0.5 * f * f;
+  if (hu == 0) {                               // |f| < 2**-20
+    if (f == 0.0) {
+      if (k == 0) return 0.0;
+      c += k * ln2_lo;
+      return k * ln2_hi + c;
+    }
+    R = hfsq * (1.0 - 0.66666666666666666 * f);
+    if (k == 0) return f - R;
+    return k * ln2_hi - ((R - (k * ln2_lo + c)) - f);
+  }
+  s = f / (2.0 + f);
+  z = s * s;
+  R = z * (Lp1 + z * (Lp2 + z * (Lp3 + z * (Lp4 + z * (Lp5 + z * (Lp6 + z * Lp7))))));
+  if (k == 0) return f - (hfsq - s * (hfsq + R));
+  return k * ln2_hi - ((hfsq - (s * (hfsq + R) + (k * ln2_lo + c))) - f);
+}
+
+// Board of teacher.ts (and jacob.ts), from `me`'s side, over one game's state. jac: the version's Jacob flag; then
+// sarm / pow / mean are jacob.ts's stats() (armies and power of every living seat, the mean power), sinc[me] my income.
 struct Board {
   int me, own[T], arm[T], thr[T], nen[T], holder[K], tcount[P], target, rivals;
   double cv;
   const double* p;
   S* s;
+  bool jac;
+  int sarm[NS], myinc;
+  double pow[NS], mean;
+  double capv[T];  // captureValue(u, true), filled on first use (capf)
+  u8 capf[T];
 };
 
 __device__ __forceinline__ bool is_rival(const Board& b, int o) { return o >= 0 && o != b.me && o != NEU; }
 
 __device__ void board_init(Board& b, S& s, int me, const double* p) {
   b.me = me; b.p = p; b.s = &s;
+  b.jac = p[P_JACOB] != 0.0;
+  for (int t = 0; t < T; t++) b.capf[t] = 0;
   for (int t = 0; t < T; t++) { b.own[t] = (int)s.owner[t]; b.arm[t] = (int)s.armies[t]; }
   for (int q = 0; q < P; q++) b.tcount[q] = 0;
   for (int t = 0; t < T; t++) {
@@ -179,6 +319,40 @@ __device__ void board_init(Board& b, S& s, int me, const double* p) {
     if (score > bs) { bs = score; best = c; }
   }
   b.target = best;
+  if (b.jac) {  // jacob.ts stats(): every living seat (the Neutral excluded), in seat order
+    for (int q = 0; q < NS; q++) b.sarm[q] = 0;
+    for (int t = 0; t < T; t++) { int o = b.own[t]; if (o >= 0 && o < NS && s.alive[o]) b.sarm[o] += b.arm[t]; }
+    double total = 0.0;
+    int n = 0;
+    b.myinc = 0;
+    for (int q = 0; q < NS; q++) {
+      b.pow[q] = 0.0;
+      if (!s.alive[q]) continue;
+      int inc = b.tcount[q] > 0 ? reinforcements(s, q) : 0;
+      if (q == me) b.myinc = inc;
+      b.pow[q] = (double)b.sarm[q] + p[P_POWER_INCOME] * (double)inc + p[P_POWER_CARDS] * (double)s.hand_n[q] * b.cv;
+      total += b.pow[q];
+      n++;
+    }
+    b.mean = n ? total / (double)n : 0.0;
+  }
+}
+
+// jacob.ts lead(p): how far a rival's power is above the mean (0 when not), capped at 2.
+__device__ double lead(const Board& b, int o) {
+  if (!is_rival(b, o) || o >= NS || !b.s->alive[o] || b.mean <= 0) return 0.0;
+  return dmin(2.0, dmax(0.0, b.pow[o] / b.mean - 1.0));
+}
+
+// jacob.ts elimValue(o): base plus their cards at card value.
+__device__ __forceinline__ double elim_value(const Board& b, int o) { return b.p[P_ELIM_BASE] + (double)b.s->hand_n[o] * b.cv; }
+
+// jacob.ts hunt(o, stack): a share of the elimination when `stack` outweighs o's whole army.
+__device__ double hunt(const Board& b, int o, int stack) {
+  if (!is_rival(b, o) || b.p[P_HUNT_VALUE] <= 0) return 0.0;
+  if (o >= NS || !b.s->alive[o]) return 0.0;
+  if (b.tcount[o] <= 1 || (double)stack < b.p[P_HUNT_RATIO] * (double)b.sarm[o]) return 0.0;
+  return (b.p[P_HUNT_VALUE] * elim_value(b, o)) / (double)b.tcount[o];
 }
 
 __device__ double defense_need(const Board& b, int t) {
@@ -203,11 +377,19 @@ __device__ double capture_value(const Board& b, S& s, int u, bool card) {
   else if (b.target == c) v += p[P_TARGET_CAPTURE];
   if (is_rival(b, owner) && b.holder[c] == owner) v += (double)CBONUS[c] * p[P_BREAK_BONUS];
   if (is_rival(b, owner) && b.tcount[owner] == 1) v += p[P_ELIM_BASE] + (double)s.hand_n[owner] * b.cv;
+  if (b.jac) v += lead(b, owner) * p[P_LEADER_CAPTURE];
   if (OPT_CAPITALS && owner >= 0 && owner < NS && s.capital[owner] == u) v += p[P_CAPITAL_VALUE];
   return v;
 }
 
-__device__ double placement_score(const Board& b, S& s, int t) {
+// captureValue(u, true), worked out once per pick (placement scores ask for it many times).
+__device__ __forceinline__ double capture_card(Board& b, S& s, int u) {
+  if (!b.capf[u]) { b.capv[u] = capture_value(b, s, u, true); b.capf[u] = 1; }
+  return b.capv[u];
+}
+
+// placementScore(b, t, placing): `placing` is jacob.ts's armies about to land on t (its hunt term); Sensei ignores it.
+__device__ double placement_score(Board& b, S& s, int t, int placing) {
   if (b.own[t] < 0) {  // claiming phase: grow next to my territories, inside continents I can hope to hold
     int c = CONT_OF[t], near = 0, mine_in = 0, total = 0;
     for (int k = 0; k < DEG[t]; k++) if (b.own[NBR[t][k]] == b.me) near++;
@@ -217,10 +399,12 @@ __device__ double placement_score(const Board& b, S& s, int t) {
   }
   if (b.nen[t] == 0) return (double)(-50 - b.arm[t]);
   double defense = defense_need(b, t), offense = 0.0;
+  int stack = b.arm[t] + placing - 1;
   for (int k = 0; k < DEG[t]; k++) {
     int u = NBR[t][k], o = b.own[u];
     if (o < 0 || o == b.me) continue;
-    double value = capture_value(b, s, u, true);
+    double value = capture_card(b, s, u);
+    if (b.jac) value = value + hunt(b, o, stack);
     int gap = b.arm[u] - b.arm[t];
     offense = dmax(offense, value - (double)(gap > 0 ? gap : 0) * b.p[P_PLACE_OFFENSE_ARMY]);
   }
@@ -251,7 +435,7 @@ __device__ int fortify_targets(const Board& b, int src, int* out) {
 }
 
 // bestFortify(): {from, to} or from = -1. Only called where legalMoves lists fortifies.
-__device__ void best_fortify(const Board& b, S& s, int* bf, int* bt) {
+__device__ void best_fortify(Board& b, S& s, int* bf, int* bt) {
   *bf = -1; *bt = -1;
   double best = 0.0;
   bool any_real = false;
@@ -260,21 +444,37 @@ __device__ void best_fortify(const Board& b, S& s, int* bf, int* bt) {
   for (int f = 0; f < T; f++) {
     if (b.own[f] != b.me || b.arm[f] < 2) continue;
     if (b.thr[f] > 0) continue;
-    if (!any_real && b.nen[f] > 0) continue;
+    bool interior = b.nen[f] == 0;
+    if (!any_real && !interior) continue;
     int n = fortify_targets(b, f, tg);
     int mx = b.arm[f] - 1;
     for (int i = 0; i < n; i++) {
       int to = tg[i];
       double score;
-      if (any_real) {
-        double need = defense_need(b, to) + (double)b.thr[to] * b.p[P_FORTIFY_THREAT];
-        if (need <= 0) continue;
-        score = need * dmin((double)mx, 1.0 + need);
+      if (b.jac) {  // jacob.ts: as Sensei, plus an interior stack always pulled to a front, toward the best attack there
+        score = 0.0;
+        if (any_real) {
+          double need = defense_need(b, to) + (double)b.thr[to] * b.p[P_FORTIFY_THREAT];
+          if (need > 0) score = need * dmin((double)mx, 1.0 + need);
+        } else if (b.nen[to] > 0) {
+          score = placement_score(b, s, to, 0) * (double)mx * 0.1;
+        }
+        if (interior) {
+          score *= b.p[P_INTERIOR_BONUS];
+          if (b.nen[to] > 0)
+            score = dmax(score, b.p[P_FRONT_PULL] * (double)mx * 0.1 * (1.0 + dmax(0.0, placement_score(b, s, to, mx))));
+        }
       } else {
-        if (b.nen[to] == 0) continue;
-        score = placement_score(b, s, to) * (double)mx * 0.1;
+        if (any_real) {
+          double need = defense_need(b, to) + (double)b.thr[to] * b.p[P_FORTIFY_THREAT];
+          if (need <= 0) continue;
+          score = need * dmin((double)mx, 1.0 + need);
+        } else {
+          if (b.nen[to] == 0) continue;
+          score = placement_score(b, s, to, 0) * (double)mx * 0.1;
+        }
+        if (interior) score *= b.p[P_INTERIOR_BONUS];
       }
-      if (b.nen[f] == 0) score *= b.p[P_INTERIOR_BONUS];
       if (score > best) { best = score; *bf = f; *bt = to; }
     }
   }
@@ -366,11 +566,21 @@ __device__ int teacher_pick(S& s, const TP& tp, i64* rng) {
   if (any_place) {  // pickPlace
     int a0 = (int)s.atp[me];
     int lim = ph == SETUP ? (a0 < SETUP_BATCH ? a0 : SETUP_BATCH) : a0;
+    int placing = 0;  // jacob.ts: the largest amount any place candidate puts down
+    if (b.jac)
+      for (int t = 0; t < T; t++) {
+        bool claim = b.own[t] < 0;
+        for (int sl = 0; sl < 3; sl++) {
+          if (!m[3 * t + sl]) continue;
+          int amount = claim ? 1 : (sl == 0 ? lim : (sl == 1 ? (lim + 1) / 2 : 1));
+          if (amount > placing) placing = amount;
+        }
+      }
     int best = -1;
     double bs = -DINF;
     for (int t = 0; t < T; t++) {
       if (!m[3 * t]) continue;
-      double sc = placement_score(b, s, t);
+      double sc = placement_score(b, s, t, placing);
       bool claim = b.own[t] < 0;
       for (int sl = 0; sl < 3; sl++) {
         int a = 3 * t + sl;
@@ -387,8 +597,10 @@ __device__ int teacher_pick(S& s, const TP& tp, i64* rng) {
     bool card = !*s.conquered;
     double rival_loss = b.rivals <= 1 ? p[P_RIVAL_LOSS2] : p[P_RIVAL_LOSS_MULTI];
     double late = dmax(0.0, (double)*s.round - p[P_LATE_ROUND]) * p[P_LATE_RAMP];
-    double min_ev = p[P_MIN_EV] - late;
+    double min_ev = b.jac ? p[P_MIN_EV] - late - (card ? p[P_CARD_URGE] : 0.0) : p[P_MIN_EV] - late;
+    double min_win = b.jac ? dmax(dmin(p[P_MIN_WIN], p[P_MIN_WIN_FLOOR]), p[P_MIN_WIN] - late * p[P_LATE_WIN]) : p[P_MIN_WIN];
     double own_loss = p[P_OWN_LOSS] / (1.0 + late);
+    int income = b.myinc > 3 ? b.myinc : 3;  // jacob.ts: Math.max(3, my income)
     int best = -1;
     double best_ev = 0.0;
     for (int e = 0; e < E; e++) {
@@ -399,11 +611,20 @@ __device__ int teacher_pick(S& s, const TP& tp, i64* rng) {
       if (fa < 2) continue;
       Odds o = odds(tp, fa, b.arm[to], OPT_CAPITALS && is_capital(s, to) ? 3 : 2);
       double pw = BALANCED ? o.bwin : o.win;
-      if (pw < p[P_MIN_WIN]) continue;
+      if (pw < min_win) continue;
+      int owner = b.own[to];
       double value = capture_value(b, s, to, card);
       double exposure = (1.0 - pw) * (p[P_EXPOSURE_BASE] + (double)b.thr[from] * p[P_EXPOSURE_THREAT] + defense_need(b, from) * p[P_EXPOSURE_NEED]);
-      double dw = is_rival(b, b.own[to]) ? rival_loss : p[P_NEUTRAL_LOSS];
-      double ev = pw * value + o.ld * dw - o.la * own_loss - exposure + rnd(rng) * 1e-3;
+      double dw = is_rival(b, owner) ? rival_loss : p[P_NEUTRAL_LOSS];
+      double ol = own_loss;
+      if (b.jac) {
+        value = value + hunt(b, owner, fa - 1);
+        if (is_rival(b, owner)) dw = rival_loss + lead(b, owner) * p[P_LEADER_LOSS];
+        // armies beyond what the border needs, in turns of income: losing them costs less
+        double surplus = dmax(0.0, (double)(fa - b.thr[from]) / (double)income - p[P_STACK_FREE]);
+        ol = p[P_OWN_LOSS] / (1.0 + late) / (1.0 + p[P_STACK_RAMP] * log1p_fd(surplus));
+      }
+      double ev = pw * value + o.ld * dw - o.la * ol - exposure + rnd(rng) * 1e-3;
       if (ev > min_ev && (best < 0 || ev > best_ev)) { best = a; best_ev = ev; }
     }
     if (best >= 0) return best;
@@ -423,25 +644,32 @@ __device__ __forceinline__ i64* agent_rng(i64* arng, int rstride, int b, int sea
   return arng + (i64)b * rstride + (rstride > 1 ? seat : 0);
 }
 
+// The teacher version (row of prm) that plays `seat` of game b: tver[b * NS + seat].
+__device__ __forceinline__ TP seat_tp(const TP& tp, const u8* tver, int b, int seat) {
+  TP t = tp;
+  t.p = tp.p + (i64)NP * tver[(i64)b * NS + seat];
+  return t;
+}
+
 // The teacher's pick for every active game (the decider's stream: arng[b * rstride + seat], or one stream per game
-// when rstride == 1). out[b] = -1 when inactive or there is no move.
-extern "C" __global__ void k_teacher(STATE_ARGS, TP_ARGS, i64* arng, int rstride, const u8* active, i64* out, int B) {
+// when rstride == 1; the decider's version: tver). out[b] = -1 when inactive or there is no move.
+extern "C" __global__ void k_teacher(STATE_ARGS, TP_ARGS, i64* arng, int rstride, const u8* tver, const u8* active, i64* out, int B) {
   int b = blockIdx.x * blockDim.x + threadIdx.x;
   if (b >= B) return;
   MAKE_S(b);
   if (!active[b] || *s.done) { out[b] = -1; return; }
   TP_MAKE
-  out[b] = teacher_pick(s, tp, agent_rng(arng, rstride, b, cur(s)));
+  out[b] = teacher_pick(s, seat_tp(tp, tver, b, cur(s)), agent_rng(arng, rstride, b, cur(s)));
 }
 
-// Teacher plays every seat for up to `steps` steps per game (bench / whole games). stats: [2] steps.
-extern "C" __global__ void k_teacher_play(STATE_ARGS, TP_ARGS, i64* arng, int rstride, int steps, int max_turns, int B) {
+// Teachers play every seat (each its tver version) for up to `steps` steps per game (bench / whole games). stats: [2] steps.
+extern "C" __global__ void k_teacher_play(STATE_ARGS, TP_ARGS, i64* arng, int rstride, const u8* tver, int steps, int max_turns, int B) {
   int b = blockIdx.x * blockDim.x + threadIdx.x;
   if (b >= B) return;
   MAKE_S(b);
   TP_MAKE
   for (int i = 0; i < steps && !*s.done; i++) {
-    int a = teacher_pick(s, tp, agent_rng(arng, rstride, b, cur(s)));
+    int a = teacher_pick(s, seat_tp(tp, tver, b, cur(s)), agent_rng(arng, rstride, b, cur(s)));
     if (a < 0) break;
     apply(s, a, max_turns);
     atomicAdd(&tstats[2], 1ull);
@@ -451,8 +679,8 @@ extern "C" __global__ void k_teacher_play(STATE_ARGS, TP_ARGS, i64* arng, int rs
 // Teacher seats play on, in place, until a seat that is not a teacher (tseat[b * NS + seat] == 0) is to move, the game
 // ends, or max_steps steps (each on the seat's own stream, exactly as one k_teacher + k_step per step). dec[b] counts
 // decisions as game.ts does (a fortify is one); steps[b] the steps played.
-extern "C" __global__ void k_teacher_run(STATE_ARGS, TP_ARGS, i64* arng, int rstride, const u8* tseat, const u8* active, i64* dec,
-                                         i64* steps, int max_steps, int max_turns, int B) {
+extern "C" __global__ void k_teacher_run(STATE_ARGS, TP_ARGS, i64* arng, int rstride, const u8* tver, const u8* tseat, const u8* active,
+                                         i64* dec, i64* steps, int max_steps, int max_turns, int B) {
   int b = blockIdx.x * blockDim.x + threadIdx.x;
   if (b >= B) return;
   MAKE_S(b);
@@ -460,7 +688,7 @@ extern "C" __global__ void k_teacher_run(STATE_ARGS, TP_ARGS, i64* arng, int rst
   int n = 0;
   if (active[b]) {
     while (n < max_steps && !*s.done && tseat[(i64)b * NS + cur(s)]) {
-      int a = teacher_pick(s, tp, agent_rng(arng, rstride, b, cur(s)));
+      int a = teacher_pick(s, seat_tp(tp, tver, b, cur(s)), agent_rng(arng, rstride, b, cur(s)));
       if (a < 0) break;
       if (!(a >= FTO && a < END)) dec[b] += 1;
       apply(s, a, max_turns);
@@ -478,9 +706,15 @@ extern "C" __global__ void k_odds(TP_ARGS, const i64* a, const i64* d, const i64
   Odds o = odds(tp, (int)a[i], (int)d[i], (int)dl[i]);
   out[4 * i] = o.win; out[4 * i + 1] = o.bwin; out[4 * i + 2] = o.la; out[4 * i + 3] = o.ld;
 }
+
+// log1p_fd for the tests (against Node's Math.log1p).
+extern "C" __global__ void k_log1p(const double* x, double* out, int n) {
+  int i = blockIdx.x * blockDim.x + threadIdx.x;
+  if (i < n) out[i] = log1p_fd(x[i]);
+}
 """
 
-TEACHER_KERNELS = ("k_teacher", "k_teacher_play", "k_odds", "k_teacher_run")
+TEACHER_KERNELS = ("k_teacher", "k_teacher_play", "k_odds", "k_teacher_run", "k_log1p")
 FMAD_OFF = ["--fmad=false"]
 
 _odds_dev: dict = {}
@@ -503,18 +737,23 @@ def teacher_source(e) -> str:
 
 
 class TeacherEngine(FusedEngine):
-    """FusedEngine plus the teacher. `params` is a teacher's judgement numbers (load_params)."""
+    """FusedEngine plus the teachers. `params` is a teacher's numbers (agent_params / load_params), or a list of
+    versions' numbers: row 0 is the rollout teacher, `tver[b, seat]` the row that plays each seat (0 by default)."""
 
     MIRROR = "teacher"
 
-    def __init__(self, B: int, cfg=None, params: dict[str, float] | None = None, extra_source: str = "", extra_kernels=(), **kw):
+    def __init__(self, B: int, cfg=None, params: dict[str, float] | list[dict[str, float]] | None = None, extra_source: str = "",
+                 extra_kernels=(), **kw):
         allow = kw.get("allow_unverified", False)
         kw["allow_unverified"] = True  # checked below under this mirror's own name
         super().__init__(B, cfg, **kw)
         if not allow:  # every layer this one stands on: the rules kernel, the teacher, and this mirror itself
             for name in dict.fromkeys(["fused.py", "teacher", self.MIRROR]):
                 require_verified(name)
-        self.prm = params_tensor(params or default_params(), self.dev)
+        rows = params if isinstance(params, list) else [params or default_params()]
+        self.prm = params_tensor(rows, self.dev).contiguous()  # [V, NP]
+        self.tver = torch.zeros(B, self.n, dtype=torch.uint8, device=self.dev)
+        self._tver0 = torch.zeros(B, self.n, dtype=torch.uint8, device=self.dev)
         self.ow, self.ola, self.old, self.obw, self.ooff, self.olen = odds_tensors(self.dev)
         self.tstats = torch.zeros(4, dtype=torch.int64, device=self.dev)  # [odds outside the tables, -, steps, -]
         self.tk = compile_kernels(teacher_source(self) + extra_source, TEACHER_KERNELS + tuple(extra_kernels), FMAD_OFF)
@@ -533,26 +772,35 @@ class TeacherEngine(FusedEngine):
         for seat in range(self.n):
             self.arng[g, seat] = torch.tensor([mix_seed(int(x), 0x5EED + seat) for x in seeds.tolist()], dtype=torch.long, device=self.dev)
 
-    def teacher(self, active: torch.Tensor | None = None, arng: torch.Tensor | None = None, prm: torch.Tensor | None = None) -> torch.Tensor:
-        """The teacher's action for the decider of every (active) game, advancing its stream; -1 where none. `prm`:
-        another teacher version's numbers (params_tensor) instead of this engine's."""
+    def teacher(self, active: torch.Tensor | None = None, arng: torch.Tensor | None = None, prm: torch.Tensor | None = None,
+                tver: torch.Tensor | None = None) -> torch.Tensor:
+        """The teacher's action for the decider of every (active) game, advancing its stream; -1 where none. The
+        decider's version is its tver row (this engine's tver unless `tver` is given; `prm`: another teacher version's
+        numbers (params_tensor), then every seat plays that one)."""
         out = torch.empty(self.B, dtype=torch.long, device=self.dev)
         ar = self.arng if arng is None else arng
         rstride = ar.shape[1] if ar.dim() == 2 else 1
         act = active.to(torch.uint8).contiguous() if active is not None else torch.ones(self.B, dtype=torch.uint8, device=self.dev)
-        self._launch_t("k_teacher", self.B, *self._state(), *self._tp(prm), ar, rstride, act, out, self.B)
+        tv = self._tver0 if prm is not None else (self.tver if tver is None else tver.to(torch.uint8).contiguous())
+        self._launch_t("k_teacher", self.B, *self._state(), *self._tp(prm), ar, rstride, tv, act, out, self.B)
         return out
 
     def teacher_run(self, tseat: torch.Tensor, active: torch.Tensor, dec: torch.Tensor, max_steps: int = 100_000) -> torch.Tensor:
-        """Teacher seats (tseat [B, seats] bool) play on in every active game until another seat is to move; returns
-        the steps each game played. dec (int64 [B]) gains the decisions played."""
+        """Teacher seats (tseat [B, seats] bool, each playing its tver version) play on in every active game until
+        another seat is to move; returns the steps each game played. dec (int64 [B]) gains the decisions played."""
         steps = torch.zeros(self.B, dtype=torch.long, device=self.dev)
-        self._launch_t("k_teacher_run", self.B, *self._state(), *self._tp(), self.arng, self.n, tseat.to(torch.uint8).contiguous(),
+        self._launch_t("k_teacher_run", self.B, *self._state(), *self._tp(), self.arng, self.n, self.tver, tseat.to(torch.uint8).contiguous(),
                        active.to(torch.uint8).contiguous(), dec, steps, max_steps, self.max_turns, self.B)
         return steps
 
     def play_teacher(self, steps: int):
-        self._launch_t("k_teacher_play", self.B, *self._state(), *self._tp(), self.arng, self.n, steps, self.max_turns, self.B)
+        self._launch_t("k_teacher_play", self.B, *self._state(), *self._tp(), self.arng, self.n, self.tver, steps, self.max_turns, self.B)
+
+    def log1p(self, x: torch.Tensor) -> torch.Tensor:
+        x = x.to(self.dev, torch.float64).contiguous()
+        out = torch.empty_like(x)
+        self._launch_t("k_log1p", x.numel(), x, out, x.numel())
+        return out
 
     def odds(self, a: torch.Tensor, d: torch.Tensor, dlim: torch.Tensor | int = 2) -> torch.Tensor:
         n = a.numel()

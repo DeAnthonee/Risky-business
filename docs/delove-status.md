@@ -198,7 +198,7 @@ exporter. None of them is imported by the server or the character code.
   | **Greater Europe 10-player, 2,048 games at once** | 2,048 | 0.066 games/s | **1.06 games/s** | **16x** |
 
   Teacher-only games run 12-1,600x faster; random play 384x.
-- **Big tables since the lane groups** (`packages/delove-gpu` README, "Big tables: lane groups"): a rollout copy is
+- **Big tables since the lane groups** (#117, `packages/delove-gpu` README, "Big tables: lane groups"): a rollout copy is
   played by 16 GPU lanes that score its candidate moves in parallel, with the same moves bit for bit. Cycle 6's tables
   run 2.6x (Classic 4-player) to 5.1x (Grand World 10-player) faster. Fewer rollouts or options save only 16-28% of
   the rollout time but change 4-14% of the branched moves, so the defaults stay.

@@ -201,7 +201,8 @@ def auto_batch(cfg: GameConfig, bcfg, branch: bool, budget: float) -> int:
     if branch:
         per += bcfg.options * bcfg.rollouts * state_bytes(m.T, cfg.seats, A) + 24 * bcfg.options * bcfg.rollouts
     per += 8 * m.T * 27 * 2 + 64 * A  # encoder features (float64 then float32) and per-move candidate features
-    return max(256, int(budget // per) // 256 * 256)
+    # x2: measured peaks on the RTX 4060 (allocator slack, network activations, temporaries) were 1.5-2x this estimate
+    return max(256, int(budget // (2 * per)) // 256 * 256)
 
 
 class Run:

@@ -98,7 +98,7 @@ the +2 and the order the cards go on the discard pile. Self-play candidates (eve
 by id, as the GPU engine does; `risky@1` sends `tradeableSets[0]`, in hand order. The test replays `risky@1`'s
 trades in hand order (`HAND_ORDER_TRADERS` in `tests/replay.py`) and says how many it did.
 
-Results (2026-10-19, logs in the ignored `runs/gpu-verify/`):
+Classic 2-player results (2026-10-19, from #72; logs in the ignored `runs/gpu-verify/`):
 
 | log | games | decision steps | `engine.py` | `fused.py` |
 | --- | --- | --- | --- | --- |
@@ -119,6 +119,35 @@ Results (2026-10-19, logs in the ignored `runs/gpu-verify/`):
   every game that reaches them.
 - `tests/blitz_stats.py`: 200,000 battles per starting pair (2 v 1 up to 150 v 40) match the exact outcome
   distribution for both samplers (largest |z| 1.64 over 11 pairs).
+
+### Every map, table size and setting
+
+```bash
+cd packages/delove-gpu
+../../.venv/Scripts/python tests/matrix.py --suite rules --out ../../runs/gpu-verify/m-rules --scale 3 --models <models dir>
+../../.venv/Scripts/python tests/matrix.py --suite settings --out ../../runs/gpu-verify/m-settings --models <models dir>
+../../.venv/Scripts/python tests/matrix.py --suite branch --out ../../runs/gpu-verify/m-branch --scale 0.5 --models <models dir>
+../../.venv/Scripts/python tests/matrix.py --suite net --out ../../runs/gpu-verify/m-net --models <models dir>
+```
+
+`tests/matrix.py` plays the logged CPU games of a suite in parallel (the TypeScript engine and agents, `options.json`
+next to each log) and replays every log through `fused.py` with `replay.py`: the board, cards, capitals, blizzards,
+phase and the candidate list in order at every step, the teacher's pick at every step of `delove-teacher@1` and
+`delove-teacher@2` (Sensei 2) seats, and every seat's outcome at the end. Results (2026-10-20, logs in the ignored
+`runs/gpu-verify/`):
+
+| suite | what | games | decision steps | result |
+| --- | --- | --- | --- | --- |
+| `rules` (scale 3) | all 10 maps at 2 seats, a middle size and the map's largest table (60 configurations up to 10 players): Sensei 2, delove-teacher@1 and `risky@1` seats (900 games per table up to 4 seats, 450 above), and random players (120 / 60) | 22,440 | 39,698,293 | **0 mismatches**; 30,842,705 of 30,842,705 teacher picks; 12,160 of 12,160 v3 outcomes (placement, kills, points) |
+| `settings` | 15 combinations of the settings (each alone, then all at once, with the claiming phase and with auto setup) on Classic 2p, Four Crowns 3p, World 6p, Greater Europe 10p | 7,020 | 10,378,222 | **0 mismatches**; 7,941,185 of 7,941,185 teacher picks; 7,020 of 7,020 outcomes |
+| `net` | `delove@3` seats on Classic 2p, Four Crowns 4p, World 8p, Greater Europe 10p (capitals, blizzards), Realms of Halvaren 6p (exponential cards, adjacent fortify, claiming) | 196 | 182,770 | **0 mismatches**; GPU network top move = the ONNX move logged in Node on 74,074 of 74,074 decisions |
+| `branch` (scale 0.5) | `delove-branch@1` (ranker `delove@3`, horizon 1, margin 0.01) on Four Crowns 2p / 4p, Classic 2p / 4p, World 6p, Greater Europe 10p, and four tables with settings | 442 | 264,095 | **0 mismatches** in the rules and teacher; 98,968 of 98,970 branch decisions the same pick; of 56,398 branched decisions, 56,381 compared the CPU's options and got every option's mean score identical (same doubles), 17 had the ranker order two alternatives differently (ONNX vs PyTorch near-ties; the 2 different picks are among them) |
+
+Also: `odds_check.py` 6,000 of 6,000 battles bit-identical to `blitzOdds` (win, balancedWin, losses; up to 10^6 attackers,
+both dice limits); `export_check.py` bit for bit on Four Crowns 4p (fixed cards, capitals), World 6p (blizzards,
+adjacent fortify, neutrals) and Classic 2p branch logs (8,124 decisions, `points` / `points01` included); and a mixed
+jobs file (Four Crowns 4p exponential, Classic 2p, World 6p capitals + balanced blitz) generated on the GPU with
+`generate.py` gave 152 of 152 games identical to CPU play + `export` (`dataset_compare.py`).
 
 ## The teacher, branch and score, and training data on the GPU
 
@@ -224,6 +253,37 @@ In a whole cycle the GPU takes this step off the CPU pool, so the CPU's 27 threa
 steps meanwhile. Cycle 3 generated all three steps in one 9.0-minute pool; the Classic 2-player step alone takes 5.7
 minutes of that pool's 27 threads (the table above), 1.25 minutes on the GPU.
 
+### Speed of every cycle step: maps and table sizes
+
+A branch-and-score cycle mix on the training PC, games to training arrays (`bench/bench_cycle.sh`: the CPU side is
+`generate.sh`'s pool over 27 processes with logs, then `export` of the branch player's decisions, as `cycle.sh` does
+it; the GPU side is `generate.py` on the same tables and seed, start-up included, kernels already compiled; ranker
+`delove@3`, horizon 1, margin 0.01, the tuned teacher Sensei 2):
+
+| step (jobs file in `bench/`) | games | CPU, 27 processes | GPU | GPU vs CPU | GPU games in flight, peak GPU memory |
+| --- | --- | --- | --- | --- | --- |
+| Four Crowns micro, 1v1 (`micro.jobs`, cycle 4's step) | 1,200 | 45.2 s (26.5 games/s) | 17.1 s (70.0 games/s) | **2.6x** | 1,280 games, 0.42 GB |
+| Classic 2-player (`classic2.jobs`: cycle 4's three tables, 1,000 games each) | 3,000 | 223.3 s (13.4 games/s) | 68.0 s (44.1 games/s) | **3.3x** | 3,072 games, 0.95 GB |
+| Classic 4-player (`classic4.jobs`, cycle 4's step) | 600 | 324.8 s (1.85 games/s) | 186.3 s (3.22 games/s) | **1.7x** | 768 games, 0.36 GB |
+| Greater Europe, 10 players (`ge10.jobs`: branch player, `delove@3`, 8 teachers) | 400 (CPU: 54) | 824.2 s for 54 games (0.066 games/s) | 1,279 s (0.313 games/s) | **4.7x** | 512 games, 0.49 GB |
+| the same, more games in flight (`ge10-2048.jobs`) | 2,048 | | 1,940 s (1.06 games/s) | **16x** | 2,048 games, 1.44 GB |
+
+What decides these numbers:
+
+- **Games in flight.** A step of the lockstep loop costs far less than in proportion to the games taking it (it waits
+  for its longest thread: a teacher's run of moves, or a branch rollout of a whole round): 0.5 s with 512 Greater
+  Europe 10-player games, 0.83 s with 2,048. A step with few games wastes the GPU. A cycle's 1,200 micro games or 600 four-player games fill a fraction of it; more
+  games per configuration (a bigger step, or several cycle steps' worth at once) raise the GPU's games/s almost in
+  proportion, as the Greater Europe rows show.
+- **The tail.** Games that run long (to the 500-turn limit: 9 of the 600 four-player games, 384 of the 400 Greater
+  Europe games) keep stepping alone at the end, about 25 ms a step: the four-player step finishes 555 of its 600 games
+  in 78 s and spends 117 s on the last 45. The CPU pool hides its long games behind other chunks.
+- **First compile.** A configuration's kernels compile once (40-60 s per map, table size and settings; cached in
+  `_cache/` from then on): a cycle's first run on a new configuration pays it once.
+- **cycle.sh runs the GPU steps alongside the CPU pool**, so a cycle's generation takes as long as the slower of the
+  two: give the GPU the steps it is best at (Classic 2-player, big maps with many games) and let the pool keep the
+  small ones, or put every step on the GPU (`gpu_steps=(all)`) and free the CPU for the gates.
+
 ## Keeping the mirror in step with the engine
 
 The mirror is only right for the engine it was checked against. `engine-fingerprint.json` records hashes of the engine
@@ -261,7 +321,7 @@ hour with the matrix).
 
 ## Speed
 
-All on the training PC (i7-14700F, 28 threads; RTX 4060 8 GB), Classic 2-player, both seats the same player. CPU:
+All on the training PC (i7-14700F, 28 threads; RTX 4060 8 GB). First, from #72 / #76: Classic 2-player, both seats the same player. CPU:
 `node packages/delove-gpu/bench_cpu.mjs` (TypeScript self-play, no logging, one process per hardware thread). GPU:
 `python bench.py` (games restart as they finish; 20-40 s measured after a warm-up). The two count decisions a little
 differently (a fortify is one engine decision on the CPU, two steps on the GPU), so compare games per second.
@@ -271,7 +331,47 @@ differently (a fortify is one engine decision on the CPU, two steps on the GPU),
 | random moves (games run to the 500-turn limit, ~2,840 steps) | 4.2 games/s | 42.6 games/s | **16,361 games/s** (`fused`, 65,536 games; 43.8M steps/s) | **384x** |
 | `delove@2` network, fp32 (same moves as Node) | 3.9 games/s | 40 games/s | **258 games/s** (`fused`, 4,096-8,192 games; 66k decisions/s) | **6.5x** |
 | `delove@2` network, fp16 weights | | | **522 games/s** (`fused`, 8,192 games; 132k decisions/s) | **13x** |
-| `delove-teacher@1` / `@2` (hand-coded; `bench.py --policy teacher`) | 32 games/s | 376 games/s | **18,346 games/s** (`teacher.py`, 65,536 games; 5.0M decisions/s) | **49x** |
+| `delove-teacher@1` / `@2` (hand-coded; `bench.py --policy teacher`) | 32 games/s | 376 games/s (1,075 with today's engine, after #71's speed-ups: below) | **18,346 games/s** (`teacher.py`, 65,536 games; 5.0M decisions/s) | **49x** |
+
+The teacher (Sensei 2, `delove-teacher@2`) in every seat, on every map and table size (`bench/bench_teacher.sh`: CPU
+`bench_cpu.mjs` over 28 processes, GPU `bench.py --policy teacher`, whole games inside the kernel, timed until the
+last game of the batch ends):
+
+| map, seats | CPU, 28 processes | GPU (games in flight) | GPU vs whole CPU | games at the 500-turn limit |
+| --- | --- | --- | --- | --- |
+| Four Crowns, 2 | 1,387 games/s | 50,088 games/s (32,768) | 36x | 0% |
+| Four Crowns, 4 | 161 | 20,445 (32,768) | 127x | 0.1% |
+| Classic, 2 | 1,075 | 13,130 (32,768) | 12x | 0% |
+| Classic, 4 | 2.5 | 1,404 (16,384) | 560x | 17% |
+| Classic, 6 | 1.7 | 1,210 (16,384) | 710x | 19% |
+| Europe, 8 | 0.9 | 1,125 (16,384) | 1,250x | 45% |
+| Asia, 8 | 0.6 | 920 (16,384) | 1,530x | 52% |
+| USA, 10 | 0.8 | 1,277 (16,384) | 1,600x | 32% |
+| World, 6 | 0.5 | 300 (16,384) | 600x | 87% |
+| World, 10 | 0.6 | 312 (16,384) | 520x | 86% |
+| Grand World, 10 | 0.6 | 141 (8,192) | 235x | 99% |
+| Europe Advanced, 6 | 0.5 | 186 (8,192) | 370x | 97% |
+| Realms of Halvaren, 10 | 0.5 | 183 (8,192) | 370x | 98% |
+| Greater Europe, 2 | 100 | 1,215 (16,384) | 12x | 0% |
+| Greater Europe, 6 | 0.4 | 130 (8,192) | 320x | 100% |
+| Greater Europe, 10 | 0.5 | 138 (8,192) | 275x | 100% |
+
+At 2 players the GPU's margin is the 12-50x of #76. With more players the teacher stalls (most big-table games
+reach the turn limit with stacks of thousands), and the CPU then spends its time in `blitzOdds`: every attack it
+weighs builds an exact all-in table of up to 250,000 cells, which the GPU reads from its precomputed tables (`odds.py`).
+These are teacher-only games, an upper bound on the gain; the cycle mix above (branch players, networks) is the
+realistic one.
+
+### Batch sizes and memory (RTX 4060, 8 GB)
+
+`generate.py` sizes each configuration's games in flight to `--gpu-gb` (default 3 GB) from the map, the table size and
+the branch settings; with branch and score (options 3, rollouts 6) that is 16,384 games on Four Crowns 2-player, 9,472
+on Classic 2-player, 9,216 on Classic 4-player, 5,376 on World 6-player, 5,120 on World 10-player, 3,584 on Grand
+World 10-player and 3,328 on Greater Europe 10-player. Measured peaks (`peak_gpu_gb` in the summary): 0.42 GB for
+1,280 Four Crowns games, 0.95 GB for 3,072 Classic 2-player games, 0.36 GB for 768 Classic 4-player games, 1.44 GB for
+2,048 Greater Europe 10-player games (about 0.3 MB per Classic game, 0.7 MB per Greater Europe 10-player game:
+the board copies of the rollouts, the candidates and the encoder's features; the networks score in chunks of at most
+262,144 territory rows). Above that the networks' activations grow first; the odds tables take 0.23 GB once.
 
 By batch size (games in flight), games per second:
 

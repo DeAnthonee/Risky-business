@@ -2,23 +2,30 @@
 // A live view of Delove training runs: which phase a cycle is in; each step's games (CPU chunks or GPU progress per
 // map and table size) with turn-limit counts, throughput and charts over time; branch-and-score statistics; training
 // curves; the ladder gates (score and leaderboard points with 95% intervals) as they finish; and the machine's GPU and
-// CPU load. Read-only: it only reads the run folders cycle.sh (and delove_gpu.generate) write.
+// CPU load. It also keeps history: every 30 s it appends a compact sample (phase, games, games/min, GPU and CPU load,
+// training step and losses, gate games) to <run>/dashboard/samples.jsonl for the active run, and the machine's load to
+// <runs>/_machine/samples-<date>.jsonl, so a finished cycle still has its charts (History tab) and cycles can be
+// compared phase by phase (Compare tab; timing-report.mjs writes the same as Markdown). It only reads the run folders
+// cycle.sh (and delove_gpu.generate) write; its own writes go to those dashboard/ and _machine/ files only.
 //
-//   node packages/delove/scripts/dashboard.mjs [--runs runs/delove] [--port 8790]
+//   node packages/delove/scripts/dashboard.mjs [--runs runs/delove] [--port 8790] [--no-record]
 //
 // (--runs: the folder holding the run folders, i.e. cycle.sh's OUT parent, e.g. <training PC>/Risky-business-stage2/runs/delove)
 //
 // then open http://127.0.0.1:8790 (binds 127.0.0.1 only). ?run=<name> picks a run; the default is the newest one.
+// --no-record: write no samples (one recording dashboard at a time; a second one sees the first's heartbeat and only reads).
 import { createServer } from 'node:http';
-import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync, existsSync, appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { execFile } from 'node:child_process';
 import { cpus } from 'node:os';
 import { join } from 'node:path';
+import { runTiming, runSamples } from './run-timing.mjs';
 
 const args = process.argv.slice(2);
 const arg = (k, d) => (args.includes(k) ? args[args.indexOf(k) + 1] : d);
 const runsDir = arg('--runs', 'runs/delove');
 const port = Number(arg('--port', 8790));
+const record = !args.includes('--no-record');
 
 const read = (p) => { try { return readFileSync(p, 'utf8'); } catch { return null; } };
 const json = (p) => { try { return JSON.parse(readFileSync(p, 'utf8')); } catch { return null; } };
@@ -53,7 +60,7 @@ function gpuNow() {
 }
 async function sample() {
   const g = await gpuNow();
-  history.push({ t: Date.now(), cpu: Math.round(cpuPercent()), gpu: g?.util ?? null, mem: g ? g.used / 1024 : null, memTotal: g ? g.total / 1024 : null, temp: g?.temp ?? null });
+  history.push({ t: Date.now(), cpu: Math.round(cpuPercent()), gpu: g?.util ?? null, mem: g ? g.used / 1024 : null, memTotal: g ? g.total / 1024 : null, temp: g?.temp ?? null, power: g?.power ?? null });
   while (history.length > 1440) history.shift();
 }
 sample();
@@ -262,7 +269,118 @@ async function status(runName) {
   out.gates = gateStatus(dir);
   out.finished = existsSync(join(dir, 'cycle.md')) && mtime(join(dir, 'cycle.md')) >= mtime(join(dir, 'times.tsv')) ||
     (!plan.length && out.steps?.[0]?.state === 'done');
+  out.phase = phaseOf(out);
   return out;
+}
+
+/** Where a run is: generating, training, ladder gates, summary or finished. */
+function phaseOf(d) {
+  const steps = d.steps ?? [];
+  const last = d.phases?.at(-1);
+  if (d.finished) return 'finished';
+  if (d.gates && d.train?.onnx) return d.gates.some((g) => g.done < g.chunks) ? 'ladder gates' : 'summary';
+  if (d.train) return 'training';
+  if (steps.some((s) => s.state !== 'done')) return 'generating';
+  return last?.phase ?? '–';
+}
+
+// ---- history: samples saved to disk -------------------------------------------------------------------------------
+// Every 30 s, for the active run (the newest, written to in the last 10 minutes), a compact sample goes to
+// <run>/dashboard/samples.jsonl, and the machine's load to <runs>/_machine/samples-<date>.jsonl. A sample is skipped
+// when nothing moved since the last one (same games, training step, gate games and phase, load within a few points),
+// except for one every 5 minutes, so an idle machine or a stalled run writes almost nothing.
+const machineDir = join(runsDir, '_machine');
+const heartbeat = join(machineDir, 'recorder.json');
+const lastWritten = { run: null, machine: null };
+const avg = (xs) => { const v = xs.filter((x) => x != null); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
+const r1 = (x) => (x == null ? null : Math.round(x * 10) / 10);
+const day = (t) => { const d = new Date(t); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+const moved = (a, b, keys, loadKeys) => !a || keys.some((k) => a[k] !== b[k]) || loadKeys.some((k) => Math.abs((a[k] ?? 0) - (b[k] ?? 0)) >= 5) || b.t - a.t >= 300_000;
+
+/** Another dashboard already records when its heartbeat is fresh and not ours. */
+function otherRecorder() {
+  const h = json(heartbeat);
+  return h && h.pid !== process.pid && Date.now() - h.t < 90_000 ? h : null;
+}
+
+async function recordSamples() {
+  if (!record || otherRecorder()) return;
+  const now = Date.now();
+  mkdirSync(machineDir, { recursive: true });
+  writeFileSync(heartbeat, JSON.stringify({ pid: process.pid, port, t: now }));
+  // Load over the last 30 s (six 5-second readings), not one instant.
+  const recent = history.filter((h) => now - h.t <= 31_000);
+  const load = { cpu: r1(avg(recent.map((h) => h.cpu))), gpu: r1(avg(recent.map((h) => h.gpu))), mem: r1(history.at(-1)?.mem), temp: history.at(-1)?.temp ?? null };
+  const m = { t: now, ...load, power: history.at(-1)?.power ?? null };
+  if (moved(lastWritten.machine, m, [], ['cpu', 'gpu', 'temp'])) {
+    appendFileSync(join(machineDir, `samples-${day(now)}.jsonl`), JSON.stringify(m) + '\n');
+    lastWritten.machine = m;
+  }
+  const run = listRuns()[0];
+  if (!run) return;
+  const d = await status(run.name);
+  if (!d.lastUpdate || now - d.lastUpdate > 600_000) return;
+  const steps = d.steps ?? [];
+  const games = steps.reduce((a, s) => a + (s.done || 0), 0);
+  const prev = lastWritten.run?.run === run.name ? lastWritten.run : null;
+  const s = {
+    t: now, phase: d.phase, games, total: steps.reduce((a, x) => a + (x.total || 0), 0), tl: steps.reduce((a, x) => a + (x.turnLimit || 0), 0),
+    gpm: prev && now > prev.t ? r1((games - prev.games) / ((now - prev.t) / 60000)) : null, ...load,
+    step: d.train?.step ?? null, steps: d.train?.steps ?? null, policy: d.train?.policy ?? null, value: d.train?.value ?? null, top1: d.train?.top1 ?? null,
+    gates: d.gates ? d.gates.reduce((a, g) => a + g.games, 0) : null, gatesTotal: d.gates ? d.gates.reduce((a, g) => a + g.total, 0) : null,
+  };
+  if (!moved(prev, s, ['phase', 'games', 'step', 'gates'], ['cpu', 'gpu'])) return;
+  mkdirSync(join(run.dir, 'dashboard'), { recursive: true });
+  appendFileSync(join(run.dir, 'dashboard', 'samples.jsonl'), JSON.stringify(s) + '\n');
+  lastWritten.run = { ...s, run: run.name };
+}
+setInterval(() => recordSamples().catch((e) => console.error('recording samples:', e.message)), 30_000);
+
+/** Machine samples saved between two times (from the _machine day files). */
+function machineSamples(from, to) {
+  const out = [];
+  for (let t = new Date(new Date(from).toDateString()).getTime(); t <= to; t += 86_400_000) {
+    for (const l of (read(join(machineDir, `samples-${day(t)}.jsonl`)) ?? '').split(/\r?\n/)) {
+      if (!l) continue;
+      try { const s = JSON.parse(l); if (s.t >= from && s.t <= to) out.push(s); } catch { /* partial line */ }
+    }
+  }
+  return out;
+}
+
+// Timing of each run (run-timing.mjs), cached until the run folder or its latest files change.
+const timingCache = new Map();
+function timing(run) {
+  const key = Math.max(run.t, mtime(join(run.dir, 'gates')), mtime(join(run.dir, 'train.log')));
+  const c = timingCache.get(run.name);
+  if (c && c.key === key && (Date.now() - c.at < 60_000 || Date.now() - key > 600_000)) return c.value;
+  const value = runTiming(run.dir);
+  timingCache.set(run.name, { key, at: Date.now(), value });
+  return value;
+}
+
+/** A run's history: its saved samples (else the machine's for its time span), and where its time went. */
+function runHistory(runName) {
+  const runs = listRuns();
+  const run = runs.find((r) => r.name === runName) ?? runs[0];
+  if (!run) return { runs: [] };
+  const t = timing(run);
+  const samples = runSamples(run.dir);
+  const from = samples[0]?.t ?? t.start, to = samples.at(-1)?.t ?? t.end;
+  return { runs: runs.map((r) => r.name), run: run.name, samples, machine: Number.isFinite(from) && Number.isFinite(to) ? machineSamples(from, to) : [], timing: t };
+}
+
+/** Every cycle (a run with phase stamps), oldest first, for the comparison. */
+function compareRuns() {
+  return listRuns().filter((r) => readdirSync(r.dir).some((f) => /^times(-.+)?\.tsv$/.test(f))).map((r) => {
+    const t = timing(r);
+    return {
+      name: r.name, start: t.start, wall: t.totals.wallSeconds, span: t.busy.span, phases: t.phases.filter((p) => !p.minor).map(({ name, kind, seconds, step }) => ({ name, kind, seconds, step })),
+      totals: t.totals, busy: { cpu: t.busy.cpu, gpu: t.busy.gpu, neither: t.busy.neither },
+      train: t.train && { seconds: t.train.seconds, samplesPerSec: t.train.samplesPerSec }, gates: t.gates && { games: t.gates.games, seconds: t.gates.pool ? (t.gates.pool.end - t.gates.pool.start) / 1000 : null },
+      bottlenecks: t.bottlenecks.slice(0, 3).map((b) => b.text),
+    };
+  }).sort((a, b) => a.start - b.start);
 }
 
 // ---- the page -----------------------------------------------------------------------------------------------------
@@ -307,8 +425,11 @@ svg .gridline { stroke:var(--grid); } svg .axis { stroke:var(--line); }
 pre { white-space:pre-wrap; color:var(--bad); margin:6px 0 0; }
 .kv { display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:8px 14px; }
 .kv div b { display:block; font-size:16px; font-variant-numeric:tabular-nums; } .kv div span { font-size:12px; color:var(--muted); }
+nav.tabs { display:flex; gap:4px; } nav.tabs a { padding:3px 10px; border-radius:6px; border:1px solid var(--line); color:var(--ink); text-decoration:none; font-size:13px; }
+nav.tabs a.on { background:var(--accent); border-color:var(--accent); color:var(--card); }
+ol.bn { margin:4px 0 0; padding-left:20px; } ol.bn li { margin:4px 0; }
 </style></head><body><main>
-<header><h1>Delove training</h1><label class="muted">run <select id="run"></select></label><span id="meta" class="muted"></span></header>
+<header><h1>Delove training</h1><nav class="tabs"><a href="#" data-view="live">Live</a><a href="#" data-view="history">History</a><a href="#" data-view="compare">Compare cycles</a></nav><label class="muted" id="runLabel">run <select id="run"></select></label><span id="meta" class="muted"></span></header>
 <div id="app" class="muted">loading…</div>
 </main><script>
 const $ = (s) => document.querySelector(s);
@@ -321,8 +442,11 @@ const bar = (a, b, done) => '<div class="bar' + (done ? ' done' : '') + '"><i st
 const tlClass = (tl, n) => !n || tl == null ? '' : tl / n > 0.5 ? 'bad' : tl / n > 0.1 ? 'warn' : 'ok';
 const color = (i) => 'var(--c' + (i % 10 + 1) + ')';
 const short = (a) => a.replace('delove-teacher@2', 'Sensei 2').replace('delove-branch@1', 'branch');
-let chosen = new URLSearchParams(location.search).get('run') || '';
-$('#run').onchange = (e) => { chosen = e.target.value; history.replaceState(null, '', '?run=' + encodeURIComponent(chosen)); tick(); };
+const params = new URLSearchParams(location.search);
+let chosen = params.get('run') || '', view = params.get('view') || 'live';
+const setUrl = () => history.replaceState(null, '', '?' + new URLSearchParams({ ...(chosen ? { run: chosen } : {}), ...(view !== 'live' ? { view } : {}) }));
+$('#run').onchange = (e) => { chosen = e.target.value; setUrl(); tick(); };
+for (const a of document.querySelectorAll('nav.tabs a')) a.onclick = (e) => { e.preventDefault(); view = a.dataset.view; setUrl(); $('#app').innerHTML = '<span class="muted">loading…</span>'; tick(); };
 
 // A small SVG line chart. series: [{ name, color, pts: [[x, y], ...], dash }]; opts: xFmt, yFmt, yMin, yMax, h, area.
 function lineChart(series, o = {}) {
@@ -428,9 +552,7 @@ function branchBlock(b) {
 }
 
 function render(d) {
-  const sel = $('#run');
-  if (sel.options.length !== d.runs.length || [...sel.options].some((o, i) => o.value !== d.runs[i])) sel.innerHTML = d.runs.map((r) => '<option>' + esc(r) + '</option>').join('');
-  sel.value = d.run || '';
+  syncRuns(d.runs, d.run);
   const ago = d.lastUpdate ? Math.round((d.now - d.lastUpdate) / 1000) : null;
   $('#meta').textContent = (d.finished ? 'finished' : 'in progress') + (ago != null ? ' · last write ' + dur(ago) + ' ago' : '') + ' · refreshes every 5 s';
   const steps = d.steps || [];
@@ -440,8 +562,7 @@ function render(d) {
   const phase = d.phases && d.phases.length ? d.phases[d.phases.length - 1] : null;
   const elapsed = d.finished && phase ? phase.seconds : d.startedAt ? (d.now - d.startedAt) / 1000 : null;
   const gatesRunning = d.gates && d.gates.some((g) => g.done < g.chunks);
-  const where = d.finished ? 'finished' : d.gates && d.train && d.train.onnx ? (gatesRunning ? 'ladder gates' : 'summary')
-    : d.train ? 'training' : steps.some((s) => s.state !== 'done') ? 'generating' : phase ? phase.phase : '–';
+  const where = d.phase;
   const rateNow = steps.flatMap((s) => s.cfgs || []).filter((c) => !c.finished && !c.waiting && c.rate != null).reduce((a, c) => a + c.rate, 0);
   const m = d.machine || {}, L = m.latest || {};
   const branch = steps.map((s) => s.branch).filter(Boolean);
@@ -520,7 +641,7 @@ function render(d) {
 
   if (m.history && m.history.length > 1) {
     const t0 = m.history[0].t, mins = (t) => (t - d.now) / 60000;
-    h += '<div class="card"><h2>Machine</h2><div class="sub">sampled every 5 s while the dashboard runs (up to 2 hours)</div><div class="two">';
+    h += '<div class="card"><h2>Machine</h2><div class="sub">sampled every 5 s while the dashboard runs (up to 2 hours here; the History tab has the saved 30 s samples)</div><div class="two">';
     h += '<div><h3>GPU and CPU load</h3>' + lineChart([{ name: 'GPU', color: 'var(--c1)', pts: m.history.map((p) => [mins(p.t), p.gpu]) }, { name: 'CPU', color: 'var(--c2)', pts: m.history.map((p) => [mins(p.t), p.cpu]) }], { yMin: 0, yMax: 100, yFmt: (y) => fmt(y) + '%', xFmt: (x) => fmt(x, 0) + 'm' }) + '</div>';
     h += '<div><h3>GPU memory and temperature</h3>' + lineChart([{ name: 'memory (GB)', color: 'var(--c3)', pts: m.history.map((p) => [mins(p.t), p.mem]) }, { name: 'temperature (°C / 10)', color: 'var(--c5)', pts: m.history.map((p) => [mins(p.t), p.temp == null ? null : p.temp / 10]) }], { yMin: 0, yMax: Math.max(8, L.memTotal || 8), yFmt: (y) => fmt(y, 0), xFmt: (x) => fmt(x, 0) + 'm' }) + '</div>';
     h += '</div></div>';
@@ -528,18 +649,138 @@ function render(d) {
   $('#app').className = '';
   $('#app').innerHTML = h || '<p class="muted">No run yet.</p>';
 }
-async function tick() {
-  try { render(await (await fetch('api/status?run=' + encodeURIComponent(chosen))).json()); }
-  catch (e) { $('#meta').textContent = 'dashboard error: ' + e.message; }
+// ---- History: one run's saved samples and where its time went ----------------------------------------------------
+const kindColor = { cpu: 'var(--c2)', gpu: 'var(--c1)', export: 'var(--c9)', generation: 'var(--c9)', train: 'var(--c4)', gates: 'var(--c3)', gap: 'var(--bad)' };
+const clockOf = (t0) => (x) => new Date(t0 + x * 60000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+// Bars on a time axis. rows: [{ label, start, end, color, title }] (ms).
+function gantt(rows) {
+  if (!rows.length) return '<div class="muted">no phases recorded</div>';
+  const W = 560, rowH = 20, L = 170, R = 10, T = 4, H = T + rows.length * rowH + 20;
+  const x0 = Math.min(...rows.map((r) => r.start)), x1 = Math.max(...rows.map((r) => r.end));
+  const X = (t) => L + (t - x0) / (x1 - x0 || 1) * (W - L - R);
+  let g = '';
+  for (let i = 0; i <= 4; i++) { const t = x0 + (x1 - x0) * i / 4; g += '<line class="gridline" y1="' + T + '" y2="' + (H - 18) + '" x1="' + X(t) + '" x2="' + X(t) + '"/><text y="' + (H - 4) + '" x="' + X(t) + '" text-anchor="' + (i === 0 ? 'start' : i === 4 ? 'end' : 'middle') + '">' + new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + '</text>'; }
+  rows.forEach((r, i) => {
+    const y = T + i * rowH;
+    g += '<text x="' + (L - 8) + '" y="' + (y + 14) + '" text-anchor="end">' + esc(r.label) + '</text>';
+    g += '<rect x="' + X(r.start) + '" y="' + (y + 4) + '" width="' + Math.max(1.5, X(r.end) - X(r.start)) + '" height="12" rx="2" fill="' + r.color + '" opacity="0.85"><title>' + esc(r.title || r.label) + '</title></rect>';
+  });
+  return '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" role="img">' + g + '</svg>';
 }
-tick(); setInterval(tick, 5000);
+
+function bottleneckList(b) { return b && b.length ? '<ol class="bn">' + b.map((x) => '<li>' + esc(x.text || x) + '</li>').join('') + '</ol>' : '<div class="muted">nothing stands out</div>'; }
+
+function renderHistory(d) {
+  syncRuns(d.runs, d.run);
+  const t = d.timing;
+  if (!t) { $('#app').innerHTML = '<p class="muted">No run yet.</p>'; return; }
+  const s = d.samples || [], mach = d.machine || [];
+  const tot = t.totals, b = t.busy;
+  $('#meta').textContent = s.length ? s.length + ' saved samples' : 'no saved samples for this run: timing from its files';
+  const ph = (k) => t.phases.filter((p) => p.kind === k).reduce((a, p) => a + p.seconds, 0);
+  let h = '<div class="grid">';
+  const stat = (k, v, sub) => '<div class="card stat"><div class="k">' + k + '</div><div class="v">' + v + '</div><div class="s">' + (sub || '') + '</div></div>';
+  h += stat('running time', dur(tot.wallSeconds), t.invocations.length + ' invocation' + (t.invocations.length === 1 ? '' : 's') + ' of cycle.sh');
+  h += stat('generation', dur(tot.generationSeconds), fmt(tot.games) + ' games');
+  h += stat('games / hour', fmt(tot.gamesPerHour), big(tot.decisionsPerHour) + ' decisions / hour');
+  h += stat('training', dur(ph('train')), t.train && t.train.samplesPerSec ? fmt(t.train.samplesPerSec) + ' samples/s' : '');
+  h += stat('gates', dur(ph('gates')), t.gates ? fmt(t.gates.games) + ' games' : '');
+  h += stat('GPU busy', fmt(100 * b.gpu / (b.span || 1)) + '%', dur(b.gpuOnly) + ' with the CPU idle');
+  h += stat('CPU busy', fmt(100 * b.cpu / (b.span || 1)) + '%', dur(b.cpuOnly) + ' with the GPU idle');
+  h += stat('idle', dur(b.neither), 'neither busy');
+  h += '</div>';
+  h += '<div class="card"><h2>Phases</h2><div class="sub">every invocation of cycle.sh on this run, on the clock; hover a bar for its minutes</div>' +
+    gantt(t.phases.filter((p) => p.seconds > 0).map((p) => ({ label: p.name, start: p.start, end: p.end, color: kindColor[p.kind] || 'var(--c9)', title: p.name + ': ' + (p.seconds / 60).toFixed(1) + ' min' }))) +
+    '<div class="legend">' + [['CPU', 'cpu'], ['GPU', 'gpu'], ['export / generation', 'export'], ['training', 'train'], ['gates', 'gates'], ['between invocations', 'gap']].map(([n, k]) => '<span><i style="background:' + kindColor[k] + '"></i>' + n + '</span>').join('') + '</div>';
+  h += '<h3>Bottlenecks</h3>' + bottleneckList(t.bottlenecks) + '</div>';
+
+  if (s.length > 1) {
+    const t0 = s[0].t, x = (p) => (p.t - t0) / 60000, xo = { xFmt: clockOf(t0), xMin: 0 };
+    h += '<div class="card"><h2>Saved samples</h2><div class="sub">one every 30 s while a dashboard ran and the run was writing (fewer when nothing moved)</div><div class="two">';
+    h += '<div><h3>Games finished and at the turn limit</h3>' + lineChart([{ name: 'games', color: 'var(--c1)', pts: s.map((p) => [x(p), p.games]) }, { name: 'turn limit', color: 'var(--bad)', pts: s.map((p) => [x(p), p.tl]) }], xo) + '</div>';
+    h += '<div><h3>Games per minute</h3>' + lineChart([{ name: 'games/min', color: 'var(--c1)', pts: s.map((p) => [x(p), p.gpm]) }], { ...xo, area: true }) + '</div>';
+    h += '<div><h3>GPU and CPU load (30 s means)</h3>' + lineChart([{ name: 'GPU', color: 'var(--c1)', pts: s.map((p) => [x(p), p.gpu]) }, { name: 'CPU', color: 'var(--c2)', pts: s.map((p) => [x(p), p.cpu]) }], { ...xo, yMin: 0, yMax: 100, yFmt: (y) => fmt(y) + '%' }) + '</div>';
+    h += '<div><h3>GPU memory (GB) and temperature (°C / 10)</h3>' + lineChart([{ name: 'memory', color: 'var(--c3)', pts: s.map((p) => [x(p), p.mem]) }, { name: 'temperature / 10', color: 'var(--c5)', pts: s.map((p) => [x(p), p.temp == null ? null : p.temp / 10]) }], { ...xo, yMin: 0 }) + '</div>';
+    const tr = s.filter((p) => p.step != null);
+    if (tr.length > 1) {
+      h += '<div><h3>Training losses (batch)</h3>' + lineChart([{ name: 'policy', color: 'var(--c1)', pts: tr.map((p) => [x(p), p.policy]) }, { name: 'value', color: 'var(--c2)', pts: tr.map((p) => [x(p), p.value]) }], { ...xo, yFmt: (y) => fmt(y, 2) }) + '</div>';
+      h += '<div><h3>Training progress and top-1</h3>' + lineChart([{ name: 'steps done %', color: 'var(--c4)', pts: tr.map((p) => [x(p), p.steps ? 100 * p.step / p.steps : null]) }, { name: 'top-1 %', color: 'var(--c3)', pts: tr.map((p) => [x(p), p.top1 == null ? null : 100 * p.top1]) }], { ...xo, yMin: 0, yMax: 100, yFmt: (y) => fmt(y) + '%' }) + '</div>';
+    }
+    const gt = s.filter((p) => p.gates != null);
+    if (gt.length > 1) h += '<div><h3>Gate games finished</h3>' + lineChart([{ name: 'gate games', color: 'var(--c3)', pts: gt.map((p) => [x(p), p.gates]) }], { ...xo, area: true }) + '</div>';
+    h += '</div></div>';
+  } else if (mach.length > 1) {
+    const t0 = mach[0].t, x = (p) => (p.t - t0) / 60000;
+    h += '<div class="card"><h2>Machine during this run</h2><div class="two"><div><h3>GPU and CPU load</h3>' + lineChart([{ name: 'GPU', color: 'var(--c1)', pts: mach.map((p) => [x(p), p.gpu]) }, { name: 'CPU', color: 'var(--c2)', pts: mach.map((p) => [x(p), p.cpu]) }], { xFmt: clockOf(t0), xMin: 0, yMin: 0, yMax: 100, yFmt: (y) => fmt(y) + '%' }) + '</div></div></div>';
+  } else {
+    h += '<div class="card muted">No samples were saved while this run ran (a recording dashboard keeps them from now on). The phases, steps and bottlenecks above come from the run&#39;s files.</div>';
+  }
+
+  // Generation by step and map / table size.
+  h += '<div class="card"><h2>Generation by step and map / table size</h2><table><tr><th>step</th><th>where</th><th>map / seats</th><th class="r">games</th><th class="r">minutes</th><th class="r">games/min</th><th class="r">decisions/s</th><th class="r">turn limit</th><th class="r">last 5% of games</th></tr>';
+  for (const st of t.steps) {
+    for (const c of st.cfgs || []) {
+      const sec = st.where === 'gpu' ? c.seconds : c.threadSeconds;
+      h += '<tr><td>' + esc(st.step) + '</td><td>' + st.where.toUpperCase() + (st.where === 'cpu' ? ' <span class="muted">thread-min</span>' : '') + '</td><td>' + esc(c.cfg) + '</td><td class="r">' + fmt(c.games) + '</td><td class="r">' + fmt(sec / 60, 1) + '</td><td class="r">' + (sec ? fmt(c.games / (sec / 60), 1) : '–') + '</td><td class="r">' + (sec && c.decisions ? fmt(c.decisions / sec) : '–') +
+        '</td><td class="r ' + tlClass(c.turnLimit, c.games) + '">' + fmt(c.turnLimit) + '</td><td class="r">' + (c.tailSeconds == null ? '' : fmt(c.tailSeconds / 60, 1) + ' min (' + fmt(100 * c.tailSeconds / c.seconds) + '%)') + '</td></tr>';
+    }
+  }
+  h += '</table>';
+  const gpuCfgs = t.steps.filter((st) => st.where === 'gpu').flatMap((st) => (st.cfgs || []).filter((c) => c.seconds));
+  if (gpuCfgs.length) h += '<h3>GPU minutes per map / seats (whisker: from 95% of games done to the end)</h3>' + barChart(gpuCfgs.map((c, i) => ({ label: c.cfg, v: c.seconds / 60, lo: c.tailSeconds == null ? null : (c.seconds - c.tailSeconds) / 60, hi: c.tailSeconds == null ? null : c.seconds / 60, color: color(i) })), { min: 0, fmt: (v) => fmt(v, 0) + 'm' });
+  h += '</div>';
+  $('#app').className = '';
+  $('#app').innerHTML = h;
+}
+
+// ---- Compare: every cycle, phase by phase -----------------------------------------------------------------------
+function renderCompare(rs) {
+  $('#meta').textContent = rs.length + ' cycles with phase stamps';
+  if (!rs.length) { $('#app').innerHTML = '<p class="muted">No cycles yet.</p>'; return; }
+  let h = '<div class="card"><h2>Minutes per phase</h2><div class="sub">The CPU pool and the GPU steps run side by side, so generation takes the longer of them, not their sum. Red: time between invocations of a resumed cycle.</div>';
+  const rows = rs.flatMap((r) => r.phases.map((p) => ({ label: r.name + ' · ' + p.name, v: p.seconds / 60, color: kindColor[p.kind] || 'var(--c9)' })));
+  h += barChart(rows, { min: 0, fmt: (v) => fmt(v, 0), labelW: 230 });
+  h += '<div class="legend">' + [['CPU pool', 'cpu'], ['GPU step', 'gpu'], ['training', 'train'], ['gates', 'gates'], ['between invocations', 'gap']].map(([n, k]) => '<span><i style="background:' + kindColor[k] + '"></i>' + n + '</span>').join('') + '</div></div>';
+  h += '<div class="card"><h2>Cycles</h2><table><tr><th>run</th><th>started</th><th class="r">running</th><th class="r">generation</th><th class="r">games</th><th class="r">games/hour</th><th class="r">decisions/hour</th><th class="r">training</th><th class="r">samples/s</th><th class="r">gates</th><th class="r">GPU busy</th><th class="r">CPU busy</th><th class="r">idle</th></tr>';
+  for (const r of rs) {
+    h += '<tr><td><a href="?view=history&run=' + encodeURIComponent(r.name) + '">' + esc(r.name) + '</a></td><td>' + (Number.isFinite(r.start) ? new Date(r.start).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '–') + '</td><td class="r">' + dur(r.wall) + '</td><td class="r">' + dur(r.totals.generationSeconds) + '</td><td class="r">' + fmt(r.totals.games) + '</td><td class="r">' + fmt(r.totals.gamesPerHour) + '</td><td class="r">' + big(r.totals.decisionsPerHour) +
+      '</td><td class="r">' + dur(r.train && r.train.seconds) + '</td><td class="r">' + (r.train && r.train.samplesPerSec ? fmt(r.train.samplesPerSec) : '–') + '</td><td class="r">' + dur(r.gates && r.gates.seconds) + '</td><td class="r">' + fmt(100 * r.busy.gpu / (r.span || 1)) + '%</td><td class="r">' + fmt(100 * r.busy.cpu / (r.span || 1)) + '%</td><td class="r">' + dur(r.busy.neither) + '</td></tr>';
+  }
+  h += '</table></div><div class="two"><div class="card"><h2>Games per hour of generation</h2>' + barChart(rs.map((r, i) => ({ label: r.name, v: r.totals.gamesPerHour, color: color(i) })), { min: 0, fmt: (v) => fmt(v) }) + '</div>';
+  h += '<div class="card"><h2>Decisions per hour of generation</h2>' + barChart(rs.map((r, i) => ({ label: r.name, v: r.totals.decisionsPerHour, color: color(i) })), { min: 0, fmt: big }) + '</div></div>';
+  h += '<div class="card"><h2>Top bottlenecks per cycle</h2>' + rs.slice().reverse().map((r) => '<h3>' + esc(r.name) + '</h3>' + bottleneckList(r.bottlenecks)).join('') + '</div>';
+  $('#app').className = '';
+  $('#app').innerHTML = h;
+}
+
+function syncRuns(runs, run) {
+  const sel = $('#run');
+  if (runs && (sel.options.length !== runs.length || [...sel.options].some((o, i) => o.value !== runs[i]))) sel.innerHTML = runs.map((r) => '<option>' + esc(r) + '</option>').join('');
+  sel.value = run || '';
+}
+
+let lastSlow = 0;
+async function tick(timer) {
+  for (const a of document.querySelectorAll('nav.tabs a')) a.className = a.dataset.view === view ? 'on' : '';
+  $('#runLabel').style.display = view === 'compare' ? 'none' : '';
+  // History and Compare change slowly: refresh them every 30 s, the live view every 5 s.
+  if (timer && view !== 'live' && Date.now() - lastSlow < 30000) return;
+  try {
+    if (view === 'history') { lastSlow = Date.now(); renderHistory(await (await fetch('api/history?run=' + encodeURIComponent(chosen))).json()); }
+    else if (view === 'compare') { lastSlow = Date.now(); renderCompare(await (await fetch('api/compare')).json()); }
+    else render(await (await fetch('api/status?run=' + encodeURIComponent(chosen))).json());
+  } catch (e) { $('#meta').textContent = 'dashboard error: ' + e.message; }
+}
+tick(); setInterval(() => tick(true), 5000);
 </script></body></html>`;
 
 createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
-  if (url.pathname === '/api/status') {
+  const api = { '/api/status': () => status(url.searchParams.get('run') || ''), '/api/history': () => runHistory(url.searchParams.get('run') || ''), '/api/compare': compareRuns }[url.pathname];
+  if (api) {
     try {
-      const body = JSON.stringify(await status(url.searchParams.get('run') || ''));
+      const body = JSON.stringify(await api());
       res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
       res.end(body);
     } catch (e) {

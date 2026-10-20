@@ -913,6 +913,7 @@ describe('new boards over HTTP', () => {
     ['usa', 45, 10],
     ['asia', 49, 8],
     ['bohemia', 42, 6],
+    ['nine_realms', 58, 8],
   ] as const) {
     it(`creates, fills with bots and starts a ${maxPlayers}-player game on ${id}`, async () => {
       const map = await api(`/map?map=${id}`);

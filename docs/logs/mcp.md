@@ -6,7 +6,7 @@ endpoint. Guide: [docs/mcp.md](../mcp.md).
 Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. Changes from before pull requests carry the
 commit hash instead. **Append a line in the same PR** as any change to this area (README hard rule 12).
 
-- 2026-10-20 #102 `create_game` map description names `nine_realms`
+- 2026-10-20 #102 `map` tool description names `nine_realms`
 - 2026-10-20 #100 `map` tool description names `bohemia`
 - 2026-10-19 #64 `leaderboard` / `ranked_profile` report kills and victims
 - 2026-10-18 #56 reinforcement income in the state summaries

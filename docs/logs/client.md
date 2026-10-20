@@ -5,6 +5,7 @@ Covers `packages/client` (lobby, board, animations, chat, spectator features). G
 Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. Changes from before pull requests carry the
 commit hash instead. **Append a line in the same PR** as any change to this area (README hard rule 12).
 
+- 2026-10-19 #85 hovering a territory highlights all attackable territories from that spot for both players and spectators
 - 2026-10-19 #75 opt-in auto-spectate: move on to the next live game (`/?spectate=1`)
 - 2026-10-19 #64 profiles show kills and victims
 - 2026-10-18 #60 `@all` pings

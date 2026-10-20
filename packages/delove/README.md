@@ -28,7 +28,7 @@ move like in self-play and sends it.
 
 ```bash
 # join a game someone created (the host starts it); one seat per version
-npm run delove-seat -- --server https://risky.deanthoneeking.com --join ABC123 --agents delove@1,delove-teacher@1
+npm run delove-seat -- --server https://risky.deanthoneeking.com --join ABC123 --agents delove@3,delove-teacher@2
 # or create one: Delove hosts, adds 2 built-in bots and starts; watch it at <server>/?game=<code>
 npm run delove-seat -- --server http://localhost:8080 --create --agents delove@1,delove-teacher@1 --bots 2
 ```

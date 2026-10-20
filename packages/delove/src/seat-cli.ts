@@ -1,11 +1,13 @@
 #!/usr/bin/env node
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 import type { GameOptions } from '@risk/engine';
 import { HttpRiskApi } from '@risk/mcp';
 import type { Agent } from '@risk/selfplay';
-import { discoverNetAgents } from './net-agent.js';
+import { discoverNetAgents, modelsDir } from './net-agent.js';
 import { playSeat } from './seat.js';
-import { teacher } from './teacher.js';
+import { DEFAULT_TEACHER_PARAMS, makeTeacher, teacher, type TeacherParams } from './teacher.js';
 
 const USAGE = `delove-seat: seat Delove players in a real game over the HTTP API (no chat, no character)
 
@@ -27,8 +29,20 @@ function fail(msg: string): never {
   process.exit(2);
 }
 
+function discoverTunedTeachers(dir = modelsDir()): Agent[] {
+  if (!existsSync(dir)) return [];
+  const version = (f: string) => Number(/@(\d+)/.exec(f)![1]);
+  const files = readdirSync(dir).filter((f) => /^delove-teacher@\d+\.json$/.test(f));
+  return files.sort((a, b) => version(a) - version(b)).map((f) => {
+    const id = f.replace(/\.json$/, '');
+    const params: TeacherParams = { ...DEFAULT_TEACHER_PARAMS, ...JSON.parse(readFileSync(join(dir, f), 'utf8')) };
+    return makeTeacher(id, params);
+  });
+}
+
 function defaultName(id: string): string {
-  if (id === teacher.id) return 'Delove Teacher';
+  if (id === teacher.id || id === 'sensei@1' || id === 'sensei') return 'Sensei 1';
+  if (id === 'delove-teacher@2' || id === 'sensei@2') return 'Sensei 2';
   const m = /^delove@(\d+)(-explore)?$/.exec(id);
   return m ? `Delove ${m[1]}${m[2] ? ' (explore)' : ''}` : id;
 }
@@ -51,7 +65,16 @@ async function main() {
   if (values.help) return console.log(USAGE);
   if (!values.join === !values.create) fail('give exactly one of --join CODE or --create');
 
-  const known = new Map<string, Agent>([teacher, ...discoverNetAgents()].map((a) => [a.id, a]));
+  const tuned = discoverTunedTeachers();
+  const allAgents = [teacher, ...tuned, ...discoverNetAgents()];
+  const known = new Map<string, Agent>(
+    allAgents.flatMap((a) => {
+      const entries: [string, Agent][] = [[a.id, a]];
+      if (a.id === 'delove-teacher@1') entries.push(['sensei@1', a], ['sensei', a]);
+      if (a.id === 'delove-teacher@2') entries.push(['sensei@2', a]);
+      return entries;
+    }),
+  );
   const ids = (values.agents ?? 'delove@1').split(',').map((s) => s.trim()).filter(Boolean);
   const agents = ids.map((id) => known.get(id) ?? fail(`unknown Delove version "${id}" (known: ${[...known.keys()].join(', ')})`));
   const names = values.names ? values.names.split(',').map((s) => s.trim()) : ids.map(defaultName);

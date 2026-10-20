@@ -163,6 +163,8 @@ so it is batched: one `verify.py` run on the training PC after the day's merges 
 while the GPU is training**, and the new fingerprint lands in its own PR (it also flips the maps to verified in
 `packages/delove-gpu/README.md` and closes the open-work row in `docs/delove-status.md`).
 
-Map designs can run in parallel sessions, one board per session and branch. Registration PRs touch the same lines
+Map designs can run in parallel sessions, one board per session and branch. A session in a git worktree runs
+`npm ci` in the worktree first: without its own `node_modules`, Node resolves `@risk/*` to the main checkout and the
+tests run against whatever board that checkout has. Registration PRs touch the same lines
 (`MAP_IDS`, the test lists, the docs tables), so the second one to merge resolves those conflicts by keeping both
 ids. Verification runs one at a time.

@@ -37,7 +37,7 @@ The server records outcomes directly from finished room states. Its independent 
 beside games.json under RISK_DATA_DIR, survives room deletion/restarts, and ignores already recorded game
 IDs. Multiple lobbies share this single server writer. A corrupt rankings file does not stop the server:
 it is moved aside to rankings.json.corrupt (and logged) and the ladder restarts empty, so restore it from a
-backup. The board holds only games finished on the site. It runs in **seasons** (season 3 since the wipe in #PR;
+backup. The board holds only games finished on the site. It runs in **seasons** (season 3 since the wipe in #119;
 season 2 ran from #107). The season in force is written to `rankings.json.season`. Starting a new season moves the
 old board to `rankings.season-<old>.json` (kept, never deleted, never over an existing archive: a second archive of
 the same season becomes `rankings.season-<old>-2.json`) and the new season starts empty. Past seasons stay readable:

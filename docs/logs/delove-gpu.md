@@ -3,7 +3,7 @@
 Covers `packages/delove-gpu` (the training-only GPU mirror of the rules, its replay tests, the engine fingerprint).
 Guide: [packages/delove-gpu/README.md](../../packages/delove-gpu/README.md).
 
-Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. **Append a line in the same PR** as any change to
+Newest first, one line per change: `- YYYY-MM-DD #119 what changed`. **Append a line in the same PR** as any change to
 this area (README hard rule 12), and say when the fingerprint (`engine-fingerprint.json`) was re-verified.
 
 - 2026-10-20 #116 `generate.py` writes `branch_tag.npy` (what the search did per decision); progress-line labels with settings are parsed by the dashboard

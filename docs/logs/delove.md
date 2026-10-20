@@ -4,7 +4,7 @@ Covers `packages/delove` (teacher, network agent, seat player, trainer, cycle sc
 numbers go in [packages/delove/CYCLES.md](../../packages/delove/CYCLES.md) and the current state in
 [docs/delove-status.md](../delove-status.md); this log only lists the merged changes. GPU mirror: [delove-gpu.md](delove-gpu.md).
 
-Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. **Append a line in the same PR** as any change to
+Newest first, one line per change: `- YYYY-MM-DD #119 what changed`. **Append a line in the same PR** as any change to
 this area (README hard rule 12).
 
 - 2026-10-20 #116 Cycle 6: `delove@4` (Jacob Sensei teacher, league settings, search-weighted lessons); `train.py` `:value` mode and `--branch-weights`; `cycle.sh` `GPU_LANES=N`; CYCLES.md and delove-status sections 3, 5, 8

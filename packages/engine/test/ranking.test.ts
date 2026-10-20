@@ -37,6 +37,14 @@ describe('placement ratings', () => {
     expect(normalizeLeaderboardKey('player:sensei@2')).toMatchObject({ key: 'Sensei', name: 'Sensei', playerId: 'sensei' });
     expect(normalizeLeaderboardKey('Ronny@3')).toMatchObject({ key: 'Ronny', name: 'Ronny', playerId: 'ronny' });
     expect(normalizeLeaderboardKey('Joey@3')).toMatchObject({ key: 'Joey', name: 'Joey', playerId: 'joey' });
+    expect(normalizeLeaderboardKey('Hans@3')).toMatchObject({ key: 'Hans', name: 'Hans', playerId: 'hans' });
+    expect(normalizeLeaderboardKey('Demonte@3')).toMatchObject({ key: 'Demonte', name: 'Demonte', playerId: 'demonte' });
+    expect(normalizeLeaderboardKey('Dejean@3')).toMatchObject({ key: 'Dejean', name: 'Dejean', playerId: 'dejean' });
+    expect(normalizeLeaderboardKey('Demario@3')).toMatchObject({ key: 'Demario', name: 'Demario', playerId: 'demario' });
+    expect(normalizeLeaderboardKey('Kai@3')).toMatchObject({ key: 'Kai', name: 'Kai', playerId: 'kai' });
+    expect(normalizeLeaderboardKey('Lauren@3')).toMatchObject({ key: 'Lauren', name: 'Lauren', playerId: 'lauren' });
+    expect(normalizeLeaderboardKey('Diane@3')).toMatchObject({ key: 'Diane', name: 'Diane', playerId: 'diane' });
+    expect(normalizeLeaderboardKey('Jason@3')).toMatchObject({ key: 'Jason', name: 'Jason', playerId: 'jason' });
 
     // Merging duplicate games in rankLeaderboard
     const games = [

@@ -18,9 +18,7 @@ const USAGE = `delove-seat: seat Delove players in a real game over the HTTP API
   --names NAMES    seat names, same order (default "Delove 1", "Delove Teacher", ...)
   --join CODE      join a game someone created; the host starts it
   --create         create a game (the first seat hosts), add --bots built-in bots, start it (unless --no-start)
-  --pace MS        pause after each move so spectators can follow (default 400)
-
-Fog of war games are refused: Delove was trained on the full board.`;
+  --pace MS        pause after each move so spectators can follow (default 400)`;
 
 function fail(msg: string): never {
   console.error(`${msg}\n\n${USAGE}`);
@@ -67,7 +65,6 @@ async function main() {
   } catch {
     fail('--options must be JSON');
   }
-  if (options?.fogOfWar) fail('Delove does not play fog of war games yet');
 
   const server = values.server ?? process.env.RISK_SERVER_URL ?? 'http://localhost:8080';
   const api = new HttpRiskApi(server);

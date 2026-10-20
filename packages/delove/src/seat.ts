@@ -34,7 +34,7 @@ export function stateFromView(view: GameView): GameState {
 /** Delove's move for this view, or null when it is not this seat's turn. */
 export function chooseFromView(agent: Agent, view: GameView, me: PlayerId, random: () => number): Action | null {
   const state = stateFromView(view);
-  const legal = legalMoves(state, me);
+  const legal = view.legal ?? legalMoves(state, me);
   if (!legal.yourTurn) return null;
   const cands = candidates(state, me, legal);
   if (cands.length === 0) return null;
@@ -82,7 +82,6 @@ export async function playSeat(o: SeatOptions): Promise<GameView | null> {
   let since: number | undefined;
   let view: GameView | null = null;
   let failures = 0;
-  let warnedFog = false;
   for (;;) {
     let yourTurn: boolean;
     const started = Date.now();
@@ -108,15 +107,6 @@ export async function playSeat(o: SeatOptions): Promise<GameView | null> {
     if (me && !me.alive) {
       o.log(`${o.name}: eliminated`);
       return view;
-    }
-    if (view.options.fogOfWar) {
-      if (!warnedFog) o.log(`${o.name}: fog of war is on; Delove was trained on the full board and sits this game out`);
-      warnedFog = true;
-      if (view.phase !== 'lobby') {
-        await o.api.act(o.gameId, o.token, { type: 'surrender' }).catch(() => {});
-        return view;
-      }
-      continue;
     }
     if (!yourTurn) {
       if (unchanged && Date.now() - started < 1000) await sleep(1000);

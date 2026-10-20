@@ -6,6 +6,7 @@ bot, ranking and the game-record format. Map data has its own log ([maps.md](map
 Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. Changes from before pull requests carry the
 commit hash instead. **Append a line in the same PR** as any change to this area (README hard rule 12).
 
+- 2026-10-20 canonical leaderboard normalization for Delove variants (Ronny, Joey, Hans, Demonte, Dejean, Demario, Kai, Lauren, Diane, Jason)
 - 2026-10-19 #79 `ranking.ts` changes so Delove can train on leaderboard points (placement + kills)
 - 2026-10-19 #71 engine fast paths that make self-play cycles about 4x faster
 - 2026-10-19 #69 `record.ts`: rebuild any recorded moment so it can be played out again as a scenario

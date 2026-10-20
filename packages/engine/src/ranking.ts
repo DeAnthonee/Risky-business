@@ -58,6 +58,14 @@ export function normalizeLeaderboardKey(raw: string): { key: string; name: strin
   if (lower === 'sensei' || lower === 'delove-teacher') return { key: 'Sensei', name: 'Sensei', playerId: 'sensei' };
   if (lower === 'ronny') return { key: 'Ronny', name: 'Ronny', playerId: 'ronny' };
   if (lower === 'joey') return { key: 'Joey', name: 'Joey', playerId: 'joey' };
+  if (lower === 'hans') return { key: 'Hans', name: 'Hans', playerId: 'hans' };
+  if (lower === 'demonte') return { key: 'Demonte', name: 'Demonte', playerId: 'demonte' };
+  if (lower === 'dejean') return { key: 'Dejean', name: 'Dejean', playerId: 'dejean' };
+  if (lower === 'demario') return { key: 'Demario', name: 'Demario', playerId: 'demario' };
+  if (lower === 'kai') return { key: 'Kai', name: 'Kai', playerId: 'kai' };
+  if (lower === 'lauren') return { key: 'Lauren', name: 'Lauren', playerId: 'lauren' };
+  if (lower === 'diane') return { key: 'Diane', name: 'Diane', playerId: 'diane' };
+  if (lower === 'jason') return { key: 'Jason', name: 'Jason', playerId: 'jason' };
 
   return { key: rawClean, name: clean, playerId: lower };
 }

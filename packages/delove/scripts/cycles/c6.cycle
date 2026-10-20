@@ -1,0 +1,53 @@
+# Cycle 6, run with (from the repo root):
+#   DELOVE_BRANCH_RANKER=delove@3 DELOVE_BRANCH_TEACHER=jacob-sensei@1 DELOVE_BRANCH_HORIZON=1 DELOVE_BRANCH_MARGIN=0.01 \
+#   GPU_GB=6 PARALLEL=21 DELOVE_MODELS=<models> DATA=<data> OUT=<runs>/c6 PYTHON=<venv python> \
+#   bash packages/delove/scripts/cycle.sh packages/delove/scripts/cycles/c6.cycle
+# Why cycle 5 did not promote: 83% of its branch decisions were Sensei 2's own move (not compared, or compared and
+# kept), and in multiplayer Sensei 2 is weaker than delove@3, so most labels pulled the network toward a weaker player.
+# Cycle 6 changes the labels and how much each one counts:
+# - Jacob Sensei (jacob-sensei@1) is the teacher: its move is the branch player's default and it plays the rollouts.
+#   Against delove@3 it scores 0.575 at 4p, 0.735 at World 6p, 0.76 at Fantasy 6p and 0.82 at World 10p (+0.5 to
+#   +1.2 leaderboard points per seat), 0.44 at 2p; and it never stalls, so every map and table size is back.
+# - branch_tag.npy (delove_gpu.generate) records what the search did; training weights the policy 0.5 / 1 / 2 for the
+#   teacher's move without comparing / compared and kept / changed (--branch-weights).
+# - Training: from delove@3, mixed precision (--amp: same validation loss, 1.9x faster), 1.5 epochs, older cycles as
+#   fractions (#F); cycle 5's big tables and 4-player games only teach the value head (:value: their moves were mostly
+#   Sensei 2's, their positions and final points are still good).
+# - League settings: every table uses the live league's base (auto setup, balanced blitz, chosen capitals) and half
+#   of each table plays one of four variants (progressive / fixed + capitals / exponential + 8 blizzards / progressive
+#   + capitals + 8 blizzards). Cycles 1-5 trained on the defaults only. Three gates use league settings too.
+name=c6
+seed=306
+steps=(
+  "big packages/delove/scripts/cycles/c6-big.jobs Cycle 6, step 4: big tables on every map (2-10 players, Jacob Sensei)"
+  "classic4 packages/delove/scripts/cycles/c6-classic4.jobs Cycle 6, step 3: scenario games on Classic (4 players)"
+  "classic2 packages/delove/scripts/cycles/c6-classic2.jobs Cycle 6, step 2: scenario games on Classic (2 players)"
+  "micro packages/delove/scripts/cycles/c6-micro.jobs Cycle 6, step 1: micro games (1v1, Four Crowns)"
+)
+gpu_steps=(all)
+export_agents=delove-branch@1
+train_data=(micro/skirmish classic2/classic classic4/classic
+  big/world big/world_large big/greater_europe big/fantasy big/europe big/usa big/asia big/europe_classic big/classic
+  "c5-classic2/classic#0.3" "c5-micro/skirmish#0.3"
+  "c4-classic2/classic#0.2" "c4-micro/skirmish#0.2"
+  "r05-sensei2/classic#0.05"
+  "c5-big/world:value#0.4" "c5-big/fantasy:value#0.4" "c5-big/europe:value#0.4" "c5-big/usa:value#0.4"
+  "c5-big/asia:value#0.4" "c5-big/greater_europe:value#0.4" "c5-big/classic:value#0.4" "c5-classic4/classic:value#0.4")
+train_init=delove@3
+candidate=c6-candidate
+train_args="--epochs 1.5 --batch 512 --lr 3e-4 --hidden 192 --rounds 6 --value-target points --amp --branch-weights 0.5,1,2"
+gates=(
+  "delove@3 2 800"
+  "delove@3 4 200"
+  "delove@3 6 200"
+  "delove@3 6 200 {\"map\":\"world\"}"
+  "delove@3 10 200 {\"map\":\"world\"}"
+  "delove@3 6 100 {\"map\":\"fantasy\"}"
+  "delove@3 2 400 {\"map\":\"skirmish\"}"
+  "delove@3 6 100 {\"map\":\"greater_europe\"}"
+  "jacob-sensei@1 6 200 {\"map\":\"world\"}"
+  "delove@3 6 200 {\"autoSetup\":true,\"balancedBlitz\":true,\"chooseCapitals\":true,\"cardValues\":\"progressive\",\"capitals\":true,\"blizzards\":8}"
+  "delove@3 6 200 {\"map\":\"world\",\"autoSetup\":true,\"balancedBlitz\":true,\"chooseCapitals\":true,\"cardValues\":\"fixed\",\"capitals\":true}"
+  "delove@3 2 400 {\"autoSetup\":true,\"balancedBlitz\":true,\"chooseCapitals\":true,\"cardValues\":\"exponential\",\"blizzards\":8}"
+  "delove-teacher@2 2 400"
+)

@@ -23,6 +23,7 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "mcp": "node packages/mcp/dist/cli.js",
     "build:map": "node scripts/build-map.mjs",
+    "maps:status": "node scripts/map-status.mjs",
     "selfplay": "node packages/selfplay/dist/cli.js",
     "runner": "node packages/runner/dist/cli.js",
     "llm-player": "node packages/llm-player/dist/cli.js",

@@ -40,7 +40,8 @@ def seats(n: int, *agents: str) -> str:
 def rules_suite(scale: float) -> list[tuple]:
     g = lambda n: max(4, int(n * scale))  # noqa: E731
     maps = {"classic": 6, "world": 10, "world_large": 10, "europe": 8, "greater_europe": 10, "europe_classic": 6, "usa": 10,
-            "asia": 8, "fantasy": 10, "skirmish": 4}
+            "asia": 8, "fantasy": 10, "skirmish": 4,
+            "bohemia": 6, "nine_realms": 8}
     cases = []
     for m, mx in maps.items():
         sizes = sorted({2, (2 + mx + 1) // 2, mx})
@@ -123,7 +124,7 @@ def net_suite(scale: float) -> list[tuple]:
 # mixed with Sensei 2 and risky@1 (several teacher versions in one game); every setting; and branch and score with
 # Jacob as the rollout teacher (cases named jb-*: DELOVE_BRANCH_TEACHER on the CPU, --teacher on the GPU).
 MAPS = {"classic": 6, "world": 10, "world_large": 10, "europe": 8, "greater_europe": 10, "europe_classic": 6, "usa": 10,
-        "asia": 8, "fantasy": 10, "skirmish": 4}
+        "asia": 8, "fantasy": 10, "skirmish": 4, "bohemia": 6, "nine_realms": 8}
 
 
 def jacob_suite(scale: float) -> list[tuple]:

@@ -23,3 +23,10 @@ jobs:
       - name: GPU mirror freshness (warning only)
         if: always()
         run: python3 packages/delove-gpu/delove_gpu/fingerprint.py check --github
+      # Non-blocking: the map status table (registered, GPU mirror wiring, GPU-verified, training rotation) goes to the
+      # job summary, with a warning per offered map the GPU mirror is not verified on. Never fails the build.
+      - name: Map status (warning only)
+        if: always()
+        run: |
+          node scripts/map-status.mjs --markdown >> "$GITHUB_STEP_SUMMARY" || true
+          node scripts/map-status.mjs --github || true

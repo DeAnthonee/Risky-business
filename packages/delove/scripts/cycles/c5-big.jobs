@@ -1,0 +1,21 @@
+# Cycle 5, step 4: multiplayer tables on six maps (GPU). Sizes from the pilots (runs/delove/c5-pilot*, 128-256 games
+# each): turn-limit games Europe 8p 7%, USA 10p 13%, Asia 8p 16%, World 8p 30%, Fantasy 6p 41%, Greater Europe 10p
+# 92%, Greater Europe 4p 59%. Greater Europe plays 2-player tables only; World and Fantasy get smaller tables and
+# more network seats (networks break stalls; Sensei 2 alone stalls in 87% of World 6p games).
+eu8a  1000 delove-branch@1,delove-teacher@2,delove@3,delove-teacher@2,delove@2,delove-teacher@2,delove@3,delove-teacher@2 {"map":"europe"}
+eu8b  1000 delove-teacher@2,delove@3,delove-teacher@2,delove@2,delove-branch@1,delove-teacher@2,delove@3,delove-teacher@2 {"map":"europe"}
+eu6   1000 delove@3,delove-teacher@2,delove-branch@1,delove@2,delove-teacher@2,delove@3 {"map":"europe"}
+us10a 1000 delove-branch@1,delove-teacher@2,delove@3,delove-teacher@2,delove@2,delove-teacher@2,delove@3,delove-teacher@2,delove@2,delove-teacher@2 {"map":"usa"}
+us10b 1000 delove-teacher@2,delove@3,delove-teacher@2,delove@2,delove-teacher@2,delove-branch@1,delove-teacher@2,delove@3,delove-teacher@2,delove@2 {"map":"usa"}
+us6   1000 delove@2,delove-teacher@2,delove@3,delove-branch@1,delove-teacher@2,delove@3 {"map":"usa"}
+as8a  1000 delove-branch@1,delove-teacher@2,delove@3,delove-teacher@2,delove@2,delove-teacher@2,delove@3,delove-teacher@2 {"map":"asia"}
+as8b  1000 delove-teacher@2,delove@3,delove@2,delove-teacher@2,delove-branch@1,delove-teacher@2,delove@3,delove-teacher@2 {"map":"asia"}
+as4   1000 delove@3,delove-branch@1,delove-teacher@2,delove@2 {"map":"asia"}
+w8n   1500 delove-branch@1,delove@3,delove-teacher@2,delove@2,delove@3,delove-teacher@2,delove@2,delove-teacher@2 {"map":"world"}
+w6n   1000 delove@3,delove-teacher@2,delove@2,delove-branch@1,delove@3,delove-teacher@2 {"map":"world"}
+fa6n   800 delove-branch@1,delove@3,delove-teacher@2,delove@2,delove@3,delove-teacher@2 {"map":"fantasy"}
+fa4    800 delove@2,delove-teacher@2,delove-branch@1,delove@3 {"map":"fantasy"}
+ge2t   500 delove-branch@1,delove-teacher@2 {"map":"greater_europe"}
+ge2c   500 delove@3,delove-branch@1 {"map":"greater_europe"}
+ge2d   500 delove-branch@1,delove@2 {"map":"greater_europe"}
+c6    1000 delove-branch@1,delove-teacher@2,delove@3,delove@2,delove@3,delove-teacher@2

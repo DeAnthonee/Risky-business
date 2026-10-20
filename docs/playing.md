@@ -20,6 +20,14 @@ Press **Fast-forward** in the spectator bar to drop the replay and all animation
 happens (handy for long all-AI games); press it again for normal speed. It is spectator-only and resets to normal
 speed when you take a seat or reload.
 
+The board sits on animated water: a lit sea that darkens toward the edges, small cream wave marks that drift
+and fade in and out, and a soft surf glow that swells along every coast. It is ambient decoration (Fast-forward
+does not touch it) and holds still when the system asks for reduced motion.
+
+The territories of the player whose turn it is sit slightly raised: a little larger, with a light rim and a drop
+shadow, rocking gently so you can see at a glance what they hold. Under fog only the land you can see is raised;
+with reduced motion they stay raised but still.
+
 **Auto-spectate** is a hands-off live stream: press **Auto-Spectate Live Stream** above the game list (shown while a
 game is being played) or open `/?spectate=1` with no game. It tunes into a game in progress and, when that game ends
 or its room closes, shows a countdown to the next live game, with **Stay here** to keep watching where you are (which
@@ -46,6 +54,8 @@ Dice rolls, troop placements ("+N" bursts that stay up longer for spectators), c
 (`+N/turn`, the reinforcements they get next turn before cards; hover it for the breakdown).
 Picking a map (when creating a game, and in the lobby) shows a preview of the board: every territory in its region's
 colour, sea links, the region bonuses (hover one to pick it out) and the starting armies for the player count.
+On desktop, a **player card** floats over the board for whoever's turn it is (the winner once the game ends): their phase and armies left to place, this game's lands, armies, cards, income, capitals, card sets traded in and players knocked out, the continents they hold, and their leaderboard standing (rank, points, wins and losses, win rate, games, average placement, career kills; the same numbers as their profile). Drag it by its header (or focus the header and use the arrow keys), resize it from the bottom-right corner, fold it down to the name with ▴; double-click the header to put it back in the top-right corner. Where it sits, its size and whether it is folded are remembered in this browser. Phones skip it: the Players panel shows the same game numbers.
+
 On desktop, drag the divider under the scoreboard to give the log/chat more or less room (double-click resets). Hovering any territory highlights all the attackable territories from that spot (pulsing red along land borders and active sea links) for both players and spectators, making attack routes and board connectivity clear at a glance. The log shows each attack as one entry: who took (or failed to take) which territory, each side's armies at the start and end with the losses, the number of rolls and the armies moved in; hover it for the individual dice rolls. Runs of fogged events collapse into one line with a count. When you pick an attack, a **commit slider** sets how many armies to throw at it (the rest stay home; the blitz stops there) and shows the exact chance to take the territory with random dice and with balanced blitz, the average losses on each side, and one-click buttons for the commitment a 50%, 75%, 90% or 99% chance needs. Agents get the same as `stopAt` and a win chance next to each attack in their legal moves.
 Press **Bonuses** (on the map, in the spectator bar, or **B**) to see every region painted in its own colour with
 its bonus, no armies; neighbouring regions never share a colour, on the board or in this view.
@@ -67,8 +77,8 @@ Host-selectable options:
 
 | option        | values                        | default     |
 | ------------- | ----------------------------- | ----------- |
-| `map`         | `classic` \| `world` \| `world_large` \| `europe` \| `greater_europe` \| `europe_classic` \| `usa` \| `asia` \| `fantasy` \| `skirmish` | `classic` |
-| `maxPlayers`  | 2–4 (skirmish) / 2–6 (classic, europe_classic) / 2–8 (europe, asia) / 2–10 (world, world_large, greater_europe, usa, fantasy) | 6 |
+| `map`         | `classic` \| `world` \| `world_large` \| `europe` \| `greater_europe` \| `europe_classic` \| `usa` \| `asia` \| `fantasy` \| `skirmish` \| `bohemia` \| `nine_realms` | `classic` |
+| `maxPlayers`  | 2–4 (skirmish) / 2–6 (classic, europe_classic, bohemia) / 2–8 (europe, asia, nine_realms) / 2–10 (world, world_large, greater_europe, usa, fantasy) | 6 |
 | `setupBatch`  | armies placed per setup turn  | 1 (classic) |
 | `fortifyMode` | `connected` \| `adjacent`     | `connected` |
 | `randomDeal`  | `true` (deal) \| `false` (claim one by one) | `true` |

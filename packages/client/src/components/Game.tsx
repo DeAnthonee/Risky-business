@@ -4,6 +4,7 @@ import { api } from '../api';
 import { AutoAdvance, type AutoSpectate } from './AutoAdvance';
 import { CARD_FX_MS, CardFxPanel, type CardFx } from './CardFx';
 import { CharacterName, type Whisper } from './Profiles';
+import { PlayerCard } from './PlayerCard';
 import { ScoreChart } from './ScoreChart';
 import { spectateLink, type Session } from '../session';
 import type { EventBatch, GameConnection } from '../useGame';
@@ -498,6 +499,8 @@ export function Game({
         {anim.battle && (
           <DicePanel battle={anim.battle.ev} rolling={anim.battle.rolling} streak={anim.battle.streak} attackerColor={colorOf(anim.battle.ev.attacker)} defenderColor={colorOf(anim.battle.ev.defender)} names={names} mapId={view.options.map} />
         )}
+
+        {!isMobile && view.phase !== 'lobby' && <PlayerCard view={view} gameId={gameId} you={you} whisperTo={whisperTo} />}
 
         {anim.cardFx && <CardFxPanel key={anim.cardFx.id} fx={anim.cardFx} names={names} mapId={view.options.map} />}
 

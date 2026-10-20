@@ -282,6 +282,14 @@ export function GameMap(props: MapProps) {
   const zoomed = scale > 1.05;
   const showNames = !dense || scale >= 1.7;
 
+  // Territories of the player whose turn it is (not hidden or frozen): drawn again, raised, above the board.
+  const turnPlayer = !bonusView && view.phase !== 'lobby' && view.phase !== 'finished' ? view.currentPlayer : null;
+  const liftedList = useMemo(
+    () => (turnPlayer ? map.territories.filter((t) => view.territories[t.id]?.owner === turnPlayer && !isHidden(t.id) && !isFrozen(t.id)) : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [turnPlayer, map, view.territories, view.blizzards, hidden, bonusView],
+  );
+
   const continentLabels = useMemo(
     () =>
       map.continents.map((c) => {
@@ -339,6 +347,18 @@ export function GameMap(props: MapProps) {
         <pattern id="ocean-grid" width="40" height="40" patternUnits="userSpaceOnUse">
           <path d="M40 0H0V40" fill="none" stroke="rgba(255,255,255,0.045)" strokeWidth="1" />
         </pattern>
+        {/* Water: a lit centre fading to deep edges, and small hand-drawn wave marks that drift and fade */}
+        <radialGradient id="ocean-depth" gradientUnits="userSpaceOnUse" cx={W / 2} cy={H / 2} r={Math.max(W, H) * 0.75}>
+          <stop offset="0" stopColor="#15395a" />
+          <stop offset="0.55" stopColor="#0d2338" />
+          <stop offset="1" stopColor="#06111d" />
+        </radialGradient>
+        <pattern id="ocean-waves" width="180" height="120" patternUnits="userSpaceOnUse">
+          <path d="M14 30q9-8 18 0t18 0M104 88q9-8 18 0t18 0" />
+        </pattern>
+        <pattern id="ocean-waves-b" width="180" height="120" patternUnits="userSpaceOnUse" x="90" y="60">
+          <path d="M14 30q9-8 18 0t18 0M60 70q7-6 14 0" />
+        </pattern>
         <pattern id="blizzard" width="10" height="10" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
           <rect width="10" height="10" fill="#dfe8f2" />
           <line x1="0" y1="0" x2="0" y2="10" stroke="#b3c4d6" strokeWidth="4" />
@@ -347,7 +367,18 @@ export function GameMap(props: MapProps) {
 
       {/* Ocean (oversized so panning never shows the page background) */}
       <rect x={-W} y={-H} width={3 * W} height={3 * H} className="ocean" onPointerEnter={() => setHovered(null)} />
+      <rect x={-W} y={-H} width={3 * W} height={3 * H} fill="url(#ocean-depth)" pointerEvents="none" />
       <rect x={-W} y={-H} width={3 * W} height={3 * H} fill="url(#ocean-grid)" onPointerEnter={() => setHovered(null)} />
+      <g className="ocean-waves" pointerEvents="none">
+        <rect x={-W} y={-H} width={3 * W} height={3 * H} fill="url(#ocean-waves)" className="wave-layer a" />
+        <rect x={-W} y={-H} width={3 * W} height={3 * H} fill="url(#ocean-waves-b)" className="wave-layer b" />
+      </g>
+      {/* Surf: a soft pale band along every coast that slowly swells */}
+      <g className="ocean-surf" pointerEvents="none">
+        {map.continents.map((c) => (
+          <path key={c.id} d={c.outline} />
+        ))}
+      </g>
 
       {/* Continent outlines give the board its regions */}
       <g className="continents" filter="url(#land-shadow)">
@@ -423,6 +454,23 @@ export function GameMap(props: MapProps) {
           );
         })}
       </g>
+
+      {/* Whose turn: a raised copy of the current player's land that rocks gently, so watchers spot it at a glance.
+          Visual only: clicks and hovers fall through to the unmoved territories underneath. */}
+      {liftedList.length > 0 && (
+        <g className="turn-lift-layer" pointerEvents="none" aria-hidden="true">
+          {liftedList.map((t, i) => {
+            const hl = effectiveHighlights[t.id];
+            const flashing = flashes[t.id] && now - flashes[t.id] < 1200;
+            const cls = ['territory', hl ? `hl-${hl}` : '', flashing ? 'flash' : '', dimOthers && !hl ? 'dim' : '', hovered === t.id ? 'hovered' : ''].filter(Boolean).join(' ');
+            return (
+              <g key={t.id} className="turn-lift" style={{ animationDelay: `${-(i % 7) * 0.45}s` } as CSSProperties}>
+                <path d={t.path} className={cls} fill={colorOf(view.territories[t.id]?.owner ?? null) ?? continentColor(map, t.continent)} />
+              </g>
+            );
+          })}
+        </g>
+      )}
 
       {/* Region outlines above territory fills reveal inland bonus boundaries too.
           Clip each stroke inside its own region so adjacent regions both retain their colour. */}

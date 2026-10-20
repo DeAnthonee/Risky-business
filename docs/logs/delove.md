@@ -7,6 +7,11 @@ numbers go in [packages/delove/CYCLES.md](../../packages/delove/CYCLES.md) and t
 Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. **Append a line in the same PR** as any change to
 this area (README hard rule 12).
 
+- 2026-10-20 #106 `scripts/dashboard.mjs` keeps history (30 s samples in `<run>/dashboard/samples.jsonl` and `_machine/`), History and Compare cycles tabs; `scripts/timing-report.mjs` (per-phase, step and map timing, GPU vs CPU share, idle gaps, throughput, straggler tails, bottlenecks; shared reading in `scripts/run-timing.mjs`); `cycle.sh` keeps a `times-<start>.tsv` copy per invocation
+- 2026-10-20 #105 Cycle 5 (all maps 2-10p on the GPU, points target; not promoted, CYCLES.md has why); gate table reports leaderboard points; `scripts/dashboard.mjs` live training view; `train.py --amp` and `#F` dataset fractions; delove-status sections 3, 5, 8 and the owner's promotion rule
+- 2026-10-20 #102 delove-status: `nine_realms` added to the map list and to the open-work row to re-verify the GPU fingerprint
+- 2026-10-20 #100 delove-status: `bohemia` added to the map list; open-work row to re-verify the GPU fingerprint for it
+- 2026-10-20 #98 `docs/delove-status.md`: Jacob Sensei in the models table, open work and section 9 item 1 (bar met in self-play); #82 marked merged
 - 2026-10-20 #98 Jacob Sensei (`jacob-sensei@1`): a new hand-coded teacher that never stalls in self-play; `tune.ts --teacher jacob` with self-play length penalty; `src/tables.ts`
 - 2026-10-20 #97 README and `delove-seat --help`: tuned teachers, `sensei` aliases and default names (#88)
 - 2026-10-20 #91 Gen 5 configs are plain settings objects (pass with `--options`); ladder example uses `npm run delove`

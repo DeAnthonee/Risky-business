@@ -1,0 +1,4 @@
+# Cycle 5, step 1: micro games, 1v1 on Four Crowns (GPU).
+mb   3000 delove-branch@1,delove-teacher@2 {"map":"skirmish"}
+md   3000 delove@3,delove-branch@1 {"map":"skirmish"}
+m2   3000 delove-branch@1,delove@2 {"map":"skirmish"}

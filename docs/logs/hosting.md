@@ -6,6 +6,8 @@ Covers deploy behaviour (`/healthz`, caching, SIGTERM, `RISK_DATA_DIR`, room cle
 Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. Changes from before pull requests carry the
 commit hash instead. **Append a line in the same PR** as any change to this area (README hard rule 12).
 
+- 2026-10-20 #107 the first start after deploy archives `rankings.json` as `rankings.season-1.json` and the leaderboard restarts empty
+- 2026-10-20 #101 CI writes the map status table (`scripts/map-status.mjs --markdown`) to the job summary and warns (never fails) per offered map not GPU-verified
 - 2026-10-19 #78 SPA fallback served with a root so dot-folder checkouts work
 - 2026-10-19 #73 CI warns (never fails) when the GPU mirror's engine fingerprint is stale
 - 2026-10-19 #68 `RISK_ARCHIVE_KEEP` prunes game records (default 1000)

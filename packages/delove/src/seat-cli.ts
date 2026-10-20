@@ -4,7 +4,8 @@ import type { GameOptions } from '@risk/engine';
 import { HttpRiskApi } from '@risk/mcp';
 import type { Agent } from '@risk/selfplay';
 import { discoverNetAgents } from './net-agent.js';
-import { playSeat } from './seat.js';
+import { defaultName, discoverTunedTeachers, playSeat } from './seat.js';
+import { jacob } from './jacob.js';
 import { teacher } from './teacher.js';
 
 const USAGE = `delove-seat: seat Delove players in a real game over the HTTP API (no chat, no character)
@@ -13,9 +14,11 @@ const USAGE = `delove-seat: seat Delove players in a real game over the HTTP API
   npm run delove-seat -- --create [--agents delove@1,delove-teacher@1] [--bots 2] [--options '{"map":"classic"}'] [--no-start]
 
   --server URL     game server (default RISK_SERVER_URL or http://localhost:8080)
-  --agents IDS     Delove versions, one seat each (default delove@1): delove-teacher@1 and every
-                   models/delove/delove@N.onnx (or DELOVE_MODELS) as delove@N
-  --names NAMES    seat names, same order (default "Delove 1", "Delove Teacher", ...)
+  --agents IDS     Delove versions, one seat each (default delove@1): delove-teacher@1, every tuned
+                   teacher models/delove/delove-teacher@N.json and every models/delove/delove@N.onnx
+                   (or DELOVE_MODELS); sensei, sensei@1 and sensei@2 name the teachers;
+                   jacob-sensei@1 (or jacob) is Jacob Sensei
+  --names NAMES    seat names, same order (default "Delove 1", "Sensei 1", "Sensei 2", ...)
   --join CODE      join a game someone created; the host starts it
   --create         create a game (the first seat hosts), add --bots built-in bots, start it (unless --no-start)
   --pace MS        pause after each move so spectators can follow (default 400)
@@ -25,12 +28,6 @@ Fog of war games are refused: Delove was trained on the full board.`;
 function fail(msg: string): never {
   console.error(`${msg}\n\n${USAGE}`);
   process.exit(2);
-}
-
-function defaultName(id: string): string {
-  if (id === teacher.id) return 'Delove Teacher';
-  const m = /^delove@(\d+)(-explore)?$/.exec(id);
-  return m ? `Delove ${m[1]}${m[2] ? ' (explore)' : ''}` : id;
 }
 
 async function main() {
@@ -51,7 +48,17 @@ async function main() {
   if (values.help) return console.log(USAGE);
   if (!values.join === !values.create) fail('give exactly one of --join CODE or --create');
 
-  const known = new Map<string, Agent>([teacher, ...discoverNetAgents()].map((a) => [a.id, a]));
+  const tuned = discoverTunedTeachers();
+  const allAgents = [teacher, ...tuned, jacob, ...discoverNetAgents()];
+  const known = new Map<string, Agent>(
+    allAgents.flatMap((a) => {
+      const entries: [string, Agent][] = [[a.id, a]];
+      if (a.id === 'delove-teacher@1') entries.push(['sensei@1', a], ['sensei', a]);
+      if (a.id === 'delove-teacher@2') entries.push(['sensei@2', a]);
+      if (a.id === jacob.id) entries.push(['jacob', a]);
+      return entries;
+    }),
+  );
   const ids = (values.agents ?? 'delove@1').split(',').map((s) => s.trim()).filter(Boolean);
   const agents = ids.map((id) => known.get(id) ?? fail(`unknown Delove version "${id}" (known: ${[...known.keys()].join(', ')})`));
   const names = values.names ? values.names.split(',').map((s) => s.trim()) : ids.map(defaultName);

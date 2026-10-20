@@ -8,6 +8,11 @@ Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. **Append a l
 this area (README hard rule 12).
 
 - 2026-10-20 #98 Jacob Sensei (`jacob-sensei@1`): a new hand-coded teacher that never stalls in self-play; `tune.ts --teacher jacob` with self-play length penalty; `src/tables.ts`
+- 2026-10-20 #97 README and `delove-seat --help`: tuned teachers, `sensei` aliases and default names (#88)
+- 2026-10-20 #91 Gen 5 configs are plain settings objects (pass with `--options`); ladder example uses `npm run delove`
+- 2026-10-20 #89 Gen 5 testing parity configs in configs/ and status brief updates
+- 2026-10-20 #88 delove-seat: discover and seat tuned teachers (delove-teacher@N, Sensei 2)
+- 2026-10-20 #87 `docs/delove-fog.md`: plan for fog of war (seat-view encoder, fog dropout, determinized teacher, GPU, gates)
 - 2026-10-20 #83 docs: the GPU mirror covers every map, 2-10 seats and every setting but fog
 - 2026-10-20 #82 `cycle.sh` runs any step on the GPU (`gpu_steps=(all)`)
 - 2026-10-20 #81 `docs/delove-status.md`: status, strategy and coordination brief

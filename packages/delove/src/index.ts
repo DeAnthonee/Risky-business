@@ -3,3 +3,4 @@ export * from './net-agent.js';
 export * from './search.js';
 export * from './branch.js';
 export * from './jacob.js';
+export * from './seat.js';

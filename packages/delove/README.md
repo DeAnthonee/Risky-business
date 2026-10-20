@@ -28,13 +28,25 @@ move like in self-play and sends it.
 
 ```bash
 # join a game someone created (the host starts it); one seat per version
-npm run delove-seat -- --server https://risky.deanthoneeking.com --join ABC123 --agents delove@1,delove-teacher@1
+npm run delove-seat -- --server https://risky.deanthoneeking.com --join ABC123 --agents delove@3,delove-teacher@2
 # or create one: Delove hosts, adds 2 built-in bots and starts; watch it at <server>/?game=<code>
 npm run delove-seat -- --server http://localhost:8080 --create --agents delove@1,delove-teacher@1 --bots 2
 ```
 
 `--pace 400` (ms between moves, so spectators can follow), `--names "A,B"`, `--options '{"capitals":true}'`,
 `--no-start`. Fog of war games are refused for now: Delove was trained on the full board.
+`--agents` takes `delove-teacher@1`, every tuned teacher in the models folder (`delove-teacher@N.json`, e.g.
+`delove-teacher@2`), and every `delove@N.onnx`. `sensei` / `sensei@1` and `sensei@2` are aliases for the two teachers,
+and their seats are named "Sensei 1" and "Sensei 2" unless `--names` says otherwise (#88). `jacob-sensei@1` (alias `jacob`)
+sits as "Jacob Sensei".
+
+### Generation 5 Testing & Environment Parity
+
+To evaluate Delove models on the exact game options used in Generation 5 live league play, see [`docs/game-settings.md`](../../docs/game-settings.md) and pre-built configs in `packages/delove/configs/`:
+
+- `packages/delove/configs/gen5-nofog.json` (baseline Gen 5 options with `fogOfWar: false`)
+- `packages/delove/configs/gen5-randomfog.json` (standard league options with `fogOfWar: true`)
+- `packages/delove/configs/gen5-fixedcards.json` (options with fixed card trade values)
 
 ## Train a version (Stage 1: learn from the teacher)
 

@@ -53,7 +53,7 @@ Every documentation file in the repo, what it covers and when to read it.
 | --- | --- | --- |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | commands, branching, the standard path for a feature (engine → server/API → MCP → client → docs → `npm test`), maps workflow, style, `[OPS]` issues | before your first change; whenever you add a feature |
 | [docs/conventions.md](docs/conventions.md) | per-area conventions: packages, settings (`OPTION_SPECS`), maps, MCP tools, tournaments, records, self-play, characters, runner | before changing that area |
-| [docs/hardening.md](docs/hardening.md) | known gaps left open on purpose (open tournaments, fog totals, leaderboard identities, watcher memory, scenarios) and trade-offs | before touching any feature it lists |
+| [docs/hardening.md](docs/hardening.md) | known gaps left open on purpose (open tournaments, fog totals, leaderboard identities, watcher memory, scenarios, seeded leaderboard) and trade-offs | before touching any feature it lists |
 | [docs/roadmap.md](docs/roadmap.md) | old wish list of polish ideas | when looking for something to build |
 | [.github/pull_request_template.md](.github/pull_request_template.md) | what a PR must say and check | when opening a PR |
 | [.github/workflows/ci.yml](.github/workflows/ci.yml) | the CI gate run on every PR (same as `npm test`, plus the GPU fingerprint warning) | when CI fails or you change the gate |
@@ -82,7 +82,12 @@ Every documentation file in the repo, what it covers and when to read it.
 | --- | --- | --- |
 | [AI/README.md](AI/README.md) | the `AI/` folder: general player, characters, model docs, **how to save each kind of file** | adding or editing anything under `AI/` |
 | [AI/general-player/README.md](AI/general-player/README.md) | the base player every character builds on (playbook, ways to win, findings, learnings) | changing base-player strategy docs |
+| [AI/general-player/playbook.md](AI/general-player/playbook.md) | the base player's turn routine: threat check, objective, attacks, cards, diplomacy, after-game routine | changing how every player takes a turn |
+| [AI/general-player/ways-to-win.md](AI/general-player/ways-to-win.md) | how to win under each victory condition and setting (capitals, fog, cards, blizzards) | changing per-setting strategy |
+| [AI/general-player/findings.md](AI/general-player/findings.md) | dated findings from real games that hold for every player, with evidence | recording a finding |
+| [AI/general-player/risk-learnings.md](AI/general-player/risk-learnings.md) | lessons from past games (troop movement, capitals, card modes, diplomacy, tool tips) | changing the base player's lessons |
 | [AI/general-model-info/README.md](AI/general-model-info/README.md) | docs about the models themselves (local models) | adding a model doc |
+| [AI/general-model-info/local-models.md](AI/general-model-info/local-models.md) | playing characters on local models: what is built, the goal, choosing a model | choosing or setting up a local model |
 | [docs/characters.md](docs/characters.md) | live character profiles over MCP and HTTP, write key, limits, syncing saves back; the local-model player | changing character saves or the local-model player |
 | [docs/character-league.md](docs/character-league.md) | the character league: profiles, placement points, persistent personality, in-game memory | changing rankings or league behaviour |
 | [docs/fog-power-rankings.md](docs/fog-power-rankings.md) | how AI commanders estimate opponent power under fog of war | changing the runner's threat assessment |
@@ -97,6 +102,8 @@ Every documentation file in the repo, what it covers and when to read it.
 | [packages/selfplay/README.md](packages/selfplay/README.md) | self-play, ladder, decision log format (`LOG_VERSION`), board encoder (`ENCODER_VERSION`), adding a player version | working on `packages/selfplay` or a log/encoder format |
 | [docs/delove.md](docs/delove.md) | Delove's plan of record: what it is, how it learns, the network, milestones | planning Delove work |
 | [docs/delove-status.md](docs/delove-status.md) | Delove's current state, strategy, what was tried, open work, coordination brief | **first** when coordinating Delove training |
+| [docs/game-settings.md](docs/game-settings.md) | the settings Gen 5 league games sample (fog, blizzards, capitals, card modes), the map pool, and the ready-made option files in `packages/delove/configs/` | testing Delove on league settings |
+| [docs/delove-fog.md](docs/delove-fog.md) | the plan for fog-of-war play: seat-view encoder, fog dropout, determinized branch teacher, GPU mirror, gates | planning Delove's fog work |
 | [packages/delove/README.md](packages/delove/README.md) | running, training and playing Delove; Stage 2 self-play rounds | working on `packages/delove` |
 | [packages/delove/CYCLES.md](packages/delove/CYCLES.md) | per-cycle training tables (appended by training runs) | reading or recording cycle results |
 | [packages/delove-gpu/README.md](packages/delove-gpu/README.md) | the GPU rules mirror: coverage, replay proof, fingerprint and re-verification, speed | working on `packages/delove-gpu` or changing a mirrored engine file |
@@ -157,8 +164,9 @@ These keep the deploy, the game and the training pipeline from breaking. Everyth
 10. **Keep the boundaries.** Self-play stays deterministic from the seed (no `Math.random`, no clocks in decisions).
     `packages/selfplay`, `llm-player`, `runner`, `delove` and `delove-gpu` are never imported by the server; Delove is
     never imported by the character code. The web client moves a spectator to another game only in opt-in
-    auto-spectate (`/?spectate=1` with no game), never from a game opened on purpose, never a player, and never onto
-    or off a tournament table.
+    auto-spectate (`/?spectate=1` with no game) or when a runner generation training match ends (rooms named exactly
+    `Generation <tag> Match <n>`, e.g. `Generation 5 Match 3`: on to the next such match or its lobby); never a player,
+    and never onto or off a tournament table. Any other game opened on purpose never moves you on.
 11. **Character data is data.** Agents' saves live under `RISK_DATA_DIR/characters/`, never written back into the
     repo automatically (a sync back is a PR read by hand). Every save needs the write key (`RISK_CHARACTERS_KEY` or the
     admin token; none set = read-only), and everything served is framed as data, not instructions

@@ -7,8 +7,10 @@ Maps: [maps.md](maps.md). Tournaments: [tournaments.md](tournaments.md).
 
 ## Starting a game
 
-Open http://localhost:8080, enter a name, create a game, add a bot or share the 6-letter join code
-(or the invite link `?game=CODE`), and press **Start**. Anyone can **watch** a game without playing:
+Open http://localhost:8080, enter a name, press **Create room** (it opens the setup in place: maps as silhouette tiles
+with a live preview, settings grouped into Players and setup, Cards and combat, Board twists; the lobby uses the same
+groups), add a bot or share the 6-letter join code (or the invite link `?game=CODE`), and press **Start**. The home
+page lists open games as tickets (joinable rooms first, then live and finished ones) next to the leaderboard. Anyone can **watch** a game without playing:
 press "Watch" in the game list or open `?game=CODE&spectate=1`. Spectators see the public board, the
 log and chat, a live "watching" count, and which players are online. In fog-of-war games they can
 see the board as any player sees it (click a player, or "Follow turn") and press **F** ("Hide fog" /
@@ -25,6 +27,12 @@ ends auto-spectate). It is opt-in: a game you opened yourself (from the list, a 
 moves you on, players are never moved, and tournament tables are never picked. While waiting it polls the game list
 every 2 s, backing off to 10 s. The URL stays `/?spectate=1`, so a reload picks up whatever is live.
 
+**Generation training matches** are the exception to "opt-in" (#95): the runner names its rooms
+`Generation <tag> Match <n>` (e.g. `Generation 5 Match 3`), and when one ends or closes, every spectator gets a 4 s
+countdown to the next one, a running match first, otherwise its lobby (watch it fill and start), with **Stay here** to
+remain. Only that exact name counts (a room a person names that way counts too), tournament tables are never picked,
+and players are never moved.
+
 Players can **whisper**: pick a player in the chat's "To" menu (or tap a whisper you got to answer it)
 and no other player's seat sees the message. Spectators see every whisper, highlighted in purple (so would a player who
 opened the spectator view). Whispers go to a player id; by name only when exactly one player has that name.
@@ -38,7 +46,7 @@ Dice rolls, troop placements ("+N" bursts that stay up longer for spectators), c
 (`+N/turn`, the reinforcements they get next turn before cards; hover it for the breakdown).
 Picking a map (when creating a game, and in the lobby) shows a preview of the board: every territory in its region's
 colour, sea links, the region bonuses (hover one to pick it out) and the starting armies for the player count.
-On desktop, drag the divider under the scoreboard to give the log/chat more or less room (double-click resets). The log shows each attack as one entry: who took (or failed to take) which territory, each side's armies at the start and end with the losses, the number of rolls and the armies moved in; hover it for the individual dice rolls. Runs of fogged events collapse into one line with a count. When you pick an attack, a **commit slider** sets how many armies to throw at it (the rest stay home; the blitz stops there) and shows the exact chance to take the territory with random dice and with balanced blitz, the average losses on each side, and one-click buttons for the commitment a 50%, 75%, 90% or 99% chance needs. Agents get the same as `stopAt` and a win chance next to each attack in their legal moves.
+On desktop, drag the divider under the scoreboard to give the log/chat more or less room (double-click resets). Hovering any territory highlights all the attackable territories from that spot (pulsing red along land borders and active sea links) for both players and spectators, making attack routes and board connectivity clear at a glance. The log shows each attack as one entry: who took (or failed to take) which territory, each side's armies at the start and end with the losses, the number of rolls and the armies moved in; hover it for the individual dice rolls. Runs of fogged events collapse into one line with a count. When you pick an attack, a **commit slider** sets how many armies to throw at it (the rest stay home; the blitz stops there) and shows the exact chance to take the territory with random dice and with balanced blitz, the average losses on each side, and one-click buttons for the commitment a 50%, 75%, 90% or 99% chance needs. Agents get the same as `stopAt` and a win chance next to each attack in their legal moves.
 Press **Bonuses** (on the map, in the spectator bar, or **B**) to see every region painted in its own colour with
 its bonus, no armies; neighbouring regions never share a colour, on the board or in this view.
 Switch the scoreboard to **Who's winning** for a bar chart: each living player's power is 40% their share of all

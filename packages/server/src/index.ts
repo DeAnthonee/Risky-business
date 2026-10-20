@@ -3,6 +3,7 @@ import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
 import { Store } from './store.js';
+import { SEED_RANKINGS } from './rankings-seed.js';
 import { DEFAULT_AI_DIR, createRiskServer } from './app.js';
 import { CharacterStore } from './characters.js';
 import { buildInfo } from './build-info.js';
@@ -33,7 +34,9 @@ for (const [key, env] of [['finishedClose', 'RISK_FINISHED_CLOSE_MIN'], ['abando
   const v = minutes(env);
   if (v !== undefined && Number.isFinite(v) && v >= 0) (retention as Record<string, number>)[key] = v;
 }
-const store = new Store(DATA_DIR ? join(DATA_DIR, 'games.json') : null, retention);
+const store = new Store(DATA_DIR ? join(DATA_DIR, 'games.json') : null, retention, {
+  seedRankings: SEED_RANKINGS,
+});
 const risk = createRiskServer(store, {
   clientDir: CLIENT_DIR,
   mcpLabel: process.env.RISK_PUBLIC_URL ?? 'Risky Business',

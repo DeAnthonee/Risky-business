@@ -31,6 +31,7 @@ What "good" means, decided by the owner:
    day.
 
 Fog of war is out of scope for now: the board encoder sees the whole board, so the seat player refuses fog games.
+For testing parity with live Generation 5 play (including fog/no-fog matrix, blizzards, capitals, and card modes), see **[docs/game-settings.md](game-settings.md)** and config presets in `packages/delove/configs/`.
 
 ## 2. How the work is organised
 
@@ -217,11 +218,11 @@ to `runs/delove/<name>/cycle.md`.
 - **Training on points:** add `--value-target points` to the config's `train_args`; gate multiplayer on the ladder's
   mean points.
 
-**Live games:**
+**Live games & benchmarking:**
 ```bash
-npm run delove-seat -- --server https://risky.deanthoneeking.com --join <CODE> --agents delove@3,delove-teacher@1 --names "Delove@3,Sensei"
+npm run delove-seat -- --server https://risky.deanthoneeking.com --join <CODE> --agents delove@3,delove-teacher@2 --names "Delove@3,Sensei@2"
 ```
-Fog of war off; one seat per agent.
+Fog of war off (enforced by `delove-seat`); one seat per agent. For full environment parity options (random fog 50/50, blizzards, capitals, progressive/fixed/exponential cards), see **[docs/game-settings.md](game-settings.md)**.
 
 ## 7. Decisions made by the owner
 
@@ -276,6 +277,7 @@ In order. Each step has a measurable bar.
 6. **Merge the specialists into one network** (distil both into a single model) once both clearly win.
 7. **Later:** a live "power bar" for spectators from the strength meter; per-map fine-tunes if one map dominates;
    fog of war (needs a seat-view encoder); seating Delove in character-league tables for direct comparison.
+   Fog of war plan (seat-view encoder, fog dropout, determinized branch teacher, GPU, gates): `docs/delove-fog.md`.
 
 ## 10. Pitfalls we hit (don't repeat them)
 

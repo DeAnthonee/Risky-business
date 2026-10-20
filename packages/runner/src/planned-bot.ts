@@ -1,7 +1,7 @@
 import { blitzOdds, commitForOdds, getMap, type Action, type GameView, type MapDef, type PlayerId, type TerritoryId } from '@risk/engine';
 import { chooseMove } from './view-state.js';
 import { planElimination, type KillPlan } from './eliminations.js';
-import { planConquest, type Campaign, type CampaignOptions } from './campaigns.js';
+import { planConquest, findCapRun, type Campaign, type CampaignOptions } from './campaigns.js';
 
 export type WinPath = 'diplomacy' | 'bonuses' | 'cards' | 'capitals' | 'kills' | 'hopeless';
 export const WIN_PATHS: readonly WinPath[] = ['diplomacy', 'bonuses', 'cards', 'capitals', 'kills', 'hopeless'];
@@ -278,7 +278,7 @@ class Chooser {
     if (view.options.capitals) {
       for (const [pid, t] of Object.entries(view.capitals ?? {})) {
         this.capitalOf.set(t, pid);
-        if (pid === me && view.territories[t]?.owner === me) this.myCapitals.add(t);
+        if (view.territories[t]?.owner === me) this.myCapitals.add(t);
       }
     }
     this.conquered = view.players.find((p) => p.id === me)?.conqueredThisTurn ?? false;
@@ -380,9 +380,36 @@ class Chooser {
   private guardFor(t: TerritoryId, share = 0.7): number {
     return this.plan.borderGuard <= 0 ? 0 : Math.ceil(this.threat(t) * share * this.plan.borderGuard) + 1;
   }
-  /** Armies a capital should hold when reinforcing. */
+  /**
+   * Evaluates the strategic defensibility and leverage of a capital position.
+   * Where you started doesn't matter: captured capitals in superior strategic positions
+   * (chokepoints with few avenues of attack, bonus borders guarding continents) are valued
+   * even higher than starting capitals.
+   */
+  private capitalPositionScore(t: TerritoryId): number {
+    let score = 0;
+    const hostiles = this.hostileNeighbours(t);
+    // Choke points with fewer avenues of attack are vastly easier and more valuable to defend
+    if (hostiles.length === 1) score += 8;
+    else if (hostiles.length === 2) score += 4;
+    else if (hostiles.length >= 4) score -= 4;
+
+    // Bonus border defending a held continent
+    if (this.isBonusBorder(t)) score += 10;
+    else {
+      const cont = this.map.territoryById[t]?.continent;
+      if (cont && this.continentShare(cont).mine > 0) score += 3;
+    }
+
+    if (this.inFocus(t) > 0) score += 4;
+    return score;
+  }
+
+  /** Armies a capital should hold when reinforcing. Better-positioned capitals receive higher garrison targets. */
   private capWanted(t: TerritoryId): number {
-    return Math.max(this.plan.capitalGarrison ?? DEFAULT_CAPITAL_GARRISON, Math.ceil(this.floorThreat(this.hostileNeighbours(t)) * 1.1) + 1);
+    const pos = this.capitalPositionScore(t);
+    const base = Math.max(this.plan.capitalGarrison ?? DEFAULT_CAPITAL_GARRISON, Math.ceil(this.floorThreat(this.hostileNeighbours(t)) * 1.1) + 1);
+    return Math.max(1, base + (pos > 0 ? Math.min(6, Math.floor(pos * 0.5)) : 0));
   }
   private inFocus(t: TerritoryId): number {
     if (this.plan.focusTerritory === t) return 2;
@@ -450,6 +477,15 @@ class Chooser {
     if (lm.canPlaceOn.length > 0 && lm.placeLimit > 0) return { type: 'place', placements: this.placements(lm.canPlaceOn, lm.placeLimit) };
 
     if (this.view.phase === 'attack') {
+      // Immediate full capital run outranks everything: conquering all capitals wins the game on the spot!
+      const capRun = this.capRun();
+      if (capRun) {
+        const route = capRun.attacks.find((a) => this.lm.attacks.some((l) => l.from === a.from && l.to === a.to));
+        if (route) {
+          return { type: 'attack', from: route.from, to: route.to, blitz: true, stopAt: route.keep };
+        }
+      }
+
       // A complete, affordable elimination outranks routine bonus pokes or the once-per-turn card.
       const kill = this.elimination();
       const is1v1 = this.is1v1();
@@ -515,6 +551,14 @@ class Chooser {
     };
   }
 
+  /** Calculate a complete multi-hop capital run across the board to capture all capitals and win immediately. */
+  private capRun(reinforcements = 0, transfer?: CampaignOptions['transfer']): Campaign | null {
+    if (!this.view.options.capitals) return null;
+    const opts = this.campaignOptions(reinforcements, transfer);
+    // Winning the game by conquering all capitals supersedes avoid/treaties
+    return findCapRun(this.view, this.me, { ...opts, avoid: new Set() });
+  }
+
   private elimination(reinforcements = 0, transfer?: CampaignOptions['transfer']): KillPlan | null {
     const opts = this.campaignOptions(reinforcements, transfer);
     // Kills take supreme EV priority; avoid lists protect against routine border skirmishes, not game-changing eliminations.
@@ -555,6 +599,8 @@ class Chooser {
     const toHostile = this.hostileNeighbours(to);
     if (fromHostile.length > 0 && toHostile.length === 0 && !this.capitalOf.has(to) && this.plan.fortifyTo !== to) return min;
     if (this.plan.route.includes(to) && this.plan.route.slice(this.plan.route.indexOf(to) + 1).some((r) => this.hostile(r))) return ceiling;
+    const capRun = this.capRun(0, { from, to, min, max: Math.min(max, have - cap) });
+    if (capRun?.occupy !== undefined) return capRun.occupy;
     const kill = this.elimination(0, { from, to, min, max: Math.min(max, have - cap) });
     if (kill?.occupy !== undefined) return kill.occupy;
     const bonus = this.bonusCampaign(0, { from, to, min, max: Math.min(max, have - cap) });
@@ -813,11 +859,10 @@ class Chooser {
     const v = this.view;
     const others = v.players.filter((p) => p.alive && !p.isNeutral && p.id !== this.me);
     if (v.options.capitals) {
-      const entries = Object.entries(v.capitals ?? {});
-      const everyone = v.players.filter((p) => !p.isNeutral).length;
-      if (entries.length === everyone && this.capitalOf.has(to)) {
-        const notMine = entries.filter(([, t]) => this.owner(t) !== this.me);
-        if (notMine.length === 1 && notMine[0][1] === to) return true;
+      const allCapitals = Object.values(v.capitals ?? {});
+      if (allCapitals.length > 1 && allCapitals.includes(to)) {
+        const notMine = allCapitals.filter((t) => this.owner(t) !== this.me);
+        if (notMine.length === 1 && notMine[0] === to) return true;
       }
     }
     if (others.length === 1) {
@@ -893,7 +938,15 @@ class Chooser {
       s += 3.5; // each territory stripped from the rival directly starves their base income
     }
     const capOwner = this.capitalOf.get(to);
-    if (capOwner && capOwner !== this.me) s += path === 'capitals' ? 7 : 4;
+    if (capOwner && capOwner !== this.me) {
+      const allCaps = Object.values(this.view.capitals ?? {});
+      const unownedCaps = allCaps.filter((t) => this.owner(t) !== this.me);
+      let capVal = path === 'capitals' ? 14 : 10;
+      if (unownedCaps.length <= 2) capVal += 12; // Almost ready to win
+      if (this.armies(to) <= 2) capVal += 8; // Weakly defended / ripe for taking
+      capVal += Math.max(0, this.capitalPositionScore(to)); // Valuable position
+      s += capVal;
+    }
     const focus = this.inFocus(to);
     if (focus === 2) s += 7;
     else if (focus === 1) s += 3.5;
@@ -988,13 +1041,23 @@ class Chooser {
       if (n > 0) { result[t] = (result[t] ?? 0) + n; left -= n; }
     };
 
-    // Prioritize funding high-value eliminations (especially progressive/exponential sets or 3+ cards)
-    const killCampaign = this.elimination(pool);
+    // Prioritize funding a full capital run for an immediate game victory
+    const capRunCampaign = this.capRun(pool);
     let activeCampaign: (Campaign & { score?: number }) | null = null;
-    if (killCampaign && Object.keys(killCampaign.placements).every((t) => mine.includes(t))) {
-      activeCampaign = killCampaign;
-      for (const [t, n] of Object.entries(killCampaign.placements)) add(t, n);
-      for (const t of Object.keys(killCampaign.requirements)) funded.add(t);
+    if (capRunCampaign && Object.keys(capRunCampaign.placements).every((t) => mine.includes(t))) {
+      activeCampaign = capRunCampaign;
+      for (const [t, n] of Object.entries(capRunCampaign.placements)) add(t, n);
+      for (const t of Object.keys(capRunCampaign.requirements)) funded.add(t);
+    }
+
+    if (!activeCampaign) {
+      // Prioritize funding high-value eliminations (especially progressive/exponential sets or 3+ cards)
+      const killCampaign = this.elimination(pool);
+      if (killCampaign && Object.keys(killCampaign.placements).every((t) => mine.includes(t))) {
+        activeCampaign = killCampaign;
+        for (const [t, n] of Object.entries(killCampaign.placements)) add(t, n);
+        for (const t of Object.keys(killCampaign.requirements)) funded.add(t);
+      }
     }
 
     // If the Commander explicitly chose placement territories, honor them directly with remaining pool.
@@ -1109,14 +1172,18 @@ class Chooser {
     const have = this.armies(t);
     const thr = this.threat(t);
     let n = Math.max(0, thr * 0.9 + 1 - have);
-    if (this.myCapitals.has(t)) n += Math.max(0, this.capWanted(t) - have) * 1.5;
+    if (this.myCapitals.has(t)) {
+      const pos = this.capitalPositionScore(t);
+      const capDeficit = Math.max(0, this.capWanted(t) - have);
+      n += capDeficit * 1.8 + Math.max(0, pos) * 1.2 + 8;
+    }
     if (this.isBonusBorder(t)) {
       if (have < 5) n += (5 - have) * 2.0;
       else if (have > Math.max(8, thr * 1.5)) n -= Math.min(10, (have - Math.max(8, thr * 1.5)) * 0.6);
       n += 2 * this.plan.borderGuard;
     }
     n += this.inFocus(t) * 1.5 + (this.nearFocus(t) ? 1.5 : 0);
-    if (this.plan.fortifyTo === t) n += 25;
+    if (this.plan.fortifyTo === t) n += 100;
     return n;
   }
 
@@ -1144,9 +1211,9 @@ class Chooser {
       if (!mayLeave(f.from) || !isBorder(f.from) || (!isBorder(f.to) && !this.myCapitals.has(f.to) && f.to !== this.plan.fortifyTo)) continue;
       const pullingBack = f.to === this.plan.fortifyTo || this.myCapitals.has(f.to);
       const stay = f.to === this.plan.fortifyTo
-        ? (this.myCapitals.has(f.from) ? this.capFloor(f.from) : 1)
+        ? 1
         : this.myCapitals.has(f.to)
-          ? (this.isBonusBorder(f.from) ? this.guardFor(f.from) : 1)
+          ? (this.myCapitals.has(f.from) ? this.capFloor(f.from) : (this.isBonusBorder(f.from) ? this.guardFor(f.from) : 1))
           : Math.max(this.guardFor(f.from), this.myCapitals.has(f.from) ? this.capFloor(f.from) : 1);
       const surplus = Math.min(f.maxArmies, this.armies(f.from) - stay);
       if (surplus < (pullingBack ? 1 : 2)) continue;

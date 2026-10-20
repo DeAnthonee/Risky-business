@@ -24,7 +24,7 @@ What "good" means, decided by the owner:
    -3, then +1 for every player you eliminate. A bot that places 2nd most of the time with kills is a good
    multiplayer bot. Training and gates should value what the leaderboard values.
 2. **Every map, 2 to 10 players.** One general model for all maps (`MAP_IDS` in `packages/engine/src/maps.ts`:
-   classic, world, world_large, europe, greater_europe, europe_classic, usa, asia, fantasy, skirmish). No per-map
+   classic, world, world_large, europe, greater_europe, europe_classic, usa, asia, fantasy, skirmish, nine_realms). No per-map
    models unless one map later dominates live play.
 3. **Strong one-on-one as well.** Every multiplayer game ends as a duel, and the 1v1 has been Delove's weakest spot.
 4. **Fast iteration.** Training should run as much as possible on the training PC's GPU so we can try more ideas per

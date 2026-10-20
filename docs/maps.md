@@ -1,7 +1,7 @@
 # Maps
 
-Ten boards. Eight are drawn from real geography (Natural Earth countries or US Census states, cut into
-territories and projected to SVG); Realms of Halvaren and Four Crowns are original worlds drawn by hand:
+Eleven boards. Eight are drawn from real geography (Natural Earth countries or US Census states, cut into
+territories and projected to SVG); Realms of Halvaren, Four Crowns and The Nine Realms are original worlds drawn by hand:
 
 | map | territories | regions | players | notes |
 | --- | --- | --- | --- | --- |
@@ -15,6 +15,7 @@ territories and projected to SVG); Realms of Halvaren and Four Crowns are origin
 | **Asia** | 49 | 7 | 2–8 | Middle East to Japan, Siberia to Java; bonuses 4–6 |
 | **Realms of Halvaren** (`fantasy`) | 87 | 16 | 2–10 | original fantasy world: rival kingdoms around an Inner Sea, the lawless Grimward Wastes across the north (+7, borders almost everyone), a cursed swamp, a desert, mountain passes and island chains linked by sea lanes; bonuses 2–7; 83 armies each for 2 players, 25 for 10 |
 | **Four Crowns** (`skirmish`) | 24 | 6 | 2–4 | small, fast original board: four corner kingdoms (+2 each: one gate to the Heartland, two harbours) ring the Heartland (+4); four lone Waystone isles (+3) carry the sea lanes between neighbouring kingdoms; 17 armies each for 4 players |
+| **The Nine Realms** (`nine_realms`) | 58 | 9 | 2–8 | original tall board (760×990): one long north-south continent. The frozen Hoarlands (+6, 14 territories) hold the north behind three gates (Bogneck, Gullhook Cape, Silverquay); below them the Fordlands (+5) and the mountain Cloudvale (+5), the Goldfells (+3) in the west with the raider Rustcrag Isles (+2) offshore, the Throneland (+3) and Galewatch (+3) on the east shore, the broad Verdance (+7) and the desert Sunmarches (+4) in the south; five lone isles reached by sea lanes; 55 armies each for 2 players, 28 for 6, 21 for 8 |
 
 Every map except Classic starts each player with the classic numbers scaled by map size (territories ÷ 42; above 6 players an equal share of the 6-player total)
 (`STARTING_ARMIES` in `packages/engine/src/maps.ts`; the exact table per player count is in the rules text).

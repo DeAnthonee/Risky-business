@@ -948,7 +948,9 @@ async function runPostGameLocked(i: PostGameInput): Promise<PostGameOutput> {
     const existing = await readResults(i.learningsDir);
     if (!existing.some(r => r.gameId === result.gameId)) await appendResult(i.learningsDir, result);
   }
-  const leaderboard = computeLeaderboard(await readResults(i.learningsDir));
+  const allResults = await readResults(i.learningsDir);
+  const genResults = i.generation ? allResults.filter((r) => r.generation === i.generation) : allResults;
+  const leaderboard = computeLeaderboard(genResults);
   const leaderboardText = formatLeaderboard(leaderboard);
   const leaderboardMarkdown = formatLeaderboardMarkdown(leaderboard);
   try {

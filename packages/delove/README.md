@@ -35,6 +35,9 @@ npm run delove-seat -- --server http://localhost:8080 --create --agents delove@1
 
 `--pace 400` (ms between moves, so spectators can follow), `--names "A,B"`, `--options '{"capitals":true}'`,
 `--no-start`. Fog of war games are refused for now: Delove was trained on the full board.
+`--agents` takes `delove-teacher@1`, every tuned teacher in the models folder (`delove-teacher@N.json`, e.g.
+`delove-teacher@2`), and every `delove@N.onnx`. `sensei` / `sensei@1` and `sensei@2` are aliases for the two teachers,
+and their seats are named "Sensei 1" and "Sensei 2" unless `--names` says otherwise (#88).
 
 ### Generation 5 Testing & Environment Parity
 

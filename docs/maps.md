@@ -1,7 +1,7 @@
 # Maps
 
-Ten boards. Eight are drawn from real geography (Natural Earth countries or US Census states, cut into
-territories and projected to SVG); Realms of Halvaren and Four Crowns are original worlds drawn by hand:
+Eleven boards. Eight are drawn from real geography (Natural Earth countries or US Census states, cut into
+territories and projected to SVG); Realms of Halvaren, Four Crowns and Bohemia are original boards drawn by hand:
 
 | map | territories | regions | players | notes |
 | --- | --- | --- | --- | --- |
@@ -15,6 +15,7 @@ territories and projected to SVG); Realms of Halvaren and Four Crowns are origin
 | **Asia** | 49 | 7 | 2–8 | Middle East to Japan, Siberia to Java; bonuses 4–6 |
 | **Realms of Halvaren** (`fantasy`) | 87 | 16 | 2–10 | original fantasy world: rival kingdoms around an Inner Sea, the lawless Grimward Wastes across the north (+7, borders almost everyone), a cursed swamp, a desert, mountain passes and island chains linked by sea lanes; bonuses 2–7; 83 armies each for 2 players, 25 for 10 |
 | **Four Crowns** (`skirmish`) | 24 | 6 | 2–4 | small, fast original board: four corner kingdoms (+2 each: one gate to the Heartland, two harbours) ring the Heartland (+4); four lone Waystone isles (+3) carry the sea lanes between neighbouring kingdoms; 17 armies each for 4 players |
+| **Bohemia** (`bohemia`) | 42 | 8 | 2–6 | an inland kingdom with no sea, drawn after a hand-drawn conquest map (real Czech place names). Every region is its own landmass: the Sázava river (in from the west, south to a confluence below Ledeč, then east past Rataje and south to the edge) and forest brooks separate them, so regions never share a land border and meet only at 14 fords and bridges (`seaLanes`, drawn dashed). Each region has two or three entry territories: Skalice Uplands (+3, 5), Northern Woods (+3, 5), Talmberk Marches (+4, 6), Mrchojedy Lands (+3, 4), Sázava Valley (+3, 5), Ledeč Heartland (+4, 6), Vraník Forests (+2, 4, the safe corner with two fords), Rataje Domain (+4, 7). The waterways are cut out of the kingdom in `scripts/maps/bohemia.mjs` (`channel()`); classic starting armies (42 territories): 40 each for 2 players, 20 for 6 |
 
 Every map except Classic starts each player with the classic numbers scaled by map size (territories ÷ 42; above 6 players an equal share of the 6-player total)
 (`STARTING_ARMIES` in `packages/engine/src/maps.ts`; the exact table per player count is in the rules text).

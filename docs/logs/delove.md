@@ -7,6 +7,7 @@ numbers go in [packages/delove/CYCLES.md](../../packages/delove/CYCLES.md) and t
 Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. **Append a line in the same PR** as any change to
 this area (README hard rule 12).
 
+- 2026-10-20 #100 delove-status: `bohemia` added to the map list; open-work row to re-verify the GPU fingerprint for it
 - 2026-10-20 #98 `docs/delove-status.md`: Jacob Sensei in the models table, open work and section 9 item 1 (bar met in self-play); #82 marked merged
 - 2026-10-20 #98 Jacob Sensei (`jacob-sensei@1`): a new hand-coded teacher that never stalls in self-play; `tune.ts --teacher jacob` with self-play length penalty; `src/tables.ts`
 - 2026-10-20 #97 README and `delove-seat --help`: tuned teachers, `sensei` aliases and default names (#88)

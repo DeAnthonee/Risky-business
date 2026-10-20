@@ -138,6 +138,7 @@ eliminated you, so read its notes with that in mind.
   forward. (AAR5MR: Draven held Southeast Asia, Oceania and South Asia on two points, Tibet and Pakistan.)
 - **Finish the bonus you're working on** before breaking a strong neighbour.
 - **Break a neighbour's bonus when they can't retaliate.** It's almost always good, but it starts a war.
+- **The "Good Neighbor" Fallacy & Active Bonus Denial:** "Good neighbor" only works if both sides are playing "good neighbor." Attempting it unilaterally against aggressive opponents, neural nets (Delove), or ruthless rivals is a fatal gamble that risks getting backstabbed and ruining your whole game (GJJWQ9: Teemo held a bonus and passively let adjacent Delove hold an uncontested bonus; Delove stacked troops opposite Teemo and crushed Teemo's bonus). When an adjacent neighbor holds a continent bonus, every turn they hold it yields bonus troops right on your doorstep. If they are stacking next to you, they will inevitably break you. Sometimes it is simply not worth letting a neighbor have a bonus—factor breaking their bonus directly into your plan for that turn. Stripping their +2 to +5 bonus income halts their army accumulation and resets the border balance before their stack overwhelms you.
 
 ## Progressive cards: cards and kills win
 

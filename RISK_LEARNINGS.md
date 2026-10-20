@@ -288,6 +288,25 @@ Fundamental rules, mechanics, and tournament scoring for the Risk engine, follow
     3. **Maintained the exact same 3-doorway bottleneck count** (the doorway simply shifts from Alaska to Kamchatka).
   * **The Choke-Neutral Equation**: Whenever an offensive advance breaks a rival leader's bonus and the resulting defensive perimeter has $\le$ the original number of external chokeholds ($\Delta \text{Chokepoints} \le 0$), **execute the disruption attack immediately**. It starves the leading opponent of armies at zero defensive cost.
 
+### 18. The "Good Neighbor" Fallacy & Active Neighbor Bonus Denial (Never Let a Neighbor Snowball on Your Doorstep)
+* **The "Good Neighbor" Bilateral Prerequisite**:
+  * The "Good Neighbor" policy—where adjacent continental empires (e.g. South America and North America, or bordering realms on fantasy maps) avoid attacking each other to direct their military expansion outward—is strictly a **bilateral contract**.
+  * **The Fallacy**: It only works if **both sides** actively, reliably, and mutually play "good neighbor." Attempting it unilaterally against aggressive bots, neural nets, or ruthless human rivals is a fatal strategic gamble that risks getting backstabbed and ruining your entire game.
+  * **The Blunder (e.g., Teemo vs. Delove in Game GJJWQ9)**: Teemo secured his continent bonus and adopted a passive "good neighbor" stance toward adjacent Delove, who also held a continent bonus. Teemo left Delove's bonus completely unmolested. In response, Delove did not play "good neighbor"—Delove collected bonus reinforcements turn after turn, stacked a lethal army directly opposite Teemo's border, and then crashed through to shatter Teemo's bonus. Teemo's unilateral passive indulgence ruined his entire game.
+
+* **The Neighbor Stacking Threat (The Staged Snowball)**:
+  * When an adjacent neighbor holds a continent bonus, every single turn they hold it generates surplus reinforcement troops (+2, +3, or +5 armies/turn) deployed directly on your border.
+  * If that neighbor is placing draft troops on your shared boundary rather than funneling them elsewhere, their trajectory is mathematically transparent: they are amassing the critical mass to overwhelm your border garrison and conquer your holdings.
+  * Passively sitting behind your chokepoint while a neighbor amasses troops on your doorstep is not patience; it is consenting to be overwhelmed.
+
+* **The Break-or-Be-Broken Principle**:
+  * You have to recognize that **sometimes it is simply not worth letting a neighbor have a bonus—you have to break it**.
+  * Factoring a neighbor bonus break into your turn plan (`target`, `route`, or surgical attack) is overwhelmingly positive expected value:
+    1. **Immediate Production Denial**: A single surgical attack into an exposed border territory instantly strips the neighbor of +2, +3, or +5 reinforcement armies on their upcoming turn.
+    2. **Halting the Snowball**: By eliminating their bonus income, you prevent them from accumulating the surplus armies needed to assault your chokepoints.
+    3. **Taxing Enemy Dice**: Even if the neighbor retakes the territory on their turn, they must spend attacking dice (~1.2 casualties per conquer) and forfeit that round's bonus troops, resetting the border arms race in your favor.
+  * **The Rule of Engagement**: If an adjacent neighbor is holding a continent bonus and their border stack is growing, **do not assume peace**. Factor breaking their bonus into your plan for that turn. Break their bonus before they break yours.
+
 ---
 
 ## Findings from AI self-play games

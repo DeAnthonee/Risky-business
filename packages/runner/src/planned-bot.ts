@@ -627,7 +627,7 @@ class Chooser {
         // STOP! Switch to turtling and consolidation so we gather armies on the chokepoint.
         const completesBonus = share.missing.length === 1 && share.missing[0] === a.to;
         const expectedRemaining = have - d - 1;
-        if (expectedRemaining < 4 && !completesBonus && !capturesCapital && !eliminatesPlayer && !this.plan.route.includes(a.to)) {
+        if (expectedRemaining < 4 && !completesBonus && !breaksOpponentBonus && !capturesCapital && !eliminatesPlayer && !this.plan.route.includes(a.to)) {
           continue;
         }
       }
@@ -795,7 +795,7 @@ class Chooser {
     else if (share.missing.length <= 3 && share.mine * 2 >= share.total && share.missing.includes(to)) cs += 2.5 + bonus * 0.3;
     const holder = this.view.continentOwners[cont];
     if (holder && holder !== this.me && holder === toOwner) {
-      const breakWeight = this.plan.aggression >= 0.6 ? 7.0 + bonus * 1.2 : 4.5 + bonus * 0.8;
+      const breakWeight = this.plan.aggression >= 0.6 ? 8.5 + bonus * 1.5 : 6.0 + bonus * 1.0;
       cs += breakWeight;
     }
     s += path === 'bonuses' ? cs * 1.5 : cs;

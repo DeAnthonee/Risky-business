@@ -1,5 +1,3 @@
-import { createRiskServer } from '../packages/server/dist/app.js';
-import { Store } from '../packages/server/dist/store.js';
 import { spawn } from 'node:child_process';
 import { copyFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
@@ -7,32 +5,29 @@ import path from 'node:path';
 
 const REPO_DIR = 'C:/Users/makey/Documents/Claude gaming/Risky-business';
 const LEARNINGS_DIR = 'C:/Users/makey/Documents/Claude gaming/Risk';
-const PORT = 55125;
-const TOTAL_GAMES = 60; // 60 games to let Delove@3 and Sensei@2 catch up on the board
+const SERVER_URL = process.env.RISK_SERVER ?? 'https://risky.deanthoneeking.com';
+const TOTAL_GAMES = 60; // Games to let Delove@3 and Sensei@2 battle the LLMs
 
 const log = (msg) => {
   const ts = new Date().toLocaleTimeString();
   console.log(`[${ts}] [ORCHESTRATOR] ${msg}`);
 };
 
-// Start Risk Server
-const store = new Store('none');
-const { server } = createRiskServer(store, { sweepIntervalMs: 0 });
-await new Promise((resolve) => server.listen(PORT, '127.0.0.1', resolve));
-log(`Risk server listening on http://127.0.0.1:${PORT}`);
-log(`Spectator UI available via proxy or http://127.0.0.1:${PORT}/?spectate=1`);
+log(`Risk continuous model orchestrator targeting ${SERVER_URL}`);
+log(`Testing Delove@3 & Sensei@2 (no learnings) vs 4 LLM Characters (with shared learnings, qwen3:14b)`);
+log(`Fog of War: OFF. Mode: Generation 5.`);
 
 let gamesCompleted = 0;
 
 for (let g = 1; g <= TOTAL_GAMES; g++) {
   log(`================================================================`);
-  log(`Starting Match ${g}/${TOTAL_GAMES} (Delove@3 + Sensei@2 + 4 LLM Characters, No Fog)`);
+  log(`Starting Generation 5 Match ${g}/${TOTAL_GAMES} on ${SERVER_URL}`);
   log(`================================================================`);
 
   // Spawn runner for 1 game: 4 LLM characters + 2 open seats = 6 total
   const runner = spawn('node', [
     'packages/runner/dist/cli.js',
-    '--server', `http://127.0.0.1:${PORT}`,
+    '--server', SERVER_URL,
     '--players', '6',
     '--open-seats', '2',
     '--options', JSON.stringify({ fogOfWar: false }),
@@ -57,10 +52,11 @@ for (let g = 1; g <= TOTAL_GAMES; g++) {
     if (m && !gameId) {
       gameId = m[1];
       log(`Lobby detected: ${gameId}. Slotting Delove@3 and Sensei@2 into open seats...`);
+      log(`Spectator link: ${SERVER_URL}/?game=${gameId}&spectate=1`);
 
       seatProcess = spawn('node', [
         'packages/delove/dist/seat-cli.js',
-        '--server', `http://127.0.0.1:${PORT}`,
+        '--server', SERVER_URL,
         '--join', gameId,
         '--agents', 'delove@3,delove-teacher@2',
         '--names', 'Delove@3,Sensei@2',
@@ -93,10 +89,8 @@ for (let g = 1; g <= TOTAL_GAMES; g++) {
     log(`Warning: could not sync LEADERBOARD.md: ${e.message}`);
   }
 
-  // Small breath between games
-  await new Promise((r) => setTimeout(r, 1000));
+  // Small pause between games
+  await new Promise((r) => setTimeout(r, 2000));
 }
 
 log(`All ${TOTAL_GAMES} scheduled matches completed.`);
-server.close();
-process.exit(0);

@@ -49,7 +49,7 @@ Leader of an order that watches over the spiritual and physical balance of the w
 
 ## Lessons learned
 
-None yet
+- **Progressive Trade Surge Concentration & Elimination Execution:** In progressive card mode, cashing in a massive card set (e.g. 85 armies in 53RVR3) must be concentrated into a single decisive spearhead to complete eliminations, rather than fragmented into 4 separate fronts. Splitting 85 armies across multiple territories and leaving troops behind on intermediate territories allowed Thresh (reduced to 2 territories and 4 armies) to survive with 3 cards, only for Jinx to swoop in on the next turn and steal the kill. When executing an elimination, carry the spearhead forward and never leave a dying victim on 1-3 armies.
 
 ## Game rules for this character
 

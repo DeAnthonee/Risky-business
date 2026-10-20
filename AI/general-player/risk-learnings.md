@@ -153,6 +153,7 @@ eliminated you, so read its notes with that in mind.
   board is thin: Katarina (8SR5HD) and Sable (QVXQSA) never traded and were out by round 4; Kael (QVXQSA) held
   4 unused cards when his capital fell. Yasuo held a set until it was worth 30-40, and the spike took three
   bonuses in one turn. Trade when the armies turn straight into a kill, a bonus or a capital.
+- **Concentrate the Progressive Surge (The 75% Spearhead Rule):** When cashing in a massive card set (>= 20 armies, e.g. 85 armies in 53RVR3), never divide the surplus across 3–4 separate fronts. Allocating 70–75% onto a single primary spearhead allows you to punch through an entire victim's empire, steal their cards, and trigger a chain trade. Splitting armies into multiple 15–20 stacks causes attacks to run out of momentum just short of completing kills, leaving wounded victims on 1–3 armies for the next player to steal (53RVR3: Shen split an 85-army trade into 4 piles, leaving Thresh alive on 2 territories with 3 cards; Jinx took the kill next turn). When attacking toward a dying victim with cards (<= 3 territories), move the full stack forward and never leave troops idling behind.
 - **After a big trade, don't leave a trail of 1s.** Lee Sin, Yasuo and Zed (8SR5HD) all spent 45-120 army
   trades punching deep and left 1-army territories behind; the leader rolled them up next turn. Keep real
   garrisons on the borders facing the biggest stack, and never park a mid-size stack next to one three times

@@ -14,7 +14,8 @@ export function planElimination(view: GameView, me: PlayerId, options: KillOptio
     if (!victim.alive || victim.isNeutral || victim.id === me || options.avoid.has(victim.id) ||
         (options.targetOnly && victim.id !== options.targetOnly)) continue;
     const ts = map.territoryIds.filter(t => !view.territories[t]?.hidden && view.territories[t]?.owner === victim.id);
-    if (!ts.length || ts.length > 4 || victim.territoryCount !== ts.length) continue;
+    const maxVictimTerritories = view.options.cardValues === 'fixed' ? 4 : Math.min(8, Math.max(4, Math.floor(cardValue / 6)));
+    if (!ts.length || ts.length > maxVictimTerritories || victim.territoryCount !== ts.length) continue;
     const campaign = planConquest(view, me, ts, options);
     if (!campaign) continue;
     const score = 35 + victim.cardCount * cardValue + (victim.cardCount >= 3 ? 8 : 0) +

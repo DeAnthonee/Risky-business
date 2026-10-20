@@ -351,6 +351,23 @@ Fundamental rules, mechanics, and tournament scoring for the Risk engine, follow
       4. **Reduces the total number of external border chokeholds** ($\Delta \text{External Chokepoints} < 0$, e.g., 5 doorways down to 4).
     * It is a double-value imperative: you gain offensive bounty while drastically simplifying and strengthening your defensive posture.
 
+### 21. Progressive Trade Surge Concentration & Multi-Territory Kill Execution (The Cost of Troop Splitting)
+* **The Troop Splitting Blunder (Shen in Game 53RVR3)**:
+  * In progressive card mode, Shen traded cards for an enormous cash-in of **85 armies**.
+  * At turn start, Thresh held several thin territories and 3 cards, with frontline borders directly adjacent to Shen's stacks.
+  * Instead of concentrating the 85-army surge into a single, overwhelming spearhead to obliterate Thresh, steal Thresh's 3 cards, and trigger a mid-turn chain-trade, Shen's placement fragmented the 85 armies across **four separate territories** (38 on Oakenford, 20 on Red Mesa, 18 on Mistveil Harbor, 12 on Old Thicket).
+  * During the attack phase, Shen pushed through Fernhallow, Stagmere, Brightcrest, Orlenne Keep, and Elmsworth, cutting Thresh down to only **2 territories (Cairnmoor with 1 army, Greystep with 3 armies)**.
+  * However, because the armies were scattered across four fronts and because the advance into Fernhallow only moved 3 armies forward (leaving 38 armies stranded on Oakenford), Shen stalled out right at the finish line and passed the turn.
+  * On the very next turn, Jinx swept into Cairnmoor and Greystep, easily eliminating Thresh and taking the 3 cards that rightfully belonged to Shen.
+* **The Core Rules of Trade Surge Execution**:
+  * **Concentrate the Progressive Surge (The 75% Spearhead Rule)**:
+    * When receiving a massive reinforcement surge ($\ge 20$ armies from progressive or exponential card trades), **never split the surplus into 3–4 equal fractions**.
+    * Allocate at least 70–75% of the surplus directly onto the **primary offensive spearhead**. One colossal stack of 60–80+ armies punches completely through an entire opponent's empire; four 20-stacks run out of momentum and stall after conquering 2 territories each.
+  * **Carry the Spearhead to the Dying Victim (Never Leave Troops Behind)**:
+    * When an attack chain borders a wounded rival holding cards with $\le 3$ territories, the occupying force must move the **full available ceiling** forward. Leaving 38 armies idling on an interior launch pad while moving only 3 troops into the breakthrough territory starves the frontline of the forces needed to finish the elimination.
+  * **Multi-Territory Elimination Ruthlessness**:
+    * Do not treat elimination solely as a final-step check ($\text{territories} = 1$). If an opponent with 3+ cards has 2 or 3 territories, every single attack in that chain is an urgent elimination priority. Positive-EV dice gambles (e.g. 2v1 at ~42–50% odds) are overwhelmingly profitable when succeeding steals 3–5 cards and immediately refuels your turn with a trade.
+
 ---
 
 ## Findings from AI self-play games

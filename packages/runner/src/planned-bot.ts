@@ -560,6 +560,13 @@ class Chooser {
     const bonus = this.bonusCampaign(0, { from, to, min, max: Math.min(max, have - cap) });
     if (bonus?.occupy !== undefined) return bonus.occupy;
     if (fromHostile.length === 0) return ceiling; // the source became interior: the whole stack goes
+    // If an elimination target or near-dead victim with cards is adjacent to `to`, carry the spearhead forward!
+    const touchesWeakVictim = toHostile.some((n) => {
+      const o = this.owner(n);
+      const vp = o ? this.view.players.find((p) => p.id === o) : null;
+      return vp && (vp.territoryCount ?? 99) <= 3 && vp.cardCount >= 3;
+    });
+    if (touchesWeakVictim) return ceiling;
     // Does the attack go on from the new territory? Then the stack goes with it.
     const carry = Math.max(0, ceiling);
     const continues = toHostile.some((e) => this.chance(Math.max(1, carry), e) >= this.threshold() && !this.plan.avoid.has(this.owner(e)!) && !this.plan.noAttack.has(e));
@@ -595,8 +602,11 @@ class Chooser {
       const floor = fromCapital ? this.capFloor(a.from) : borderFloor;
       const toOwner = this.owner(a.to)!;
       const victim = this.view.players.find((p) => p.id === toOwner);
-      const isElimination = victim?.territoryCount === 1;
-      if ((this.plan.avoid.has(toOwner) || this.plan.noAttack.has(a.to)) && !wins && !isElimination) continue;
+      const victimTerrs = victim?.territoryCount ?? 99;
+      const isElimination = victimTerrs === 1;
+      const isNearElimination = victimTerrs <= 3;
+      const isHighValueKill = (isElimination || isNearElimination) && (victim?.cardCount ?? 0) >= 3;
+      if ((this.plan.avoid.has(toOwner) || this.plan.noAttack.has(a.to)) && !wins && !isElimination && !isHighValueKill) continue;
       // All-in against the one player chosen: nobody else is touched unless it wins the game.
       if (hopeless && toOwner !== this.plan.target && !wins) continue;
 
@@ -615,7 +625,7 @@ class Chooser {
         const steppingBreak = this.steppingStoneBonus(a.to);
         const breaksOpponentBonus = !!(holder && holder !== this.me) || steppingBreak !== null;
         const capturesCapital = this.capitalOf.has(a.to);
-        const eliminatesPlayer = isElimination;
+        const eliminatesPlayer = isElimination || isHighValueKill;
         const isStrategic = hasSurplusFromBorder || isFocus || isBonusConquest || breaksOpponentBonus || capturesCapital || eliminatesPlayer;
         if (!isStrategic) continue;
 
@@ -662,7 +672,6 @@ class Chooser {
         }
       }
       const isCap = this.capitalOf.has(a.to);
-      const isHighValueKill = isElimination && (victim?.cardCount ?? 0) >= 3;
       const purpose = this.purpose(a.from, a.to, wins);
       // On the diplomacy path, players other than the target get a higher bar.
       const bar = this.plan.winPath === 'diplomacy' && this.plan.target && toOwner !== this.plan.target ? thr + 0.1 : thr;
@@ -848,6 +857,7 @@ class Chooser {
     if (this.plan.target && toOwner === this.plan.target) s += path === 'hopeless' ? 10 : (path === 'kills' ? 5.5 : 3.5);
     const p = this.view.players.find((x) => x.id === toOwner);
     if (p && p.territoryCount === 1) s += (path === 'kills' ? 8 : 6) + p.cardCount * 1.5;
+    else if (p && (p.territoryCount ?? 99) <= 3 && p.cardCount >= 3) s += (path === 'kills' ? 8 : 6) + p.cardCount * 1.8;
     else if (p && p.cardCount >= 5) s += (path === 'kills' || path === 'cards' ? 6 : 4);
     else if (p && p.cardCount >= 4) s += (path === 'kills' || path === 'cards' ? 4.5 : 2.5);
     else if (p && p.cardCount >= 3) s += path === 'cards' ? 3 : 1.2;
@@ -1021,12 +1031,26 @@ class Chooser {
       return result;
     }
     const surplus = left;
-    const weights = reserves.map(t => Math.sqrt(Math.max(1, (campaign?.requirements[t] ?? this.threat(t) * 0.25 + 2) - 1)));
-    const total = weights.reduce((s, n) => s + n, 0);
-    const fractions = reserves.map((t, i) => ({ t, exact: surplus * weights[i] / total }));
-    for (const r of fractions) add(r.t, Math.floor(r.exact));
-    fractions.sort((a, b) => (b.exact % 1) - (a.exact % 1));
-    for (const r of fractions) if (left > 0) add(r.t, 1);
+    // When holding a massive reinforcement surge (>= 20 armies, e.g. progressive card trade),
+    // CONCENTRATE the surplus onto the primary offensive launch point rather than scattering into 4 weak fractions!
+    if (surplus >= 20 && reserves.length > 0) {
+      const primary = reserves.slice().sort((a, b) => {
+        const valA = Math.max(...this.hostileNeighbours(a).map((n) => this.targetValue(a, n)), 0);
+        const valB = Math.max(...this.hostileNeighbours(b).map((n) => this.targetValue(b, n)), 0);
+        return valB - valA;
+      })[0] ?? reserves[0];
+      const spearhead = Math.ceil(surplus * 0.75);
+      add(primary, spearhead);
+    }
+    const remSurplus = left;
+    if (remSurplus > 0) {
+      const weights = reserves.map(t => Math.sqrt(Math.max(1, (campaign?.requirements[t] ?? this.threat(t) * 0.25 + 2) - 1)));
+      const total = weights.reduce((s, n) => s + n, 0);
+      const fractions = reserves.map((t, i) => ({ t, exact: remSurplus * weights[i] / total }));
+      for (const r of fractions) add(r.t, Math.floor(r.exact));
+      fractions.sort((a, b) => (b.exact % 1) - (a.exact % 1));
+      for (const r of fractions) if (left > 0) add(r.t, 1);
+    }
     return result;
   }
 

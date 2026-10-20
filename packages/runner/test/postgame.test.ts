@@ -291,4 +291,19 @@ describe('runPostGame', () => {
     expect(await readFile(path.join(dir, 'mechanics-results.jsonl'), 'utf8')).toContain('MECH1');
     expect(await readFile(path.join(dir, 'RISK_LEARNINGS.md'), 'utf8')).toContain(BOT_START);
   });
+
+  it('filters leaderboard by generation when generation is specified', async () => {
+    const dir = await tmp();
+    await mkdir(dir, { recursive: true });
+    const { final, reports, tracker } = setup();
+    const { api } = fakeApi();
+    const llm: Llm = { chat: async () => 'advice' };
+
+    await runPostGame({ api, llm, learningsDir: dir, final, gameId: 'G1', seats: reports, tracker, generation: 'gen4', log: () => {} });
+    const outGen5 = await runPostGame({ api, llm, learningsDir: dir, final, gameId: 'G2', seats: reports, tracker, generation: 'gen5', log: () => {} });
+
+    expect(outGen5.leaderboard.games).toBe(1);
+    const lbMd = await readFile(path.join(dir, 'LEADERBOARD.md'), 'utf8');
+    expect(lbMd).toContain('across 1 AI self-play match.');
+  });
 });

@@ -31,6 +31,7 @@ What "good" means, decided by the owner:
    day.
 
 Fog of war is out of scope for now: the board encoder sees the whole board, so the seat player refuses fog games.
+For testing parity with live Generation 5 play (including fog/no-fog matrix, blizzards, capitals, and card modes), see **[docs/game-settings.md](game-settings.md)** and config presets in `packages/delove/configs/`.
 
 ## 2. How the work is organised
 
@@ -45,7 +46,7 @@ The training PC (Windows 11, i7-14700F with 28 threads, 32 GB RAM, RTX 4060 8 GB
   heavy CPU/GPU jobs with a session that is measuring speed (three timing attempts on #80 were spoiled this way).
 - **The review session** ("PR review and README updates", a cloud session): reviews and merges PRs into the deploy
   branch. Message it when a PR is ready. It cannot reply to other sessions; its answers show in its own chat.
-- **Repo rules** (CLAUDE.md, CONTRIBUTING.md): never push to the deploy branch `ccr-63b8112a-e2uk2g`; feature
+- **Repo rules** (the hard rules in README.md, CONTRIBUTING.md): never push to the deploy branch `ccr-63b8112a-e2uk2g`; feature
   branch, PR, `npm test` green. Game rules live in `packages/engine` only. The one exception is
   `packages/delove-gpu`, a training-only mirror that must replay the engine exactly (section 6).
 
@@ -53,10 +54,13 @@ Where the training data lives (never in git):
 
 | what | where |
 | --- | --- |
-| models (`delove@N`, candidates, tuned teachers) | `C:\Users\espii\Projects\Risky-business-stage2\models\delove` (copies of the bests also in the main clone's `models\delove`, used by the live seat player) |
-| exported training arrays | `C:\Users\espii\Projects\Risky-business-stage2\data\delove` |
-| game logs, cycle outputs, tuner state | `C:\Users\espii\Projects\Risky-business-stage2\runs\delove` |
-| Python with CUDA PyTorch | `C:\Users\espii\Projects\Risky-business\.venv` (Python 3.12, torch 2.11 + cu128) |
+| models (`delove@N`, candidates, tuned teachers) | `<training PC>\Projects\Risky-business-stage2\models\delove` (copies of the bests also in the main clone's `models\delove`, used by the live seat player) |
+| exported training arrays | `<training PC>\Projects\Risky-business-stage2\data\delove` |
+| game logs, cycle outputs, tuner state | `<training PC>\Projects\Risky-business-stage2\runs\delove` |
+| Python with CUDA PyTorch | `<training PC>\Projects\Risky-business\.venv` (Python 3.12, torch 2.11 + cu128) |
+
+`<training PC>` stands for the owner's user folder on the training PC; the real locations are on that machine (not
+written here because the repo is public).
 
 ## 3. Where we are
 
@@ -203,7 +207,7 @@ exporter. None of them is imported by the server or the character code.
 **Running a cycle:**
 ```bash
 DELOVE_BRANCH_RANKER=<best> DELOVE_BRANCH_HORIZON=1 DELOVE_BRANCH_MARGIN=0.01 \
-  PYTHON=/c/Users/espii/Projects/Risky-business/.venv/Scripts/python \
+  PYTHON="<training PC>/Projects/Risky-business/.venv/Scripts/python" \
   bash packages/delove/scripts/cycle.sh packages/delove/scripts/cycles/<cN>.cycle
 ```
 A cycle config names its steps (jobs files), the training data mix and the gates. Re-running resumes. Output goes
@@ -214,11 +218,11 @@ to `runs/delove/<name>/cycle.md`.
 - **Training on points:** add `--value-target points` to the config's `train_args`; gate multiplayer on the ladder's
   mean points.
 
-**Live games:**
+**Live games & benchmarking:**
 ```bash
-npm run delove-seat -- --server https://risky.deanthoneeking.com --join <CODE> --agents delove@3,delove-teacher@1 --names "Delove@3,Sensei"
+npm run delove-seat -- --server https://risky.deanthoneeking.com --join <CODE> --agents delove@3,delove-teacher@2 --names "Delove@3,Sensei@2"
 ```
-Fog of war off; one seat per agent.
+Fog of war off (enforced by `delove-seat`); one seat per agent. For full environment parity options (random fog 50/50, blizzards, capitals, progressive/fixed/exponential cards), see **[docs/game-settings.md](game-settings.md)**.
 
 ## 7. Decisions made by the owner
 
@@ -273,6 +277,7 @@ In order. Each step has a measurable bar.
 6. **Merge the specialists into one network** (distil both into a single model) once both clearly win.
 7. **Later:** a live "power bar" for spectators from the strength meter; per-map fine-tunes if one map dominates;
    fog of war (needs a seat-view encoder); seating Delove in character-league tables for direct comparison.
+   Fog of war plan (seat-view encoder, fog dropout, determinized branch teacher, GPU, gates): `docs/delove-fog.md`.
 
 ## 10. Pitfalls we hit (don't repeat them)
 

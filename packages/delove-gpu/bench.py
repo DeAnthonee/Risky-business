@@ -4,6 +4,7 @@
     python bench.py --engine fused --policy net --model C:/.../models/delove/delove@2.pt --batch 1024,4096,16384 [--precision fp16]
     python bench.py --engine tensor-fast --policy random --batch 1024,65536
     python bench.py --policy teacher --params C:/.../models/delove/delove-teacher@2.json --batch 4096,16384,65536
+    python bench.py --policy teacher --teacher jacob-sensei@1 --map world --seats 10 --batch 8192
 
 Engines: `tensor` (engine.py, exact mulberry32 dice), `tensor-fast` (engine.py, multinomial blitz), `fused` (fused.py,
 one CUDA thread per game, exact dice). With `--engine fused --policy random` the moves are chosen inside the kernel
@@ -64,13 +65,15 @@ def bench_fused_random(B: int, seconds: float, warmup: float, max_turns: int, ch
     }
 
 
-def bench_teacher(B: int, params: str | None, max_turns: int, chunk: int) -> dict:
-    """B whole games with the GPU teacher (teacher.py) in both seats, every move chosen inside the kernel: the time
-    until the last one ends, so games/s counts every game of the batch, long ones included."""
-    from delove_gpu.teacher import TeacherEngine, load_params
+def bench_teacher(B: int, params: str | None, max_turns: int, chunk: int, teacher: str | None = None) -> dict:
+    """B whole games with the GPU teacher (teacher.py; `teacher` an agent id such as jacob-sensei@1, or Sensei with
+    the numbers in `params`) in every seat, every move chosen inside the kernel: the time until the last one ends, so
+    games/s counts every game of the batch, long ones included."""
+    from delove_gpu.teacher import TeacherEngine, agent_params, load_params
 
     B = (B + TeacherEngine.BLOCK - 1) // TeacherEngine.BLOCK * TeacherEngine.BLOCK
-    e = TeacherEngine(B, CFG, params=load_params(params), max_turns=max_turns, allow_unverified=True)
+    prm = agent_params(teacher, path=params) if teacher else load_params(params)
+    e = TeacherEngine(B, CFG, params=prm, max_turns=max_turns, allow_unverified=True)
     g = torch.arange(B, device=e.dev)
     seeds = (torch.arange(B) * 2654435761) & 0xFFFFFFFF
     e.reset(g, seeds)
@@ -87,7 +90,7 @@ def bench_teacher(B: int, params: str | None, max_turns: int, chunk: int) -> dic
     span = time.perf_counter() - t0
     steps = int(e.tstats[2])
     return {
-        "config": CFG.label(), "engine": "fused+teacher", "policy": "teacher (in kernel)", "batch": B, "seconds": round(span, 2), "decisions_per_s": round(steps / span),
+        "config": CFG.label(), "engine": "fused+teacher", "policy": f"{teacher or 'teacher'} (in kernel)", "batch": B, "seconds": round(span, 2), "decisions_per_s": round(steps / span),
         "games_per_s": round(B / span, 1), "decisions_per_game": round(steps / B, 1), "turns_per_game": round(float(e.turn.float().mean()), 1),
         "turn_limit_share": round(float((e.winner < 0).float().mean()), 3),
     }
@@ -147,6 +150,7 @@ def main():
     ap.add_argument("--engine", choices=["tensor", "tensor-fast", "fused"], default="fused")
     ap.add_argument("--policy", choices=["random", "net", "teacher"], default="random")
     ap.add_argument("--params", help="teacher: a tuned teacher's JSON (default delove-teacher@1)")
+    ap.add_argument("--teacher", help="teacher: the agent id (jacob-sensei@1, or delove-teacher@N / jacob-sensei@N with --params)")
     ap.add_argument("--model")
     ap.add_argument("--batch", default="1024,4096,16384,65536")
     ap.add_argument("--seconds", type=float, default=30)
@@ -166,7 +170,7 @@ def main():
     for B in [int(x) for x in args.batch.split(",")]:
         try:
             if args.policy == "teacher":
-                r = bench_teacher(B, args.params, args.max_turns, args.chunk * 8)
+                r = bench_teacher(B, args.params, args.max_turns, args.chunk * 8, args.teacher)
             elif args.engine == "fused" and args.policy == "random":
                 r = bench_fused_random(B, args.seconds, args.warmup, args.max_turns, args.chunk)
             else:

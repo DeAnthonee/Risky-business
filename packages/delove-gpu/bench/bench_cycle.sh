@@ -5,8 +5,9 @@
 #
 # CPU: generate.sh's pool over every thread but one (PARALLEL, default threads - 1) with logs, then export of the
 # branch player's decisions (what cycle.sh does). GPU: delove_gpu.generate on the same tables and seed, writing the
-# training arrays directly. Branch settings as in the cycles: ranker delove@3, horizon 1, margin 0.01. Prints seconds
-# and games/s of each; DELOVE_MODELS is the models folder, PYTHON the venv's python.
+# training arrays directly. Branch settings as in the cycles: ranker delove@3, horizon 1, margin 0.01; the rollout
+# teacher DELOVE_BRANCH_TEACHER (e.g. jacob-sensei@1) on both sides. Prints seconds and games/s of each;
+# DELOVE_MODELS is the models folder, PYTHON the venv's python.
 set -euo pipefail
 jobs=$1; out=$2; which=${3:-both}
 seed=${SEED:-404}
@@ -31,7 +32,7 @@ if [[ $which != cpu ]]; then
   t0=$(date +%s.%N)
   (cd packages/delove-gpu && "$python" -m delove_gpu.generate --models "$models" --ranker "$DELOVE_BRANCH_RANKER" --horizon "$DELOVE_BRANCH_HORIZON" \
     --margin "$DELOVE_BRANCH_MARGIN" --seed "$seed" --jobs "../../$jobs" --out "../../$out/gpu" --summary "../../$out/gpu-summary.json" \
-    --gpu-gb "${GPU_GB:-3}" ${GPU_BATCH:+--batch $GPU_BATCH} ${ALLOW_UNVERIFIED:+--allow-unverified}) > "$out/gpu.log" 2>&1
+    --gpu-gb "${GPU_GB:-3}" ${GPU_BATCH:+--batch $GPU_BATCH} ${DELOVE_BRANCH_TEACHER:+--teacher $DELOVE_BRANCH_TEACHER} ${ALLOW_UNVERIFIED:+--allow-unverified}) > "$out/gpu.log" 2>&1
   t1=$(date +%s.%N)
   echo "{\"side\":\"gpu\",\"jobs\":\"$jobs\",\"games\":$games,\"total_s\":$(calc "$t1 - $t0"),\"games_per_s\":$(calc "$games / ($t1 - $t0)")}" | tee "$out/gpu.json"
 fi

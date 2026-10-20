@@ -1,7 +1,9 @@
 # Contributing to Risky Business
 
 This guide is written so that a person **or their Claude session** can pick up the repo cold and ship a
-feature safely. Read it top to bottom once; it is short.
+feature safely. Read it top to bottom once; it is short. The rules that must never break are the **hard rules** in
+[README.md](README.md#hard-rules); the README also has the table of contents of every doc. Per-area conventions are in
+[docs/conventions.md](docs/conventions.md).
 
 ## 1. The one rule that matters
 
@@ -26,7 +28,9 @@ npm ci && npm run build && npm test                            # must be green b
 | `packages/mcp` | MCP tools for AI agents (used by the stdio CLI **and** by the server's `/mcp`) | anything agents can do |
 | `packages/llm-player` | a seat played by a local model as an `AI/` character, over the HTTP API (its own process) | how local models play |
 | `packages/selfplay` | headless self-play harness, rating ladder and decision logs for training AI players (not used by the server) | training tooling, new player versions |
+| `packages/runner` | standalone bot runner: several seats over the HTTP API, Ollama commander, table talk, post-game learnings (its own process) | the character league's bots |
 | `packages/delove` | Delove, our base model: a no-personality player trained on self-play (teacher, network agent, trainer); never used by the server or the character code | Delove training |
+| `packages/delove-gpu` | Python, training only: a GPU mirror of the rules for fast self-play, verified against the engine by replay | Delove training speed; after changing a mirrored engine file |
 | `scripts/maps/*.mjs` + `scripts/build-map.mjs` | map definitions and the generator that turns real geography into `packages/engine/src/generated/*.json` | adding/changing territories, regions, adjacency |
 
 Data flows one way: **engine → server → client/MCP**. The server and the MCP never re-implement rules;
@@ -49,21 +53,19 @@ waiters, bots and the on-disk snapshot all see it.
    `RiskApi`. Keep descriptions explicit: agents only know what the description says.
 5. **UI.** `packages/client/src/components/*`. Game events drive the animations (`useAnimations` in
    `Game.tsx`), so emit a `GameEvent` from the engine rather than guessing in the client.
-6. **Docs.** README for players/hosts, `CLAUDE.md` for conventions and invariants, this file if the
-   workflow changes.
+6. **Docs and log.** Update the doc that describes the area (find it in the README's table of contents), append
+   a dated line with the PR number to the area's running log in `docs/logs/`, and add a table-of-contents line for
+   any new doc. A new hard rule goes in the README; a convention in `docs/conventions.md`; this file if the workflow
+   changes.
 7. **Gate.** `npm test` (typecheck + engine + server tests) must be green. Build the client too
    (`npm run build`) so a TypeScript error in the UI does not slip through.
 8. **PR.** Push your branch, open a pull request against `ccr-63b8112a-e2uk2g`, fill in the template. CI
    runs the same gate on the PR.
 
-## 4. Things you must not break (the host pipeline depends on them)
+## 4. Things you must not break
 
-- `GET /healthz` returns `{ok, version, build, playing, ...}`; `build` is unique per build.
-- `index.html` is `Cache-Control: no-cache`; `/assets/*` immutable; `/api/*` and `/healthz` `no-store`.
-- SIGTERM: snapshot to `RISK_DATA_DIR`, close sockets, exit 0 within a few seconds.
-- Persistent state only under `RISK_DATA_DIR`; one process; no external services; no hard-coded hostnames.
-- `/mcp` stays a no-auth Streamable HTTP MCP endpoint; claude.ai connectors depend on it.
-- Old snapshots must still load (add a migration in `Store` when you change saved shapes).
+The host pipeline depends on the hosting invariants and saved-data rules: README hard rules
+[6 and 7](README.md#hard-rules). Host behaviour in detail: [docs/hosting.md](docs/hosting.md).
 
 ## 5. Maps
 
@@ -77,11 +79,15 @@ splits each landmass), single-territory islands, and `seaLanes` for crossings ov
 the shapes; the generator also warns about borders too short to count, badges that would overlap, and prints a
 suggested bonus per region (size plus entry points) next to the one you set.
 
-## 6. Running locally
+## 6. Commands and running locally
 
 ```bash
+npm ci               # install (devDependencies are required to build)
+npm run build        # builds every package; writes packages/server/dist/build-info.json
+npm run build:map    # regenerates packages/engine/src/generated/<id>.json for every map; commit the output
+npm test             # the deploy gate: builds the engine, then typecheck + engine + server tests (no fixed ports, no browser)
 npm run dev          # server :8080 + Vite client :5173 (proxies /api, /ws)
-npm start            # production-style: serves the built client on PORT (default 8080)
+npm start            # production-style: node packages/server/dist/index.js, serves the built client on PORT (default 8080)
 ```
 
 Play against bots from the lobby. To test agents, point the stdio MCP at your local server
@@ -96,5 +102,6 @@ Keep PRs focused; one feature per PR.
 
 ## 8. Hosting bugs
 
-They arrive as GitHub issues titled `[OPS] ...`. Reproduce locally (server tests or a scratch server on a
-random port), fix on a branch, reference the issue in the commit, PR as usual.
+They arrive as GitHub issues titled `[OPS] ...` (README hard rule 14). Reproduce locally (server tests or a scratch
+server on a random port), fix on a branch, reference the issue in the commit, PR as usual, and log the fix in
+[docs/logs/hosting.md](docs/logs/hosting.md).

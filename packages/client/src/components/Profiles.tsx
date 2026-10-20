@@ -72,7 +72,7 @@ function ProfileDialog({ url, name, onClose, whisper }: { url: string; name: str
     return () => { active = false; };
   }, [url, retry]);
   return createPortal(
-    <dialog ref={dialog} className="profile-dialog" aria-labelledby="profile-title" onCancel={onClose} onClick={e => { e.stopPropagation(); if (e.target === e.currentTarget) onClose(); }}>
+    <dialog ref={dialog} className="profile-dialog p5" aria-labelledby="profile-title" onCancel={onClose} onClick={e => { e.stopPropagation(); if (e.target === e.currentTarget) onClose(); }}>
       <div className="profile-header"><h2 id="profile-title">{name}</h2><button autoFocus onClick={onClose} aria-label="Close profile">Close ✕</button></div>
       {error ? <p role="alert">{error} <button onClick={() => setRetry(n => n + 1)}>Retry</button></p> : !data ? <p role="status">Loading profile…</p> : <>
         <p className="muted">{data.stats.key.startsWith('league/') ? 'League character' : 'Player profile'} · All completed ranked games</p>
@@ -118,14 +118,26 @@ export function Leaderboard() {
     const timer = setInterval(load, 15_000);
     return () => { alive = false; clearInterval(timer); };
   }, [retry]);
-  return <section className="card leaderboard">
-    <h2>Leaderboard</h2>
-    <p className="muted small">Placement points + 1 per player eliminated · Start at 0, never below 0. Six players: +3, +2, +1, −1, −2, −3. Scores scale with lobby size.</p>
+  return <section className="board leaderboard" aria-labelledby="leaderboard-title">
+    <div className="board-head"><h2 id="leaderboard-title">Leaderboard</h2></div>
     {error && <p role="alert">{error} <button onClick={() => setRetry(n => n + 1)}>Retry</button></p>}
     {!loaded && !error && <p role="status">Loading leaderboard…</p>}
-    {loaded && !rows.length && <p>No completed games yet. The first finished game starts the standings.</p>}
-    {!!rows.length && <div className="leaderboard-scroll"><table><thead><tr><th>Rank</th><th>Character / player</th><th>Points</th><th>W–L</th><th>Avg. place</th><th>Win %</th><th>Kills</th></tr></thead><tbody>
-      {rows.map(r => <tr key={r.key}><td>#{r.rank}</td><td><CharacterName name={r.name} profileKey={r.key} /></td><td>{r.points}</td><td>{r.wins}–{r.losses}</td><td>{r.avgPlacement.toFixed(2)}</td><td>{r.winRate}%</td><td>{r.kills ?? 0}</td></tr>)}
-    </tbody></table></div>}
+    {loaded && !rows.length && <p className="board-empty">No completed games yet. The first finished game starts the standings.</p>}
+    {!!rows.length && <ol className="ranks">
+      {rows.map(r => <li key={r.key} className={`rank-row${r.rank <= 3 ? ` podium podium-${r.rank}` : ''}`}>
+        <span className="rank-num" aria-label={`Rank ${r.rank}`}>{r.rank}</span>
+        <span className="rank-name"><CharacterName name={r.name} profileKey={r.key} /></span>
+        <span className="rank-points"><strong>{r.points}</strong> pts</span>
+        <span className="rank-stats">
+          <span title="Wins and losses">{r.wins}–{r.losses}</span>
+          <span title="Win rate">{r.winRate}% wins</span>
+          <span title="Average placement">avg {r.avgPlacement.toFixed(2)}</span>
+          <span title="Players eliminated">{r.kills ?? 0} kills</span>
+        </span>
+      </li>)}
+    </ol>}
+    <details className="rank-rules"><summary>How points work</summary>
+      <p>Placement points plus 1 for each player you eliminate. Everyone starts at 0 and never drops below it. In a six-player game the places score +3, +2, +1, −1, −2, −3; scores scale with lobby size.</p>
+    </details>
   </section>;
 }

@@ -143,7 +143,7 @@ export function cleanPlan(plan: Plan | null | undefined, view: GameView, me: Pla
     placeOn: [...new Set((Array.isArray(raw.placeOn) ? raw.placeOn : typeof raw.placeOn === 'string' ? [raw.placeOn] : []).filter((x): x is string => typeof x === 'string' && map.isTerritory(x)))],
     route: [...new Set((Array.isArray(raw.route) ? raw.route : typeof raw.route === 'string' ? [raw.route] : []).filter((x): x is string => typeof x === 'string' && map.isTerritory(x)))],
     fortifyTo: typeof raw.fortifyTo === 'string' && map.isTerritory(raw.fortifyTo) ? raw.fortifyTo : null,
-    stopAfterBonus: flag(raw.stopAfterBonus, winPath === 'bonuses'),
+    stopAfterBonus: flag(raw.stopAfterBonus, winPath === 'bonuses' || winPath === 'cards' || winPath === 'diplomacy'),
     stopAfterRoute: flag(raw.stopAfterRoute, true),
   };
 }
@@ -410,6 +410,33 @@ class Chooser {
     return this.view.continentOwners[cont] === this.me && this.hostileNeighbours(t).length > 0;
   }
 
+  /** Only 2 non-neutral players remain alive. */
+  private is1v1(): boolean {
+    return this.view.players.filter((p) => p.alive && !p.isNeutral).length <= 2;
+  }
+
+  /** Do our held bonus borders possess a substantial army surplus above the required defensive garrisons? */
+  private hasSubstantialSurplus(): boolean {
+    const borders = this.mine().filter((t) => this.isBonusBorder(t));
+    if (borders.length === 0) return false;
+    return borders.some((t) => {
+      const req = this.guardFor(t);
+      const have = this.armies(t);
+      return have >= req + 6;
+    });
+  }
+
+  /** Is an attack available that breaks an opponent's high-value (+3 or more) continent bonus with favorable odds? */
+  private hasHighValueBonusBreak(): boolean {
+    return this.lm.attacks.some((a) => {
+      const cont = this.map.territoryById[a.to]?.continent;
+      if (!cont) return false;
+      const holder = this.view.continentOwners[cont];
+      const bonus = this.map.continentById[cont]?.bonus ?? 0;
+      return holder && holder !== this.me && bonus >= 3 && this.chance(this.armies(a.from) - 1, a.to) >= 0.8;
+    });
+  }
+
   // ---------- decision ----------
 
   choose(): Action | null {
@@ -424,14 +451,13 @@ class Chooser {
     if (this.view.phase === 'attack') {
       // A complete, affordable elimination outranks routine bonus pokes or the once-per-turn card.
       const kill = this.elimination();
-      const living = this.view.players.filter((p) => p.alive && !p.isNeutral);
-      const is1v1 = living.length <= 2;
+      const is1v1 = this.is1v1();
       const hasRouteTargets = this.plan.route.length > 0;
       const hasRemainingRouteAttacks = this.plan.route.some((r) => this.lm.attacks.some((l) => l.to === r));
 
       // In 1v1, there are no 3rd parties to punish over-expansion: break everything possible!
       // In multi-player FFA, honor stopAfterRoute once the explicit route has finished:
-      if (!is1v1 && hasRouteTargets && !hasRemainingRouteAttacks && this.plan.stopAfterRoute && !this.lm.attacks.some((a) => this.winsGame(a.to))) {
+      if (!is1v1 && hasRouteTargets && !hasRemainingRouteAttacks && this.plan.stopAfterRoute && !kill && !this.lm.attacks.some((a) => this.winsGame(a.to))) {
         // Route complete in FFA; stop attacking to preserve garrisons on frontline/choke
       } else {
         const objective = kill ?? (hasRemainingRouteAttacks ? null : this.bonusCampaign());
@@ -442,8 +468,19 @@ class Chooser {
 
         // In FFA, if stopAfterBonus is active and we hold our focus bonus (or any continent bonus) and have conquered a territory this turn:
         // Do NOT make greedy secondary attacks that bleed our new bonus chokepoint!
+        // Situational exceptions: continue attacking if lethal game-win, player elimination, substantial surplus, or high-value enemy bonus break is present.
         const holdsBonus = Object.entries(this.view.continentOwners).some(([c, owner]) => owner === this.me && (!this.plan.focusContinent || c === this.plan.focusContinent));
-        const shouldStopForBonus = !is1v1 && this.plan.stopAfterBonus && holdsBonus && this.conquered && !this.lm.attacks.some((a) => this.winsGame(a.to));
+        const hasLethal = this.lm.attacks.some((a) => this.winsGame(a.to));
+        const isKillHunt = this.plan.winPath === 'kills' || kill !== null;
+        const shouldStopForBonus =
+          !is1v1 &&
+          this.plan.stopAfterBonus &&
+          holdsBonus &&
+          this.conquered &&
+          !hasLethal &&
+          !isKillHunt &&
+          !this.hasSubstantialSurplus() &&
+          !this.hasHighValueBonusBreak();
 
         if (!shouldStopForBonus) {
           const attack = this.bestAttack();
@@ -538,10 +575,16 @@ class Chooser {
     for (const a of this.lm.attacks) {
       if (!this.hostile(a.to) || this.owner(a.from) !== this.me) continue;
       const have = this.armies(a.from);
-      const fromCapital = this.myCapitals.has(a.from);
-      const floor = fromCapital ? this.capFloor(a.from) : 1;
       const d = this.armies(a.to);
       const wins = this.winsGame(a.to);
+      const fromCapital = this.myCapitals.has(a.from);
+      const isBorder = this.isBonusBorder(a.from);
+      // On bonus borders in multi-player FFA, preserve the required defensive border garrison floor,
+      // unless attacking wins the game, we are in a hopeless all-in, or following an explicit Commander route:
+      const borderFloor = isBorder && !this.is1v1() && !wins && !hopeless && !this.plan.route.includes(a.to)
+        ? Math.max(1, this.guardFor(a.from))
+        : 1;
+      const floor = fromCapital ? this.capFloor(a.from) : borderFloor;
       const toOwner = this.owner(a.to)!;
       if ((this.plan.avoid.has(toOwner) || this.plan.noAttack.has(a.to)) && !wins) continue;
       // All-in against the one player chosen: nobody else is touched unless it wins the game.
@@ -667,8 +710,7 @@ class Chooser {
     const path = this.plan.winPath;
     let s = 0;
     if (wins) s += 100;
-    const living = this.view.players.filter((p) => p.alive && !p.isNeutral);
-    const is1v1 = living.length <= 2;
+    const is1v1 = this.is1v1();
     const cont = this.map.territoryById[to].continent;
     const bonus = this.map.continentById[cont].bonus;
     const share = this.continentShare(cont);

@@ -145,6 +145,13 @@ eliminated you, so read its notes with that in mind.
   trades punching deep and left 1-army territories behind; the leader rolled them up next turn. Keep real
   garrisons on the borders facing the biggest stack, and never park a mid-size stack next to one three times
   its size.
+- **Disciplined Attack Termination vs. The Bonus Greed Trap:** In FFA, after securing a continent bonus, STOP
+  attacking into adjacent territory! Bleeding your stack down to 1-2 armies leaves your bonus border undefended
+  and lets neighbors break it immediately. Keep your heavy stack parked directly on the choke point. Stop after
+  securing the bonus and getting your turn card, unless: (1) an attack wins the game, (2) an elimination for
+  3+ cards is achievable, (3) you are in 1v1 (where you break everything), (4) you hold a massive troop surplus
+  well above the required border garrison (and only attack with the surplus), or (5) you can break an opponent's
+  high-value (+3 or +5) bonus with favorable odds.
 - **Keep your empire wide,** so you can't be card-blocked. Stack cards and keep a strong capital.
 - **Kill order:** go after whoever holds the most cards. A player you eliminate hands you their whole hand,
   which funds the next kill.

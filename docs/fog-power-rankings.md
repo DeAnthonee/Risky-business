@@ -165,6 +165,9 @@ $$\text{Power Score} = \text{Estimated Armies} + (\text{Income} \times 2.5) + \t
 4. **1v1 Endgame Threat Dynamics**:
    * When living players drop to 2, multi-player restraint and anti-greed rules turn off.
    * The AI pivots into maximum bonus-breaking and scorched-earth expansion: stripping every continent bonus and reducing the sole opponent below 12 territories directly starves them down to the $+3$ income floor without risk of third-party punishment.
+5. **Situational Attack Termination & Bonus Defense**:
+   * In multi-player FFA, after securing a continent bonus, the AI stops secondary attacks to avoid depleting border chokepoints down to 1–2 armies.
+   * This stop is **situational**: the AI continues attacking if: (1) an adjacent attack wins the game (`winsGame`), (2) an elimination plan is achievable (`kill`), (3) the game is 1v1, (4) a massive troop surplus exists beyond the required defensive border garrison, or (5) an opponent's high-value (+3 or +5) bonus can be broken with favorable odds.
 
 ---
 

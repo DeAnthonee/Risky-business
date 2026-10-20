@@ -74,19 +74,14 @@ __device__ void position_score(S& s, int me, const double* w, double* out) {
   }
   if (!s.alive[me]) { for (int i = 0; i < 7; i++) out[i] = 0.0; out[7] = 1.0; return; }
   int terr[NS], arm[NS], inc[NS], con[NS], cards[NS], n = 0;
-  int sum[5] = {0, 0, 0, 0, 0};
+  long long sum[5] = {0, 0, 0, 0, 0};
   for (int q = 0; q < NS; q++) {
     terr[q] = 0; arm[q] = 0;
     if (!s.alive[q]) continue;
     n++;
     for (int t = 0; t < T; t++) if (s.owner[t] == q) { terr[q]++; arm[q] += (int)s.armies[t]; }
     inc[q] = reinforcements(s, q);
-    con[q] = 0;
-    for (int c = 0; c < K; c++) {
-      bool all = true;
-      for (int i = 0; i < CSIZE[c]; i++) if (s.owner[CMEM[c][i]] != q) { all = false; break; }
-      if (all) con[q]++;
-    }
+    con[q] = continents_held(s, q);
     cards[q] = (int)s.hand_n[q];
     sum[0] += arm[q]; sum[1] += inc[q]; sum[2] += terr[q]; sum[3] += cards[q]; sum[4] += con[q];
   }
@@ -100,14 +95,13 @@ __device__ void position_score(S& s, int me, const double* w, double* out) {
 
 // Complete each game's options (a fortify_from gets the teacher's fortify_to, on the decider's stream, in option
 // order) and draw its rollout seeds after them, as branchAgent does. games: the main-game slots to work on.
-extern "C" __global__ void k_branch_prep(STATE_ARGS, const double* prm, const double* ow, const double* ola, const double* old,
-                                         unsigned long long* tstats, i64* arng, int rstride, const i64* games, const i64* opts,
+extern "C" __global__ void k_branch_prep(STATE_ARGS, TP_ARGS, i64* arng, int rstride, const i64* games, const i64* opts,
                                          i64* act2, const i64* nseeds, i64* seeds, int nopt, int maxseeds, int ng) {
   int i = blockIdx.x * blockDim.x + threadIdx.x;
   if (i >= ng) return;
   int b = (int)games[i];
   MAKE_S(b);
-  TP tp = {prm, ow, ola, old, tstats};
+  TP_MAKE
   i64* rng = agent_rng(arng, rstride, b, cur(s));
   for (int k = 0; k < nopt; k++) {
     int a = (int)opts[i * nopt + k];
@@ -123,15 +117,14 @@ extern "C" __global__ void k_branch_prep(STATE_ARGS, const double* prm, const do
 
 // One copy per thread: reseed, reshuffle the deck, play the option (one or two steps), roll out `horizon` rounds
 // with the teacher in every seat, and score the end position for `me`. a1 < 0: no such option (score -inf).
-extern "C" __global__ void k_branch_sim(STATE_ARGS, const double* prm, const double* ow, const double* ola, const double* old,
-                                        unsigned long long* tstats, const i64* seeds, const i64* a1, const i64* a2, const i64* mes,
+extern "C" __global__ void k_branch_sim(STATE_ARGS, TP_ARGS, const i64* seeds, const i64* a1, const i64* a2, const i64* mes,
                                         const double* w, int horizon, double* out, i64* moves_out, int n) {
   int j = blockIdx.x * blockDim.x + threadIdx.x;
   if (j >= n) return;
   double* o = out + (i64)j * 8;
   if (a1[j] < 0) { o[0] = -DINF; for (int k = 1; k < 8; k++) o[k] = 0.0; moves_out[j] = 0; return; }
   MAKE_S(j);
-  TP tp = {prm, ow, ola, old, tstats};
+  TP_MAKE
   unsigned int seed = (unsigned int)seeds[j];
   *s.rng = (i64)seed;
   i64 st = (i64)(seed ^ 0x5bd1e995u);
@@ -150,41 +143,9 @@ extern "C" __global__ void k_branch_sim(STATE_ARGS, const double* prm, const dou
   moves_out[j] = moves;
 }
 
-// The legal moves of every game in actions.ts candidate order (fortify destinations in the engine's connected-search
-// order), for the training arrays: ord[b, :cnt[b]].
-extern "C" __global__ void k_cand_order(STATE_ARGS, i64* ord, i64* cnt, int B) {
-  int b = blockIdx.x * blockDim.x + threadIdx.x;
-  if (b >= B) return;
-  MAKE_S(b);
-  u8 m[A];
-  int n = legal(s, m), k = 0;
-  i64* o = ord + (i64)b * A;
-  if (*s.fort_src >= 0 && n > 0) {
-    int src = (int)*s.fort_src, me = cur(s);
-    u8 seen[T];
-    int stack[T], sp = 0;
-    for (int t = 0; t < T; t++) seen[t] = 0;
-    seen[src] = 1; stack[sp++] = src;
-    while (sp) {
-      int u = stack[--sp];
-      for (int q = 0; q < DEG[u]; q++) {
-        int v = NBR[u][q];
-        if (!seen[v] && s.owner[v] == me) {
-          seen[v] = 1; stack[sp++] = v;
-          for (int sl = 0; sl < 2; sl++) if (m[FTO + 2 * v + sl]) o[k++] = FTO + 2 * v + sl;
-        }
-      }
-    }
-  } else {  // actions.ts: trades, then placements, then attacks, occupy, fortify sources, end turn
-    for (int a = TRADE; a < ATTACK; a++) if (m[a]) o[k++] = a;
-    for (int a = 0; a < TRADE; a++) if (m[a]) o[k++] = a;
-    for (int a = ATTACK; a < A; a++) if (m[a]) o[k++] = a;
-  }
-  cnt[b] = k;
-}
 """
 
-BRANCH_KERNELS = ("k_branch_prep", "k_branch_sim", "k_cand_order")
+BRANCH_KERNELS = ("k_branch_prep", "k_branch_sim")
 BRANCH_DEFS = f"#define BIG_TURNS {BIG_TURNS}\n#define MAX_ROLLOUT_STEPS {MAX_ROLLOUT_STEPS}\n"
 
 
@@ -193,14 +154,8 @@ class BranchEngine(TeacherEngine):
 
     MIRROR = "branch"
 
-    def __init__(self, B: int, **kw):
-        super().__init__(B, extra_source=BRANCH_DEFS + BRANCH_BODY, extra_kernels=BRANCH_KERNELS, **kw)
-
-    def cand_order(self) -> tuple[torch.Tensor, torch.Tensor]:
-        ord_ = torch.full((self.B, self.L.A), -1, dtype=torch.long, device=self.dev)
-        cnt = torch.zeros(self.B, dtype=torch.long, device=self.dev)
-        self._launch_t("k_cand_order", self.B, *self._state(), ord_, cnt, self.B)
-        return ord_, cnt
+    def __init__(self, B: int, cfg=None, **kw):
+        super().__init__(B, cfg, extra_source=BRANCH_DEFS + BRANCH_BODY, extra_kernels=BRANCH_KERNELS, **kw)
 
 
 class SimPool:
@@ -208,8 +163,8 @@ class SimPool:
 
     def __init__(self, main: BranchEngine, capacity: int):
         self.main = main
-        self.e = BranchEngine(capacity, params=None, device=main.dev, allow_unverified=True)
-        self.e.prm, self.e.ow, self.e.ola, self.e.old, self.e.tstats = main.prm, main.ow, main.ola, main.old, main.tstats
+        self.e = BranchEngine(capacity, main.cfg, params=None, device=main.dev, allow_unverified=True, max_turns=main.max_turns)
+        self.e.prm, self.e.tstats = main.prm, main.tstats
         self.capacity = capacity
 
     def load(self, src: torch.Tensor):
@@ -245,7 +200,8 @@ class GpuBranch:
         self.skip_lo_hi = []
         for kind in cfg.skip:
             rng = {"occupy": (L.OCCUPY, L.FFROM), "place": (L.PLACE, L.TRADE), "trade": (L.TRADE, L.ATTACK),
-                   "attack": (L.ATTACK, L.OCCUPY), "fortify_from": (L.FFROM, L.FTO), "end_turn": (L.END, L.END + 1)}.get(kind)
+                   "attack": (L.ATTACK, L.OCCUPY), "fortify_from": (L.FFROM, L.FTO), "end_turn": (L.END, L.END + 1),
+                   "capital": (L.CAP, L.A)}.get(kind)
             if rng is None:
                 raise ValueError(f"skip kind {kind!r} not covered")
             self.skip_lo_hi.append(rng)
@@ -331,8 +287,8 @@ class GpuBranch:
 
 
 def cpu_order(L, device) -> torch.Tensor:
-    """The action space in actions.ts candidate order for a first step: trades, placements, then the rest."""
-    idx = list(range(L.TRADE, L.ATTACK)) + list(range(L.PLACE, L.TRADE)) + list(range(L.ATTACK, L.A))
+    """The action space in actions.ts candidate order for a first step: capitals, trades, placements, then the rest."""
+    idx = list(range(L.CAP, L.A)) + list(range(L.TRADE, L.ATTACK)) + list(range(L.PLACE, L.TRADE)) + list(range(L.ATTACK, L.CAP))
     return torch.tensor(idx, dtype=torch.long, device=device)
 
 
@@ -341,20 +297,26 @@ def first_max(lg: torch.Tensor, order: torch.Tensor) -> torch.Tensor:
     return order[lg[:, order].argmax(1)]
 
 
-def net_ranker(enc, net, adj, precision: str = "fp32"):
-    """ranker(games, mask): a Delove network's logits over the legal moves of `games` (after enc.encode())."""
+def net_ranker(enc, net, adj, precision: str = "fp32", max_rows: int = 262_144):
+    """ranker(games, mask): a Delove network's logits over the legal moves of `games` (after enc.encode()). Games are
+    scored in chunks of at most `max_rows` territory rows (games x territories), so big maps fit in GPU memory (a
+    chunk's size can change float rounding, as any batch size can: near-ties only, like ONNX against PyTorch)."""
     dtype = torch.float16 if precision == "fp16" else torch.float32
+    T = adj.shape[0]
+    per = max(1, max_rows // T)
 
     @torch.inference_mode()
     def rank(games: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         terr, glob = enc.last
-        rows = enc.row_of[games]
-        m = mask[games]
-        bi, a = m.nonzero(as_tuple=True)
-        cand, cf, ct = enc.candidates(rows[bi], a)
-        lg, _ = net(terr[rows].to(dtype), glob[rows].to(dtype), adj.to(dtype), cand.to(dtype), cf, ct, bi)
-        out = torch.full(m.shape, float("-inf"), device=m.device)
-        out[bi, a] = lg.float()
+        out = torch.full((games.numel(), mask.shape[1]), float("-inf"), device=mask.device)
+        for lo in range(0, games.numel(), per):
+            gs = games[lo:lo + per]
+            rows = enc.row_of[gs]
+            m = mask[gs]
+            bi, a = m.nonzero(as_tuple=True)
+            cand, cf, ct = enc.candidates(rows[bi], a)
+            lg, _ = net(terr[rows].to(dtype), glob[rows].to(dtype), adj.to(dtype), cand.to(dtype), cf, ct, bi)
+            out[lo + bi, a] = lg.float()
         return out
 
     return rank

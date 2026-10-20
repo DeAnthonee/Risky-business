@@ -28,6 +28,7 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from delove_gpu.branch import BranchEngine, GpuBranch, default_branch, net_ranker  # noqa: E402
+from delove_gpu.config import GameConfig  # noqa: E402
 from delove_gpu.encode import Encoder  # noqa: E402
 from delove_gpu.engine import KIND_NAMES  # noqa: E402
 from delove_gpu.logs import cand_to_action, games  # noqa: E402
@@ -47,6 +48,7 @@ class Snap:
         self.pend = torch.stack([e.pend_from, e.pend_to, e.pend_min, e.pend_max], 1).cpu().numpy()
         self.fort_src = e.fort_src.cpu().numpy()
         self.armies = e.armies.cpu().numpy()
+        self.owner = e.owner.cpu().numpy()
 
 
 def name(e, a):
@@ -54,9 +56,9 @@ def name(e, a):
     return f"{KIND_NAMES[int(L.kind[a])]}#{int(L.arg[a])}/{int(L.slot[a])}" if a >= 0 else "-"
 
 
-def replay_batch(recs, traces, e_args, ranker_pt, cfg, stats):
+def replay_batch(recs, traces, e_args, ranker_pt, cfg, stats, gcfg=None):
     B = len(recs)
-    e = BranchEngine(B, **e_args)
+    e = BranchEngine(B, gcfg, **e_args)
     enc = Encoder(e)
     rank = net_ranker(enc, ranker_pt, e.m.adj_matrix)
     br = GpuBranch(e, rank, cfg)
@@ -149,6 +151,11 @@ def replay_batch(recs, traces, e_args, ranker_pt, cfg, stats):
     stats["trusted_games"] += sum(trusted)
 
 
+def log_options(log: str) -> dict:
+    f = Path(log) / "options.json"
+    return json.loads(f.read_text(encoding="utf8")) if f.exists() else {}
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("logs", nargs="+")
@@ -183,17 +190,22 @@ def main():
             for line in open(f, encoding="utf8"):
                 t = json.loads(line)
                 traces[t["game"]].append(t)
-        batch, n = [], 0
+        opts = log_options(log)
+        batch, n, gcfg = [], 0, None
         for gm in games(log):
+            c = GameConfig.make(gm[0]["players"], {**opts, "map": gm[0]["map"]})
+            if gcfg is not None and c != gcfg:
+                sys.exit(f"{log}: games of different configurations in one log")
+            gcfg = c
             batch.append(gm)
             n += 1
             if len(batch) == args.batch:
-                replay_batch(batch, traces, e_args, ranker_pt, cfg, stats)
+                replay_batch(batch, traces, e_args, ranker_pt, cfg, stats, gcfg)
                 batch = []
             if args.games and n >= args.games:
                 break
         if batch:
-            replay_batch(batch, traces, e_args, ranker_pt, cfg, stats)
+            replay_batch(batch, traces, e_args, ranker_pt, cfg, stats, gcfg)
     s = stats
     print(f"{s['games']} games, {s['decisions']} branch-player decisions ({s['branched']} branched, {s['fortify_to']} fortify_to steps): "
           f"same pick {s['same_pick']}, different {s['diff_pick']}; branched with the CPU's options: means identical on "

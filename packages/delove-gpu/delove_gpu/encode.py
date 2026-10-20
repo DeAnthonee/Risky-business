@@ -1,8 +1,8 @@
 """The board encoder (packages/selfplay/src/encode.ts, ENCODER_VERSION 2) on GPU tensors, for every game at once.
 
 encode.ts stays the definition; tests/replay.py --export checks this against the arrays `npm run delove -- export`
-writes from the same logged decisions. Only what the GPU engine covers is encoded (no capitals, blizzards or fog;
-default rules, neutral traits).
+writes from the same logged decisions. Everything the rules kernel covers is encoded (capitals, blizzards, card values,
+the rule flags; neutral traits); fog of war is not mirrored.
 
 Candidates are the engine's fixed action space: features for all A moves, the caller picks the legal ones.
 """
@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import torch
 
-from .engine import K_ATTACK, K_END, K_FFROM, K_FTO, K_OCCUPY, K_PLACE, K_TRADE, SETUP, Engine, trade_bonus
+from .engine import K_ATTACK, K_CAPITAL, K_END, K_FFROM, K_FTO, K_OCCUPY, K_PLACE, K_TRADE, SETUP, State, trade_bonus
 
 ENCODER_VERSION = 2
 MAX_SLOTS = 10
@@ -21,7 +21,19 @@ F_TERRITORY = 27
 F_GLOBAL = N_PHASES + N_TRAITS + 6 * MAX_SLOTS + 3 + 4 + 3 + 4 + 2 + N_RULES  # 95
 F_CAND = 13
 # CANDIDATE_KINDS order in actions.ts: place, trade, capital, attack, occupy, fortify, end_turn, fortify_from, fortify_to
-CAND_KIND_INDEX = {K_PLACE: 0, K_TRADE: 1, K_ATTACK: 3, K_OCCUPY: 4, K_END: 6, K_FFROM: 7, K_FTO: 8}
+CAND_KIND_INDEX = {K_PLACE: 0, K_TRADE: 1, K_CAPITAL: 2, K_ATTACK: 3, K_OCCUPY: 4, K_END: 6, K_FFROM: 7, K_FTO: 8}
+# log.ts RULE_KEYS: capitals, fixedCards, adjacentFortify, fogOfWar, balancedBlitz, exponentialCards
+
+
+def exp_bonus(i: torch.Tensor) -> torch.Tensor:
+    """cards.ts exponentialTradeBonus: 5, then ceil(v * 13 / 10) for the first 24 trades, then +1000 per trade."""
+    v = torch.full_like(i, 5)
+    for k in range(24):
+        v = torch.where(i > k, (v * 13 + 9) // 10, v)
+    return v + (i - 24).clamp(min=0) * 1000
+
+
+FIXED_VALUE = [4, 6, 8]
 
 
 # Features are computed in float64 and rounded to float32 once at the end, as encode.ts does (JavaScript doubles
@@ -43,23 +55,27 @@ class _Subset:
     """The engine fields the encoder reads, for games g only (so the encoder's code runs unchanged on a subset)."""
 
     FIELDS = ["owner", "armies", "order", "cur_pos", "hand", "hand_n", "pend_from", "pend_to", "pend_min", "pend_max", "fort_src",
-              "phase", "alive", "atp", "trade_count", "conquered", "fortified", "turn", "round"]
+              "phase", "alive", "atp", "trade_count", "trades_made", "conquered", "fortified", "turn", "round", "capital", "bliz"]
 
-    def __init__(self, e: Engine, g: torch.Tensor):
+    def __init__(self, e: State, g: torch.Tensor, inc: torch.Tensor):
         for f in self.FIELDS:
             setattr(self, f, getattr(e, f)[g])
-        self.m, self.L, self.dev, self.H, self.n, self.NEU = e.m, e.L, e.dev, e.H, e.n, e.NEU
+        self.inc = inc[g]
+        self.m, self.L, self.dev, self.H, self.n, self.NEU, self.cfg = e.m, e.L, e.dev, e.H, e.n, e.NEU, e.cfg
         self.setup_batch, self.tarange = e.setup_batch, e.tarange
         self.B = g.numel()
         self.ar = torch.arange(self.B, device=e.dev)
 
-    cur = Engine.cur
-    reinforcements = Engine.reinforcements
+    cur = State.cur
 
 
 class Encoder:
-    def __init__(self, e: Engine, traits: list[float] | None = None):
+    def __init__(self, e: State, traits: list[float] | None = None):
         self.e = e
+        o = e.cfg.opt
+        self.card_mode = o("cardValues")
+        self.rules = [float(o("capitals")), float(self.card_mode == "fixed"), float(o("fortifyMode") == "adjacent"), 0.0,
+                      float(o("balancedBlitz")), float(self.card_mode == "exponential")]
         m, L = e.m, e.L
         dev = e.dev
         self.traits = torch.tensor(traits or [0.5] * N_TRAITS, dtype=torch.float32, device=dev)
@@ -74,11 +90,12 @@ class Encoder:
     def encode(self, games: torch.Tensor | None = None):
         """(territory [B, T, 27], global [B, 95]) for every game's decider, or for `games` only (rows in that order;
         self.row_of maps a game to its row); then candidates() for its moves (by row)."""
+        inc_all = self.e.income()
         if games is None:
-            e = self.e
-            self.row_of = e.ar
+            e = _Subset(self.e, self.e.ar, inc_all)
+            self.row_of = self.e.ar
         else:
-            e = _Subset(self.e, games)
+            e = _Subset(self.e, games, inc_all)
             self.row_of = torch.full((self.e.B,), -1, dtype=torch.long, device=self.e.dev)
             self.row_of[games] = e.ar
         self._src = e
@@ -97,22 +114,34 @@ class Encoder:
         is_seat = (owner >= 0) & (owner < n)
         oslot = slot_of.gather(1, owner.clamp(0, n - 1))
         terr.scatter_(2, torch.where(is_seat, oslot, 0)[:, :, None], is_seat[:, :, None].to(F64))
+        bliz = e.bliz
         terr[:, :, 10] = (owner == NEU).float()
         terr[:, :, 11] = (owner < 0).float()
         terr[:, :, 12] = log1(armies)
         terr[:, :, 13] = div(armies.clamp(max=30).to(F64), 30)
+        terr[:, :, 14] = bliz.float()
+        # capitals: my_capital / enemy_capital (capital[seat] = territory)
+        capt = e.capital  # [B, n]
+        is_cap = torch.zeros(B, T + 1, dtype=torch.long, device=dev) - 1
+        is_cap.scatter_(1, torch.where(capt >= 0, capt, T), torch.arange(n, device=dev).repeat(B, 1))
+        cap_seat = is_cap[:, :T]
+        terr[:, :, 15] = ((cap_seat >= 0) & (cap_seat == me[:, None])).float()
+        terr[:, :, 16] = ((cap_seat >= 0) & (cap_seat != me[:, None])).float()
         terr[:, :, 17] = self.cont_bonus_t
-        mine = (owner == me[:, None]).to(F64)
-        share = (mine @ m.cont_member.T.to(F64)) / m.cont_size.to(F64)  # [B, K]
-        terr[:, :, 18] = share[:, m.cont_of]
-        big = torch.where(m.cont_member[None], owner[:, None, :], 10**6)
-        small = torch.where(m.cont_member[None], owner[:, None, :], -(10**6))
-        uniform = big.min(-1).values == small.max(-1).values  # [B, K]
-        terr[:, :, 19] = (uniform[:, m.cont_of] & (owner >= 0)).float()
+        openm = m.cont_member[None] & ~bliz[:, None, :]  # [B, K, T] open territories per continent
+        nopen = openm.sum(-1)  # [B, K]
+        mine_open = (openm & (owner == me[:, None])[:, None, :]).sum(-1)
+        share = torch.where(nopen > 0, mine_open.to(F64) / nopen.clamp(min=1).to(F64), 0.0)
+        terr[:, :, 18] = share.gather(1, m.cont_of[None].expand(B, -1))
+        big = torch.where(openm, owner[:, None, :], 10**6)
+        small = torch.where(openm, owner[:, None, :], -(10**6))
+        holder = torch.where(big.min(-1).values == small.max(-1).values, big.min(-1).values, -(10**7))  # [B, K]
+        hold_t = holder.gather(1, m.cont_of[None].expand(B, -1))
+        terr[:, :, 19] = ((owner >= 0) & (hold_t == owner)).float()
         nb = m.nbr.reshape(-1)
         nown = owner[:, nb].view(B, T, m.D)
         narm = armies[:, nb].view(B, T, m.D)
-        valid = m.nbr_valid[None]
+        valid = m.nbr_valid[None] & ~bliz[:, nb].view(B, T, m.D)
         same = (nown == owner[:, :, None]) & valid
         other = (nown != owner[:, :, None]) & valid
         terr[:, :, 20] = (other.any(-1) & (owner >= 0)).float()
@@ -134,17 +163,18 @@ class Encoder:
         g[ar, e.phase] = 1.0
         g[:, N_PHASES:N_PHASES + N_TRAITS] = self.traits.to(F64)
         total = armies.sum(1).clamp(min=1).to(F64)
+        nopen_t = (T - bliz.sum(1)).to(F64)
         base = N_PHASES + N_TRAITS
         for s in range(n):
             col = base + 6 * slot_of[:, s]
             own_s = owner == s
             alive = e.alive[:, s]
-            inc = torch.where(alive, e.reinforcements(ar, torch.full_like(ar, s)), 0)
+            inc = torch.where(alive, e.inc[:, s], 0)
             vals = torch.stack([
                 torch.ones(B, dtype=F64, device=dev),
                 alive.to(F64),
                 div(e.hand_n[:, s].to(F64), 5),
-                div(own_s.sum(1).to(F64), T),
+                own_s.sum(1).to(F64) / nopen_t,
                 (armies * own_s).sum(1).to(F64) / total,
                 log1(inc),
             ], 1)
@@ -159,8 +189,26 @@ class Encoder:
         g[:, o + 3:o + 7] = div(kinds.to(F64), 3)
         has_set = (hn >= 3) & ((kinds[:, 3] >= 1) | (kinds[:, :3] >= 3).any(1) | (kinds[:, :3] >= 1).all(1))
         tc = e.trade_count
-        nxt = trade_bonus(tc)
-        g[:, o + 7] = log1(torch.where(has_set, nxt, 0))
+        if self.card_mode == "exponential":
+            nxt = exp_bonus(e.trades_made[ar, me])
+        elif self.card_mode == "fixed":
+            nxt = torch.full_like(tc, 10)
+        else:
+            nxt = trade_bonus(tc)
+        if self.card_mode == "fixed":  # the best set in hand by fixedSetValue (hands hold at most 4 cards here)
+            tri = L.trade_tri
+            ck = m.card_kind[hand[:, tri].clamp(min=0)]  # [B, 10, 3]
+            ok = tri[None, :, 2] < hn[:, None]
+            k0, k1, k2 = ck.unbind(-1)
+            wild = (ck == 3).sum(-1)
+            valid = (wild >= 1) | ((k0 == k1) & (k1 == k2)) | ((k0 != k1) & (k1 != k2) & (k0 != k2))
+            lo = torch.where(ck == 3, 99, ck).min(-1).values
+            hi = torch.where(ck == 3, -1, ck).max(-1).values
+            fv = torch.tensor(FIXED_VALUE + [10], device=dev)
+            val = torch.where(wild >= 2, 10, torch.where(lo == hi, fv[lo.clamp(max=3)], 10))
+            g[:, o + 7] = log1(torch.where(ok & valid, val, 0).max(1).values)
+        else:
+            g[:, o + 7] = log1(torch.where(has_set, nxt, 0))
         g[:, o + 8] = log1(tc)
         g[:, o + 9] = log1(nxt)
         g[:, o + 10] = e.conquered.float()
@@ -169,7 +217,7 @@ class Encoder:
         g[:, o + 13] = div(e.round.to(F64), 50)
         g[:, o + 14] = n / MAX_SLOTS
         g[:, o + 15] = T / 120
-        # rules (o + 16 ..): all off under the default options
+        g[:, o + 16:o + 16 + N_RULES] = torch.tensor(self.rules, dtype=F64, device=dev)
 
         self._ctx = (me, atp_me, hand, armies_f, pend)
         return terr.float(), g.float()
@@ -192,6 +240,8 @@ class Encoder:
         lim = torch.where(e.phase[b] == SETUP, torch.clamp(atp, max=e.setup_batch), atp)
         n = torch.where(slot == 0, lim, torch.where(slot == 1, (lim + 1) // 2, 1))
         k = kind == K_PLACE
+        claim = k & (e.phase[b] == SETUP) & (e.owner[b, arg.clamp(max=m.T - 1)] < 0)  # claiming: one army
+        n = torch.where(claim, 1, n)
         amount = torch.where(k, n, amount)
         pool = torch.where(k, torch.maximum(n, atp), pool)
         ct = torch.where(k, arg, ct)
@@ -214,6 +264,7 @@ class Encoder:
         ct = torch.where(k, e.pend_to[b], ct)
 
         cf = torch.where(kind == K_FFROM, arg, cf)
+        ct = torch.where(kind == K_CAPITAL, arg, ct)
 
         # fortify_to: all / half of what may leave the source
         k = kind == K_FTO

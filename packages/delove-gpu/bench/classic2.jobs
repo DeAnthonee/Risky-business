@@ -1,0 +1,4 @@
+# Cycle 4's Classic 2-player step (2,000 games per table there; 1,000 here).
+c2d  1000 delove-branch@1,delove@2
+c2c  1000 delove@3,delove-branch@1
+c2t  1000 delove-branch@1,delove-teacher@2

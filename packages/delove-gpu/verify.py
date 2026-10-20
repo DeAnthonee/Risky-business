@@ -62,6 +62,9 @@ def main() -> int:
     ap.add_argument("--ranker", default="delove@2", help="with --models: the branch ranker (its .pt and .onnx in --models)")
     ap.add_argument("--seed", type=int, default=None, help="default: from the clock, so every run plays new games")
     ap.add_argument("--no-build", action="store_true")
+    ap.add_argument("--matrix-scale", type=float, default=0.1,
+                    help="every map, table size and setting (tests/matrix.py suites rules and settings, and branch with --models) at"
+                         " this scale of their game counts; 0 skips them (then only Classic 2-player is verified)")
     args = ap.parse_args()
 
     import torch
@@ -162,7 +165,7 @@ def main() -> int:
             r = run([py, "-u", replay, *dirs, *opts, *fused], capture_output=True, text=True)
             text = r.stdout + r.stderr
             print("    " + "\n    ".join(line for line in text.splitlines() if line.strip()))
-            m = re.search(r"TOTAL: (\d+)/(\d+) games identical, (\d+) steps, (\d+) failed", text)
+            m = re.search(r"TOTAL: (\d+)/(\d+) games identical, (\d+) steps[^\n]*?, (\d+) failed", text)
             ok = r.returncode == 0 and m and m.group(1) == m.group(2) and m.group(4) == "0"
             if net_agent and "--net" in opts:
                 # every top move the same, except fp32 near-ties between ONNX Runtime and PyTorch (replay.py NEAR_TIE)
@@ -198,6 +201,33 @@ def main() -> int:
                 return 1
             results.append({"engine": engine, "check": Path(cmd[0]).name, "logs": [rel(cmd[1])], "decisions": int(m.group(group))})
         engines += ["teacher", "branch"]
+
+    if "fused.py" in engines:
+        print("  the teacher's blitz odds against odds.ts (tests/odds_check.py)")
+        r = run([py, "-u", str(HERE / "tests" / "odds_check.py")], capture_output=True, text=True)
+        print("    " + (r.stdout + r.stderr).strip().replace("\n", "\n    "))
+        if r.returncode:
+            print("\nMISMATCH: the GPU odds tables differ from odds.ts. engine-fingerprint.json is unchanged.")
+            return 1
+    if args.matrix_scale > 0 and "fused.py" in engines:
+        suites = ["rules", "settings"] + (["branch"] if args.models else [])
+        for suite in suites:
+            print(f"  every map, table size and setting: tests/matrix.py --suite {suite} --scale {args.matrix_scale}")
+            cmd = [py, "-u", str(HERE / "tests" / "matrix.py"), "--suite", suite, "--scale", str(args.matrix_scale), "--seed", str(seed),
+                   "--out", str(out / f"matrix-{suite}")] + (["--models", str(models)] if args.models else [])
+            r = run(cmd, capture_output=True, text=True)
+            text = r.stdout + r.stderr
+            tail = [line for line in text.splitlines() if line.startswith(("ok ", "BAD")) or "cases identical" in line]
+            print("    " + "\n    ".join(tail[-80:]))
+            m = re.search(r"(\d+)/(\d+) cases identical", text)
+            if r.returncode or not m or m.group(1) != m.group(2):
+                print(f"\nMISMATCH in the {suite} matrix (see above). Fix packages/delove-gpu, then run verify.py again."
+                      " engine-fingerprint.json is unchanged.")
+                return 1
+            steps = sum(int(x) for x in re.findall(r"games identical, (\d+) steps", text))
+            total_steps += steps
+            results.append({"engine": "fused.py" if suite != "branch" else "branch", "check": f"matrix {suite}", "cases": int(m.group(2)),
+                            "steps": steps, "logs": [rel(out / f"matrix-{suite}")]})
 
     commit = subprocess.run(["git", "rev-parse", "HEAD"], cwd=REPO, capture_output=True, text=True).stdout.strip()
     dirty = subprocess.run(["git", "status", "--porcelain", "--", *fingerprint.RULE_FILES], cwd=REPO, capture_output=True, text=True).stdout.strip()

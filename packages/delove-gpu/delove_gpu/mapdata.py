@@ -15,17 +15,12 @@ import torch
 REPO = Path(__file__).resolve().parents[3]
 GENERATED = REPO / "packages" / "engine" / "src" / "generated"
 
-# packages/engine/src/maps.ts CLASSIC_STARTING_ARMIES (classic uses the table; other maps scale it, not mirrored yet).
-CLASSIC_STARTING_ARMIES = {2: 40, 3: 35, 4: 30, 5: 25, 6: 20}
-
 # packages/engine/src/cards.ts: one card per territory, kinds in rotation, then 2 wilds.
 INFANTRY, CAVALRY, ARTILLERY, WILD = 0, 1, 2, 3
 
 
 class MapData:
     def __init__(self, map_id: str = "classic", device: str | torch.device = "cuda"):
-        if map_id != "classic":
-            raise NotImplementedError("the GPU mirror covers the classic map only so far")
         raw = json.loads((GENERATED / f"{map_id}.json").read_text(encoding="utf8"))
         self.id = map_id
         self.device = torch.device(device)
@@ -44,7 +39,12 @@ class MapData:
         for ci, (_, _, ts) in enumerate(self.continents):
             for t in ts:
                 cont_of[t] = ci
-        self.starting_armies = CLASSIC_STARTING_ARMIES
+        self.max_players = int(raw["maxPlayers"])
+        # Per continent: its territories that touch a territory outside it (teacher.ts mapInfo borders).
+        self.borders = []
+        for _, _, ts in self.continents:
+            inside = set(ts)
+            self.borders.append(sum(1 for t in ts if any(n not in inside for n in adj[t])))
 
         d = self.device
         D = max(len(a) for a in adj)

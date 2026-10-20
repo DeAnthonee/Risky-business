@@ -45,7 +45,6 @@ class Snapshot:
     def __init__(self, e: Engine):
         import torch
 
-        ar = e.ar
         self.cur = e.cur.cpu().numpy()
         self.owner = e.owner.cpu().numpy()
         self.armies = e.armies.cpu().numpy()
@@ -65,7 +64,9 @@ class Snapshot:
         self.fort_src = e.fort_src.cpu().numpy()
         self.winner = e.winner.cpu().numpy()
         self.done = e.done.cpu().numpy()
-        self.income = torch.stack([e.reinforcements(ar, torch.full_like(ar, s)) for s in range(e.n)], 1).cpu().numpy()
+        self.income = e.income().cpu().numpy()
+        self.capital = e.capital.cpu().numpy()
+        self.bliz = e.bliz.cpu().numpy()
         self.card_kind = e.m.card_kind.cpu().numpy()
         self.card_terr = e.m.card_terr.cpu().numpy()
         self.n = e.n
@@ -99,6 +100,8 @@ class Snapshot:
             "fortified": bool(self.fortified[b]),
             "order": self.order[b].tolist(),
             "fortifyFrom": int(self.fort_src[b]),
+            "capitals": self.capital[b].tolist(),
+            "blizzards": [int(t) for t in self.bliz[b].nonzero()[0]],
         }
 
 
@@ -121,6 +124,8 @@ def record_view(r: dict) -> dict:
         "fortified": s["fortified"],
         "order": s["order"],
         "fortifyFrom": s["fortifyFrom"],
+        "capitals": s["capitals"],
+        "blizzards": s["blizzards"],
     }
 
 
@@ -131,6 +136,8 @@ def cand_to_action(e: Engine, snap: Snapshot, b: int, c: list) -> int:
     kind = c[0]
     if kind == "place":
         t, n = c[1], c[2]
+        if snap.phase[b] == 1 and snap.owner[b, t] < 0:  # claiming an unowned territory: always one army, slot 0
+            return L.PLACE + 3 * t if n == 1 else -1
         a = int(snap.atp[b, me])
         lim = min(a, e.setup_batch) if snap.phase[b] == 1 else a
         for slot, v in enumerate([lim, (lim + 1) // 2, 1]):
@@ -169,6 +176,8 @@ def cand_to_action(e: Engine, snap: Snapshot, b: int, c: list) -> int:
         return -1
     if kind == "end_turn":
         return L.END
+    if kind == "capital":
+        return L.CAP + c[1]
     return -1
 
 

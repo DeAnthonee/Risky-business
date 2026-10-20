@@ -22,6 +22,7 @@ import torch
 
 from . import rng as R
 from .fingerprint import require_verified
+from .config import GameConfig
 from .mapdata import WILD, MapData, triples
 
 # packages/selfplay/src/log.ts PHASES
@@ -29,8 +30,8 @@ LOBBY, SETUP, CAPITALS, REINFORCE, ATTACK, FORTIFY, FINISHED = range(7)
 FORCED_TRADE_CARDS = 5
 
 # Action kinds (fixed layout below). Values are internal; CANDIDATE_KINDS order lives in encode.py.
-K_PLACE, K_TRADE, K_ATTACK, K_OCCUPY, K_FFROM, K_FTO, K_END = range(7)
-KIND_NAMES = ["place", "trade", "attack", "occupy", "fortify_from", "fortify_to", "end_turn"]
+K_PLACE, K_TRADE, K_ATTACK, K_OCCUPY, K_FFROM, K_FTO, K_END, K_CAPITAL = range(8)
+KIND_NAMES = ["place", "trade", "attack", "occupy", "fortify_from", "fortify_to", "end_turn", "capital"]
 
 # One round of 3 attack dice against 2 defence dice (of 7776 rolls): defender loses 2, each loses 1, attacker loses 2.
 P_DEF2, P_SPLIT = 2890 / 7776, 2611 / 7776
@@ -52,6 +53,7 @@ class Layout:
     fortify_from T
     fortify_to   T x 2   destination, amount slot (all, half)
     end_turn     1
+    capital      T       choose this territory as my capital (capitals phase)
     """
 
     def __init__(self, m: MapData):
@@ -65,7 +67,8 @@ class Layout:
         self.FFROM = self.OCCUPY + 3
         self.FTO = self.FFROM + T
         self.END = self.FTO + 2 * T
-        self.A = self.END + 1
+        self.CAP = self.END + 1
+        self.A = self.CAP + T
         kind, arg, slot = [], [], []
         for t in range(T):
             for s in range(3):
@@ -82,6 +85,8 @@ class Layout:
             for s in range(2):
                 kind.append(K_FTO), arg.append(t), slot.append(s)
         kind.append(K_END), arg.append(0), slot.append(0)
+        for t in range(T):
+            kind.append(K_CAPITAL), arg.append(t), slot.append(0)
         d = m.device
         self.kind = torch.tensor(kind, dtype=torch.long, device=d)
         self.arg = torch.tensor(arg, dtype=torch.long, device=d)
@@ -103,30 +108,33 @@ def valid_set(kinds: torch.Tensor) -> torch.Tensor:
     return wild | same | diff
 
 
-class Engine:
-    MIRROR = "engine.py"  # the name verify.py records when it has replayed logs through this implementation
+class State:
+    """The state of B games of one configuration (map, seats, settings) as tensors, shared by both rules
+    implementations (engine.py's tensor ops for Classic 2-player, fused.py's CUDA kernels for every configuration),
+    the encoder and the players.
 
-    def __init__(self, B: int, map_id: str = "classic", n_seats: int = 2, device="cuda", max_turns: int = 500, hand_slots: int = 12,
-                 exact: bool = True, seed: int = 0, allow_unverified: bool = False):
-        """exact=True draws every die and shuffle from each game's mulberry32 stream, as the TypeScript engine does
-        (the replay tests need it). exact=False is for speed: torch's generator, shuffles by sorting random keys, and
-        blitzes that resolve whole runs of 3-against-2 rounds with one multinomial draw. Same rules, same
-        probabilities, different random numbers (tests/blitz_stats.py checks the battle outcomes match).
+    Hand slots: a player holds at most 4 cards when deciding and 5 between turns, so taking an eliminated player's hand
+    reaches at most 9 before the automatic trades: 12 slots."""
 
-        Raises fingerprint.StaleMirror when the engine files changed since the mirror was last verified (verify.py),
+    MIRROR = "?"
+
+    def __init__(self, B: int, cfg: GameConfig | None = None, device="cuda", max_turns: int = 500, hand_slots: int = 12,
+                 seed: int = 0, allow_unverified: bool = False, map_id: str | None = None, n_seats: int | None = None):
+        """Raises fingerprint.StaleMirror when the engine files changed since the mirror was last verified (verify.py),
         unless allow_unverified=True (the replay test and benchmarks; never for training data)."""
         if not allow_unverified:
             require_verified(self.MIRROR)
-        if n_seats != 2:
-            raise NotImplementedError("2 players (plus the classic Neutral) only so far")
-        self.m = m = MapData(map_id, device)
+        if cfg is None:
+            cfg = GameConfig.make(n_seats or 2, {"map": map_id or "classic"})
+        self.cfg = cfg
+        n_seats = cfg.seats
+        self.m = m = MapData(cfg.map, device)
         self.L = Layout(m)
         self.B, self.n, self.P, self.NEU, self.H = B, n_seats, n_seats + 1, n_seats, hand_slots
         self.max_turns = max_turns
-        self.setup_batch = 1
-        self.first_round_bonus = True
+        self.setup_batch = cfg.opt("setupBatch")
+        self.first_round_bonus = cfg.opt("firstRoundBonus")
         self.dev = dev = m.device
-        self.exact = exact
         self.gen = torch.Generator(device=dev).manual_seed(seed)
         T, P, H, NC = m.T, self.P, self.H, m.NC
         lz = lambda *s: torch.zeros(*s, dtype=torch.long, device=dev)
@@ -161,13 +169,42 @@ class Engine:
         self.seed = lz(B)
         self.winner = lz(B) - 1
         self.done = torch.ones(B, dtype=torch.bool, device=dev)
+        self.capital = lz(B, self.n) - 1  # capital territory per seat (-1 = none)
+        self.bliz = bz(B, T)  # blizzards: impassable for the whole game
+        self.elim_by = lz(B, P) - 1  # who eliminated each player (-1: not eliminated)
+        self.elim_seq = lz(B, P) - 1  # the order players went out (0 = first)
+        self.elim_n = lz(B)
         self.tri_by_h = {h: triples(h, dev) for h in range(3, H + 1)}
-
-    # ------------------------------------------------------------------ helpers
 
     @property
     def cur(self) -> torch.Tensor:
         return self.order.gather(1, self.cur_pos[:, None]).squeeze(1)
+
+    def income(self) -> torch.Tensor:
+        """[B, seats]: reinforcementsFor(seat).total for every seat (the decision log's income, before alive)."""
+        raise NotImplementedError
+
+
+class Engine(State):
+    """The rules as batched tensor operations: the readable reference, Classic 2-player with DEFAULT_OPTIONS only
+    (fused.py covers every configuration)."""
+
+    MIRROR = "engine.py"  # the name verify.py records when it has replayed logs through this implementation
+
+    def __init__(self, B: int, cfg: GameConfig | None = None, exact: bool = True, **kw):
+        """exact=True draws every die and shuffle from each game's mulberry32 stream, as the TypeScript engine does
+        (the replay tests need it). exact=False is for speed: torch's generator, shuffles by sorting random keys, and
+        blitzes that resolve whole runs of 3-against-2 rounds with one multinomial draw. Same rules, same
+        probabilities, different random numbers (tests/blitz_stats.py checks the battle outcomes match)."""
+        super().__init__(B, cfg, **kw)
+        if self.cfg != GameConfig.make(2):
+            raise NotImplementedError("engine.py covers Classic 2-player with the default settings; use fused.py")
+        self.exact = exact
+
+    def income(self) -> torch.Tensor:
+        return torch.stack([self.reinforcements(self.ar, torch.full_like(self.ar, s)) for s in range(self.n)], 1)
+
+    # ------------------------------------------------------------------ helpers
 
     def _shuffle(self, arr: torch.Tensor, s: torch.Tensor, lens: torch.Tensor | None = None):
         """rng.ts shuffle (Fisher-Yates from the end) on each row; rows shorter than the width use `lens`."""
@@ -244,7 +281,7 @@ class Engine:
         deal_order = torch.cat([order, torch.full((G, 1), NEU, device=dev, dtype=torch.long)], 1)
         by_pos = deal_order[:, torch.arange(T, device=dev) % k]
         owner = torch.empty(G, T, dtype=torch.long, device=dev).scatter_(1, perm, by_pos)
-        start = m.starting_armies[n]
+        start = self.cfg.starting_armies
         dealt = torch.tensor([len(range(d, T, k)) for d in range(k)], device=dev)
         atp = torch.zeros(G, self.P, dtype=torch.long, device=dev)
         atp.scatter_(1, order, (start - dealt[:n]).repeat(G, 1))

@@ -21,7 +21,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[3]
 FINGERPRINT = REPO / "packages" / "delove-gpu" / "engine-fingerprint.json"
 
-# The files whose behaviour the mirror copies: the rules, the RNG, cards, defaults, the Classic map, the self-play
+# The files whose behaviour the mirror copies: the rules, the RNG, cards, defaults, every map, the self-play
 # action space, log format and encoder the replay test and encode.py follow, and the teacher, its odds, branch and
 # score and the export format (teacher.py, branch.py, generate.py). Add a file here when the mirror starts depending
 # on it.
@@ -31,7 +31,17 @@ RULE_FILES = [
     "packages/engine/src/rng.ts",
     "packages/engine/src/types.ts",
     "packages/engine/src/maps.ts",
+    # every map offered for new games (MAP_IDS), as the mirror loads them
     "packages/engine/src/generated/classic.json",
+    "packages/engine/src/generated/world.json",
+    "packages/engine/src/generated/world_large.json",
+    "packages/engine/src/generated/europe.json",
+    "packages/engine/src/generated/greater_europe.json",
+    "packages/engine/src/generated/europe_classic.json",
+    "packages/engine/src/generated/usa.json",
+    "packages/engine/src/generated/asia.json",
+    "packages/engine/src/generated/fantasy.json",
+    "packages/engine/src/generated/skirmish.json",
     "packages/selfplay/src/actions.ts",
     "packages/selfplay/src/encode.ts",
     "packages/selfplay/src/log.ts",
@@ -43,6 +53,8 @@ RULE_FILES = [
     "packages/delove/src/branch.ts",
     "packages/selfplay/src/export.ts",
     "packages/selfplay/src/npy.ts",
+    # the outcome training reads (log v3: leaderboard placements, kills and points)
+    "packages/engine/src/ranking.ts",
 ]
 
 

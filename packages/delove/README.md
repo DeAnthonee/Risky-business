@@ -415,7 +415,16 @@ scores last place for everyone), 95% intervals:
 | Classic 2p (separate runs, same seeds) | 1,000 | +0.722 | +0.680 | | -0.042 ± 0.074 | | 0.574 / 0.560 / | 0% / 0% |
 | World 4p (share vs points) | 520 | +1.413 | +0.906 | | **-0.508 ± 0.387** | | 0.400 / 0.290 / | 14.6% |
 | Classic 4p (share vs kills) | 520 | +1.558 | | +1.521 | | -0.037 ± 0.398 | 0.385 / / 0.363 | 1.0% |
-| 6 and 10 players (share vs points vs kills) | | | | | | | | in progress (GPU windows) |
+| 6 and 10 players (share vs points vs kills) | | | | | | | | deferred (below) |
+
+The 6- and 10-player rows are deferred (the GPU was booked for cycles 6 and 7); they suit a cloud GPU. To run them,
+from `packages/delove-gpu` (about an hour of GPU per map and size; results per group, so a run can stop and resume):
+
+```bash
+python scripts/score_compare.py h2h-jobs h3.jobs --variants share,points,kills --sizes 6:528,10:510
+python -m delove_gpu.generate --jobs h3.jobs --seed 7 --models <models dir> --ranker delove@3 --teacher delove-teacher@2 --horizon 1 --margin 0.01 --gpu-gb 1 --results h3.jsonl
+python scripts/score_compare.py h2h-report h3.jsonl
+```
 
 The points score loses: it turns small share gaps into whole places, at about twice the share score's slope, so the
 same `margin` lets rollout noise change more moves, and it pays for pulling level with the nearest rival rather than

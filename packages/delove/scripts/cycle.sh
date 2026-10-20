@@ -263,7 +263,8 @@ gates.forEach((g, i) => {
   const w = (k) => rs.reduce((a, r) => a + (r[k] ?? 0) * r.games, 0) / n;
   const d = w("pointsDiff");
   const k = rs.length;
-  const dse = k > 1 ? Math.sqrt(rs.reduce((a, r) => a + ((r.pointsDiff ?? 0) - d) ** 2, 0) / (k - 1) / k) : 0;
+  const mk = rs.reduce((a, r) => a + (r.pointsDiff ?? 0), 0) / k;  // unweighted chunk mean, for the spread
+  const dse = k > 1 ? Math.sqrt(rs.reduce((a, r) => a + ((r.pointsDiff ?? 0) - mk) ** 2, 0) / (k - 1) / k) : 0;
   const tl = rs.reduce((a, r) => a + (r.turnLimit ?? 0), 0);
   const f2 = (x) => (x >= 0 ? "+" : "") + x.toFixed(2);
   console.log(`| ${opp} | ${players} | ${opt.join(" ") || "{}"} | ${n} | ${s.toFixed(3)} | ${(s - 1.96 * se).toFixed(3)}-${(s + 1.96 * se).toFixed(3)} | ${elo(s) > 0 ? "+" : ""}${elo(s)} | ` +

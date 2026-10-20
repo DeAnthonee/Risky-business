@@ -8,7 +8,9 @@
 // compared phase by phase (Compare tab; timing-report.mjs writes the same as Markdown). It only reads the run folders
 // cycle.sh (and delove_gpu.generate) write; its own writes go to those dashboard/ and _machine/ files only.
 //
-//   node packages/delove/scripts/dashboard.mjs --runs C:/Users/espii/Projects/Risky-business-stage2/runs/delove [--port 8790] [--no-record]
+//   node packages/delove/scripts/dashboard.mjs [--runs runs/delove] [--port 8790] [--no-record]
+//
+// (--runs: the folder holding the run folders, i.e. cycle.sh's OUT parent, e.g. <training PC>/Risky-business-stage2/runs/delove)
 //
 // then open http://127.0.0.1:8790 (binds 127.0.0.1 only). ?run=<name> picks a run; the default is the newest one.
 // --no-record: write no samples (one recording dashboard at a time; a second one sees the first's heartbeat and only reads).

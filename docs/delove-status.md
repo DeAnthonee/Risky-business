@@ -249,7 +249,7 @@ Fog of war off (enforced by `delove-seat`); one seat per agent. For full environ
 | what | who | state |
 | --- | --- | --- |
 | GPU rules, teacher and branch-and-score for every map, 2-10 seats and every setting; points arrays from the GPU; `cycle.sh` GPU steps for any step | session "GPU engine for every map and 2-10 players" | done, **PR #82** merged |
-| cycle 5: all maps 2-10p on the GPU, points target; gate table with points; live dashboard (`scripts/dashboard.mjs`); `train.py --amp` and `#F` fractions | coordinator | done, not promoted (section 3); PR open |
+| cycle 5: all maps 2-10p on the GPU, points target; gate table with points; live dashboard (`scripts/dashboard.mjs`); `train.py --amp` and `#F` fractions | coordinator | done, not promoted (section 3); PR #105 |
 | Jacob Sensei on the GPU mirror (teacher kernel, per-seat teacher versions, verified by replay) | session "Port Jacob Sensei to the GPU mirror" | verify.py running on a pre-Bohemia base; PR next |
 | cycle 6: Jacob Sensei as teacher, branch-tag weighted training (`branch_tag.npy`, `--branch-weights`), cycle 5 big tables as value-only data | coordinator | ready, waits on the Jacob GPU fingerprint |
 | points-aware branch score (kills and placement in the rollout score, opt-in), mirrored and verified on the GPU | session "Points-aware branch score" | in progress, for cycle 7 |

@@ -7,6 +7,7 @@ except character saves ([characters.md](characters.md)) and deploy behaviour ([h
 Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. Changes from before pull requests carry the
 commit hash instead. **Append a line in the same PR** as any change to this area (README hard rule 12).
 
+- 2026-10-20 #93 hardening item 6: the leaderboard seeded from off-site results (how it behaves, planned seasons fix)
 - 2026-10-20 #92 seed rankings with Generation 5 tournament results and replace obsolete pre-seed data
 - 2026-10-19 #79 rankings: the points Delove training uses as its value target
 - 2026-10-19 #75 store support for spectator auto-redirect

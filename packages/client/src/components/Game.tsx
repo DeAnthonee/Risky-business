@@ -33,6 +33,7 @@ export function Game({
   onLeave,
   onJoin,
   autoSpectate,
+  isGeneration = false,
 }: {
   conn: GameConnection;
   gameId: string;
@@ -41,6 +42,8 @@ export function Game({
   onJoin?: () => void;
   /** Auto-spectate viewers only: move on to the next live game once this one ends. */
   autoSpectate?: AutoSpectate;
+  /** Generation training matches: transitions straight to the next match's lobby. */
+  isGeneration?: boolean;
 }) {
   const view = conn.view!;
   const you = conn.you;
@@ -518,7 +521,7 @@ export function Game({
           {view.phase === 'finished' ? (
             <div className="action-group">
               <strong>🏆 {names[view.winner ?? ''] ?? 'Someone'} wins!</strong>
-              {spectator && autoSpectate && <AutoAdvance from={gameId} auto={autoSpectate} />}
+              {spectator && autoSpectate && <AutoAdvance from={gameId} auto={autoSpectate} generationOnly={isGeneration} />}
               <button onClick={leaveSpectate}>Back to lobby list</button>
               {session && conn.host === session.playerId && (
                 <button className="small danger" onClick={() => confirm('Close this room for everyone?') && api.closeGame(gameId, session.token).catch(() => {})}>

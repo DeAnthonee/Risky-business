@@ -1,9 +1,10 @@
 import type { Action, GameEvent, GameOptions, GameView } from '@risk/engine';
 
 /** Root path of the app (supports hosting under a sub-path, e.g. /risk/). */
-export const ROOT = new URL('.', window.location.href).pathname.replace(/\/?$/, '/');
+const loc = typeof window !== 'undefined' ? window.location : { href: 'http://localhost/', protocol: 'http:', host: 'localhost' };
+export const ROOT = new URL('.', loc.href).pathname.replace(/\/?$/, '/');
 export const API = `${ROOT}api`;
-export const WS_URL = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}${ROOT}ws`;
+export const WS_URL = `${loc.protocol === 'https:' ? 'wss' : 'ws'}://${loc.host}${ROOT}ws`;
 
 export class ApiError extends Error {
   constructor(

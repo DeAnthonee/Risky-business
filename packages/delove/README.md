@@ -338,25 +338,43 @@ decisions and bit-identical training arrays (checked by replay), on every map an
 pool for cycle 3's 6,000 Classic 2-player games (other steps: packages/delove-gpu/README.md, "Speed"). `DELOVE_BRANCH_TRACE=<file>` makes the branch player write each branched decision's options and mean
 scores, which the GPU's replay test compares option by option.
 
-### Scoring rollouts by leaderboard points (`DELOVE_BRANCH_SCORE=points`)
+### Scoring rollouts by leaderboard points (`DELOVE_BRANCH_SCORE`): tried, not better
 
 The default branch score (`positionScore`, `score: 'share'`) is won 1, lost 0, otherwise the weighted share of
 armies, income, territories, cards and continents. It aims at the leaderboard (placement points plus `KILL_POINTS`
 per elimination) only indirectly: it gives nothing for a kill made inside the horizon, for the decider's standing
-among the players left, or for how early a knock-out comes in a big game. `DELOVE_BRANCH_SCORE=points` (the `score`
-field of the branch settings; `--score points` on the GPU) scores each rollout copy by `pointsScore` instead:
+among the players left, or for how early a knock-out comes in a big game. Two opt-in scores (the `score` field of the
+branch settings, `DELOVE_BRANCH_SCORE`, `--score` on the GPU) aim at the leaderboard directly:
 
-- the decider's expected place among the players still alive: 1 plus, for each rival, its chance of finishing above,
-  read off the gap in share score (`clamp(0.5 + 0.5 * n * (mine - theirs), 0, 1)` with n players alive: even shares a
-  coin flip, a lead of 1/n of the board or more certain);
-- that place turned into the table's placement points (`placementPoints`, interpolated between whole places), or the
-  points of the place just below the players still alive when the decider is out, or first place when it won;
-- plus `KILL_POINTS` for each player the decider has eliminated;
-- scaled so last place is 0 and first place 1 (a kill adds 1 / the placement spread: 0.5 at 2 players, 0.25 at 4,
-  0.17 at 6, 0.1 at 10), so `margin` keeps about the same meaning.
+- **`points`** (`pointsScore`): the decider's expected place among the players still alive (1 plus, for each rival,
+  its chance of finishing above, read off the gap in share score: `clamp(0.5 + 0.5 * n * (mine - theirs), 0, 1)` with
+  n players alive), turned into the table's placement points (`placementPoints`, interpolated between whole places;
+  the place just below the players still alive when the decider is out, first when it won), plus `KILL_POINTS` per
+  player the decider has eliminated, scaled so last place is 0 and first place 1;
+- **`kills`**: the share score plus the kill credit alone (`killCredit`: `KILL_POINTS` per player eliminated over the
+  placement spread, so 0.5 at 2 players, 0.25 at 4, 0.17 at 6, 0.1 at 10).
 
-It is a cheap, deterministic function of the board (no network). Share stays the default, so the golden lock and
-every earlier result are unchanged. RESULTS_PLACEHOLDER
+Both are cheap, deterministic functions of the board, mirrored bit for bit on the GPU. Share stays the default, so the
+golden lock and every earlier result are unchanged.
+
+Measured on the GPU (horizon 1, margin 0.01, ranker `delove@3`, Sensei 2 rollouts; `packages/delove-gpu/scripts/
+score_compare.py`). 2 players: the share and points runs on the same 1,000 Classic seeds against `delove@3` and Sensei
+2 in both seat orders. 4+ players: head to head, both scores at the same table (GPU-only seats
+`delove-branch@1:share` / `:points` / `:kills`, spread round it in every order and from every seat; the other seats
+`delove@3` and one Sensei 2), so each game is a pair. Leaderboard points per game (placement + kills; a turn-limit game
+scores last place for everyone), 95% intervals:
+
+| table | games | share | points | kills | points - share | kills - share | wins share / points / kills | turn limit |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Classic 2p (separate runs, same seeds) | 1,000 | +0.722 | +0.680 | | -0.042 ± 0.074 | | 0.574 / 0.560 / | 0% / 0% |
+| World 4p (share vs points) | 520 | +1.413 | +0.906 | | **-0.508 ± 0.387** | | 0.400 / 0.290 / | 14.6% |
+| Classic 4p (share vs kills) | 520 | +1.558 | | +1.521 | | -0.037 ± 0.398 | 0.385 / / 0.363 | 1.0% |
+| 6 and 10 players (share vs points vs kills) | | | | | | | | in progress (GPU windows) |
+
+The points score loses: it turns small share gaps into whole places, at about twice the share score's slope, so the
+same `margin` lets rollout noise change more moves, and it pays for pulling level with the nearest rival rather than
+for growing. The kill credit alone makes no measurable difference. **Cycle 7 should keep the share score.** Kills and
+placements are already in the value target (cycle 5, points), which is where the leaderboard reaches the network.
 
 Speed work has two guards. `scripts/golden.mjs record|check <file>` replays ~60 seeded games across maps, player
 counts, settings and players (teachers, `risky@1`, the network, the branch player) and fails if any logged decision,

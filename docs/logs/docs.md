@@ -7,6 +7,7 @@ in `docs/http-api.md`) goes in that area's log instead.
 Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. **Append a line in the same PR** as any change to
 this area (README hard rule 12).
 
+- 2026-10-20 #89 Gen 5 game settings specification and test configs (docs/game-settings.md)
 - 2026-10-20 #84 README becomes the AI guide (table of contents + hard rules); details moved to `docs/`; running logs in `docs/logs/`; CLAUDE.md imports README
 - 2026-10-19 #70 game records roadmap (`docs/game-records-roadmap.md`)
 - 2026-10-19 #65 README: the leaderboard tools report kills since #64

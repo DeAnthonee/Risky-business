@@ -36,6 +36,14 @@ npm run delove-seat -- --server http://localhost:8080 --create --agents delove@1
 `--pace 400` (ms between moves, so spectators can follow), `--names "A,B"`, `--options '{"capitals":true}'`,
 `--no-start`. Fog of war games are refused for now: Delove was trained on the full board.
 
+### Generation 5 Testing & Environment Parity
+
+To evaluate Delove models on the exact game options used in Generation 5 live league play, see [`docs/game-settings.md`](../../docs/game-settings.md) and pre-built configs in `packages/delove/configs/`:
+
+- `packages/delove/configs/gen5-nofog.json` (baseline Gen 5 options with `fogOfWar: false`)
+- `packages/delove/configs/gen5-randomfog.json` (standard league options with `fogOfWar: true`)
+- `packages/delove/configs/gen5-fixedcards.json` (options with fixed card trade values)
+
 ## Train a version (Stage 1: learn from the teacher)
 
 One-time Python setup (Windows, from the repo root; `.venv/` is ignored):

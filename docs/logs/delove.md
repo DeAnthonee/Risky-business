@@ -7,6 +7,7 @@ numbers go in [packages/delove/CYCLES.md](../../packages/delove/CYCLES.md) and t
 Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. **Append a line in the same PR** as any change to
 this area (README hard rule 12).
 
+- 2026-10-20 #89 Gen 5 testing parity configs in configs/ and status brief updates
 - 2026-10-20 #88 delove-seat: discover and seat tuned teachers (delove-teacher@N, Sensei 2)
 - 2026-10-20 #87 `docs/delove-fog.md`: plan for fog of war (seat-view encoder, fog dropout, determinized teacher, GPU, gates)
 - 2026-10-20 #83 docs: the GPU mirror covers every map, 2-10 seats and every setting but fog

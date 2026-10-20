@@ -3,7 +3,7 @@
 Covers `packages/mcp` (tool definitions in `tools.ts`, the `RiskApi` interface, the stdio CLI) and the embedded `/mcp`
 endpoint. Guide: [docs/mcp.md](../mcp.md).
 
-Newest first, one line per change: `- YYYY-MM-DD #119 what changed`. Changes from before pull requests carry the
+Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. Changes from before pull requests carry the
 commit hash instead. **Append a line in the same PR** as any change to this area (README hard rule 12).
 
 - 2026-10-20 #119 `leaderboard` takes an optional `season` and lists the seasons; `RiskApi.rankings(season?)`, `RiskApi.rankingSeasons()`

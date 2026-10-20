@@ -3,7 +3,7 @@
 Covers deploy behaviour (`/healthz`, caching, SIGTERM, `RISK_DATA_DIR`, room cleanup, env vars), the CI workflow
 (`.github/workflows/ci.yml`), the test gate and `[OPS]` issue fixes. Guide: [docs/hosting.md](../hosting.md).
 
-Newest first, one line per change: `- YYYY-MM-DD #119 what changed`. Changes from before pull requests carry the
+Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. Changes from before pull requests carry the
 commit hash instead. **Append a line in the same PR** as any change to this area (README hard rule 12).
 
 - 2026-10-20 #107 the first start after deploy archives `rankings.json` as `rankings.season-1.json` and the leaderboard restarts empty

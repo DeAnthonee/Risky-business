@@ -4,7 +4,7 @@ Covers `packages/server` (rooms, `/api`, `/ws`, persistence, bots, tournaments, 
 except character saves ([characters.md](characters.md)) and deploy behaviour ([hosting.md](hosting.md)). Guides:
 [docs/http-api.md](../http-api.md), [docs/tournaments.md](../tournaments.md), [docs/game-records.md](../game-records.md).
 
-Newest first, one line per change: `- YYYY-MM-DD #119 what changed`. Changes from before pull requests carry the
+Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. Changes from before pull requests carry the
 commit hash instead. **Append a line in the same PR** as any change to this area (README hard rule 12).
 
 - 2026-10-20 #119 leaderboard seasons without a deploy: `POST /api/admin/rankings/new-season` archives the board (same path as the `RANKINGS_SEASON` bump; higher of code and saved season wins), `GET /api/rankings/seasons`, `?season=` on `/rankings` and `/rankings/profile`; archived game ids never count again; `RANKINGS_SEASON` 2 → 3 wipes production's board on deploy

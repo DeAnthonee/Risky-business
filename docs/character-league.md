@@ -45,6 +45,8 @@ the same season becomes `rankings.season-<old>-2.json`) and the new season start
 picker (current by default) and the MCP `leaderboard` tool takes an optional `season`. A game is counted in exactly
 one season, never again in a later one.
 
+Step-by-step guide, including what not to touch: [leaderboard-seasons.md](leaderboard-seasons.md).
+
 **Archiving the board now** (no code change, no deploy): with the admin token,
 
 ```bash

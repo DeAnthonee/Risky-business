@@ -2,7 +2,7 @@
 
 Covers `packages/client` (lobby, board, animations, chat, spectator features). Guide: [docs/playing.md](../playing.md).
 
-Newest first, one line per change: `- YYYY-MM-DD #119 what changed`. Changes from before pull requests carry the
+Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. Changes from before pull requests carry the
 commit hash instead. **Append a line in the same PR** as any change to this area (README hard rule 12).
 
 - 2026-10-20 #119 leaderboard season picker (current by default; shown once a season is archived), profiles open with that season's numbers

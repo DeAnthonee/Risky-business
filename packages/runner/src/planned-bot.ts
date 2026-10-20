@@ -426,14 +426,15 @@ class Chooser {
     });
   }
 
-  /** Is an attack available that breaks an opponent's high-value (+3 or more) continent bonus with favorable odds? */
+  /** Is an attack available that breaks an opponent's continent bonus with favorable odds? */
   private hasHighValueBonusBreak(): boolean {
+    const minBonus = this.plan.aggression >= 0.6 ? 2 : 3;
     return this.lm.attacks.some((a) => {
       const cont = this.map.territoryById[a.to]?.continent;
       if (!cont) return false;
       const holder = this.view.continentOwners[cont];
       const bonus = this.map.continentById[cont]?.bonus ?? 0;
-      return holder && holder !== this.me && bonus >= 3 && this.chance(this.armies(a.from) - 1, a.to) >= 0.8;
+      return holder && holder !== this.me && bonus >= minBonus && this.chance(this.armies(a.from) - 1, a.to) >= 0.8;
     });
   }
 
@@ -515,7 +516,14 @@ class Chooser {
   }
 
   private elimination(reinforcements = 0, transfer?: CampaignOptions['transfer']): KillPlan | null {
-    return planElimination(this.view, this.me, { ...this.campaignOptions(reinforcements, transfer), targetOnly: this.hopeless() ? this.plan.target : null });
+    const opts = this.campaignOptions(reinforcements, transfer);
+    // Kills take supreme EV priority; avoid lists protect against routine border skirmishes, not game-changing eliminations.
+    // If the victim has 3+ cards or <= 2 territories, allow elimination even if informally listed in avoid:
+    const avoid = new Set([...opts.avoid].filter((id) => {
+      const p = this.view.players.find((x) => x.id === id);
+      return p && p.cardCount < 3 && (p.territoryCount ?? 99) > 2;
+    }));
+    return planElimination(this.view, this.me, { ...opts, avoid, targetOnly: this.hopeless() ? this.plan.target : null });
   }
 
   /** Complete a visible bonus from one or several fronts; route costs include all missing territories. */
@@ -586,7 +594,9 @@ class Chooser {
         : 1;
       const floor = fromCapital ? this.capFloor(a.from) : borderFloor;
       const toOwner = this.owner(a.to)!;
-      if ((this.plan.avoid.has(toOwner) || this.plan.noAttack.has(a.to)) && !wins) continue;
+      const victim = this.view.players.find((p) => p.id === toOwner);
+      const isElimination = victim?.territoryCount === 1;
+      if ((this.plan.avoid.has(toOwner) || this.plan.noAttack.has(a.to)) && !wins && !isElimination) continue;
       // All-in against the one player chosen: nobody else is touched unless it wins the game.
       if (hopeless && toOwner !== this.plan.target && !wins) continue;
       const isCap = this.capitalOf.has(a.to);
@@ -665,8 +675,10 @@ class Chooser {
     for (const a of this.lm.attacks) {
       if (!this.hostile(a.to) || this.owner(a.from) !== this.me) continue;
       const toOwner = this.owner(a.to)!;
+      const victim = this.view.players.find((p) => p.id === toOwner);
+      const isElimination = victim?.territoryCount === 1;
       const wins = this.winsGame(a.to);
-      if ((this.plan.avoid.has(toOwner) || this.plan.noAttack.has(a.to)) && !wins) continue;
+      if ((this.plan.avoid.has(toOwner) || this.plan.noAttack.has(a.to)) && !wins && !isElimination) continue;
       if (this.hopeless() && toOwner !== this.plan.target && !wins) continue;
       const have = this.armies(a.from);
       const d = this.armies(a.to);
@@ -719,7 +731,10 @@ class Chooser {
     if (share.missing.length === 1 && share.missing[0] === to) cs += 6 + bonus;
     else if (share.missing.length <= 3 && share.mine * 2 >= share.total && share.missing.includes(to)) cs += 2.5 + bonus * 0.3;
     const holder = this.view.continentOwners[cont];
-    if (holder && holder !== this.me && holder === toOwner) cs += 4.5 + bonus * 0.8;
+    if (holder && holder !== this.me && holder === toOwner) {
+      const breakWeight = this.plan.aggression >= 0.6 ? 7.0 + bonus * 1.2 : 4.5 + bonus * 0.8;
+      cs += breakWeight;
+    }
     s += path === 'bonuses' ? cs * 1.5 : cs;
 
     // In 1v1, there are no 3rd parties: break every opponent continent and deny territories to crush their turn income!

@@ -107,10 +107,15 @@ Fundamental rules, mechanics, and tournament scoring for the Risk engine, follow
   5. **High-Value Opponent Bonus Break**: If a neighbor holds an uncontested $+3$ or $+5$ continent bonus (e.g. Africa, Europe, or North America) with a weak border, breaking it with favorable odds ($\ge 80\%$) denies them massive recurring income.
   6. **Card Conquest Not Yet Secured**: If you started the turn holding a bonus or haven't conquered a territory yet, you must complete at least one favorable conquest to draw your once-per-turn card.
   7. **Explicit Commander Missions**: When the Commander explicitly routes an attack sequence, targets an enemy with `commitArmies`, or selects `winPath === 'kills'`, strategic offensive intent overrides routine bonus holding.
-* **The 1v1 Endgame Exception (Maximum Scorched-Earth Denial)**:
-  * The rule against over-expansion completely reverses when only two players remain (1-versus-1)!
-  * In 1v1, there are **no third parties** to punish over-expansion. Every single territory you conquer directly starves your opponent of reinforcement income ($\lfloor \text{Territories} / 3 \rfloor$) and strips their continent bonuses.
-  * In 1v1, **break everything you can reach**! Push aggressively across all enemy borders to reduce their territory count below 12 and deny every continent bonus, leaving them paralyzed at the $+3$ income minimum.
+* **The Aggressive "One-More-Attack" Neighbor Bonus Break**:
+  * For aggressive commanders (`aggression >= 0.6`, e.g. Darius, Tryndamere, Draven), securing your own continent bonus is only step one.
+  * If an adjacent neighbor also completed or holds a continent bonus (even a $+2$ or $+3$ bonus), launching **exactly one more surgical attack** across the border specifically to break their bonus is exceptionally high value!
+  * It completely strips their $+2, +3,$ or $+5$ reinforcement income for their upcoming turn, solidifying your relative production dominance.
+  * *Discipline Rule*: Once the neighbor's bonus is broken, immediately stop and hold your new frontline. Do not greedily chase further into their territory unless you have a massive surplus!
+* **Avoid List Discipline & The "Free Kill" Blunder**:
+  * In the tactical engine, `avoid` is a hard non-aggression constraint.
+  * **The Blunder**: When an LLM picks a target (e.g. `target: "Shaco"`), models reflexively dump all other players into `avoid: ["Shen", "Thresh", "Teemo"]`. If one of those non-target players (like Thresh) later becomes crippled down to 1–2 territories with 1 army and 4 cards, the bot's hard `avoid` constraint forbids attacking them — causing the bot to blindly pass up a completely free kill and card cash-in!
+  * **The Rule**: `avoid` must NEVER protect an opponent from an outright elimination. If taking a territory eliminates a player, `avoid` is automatically overridden. Commanders must only use `avoid` for active peace treaties, leaving it empty `[]` when hunting kills.
 * **Dice Modes & Mathematical Win Percentages (Balanced Blitz vs. True Random Blitz vs. Single Dice)**:
   * Risk features three distinct combat mechanics with radically different mathematical probability distributions:
   * **1. Balanced Blitz (`balancedBlitz: true`)**:

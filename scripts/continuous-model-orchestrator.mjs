@@ -85,7 +85,7 @@ for (let g = 1; g <= TOTAL_GAMES; g++) {
   const selectedMap = pickNextMap(lastMap);
   lastMap = selectedMap;
 
-  const fogOfWar = Math.random() < 0.5;
+  const fogOfWar = true;
   const mapCap = MAP_MAX_PLAYERS[selectedMap] ?? 6;
   const targetPlayers = 6 + Math.floor(Math.random() * 5); // 6 to 10
   const playerCount = Math.min(targetPlayers, mapCap);

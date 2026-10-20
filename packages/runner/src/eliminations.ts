@@ -48,12 +48,17 @@ function findMultiHopKill(view: GameView, me: PlayerId, victimId: PlayerId, opti
   const mine = view.players.find((p) => p.id === me);
   if (!victim || !victim.alive || victim.isNeutral) return null;
 
-  const victimTerritories = map.territoryIds.filter((t) => !view.territories[t]?.hidden && view.territories[t]?.owner === victimId);
-  if (victimTerritories.length === 0 || victimTerritories.length > 25) return null;
+  const livingNonNeutrals = view.players.filter((p) => p.alive && !p.isNeutral);
+  const isGameEndingKill = livingNonNeutrals.length <= 2 && livingNonNeutrals.some((p) => p.id === victimId);
 
-  // Verify all victim territories are visible (unless fog allows partial)
-  if (victim.territoryCount !== undefined && victim.territoryCount !== victimTerritories.length) {
-    // If victim has unrevealed territories in fog of war, we cannot guarantee elimination
+  const victimTerritories = map.territoryIds.filter((t) => !view.territories[t]?.hidden && view.territories[t]?.owner === victimId);
+  if (victimTerritories.length === 0 || victimTerritories.length > map.territoryIds.length) return null;
+
+  // Verify all victim territories are visible (unless fog allows partial in 1v1)
+  if (victim.territoryCount !== null && victim.territoryCount !== undefined) {
+    if (victim.territoryCount !== victimTerritories.length) return null;
+  } else if (!isGameEndingKill) {
+    // If victim has unrevealed territories in fog of war in multi-player, we cannot guarantee elimination
     return null;
   }
 
@@ -276,11 +281,14 @@ function findMultiHopKill(view: GameView, me: PlayerId, victimId: PlayerId, opti
   for (const root of candidateLaunchpads) {
     const tree = buildAttackTree(new Set([root]));
     if (!tree) continue;
-    let score = 40 + victimCards * cardVal;
+    let score = 250 + victimCards * cardVal;
+    if (isGameEndingKill) score += 500;
+    if (myTotalMovableArmies >= totalVictimArmies * 1.25) score += 250;
     if (setsMe) score += 350; // Guaranteed mid-turn trade in Progressive or Exponential is game-winning!
     if (victimCards >= 3) score += isScaling ? 80 : 40;
     if (victimTerritories.length <= 3) score += 40;
-    score -= tree.totalCost * 0.35 + tree.totalDeficit * 0.2;
+    const costPenalty = Math.min(60, tree.totalCost * 0.08);
+    score -= costPenalty + tree.totalDeficit * 0.2;
     if (score > bestScore) {
       bestScore = score;
       bestTree = tree;
@@ -292,11 +300,14 @@ function findMultiHopKill(view: GameView, me: PlayerId, victimId: PlayerId, opti
   if (multiRoots.length > 1) {
     const multiTree = buildAttackTree(new Set(multiRoots));
     if (multiTree) {
-      let score = 40 + victimCards * cardVal;
+      let score = 250 + victimCards * cardVal;
+      if (isGameEndingKill) score += 500;
+      if (myTotalMovableArmies >= totalVictimArmies * 1.25) score += 250;
       if (setsMe) score += 350;
       if (victimCards >= 3) score += isScaling ? 80 : 40;
       if (victimTerritories.length <= 3) score += 40;
-      score -= multiTree.totalCost * 0.35 + multiTree.totalDeficit * 0.2;
+      const costPenalty = Math.min(60, multiTree.totalCost * 0.08);
+      score -= costPenalty + multiTree.totalDeficit * 0.2;
       if (score > bestScore) {
         bestScore = score;
         bestTree = multiTree;
@@ -327,6 +338,7 @@ export function planElimination(view: GameView, me: PlayerId, options: KillOptio
   const mine = view.players.find((p) => p.id === me);
   const cardVal = effectiveCardValue(view, me);
   const isScaling = view.options.cardValues === 'progressive' || view.options.cardValues === 'exponential';
+  const livingNonNeutrals = view.players.filter((p) => p.alive && !p.isNeutral);
 
   let best: KillPlan | null = null;
 
@@ -339,6 +351,8 @@ export function planElimination(view: GameView, me: PlayerId, options: KillOptio
     const ts = map.territoryIds.filter((t) => !view.territories[t]?.hidden && view.territories[t]?.owner === victim.id);
     if (!ts.length) continue;
 
+    const isGameEndingKill = livingNonNeutrals.length <= 2 && livingNonNeutrals.some((p) => p.id === victim.id);
+
     // Try multi-hop mathematical kill pathfinder first
     const multiHop = findMultiHopKill(view, me, victim.id, options);
     if (multiHop && multiHop.score > 0) {
@@ -349,7 +363,7 @@ export function planElimination(view: GameView, me: PlayerId, options: KillOptio
     }
 
     // Fall back to classic planConquest for small direct enclaves (<= 5 territories)
-    if (ts.length <= 5 && victim.territoryCount === ts.length) {
+    if (ts.length <= 5 && (victim.territoryCount === ts.length || (victim.territoryCount === null && isGameEndingKill))) {
       const campaign = planConquest(view, me, ts, options);
       if (campaign) {
         const score = 35 + victim.cardCount * cardVal + (victim.cardCount >= 3 ? (isScaling ? 20 : 8) : 0) +

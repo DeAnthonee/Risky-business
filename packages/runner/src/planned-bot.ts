@@ -415,15 +415,15 @@ class Chooser {
     return this.view.players.filter((p) => p.alive && !p.isNeutral).length <= 2;
   }
 
-  /** Do our held bonus borders possess a substantial army surplus above the required defensive garrisons? */
+  /** Do our held bonus borders possess a substantial army surplus above the required defensive garrisons, or do we hold global army dominance? */
   private hasSubstantialSurplus(): boolean {
     const borders = this.mine().filter((t) => this.isBonusBorder(t));
-    if (borders.length === 0) return false;
-    return borders.some((t) => {
-      const req = this.guardFor(t);
-      const have = this.armies(t);
-      return have >= req + 6;
-    });
+    if (borders.some((t) => this.armies(t) >= this.guardFor(t) + 6)) return true;
+    const myArmies = this.mine().reduce((n, t) => n + this.armies(t), 0);
+    const enemies = this.view.players.filter((p) => p.alive && !p.isNeutral && p.id !== this.me);
+    const maxEnemy = Math.max(0, ...enemies.map((p) => p.armyCount ?? this.map.territoryIds.filter((t) => !this.view.territories[t]?.hidden && this.owner(t) === p.id).reduce((n, t) => n + this.armies(t), 0)));
+    if (maxEnemy > 0 && myArmies >= maxEnemy * 1.3) return true;
+    return false;
   }
 
   /** Is an attack available that breaks an opponent's continent bonus with favorable odds? */
@@ -820,7 +820,14 @@ class Chooser {
         if (notMine.length === 1 && notMine[0][1] === to) return true;
       }
     }
-    if (others.length === 1 && others[0].territoryCount === 1 && this.owner(to) === others[0].id) return true;
+    if (others.length === 1) {
+      const rival = others[0];
+      if (rival.territoryCount === 1 && this.owner(to) === rival.id) return true;
+      if (rival.territoryCount === null && this.owner(to) === rival.id) {
+        const rivalTerrs = this.map.territoryIds.filter((t) => !v.territories[t]?.hidden && this.owner(t) === rival.id);
+        if (rivalTerrs.length === 1) return true;
+      }
+    }
     return false;
   }
 
@@ -876,10 +883,14 @@ class Chooser {
     }
     s += path === 'bonuses' ? cs * 1.5 : cs;
 
-    // In 1v1, there are no 3rd parties: break every opponent continent and deny territories to crush their turn income!
-    if (is1v1) {
+    // In 1v1 or army dominance (e.g. 600 vs 300), relentlessly break continents and strip territories to starve and finish the rival!
+    const myArmies = this.mine().reduce((n, t) => n + this.armies(t), 0);
+    const rival = this.view.players.find((x) => x.id === toOwner);
+    const rivalArmies = rival?.armyCount ?? (rival ? this.map.territoryIds.filter((t) => !this.view.territories[t]?.hidden && this.owner(t) === rival.id).reduce((n, t) => n + this.armies(t), 0) : 0);
+    const isDominant = rivalArmies > 0 && myArmies >= rivalArmies * 1.3;
+    if (is1v1 || isDominant) {
       if (holder && holder !== this.me) s += 6 + bonus * 1.5;
-      s += 2.5; // each territory stripped from the sole rival directly starves their base income
+      s += 3.5; // each territory stripped from the rival directly starves their base income
     }
     const capOwner = this.capitalOf.get(to);
     if (capOwner && capOwner !== this.me) s += path === 'capitals' ? 7 : 4;
@@ -888,7 +899,7 @@ class Chooser {
     else if (focus === 1) s += 3.5;
     if (this.plan.route.includes(to)) s += 6;
     if (this.plan.target && toOwner === this.plan.target) s += path === 'hopeless' ? 10 : (path === 'kills' ? 5.5 : 3.5);
-    const p = this.view.players.find((x) => x.id === toOwner);
+    const p = rival;
     if (p && p.territoryCount === 1) s += (path === 'kills' ? 8 : 6) + p.cardCount * 1.5;
     else if (p && (p.territoryCount ?? 99) <= 3 && p.cardCount >= 3) s += (path === 'kills' ? 8 : 6) + p.cardCount * 1.8;
     else if (p && p.cardCount >= 5) s += (path === 'kills' || path === 'cards' ? 6 : 4);

@@ -151,4 +151,33 @@ describe('deliberate card-steal eliminations', () => {
     expect(kill?.target).toBe('s1');
     expect(kill?.attacks[0].from).toBe('brazil');
   });
+
+  it('maps out an elimination when holding overwhelming troop advantage against a large opponent (600 vs 300)', () => {
+    const s = board();
+    // 1v1 against s1, with s1 holding many territories with 300 total troops
+    s.players = s.players.map(p => ({ ...p, alive: p.id === 's0' || p.id === 's1' }));
+    s.territories.peru = { owner: 's0', armies: 600 };
+    s.territories.argentina = { owner: 's1', armies: 100 };
+    s.territories.brazil = { owner: 's1', armies: 100 };
+    s.territories.venezuela = { owner: 's1', armies: 100 };
+    const v = viewFor(s, 's0');
+    const kill = planElimination(v, 's0', opts());
+    expect(kill).not.toBeNull();
+    expect(kill?.target).toBe('s1');
+    expect(kill!.score).toBeGreaterThan(500);
+    expect(kill?.attacks.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('maps out game-ending kill in 1v1 even under fog of war', () => {
+    const s = board();
+    s.players = s.players.map(p => ({ ...p, alive: p.id === 's0' || p.id === 's1' }));
+    s.territories.peru = { owner: 's0', armies: 50 };
+    s.territories.argentina = { owner: 's1', armies: 5 };
+    const v = viewFor(s, 's0');
+    v.players.find(p => p.id === 's1')!.territoryCount = null; // fog of war
+    const kill = planElimination(v, 's0', opts());
+    expect(kill).not.toBeNull();
+    expect(kill?.target).toBe('s1');
+    expect(kill!.score).toBeGreaterThan(500);
+  });
 });

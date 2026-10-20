@@ -15,37 +15,56 @@ Python + PyTorch (CUDA), not an npm workspace. Uses the repo's `.venv`:
 
 ## What it covers
 
-The Classic map, 2 players plus the classic Neutral, with `DEFAULT_OPTIONS`: random deal, setup placement one army at
-a time, reinforcements (territories / 3, at least 3, continent bonuses, first-round bonus), progressive card sets,
-optional trades and forced trades at 5 cards (the engine's `bestSet` choice), blitz attacks with the real dice
-(3 attack dice against up to 2), occupy, connected fortify (in the two self-play steps), end turn, card draw and
-reshuffle, elimination with card capture, the win condition and the turn limit.
+**Every map, every table size and every game setting but fog of war** (`fused.py`, `teacher.py`, `branch.py`,
+`generate.py`): all ten maps of `MAP_IDS` (classic, world, world_large, europe, greater_europe with 116 territories,
+europe_classic, usa, asia, fantasy, skirmish / Four Crowns), 2 to 10 seats up to each map's player limit, and these
+settings in any combination: capitals and `chooseCapitals`, card values (progressive, fixed, exponential), fortify mode
+(connected, adjacent), balanced blitz, blizzards, `firstRoundBonus`, `setupBatch`, `autoSetup`, `randomDeal` (the
+claiming phase) and `neutrals` / `neutralArmies`. That is the whole game: the deal (random or claimed), setup,
+capitals chosen or assigned, reinforcements (territories / 3, continent bonuses over open territories, capitals,
+the first-round bonus), card trades and forced trades (the engine's `bestSet`), blitz attacks with the real dice
+(3 defence dice on capitals, the median of 5 runs with balanced blitz), occupy, fortify, 3+ player turn order,
+elimination with card capture, the Neutral at 2 players and the neutral territories at 3+, the win conditions
+(domination, every capital) and the turn limit; and the outcome training reads (log v3: z, and the leaderboard's
+placements, kills and points, `outcome.py`).
 
-Moves are the self-play action space (`packages/selfplay/src/actions.ts`) laid out as one fixed index space of 432
-moves; legal moves are a `[games, 432]` mask. Not covered yet: capitals, fog of war, blizzards, neutrals option,
-fixed / exponential cards, balanced blitz, adjacent fortify, 3-6 players, maps other than Classic. The code keeps
-the map, seat count and options as data (`mapdata.py`, `Engine(n_seats=...)`) so they can be added.
+A configuration (`delove_gpu/config.py`: map, seats, settings) is checked like `validateOptions` checks it. Every map
+fact it rests on (the territories, adjacency in the engine's own order and continents from
+`packages/engine/src/generated/<id>.json`; `STARTING_ARMIES` per table size, the player limit, the blizzard limit and
+`DEFAULT_OPTIONS`) is read from the engine itself, never copied. The configuration is compiled into the CUDA source as
+constants: one NVRTC compile per configuration (about a minute; the binary is cached in `_cache/`, so later runs load
+it at once).
+
+Moves are the self-play action space (`packages/selfplay/src/actions.ts`) laid out as one fixed index space per map
+(3T place + 10 trades + one attack per directed edge + 3 occupy + T fortify sources + 2T fortify destinations + end
+turn + T capitals: 256 moves on Four Crowns, 474 on Classic, 1,326 on Greater Europe); legal moves are a
+`[games, A]` mask, and `cand_order()` lists them in actions.ts order. `engine.py` (the tensor reference) stays Classic
+2-player with the default settings.
 
 | file | what |
 | --- | --- |
-| `delove_gpu/mapdata.py` | map data read from the engine's own `packages/engine/src/generated/classic.json` (never copied) |
+| `delove_gpu/config.py` | `GameConfig` (map, seats, settings) and the map facts read from the built engine |
+| `delove_gpu/mapdata.py` | map data read from the engine's own `packages/engine/src/generated/<id>.json` (never copied) |
 | `delove_gpu/rng.py` | the engine's mulberry32 as a counter-based generator on tensors, one stream per game |
-| `delove_gpu/engine.py` | the rules as batched tensor operations: the readable reference (`exact=False`: faster sampling, below) |
-| `delove_gpu/fused.py` | the same rules with one CUDA thread per game (NVRTC, one compile per source, binary cached in `_cache/`), on the same tensors |
+| `delove_gpu/engine.py` | `State` (the tensors of B games of one configuration) and the rules as batched tensor operations for Classic 2-player: the readable reference (`exact=False`: faster sampling, below) |
+| `delove_gpu/fused.py` | the rules of any configuration with one CUDA thread per game (NVRTC, one compile per configuration, binary cached in `_cache/`) |
 | `delove_gpu/teacher.py` | the hand-coded teacher (`packages/delove/src/teacher.ts`, any tuned numbers) inside the kernel |
-| `delove_gpu/odds.py` | the blitz odds of `packages/engine/src/odds.ts` as exact double-precision tables for the teacher |
+| `delove_gpu/odds.py` | the blitz odds of `packages/engine/src/odds.ts` as exact double-precision tables for the teacher (both defence-dice limits, balanced blitz, every stack size) |
 | `delove_gpu/branch.py` | branch and score (`packages/delove/src/branch.ts`): options, common-random-number rollouts, scores, pick |
-| `delove_gpu/generate.py` | plays whole cycle tables (branch, teacher, network seats) and writes `export`'s training arrays directly |
+| `delove_gpu/generate.py` | plays whole cycle steps (any mix of configurations; branch, teacher and network seats) and writes `export`'s training arrays directly |
+| `delove_gpu/outcome.py` | a finished game's z and leaderboard placements, kills and points (`finalPlacements`, `gamePoints`) |
 | `delove_gpu/npy.py` | the `.npy` writer of `packages/selfplay/src/npy.ts` (same file layout) |
 | `delove_gpu/encode.py` | the board encoder of `packages/selfplay/src/encode.ts` (ENCODER_VERSION 2) on tensors, in float64 rounded once to float32 as in JavaScript |
 | `delove_gpu/play.py` | random moves, and a Delove network (`.pt` from `train.py`) choosing every move in one batched pass |
-| `delove_gpu/logs.py` | reads decision logs (format v2) and compares records with the GPU state |
+| `delove_gpu/logs.py`, `delove_gpu/packed.py` | read decision logs (format v2 and v3) and compare records with the GPU state (`packed.py`: as flat vectors, a whole batch at once) |
 | `delove_gpu/fingerprint.py` | which engine the mirror was last verified against (`engine-fingerprint.json`), and the stale check |
+| `scripts/balanced_odds.mjs` | odds.ts's balanced-blitz chance for the odds tables, computed by V8 (its `Math.pow`) |
 | `verify.py` | re-verifies the mirror against the current engine and updates the fingerprint |
-| `tests/replay.py` | the replay test (below) |
-| `tests/teacher_replay.py`, `tests/branch_replay.py`, `tests/export_check.py`, `tests/dataset_compare.py` | the teacher, branch and training-array checks (below) |
+| `tests/replay.py` | the replay test (below): rules, teacher picks, outcome, encoder, network |
+| `tests/matrix.py` | the replay proof over every map, table size and setting (CPU logs in parallel, GPU replays) |
+| `tests/teacher_replay.py`, `tests/branch_replay.py`, `tests/export_check.py`, `tests/dataset_compare.py`, `tests/odds_check.py` | the teacher, branch, training-array and odds checks (below) |
 | `tests/blitz_stats.py` | battle outcomes against the exact dice distribution |
-| `bench.py`, `bench_cpu.mjs` | GPU and CPU throughput |
+| `bench.py`, `bench_cpu.mjs`, `bench/` | GPU and CPU throughput; `bench/bench_cycle.sh` times a cycle step on both |
 
 Every game carries its own mulberry32 stream seeded like `createGame(seed)`, so with the same seed and the same
 choices a game here *is* the engine's game: same deal, same dice, same reshuffles. `fused.py` does the same in a
@@ -64,10 +83,15 @@ cd packages/delove-gpu
 For every decision step of every logged game the GPU state must equal the record: owners and armies of every
 territory; each seat's alive flag, card count, armies to place and income; the decider's hand (ids, in order); the
 trade count and personal trades; the pending conquest; the conquered and fortified flags; turn order, phase, turn and
-round. The GPU's legal moves must be exactly the record's candidate list (as a set). Then the logged choice is played.
-When a game's records end, the GPU game must be over the same way (same winner, or the turn limit). Options:
-`--export DIR` also compares the GPU encoder with the arrays `npm run delove -- export` wrote from the same log;
-`--net AGENT MODEL.pt` checks that the GPU network's top move is AGENT's logged move.
+round; every seat's capital and the blizzards. The GPU's legal moves must be exactly the record's candidate list, in
+the same order (actions.ts order: what the training arrays and every network's tie-breaking rely on; `--slow`, the
+per-game loop the encoder and network checks use, compares them as a set). Then the logged choice is played. When a
+game's records end, the GPU game must be over the same way (same winner, or the turn limit), and on log v3 every
+seat's outcome must match: placement, kills, leaderboard points and z. The game settings come from `options.json` in
+the log folder (`tests/matrix.py` writes it), the map and table size from the records. Options: `--teacher
+AGENT[=PARAMS.json]` (repeatable) checks that the GPU teacher picks AGENT's logged candidate at every step AGENT
+decided; `--export DIR` also compares the GPU encoder with the arrays `npm run delove -- export` wrote from the same
+log; `--net AGENT MODEL.pt` checks that the GPU network's top move is AGENT's logged move.
 
 One thing the log does not record: the order an agent listed a trade's cards in. It decides which owned territory gets
 the +2 and the order the cards go on the discard pile. Self-play candidates (every Delove player) send them sorted
@@ -98,20 +122,26 @@ Results (2026-10-19, logs in the ignored `runs/gpu-verify/`):
 
 ## The teacher, branch and score, and training data on the GPU
 
-A training cycle's Classic 2-player step runs here end to end (`delove_gpu/generate.py`): the branch-and-score player,
-its opponents (the tuned teacher and Delove networks) and the training arrays, with no JSONL logs and no `export`:
+Every step of a training cycle runs here end to end (`delove_gpu/generate.py`): the branch-and-score player, its
+opponents (the tuned teacher and Delove networks) and the training arrays, on any map, table size and covered setting,
+with no JSONL logs and no `export`:
 
 ```bash
-.venv/Scripts/python -m delove_gpu.generate --models models/delove --ranker c2-candidate --horizon 1 --margin 0.01 --seed 303 \
-  --table "c2d 2000 delove-branch@1,delove@2" --table "c2c 2000 c2-candidate,delove-branch@1" \
-  --table "c2t 2000 delove-branch@1,delove-teacher@2" --batch 6000 --out data/delove/c3-classic2 --summary runs/c3-classic2.json
+.venv/Scripts/python -m delove_gpu.generate --models models/delove --ranker c3-candidate --horizon 1 --margin 0.01 --seed 304 \
+  --jobs ../delove/scripts/cycles/c4-micro.jobs --jobs ../delove/scripts/cycles/c4-classic2.jobs \
+  --jobs ../delove/scripts/cycles/c4-classic4.jobs --out data/delove/c4-gpu --summary runs/c4-gpu.json
 ```
 
-(run from `packages/delove-gpu`; `--out` is a dataset folder `train.py --data` reads, `--summary` has the branch statistics
-of `scripts/summary.mjs` and each table's results). A table is `NAME GAMES AGENT,AGENT [START]` as in a jobs file; game
-i is seeded and seated exactly as `play` does it, so a table here is the same set of games as on the CPU. The rollout
-teacher is the newest `delove-teacher@N.json` in `--models` (`--teacher`), the branch settings default to
-`DEFAULT_BRANCH` in `branch.ts` (read from the file), networks play from their `.pt` weights in fp32.
+(run from `packages/delove-gpu`; `--out` is a dataset folder `train.py --data` reads, one folder per map; `--summary` has
+the branch statistics of `scripts/summary.mjs` and each table's results). A table is `NAME GAMES AGENT,AGENT [START]
+[OPTIONS JSON]` (`--table`), or a jobs file's line (`--jobs`); game i is seeded and seated exactly as `play` does it, so
+a table here is the same set of games as on the CPU. Tables of one configuration share one engine; configurations run
+one after another, each with as many games in flight as fit in `--gpu-gb` of game state (default 3 GB; `--batch`
+fixes it). Teacher seats whose moves are not recorded play on inside one kernel until a branch or network seat is to
+move (`k_teacher_run`: the same moves and random streams as one step at a time, without a round trip to Python per
+move; a 10-player table with eight teachers spends most of its moves there). The rollout teacher is the newest
+`delove-teacher@N.json` in `--models` (`--teacher`), the branch settings default to `DEFAULT_BRANCH` in `branch.ts`
+(read from the file), networks play from their `.pt` weights in fp32, scored in chunks that fit the GPU on big maps.
 
 - **The teacher** (`teacher.py`) is `teacherPickWith(params)` in CUDA, one thread per game, inside the same kernel as the
   rules. It must pick exactly what teacher.ts picks, ties included: every score is built with the same double-precision
@@ -129,8 +159,13 @@ teacher is the newest `delove-teacher@N.json` in `--models` (`--teacher`), the b
   and versions read from the built self-play package. The encoder computes in float64 and rounds to float32 once, as
   encode.ts stores doubles into a Float32Array, so the arrays are bit-identical to `export`'s.
 
-What is not on the GPU: the micro (Four Crowns) and 4-player steps of a cycle (the rules mirror is Classic 2-player
-only), `risky@1` opponents and `-explore` (sampling) network seats. Those steps stay on the CPU.
+- **Outcomes** (`outcome.py`): z, and log v3's leaderboard placements, kills and points (`points.npy`, `points01.npy`):
+  the kernel records who eliminated whom and in which order, `finalPlacements`' ordering is mirrored, and the points
+  table and `KILL_POINTS` are read from the built engine.
+
+What is not on the GPU: fog of war, `risky@1` opponents and `-explore` (sampling) network seats in `generate.py` (the
+replay tests do replay `risky@1` games), and `DELOVE_BRANCH_VALUE` (the value blend). A step with any of those stays on
+the CPU; `generate.py` refuses it.
 
 ### Proof that they match the TypeScript
 
@@ -193,9 +228,9 @@ minutes of that pool's 27 threads (the table above), 1.25 minutes on the GPU.
 
 The mirror is only right for the engine it was checked against. `engine-fingerprint.json` records hashes of the engine
 and self-play files it copies (`RULE_FILES` in `delove_gpu/fingerprint.py`: `engine.ts`, `cards.ts`, `rng.ts`,
-`types.ts`, `maps.ts`, the Classic map JSON, self-play's `actions.ts`, `encode.ts`, `log.ts`, `game.ts`,
-`traits.ts`, `export.ts`, `npy.ts`, and Delove's `teacher.ts`, `branch.ts` with the engine's `odds.ts`), written only
-after logs made with exactly those files replayed identically.
+`types.ts`, `maps.ts`, every map's generated JSON, `ranking.ts`, self-play's `actions.ts`, `encode.ts`, `log.ts`,
+`game.ts`, `traits.ts`, `export.ts`, `npy.ts`, and Delove's `teacher.ts`, `branch.ts` with the engine's `odds.ts`),
+written only after logs made with exactly those files replayed identically.
 
 - **Training refuses a stale mirror.** `Engine(...)`, `FusedEngine(...)`, `TeacherEngine(...)` and `BranchEngine(...)`
   raise `StaleMirror` when any of those files changed since the last verification (or the last verification did not
@@ -216,12 +251,13 @@ after logs made with exactly those files replayed identically.
   `risky@1`, random to the turn limit, a network player with `--model`; with `--models` the newest tuned teacher
   against itself and branch games at branch.ts's defaults and at the cycle settings, with traces), replays them
   through `engine.py` and `fused.py` with the encoder and network checks, then the teacher, branch and training-array
-  checks, and writes the fingerprint only if every step matches. Commit the
+  checks, the odds check and the matrix suites over every map, table size and setting (`--matrix-scale`, default 0.1
+  of `tests/matrix.py`'s game counts: about an hour), and writes the fingerprint only if every step matches. Commit the
   fingerprint (with any mirror fixes) in a PR. A change that does not touch the rules (a refactor, a comment) only
   needs the run; a mismatch means the mirror needs the same change, made in `packages/delove-gpu`, never the engine.
 
-A hash changes for any edit, so the check can be stale without anything being wrong; the run settles it in a few
-minutes.
+A hash changes for any edit, so the check can be stale without anything being wrong; the run settles it (about an
+hour with the matrix).
 
 ## Speed
 
@@ -263,20 +299,15 @@ What the numbers say:
 
 ## What is left
 
-Done (above): the rules, the tuned teacher, branch and score and the training arrays of a cycle's Classic 2-player step,
-each verified against the TypeScript. In rough order of what would speed a cycle up further:
+Done (above): the rules, the tuned teacher, branch and score, the outcome and the training arrays of every cycle step,
+on every map, table size and setting but fog of war, each verified against the TypeScript, and wired into `cycle.sh`
+(`gpu_steps`). In rough order of what would help next:
 
-1. **The other cycle steps:** 3-6 players (turn order with eliminations, the `neutrals` option instead of the
-   2-player Neutral) for the 4-player step, and other maps (Four Crowns for the micro step; World): map data is already
-   read from the engine's JSON; continents, starting armies (`classicScaled`) and sizes become parameters of the
-   kernel source. Then capitals, fixed/exponential cards, blizzards, balanced blitz. Each needs logs with that setting
-   in the replay tests first; the teacher's capital and blizzard branches are not mirrored yet either.
-2. **A faster teacher kernel** (the rollouts are 40% of the GPU step): less divergence between threads in different
-   phases, a smaller per-thread board, fewer recomputations between a move's two fortify steps.
-3. **The lockstep tail:** let teacher seats play whole turns per step and start the next cycle step's games while the
-   last long games finish, so thin steps stop costing a full kernel latency each.
-4. **Other players in the pool:** `risky@1` (`packages/engine/src/bot.ts`, short) and sampling (`-explore`) network
-   seats, which need ONNX-identical sampling arithmetic.
-5. ~~**cycle.sh wiring**~~ done: `gpu_steps=(classic2)` in a cycle config plays that step here while the CPU pool
-   plays the others (packages/delove/README.md, "A step on the GPU"). `generate.py --summary` also counts decisions
-   per table as `game.ts` does (a fortify, two steps here, is one), so `cycle.md`'s table matches the CPU's.
+1. **Big-table speed:** a 10-player branch decision on Greater Europe plays 18 rollouts of a whole round each in one
+   CUDA thread; splitting a rollout over several threads (or batching rollouts by seat) would cut the latency that
+   dominates those steps.
+2. **A faster teacher kernel:** less divergence between threads in different phases, a smaller per-thread board,
+   fewer recomputations between a move's two fortify steps.
+3. **Other players in the pool:** `risky@1` (`packages/engine/src/bot.ts`, short) and sampling (`-explore`) network
+   seats, which need ONNX-identical sampling arithmetic; `DELOVE_BRANCH_VALUE` (the value head's blend).
+4. **Fog of war:** the encoder would need a seat's-eye view first (export skips fog games today anyway).

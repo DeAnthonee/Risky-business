@@ -1,0 +1,3 @@
+# Cycle 4's micro step: 1v1 on Four Crowns.
+mb    600 delove-branch@1,delove-teacher@2 {"map":"skirmish"}
+md    600 delove@3,delove-branch@1 {"map":"skirmish"}

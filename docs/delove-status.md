@@ -6,7 +6,7 @@ next. The plan of record is `docs/delove.md`; the per-cycle tables are in `packa
 things is in `packages/delove/README.md` and `packages/delove-gpu/README.md`. Keep this file current: update it in
 the same PR as any change to the plan, the best model or the way training runs.
 
-Last updated: 2026-10-19 (current best: `delove@3`).
+Last updated: 2026-10-20 (current best: `delove@3`; all-maps GPU path in PR #82).
 
 ---
 
@@ -230,7 +230,7 @@ Fog of war off; one seat per agent.
 - `delove@3` promoted at 0.541 (just under the automatic 0.55 bar).
 - Work happens in separate sessions with their own context; one coordinator; one reviewer.
 
-## 8. Open work (as of 2026-10-19)
+## 8. Open work (as of 2026-10-20)
 
 | what | who | state |
 | --- | --- | --- |

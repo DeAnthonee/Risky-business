@@ -4,7 +4,7 @@ import type { GameOptions } from '@risk/engine';
 import { HttpRiskApi } from '@risk/mcp';
 import type { Agent } from '@risk/selfplay';
 import { discoverNetAgents } from './net-agent.js';
-import { playSeat } from './seat.js';
+import { defaultName, discoverTunedTeachers, playSeat } from './seat.js';
 import { teacher } from './teacher.js';
 
 const USAGE = `delove-seat: seat Delove players in a real game over the HTTP API (no chat, no character)
@@ -27,12 +27,6 @@ function fail(msg: string): never {
   process.exit(2);
 }
 
-function defaultName(id: string): string {
-  if (id === teacher.id) return 'Delove Teacher';
-  const m = /^delove@(\d+)(-explore)?$/.exec(id);
-  return m ? `Delove ${m[1]}${m[2] ? ' (explore)' : ''}` : id;
-}
-
 async function main() {
   const { values } = parseArgs({
     options: {
@@ -51,7 +45,16 @@ async function main() {
   if (values.help) return console.log(USAGE);
   if (!values.join === !values.create) fail('give exactly one of --join CODE or --create');
 
-  const known = new Map<string, Agent>([teacher, ...discoverNetAgents()].map((a) => [a.id, a]));
+  const tuned = discoverTunedTeachers();
+  const allAgents = [teacher, ...tuned, ...discoverNetAgents()];
+  const known = new Map<string, Agent>(
+    allAgents.flatMap((a) => {
+      const entries: [string, Agent][] = [[a.id, a]];
+      if (a.id === 'delove-teacher@1') entries.push(['sensei@1', a], ['sensei', a]);
+      if (a.id === 'delove-teacher@2') entries.push(['sensei@2', a]);
+      return entries;
+    }),
+  );
   const ids = (values.agents ?? 'delove@1').split(',').map((s) => s.trim()).filter(Boolean);
   const agents = ids.map((id) => known.get(id) ?? fail(`unknown Delove version "${id}" (known: ${[...known.keys()].join(', ')})`));
   const names = values.names ? values.names.split(',').map((s) => s.trim()) : ids.map(defaultName);

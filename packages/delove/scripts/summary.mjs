@@ -13,7 +13,7 @@ if (!dir || !existsSync(dir)) {
   process.exit(2);
 }
 const json = (f) => JSON.parse(readFileSync(join(dir, f), 'utf8'));
-const results = readdirSync(dir).filter((f) => /-c\d+\.json$/.test(f)).map((f) => ({ group: f.replace(/-c\d+\.json$/, ''), ...json(f) }));
+const results = readdirSync(dir).filter((f) => /-c\d+\.json$/.test(f) && !f.startsWith('stats-')).map((f) => ({ group: f.replace(/-c\d+\.json$/, ''), ...json(f) }));
 const stats = readdirSync(dir).filter((f) => /^stats-\d+(-[0-9a-f]+)?\.json$/.test(f)).map(json);
 if (existsSync(join(dir, 'gpu.json'))) {
   const gpu = json('gpu.json');

@@ -6,6 +6,7 @@ and the map registry in `packages/engine/src/maps.ts`. Guide: [docs/maps.md](../
 Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. Changes from before pull requests carry the
 commit hash instead. **Append a line in the same PR** as any change to this area (README hard rule 12).
 
+- 2026-10-20 #PR Bohemia (`bohemia`): 42 territories, 8 regions, 2-6 players, an inland kingdom whose regions meet only at 14 river fords and bridges
 - 2026-10-17 #40 Four Crowns (`skirmish`): 24 territories for 2-4 players
 - 2026-10-17 #33 Europe Advanced (`europe_classic`): 84 territories, 14 regions, 2-6 players
 - 2026-10-17 #32 Greater Europe takes the id `greater_europe` and grows to 116 territories; `europe_advanced` becomes legacy

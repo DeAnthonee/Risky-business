@@ -50,6 +50,16 @@ export interface MatchResult {
   /** Games that ended at the turn limit. */
   turnLimit: number;
   meanTurns: number;
+  /**
+   * Leaderboard view (placement points + kills, the server's ranking rule): mean points per seat per game for the
+   * candidate's seats and the best's, their difference, and the candidate's mean place and kills per seat. Set by
+   * runMatch (absent on results summarised from scores alone).
+   */
+  points?: number;
+  bestPoints?: number;
+  pointsDiff?: number;
+  meanPlacement?: number;
+  killsPerGame?: number;
 }
 
 /** Seats of game i: candidate on even seats in even games, on odd seats in odd games. */
@@ -115,6 +125,7 @@ export async function runMatch(cfg: MatchConfig): Promise<MatchResult> {
   const scores: number[] = [];
   const turns: number[] = [];
   let turnLimit = 0;
+  const pts = { cand: 0, best: 0, candSeats: 0, bestSeats: 0, place: 0, kills: 0 };
   await runBatch({
     games,
     seed: cfg.seed,
@@ -128,10 +139,24 @@ export async function runMatch(cfg: MatchConfig): Promise<MatchResult> {
       scores.push(candidateScore(result.winner, i));
       turns.push(result.turns);
       if (result.winner === null) turnLimit++;
+      result.points.forEach((p, s) => {
+        if ((s + i) % 2 === 0) (pts.cand += p, pts.candSeats++, (pts.place += result.placement[s]), (pts.kills += result.kills[s]));
+        else (pts.best += p), pts.bestSeats++;
+      });
       cfg.onGame?.(result, i);
     },
   });
-  return summarizeMatch(cfg.candidate.id, cfg.best.id, scores, turns, turnLimit, 2);
+  const r2 = (x: number) => Math.round(x * 1000) / 1000;
+  const points = r2(pts.cand / Math.max(1, pts.candSeats));
+  const bestPoints = r2(pts.best / Math.max(1, pts.bestSeats));
+  return {
+    ...summarizeMatch(cfg.candidate.id, cfg.best.id, scores, turns, turnLimit, 2),
+    points,
+    bestPoints,
+    pointsDiff: r2(points - bestPoints),
+    meanPlacement: r2(pts.place / Math.max(1, pts.candSeats)),
+    killsPerGame: r2(pts.kills / Math.max(1, pts.candSeats)),
+  };
 }
 
 export interface PromotionRule {

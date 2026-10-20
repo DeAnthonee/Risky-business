@@ -4,7 +4,8 @@ import { createInterface } from 'node:readline';
 import { createGunzip } from 'node:zlib';
 import { getMap } from '@risk/engine';
 import { CANDIDATE_FEATURES, encodeDecision, ENCODER_VERSION, GLOBAL_FEATURES, TERRITORY_FEATURES } from './encode.js';
-import { LOG_VERSION, RULE_KEYS, type DecisionRecord } from './log.js';
+import { KILL_POINTS, placementPoints } from '@risk/engine';
+import { LOG_VERSION, READABLE_LOG_VERSIONS, RULE_KEYS, type DecisionRecord } from './log.js';
 import { NpyWriter } from './npy.js';
 
 /**
@@ -18,6 +19,8 @@ import { NpyWriter } from './npy.js';
  *   cand_offset.npy int64   [N + 1]       decision k's candidates are rows cand_offset[k] .. cand_offset[k+1]-1
  *   choice.npy      int32   [N]           index of the chosen candidate within the decision
  *   z.npy           float32 [N]           final result for the decider (1 win, 0 loss, shared at the turn limit)
+ *   points.npy      float32 [N]           the decider's leaderboard points for the game (log v3; NaN for v2 logs)
+ *   points01.npy    float32 [N]           points scaled to 0..1 (last place .. first with every rival eliminated)
  *   game.npy        int32   [N]           game number within this export (split train/validation by game)
  *   seat.npy        int32   [N]
  *   features.json                         feature names, the map's territory order and adjacency, counts
@@ -45,6 +48,8 @@ interface MapWriters {
   candOffset: NpyWriter;
   choice: NpyWriter;
   z: NpyWriter;
+  points: NpyWriter;
+  points01: NpyWriter;
   game: NpyWriter;
   seat: NpyWriter;
   candidates: number;
@@ -88,6 +93,8 @@ export async function exportDataset(
       candOffset: npy('cand_offset', '<i8', []),
       choice: npy('choice', '<i4', []),
       z: npy('z', '<f4', []),
+      points: npy('points', '<f4', []),
+      points01: npy('points01', '<f4', []),
       game: npy('game', '<i4', []),
       seat: npy('seat', '<i4', []),
       candidates: 0,
@@ -104,14 +111,14 @@ export async function exportDataset(
     const meta = join(logDir, 'meta.json');
     if (!existsSync(meta)) throw new Error(`${logDir}: no meta.json (not a decision log directory)`);
     const v = JSON.parse(readFileSync(meta, 'utf8')).v;
-    if (v !== LOG_VERSION) throw new Error(`${logDir}: log format v${v}; export reads v${LOG_VERSION} (re-run the games)`);
+    if (!READABLE_LOG_VERSIONS.includes(v)) throw new Error(`${logDir}: log format v${v}; export reads v${READABLE_LOG_VERSIONS.join(', v')} (re-run the games)`);
     for (const shard of decisionShards(logDir)) {
       const input = shard.endsWith('.gz') ? createReadStream(shard).pipe(createGunzip()) : createReadStream(shard);
       for await (const line of createInterface({ input, crlfDelay: Infinity })) {
         if (!line) continue;
         const rec = JSON.parse(line) as DecisionRecord;
         // A run continued after an upgrade can leave older shards next to a newer meta.json.
-        if (rec.v !== LOG_VERSION) throw new Error(`${shard}: record in log format v${rec.v}; export reads v${LOG_VERSION} (re-run the games)`);
+        if (!READABLE_LOG_VERSIONS.includes(rec.v)) throw new Error(`${shard}: record in log format v${rec.v}; export reads v${READABLE_LOG_VERSIONS.join(', v')} (re-run the games)`);
         if (opts.maps && !opts.maps.includes(rec.map)) continue;
         if (opts.agents && !opts.agents.includes(rec.agent)) continue;
         const w = open(rec.map);
@@ -133,6 +140,13 @@ export async function exportDataset(
         w.candOffset.append(new BigInt64Array([BigInt(w.candidates)]));
         w.choice.append(new Int32Array([rec.choice]));
         w.z.append(new Float32Array([rec.outcome.z]));
+        // Leaderboard points (v3 logs; NaN in v2), and the same scaled to 0..1 between last place and a sweep
+        // (first place with every other player eliminated by this seat), so it can train a sigmoid value head.
+        const pts = rec.outcome.points ?? NaN;
+        const lo = placementPoints(rec.players, rec.players);
+        const hi = placementPoints(1, rec.players) + KILL_POINTS * (rec.players - 1);
+        w.points.append(new Float32Array([pts]));
+        w.points01.append(new Float32Array([(pts - lo) / (hi - lo)]));
         const key = `${logDir}\u0000${rec.game}\u0000${rec.seed}`;
         if (!w.games.has(key)) w.games.set(key, w.games.size);
         w.game.append(new Int32Array([w.games.get(key)!]));
@@ -143,7 +157,7 @@ export async function exportDataset(
 
   const results: ExportResult[] = [];
   for (const [mapId, w] of writers) {
-    for (const k of ['territory', 'global', 'cand', 'candFrom', 'candTo', 'candOffset', 'choice', 'z', 'game', 'seat'] as const) w[k].close();
+    for (const k of ['territory', 'global', 'cand', 'candFrom', 'candTo', 'candOffset', 'choice', 'z', 'points', 'points01', 'game', 'seat'] as const) w[k].close();
     const map = getMap(mapId);
     const idx = new Map(map.territoryIds.map((t, i) => [t, i]));
     const result: ExportResult = { map: mapId, decisions: w.choice.length, candidates: w.candidates, games: w.games.size, skipped: w.skipped, fogSkipped: w.fogSkipped };

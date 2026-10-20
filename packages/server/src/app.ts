@@ -123,7 +123,6 @@ export function createRiskServer(store: Store, opts: AppOptions = {}): RiskServe
 
   const clientDir = opts.clientDir ?? null;
   if (clientDir && existsSync(join(clientDir, 'index.html'))) {
-    const indexHtml = join(clientDir, 'index.html');
     const noCache = (res: express.Response) => res.setHeader('Cache-Control', 'no-cache');
     app.use(
       express.static(clientDir, {
@@ -139,7 +138,9 @@ export function createRiskServer(store: Store, opts: AppOptions = {}): RiskServe
     // SPA entry + history fallback: always revalidated so a new deploy is picked up on next load.
     app.get(/^(?!\/api|\/ws|\/healthz|\/mcp).*/, (_req, res) => {
       noCache(res);
-      res.sendFile(indexHtml);
+      // Relative path + root: `send` dot-checks only 'index.html', so a checkout under a dot-folder
+      // (e.g. .claude/worktrees/...) does not 404.
+      res.sendFile('index.html', { root: clientDir });
     });
   } else {
     app.get('/', (_req, res) =>

@@ -16,6 +16,7 @@ function makeView(): GameView {
 describe('diplomatic ping system', () => {
   it('correctly identifies Delove / neural net model players', () => {
     expect(isModelName('Ronny@3')).toBe(true);
+    expect(isModelName('Ronny@4')).toBe(true);
     expect(isModelName('Jacob-sensei@3')).toBe(true);
     expect(isModelName('Sensei@3')).toBe(true);
     expect(isModelName('Delove')).toBe(true);

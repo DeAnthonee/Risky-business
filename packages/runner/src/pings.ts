@@ -23,10 +23,10 @@ export interface ParsedPing {
   raw: string;
 }
 
-/** Check if a name belongs to a neural net / Delove model player (e.g. Ronny@3, Sensei@3, etc.) */
+/** Check if a name belongs to a neural net / Delove model player (e.g. Ronny@3, Ronny@4, Sensei@3, etc.) */
 export function isModelName(name: string): boolean {
   if (!name) return false;
-  return /(@3|delove|sensei@|jacob-sensei)/i.test(name);
+  return /(@\d+|delove|sensei@|jacob-sensei)/i.test(name);
 }
 
 /** Format a ping action into its standardized bracketed chat message with visual tags for spectators. */

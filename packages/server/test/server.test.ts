@@ -902,7 +902,7 @@ describe('MCP blitz with stopAt', () => {
 describe('new boards over HTTP', () => {
   it('lists every board', async () => {
     const r = await api('/maps');
-    expect(r.body.maps.map((m: any) => m.id)).toEqual(['classic', 'world', 'world_large', 'europe', 'greater_europe', 'europe_classic', 'usa', 'asia', 'fantasy', 'skirmish']);
+    expect(r.body.maps.map((m: any) => m.id)).toEqual(['classic', 'world', 'world_large', 'europe', 'greater_europe', 'europe_classic', 'usa', 'asia', 'fantasy', 'skirmish', 'bohemia', 'nine_realms']);
   });
 
   for (const [id, territories, maxPlayers] of [
@@ -912,6 +912,8 @@ describe('new boards over HTTP', () => {
     ['europe_classic', 84, 6],
     ['usa', 45, 10],
     ['asia', 49, 8],
+    ['bohemia', 42, 6],
+    ['nine_realms', 58, 8],
   ] as const) {
     it(`creates, fills with bots and starts a ${maxPlayers}-player game on ${id}`, async () => {
       const map = await api(`/map?map=${id}`);

@@ -52,6 +52,26 @@ the MCP either: an agent given a scenario seat's token can play it with `resume_
 (`scenarioOf` is in the game summary). Decide whether agents should get a `take_seat` tool and whether scenarios
 belong in the lobby before they are used in public.
 
+## 6. The live leaderboard is seeded from results played off the site
+
+**Where:** `packages/server/src/rankings-seed.ts` (`SEED_RANKINGS`, 73 Gen 5 games), `Rankings` in
+`packages/server/src/rankings.ts`, wired in `packages/server/src/index.ts` (#92). Accepted by the maintainer for now:
+league games are run locally (the runner on a contributor's PC) and their results are put on the site this way.
+
+**What is wrong:**
+- On every start, if `RISK_DATA_DIR/rankings.json` holds **none** of the seed's game ids, the file is moved to
+  `rankings.json.legacy-unseeded.bak` and the ladder restarts from the seed alone (results played on the site
+  disappear from the board; they are only in the `.bak`). A corrupt file also restarts from the seed, not empty.
+  Otherwise any seed game missing from the file is merged in, so a game removed from the file comes back on restart.
+- The seeded results can't be checked: they are not in the game archive, and their identities are whatever the
+  runner wrote (see item 3).
+- Results are compiled into the server as source, against hard rule 13 (leaderboards are runtime output).
+
+**Fix (to do):** keep seeded or imported results apart from the live board: a separate season (its own file under
+`RISK_DATA_DIR`, its own leaderboard tab), loaded by an admin-only import instead of from source, never replacing or
+setting aside `rankings.json`; add an admin call to archive the live board as a named season, since the live board will
+be reset often. Then delete `rankings-seed.ts`.
+
 ## Fixed
 
 - **Game records were never pruned.** Only the newest `RISK_ARCHIVE_KEEP` records (default 1000, about

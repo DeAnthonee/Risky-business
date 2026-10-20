@@ -192,11 +192,6 @@ input[type='range'] {
     grid-template-columns: 1fr;
   }
 }
-.options {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0 12px;
-}
 .map-preview {
   grid-column: 1 / -1;
   margin: 2px 0 12px;
@@ -409,6 +404,46 @@ footer {
 .ocean {
   fill: #0b1b2b;
 }
+/* Wave marks: cream strokes (the page's paper colour) drifting one tile east while two offset
+   layers take turns fading in, so little waves seem to come and go. Transform/opacity only. */
+#ocean-waves path,
+#ocean-waves-b path {
+  fill: none;
+  stroke: #ffe9cc;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+.wave-layer {
+  opacity: 0;
+  animation: wave-drift 18s linear infinite, wave-fade 6s ease-in-out infinite;
+}
+.wave-layer.b {
+  animation-delay: -9s, -3s;
+}
+@keyframes wave-drift {
+  from { transform: translateX(0); }
+  to { transform: translateX(180px); }
+}
+@keyframes wave-fade {
+  0%, 100% { opacity: 0.03; }
+  50% { opacity: 0.16; }
+}
+.ocean-surf path {
+  fill: none;
+  stroke: #bfe3ff;
+  stroke-width: 22;
+  stroke-linejoin: round;
+  opacity: 0.06;
+  animation: surf-swell 5s ease-in-out infinite;
+}
+@keyframes surf-swell {
+  0%, 100% { opacity: 0.04; }
+  50% { opacity: 0.12; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wave-layer { animation: none; opacity: 0.1; }
+  .ocean-surf path { animation: none; }
+}
 .continent-outline {
   fill: rgba(255, 255, 255, 0.05);
   stroke-width: 7;
@@ -438,6 +473,13 @@ footer {
   stroke-width: 1.5;
   stroke-dasharray: 5 4;
 }
+.sea-links line.attack-link,
+.sea-links g.attack-link line {
+  stroke: #ff5a5a;
+  stroke-width: 2.5;
+  stroke-dasharray: 5 4;
+  animation: target-pulse 1s ease-in-out infinite;
+}
 .territory {
   stroke: rgba(10, 16, 28, 0.9);
   stroke-width: 1;
@@ -464,13 +506,15 @@ footer {
 .territory.hl-source {
   filter: brightness(1.15);
 }
-.territory.hl-selected {
+.territory.hl-selected,
+.territory.hl-hover-source {
   stroke: #fff;
   stroke-width: 2.5;
   filter: brightness(1.25);
 }
 .territory.hl-target,
-.territory.hl-pending-target {
+.territory.hl-pending-target,
+.territory.hl-hover-target {
   stroke: #ff5a5a;
   stroke-width: 2.5;
   animation: target-pulse 1s ease-in-out infinite;
@@ -514,7 +558,8 @@ footer {
   stroke-width: 2.5;
 }
 .badge.hl-place .ring,
-.badge.hl-source .ring {
+.badge.hl-source .ring,
+.badge.hl-hover-source .ring {
   stroke: #fff;
   stroke-opacity: 0.8;
   stroke-dasharray: 4 4;
@@ -525,7 +570,8 @@ footer {
   stroke-width: 3;
   animation: pulse-ring 1s ease-in-out infinite;
 }
-.badge.hl-target .ring {
+.badge.hl-target .ring,
+.badge.hl-hover-target .ring {
   stroke: #ff5a5a;
   stroke-width: 3;
   animation: pulse-ring 1s ease-in-out infinite;
@@ -592,7 +638,9 @@ footer {
 .map.dense.show-names .badge .label,
 .map.dense .badge:hover .label,
 .map.dense .badge.hl-selected .label,
+.map.dense .badge.hl-hover-source .label,
 .map.dense .badge.hl-target .label,
+.map.dense .badge.hl-hover-target .label,
 .map.dense .badge.hl-pending-target .label {
   opacity: 1;
 }
@@ -1786,11 +1834,6 @@ label.check input {
 .profile-whisper { margin-top: 20px; padding-top: 16px; border-top: 1px solid #39516d; }
 .profile-whisper .row input { flex: 1; min-width: 0; }
 .profile-bio { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; margin-top: 16px; }
-.leaderboard { margin-bottom: 24px; }
-.leaderboard-scroll { overflow-x: auto; }
-.leaderboard table { width: 100%; border-collapse: collapse; text-align: left; font-variant-numeric: tabular-nums; }
-.leaderboard th, .leaderboard td { padding: 12px; border-bottom: 1px solid #ffffff18; white-space: nowrap; }
-.leaderboard th { color: #9db1c9; font-size: .8rem; }
 @media (max-width: 540px) { .profile-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } .profile-dialog { padding: 16px; } }
 
 /* Spectator auto-redirect banner */

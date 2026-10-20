@@ -14,15 +14,17 @@ import usaJson from './generated/usa.json' with { type: 'json' };
 import asiaJson from './generated/asia.json' with { type: 'json' };
 import fantasyJson from './generated/fantasy.json' with { type: 'json' };
 import skirmishJson from './generated/skirmish.json' with { type: 'json' };
+import bohemiaJson from './generated/bohemia.json' with { type: 'json' };
+import nineRealmsJson from './generated/nine_realms.json' with { type: 'json' };
 import { RuleError } from './types.js';
 
-export type MapId = 'classic' | 'world' | 'world_large' | 'europe' | 'europe_advanced' | 'greater_europe' | 'europe_classic' | 'usa' | 'asia' | 'fantasy' | 'skirmish';
+export type MapId = 'classic' | 'world' | 'world_large' | 'europe' | 'europe_advanced' | 'greater_europe' | 'europe_classic' | 'usa' | 'asia' | 'fantasy' | 'skirmish' | 'bohemia' | 'nine_realms';
 /**
  * Maps offered for new games (option enum, MCP schema, lobby list, GET /maps). Every map in MAPS that is not
  * listed here is a legacy board: it stays loadable so saved games on it keep working, but cannot be picked.
  * A board's id is never reused for different territories; a reworked board gets a new id.
  */
-export const MAP_IDS: MapId[] = ['classic', 'world', 'world_large', 'europe', 'greater_europe', 'europe_classic', 'usa', 'asia', 'fantasy', 'skirmish'];
+export const MAP_IDS: MapId[] = ['classic', 'world', 'world_large', 'europe', 'greater_europe', 'europe_classic', 'usa', 'asia', 'fantasy', 'skirmish', 'bohemia', 'nine_realms'];
 /** Boards kept only for saved games: 'europe_advanced' (Europe (legacy, 99), superseded by greater_europe). */
 export const LEGACY_MAP_IDS: MapId[] = ['europe_advanced'];
 
@@ -114,6 +116,8 @@ export const STARTING_ARMIES: Record<MapId, StartingArmiesRule> = {
   asia: { classicScaled: true },
   fantasy: { classicScaled: true },
   skirmish: { classicScaled: true },
+  bohemia: { classicScaled: true },
+  nine_realms: { classicScaled: true },
 };
 
 /** Classic numbers scaled to a map with `territoryCount` territories (see StartingArmiesRule). */
@@ -180,6 +184,8 @@ export const MAPS: Record<MapId, MapDef> = {
   asia: wrap(asiaJson as RawMap),
   fantasy: wrap(fantasyJson as RawMap),
   skirmish: wrap(skirmishJson as RawMap),
+  bohemia: wrap(bohemiaJson as RawMap),
+  nine_realms: wrap(nineRealmsJson as RawMap),
 };
 
 export function getMap(id: string | undefined): MapDef {

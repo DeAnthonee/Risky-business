@@ -188,7 +188,9 @@ export async function runLoop(o: LoopOptions): Promise<GameResult[]> {
     const totalSeats = order.length + openSeats;
     try {
       setup = await createGame(api, order, {
-        gameName: o.mechanicsOnly ? 'Mechanics lab' : 'Bot table',
+        gameName: o.generation
+          ? `Generation ${o.generation.replace(/^gen/i, '')} Match ${g + 1}`
+          : (o.mechanicsOnly ? 'Mechanics lab' : 'Bot table'),
         options: gameOptions(totalSeats, map, o.options, random, modes),
         openSeats,
         onLobbyReady: (id) => {

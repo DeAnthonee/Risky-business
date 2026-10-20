@@ -1,0 +1,16 @@
+{
+  "autoSetup": true,
+  "randomDeal": true,
+  "setupBatch": 1,
+  "balancedBlitz": true,
+  "firstRoundBonus": true,
+  "fortifyMode": "connected",
+  "chooseCapitals": true,
+  "fogOfWar": false,
+  "blizzards": 8,
+  "capitals": true,
+  "cardValues": "progressive",
+  "neutrals": 0,
+  "neutralArmies": 2,
+  "spectatorChat": true
+}

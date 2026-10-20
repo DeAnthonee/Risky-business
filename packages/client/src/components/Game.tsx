@@ -4,6 +4,7 @@ import { api } from '../api';
 import { AutoAdvance, type AutoSpectate } from './AutoAdvance';
 import { CARD_FX_MS, CardFxPanel, type CardFx } from './CardFx';
 import { CharacterName, type Whisper } from './Profiles';
+import { PlayerCard } from './PlayerCard';
 import { ScoreChart } from './ScoreChart';
 import { spectateLink, type Session } from '../session';
 import type { EventBatch, GameConnection } from '../useGame';
@@ -33,6 +34,7 @@ export function Game({
   onLeave,
   onJoin,
   autoSpectate,
+  isGeneration = false,
 }: {
   conn: GameConnection;
   gameId: string;
@@ -41,6 +43,8 @@ export function Game({
   onJoin?: () => void;
   /** Auto-spectate viewers only: move on to the next live game once this one ends. */
   autoSpectate?: AutoSpectate;
+  /** Generation training matches: transitions straight to the next match's lobby. */
+  isGeneration?: boolean;
 }) {
   const view = conn.view!;
   const you = conn.you;
@@ -438,7 +442,7 @@ export function Game({
   const unreadLog = conn.batches.filter((b) => b.id > seenBatchId).length;
 
   return (
-    <div className={`game ${isMobile ? 'mobile' : ''} ${isMobile && sheet ? 'has-sheet' : ''}`}>
+    <div className={`game p5 ${isMobile ? 'mobile' : ''} ${isMobile && sheet ? 'has-sheet' : ''}`}>
       <div className="map-area">
         <div className="topbar">
           <div className="topbar-left">
@@ -496,6 +500,8 @@ export function Game({
           <DicePanel battle={anim.battle.ev} rolling={anim.battle.rolling} streak={anim.battle.streak} attackerColor={colorOf(anim.battle.ev.attacker)} defenderColor={colorOf(anim.battle.ev.defender)} names={names} mapId={view.options.map} />
         )}
 
+        {!isMobile && view.phase !== 'lobby' && <PlayerCard view={view} gameId={gameId} you={you} whisperTo={whisperTo} />}
+
         {anim.cardFx && <CardFxPanel key={anim.cardFx.id} fx={anim.cardFx} names={names} mapId={view.options.map} />}
 
         {banner && (
@@ -518,7 +524,7 @@ export function Game({
           {view.phase === 'finished' ? (
             <div className="action-group">
               <strong>🏆 {names[view.winner ?? ''] ?? 'Someone'} wins!</strong>
-              {spectator && autoSpectate && <AutoAdvance from={gameId} auto={autoSpectate} />}
+              {spectator && autoSpectate && <AutoAdvance from={gameId} auto={autoSpectate} generationOnly={isGeneration} />}
               <button onClick={leaveSpectate}>Back to lobby list</button>
               {session && conn.host === session.playerId && (
                 <button className="small danger" onClick={() => confirm('Close this room for everyone?') && api.closeGame(gameId, session.token).catch(() => {})}>

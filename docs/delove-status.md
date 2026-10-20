@@ -24,13 +24,14 @@ What "good" means, decided by the owner:
    -3, then +1 for every player you eliminate. A bot that places 2nd most of the time with kills is a good
    multiplayer bot. Training and gates should value what the leaderboard values.
 2. **Every map, 2 to 10 players.** One general model for all maps (`MAP_IDS` in `packages/engine/src/maps.ts`:
-   classic, world, world_large, europe, greater_europe, europe_classic, usa, asia, fantasy, skirmish). No per-map
+   classic, world, world_large, europe, greater_europe, europe_classic, usa, asia, fantasy, skirmish, bohemia, nine_realms). No per-map
    models unless one map later dominates live play.
 3. **Strong one-on-one as well.** Every multiplayer game ends as a duel, and the 1v1 has been Delove's weakest spot.
 4. **Fast iteration.** Training should run as much as possible on the training PC's GPU so we can try more ideas per
    day.
 
 Fog of war is out of scope for now: the board encoder sees the whole board, so the seat player refuses fog games.
+For testing parity with live Generation 5 play (including fog/no-fog matrix, blizzards, capitals, and card modes), see **[docs/game-settings.md](game-settings.md)** and config presets in `packages/delove/configs/`.
 
 ## 2. How the work is organised
 
@@ -45,7 +46,7 @@ The training PC (Windows 11, i7-14700F with 28 threads, 32 GB RAM, RTX 4060 8 GB
   heavy CPU/GPU jobs with a session that is measuring speed (three timing attempts on #80 were spoiled this way).
 - **The review session** ("PR review and README updates", a cloud session): reviews and merges PRs into the deploy
   branch. Message it when a PR is ready. It cannot reply to other sessions; its answers show in its own chat.
-- **Repo rules** (CLAUDE.md, CONTRIBUTING.md): never push to the deploy branch `ccr-63b8112a-e2uk2g`; feature
+- **Repo rules** (the hard rules in README.md, CONTRIBUTING.md): never push to the deploy branch `ccr-63b8112a-e2uk2g`; feature
   branch, PR, `npm test` green. Game rules live in `packages/engine` only. The one exception is
   `packages/delove-gpu`, a training-only mirror that must replay the engine exactly (section 6).
 
@@ -53,10 +54,13 @@ Where the training data lives (never in git):
 
 | what | where |
 | --- | --- |
-| models (`delove@N`, candidates, tuned teachers) | `C:\Users\espii\Projects\Risky-business-stage2\models\delove` (copies of the bests also in the main clone's `models\delove`, used by the live seat player) |
-| exported training arrays | `C:\Users\espii\Projects\Risky-business-stage2\data\delove` |
-| game logs, cycle outputs, tuner state | `C:\Users\espii\Projects\Risky-business-stage2\runs\delove` |
-| Python with CUDA PyTorch | `C:\Users\espii\Projects\Risky-business\.venv` (Python 3.12, torch 2.11 + cu128) |
+| models (`delove@N`, candidates, tuned teachers) | `<training PC>\Projects\Risky-business-stage2\models\delove` (copies of the bests also in the main clone's `models\delove`, used by the live seat player) |
+| exported training arrays | `<training PC>\Projects\Risky-business-stage2\data\delove` |
+| game logs, cycle outputs, tuner state | `<training PC>\Projects\Risky-business-stage2\runs\delove` |
+| Python with CUDA PyTorch | `<training PC>\Projects\Risky-business\.venv` (Python 3.12, torch 2.11 + cu128) |
+
+`<training PC>` stands for the owner's user folder on the training PC; the real locations are on that machine (not
+written here because the repo is public).
 
 ## 3. Where we are
 
@@ -72,6 +76,7 @@ decision collected so far.
 | `delove-teacher@2` ("Sensei 2") | Sensei 1's 28 judgement numbers tuned by self-play evolution | 0.608 vs Sensei 1 over 1,000 two-player games (+76 Elo); even at 4-6p |
 | `delove@2` | copying Sensei 2 (2p) + Sensei 1 (multiplayer), from `delove@1` | vs `delove@1`: 0.593 (2p), 0.555 (4p), 0.60 (6p) |
 | **`delove@3`** | fresh larger net on branch-and-score decisions (cycle 4) | vs `delove@2`: **0.541** (2p, 800 games, 95% 0.513-0.569), **0.600** (4p), **0.610** (6p); 0.560 vs Sensei 2 |
+| `jacob-sensei@1` ("Jacob Sensei", #98) | Sensei 2's numbers plus tunable terms from `AI/general-player/risk-learnings.md` (hunt weak players, late-game ramp, leader pressure), tuned with a self-play length penalty | 0 of 960 self-play games hit the turn limit (Sensei 2: up to 100% on big boards); vs Sensei 2: 0.521 Classic 2p, 0.504 World 2p (1,000 games each), 0.64-0.83 at 4-10p. Candidate rollout teacher (`DELOVE_BRANCH_TEACHER=jacob-sensei@1`); not on the GPU yet |
 
 Chained, roughly: `delove@3` is about +95 Elo over `delove@1` at 2 players, +110 at 4 and +150 at 6. That's
 about +600 Elo over the built-in bot at 2 players. The gains are largest in multiplayer, which used to be the weak spot.
@@ -203,7 +208,7 @@ exporter. None of them is imported by the server or the character code.
 **Running a cycle:**
 ```bash
 DELOVE_BRANCH_RANKER=<best> DELOVE_BRANCH_HORIZON=1 DELOVE_BRANCH_MARGIN=0.01 \
-  PYTHON=/c/Users/espii/Projects/Risky-business/.venv/Scripts/python \
+  PYTHON="<training PC>/Projects/Risky-business/.venv/Scripts/python" \
   bash packages/delove/scripts/cycle.sh packages/delove/scripts/cycles/<cN>.cycle
 ```
 A cycle config names its steps (jobs files), the training data mix and the gates. Re-running resumes. Output goes
@@ -214,11 +219,11 @@ to `runs/delove/<name>/cycle.md`.
 - **Training on points:** add `--value-target points` to the config's `train_args`; gate multiplayer on the ladder's
   mean points.
 
-**Live games:**
+**Live games & benchmarking:**
 ```bash
-npm run delove-seat -- --server https://risky.deanthoneeking.com --join <CODE> --agents delove@3,delove-teacher@1 --names "Delove@3,Sensei"
+npm run delove-seat -- --server https://risky.deanthoneeking.com --join <CODE> --agents delove@3,delove-teacher@2 --names "Delove@3,Sensei@2"
 ```
-Fog of war off; one seat per agent.
+Fog of war off (enforced by `delove-seat`); one seat per agent. For full environment parity options (random fog 50/50, blizzards, capitals, progressive/fixed/exponential cards), see **[docs/game-settings.md](game-settings.md)**.
 
 ## 7. Decisions made by the owner
 
@@ -234,9 +239,11 @@ Fog of war off; one seat per agent.
 
 | what | who | state |
 | --- | --- | --- |
-| GPU rules, teacher and branch-and-score for every map, 2-10 seats and every setting; points arrays from the GPU; `cycle.sh` GPU steps for any step | session "GPU engine for every map and 2-10 players" | **PR #82**, verified, in review |
+| GPU rules, teacher and branch-and-score for every map, 2-10 seats and every setting; points arrays from the GPU; `cycle.sh` GPU steps for any step | session "GPU engine for every map and 2-10 players" | done, **PR #82** merged |
+| Jacob Sensei, a teacher that doesn't stall (section 9 item 1) | session "Jacob Sensei" | done, **PR #98** merged; GPU port (`delove_gpu/teacher.py`) is issue #99 |
 | all-map strength data | coordinator | 147 of 296 chunks (about 5k games, 5 maps), stopped to free the machine; finish on the GPU |
 | #39 tournament Earth map | other work | on hold (owner) |
+| re-verify the GPU fingerprint for the new `bohemia` (#100) and `nine_realms` (#102) maps: until `verify.py` runs, `Engine(...)` / `TeacherEngine(...)` / `BranchEngine(...)` raise `StaleMirror`, so new GPU runs refuse to start | coordinator, on the training PC | pending: one `verify.py` run covers every map merged on 2026-10-20 |
 
 ## 9. What comes next, and why
 
@@ -248,7 +255,11 @@ In order. Each step has a measurable bar.
    with the stall penalty and `lateRound` / `lateRamp`) on a mix of 4-10 player tables and big maps, now
    affordable on the GPU (teacher-only games run 12-1,600x faster there). Bar: turn-limit games under ~2% at every
    table size, and no loss at 2 players against Sensei 2.
-2. **Points cycles on all maps, mostly on the GPU** (after #82 merges). Branch and score on a mix of every map and 2-10 players, trained with
+   **Bar met in self-play by Jacob Sensei (`jacob-sensei@1`, #98)**, a new teacher rather than a Sensei 3: 0 of 960
+   self-play games hit the limit, and no loss at 2 players. Left: port it to the GPU mirror (`delove_gpu/teacher.py`,
+   then add `src/jacob.ts` to `RULE_FILES` and re-run `verify.py`) so cycles can use it there; tables that seat
+   Sensei 2 as an opponent still stall on big boards (Greater Europe 25-34%). Details: `packages/delove/README.md`.
+2. **Points cycles on all maps, mostly on the GPU** (#82 merged). Branch and score on a mix of every map and 2-10 players, trained with
    `--value-target points`, gated by **mean leaderboard points** at 4-10 players (the ladder already reports them)
    and by win share at 2 players.
    *Why:* trains for what is ranked, on the maps that are played.
@@ -273,6 +284,7 @@ In order. Each step has a measurable bar.
 6. **Merge the specialists into one network** (distil both into a single model) once both clearly win.
 7. **Later:** a live "power bar" for spectators from the strength meter; per-map fine-tunes if one map dominates;
    fog of war (needs a seat-view encoder); seating Delove in character-league tables for direct comparison.
+   Fog of war plan (seat-view encoder, fog dropout, determinized branch teacher, GPU, gates): `docs/delove-fog.md`.
 
 ## 10. Pitfalls we hit (don't repeat them)
 
@@ -297,6 +309,7 @@ In order. Each step has a measurable bar.
 ## 11. Glossary
 
 - **Sensei 1 / 2:** the hand-coded teachers `delove-teacher@1` / `delove-teacher@2`.
+- **Jacob Sensei:** the hand-coded teacher for big tables, `jacob-sensei@1` (`src/jacob.ts`, #98).
 - **Branch and score:** the decision-by-decision search player (`delove-branch@1`).
 - **Candidate:** a trained model awaiting its ladder gate (`rNN-candidate`, `cN-candidate`). Only promoted models
   get the next `delove@N`.

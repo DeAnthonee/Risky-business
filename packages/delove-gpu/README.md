@@ -16,8 +16,9 @@ Python + PyTorch (CUDA), not an npm workspace. Uses the repo's `.venv`:
 ## What it covers
 
 **Every map, every table size and every game setting but fog of war** (`fused.py`, `teacher.py`, `branch.py`,
-`generate.py`): all ten maps of `MAP_IDS` (classic, world, world_large, europe, greater_europe with 116 territories,
-europe_classic, usa, asia, fantasy, skirmish / Four Crowns), 2 to 10 seats up to each map's player limit, and these
+`generate.py`): the ten verified maps of `MAP_IDS` (classic, world, world_large, europe, greater_europe with 116 territories,
+europe_classic, usa, asia, fantasy, skirmish / Four Crowns), plus bohemia (Bohemia, 42 territories) and nine_realms (The Nine Realms, 58
+territories), which are wired into `RULE_FILES` and the rules matrix but **not yet verified** (its replay proof is pending), 2 to 10 seats up to each map's player limit, and these
 settings in any combination: capitals and `chooseCapitals`, card values (progressive, fixed, exponential), fortify mode
 (connected, adjacent), balanced blitz, blizzards, `firstRoundBonus`, `setupBatch`, `autoSetup`, `randomDeal` (the
 claiming phase) and `neutrals` / `neutralArmies`. That is the whole game: the deal (random or claimed), setup,
@@ -300,6 +301,9 @@ written only after logs made with exactly those files replayed identically.
 - **CI warns, never blocks.** `.github/workflows/ci.yml` runs `fingerprint.py check --github`: a PR that changes one of
   those files gets a "GPU mirror needs re-verifying" warning. Engine and server work is never held up by this
   training-only package (CI has no GPU to run the replay on anyway).
+- **Per map:** `npm run maps:status` shows, for every board, whether it is in `RULE_FILES` and the rules matrix and
+  whether its JSON matches the fingerprint (GPU-verified); CI puts that table in the job summary and warns per
+  offered map that is not verified ([docs/map-making.md](../../docs/map-making.md#7-tracking-every-map)).
 - **Re-verify on the training PC** after such a change is merged:
 
   ```bash

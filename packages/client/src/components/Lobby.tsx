@@ -45,7 +45,7 @@ export function Lobby({ conn, gameId, session, onLeave, onJoin }: { conn: GameCo
   };
 
   return (
-    <div className="center">
+    <div className="center p5 p5-page">
       <div className="card lobby">
         <h1>{conn.name}</h1>
         <p className="muted">

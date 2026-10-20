@@ -182,6 +182,88 @@ function bboxOf(multi) {
   return [x0, y0, x1, y1];
 }
 
+/** Segments [p, q] of a multipolygon in ring order, with their canonical keys. */
+function segmentList(multi) {
+  const out = [];
+  for (const poly of multi)
+    for (const ring of poly)
+      for (let i = 0; i < ring.length - 1; i++) {
+        const ka = pkey(ring[i]), kb = pkey(ring[i + 1]);
+        if (ka !== kb) out.push({ p: ring[i], q: ring[i + 1], key: ka < kb ? `${ka}|${kb}` : `${kb}|${ka}` });
+      }
+  return out;
+}
+
+/** A rectangle of half-width h around segment p-q, stretched by h past both ends so neighbouring pieces overlap. */
+function strip(p, q, h) {
+  const len = dist(p, q);
+  const d = [(q[0] - p[0]) / len, (q[1] - p[1]) / len];
+  const n = [-d[1] * h, d[0] * h];
+  const a = [p[0] - d[0] * h, p[1] - d[1] * h], b = [q[0] + d[0] * h, q[1] + d[1] * h];
+  return [[[a[0] + n[0], a[1] + n[1]], [b[0] + n[0], b[1] + n[1]], [b[0] - n[0], b[1] - n[1]], [a[0] - n[0], a[1] - n[1]], [a[0] + n[0], a[1] + n[1]]]];
+}
+
+/**
+ * Chokepoints (`def.walls`): every land border between territories of different regions is cut by a water channel
+ * `width` wide, except the listed `passes`, which keep a gap of `passWidth` in the middle of their border (a land
+ * bridge). So neighbouring regions meet only where the map says, and the passes are plain to see.
+ */
+function cutWalls(def, geoms, warnings) {
+  const { width = 7, passWidth = 16, passes = [] } = def.walls;
+  const cont = new Map(def.territories.map((t) => [t.id, t.continent]));
+  const passSet = new Set(passes.map((p) => [...p].sort().join('|')));
+  const lists = new Map([...geoms].map(([id, m]) => [id, segmentList(m)]));
+  const keySets = new Map([...lists].map(([id, l]) => [id, new Set(l.map((s) => s.key))]));
+  const pieces = [];
+  const ids = [...geoms.keys()];
+  const found = new Set();
+  for (let i = 0; i < ids.length; i++)
+    for (let j = i + 1; j < ids.length; j++) {
+      const [a, b] = [ids[i], ids[j]];
+      if (cont.get(a) === cont.get(b)) continue;
+      const other = keySets.get(b);
+      // Shared segments in a's ring order, rotated so the chain does not wrap around the ring's start.
+      const all = lists.get(a);
+      const flags = all.map((s) => other.has(s.key));
+      if (!flags.some(Boolean)) continue;
+      const start = flags.findIndex((f, k) => f && !flags[(k - 1 + flags.length) % flags.length]);
+      const shared = [];
+      for (let k = 0; k < all.length; k++) {
+        const idx = (Math.max(start, 0) + k) % all.length;
+        if (flags[idx]) shared.push(all[idx]);
+      }
+      const pair = [a, b].sort().join('|');
+      let keep = () => false;
+      if (passSet.has(pair)) {
+        found.add(pair);
+        const total = shared.reduce((s, x) => s + dist(x.p, x.q), 0);
+        const lo = (total - passWidth) / 2, hi = (total + passWidth) / 2;
+        let at = 0;
+        const kept = new Set();
+        for (const s of shared) {
+          const l = dist(s.p, s.q);
+          if (at + l > lo && at < hi) kept.add(s);
+          at += l;
+        }
+        keep = (s) => kept.has(s);
+      }
+      for (const s of shared) if (!keep(s)) pieces.push(strip(s.p, s.q, width / 2));
+    }
+  for (const p of passSet) if (!found.has(p)) warnings.push(`pass ${p.replace('|', '/')} is not a land border between two regions`);
+  if (!pieces.length) return;
+  const wall = pc.union(...pieces);
+  for (const [id, multi] of geoms) {
+    let cut = pc.difference(multi, wall).filter((poly) => polyArea(poly) > 1);
+    if (cut.length > multi.length) {
+      // A sliver cut off by a wall becomes water; a real second piece is a design problem.
+      const largest = Math.max(...cut.map(polyArea));
+      cut = cut.filter((poly) => polyArea(poly) >= largest * 0.15);
+      if (cut.length > multi.length) warnings.push(`walls split ${id} into ${cut.length} pieces; move a site or a pass`);
+    }
+    geoms.set(id, cut);
+  }
+}
+
 /**
  * Builds territory and continent shapes for an authored map definition.
  * Returns everything build-map.mjs needs: output records, a border-length based `touches`
@@ -272,6 +354,8 @@ export function buildAuthored(def) {
     }
     geoms.set(id, keep);
   }
+
+  if (def.walls) cutWalls(def, geoms, warnings);
 
   // Shared border lengths decide land adjacency.
   const segs = new Map([...geoms].map(([id, m]) => [id, segmentMap(m)]));

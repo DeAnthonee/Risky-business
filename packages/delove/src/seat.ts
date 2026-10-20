@@ -55,6 +55,7 @@ export function discoverTunedTeachers(dir = modelsDir()): Agent[] {
 export function defaultName(id: string): string {
   if (id === teacher.id || id === 'sensei@1' || id === 'sensei') return 'Sensei 1';
   if (id === 'delove-teacher@2' || id === 'sensei@2') return 'Sensei 2';
+  if (id === 'jacob-sensei@1' || id === 'jacob') return 'Jacob Sensei';
   const m = /^delove@(\d+)(-explore)?$/.exec(id);
   return m ? `Delove ${m[1]}${m[2] ? ' (explore)' : ''}` : id;
 }

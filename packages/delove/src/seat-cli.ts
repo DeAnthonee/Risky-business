@@ -5,6 +5,7 @@ import { HttpRiskApi } from '@risk/mcp';
 import type { Agent } from '@risk/selfplay';
 import { discoverNetAgents } from './net-agent.js';
 import { defaultName, discoverTunedTeachers, playSeat } from './seat.js';
+import { jacob } from './jacob.js';
 import { teacher } from './teacher.js';
 
 const USAGE = `delove-seat: seat Delove players in a real game over the HTTP API (no chat, no character)
@@ -15,7 +16,8 @@ const USAGE = `delove-seat: seat Delove players in a real game over the HTTP API
   --server URL     game server (default RISK_SERVER_URL or http://localhost:8080)
   --agents IDS     Delove versions, one seat each (default delove@1): delove-teacher@1, every tuned
                    teacher models/delove/delove-teacher@N.json and every models/delove/delove@N.onnx
-                   (or DELOVE_MODELS); sensei, sensei@1 and sensei@2 name the teachers
+                   (or DELOVE_MODELS); sensei, sensei@1 and sensei@2 name the teachers;
+                   jacob-sensei@1 (or jacob) is Jacob Sensei
   --names NAMES    seat names, same order (default "Delove 1", "Sensei 1", "Sensei 2", ...)
   --join CODE      join a game someone created; the host starts it
   --create         create a game (the first seat hosts), add --bots built-in bots, start it (unless --no-start)
@@ -47,12 +49,13 @@ async function main() {
   if (!values.join === !values.create) fail('give exactly one of --join CODE or --create');
 
   const tuned = discoverTunedTeachers();
-  const allAgents = [teacher, ...tuned, ...discoverNetAgents()];
+  const allAgents = [teacher, ...tuned, jacob, ...discoverNetAgents()];
   const known = new Map<string, Agent>(
     allAgents.flatMap((a) => {
       const entries: [string, Agent][] = [[a.id, a]];
       if (a.id === 'delove-teacher@1') entries.push(['sensei@1', a], ['sensei', a]);
       if (a.id === 'delove-teacher@2') entries.push(['sensei@2', a]);
+      if (a.id === jacob.id) entries.push(['jacob', a]);
       return entries;
     }),
   );

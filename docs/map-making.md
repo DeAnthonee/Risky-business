@@ -4,7 +4,7 @@ The end-to-end process for a new board: the design rules, tracing a reference pi
 previewing, registering the map id everywhere it must appear, the workflow from design to deploy, and tracking every
 map's state with `npm run maps:status`. It is written from the two boards made this way: Bohemia (`scripts/maps/bohemia.mjs`,
 one landmass per region joined at fords) and The Nine Realms (`scripts/maps/nine_realms.mjs`, one landmass with
-`walls`; it lands with its own PR, so until then the runnable examples here use `bohemia`). Read [CONTRIBUTING.md](../CONTRIBUTING.md#5-maps) for the build commands and [maps.md](maps.md) for the boards that exist.
+`walls`). The runnable examples use `bohemia`. Read [CONTRIBUTING.md](../CONTRIBUTING.md#5-maps) for the build commands and [maps.md](maps.md) for the boards that exist.
 
 New original boards use `kind: 'authored'`: hand-drawn outlines in the map's own coordinate space, one `site` per
 territory, split by a seeded Voronoi partition (`scripts/authored-map.mjs`). Land adjacency comes from the shapes;
@@ -42,14 +42,14 @@ const at = (x, y) => P([[x, y]])[0]; // one point (territory sites)
   dense maps (more than 50 territories, 10px), about 9.5 on others (12px). A label must not cross land of another
   region or a badge.
 - Islets drawn small on the picture are hard to click: enlarge them about their centre (`grow()` in
-  nine_realms.mjs, which lands with its PR).
+  nine_realms.mjs).
 - Write the grid and the scale in a comment at the top of the map file, as both boards do.
 
 ## 3. Building chokepoints
 
 Voronoi cells on one landmass touch all their neighbours, so a region drawn on open land has many entry points. New
 authored maps cut them down with **`walls`** (the main technique); Bohemia's separate landmasses are the alternative.
-`walls` lands in `scripts/authored-map.mjs` with The Nine Realms' PR; a map that uses it needs that PR merged first.
+`walls` is implemented by `cutWalls` in `scripts/authored-map.mjs`.
 
 | technique | how | use it when | example |
 | --- | --- | --- | --- |
@@ -62,7 +62,7 @@ With `walls`:
   `pass a/b is not a land border between two regions`: move a site so the two cells touch, or pick another pair.
 - Slivers a wall cuts off a territory become water. A wall that splits a territory into real pieces warns
   `walls split <id> into N pieces`: move a site or a pass.
-- The Nine Realms (lands with its PR) uses exactly one pass per pair of neighbouring regions (12 passes; `width` 7
+- The Nine Realms uses exactly one pass per pair of neighbouring regions (12 passes; `width` 7
   and `passWidth` 22, the defaults are 7 and 16), and its engine test checks for exactly one link per region pair.
   Start from that and add a second pass between two regions only on purpose.
 - Islands and archipelagos stay separate landmasses with `territory: <id>`, reached by `seaLanes`.

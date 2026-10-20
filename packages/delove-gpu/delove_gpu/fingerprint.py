@@ -43,6 +43,7 @@ RULE_FILES = [
     "packages/engine/src/generated/fantasy.json",
     "packages/engine/src/generated/skirmish.json",
     "packages/engine/src/generated/bohemia.json",
+    "packages/engine/src/generated/nine_realms.json",
     "packages/selfplay/src/actions.ts",
     "packages/selfplay/src/encode.ts",
     "packages/selfplay/src/log.ts",

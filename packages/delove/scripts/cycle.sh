@@ -21,15 +21,19 @@
 #   train_data=("<step>/<map>[:mode][*N]" | "<dataset under DATA or path>[:mode][*N]" ...)   *N repeats it N times
 #   train_init=<model id, or empty for a fresh network>  candidate=<cN-candidate>  train_args="--epochs 1.5 --lr 3e-4"
 #   gates=("<opponent> <players> <games> [options JSON]" ...)   ladder matches of the candidate
+#   gpu_gates=(<gate index> ... | all)   optional: gates played on the GPU (delove_gpu.ladder: the same games and the
+#                              same gates/g<i>-<k>.json as on the CPU); the others stay on the CPU. GPU_GATES
+#                              (space-separated indices or all; 1 = all, 0 = none) overrides it.
 # Environment: CYCLE_NAME (overrides name, e.g. for a trial run), DELOVE_MODELS (models folder, default models/delove), OUT (default runs/delove/<name>), DATA (default
 # data/delove), PYTHON (default .venv/Scripts/python), PARALLEL, CHUNKS (chunks per process and step, default 4; or
 # CHUNK = fixed games per chunk), GATE_CHUNK (games per gate chunk, default 20), GPU_BATCH (games in flight on the
 # GPU per configuration; default: sized to GPU_GB of game state, default 3). Re-running resumes: finished chunks, exports, GPU steps, the trained model and finished gate
-# chunks are kept.
+# chunks are kept. GPU gates refuse a stale GPU mirror (fingerprint.py check) unless GPU_GATES_ALLOW_UNVERIFIED=1;
+# GPU_GATE_PROCS (default 1) GPU processes share the gate configurations, each sizing its batch to GPU_GATE_GB (default 1).
 set -euo pipefail
 config=$1
 export_agents=delove-branch@1
-train_data=(); gates=(); train_args=""; gpu_steps=()
+train_data=(); gates=(); train_args=""; gpu_steps=(); gpu_gates=()
 # shellcheck source=/dev/null
 source "$config"
 name=${CYCLE_NAME:-$name}
@@ -221,6 +225,41 @@ for i in "${!gates[@]}"; do
     echo "$i $k $opp $players $(( games - k * gate_chunk < gate_chunk ? games - k * gate_chunk : gate_chunk )) ${options:-"{}"}" >> "$gpool"
   done
 done
+# Gates listed in gpu_gates play on the GPU: one process (delove_gpu.ladder) for all their chunks, every chunk of one
+# configuration in one engine, alongside the CPU gates. Same chunks, seeds and output files as run_gate.
+case ${GPU_GATES:-} in
+  '') ;;
+  1) gpu_gates=(all) ;;  # the environment's on switch; gpu_gates=(1) in a config is gate 1
+  0) gpu_gates=() ;;
+  *) read -r -a gpu_gates <<< "$GPU_GATES" ;;
+esac
+gate_on_gpu() { [[ " ${gpu_gates[*]} " == *" all "* || " ${gpu_gates[*]} " == *" $1 "* ]]; }
+gpu_gpool="$out/gates/gpu.txt"
+cpu_gpool="$out/gates/cpu.txt"
+: > "$gpu_gpool"
+: > "$cpu_gpool"
+while read -r i k opp players games options; do
+  [[ -f "$out/gates/g$i-$k.json" ]] && continue
+  if gate_on_gpu "$i"; then
+    echo "$i $k $opp $players $games $(( seed * 1000 + 100 * i + k )) $options" >> "$gpu_gpool"
+  else
+    echo "$i $k $opp $players $games $options" >> "$cpu_gpool"
+  fi
+done < "$gpool"
+gpu_gate_runner=""
+if [[ -s "$gpu_gpool" ]]; then
+  gpu_gate_args=(--models "$(absdir "$models")" --candidate "$candidate" --gates "$(abs "$gpu_gpool")" --out "$(absdir "$out/gates")"
+    --batch "${GPU_BATCH:-0}" --gpu-gb "${GPU_GATE_GB:-1}" --procs "${GPU_GATE_PROCS:-1}")
+  if [[ ${GPU_GATES_ALLOW_UNVERIFIED:-0} == 1 ]]; then
+    gpu_gate_args+=(--allow-unverified)
+  else
+    "$python" packages/delove-gpu/delove_gpu/fingerprint.py check ||
+      { echo "GPU gates: the mirror is stale (run packages/delove-gpu/verify.py first, or GPU_GATES_ALLOW_UNVERIFIED=1)"; exit 1; }
+  fi
+  echo "$(wc -l < "$gpu_gpool") gate chunks on the GPU, $(wc -l < "$cpu_gpool") on the CPU"
+  (cd packages/delove-gpu && "$python" -m delove_gpu.ladder "${gpu_gate_args[@]}") > "$out/gates/gpu.log" 2>&1 &
+  gpu_gate_runner=$!
+fi
 export candidate
 run_gate() {
   read -r i k opp players games options <<< "$1"
@@ -231,7 +270,12 @@ run_gate() {
     && mv "$f.tmp" "$f" || { echo "FAILED gate $i chunk $k"; return 1; }
 }
 export -f run_gate
-tr '\n' '\0' < "$gpool" | xargs -0 -P "$parallel" -I{} bash -c 'run_gate "$1"' _ {}
+gates_failed=0
+tr '\n' '\0' < "$cpu_gpool" | xargs -0 -P "$parallel" -I{} bash -c 'run_gate "$1"' _ {} || gates_failed=1
+if [[ -n $gpu_gate_runner ]]; then
+  wait "$gpu_gate_runner" || { echo "FAILED GPU gates (see $out/gates/gpu.log)"; gates_failed=1; }
+fi
+(( gates_failed )) && exit 1
 stamp "gates done"
 stamp "summary"
 

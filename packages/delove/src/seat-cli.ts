@@ -13,9 +13,10 @@ const USAGE = `delove-seat: seat Delove players in a real game over the HTTP API
   npm run delove-seat -- --create [--agents delove@1,delove-teacher@1] [--bots 2] [--options '{"map":"classic"}'] [--no-start]
 
   --server URL     game server (default RISK_SERVER_URL or http://localhost:8080)
-  --agents IDS     Delove versions, one seat each (default delove@1): delove-teacher@1 and every
-                   models/delove/delove@N.onnx (or DELOVE_MODELS) as delove@N
-  --names NAMES    seat names, same order (default "Delove 1", "Delove Teacher", ...)
+  --agents IDS     Delove versions, one seat each (default delove@1): delove-teacher@1, every tuned
+                   teacher models/delove/delove-teacher@N.json and every models/delove/delove@N.onnx
+                   (or DELOVE_MODELS); sensei, sensei@1 and sensei@2 name the teachers
+  --names NAMES    seat names, same order (default "Delove 1", "Sensei 1", "Sensei 2", ...)
   --join CODE      join a game someone created; the host starts it
   --create         create a game (the first seat hosts), add --bots built-in bots, start it (unless --no-start)
   --pace MS        pause after each move so spectators can follow (default 400)

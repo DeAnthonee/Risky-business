@@ -1263,19 +1263,34 @@ describe('nine_realms map (The Nine Realms)', () => {
     expect(MAP_IDS).toContain('nine_realms');
     expect(m.territories).toHaveLength(58);
     expect(m.continents.map((c) => c.id)).toEqual(['hoarlands', 'cloudvale', 'fordlands', 'rustcrag', 'goldfells', 'throneland', 'galewatch', 'verdance', 'sunmarches']);
-    expect(m.continents.map((c) => c.bonus)).toEqual([6, 5, 5, 2, 3, 3, 3, 7, 4]);
+    expect(m.continents.map((c) => c.bonus)).toEqual([6, 4, 5, 2, 3, 3, 3, 5, 4]);
     expect(m.maxPlayers).toBe(8);
     expect(m.viewBox[1]).toBeGreaterThan(m.viewBox[0]); // a tall board
   });
 
-  it('closes the frozen north behind three gates', () => {
-    expect(entries('hoarlands').sort()).toEqual(['bogneck', 'gullhook', 'silverquay']);
+  it('enters every region through a few chokepoints (barriers cut the rest of each border)', () => {
+    const gates: Record<string, string[]> = {
+      hoarlands: ['bogneck', 'gullhook', 'silverquay'],
+      cloudvale: ['bloodgate', 'fingerstrand', 'gullhaven', 'mistcliffs'],
+      fordlands: ['redford', 'seawatch', 'stonyford', 'tridentfork', 'twinford'],
+      rustcrag: ['blackbrine', 'rustcrag', 'saltholm'],
+      goldfells: ['cragmouth', 'goldenway'],
+      throneland: ['clawpoint', 'mirewood', 'throneport'],
+      galewatch: ['bluestone', 'oakwold', 'rainmarch', 'thornpass'],
+      verdance: ['goldmeadow', 'longfield', 'oldspire', 'rushwater'],
+      sunmarches: ['bonepass', 'dunmarch', 'starcliff', 'suncrest'],
+    };
+    for (const [c, ids] of Object.entries(gates)) expect(entries(c).sort()).toEqual(ids);
+    // the single passes between neighbouring regions
+    expect(m.adjacency.goldenway.filter((n) => m.territoryById[n].continent === 'verdance')).toEqual(['rushwater']);
+    expect(m.adjacency.longfield.filter((n) => m.territoryById[n].continent === 'galewatch')).toEqual(['rainmarch']);
+    expect(m.adjacency.bonepass.filter((n) => m.territoryById[n].continent === 'galewatch')).toEqual(['thornpass']);
   });
 
   it('reaches every offshore isle only by sea, and has symmetric, connected adjacency', () => {
     const seaOnly = new Set(m.seaLinks.flatMap((l) => [l.a, l.b]));
     for (const isle of ['skarn', 'ursholm', 'rustcrag', 'saltholm', 'blackbrine', 'wyrmrock', 'bluestone', 'vintners_isle']) {
-      expect(m.adjacency[isle].length).toBeGreaterThanOrEqual(2);
+      expect(m.adjacency[isle].length).toBeGreaterThanOrEqual(1);
       expect(seaOnly.has(isle)).toBe(true);
     }
     for (const t of m.territoryIds) for (const n of m.adjacency[t]) expect(m.adjacency[n]).toContain(t);

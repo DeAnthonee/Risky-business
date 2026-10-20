@@ -199,7 +199,9 @@ at a table (`delove-teacher@N`, `jacob-sensei@N`, any mix) plays its own version
   packages/delove/README.md).
 - **Training arrays** (`generate.py` Recorder, `npy.py`): export.ts's files and `features.json`, with the feature names
   and versions read from the built self-play package. The encoder computes in float64 and rounds to float32 once, as
-  encode.ts stores doubles into a Float32Array, so the arrays are bit-identical to `export`'s.
+  encode.ts stores doubles into a Float32Array, so the arrays are bit-identical to `export`'s. One extra array, not in
+  export's: `branch_tag.npy` (int8 per decision: 0 the teacher's move without comparing options, 1 compared and kept,
+  2 changed), which `train.py --branch-weights` reads.
 
 - **Outcomes** (`outcome.py`): z, and log v3's leaderboard placements, kills and points (`points.npy`, `points01.npy`):
   the kernel records who eliminated whom and in which order, `finalPlacements`' ordering is mirrored, and the points

@@ -7,6 +7,7 @@ numbers go in [packages/delove/CYCLES.md](../../packages/delove/CYCLES.md) and t
 Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. **Append a line in the same PR** as any change to
 this area (README hard rule 12).
 
+- 2026-10-20 #TBD Cycle 6: `delove@4` (Jacob Sensei teacher, league settings, search-weighted lessons); `train.py` `:value` mode and `--branch-weights`; `cycle.sh` `GPU_LANES=N`; CYCLES.md and delove-status sections 3, 5, 8
 - 2026-10-20 #115 `cycle.sh`: `REMOTE_GPUS=N` plays the GPU steps on rented cloud GPUs (packages/delove-gpu/cloud); `gen_args` shared by local and remote GPU steps
 - 2026-10-20 #114 Range specialists: `train.py --alive LO-HI`; `delove-range@N` routes each decision to Delove Long / Mid / Close Range by players alive (`delove-range@N.json`, neutral not counted); delove-status §8 row
 - 2026-10-20 #113 `cycle.sh` `gpu_gates=(all | indices)` / `GPU_GATES` plays chosen ladder gates on the GPU (same chunks, seeds and gate files; CPU stays the default; refuses a stale mirror unless `GPU_GATES_ALLOW_UNVERIFIED=1`); README "Gates on the GPU"

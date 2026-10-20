@@ -229,7 +229,6 @@ class Ssh:
         self.key = work / "ssh_key"
         self.known = work / "known_hosts"
         self.exe = os.environ.get("SSH", "ssh")
-        self.scp = os.environ.get("SCP", "scp")
         if not self.key.exists():
             subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "delove-cloud", "-f", str(self.key)], check=True)
 
@@ -247,11 +246,24 @@ class Ssh:
             raise RuntimeError(f"ssh {pod.name}: {cmd[:80]!r} failed: {r.stderr.strip()[:300]}")
         return r.stdout
 
+    # Files go through a plain ssh stream, not scp: OpenSSH 9's scp speaks SFTP, and RunPod's PyTorch image closed the
+    # channel mid-upload ("Couldn't send packet: Broken pipe"). The size is checked on the other side.
     def put(self, pod: Pod, local: Path, remote: str, timeout: float = 3600):
-        subprocess.run([self.scp, *self.opts("-P", pod), str(local), f"root@{pod.ip}:{remote}"], check=True, timeout=timeout)
+        q = shlex.quote(remote)
+        with open(local, "rb") as f:
+            subprocess.run([self.exe, *self.opts("-p", pod), f"root@{pod.ip}", f"cat > {q}.part && mv {q}.part {q}"],
+                           stdin=f, check=True, timeout=timeout)
+        size = int(self.run(pod, f"stat -c %s {q}").strip())
+        if size != local.stat().st_size:
+            raise RuntimeError(f"upload to {pod.name}: {size} bytes arrived of {local.stat().st_size}")
 
     def get(self, pod: Pod, remote: str, local: Path, timeout: float = 4 * 3600):
-        subprocess.run([self.scp, *self.opts("-P", pod), f"root@{pod.ip}:{remote}", str(local)], check=True, timeout=timeout)
+        q = shlex.quote(remote)
+        size = int(self.run(pod, f"stat -c %s {q}").strip())
+        with open(local, "wb") as f:
+            subprocess.run([self.exe, *self.opts("-p", pod), f"root@{pod.ip}", f"cat {q}"], stdout=f, check=True, timeout=timeout)
+        if local.stat().st_size != size:
+            raise RuntimeError(f"download from {pod.name}: {local.stat().st_size} bytes of {size}")
 
     def forget(self):
         for f in (self.key, self.key.with_suffix(".pub"), self.known):

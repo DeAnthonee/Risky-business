@@ -581,7 +581,7 @@ are played, `remote.py` deletes them again before terminating, terminating destr
 volume is used), and the local upload tar is deleted right after the upload.
 
 **Running it.** From a cycle: `REMOTE_GPUS=6` (and `REMOTE_TIMINGS`, `REMOTE_MAX_GPU_HOURS`, `REMOTE_PROCS`,
-`REMOTE_GPU_TYPE`, `REMOTE_CLOUD`) makes cycle.sh hand every GPU step to `remote.py run` with the same generate
+`REMOTE_GPU_TYPE`: one RunPod GPU type id or several comma-separated, tried in that order, `REMOTE_CLOUD`) makes cycle.sh hand every GPU step to `remote.py run` with the same generate
 arguments as a local step; progress goes to `OUT/remote.log`, the merged arrays to `DATA/<name>-<step>/<map>` and each
 step's `gpu.json` and `gpu.log` to `OUT/<step>/`, so training, `summary.mjs` and the dashboard are unchanged. By hand
 (from `packages/delove-gpu`; the generate arguments go after `--`):

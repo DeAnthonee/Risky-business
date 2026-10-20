@@ -270,9 +270,9 @@ In order. Each step has a measurable bar.
    affordable on the GPU (teacher-only games run 12-1,600x faster there). Bar: turn-limit games under ~2% at every
    table size, and no loss at 2 players against Sensei 2.
    **Bar met in self-play by Jacob Sensei (`jacob-sensei@1`, #98)**, a new teacher rather than a Sensei 3: 0 of 960
-   self-play games hit the limit, and no loss at 2 players. Left: port it to the GPU mirror (`delove_gpu/teacher.py`,
-   then add `src/jacob.ts` to `RULE_FILES` and re-run `verify.py`) so cycles can use it there; tables that seat
-   Sensei 2 as an opponent still stall on big boards (Greater Europe 25-34%). Details: `packages/delove/README.md`.
+   self-play games hit the limit, and no loss at 2 players. It runs on the GPU mirror too
+   (#110, verified bit for bit), so cycle 6 uses it there. Still open: tables that seat
+   Sensei 2 as an opponent stall on big boards (Greater Europe 25-34%). Details: `packages/delove/README.md`.
 2. **Points cycles on all maps, mostly on the GPU** (#82 merged). Branch and score on a mix of every map and 2-10 players, trained with
    `--value-target points`, gated by **mean leaderboard points** at 4-10 players (the ladder already reports them)
    and by win share at 2 players.

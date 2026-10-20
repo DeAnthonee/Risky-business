@@ -5,6 +5,7 @@ Covers `packages/client` (lobby, board, animations, chat, spectator features). G
 Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. Changes from before pull requests carry the
 commit hash instead. **Append a line in the same PR** as any change to this area (README hard rule 12).
 
+- 2026-10-20 #PR animated water behind the board: depth gradient, drifting wave marks, coastline surf glow (still under reduced motion)
 - 2026-10-20 #103 current player card over the board (desktop): this game's stats and leaderboard standing for whoever's turn it is; draggable, resizable, foldable, remembered per browser
 - 2026-10-20 #96 generation-match auto-move actually runs (the name comes from the connection), matches only the runner's exact `Generation <tag> Match <n>` names and skips tournament tables; hard rule 10 and playing.md describe it
 - 2026-10-20 #94 Persona orange-cream theme for the game screen, lobby, join pages and dialogs (shared `theme.css`); the board itself is unchanged

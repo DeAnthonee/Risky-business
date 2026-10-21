@@ -101,7 +101,7 @@ export class Lookahead {
     }
 
     const toRate = leaves.filter((l) => l.features);
-    const rated = this.scorer.values(toRate.map((l) => l.features!), map.id);
+    const rated = this.scorer.values(toRate.map((l) => l.features!), map.id, !!ctx.state.options.fogOfWar);
     let r = 0;
     const sums = new Map<number, { sum: number; n: number; max: number; fortify: boolean }>();
     for (const l of leaves) {

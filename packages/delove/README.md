@@ -34,7 +34,8 @@ npm run delove-seat -- --server http://localhost:8080 --create --agents delove@1
 ```
 
 `--pace 400` (ms between moves, so spectators can follow), `--names "A,B"`, `--options '{"capitals":true}'`,
-`--no-start`. Fog of war games are refused for now: Delove was trained on the full board.
+`--no-start`. Fog of war: only a network trained for it (fog inputs, `"fogInputs"` in its `.json`, from
+`train.py --fog-dropout`; "Fog of war" below) takes a fog seat; other versions sit fog games out.
 `--agents` takes `delove-teacher@1`, every tuned teacher in the models folder (`delove-teacher@N.json`, e.g.
 `delove-teacher@2`), and every `delove@N.onnx`. `sensei` / `sensei@1` and `sensei@2` are aliases for the two teachers,
 and their seats are named "Sensei 1" and "Sensei 2" unless `--names` says otherwise (#88). `jacob-sensei@1` (alias `jacob`)
@@ -71,6 +72,28 @@ To evaluate Delove models on the exact game options used in Generation 5 live le
 - `packages/delove/configs/gen5-nofog.json` (baseline Gen 5 options with `fogOfWar: false`)
 - `packages/delove/configs/gen5-randomfog.json` (standard league options with `fogOfWar: true`)
 - `packages/delove/configs/gen5-fixedcards.json` (options with fixed card trade values)
+
+### Fog of war (first capability: the seat view and fog dropout)
+
+The plan and what is built: [docs/delove-fog.md](../../docs/delove-fog.md). In short:
+
+```bash
+# fine-tune the best model for fog: 30% of the decisions shown as their seat would see them under fog (any full-board data)
+.venv/Scripts/python packages/delove/python/train.py --init <models>/delove@8.pt --fog-dropout 0.3 --out <models>/c15-fog   --data <data>/c9-a1/classic --data "<data>/c9-a4/world#0.5" ... --value-target points --amp
+.venv/Scripts/python packages/delove/python/export_onnx.py <models>/c15-fog
+# the fog gate: league fog settings, every seat on its own view (CPU ladder)
+npm run delove -- ladder --candidate c15-fog --best delove@8 --players 6 --games 200 --options "$(cat packages/delove/configs/gen5-randomfog.json)"
+```
+
+- `--fog-dropout P` adds the fog inputs (`fog.py`, the same as `packages/selfplay/src/fog.ts`) and fogs each decision
+  with probability P. A model from before fog is widened with zero weights and starts as the same player. The `.json`
+  records `fogInputs: 1`, which the network player reads; validation prints a `fog` line (the same decisions, all fogged).
+- In a fog game every seat decides on its view (self-play's `foggedAgent`, the live seat's `stateFromView`), so
+  gates are fair: a fogged Jacob Sensei, a fogged `delove@N` (the seat view without the two fog columns).
+- In a cycle config, a fog gate is a gate line with the fog settings, e.g.
+  `"delove@8 6 200 {\"fogOfWar\":true,\"autoSetup\":true,...}"`; it plays on the CPU even with `gpu_gates`.
+  `train_args` takes `--fog-dropout` like any other option.
+- `train.py --soft-targets` with a pre-fog prior widens the prior the same way.
 
 ## Train a version (Stage 1: learn from the teacher)
 
@@ -282,7 +305,7 @@ that file is in the GPU mirror's fingerprint, and it is tested to play the same 
 
   The balance floor keeps the set from being mostly decided games; a capture that skips the stage (two players out
   in one turn), fails the floor or hits the turn limit moves on to the next seed. `--tables`, `--positions` and
-  `--options` (a JSON string or file such as `configs/gen5-nofog.json`; fog is refused) change the set; keep them the
+  `--options` (a JSON string or file such as `configs/gen5-nofog.json`; fog is refused: positions are captured on the full board) change the set; keep them the
   same across comparisons. `--save-positions FILE` writes the set (a few MB, local only, not for git) and
   `--load-positions FILE` replays exactly that set.
 - **Mirrored pairs:** every position is played twice, the candidate on alternate alive seats and then on the others,

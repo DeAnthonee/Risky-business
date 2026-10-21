@@ -19,7 +19,7 @@ below is the record.
 | server | https://risky.deanthoneeking.com (live) |
 | table | 6 seats: Delove + five LLM seats named `<Tier> <Character>`: Shen, Jinx, Thresh, Leona, Teemo (`league/*` profiles) |
 | map | Classic |
-| settings | fog **off** (the Delove seat refuses fog games), territories and armies dealt at random (`autoSetup`, `randomDeal`), **capitals on** (each picks one), **8 blizzards**, progressive cards, balanced blitz, first-round bonus, connected fortify |
+| settings | fog **off** (the Delove seat refused fog games then; since #PR it seats fog-trained models, `fogInputs`), territories and armies dealt at random (`autoSetup`, `randomDeal`), **capitals on** (each picks one), **8 blizzards**, progressive cards, balanced blitz, first-round bonus, connected fortify |
 | seat order | the five LLM seats in character order, Delove last (6th) |
 | LLM seat brief | [`packages/delove/scripts/yardstick/seat-prompt.md`](../packages/delove/scripts/yardstick/seat-prompt.md) |
 | stop rule | the game ends when Delove is knocked out (or finishes); the monitor records it and closes the room |

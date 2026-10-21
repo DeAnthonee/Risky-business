@@ -28,7 +28,8 @@ const USAGE = `delove-seat: seat Delove players in a real game over the HTTP API
   --create         create a game (the first seat hosts), add --bots built-in bots, start it (unless --no-start)
   --pace MS        pause after each move so spectators can follow (default 400)
 
-Fog of war games are refused: Delove was trained on the full board.`;
+Fog of war: only Delove networks trained for it (fog inputs: train.py --fog-dropout, "fogInputs" in the model's
+.json) take fog seats, playing on what their seat can see; other versions sit fog games out.`;
 
 function fail(msg: string): never {
   console.error(`${msg}\n\n${USAGE}`);
@@ -82,7 +83,8 @@ async function main() {
   } catch {
     fail('--options must be JSON');
   }
-  if (options?.fogOfWar) fail('Delove does not play fog of war games yet');
+  const blind = ids.filter((_, i) => !agents[i].fogInputs);
+  if (options?.fogOfWar && blind.length) fail(`fog of war: ${blind.join(', ')} not trained for fog (only networks with fog inputs play fog games)`);
 
   const server = values.server ?? process.env.RISK_SERVER_URL ?? 'http://localhost:8080';
   const api = new HttpRiskApi(server);

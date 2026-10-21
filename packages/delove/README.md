@@ -40,6 +40,11 @@ npm run delove-seat -- --server http://localhost:8080 --create --agents delove@1
 and their seats are named "Sensei 1" and "Sensei 2" unless `--names` says otherwise (#88). `jacob-sensei@1` (alias `jacob`)
 sits as "Jacob Sensei".
 
+The seat rebuilds the board from its view (`stateFromView`): each opponent's hand gets its real size (`cardCount`),
+the deck and discard theirs, dealt at random from the cards the seat can't see. Before #143 the rebuilt board gave
+every opponent an empty hand, so the network and Jacob Sensei read every opponent's card count as 0 in live games
+(training saw the real counts).
+
 ### Generation 5 Testing & Environment Parity
 
 To evaluate Delove models on the exact game options used in Generation 5 live league play, see [`docs/game-settings.md`](../../docs/game-settings.md) and pre-built configs in `packages/delove/configs/`:

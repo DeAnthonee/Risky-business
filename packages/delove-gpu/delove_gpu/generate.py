@@ -110,7 +110,7 @@ def parse_table(s: str) -> Table:
 
 def expand_positions(tables: list[Table]) -> list[Table]:
     """A positions table becomes one table per configuration its positions are played at (map, seats, settings),
-    each with the game numbers whose position (game i: positions[i % count]) is at that table."""
+    each with the game numbers whose position (game i: positions[i % count]) is at that table, named NAME:MAP-Np."""
     out = []
     for t in tables:
         if t.positions is None:
@@ -120,7 +120,7 @@ def expand_positions(tables: list[Table]) -> list[Table]:
         for i in t.indexes:
             by.setdefault(position_config(t.positions[i % len(t.positions)]), []).append(i)
         for cfg, idx in by.items():
-            out.append(replace(t, games=len(idx), agents=[t.stage[0]] * cfg.seats, options=cfg.options_json(), index=idx))
+            out.append(replace(t, name=f"{t.name}:{cfg.map}-{cfg.seats}p", games=len(idx), agents=[t.stage[0]] * cfg.seats, options=cfg.options_json(), index=idx))
     return out
 
 

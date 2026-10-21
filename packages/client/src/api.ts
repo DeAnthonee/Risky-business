@@ -60,6 +60,8 @@ export interface MatchSummary {
   name: string;
   map: string;
   fog: boolean;
+  /** "training": a yardstick game, ranked on the training board instead of the public leaderboard. */
+  board?: 'training';
   tournamentId?: string;
   scenario: boolean;
   startedAt: number;

@@ -40,6 +40,30 @@ npm run delove-seat -- --server http://localhost:8080 --create --agents delove@1
 and their seats are named "Sensei 1" and "Sensei 2" unless `--names` says otherwise (#88). `jacob-sensei@1` (alias `jacob`)
 sits as "Jacob Sensei".
 
+The seat rebuilds the board from its view (`stateFromView`): each opponent's hand gets its real size (`cardCount`),
+the deck and discard theirs, dealt at random from the cards the seat can't see. Before #143 the rebuilt board gave
+every opponent an empty hand, so the network and Jacob Sensei read every opponent's card count as 0 in live games
+(training saw the real counts).
+
+**Search at play time** (`--agents delove-branch`, seat name "Delove Search"): the seat plays branch and score
+(`src/branch.ts`, the same player that makes the training data) instead of the bare network: at each important
+decision it tries the network's favourites on copies of the board and keeps the best. It is configured by the same
+`DELOVE_BRANCH_*` variables as self-play (`src/branch-env.ts`); for live tables use the cycle settings with more
+options (#141 measured 4-5 options at +0.23 / +0.28 points per game over 3):
+
+```bash
+DELOVE_BRANCH_RANKER=delove@6 DELOVE_BRANCH_TEACHER=jacob-sensei@1 DELOVE_BRANCH_OPTIONS=5 DELOVE_BRANCH_HORIZON=1 \
+  DELOVE_BRANCH_MARGIN=0.01 npm run delove-seat -- --server https://risky.deanthoneeking.com --join ABC123 --agents delove-branch
+```
+
+Every strong game AI searches when it plays (AlphaGo, Pluribus, Cicero); in Delove's own cycles the branch player
+wins several times its seat share at the big tables where the network it trains still trails Jacob Sensei. It
+thinks for longer per move (rollouts on the CPU), which matters little at tables with language-model seats.
+Measured on the CPU ladder (#142; ranker delove@6, Jacob rollouts, 5 options, mirrored seeds): against the bare
+delove@6, **+2.07 points per seat at World 6p** (95% +1.77 to +2.38; score 0.858), **+1.43 at Classic 4p** (+0.95 to
++1.91; 0.740), even at Classic 2p (0.490, -0.06 points); against Jacob Sensei at World 6p +1.81 (+1.53 to +2.09; 0.830),
+where the bare network scores -0.75. About 65 s per World 6-player game for the whole table.
+
 ### Generation 5 Testing & Environment Parity
 
 To evaluate Delove models on the exact game options used in Generation 5 live league play, see [`docs/game-settings.md`](../../docs/game-settings.md) and pre-built configs in `packages/delove/configs/`:
@@ -160,7 +184,11 @@ Library names (the private models repo, next to `delove@N`) are `delove-long-ran
   `top2` reads `placement.npy` (written by `delove_gpu.generate` since this change, with `kills.npy`; `export.ts`
   does not write it yet, as that file is in the GPU fingerprint). Older exports estimate a loser's place as the
   players alive at its seat's last recorded decision (see `targets.py`; `train.py` prints which datasets estimate).
-  Example: `train.py --range mid --data <pool...> --init <best>.pt --out .../cN-mid --epochs 1.5 --batch 512 --lr 2e-4
+  **Which `--init`:** a specialist line improves on itself. The first of each line starts from the base
+  (`--init delove@6.pt`); every later one starts from the current best of its own line
+  (`--init delove-mid-range@N.pt`), never from a newer base (docs/delove-status.md section 3, "Each specialist is
+  its own line"). The data is the newest shared pool.
+  Example: `train.py --range mid --data <pool...> --init delove-mid-range@N.pt --out .../cN-mid --epochs 1.5 --batch 512 --lr 2e-4
   --amp --branch-weights 0.5,1,2`. Checks: `python packages/delove/python/test_targets.py`. Cycle 7's script takes
   `RANGE_OBJECTIVES=1` (with `PREFIX`, `ROUTER`, `BASE`) to retrain its trio on its own games with these objectives,
   a direct A/B against cycle 7 with no new games.
@@ -177,6 +205,21 @@ Library names (the private models repo, next to `delove@N`) are `delove-long-ran
   positions captured from game records (`npm run selfplay -- positions`). They run like any jobs file: on the GPU
   (`packages/delove-gpu` README, "Stage games"), as a `cycle.sh` step, or on the CPU with `scripts/generate.sh`; train
   with `--alive 3-3` / `--alive 2-2` as above.
+  **In a cycle** they are two more steps of the cycle config, on rented GPUs like the rest (`REMOTE_GPUS=N`; lead-in
+  tables ship to the pods as they are, `pos:` tables play at home only):
+
+  ```bash
+  steps=(... "sm packages/delove/scripts/stage/mid.jobs Stage games: 3 alive"
+             "sc packages/delove/scripts/stage/close.jobs Stage games: 2 alive")
+  train_data=(... sm/classic sm/world sm/europe ... "sc/classic#0.5" ...)   # one folder per map, as any step
+  ```
+
+  `remote.py plan --step sm=packages/delove/scripts/stage/mid.jobs --step sc=packages/delove/scripts/stage/close.jobs --pods 10`
+  prices both at about 48 minutes and $7 with its full-game guesses; measured stage games cost a third or less of
+  that (home 4060: about 25k 3-alive and 39k 2-alive games an hour). A 3-alive game goes on to its 2-alive end, so
+  `sm` folders hold decisions at 3 and at 2 players alive; `sc` folders only at 2. Every row is an ordinary training row,
+  so the folders mix into the pool like any step's (`train.py --alive` / `--range` pick the specialist's rows; for base
+  Delove, weight them with `#F` so the endgame does not crowd out the opening).
 - **Ratio scenarios (closer stages).** After a Jacob lead-in one player has usually run away (median stage 7 turns
   at 3 alive, 4 at 2), so `scripts/stage/split-close.jobs` (2 alive: 50/50, 60/40, 40/60, 70/30, 30/70) and
   `split-mid.jobs` (3 alive: 34/33/33 and each turn order of 50/25/25, 40/40/20, 60/20/20) start from synthetic boards
@@ -464,6 +507,23 @@ promotions are judged mainly on the points difference at 4-10 players (`docs/del
 - `--branch-weights W0,W1,W2`: weights the policy by what branch and score did at each decision (`branch_tag.npy`,
   written by `delove_gpu.generate`): 0 the teacher's move without comparing, 1 compared and kept, 2 changed. Cycle 6
   used `0.5,1,2`. Datasets without `branch_tag.npy` (CPU exports, older cycles) keep weight 1.
+- `--soft-targets C` (with `--soft-prior P.pt`, default the `--init` weights, or `uniform`): at every branched
+  decision the policy learns branch and score's whole comparison instead of only the played move, Gumbel
+  AlphaZero's "completed Q" target: softmax(prior logit + C x the compared options' mean scores scaled 0..1 within the
+  decision), where the options never compared get the prior-weighted mean of the compared ones, so they keep the
+  prior's order (`python/soft.py`; checks `python packages/delove/python/test_soft.py`). The prior is a frozen
+  network, never the one being trained. The scores come from `branch_q.npy` (one float32 per candidate, NaN where not
+  compared): `delove_gpu.generate` writes it; for a CPU export run the games with `DELOVE_BRANCH_TRACE` and then
+  `python packages/delove/python/branch_q.py --export <export> --log <log dir> <trace file> [--log ...] --agents
+  delove-branch@1` (logs in export's order). Decisions with fewer than two compared options, and datasets without the
+  array, keep the played move; `--branch-weights`, range credit and `:modes` weight soft and hard decisions alike.
+  `--soft-scale S` scales the scores by an absolute gap instead of min-max within each decision: q_hat = clip((q - the
+  lowest compared score) / S, 0, 1), so two options 0.002 apart (rollout noise at 6 copies) stay 0.2 logits apart at
+  C=5 with S=0.05, where min-max would make them 0 vs 1, as sharp as a hard label (Gumbel MuZero keeps its value
+  bounds fixed for the same reason). Min-max stays the default, so the two can be compared.
+  Smoke run (150 Classic 2p branch games with Jacob rollouts, CPU, from `delove@3`, 1 epoch, `--range close
+  --branch-weights 0.5,1,2`): trains; whether it beats hard labels is cycle 12's A/B.
+- `--device cpu|cuda`: where to train (default cuda when available).
 - `--alive LO-HI` (range specialists): only decisions with LO..HI players alive.
 - Keep a batch within the card: on big maps (Greater Europe, Fantasy) batch 1024 spilled past the RTX 4060's 8 GB into
   shared memory and ran 5x slower; batch 512 fits.

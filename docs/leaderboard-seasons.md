@@ -14,7 +14,8 @@ starts with no games. Archives are never deleted or overwritten; a second archiv
 | --- | --- | --- |
 | 1 | everything before the first wipe, including the Gen 5 seed (#92) | `rankings.season-1.json` |
 | 2 | #107 to #119 | `rankings.season-2.json` |
-| 3 | since #119 | live |
+| 3 | #119 to #135 | `rankings.season-3.json` |
+| 4 | since #135 | live |
 
 ## Archive the board now (recommended): one admin call
 

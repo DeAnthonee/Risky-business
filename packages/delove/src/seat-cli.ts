@@ -3,6 +3,7 @@ import { parseArgs } from 'node:util';
 import type { GameOptions } from '@risk/engine';
 import { HttpRiskApi } from '@risk/mcp';
 import type { Agent } from '@risk/selfplay';
+import { branchFromEnv } from './branch-env.js';
 import { discoverNetAgents } from './net-agent.js';
 import { defaultName, discoverTunedTeachers, playSeat } from './seat.js';
 import { jacob } from './jacob.js';
@@ -17,7 +18,10 @@ const USAGE = `delove-seat: seat Delove players in a real game over the HTTP API
   --agents IDS     Delove versions, one seat each (default delove@1): delove-teacher@1, every tuned
                    teacher models/delove/delove-teacher@N.json and every models/delove/delove@N.onnx
                    (or DELOVE_MODELS); sensei, sensei@1 and sensei@2 name the teachers;
-                   jacob-sensei@1 (or jacob) is Jacob Sensei
+                   jacob-sensei@1 (or jacob) is Jacob Sensei; delove-branch@1 (or delove-branch) is Delove with
+                   search at play time (branch and score), set up by the DELOVE_BRANCH_* variables, e.g.
+                   DELOVE_BRANCH_RANKER=delove@6 DELOVE_BRANCH_TEACHER=jacob-sensei@1 DELOVE_BRANCH_OPTIONS=5
+                   DELOVE_BRANCH_HORIZON=1 DELOVE_BRANCH_MARGIN=0.01 (packages/delove/README.md)
   --names NAMES    seat names, same order (default "Delove 1", "Sensei 1", "Sensei 2", ...)
   --join CODE      join a game someone created; the host starts it
   --create         create a game (the first seat hosts), add --bots built-in bots, start it (unless --no-start)
@@ -60,6 +64,11 @@ async function main() {
     }),
   );
   const ids = (values.agents ?? 'delove@1').split(',').map((s) => s.trim()).filter(Boolean);
+  // Branch and score loads its ranker network, so it is only built when a seat asks for it.
+  if (ids.some((id) => id === 'delove-branch' || id === 'delove-branch@1')) {
+    const branch = branchFromEnv();
+    known.set(branch.id, branch).set('delove-branch', branch);
+  }
   const agents = ids.map((id) => known.get(id) ?? fail(`unknown Delove version "${id}" (known: ${[...known.keys()].join(', ')})`));
   const names = values.names ? values.names.split(',').map((s) => s.trim()) : ids.map(defaultName);
   if (names.length !== agents.length) fail('--names needs one name per agent');

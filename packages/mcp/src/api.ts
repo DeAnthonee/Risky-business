@@ -183,12 +183,13 @@ export interface RiskApi {
   listGames(): Promise<{ games: unknown[] }>;
   /** Needs the characters write key: binding credits the character on the leaderboard. */
   setCharacter(gameId: string, token: string, characterId: string, key?: string): Promise<unknown>;
-  /** A season's leaderboard by id (from rankingSeasons); the current season when omitted. */
-  rankings(season?: string): Promise<{ season?: string; current?: boolean; rankings: import('@risk/engine').RankingRow[] }>;
+  /** A season's leaderboard by id (from rankingSeasons); the current season when omitted. board "training": the training leaderboard (no seasons). */
+  rankings(season?: string, board?: 'training'): Promise<{ board?: 'training'; season?: string; current?: boolean; rankings: import('@risk/engine').RankingRow[] }>;
   /** Leaderboard seasons: the current one first, then archives newest first. */
   rankingSeasons(): Promise<{ current: number; seasons: RankingSeasonInfo[] }>;
-  rankedProfile(key: string): Promise<{ stats: import('@risk/engine').RankingRow; profile: string | null }>;
-  createGame(playerName: string, gameName: string | undefined, options: Partial<GameOptions> | undefined): Promise<JoinResult>;
+  rankedProfile(key: string, board?: 'training'): Promise<{ stats: import('@risk/engine').RankingRow; profile: string | null }>;
+  /** board "training" makes a yardstick game for the training leaderboard; it needs the characters write key. */
+  createGame(playerName: string, gameName: string | undefined, options: Partial<GameOptions> | undefined, board?: 'training', key?: string): Promise<JoinResult>;
   joinGame(gameId: string, playerName: string): Promise<JoinResult>;
   addBot(gameId: string, token: string, name?: string): Promise<{ playerId: string }>;
   setOptions(gameId: string, token: string, options: Partial<GameOptions>): Promise<{ state: GameView }>;
@@ -372,8 +373,8 @@ export class HttpRiskApi implements RiskApi {
   listGames() {
     return this.request<{ games: unknown[] }>('/games');
   }
-  createGame(playerName: string, gameName: string | undefined, options: Partial<GameOptions> | undefined) {
-    return this.request<JoinResult>('/games', { method: 'POST', body: JSON.stringify({ playerName, gameName, options }) });
+  createGame(playerName: string, gameName: string | undefined, options: Partial<GameOptions> | undefined, board?: 'training', key?: string) {
+    return this.request<JoinResult>('/games', { method: 'POST', body: JSON.stringify({ playerName, gameName, options, ...(board ? { board } : {}) }) }, undefined, board ? key ?? this.charactersKey : undefined);
   }
   joinGame(gameId: string, playerName: string) {
     return this.request<JoinResult>(`/games/${gameId}/join`, { method: 'POST', body: JSON.stringify({ playerName }) });
@@ -419,9 +420,12 @@ export class HttpRiskApi implements RiskApi {
   setCharacter(gameId: string, token: string, characterId: string, key?: string) {
     return this.request(`/games/${gameId}/character`, { method: 'POST', body: JSON.stringify({ characterId }) }, token, key ?? this.charactersKey);
   }
-  rankings(season?: string) { return this.request<{ season?: string; current?: boolean; rankings: import('@risk/engine').RankingRow[] }>(`/rankings${season ? `?season=${encodeURIComponent(season)}` : ''}`); }
+  rankings(season?: string, board?: 'training') {
+    const q = board ? `?board=${board}` : season ? `?season=${encodeURIComponent(season)}` : '';
+    return this.request<{ board?: 'training'; season?: string; current?: boolean; rankings: import('@risk/engine').RankingRow[] }>(`/rankings${q}`);
+  }
   rankingSeasons() { return this.request<{ current: number; seasons: RankingSeasonInfo[] }>('/rankings/seasons'); }
-  rankedProfile(key: string) { return this.request<{ stats: import('@risk/engine').RankingRow; profile: string | null }>(`/rankings/profile?key=${encodeURIComponent(key)}`); }
+  rankedProfile(key: string, board?: 'training') { return this.request<{ stats: import('@risk/engine').RankingRow; profile: string | null }>(`/rankings/profile?key=${encodeURIComponent(key)}${board ? `&board=${board}` : ''}`); }
   getCharacter(id: string, version?: number) {
     return this.request<CharacterProfile>(`/characters/${characterPath(id)}${version !== undefined ? `?version=${version}` : ''}`);
   }

@@ -54,7 +54,7 @@ async function read<T>(url: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-function ProfileDialog({ url, name, onClose, whisper }: { url: string; name: string; onClose: () => void; whisper?: Whisper }) {
+function ProfileDialog({ url, name, onClose, whisper, training }: { url: string; name: string; onClose: () => void; whisper?: Whisper; training?: boolean }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [data, setData] = useState<ProfileData | null>(null);
   const [error, setError] = useState('');
@@ -75,7 +75,7 @@ function ProfileDialog({ url, name, onClose, whisper }: { url: string; name: str
     <dialog ref={dialog} className="profile-dialog p5" aria-labelledby="profile-title" onCancel={onClose} onClick={e => { e.stopPropagation(); if (e.target === e.currentTarget) onClose(); }}>
       <div className="profile-header"><h2 id="profile-title">{name}</h2><button autoFocus onClick={onClose} aria-label="Close profile">Close ✕</button></div>
       {error ? <p role="alert">{error} <button onClick={() => setRetry(n => n + 1)}>Retry</button></p> : !data ? <p role="status">Loading profile…</p> : <>
-        <p className="muted">{data.stats.key.startsWith('league/') ? 'League character' : 'Player profile'} · All completed ranked games</p>
+        <p className="muted">{data.stats.key.startsWith('league/') ? 'League character' : 'Player profile'} · {training ? 'Training leaderboard' : 'All completed ranked games'}</p>
         <dl className="profile-stats">
           <div><dt>Leaderboard rank</dt><dd>{data.stats.rank ? `#${data.stats.rank}` : 'Unranked'}</dd></div>
           <div><dt>Points</dt><dd>{data.stats.points}</dd></div>
@@ -100,10 +100,12 @@ function ProfileDialog({ url, name, onClose, whisper }: { url: string; name: str
 function victimName(key: string): string { return key.slice(Math.max(key.lastIndexOf('/'), key.indexOf(':')) + 1) || key; }
 
 /** Opening the profile does not navigate, disconnect the game, or change spectator fog. */
-export function CharacterName({ name, gameId, playerId, profileKey, season, whisper }: { name: string; gameId?: string; playerId?: string; profileKey?: string; season?: string; whisper?: Whisper }) {
+export function CharacterName({ name, gameId, playerId, profileKey, season, training, whisper }: { name: string; gameId?: string; playerId?: string; profileKey?: string; season?: string; training?: boolean; whisper?: Whisper }) {
   const [open, setOpen] = useState(false);
-  const url = profileKey ? `${API}/rankings/profile?key=${encodeURIComponent(profileKey)}${season ? `&season=${encodeURIComponent(season)}` : ''}` : `${API}/games/${encodeURIComponent(gameId!)}/players/${encodeURIComponent(playerId!)}/profile`;
-  return <><button className="character-name" onClick={e => { e.stopPropagation(); setOpen(true); }}>{name}</button>{open && <ProfileDialog name={name} url={url} whisper={whisper} onClose={() => setOpen(false)} />}</>;
+  const url = profileKey
+    ? `${API}/rankings/profile?key=${encodeURIComponent(profileKey)}${training ? '&board=training' : season ? `&season=${encodeURIComponent(season)}` : ''}`
+    : `${API}/games/${encodeURIComponent(gameId!)}/players/${encodeURIComponent(playerId!)}/profile`;
+  return <><button className="character-name" onClick={e => { e.stopPropagation(); setOpen(true); }}>{name}</button>{open && <ProfileDialog name={name} url={url} whisper={whisper} training={training} onClose={() => setOpen(false)} />}</>;
 }
 
 interface SeasonInfo { id: string; season: number; current: boolean; games: number }
@@ -116,34 +118,42 @@ export function Leaderboard() {
   // '' is the current season; archived seasons come from /rankings/seasons and never change, so they load once.
   const [season, setSeason] = useState('');
   const [seasons, setSeasons] = useState<SeasonInfo[]>([]);
+  // The training board: model-vs-model yardstick games (Delove against Claude seats), apart from the public one, no seasons.
+  const [training, setTraining] = useState(false);
   useEffect(() => {
     let alive = true;
     setLoaded(false);
+    const query = training ? '?board=training' : season ? `?season=${encodeURIComponent(season)}` : '';
     const load = () => Promise.all([
-      read<{ rankings: RankingRow[] }>(`${API}/rankings${season ? `?season=${encodeURIComponent(season)}` : ''}`),
+      read<{ rankings: RankingRow[] }>(`${API}/rankings${query}`),
       read<{ seasons: SeasonInfo[] }>(`${API}/rankings/seasons`),
     ]).then(([r, s]) => { if (alive) { setRows(r.rankings); setSeasons(s.seasons); setLoaded(true); setError(''); } }).catch(e => { if (alive) setError(e.message); });
     void load();
-    const timer = season ? undefined : setInterval(load, 15_000);
+    const timer = season && !training ? undefined : setInterval(load, 15_000);
     return () => { alive = false; clearInterval(timer); };
-  }, [retry, season]);
+  }, [retry, season, training]);
   const current = seasons.find(s => s.current);
   return <section className="board leaderboard" aria-labelledby="leaderboard-title">
-    <div className="board-head"><h2 id="leaderboard-title">Leaderboard</h2>
-      {seasons.length > 1 && <label className="board-season">Season{' '}
-        <select value={season} onChange={e => setSeason(e.target.value)}>
-          <option value="">{current ? `${current.season} (current)` : 'Current'}</option>
-          {seasons.filter(s => !s.current).map(s => <option key={s.id} value={s.id}>{s.id} ({s.games} games)</option>)}
-        </select>
-      </label>}
+    <div className="board-head"><h2 id="leaderboard-title">{training ? 'Training board' : 'Leaderboard'}</h2>
+      <div className="board-controls">
+        {seasons.length > 1 && !training && <label className="board-season">Season{' '}
+          <select value={season} onChange={e => setSeason(e.target.value)}>
+            <option value="">{current ? `${current.season} (current)` : 'Current'}</option>
+            {seasons.filter(s => !s.current).map(s => <option key={s.id} value={s.id}>{s.id} ({s.games} games)</option>)}
+          </select>
+        </label>}
+        <button type="button" className={`board-toggle${training ? ' on' : ''}`} aria-pressed={training} onClick={() => setTraining(t => !t)}
+          title="Model-vs-model yardstick games, ranked apart from the public leaderboard">Training</button>
+      </div>
     </div>
+    {training && <p className="small muted board-note">Yardstick games between AI models (e.g. Delove against Claude seats), ranked by seat name. They never count on the public leaderboard.</p>}
     {error && <p role="alert">{error} <button onClick={() => setRetry(n => n + 1)}>Retry</button></p>}
     {!loaded && !error && <p role="status">Loading leaderboard…</p>}
-    {loaded && !rows.length && <p className="board-empty">{season ? 'No games were ranked in this season.' : 'No completed games yet this season. The first finished game starts the standings.'}</p>}
+    {loaded && !rows.length && <p className="board-empty">{training ? 'No training games yet.' : season ? 'No games were ranked in this season.' : 'No completed games yet this season. The first finished game starts the standings.'}</p>}
     {!!rows.length && <ol className="ranks">
       {rows.map(r => <li key={r.key} className={`rank-row${r.rank <= 3 ? ` podium podium-${r.rank}` : ''}`}>
         <span className="rank-num" aria-label={`Rank ${r.rank}`}>{r.rank}</span>
-        <span className="rank-name"><CharacterName name={r.name} profileKey={r.key} season={season || undefined} /></span>
+        <span className="rank-name"><CharacterName name={r.name} profileKey={r.key} season={season || undefined} training={training} /></span>
         <span className="rank-points"><strong>{r.points}</strong> pts</span>
         <span className="rank-stats">
           <span title="Wins and losses">{r.wins}–{r.losses}</span>

@@ -26,7 +26,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from delove_gpu.npy import NpyWriter  # noqa: E402
 
-CAND_ARRAYS = {"cand", "cand_from", "cand_to"}  # one row per candidate; every other array but cand_offset: per decision
+CAND_ARRAYS = {"cand", "cand_from", "cand_to", "branch_q"}  # one row per candidate; every other array but cand_offset: per decision
 COUNTS = ("decisions", "candidates", "games", "skipped", "fogSkipped")
 CHUNK_BYTES = 64 << 20
 

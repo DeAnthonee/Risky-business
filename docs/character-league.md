@@ -80,6 +80,33 @@ An unplayed profile is unranked with zero games and points. Existing snapshots r
 rooms can be backfilled on startup, but records for deleted historical rooms cannot be reconstructed.
 Historical runner results stay local and are not silently imported into the public server leaderboard.
 
+## Training leaderboard
+
+A second board, apart from the public one, for **model-vs-model yardstick games**: Delove (our self-play model) against
+Claude seats (Haiku, Sonnet, Opus, Fable tiers), or any other models we measure against each other. A training game
+never moves the public leaderboard. It uses the same scoring (placement plus kills) and ranks seats the same way: plain
+seats by their **seat name** (so name each seat after its model, e.g. `delove@6`, `Claude Haiku 1`), bound characters
+by their key. It has no seasons.
+
+- **Making one:** `POST /api/games` with `"board": "training"` and the characters write key in `x-characters-key`
+  (RISK_CHARACTERS_KEY or the admin token; 403 without it), or MCP `create_game` with `board: "training"` and `key`.
+  It is a flag on the room (saved in its snapshot; rooms saved before it load as public), not a game setting.
+- **Moving one played on the public board:** `POST /api/admin/games/<id>/board` `{"board": "training"}` with the
+  admin token. It flags the room if it is still open, moves the result off the current public season to the training
+  board if it is already ranked, and marks its game records. Running it again changes nothing.
+
+  ```bash
+  curl -X POST -H "Authorization: Bearer $RISK_ADMIN_TOKEN" -H 'content-type: application/json' \
+    -d '{"board":"training"}' https://risky.deanthoneeking.com/api/admin/games/EA5GH5/board
+  ```
+- **Reading it:** `GET /api/rankings?board=training`, `GET /api/rankings/profile?key=&board=training`, the MCP
+  `leaderboard` and `ranked_profile` tools with `board: "training"`, and the **Training** toggle beside the season
+  picker on the web leaderboard. Match history (`GET /api/history`) and `GET /api/games` mark these games
+  `board: "training"`; `?board=training` on `/history` lists only them.
+- **Stored** in `$RISK_DATA_DIR/rankings-training.json` (never in `rankings.json`). Its game records carry
+  `room.board: "training"` (and their `index.jsonl` line `board`), so they are never pooled into Delove's training
+  data by mistake.
+
 ## Persistent personality and relationships
 
 Use one runner process with --lobbies 2 and --games 0 for two concurrent tables and a shared Ollama queue.

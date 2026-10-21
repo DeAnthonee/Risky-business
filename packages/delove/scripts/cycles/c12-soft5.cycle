@@ -22,7 +22,7 @@ train_data=(a1/classic a2/classic a2/skirmish a3/europe a3/usa a3/asia a4/bohemi
   "c11-b/greater_europe#0.4" "c11-b/fantasy#0.4" "c11-b/europe_classic#0.4"
   "c10-a1/classic#0.2" "c10-a2/classic#0.2" "c10-a3/europe#0.2" "c10-a4/bohemia#0.2" "c10-b/world#0.2" "c10-b/greater_europe#0.2")
 train_init=delove@8
-candidate=c12s5-candidate
+candidate=c121-candidate  # c12s5 would not match the agent registry ([rc]N-candidate)
 train_args="--epochs 1.5 --batch 512 --lr 2e-4 --hidden 192 --rounds 6 --value-target points --amp --branch-weights 0.5,1,2 --soft-targets 5"
 gates=(
   "delove@8 2 800"

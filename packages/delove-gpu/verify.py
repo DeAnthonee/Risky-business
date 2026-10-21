@@ -18,6 +18,10 @@ or a StaleMirror error) says the engine changed:
    teacher, and with the points and kills scores at four seats (tests/branch_replay.py against the CPU's
    DELOVE_BRANCH_TRACE: options, exact mean scores, picks), the training-array writer (tests/export_check.py: bit for
    bit against export) and the kernel's Math.log1p (tests/log1p_check.py);
+   with a CUDA device, generate.py's fast path too: k_teacher_run (8 lanes per game), where teacher seats whose decisions
+   are not recorded play their moves, which no replay reaches; three small tables (Classic 2p, Skirmish 4p, Greater
+   Europe 10p, Jacob and the tuned Sensei in the fast seats) generated on the GPU must give the same training arrays,
+   game for game, as CPU play + export with the same seeds (tests/dataset_compare.py);
 4. only if everything matches, writes engine-fingerprint.json (hashes of the engine files the mirror copies, and
    what was replayed). Commit it with the mirror changes.
 
@@ -29,6 +33,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import json
 import os
 import re
 import shutil
@@ -55,6 +60,65 @@ def npm() -> str:
     if not exe:
         sys.exit("npm not found")
     return exe
+
+
+def teacher_run_check(out: Path, seed: int, g: int, models: str | None, teacher_id: str | None, node: str, rel) -> dict | None:
+    """generate.py's fast path: teacher seats whose decisions are not recorded play inside k_teacher_run (8 lanes per
+    game, teacher_pick_g8), which no replay above reaches. A few tables played on the GPU by generate.py and on the CPU
+    by play + export (same tables and seeds) must give the same training arrays, game for game (tests/dataset_compare.py).
+    delove-teacher@1 is the recorded seat (one move per step, as replayed above); Jacob and the tuned Sensei (with
+    --models) are the fast seats, several in a row at the bigger tables. None on a mismatch."""
+    T1 = "delove-teacher@1"
+    tt = teacher_id or JACOB
+    seats = lambda n: ",".join([T1] + [(JACOB, tt)[i % 2] for i in range(n - 1)])  # noqa: E731
+    tables = [  # name, games, agents, options (one map each: generate.py and export write one folder per map)
+        ("run-classic-2p", max(20, g // 2), seats(2), {"map": "classic"}),
+        ("run-skirmish-4p", max(10, g // 5), seats(4), {"map": "skirmish", "capitals": True, "cardValues": "exponential"}),
+        ("run-greater_europe-10p", max(4, g // 25), seats(10), {"map": "greater_europe", "blizzards": 6, "balancedBlitz": True}),
+    ]
+    print(f"  generate.py's k_teacher_run against CPU play + export ({', '.join(f'{n} x{k}' for n, k, _, _ in tables)})")
+    tseed = seed + 50
+    env = {**os.environ, **({"DELOVE_MODELS": str(Path(models).resolve())} if models else {})}
+    procs = []
+    for name, n, agents, o in tables:
+        cmd = [node, "--import", "./packages/delove/dist/register.js", "packages/selfplay/dist/cli.js", "play", "--agents", agents,
+               "--games", str(n), "--seed", str(tseed), "--options", json.dumps(o), "--log", str(out / name)]
+        print("  $", " ".join(cmd), flush=True)
+        procs.append((name, subprocess.Popen(cmd, cwd=REPO, env=env, stdout=subprocess.DEVNULL)))
+    jobs = out / "run-jobs.txt"
+    jobs.write_text("".join(f"{name} {n} {agents} {json.dumps(o)}\n" for name, n, agents, o in tables), encoding="utf8")
+    # no branch seat, so no ranker network: a teacher id as --ranker keeps generate.py from loading one; the fingerprint
+    # is what this run is about to write, so --allow-unverified
+    gen = [sys.executable, "-u", "-m", "delove_gpu.generate", "--jobs", str(jobs), "--seed", str(tseed), "--ranker", JACOB,
+           "--export-agents", T1, "--out", str(out / "run-gpu"), "--allow-unverified", *(["--models", str(Path(models).resolve())] if models else [])]
+    print("  $", " ".join(gen), flush=True)
+    r = subprocess.run(gen, cwd=HERE, capture_output=True, text=True)
+    if r.returncode:
+        print("    " + (r.stdout + r.stderr).strip()[-3000:].replace("\n", "\n    "))
+        print("\ngenerate.py failed (see above). engine-fingerprint.json is unchanged.")
+        return None
+    for name, p in procs:
+        if p.wait():
+            print(f"playing {name} failed")
+            return None
+    if run([node, "packages/selfplay/dist/cli.js", "export", "--log", ",".join(str(out / t[0]) for t in tables), "--out", str(out / "run-cpu"),
+            "--only-agents", T1], stdout=subprocess.DEVNULL).returncode:
+        return None
+    games = 0
+    for name, n, _, o in tables:
+        a, b = out / "run-gpu" / o["map"], out / "run-cpu" / o["map"]
+        r = run([sys.executable, "-u", str(HERE / "tests" / "dataset_compare.py"), str(a), str(b)], capture_output=True, text=True)
+        text = (r.stdout + r.stderr).strip()
+        print("    " + text.replace("\n", "\n    "))
+        m = re.search(r"(\d+) games, .*: (\d+) games, identical games (\d+)", text)
+        if r.returncode or not m or not (int(m.group(1)) == int(m.group(2)) == int(m.group(3)) == n):
+            print(f"\nMISMATCH: generate.py's {name} games (k_teacher_run) differ from the CPU's. Fix packages/delove-gpu, then run"
+                  " verify.py again. engine-fingerprint.json is unchanged.")
+            return None
+        games += n
+    print(f"    k_teacher_run: {games} of {games} generate.py games identical to CPU play + export")
+    return {"engine": "teacher", "check": "dataset_compare.py (generate.py, k_teacher_run)", "games": games,
+            "logs": [rel(out / t[0]) for t in tables]}
 
 
 def main() -> int:
@@ -253,6 +317,14 @@ def main() -> int:
             total_steps += steps
             results.append({"engine": {"branch": "branch", "jacob": "teacher"}.get(suite, "fused.py"), "check": f"matrix {suite}", "cases": int(m.group(2)),
                             "steps": steps, "logs": [rel(out / f"matrix-{suite}")]})
+
+    if "fused.py" in engines:
+        r = teacher_run_check(out, seed, g, args.models, teacher_id, node, rel)
+        if r is None:
+            return 1
+        results.append(r)
+        if "teacher" not in engines:
+            engines.append("teacher")
 
     commit = subprocess.run(["git", "rev-parse", "HEAD"], cwd=REPO, capture_output=True, text=True).stdout.strip()
     dirty = subprocess.run(["git", "status", "--porcelain", "--", *fingerprint.RULE_FILES], cwd=REPO, capture_output=True, text=True).stdout.strip()

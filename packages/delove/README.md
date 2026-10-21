@@ -110,9 +110,9 @@ answer synchronously.
 | `delove@1` | network distilled from the teacher (Stage 1), loaded from `models/delove/` (ignored by git) | done |
 | `delove@2` | distilled from the tuned teacher delove-teacher@2 (round 5) | done |
 | `delove@3` | fresh hidden-192 / 6-round network on branch-and-score decisions (cycle 4, `CYCLES.md`): 0.541 / 0.600 / 0.610 against delove@2 at 2 / 4 / 6 players | done |
-| `delove@4` … `delove@7` | the same network fine-tuned each cycle (cycles 6, 8, 9, 10; `docs/delove-status.md` section 3); `delove@7`: about +0.23 leaderboard points per seat over `delove@6` at 4-10 players | `delove@7` current best (private models repo) |
+| `delove@4` … `delove@8` | the same network fine-tuned each cycle (cycles 6, 8, 9, 10, 11; `docs/delove-status.md` section 3); `delove@8`: about +0.36 leaderboard points per seat over `delove@7` at 4-10 players | `delove@8` current best (private models repo) |
 | `jacob-sensei@1` | Jacob Sensei: hand-coded teacher for big tables (`src/jacob.ts`, below); never stalls in self-play, even with Sensei 2 at 2 players, far ahead at 4-10 | rollout teacher since cycle 6 |
-| `jacob-sensei@2` | Jacob Sensei 2 (`src/jacob.ts`, below): Jacob plus RISK_LEARNINGS.md sections 7-21, with its own duel numbers; vs `jacob-sensei@1` 0.53-0.57 at 2p and +0.4 to +1.3 points per seat at 4-10p | candidate rollout teacher (cycle 11) |
+| `jacob-sensei@2` | Jacob Sensei 2 (`src/jacob.ts`, below): Jacob plus RISK_LEARNINGS.md sections 7-21, with its own duel numbers; vs `jacob-sensei@1` 0.53-0.57 at 2p and +0.4 to +1.3 points per seat at 4-10p | candidate rollout teacher (cycle 12) |
 
 `delove-teacher@1` picks only from the self-play candidates (never off-list), so every decision is a clean training
 label, and it is deterministic from the seed. Against `risky@1` (`--seed 3`):

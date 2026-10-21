@@ -25,9 +25,9 @@ const USAGE = `delove-seat: seat Delove players in a real game over the HTTP API
                    by --preset (below); any DELOVE_BRANCH_* variable overrides one setting, e.g.
                    DELOVE_BRANCH_RANKER=delove@6 (packages/delove/README.md).
                    The bare network (no search) is its own id: --agents delove@8
-  --preset NAME    live search preset for delove-branch: measured (default: Jacob Sensei 1 rollouts,
-                   5 options, share score, horizon 1, margin 0.01) or js2-range (Jacob Sensei 2,
-                   range score, horizon 2, margin 0.02)
+  --preset NAME    live search preset for delove-branch: js2-range (default: Jacob Sensei 2 rollouts,
+                   5 options, range score, horizon 2, margin 0.02) or measured (Jacob Sensei 1,
+                   share score, horizon 1, margin 0.01; about 4x faster)
   --names NAMES    seat names, same order (default "Delove 1", "Sensei 1", "Sensei 2", ...)
   --join CODE      join a game someone created; the host starts it
   --create         create a game (the first seat hosts), add --bots built-in bots, start it (unless --no-start)

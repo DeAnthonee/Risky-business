@@ -21,14 +21,14 @@ describe('live seat search defaults', () => {
     }
   });
 
-  it("defaults to #142's measured setup: Jacob Sensei 1, 5 options, share score, horizon 1, margin 0.01", () => {
-    expect(LIVE_BRANCH_DEFAULT_PRESET).toBe('measured');
+  it("defaults to js2-range, the winner of the preset ladder: Jacob Sensei 2, 5 options, range score, horizon 2, margin 0.02", () => {
+    expect(LIVE_BRANCH_DEFAULT_PRESET).toBe('js2-range');
     expect(liveBranchEnv(join(tmpdir(), 'no-such-delove-folder'), {})).toMatchObject({
-      DELOVE_BRANCH_TEACHER: 'jacob-sensei@1',
+      DELOVE_BRANCH_TEACHER: 'jacob-sensei@2',
       DELOVE_BRANCH_OPTIONS: '5',
-      DELOVE_BRANCH_SCORE: 'share',
-      DELOVE_BRANCH_HORIZON: '1',
-      DELOVE_BRANCH_MARGIN: '0.01',
+      DELOVE_BRANCH_SCORE: 'range',
+      DELOVE_BRANCH_HORIZON: '2',
+      DELOVE_BRANCH_MARGIN: '0.02',
     });
   });
 

@@ -532,6 +532,11 @@ def merge_all(args, steps, lanes: list[Lane], work: Path, pods: list[Pod], secon
                 f.write(f"==== lane {lane.index} (pod {lane.pod}, GPU {lane.gpu}) ====\n")
                 f.write(log.read_text(encoding="utf8", errors="replace"))
         (out / step / "gpu.json").write_text(json.dumps(merged, indent=2) + "\n", encoding="utf8")
+        # every game's result (generate --results: placements, kills, points), lane after lane
+        with open(out / step / "results.jsonl", "w", encoding="utf8", newline="\n") as f:
+            for lane, log in logs:
+                if (log.parent / "results.jsonl").exists():
+                    f.write((log.parent / "results.jsonl").read_text(encoding="utf8"))
         print(f"{step}: {merged['games']} games -> {data / f'{args.name}-{step}'} ({', '.join(e['map'] for e in merged.get('export', []))})")
     if not args.keep:
         for lane in lanes:

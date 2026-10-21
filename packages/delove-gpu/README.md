@@ -205,6 +205,19 @@ at a table (`delove-teacher@N`, `jacob-sensei@N`, any mix) plays its own version
   takes GPU-only seats `delove-branch@1:share` / `:points` / `:kills` (one branch player per score at the same table,
   each with its own rollout copies) for comparing scores head to head (`scripts/score_compare.py`; results in
   packages/delove/README.md).
+- **Network rollouts** (`--rollout MODEL[:self]`, `DELOVE_BRANCH_ROLLOUT` in branch.ts): a Delove network plays the
+  rollouts instead of the teacher, its top move (ties to the first candidate, as `delove@N` plays) in every seat, or in
+  the decider's seat only with the rollout teacher in the others (`:self`). `k_branch_sim` splits into three kernels:
+  `k_branch_start` (reseed, reshuffle, play the option), `k_branch_roll` (the teacher plays the other seats on, in a
+  lane group, until a network seat is to move or the rollout ends) and `k_branch_score`; between them, in lockstep,
+  every copy whose network seat is to move gets one batched forward pass (`GpuBranch._net_rollouts`: the encoder and
+  the fp32 network over the copies in use, across games, options and seeds). A rollout lasts as many lockstep steps as
+  its longest copy has network moves (about one round of every seat's moves with `all`, the rest of the decider's turn
+  with `self`), and each step costs the encoder's and the network's kernel latency (about 15-20 ms, mostly the
+  encoder's many small PyTorch operations), so these rollouts cost far more than the teacher's one kernel (measured
+  below). Comparison seats `delove-branch@1:net` / `:netself` / `:teacher` (and `:o4`, `:o5`: options; any mix of
+  tokens, e.g. `delove-branch@1:net:o4`) play side by side in one run with `--rollout-net MODEL`; each set of comparison
+  seats runs as its own engine group (and cloud lane), timed apart (`bench/rollout_compare.py`).
 - **Training arrays** (`generate.py` Recorder, `npy.py`): export.ts's files and `features.json`, with the feature names
   and versions read from the built self-play package. The encoder computes in float64 and rounds to float32 once, as
   encode.ts stores doubles into a Float32Array, so the arrays are bit-identical to `export`'s. One extra array, not in
@@ -244,6 +257,7 @@ Results (2026-10-19, `delove-teacher@2`, ranker `c2-candidate`, cycle 3's settin
 | `teacher_replay.py` | 1,000 `delove-teacher@2` self-play games | 275,993 of 275,993 decisions: the logged pick (0 mismatches); with delove-teacher@1's numbers instead every game fails at its first placements |
 | `branch_replay.py` | 300 branch games, the three cycle tables (`c2t`, `c2d`, `c2c`, 100 each) | 37,633 of 37,633 branch decisions: the same pick; 19,639 branched decisions with the CPU's options: every option's mean score identical (same doubles); 1 decision where the ranker ordered its two alternatives differently (a near-tie between the ONNX logits in Node and the PyTorch ones here; the pick was the same) |
 | `branch_replay.py` at branch.ts's defaults (horizon 2, margin 0.02, ranker `delove@2`; `verify.py`, fresh seeds) | 100 branch games against Sensei 2 | 13,021 of 13,021 decisions: the same pick; all 6,965 branched decisions with identical mean scores |
+| `branch_replay.py --rollout delove@5` / `--rollout delove@5:self` (2026-10-20; Jacob Sensei, horizon 1, margin 0.01, ranker `delove@5`; the trace has every copy's score and the smallest top-two logit gap of its network moves) | 63 branch games: Classic 2p against Jacob (20 + 20), Classic 4p (8 + 8) and World 6p (3 + 4) with Jacob and `delove@5` | 9,455 of 9,455 decisions the same pick; 5,059 of 5,061 branched decisions with identical mean scores, 1 with a ranker near-tie in its options and 1 with a rollout near-tie: of 90,804 rollout copies 90,803 identical, 1 (World 6p, every seat) different after a network near-tie (logit gap under 1e-4), reported apart as designed |
 | `branch_replay.py --score points` / `--score kills` (horizon 1, margin 0.01, ranker `delove@3`) | points: 30 Classic 2p games against Sensei 2 and 30 Classic 4p games (Sensei 2, `delove@3`, Sensei 1); kills: 30 Classic 4p games | points: 9,443 of 9,443 decisions the same pick, all 5,216 branched decisions with identical mean scores; kills: 6,418 of 6,418 the same pick, all 3,709 branched identical |
 | `export_check.py` | the `c2t` log's 13,600 branch decisions, 196,341 candidates | every array bit for bit equal to `export`'s, candidate order included |
 | `dataset_compare.py` | cycle 3's whole Classic 2-player step played on the GPU vs on the CPU (6,000 games, same seeds) | 6,000 of 6,000 games identical, row for row |

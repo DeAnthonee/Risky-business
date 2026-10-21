@@ -1,8 +1,11 @@
 import { createHash } from 'node:crypto';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { addPlayer, createGame, getMap, legalMoves, startGame, type GameState } from '@risk/engine';
 import { candidates, makeTraits, playGame, runMatch, seededRandom } from '@risk/selfplay';
 import {
+  branchFromEnv,
   jacob,
   jacob2,
   JACOB_2_ID,
@@ -11,6 +14,7 @@ import {
   JACOB_SENSEI_2_PARAMS,
   jacobPickWith,
   makeJacob,
+  tunedParams,
   type JacobParams,
 } from '../src/index.js';
 
@@ -116,6 +120,14 @@ describe('jacob-sensei@2', () => {
     const diverge = staged.findIndex((c, i) => c !== main[i]);
     expect(diverge === -1 || diverge > 50).toBe(true);
     expect(staged).not.toEqual(main);
+  });
+
+  it('resolves as a tuned teacher and as the branch rollout teacher, with its duel numbers', () => {
+    const v = tunedParams(join(tmpdir(), 'no-models-here')).jacob.get(JACOB_2_ID)!;
+    expect(v.params).toBe(JACOB_SENSEI_2_PARAMS);
+    expect(v.duel).toBe(JACOB_SENSEI_2_DUEL_PARAMS);
+    const branch = branchFromEnv(join(tmpdir(), 'no-models-here'), { DELOVE_BRANCH_TEACHER: JACOB_2_ID });
+    expect(branch.id).toBe('delove-branch@1');
   });
 
   it('is not behind jacob-sensei@1 at a 6-player table', async () => {

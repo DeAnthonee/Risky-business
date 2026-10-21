@@ -45,6 +45,25 @@ the deck and discard theirs, dealt at random from the cards the seat can't see. 
 every opponent an empty hand, so the network and Jacob Sensei read every opponent's card count as 0 in live games
 (training saw the real counts).
 
+**Search at play time** (`--agents delove-branch`, seat name "Delove Search"): the seat plays branch and score
+(`src/branch.ts`, the same player that makes the training data) instead of the bare network: at each important
+decision it tries the network's favourites on copies of the board and keeps the best. It is configured by the same
+`DELOVE_BRANCH_*` variables as self-play (`src/branch-env.ts`); for live tables use the cycle settings with more
+options (#141 measured 4-5 options at +0.23 / +0.28 points per game over 3):
+
+```bash
+DELOVE_BRANCH_RANKER=delove@6 DELOVE_BRANCH_TEACHER=jacob-sensei@1 DELOVE_BRANCH_OPTIONS=5 DELOVE_BRANCH_HORIZON=1 \
+  DELOVE_BRANCH_MARGIN=0.01 npm run delove-seat -- --server https://risky.deanthoneeking.com --join ABC123 --agents delove-branch
+```
+
+Every strong game AI searches when it plays (AlphaGo, Pluribus, Cicero); in Delove's own cycles the branch player
+wins several times its seat share at the big tables where the network it trains still trails Jacob Sensei. It
+thinks for longer per move (rollouts on the CPU), which matters little at tables with language-model seats.
+Measured on the CPU ladder (#142; ranker delove@6, Jacob rollouts, 5 options, mirrored seeds): against the bare
+delove@6, **+2.07 points per seat at World 6p** (95% +1.77 to +2.38; score 0.858), **+1.43 at Classic 4p** (+0.95 to
++1.91; 0.740), even at Classic 2p (0.490, -0.06 points); against Jacob Sensei at World 6p +1.81 (+1.53 to +2.09; 0.830),
+where the bare network scores -0.75. About 65 s per World 6-player game for the whole table.
+
 ### Generation 5 Testing & Environment Parity
 
 To evaluate Delove models on the exact game options used in Generation 5 live league play, see [`docs/game-settings.md`](../../docs/game-settings.md) and pre-built configs in `packages/delove/configs/`:
@@ -284,7 +303,7 @@ Classic 4p 0.1, Asia 4p 0.1, World 6p 0.15, Fantasy 6p 0.1, Greater Europe 10p 0
 A first run without a length term accepted a version that wins mixed tables by sitting back and drags self-play
 games to the edge of the limit (Greater Europe 10p 158 -> 442 turns). So `--selfplay greater_europe:10,world:6,fantasy:10,classic:4
 --length 0.3` also plays each candidate against itself and charges (candidate - best) for turn-limit games and mean
-length. The result is `JACOB_SENSEI_1_PARAMS`. Later versions: `models/delove/jacob-sensei@N.json` (N >= 2) register
+length. The result is `JACOB_SENSEI_1_PARAMS`. Later versions: `models/delove/jacob-sensei@N.json` (N >= 3; @2 is fixed in the code) register
 on their own. `src/tables.ts` runs these checks over many tables at once:
 
 ```bash

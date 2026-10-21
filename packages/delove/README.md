@@ -572,8 +572,11 @@ cycle.sh checks the mirror's fingerprint: if the engine changed since the last v
 instead: the steps' configurations are split over N RunPod GPUs (RTX 4090 by default) by their cost in earlier
 `gpu.log` files (`REMOTE_TIMINGS`), played with the same generate arguments, downloaded and merged into the same
 `DATA/<name>-<step>/<map>` and `OUT/<step>/gpu.json`. `RUNPOD_API_KEY` must be in the environment; the estimated cost
-is printed first, `REMOTE_MAX_GPU_HOURS` (default 4) caps it, and every pod is terminated at the end. Progress goes to
-`OUT/remote.log`. See [packages/delove-gpu, Cloud workers](../delove-gpu/README.md#cloud-workers).
+is printed first, `REMOTE_MAX_GPU_HOURS` (default 4) caps it (each pod's share counted from its creation), and every
+pod is terminated at the end. RunPod's stock is read first (`REMOTE_CAPACITY_WAIT`, minutes, default 30). A step whose
+configurations did not all come back is not merged: the finished ones are kept, `OUT/<step>/gpu.partial.json` lists
+the missing ones, and running cycle.sh again plays only those (`REMOTE_ACCEPT_PARTIAL=1` merges what came back
+instead). Progress goes to `OUT/remote.log`. See [packages/delove-gpu, Cloud workers](../delove-gpu/README.md#cloud-workers).
 
 **Training on a rented cloud GPU.** `REMOTE_TRAIN=1 REMOTE_VOLUME=<RunPod network volume id>` trains the candidate on
 one rented GPU instead (`remote.py train`): with `REMOTE_GPUS` the generation pods run in the volume's data center and

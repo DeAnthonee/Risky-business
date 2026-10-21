@@ -447,6 +447,20 @@ Self-play (every seat `jacob-sensei@2`, 64 games per table): 0 of 960 games hit 
 World 4/6/10p, Greater Europe 4/10p, Fantasy 6/10p, Asia 8p, USA 10p, Europe 8p, Bohemia 6p, Nine Realms 8p; games are
 shorter than Jacob Sensei 1's (World 6p 69 turns against 79, Greater Europe 10p 96 against 120).
 
+**As the rollout teacher** (what a cycle uses it for): branch and score (`delove-branch@1`, 5 options, ranker
+`delove@6`, horizon 1, margin 0.01) with `jacob-sensei@2` rollouts against the same with `jacob-sensei@1` rollouts,
+the same jobs and seeds (`generate.py --teacher`, paired game by game; 4-10p: `bench/rollout_compare.py`'s league
+tables with `jacob-sensei@1` in the other seats; 2p: against `jacob-sensei@1`, both seat orders), 600 games per
+table on a cloud RTX 4090 (2026-10-21). The branch seat's points per game, `@1` -> `@2`:
+
+| table | `@1` rollouts | `@2` rollouts | paired difference (95%) |
+| --- | --- | --- | --- |
+| Classic 2p | 0.725 | 0.800 | +0.08 (-0.05..+0.20); win share 0.575 -> 0.600 |
+| Classic 4p | 1.730 | 1.797 | +0.07 (-0.11..+0.24) |
+| World 6p | 3.358 | 3.610 | +0.25 (-0.17..+0.67) |
+| Fantasy 10p | 3.750 | 4.318 | +0.57 (-0.12..+1.25) |
+| pooled 4-10p (1,800 pairs) | | | **+0.30 (+0.02..+0.57)** |
+
 On the GPU mirror it is the same kernel (`packages/delove-gpu` README, "Jacob Sensei 2"), so `generate.py --teacher
 jacob-sensei@2` (`DELOVE_BRANCH_TEACHER=jacob-sensei@2` in `cycle.sh`) makes it a cycle's rollout teacher.
 

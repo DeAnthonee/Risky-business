@@ -250,12 +250,22 @@ class Ssh:
     # channel mid-upload ("Couldn't send packet: Broken pipe"). The size is checked on the other side.
     def put(self, pod: Pod, local: Path, remote: str, timeout: float = 3600):
         q = shlex.quote(remote)
-        with open(local, "rb") as f:
-            subprocess.run([self.exe, *self.opts("-p", pod), f"root@{pod.ip}", f"cat > {q}.part && mv {q}.part {q}"],
-                           stdin=f, check=True, timeout=timeout)
-        size = int(self.run(pod, f"stat -c %s {q}").strip())
-        if size != local.stat().st_size:
-            raise RuntimeError(f"upload to {pod.name}: {size} bytes arrived of {local.stat().st_size}")
+        # A pod's sshd can drop the first connections while it finishes starting (ssh exits 255): retry the whole
+        # upload a few times before giving up on the run.
+        for attempt in range(4):
+            try:
+                with open(local, "rb") as f:
+                    subprocess.run([self.exe, *self.opts("-p", pod), f"root@{pod.ip}", f"cat > {q}.part && mv {q}.part {q}"],
+                                   stdin=f, check=True, timeout=timeout)
+                size = int(self.run(pod, f"stat -c %s {q}").strip())
+                if size != local.stat().st_size:
+                    raise RuntimeError(f"upload to {pod.name}: {size} bytes arrived of {local.stat().st_size}")
+                return
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired, RuntimeError, ValueError) as e:
+                if attempt == 3:
+                    raise
+                print(f"upload to {pod.name} failed ({e.__class__.__name__}); retrying in 15 s", flush=True)
+                time.sleep(15)
 
     def get(self, pod: Pod, remote: str, local: Path, timeout: float = 4 * 3600):
         q = shlex.quote(remote)

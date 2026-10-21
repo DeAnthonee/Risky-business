@@ -309,6 +309,11 @@ a `"duel"` object). `tests/matrix.py --suite jacob2` is the `jacob` suite with `
 with `jacob-sensei@1` at the mixed tables) and as the rollout teacher (`j2b-*`); `verify.py --models` runs it with the
 other suites.
 
+Proof (2026-10-21, `verify.py --models --ranker delove@3` on a cloud RTX 4090, the merged tree of #144): 5,403,954 steps
+identical on `engine.py`, `fused.py`, the teacher and branch; matrix rules 72/72, settings 120/120, branch 18/18, `jacob`
+128/128 and `jacob2` 128/128 cases identical; the stage check 234 games identical; `k_teacher_run` (with
+`jacob-sensei@2` in the fast seats) 370 of 370 `generate.py` games identical to CPU play + export. Fingerprint written.
+
 ### Speed of a cycle step
 
 Cycle 3's Classic 2-player step (`c3-classic2.jobs`: 6,000 games, branch player against `delove@2`, `c2-candidate` and

@@ -209,7 +209,9 @@ at a table (`delove-teacher@N`, `jacob-sensei@N`, any mix) plays its own version
   and versions read from the built self-play package. The encoder computes in float64 and rounds to float32 once, as
   encode.ts stores doubles into a Float32Array, so the arrays are bit-identical to `export`'s. One extra array, not in
   export's: `branch_tag.npy` (int8 per decision: 0 the teacher's move without comparing options, 1 compared and kept,
-  2 changed), which `train.py --branch-weights` reads.
+  2 changed), which `train.py --branch-weights` reads; and `placement.npy` / `kills.npy` (int32: the decider's final
+  place and kills, from `outcome.py`), which the Mid Range target reads (`train.py --range mid`, `--value-target top2`).
+  A cloud merge needs every part written by the same version (`merge.py` refuses folders with different arrays).
 
 - **Outcomes** (`outcome.py`): z, and log v3's leaderboard placements, kills and points (`points.npy`, `points01.npy`):
   the kernel records who eliminated whom and in which order, `finalPlacements`' ordering is mirrored, and the points
@@ -381,6 +383,14 @@ copies each; measured while cycle 6 shared the GPU, so only the ratios count): o
 the move itself) diverge less than with 32 copies per warp. Below 16 lanes, the attack loop stays long; at 32 lanes,
 the 255-register kernel fits fewer copies on the GPU at once.
 
+**Proof.** The lane groups changed no TS file, so `engine-fingerprint.json` (which hashes only the TS rule files) did not
+change, and its last `verify.py` run (#112) predates them. What covers them: `k_teacher` (1 lane, the same `teacher_pick_g`
+code) and `k_branch_sim` (16 lanes, every score mode) replayed `verify.py`'s matrix suites identically (jacob 128/128, branch
+18/18, #117); `k_teacher_run` with 8 lanes runs only in `generate.py`, which no `verify.py` step replays against the CPU,
+so it rests on the before/after runs above. A full `verify.py --models` run would repeat the first two with new seeds and
+not reach the third, so none was run for #117. Adding a `dataset_compare.py` step (GPU `generate.py` against CPU play and
+export) to `verify.py` would cover it.
+
 **Cheaper settings are not worth it on the GPU.** `bench/branch_agreement.py` plays a table with the full settings and,
 at every decision of the branch player, also runs each variant from the same position and streams. On the
 Greater Europe 10-player table (256 games, 10 minutes, 81,919 decisions, 50,262 branched by the full search, which
@@ -406,7 +416,7 @@ stage is a short tail (cycle 7 split the same games by players alive and the spe
 
 ```bash
 # from packages/delove-gpu: Mid Range (3 alive) and Close Range (2 alive), the cycle 8 maps and table sizes
-.venv/Scripts/python -m delove_gpu.generate --models <models> --ranker delove@5 --teacher jacob-sensei@1 --horizon 1 --margin 0.01 \
+.venv/Scripts/python -m delove_gpu.generate --models <models> --ranker delove@6 --teacher jacob-sensei@1 --horizon 1 --margin 0.01 \
   --jobs ../delove/scripts/stage/mid.jobs --seed 901 --out data/delove/stage-mid --summary runs/stage-mid.json --results runs/stage-mid.jsonl
 .venv/Scripts/python -m delove_gpu.generate ... --jobs ../delove/scripts/stage/close.jobs --seed 902 --out data/delove/stage-close
 # from game records (npm run selfplay -- positions writes the file): 2-alive positions, played by the branch player and Jacob

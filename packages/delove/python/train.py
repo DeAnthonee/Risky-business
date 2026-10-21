@@ -21,6 +21,13 @@ network in bfloat16 (mixed precision; losses, optimizer and weights stay float32
 the policy loss by what branch and score did at each decision (branch_tag.npy, written by delove_gpu.generate): 0 the
 teacher's move played without comparing options, 1 options compared and the teacher's move kept, 2 the move changed;
 datasets without branch_tag.npy keep weight 1.
+
+Range specialists (--range long|mid|close) each learn their own objective from the same pool of games (targets.py):
+the decisions with that many players alive, a value target of their own (long: leaderboard points; mid: finishing top
+2, plus credit for steering the strongest rival's threat onto the third player; close: winning the duel), and range
+credit: every copied move is weighted by exp((target - V) / credit_beta), V the model's own value of the position, so
+each specialist copies most the moves that went well *for its objective*. The first --credit-warmup steps copy every
+move evenly while the value head learns the new target.
 """
 import contextlib
 import argparse
@@ -33,13 +40,14 @@ import torch
 import torch.nn.functional as F
 
 from delove_model import DeloveNet, segment_log_softmax
+from targets import RANGES, TARGETS, alive_counts, range_target
 
 SUPPORTED_ENCODER = 2
 MODES = ("imitate", "winners", "advantage", "value")
 
 
 class Data:
-    def __init__(self, folder, mode="imitate", loser_weight=0.1, target="z", fraction=1.0, branch_weights=None):
+    def __init__(self, folder, mode="imitate", loser_weight=0.1, target="z", fraction=1.0, branch_weights=None, threat=0.0):
         if mode not in MODES:
             raise SystemExit(f"{folder}: unknown mode {mode!r} ({', '.join(MODES)})")
         if not 0 < fraction <= 1:
@@ -53,14 +61,6 @@ class Data:
         self.territory, self.glob, self.cand = load("territory"), load("global"), load("cand")
         self.cand_from, self.cand_to, self.offset = load("cand_from"), load("cand_to"), np.asarray(load("cand_offset"))
         self.choice, self.z, self.game = np.asarray(load("choice")), np.asarray(load("z")), np.asarray(load("game"))
-        # target "points": the value head (and :advantage / :winners weights) learn leaderboard points scaled to 0..1
-        # (points01.npy, log v3) instead of win/loss; decisions without points (v2 logs) keep z.
-        self.target = "z"
-        if target == "points" and os.path.exists(os.path.join(folder, "points01.npy")):
-            p01 = np.asarray(load("points01"))
-            if np.isfinite(p01).any():
-                self.z = np.where(np.isfinite(p01), p01, self.z).astype(np.float32)
-                self.target = "points"
         self.tag_weight = None
         tag_path = os.path.join(folder, "branch_tag.npy")
         if branch_weights is not None and os.path.exists(tag_path):
@@ -70,6 +70,11 @@ class Data:
         for i, ns in enumerate(self.info["adjacency"]):
             adj[i, ns] = 1.0
         self.adj = adj
+        self.alive = alive_counts(self.glob, self.info["globalFeatures"])
+        # What the value head (and :advantage / :winners / range-credit weights) learn instead of win/loss z
+        # (targets.py): "points" leaderboard points scaled 0..1 (log v3; v2 decisions keep z), "top2" finishing 1st or
+        # 2nd (Mid Range; `threat` mixes in the credit for deflecting the strongest rival), "win" a sole win (Close Range).
+        self.z, self.target, self.target_note = range_target(self, target, threat)
 
     def __len__(self):
         return len(self.choice)
@@ -102,19 +107,14 @@ class Data:
             z=t(self.z[ks]),
             w=t(self.policy_weight(ks)),
             advantage=self.mode == "advantage",
+            policy=self.mode != "value",
             n=len(ks),
         )
 
 
-def alive_mask(d, lo, hi, chunk=1 << 20):
-    """Decisions of dataset d with lo..hi players still alive, counted from the slot<i>_alive global features."""
-    names = d.info["globalFeatures"]
-    cols = [i for i, n in enumerate(names) if n.startswith("slot") and n.endswith("_alive")]
-    out = np.zeros(len(d), dtype=bool)
-    for i in range(0, len(d), chunk):
-        n = np.asarray(d.glob[i : i + chunk][:, cols]).sum(1)
-        out[i : i + chunk] = (n >= lo - 0.5) & (n <= hi + 0.5)
-    return out
+def alive_mask(d, lo, hi):
+    """Decisions of dataset d with lo..hi players still alive (the slot<i>_alive global features)."""
+    return (d.alive >= lo) & (d.alive <= hi)
 
 
 def split_by_game(game, val_fraction, seed=0):
@@ -132,7 +132,8 @@ def blocks(idx, block, rng):
     return [chunks[i] for i in order]
 
 
-def step_loss(model, b, adj, value_weight, beta=0.3, amp=False):
+def step_loss(model, b, adj, value_weight, beta=0.3, amp=False, credit_beta=None):
+    """credit_beta (range credit): every copied move is also weighted by exp((target - V) / credit_beta)."""
     ctx = torch.autocast("cuda", dtype=torch.bfloat16) if amp else contextlib.nullcontext()
     with ctx:
         logits, value = model(b["territory"], b["glob"], adj, b["cand"], b["cand_from"], b["cand_to"], b["cand_batch"])
@@ -142,6 +143,9 @@ def step_loss(model, b, adj, value_weight, beta=0.3, amp=False):
     if b["advantage"]:
         w = torch.exp(((b["z"] - value.detach()) / beta).clamp(-3.0, 2.0))
         w = w / w.mean()
+    elif credit_beta and b["policy"]:
+        c = torch.exp(((b["z"] - value.detach()) / credit_beta).clamp(-3.0, 2.0))
+        w = w * c / c.mean()
     policy_loss = -(logp[b["target"]] * w).sum() / w.sum().clamp(min=1e-6)
     value_loss = F.binary_cross_entropy(value.clamp(1e-6, 1 - 1e-6), b["z"])
     # Top-1: the played candidate has the highest logit in its decision.
@@ -151,14 +155,14 @@ def step_loss(model, b, adj, value_weight, beta=0.3, amp=False):
 
 
 @torch.no_grad()
-def evaluate(model, data, idx, device, batch_size, value_weight, beta=0.3, amp=False):
+def evaluate(model, data, idx, device, batch_size, value_weight, beta=0.3, amp=False, credit_beta=None):
     adj = torch.as_tensor(data.adj, device=device)
     model.eval()
     tot = np.zeros(4)
     n = 0
     for i in range(0, len(idx), batch_size):
         b = data.batch(idx[i : i + batch_size], device)
-        losses = step_loss(model, b, adj, value_weight, beta, amp)
+        losses = step_loss(model, b, adj, value_weight, beta, amp, credit_beta)
         tot += np.array([x.item() for x in losses]) * b["n"]
         n += b["n"]
     model.train()
@@ -171,8 +175,17 @@ def main():
     ap.add_argument("--data", required=True, action="append",
                     help="export folder for one map, optionally :imitate (default), :winners or :advantage; repeat to mix exports of the same map")
     ap.add_argument("--beta", type=float, default=0.3, help="temperature of :advantage weights (smaller = sharper)")
-    ap.add_argument("--value-target", choices=["z", "points"], default="z",
-                    help="what the value head learns: z (win 1 / loss 0) or points (leaderboard points scaled 0..1)")
+    ap.add_argument("--value-target", choices=TARGETS,
+                    help="what the value head learns: z (win 1 / loss 0, the default), points (leaderboard points scaled 0..1), "
+                         "top2 (finished 1st or 2nd) or win (sole winner; a turn-limit share counts as no win)")
+    ap.add_argument("--range", choices=sorted(RANGES),
+                    help="range specialist preset: long (4-10 alive, points), mid (3 alive, top2 + threat credit), close (2 alive, "
+                         "win), each with range credit; sets --alive, --value-target, --threat-credit and --credit-beta unless given")
+    ap.add_argument("--threat-credit", type=float,
+                    help="top2 target only: mix this share of the threat-deflection credit into the target (Mid Range)")
+    ap.add_argument("--credit-beta", type=float,
+                    help="range credit: weight every copied move by exp((target - V) / CREDIT_BETA); 0 = off")
+    ap.add_argument("--credit-warmup", type=int, default=500, help="steps of plain copying before range credit starts")
     ap.add_argument("--loser-weight", type=float, default=0.1, help="policy weight of a losing side's moves in :winners data")
     ap.add_argument("--out", required=True, help="output path without extension, e.g. models/delove/delove@1")
     ap.add_argument("--init", help="start from these weights (<path>.pt)")
@@ -189,6 +202,14 @@ def main():
     ap.add_argument("--amp", action="store_true", help="mixed precision: the network in bfloat16 (CUDA only)")
     ap.add_argument("--branch-weights", help="W0,W1,W2: policy weight of teacher-only, compared-and-kept and changed decisions")
     args = ap.parse_args()
+    preset = RANGES.get(args.range, {})
+    for k in ("alive", "value_target", "threat_credit", "credit_beta"):
+        if getattr(args, k) is None:
+            setattr(args, k, preset.get(k))
+    args.value_target = args.value_target or "z"
+    args.threat_credit = args.threat_credit or 0.0
+    if args.threat_credit and args.value_target != "top2":
+        raise SystemExit("--threat-credit needs --value-target top2")
 
     torch.manual_seed(args.seed)
     rng = np.random.default_rng(args.seed)
@@ -205,8 +226,8 @@ def main():
             fraction = float(f)
         for mode in MODES:
             if spec.endswith(":" + mode):
-                return Data(spec[: -len(mode) - 1], mode, args.loser_weight, args.value_target, fraction, bw)
-        return Data(spec, "imitate", args.loser_weight, args.value_target, fraction, bw)
+                return Data(spec[: -len(mode) - 1], mode, args.loser_weight, args.value_target, fraction, bw, args.threat_credit)
+        return Data(spec, "imitate", args.loser_weight, args.value_target, fraction, bw, args.threat_credit)
 
     datasets = [parse(d) for d in args.data]
     first = datasets[0]
@@ -238,7 +259,9 @@ def main():
     steps_total = int(args.epochs * n_train / args.batch)
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
     sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=args.lr, total_steps=max(1, steps_total), pct_start=0.05)
-    print(json.dumps(dict(device=device, datasets={d.name: dict(mode=d.mode, target=d.target, decisions=len(d), fraction=d.fraction, tagged=d.tag_weight is not None) for d in datasets},
+    print(json.dumps(dict(device=device, range=args.range, credit_beta=args.credit_beta, threat_credit=args.threat_credit,
+                          datasets={d.name: dict(mode=d.mode, target=d.target, note=d.target_note, decisions=len(d), fraction=d.fraction,
+                                                 tagged=d.tag_weight is not None) for d in datasets},
                           train=n_train, params=params, steps=steps_total, amp=amp)))
 
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
@@ -270,7 +293,7 @@ def main():
         per = {}
         tot, n = np.zeros(4), 0
         for d, (_, va) in zip(datasets, splits):
-            m = evaluate(model, d, va, device, args.batch, args.value_weight, args.beta, amp)
+            m = evaluate(model, d, va, device, args.batch, args.value_weight, args.beta, amp, args.credit_beta)
             per[label(d)] = m
             tot += np.array([m["loss"], m["policy_loss"], m["value_loss"], m["top1"]]) * len(va)
             n += len(va)
@@ -282,7 +305,8 @@ def main():
             if step >= steps_total:
                 break
             b = datasets[di].batch(ks, device)
-            loss, pl, vl, acc = step_loss(model, b, adjs[di], args.value_weight, args.beta, amp)
+            credit = args.credit_beta if step >= args.credit_warmup else None
+            loss, pl, vl, acc = step_loss(model, b, adjs[di], args.value_weight, args.beta, amp, credit)
             opt.zero_grad(set_to_none=True)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
@@ -302,7 +326,7 @@ def main():
 
     torch.save(dict(config=model.config, state=model.state_dict()), args.out + ".pt")
     with open(args.out + ".json", "w") as f:
-        json.dump(dict(args=vars(args), params=params, decisions={d.name: len(d) for d in datasets}, minutes=(time.time() - t0) / 60,
+        json.dump(dict(args=vars(args), params=params, targets={d.name: dict(target=d.target, note=d.target_note) for d in datasets}, decisions={d.name: len(d) for d in datasets}, minutes=(time.time() - t0) / 60,
                        history=history, map=first.info["map"], encoderVersion=first.info["encoderVersion"]), f, indent=2, default=float)
     print("saved", args.out + ".pt")
 

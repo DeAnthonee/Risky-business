@@ -29,6 +29,12 @@ branch_q.npy (delove_gpu.generate, or branch_q.py for a CPU export). The prior i
 default the --init weights; "uniform" for none). Other decisions, and datasets without branch_q.npy, keep the played
 move as the target; --branch-weights, range credit and :modes weight soft and hard decisions alike.
 
+Rollout head (--aux-rollout W): an extra head learns each branched decision's 1-round result, the played option's mean
+rollout score from branch_q.npy (0..1, from the decider's side), with weight W on a squared-error loss. A one-round
+outcome is far less noisy than the game's final points, so it gives the shared trunk a sharper position signal (the
+auxiliary-target idea from KataGo). Decisions without a branch score add nothing. Starting from a model without the
+head (--init) adds a fresh one; the policy and the value head, and so the ONNX export, are unchanged.
+
 Range specialists (--range long|mid|close) each learn their own objective from the same pool of games (targets.py):
 the decisions with that many players alive, a value target of their own (long: leaderboard points; mid: finishing top
 2, plus credit for steering the strongest rival's threat onto the third player; close: winning the duel), and range
@@ -118,6 +124,7 @@ class Data:
             cand_batch=t(seg, torch.int64),
             target=t(target, torch.int64),
             q=t(self.q[rows]) if self.q is not None else None,
+            rq=t(np.asarray(self.q[rows], dtype=np.float32)[target]) if self.q is not None else None,
             z=t(self.z[ks]),
             w=t(self.policy_weight(ks)),
             advantage=self.mode == "advantage",
@@ -162,13 +169,15 @@ class Soft:
         return soft_targets(prior.float(), b["q"], b["cand_batch"], b["n"], self.c, self.scale)
 
 
-def step_loss(model, b, adj, value_weight, beta=0.3, amp=False, credit_beta=None, soft=None):
+def step_loss(model, b, adj, value_weight, beta=0.3, amp=False, credit_beta=None, soft=None, aux_rollout=0.0):
     """credit_beta (range credit): every copied move is also weighted by exp((target - V) / credit_beta). soft (Soft):
-    branched decisions learn the soft target from branch_q instead of the played move."""
+    branched decisions learn the soft target from branch_q instead of the played move. aux_rollout: weight of the
+    rollout head's squared error against the played option's branch score (decisions that have one)."""
     ctx = torch.autocast("cuda", dtype=torch.bfloat16) if amp else contextlib.nullcontext()
+    aux = aux_rollout > 0 and b.get("rq") is not None
     with ctx:
-        logits, value = model(b["territory"], b["glob"], adj, b["cand"], b["cand_from"], b["cand_to"], b["cand_batch"])
-    logits, value = logits.float(), value.float()
+        out = model(b["territory"], b["glob"], adj, b["cand"], b["cand_from"], b["cand_to"], b["cand_batch"], aux=aux)
+    logits, value = out[0].float(), out[1].float()
     logp = segment_log_softmax(logits, b["cand_batch"], b["n"])
     tgt, is_soft = soft.targets(b, adj, ctx) if soft is not None and b["q"] is not None and b["policy"] else (None, None)
     w = b["w"]
@@ -183,18 +192,24 @@ def step_loss(model, b, adj, value_weight, beta=0.3, amp=False, credit_beta=None
     # Top-1: the played candidate has the highest logit in its decision.
     mx = torch.full((b["n"],), float("-inf"), device=logits.device).scatter_reduce(0, b["cand_batch"], logits, reduce="amax")
     acc = (logits[b["target"]] >= mx).float().mean()
-    return policy_loss + value_weight * value_loss, policy_loss, value_loss, acc
+    total = policy_loss + value_weight * value_loss
+    if aux:
+        rq = b["rq"]
+        has = torch.isfinite(rq)
+        if bool(has.any()):
+            total = total + aux_rollout * F.mse_loss(out[2].float()[has], rq[has].clamp(0.0, 1.0))
+    return total, policy_loss, value_loss, acc
 
 
 @torch.no_grad()
-def evaluate(model, data, idx, device, batch_size, value_weight, beta=0.3, amp=False, credit_beta=None, soft=None):
+def evaluate(model, data, idx, device, batch_size, value_weight, beta=0.3, amp=False, credit_beta=None, soft=None, aux_rollout=0.0):
     adj = torch.as_tensor(data.adj, device=device)
     model.eval()
     tot = np.zeros(4)
     n = 0
     for i in range(0, len(idx), batch_size):
         b = data.batch(idx[i : i + batch_size], device)
-        losses = step_loss(model, b, adj, value_weight, beta, amp, credit_beta, soft)
+        losses = step_loss(model, b, adj, value_weight, beta, amp, credit_beta, soft, aux_rollout)
         tot += np.array([x.item() for x in losses]) * b["n"]
         n += b["n"]
     model.train()
@@ -239,6 +254,8 @@ def main():
     ap.add_argument("--soft-scale", type=float, metavar="S",
                     help="--soft-targets: scale scores by an absolute gap S, clip((q - lowest compared) / S, 0, 1), instead of"
                          " min-max within each decision (e.g. 0.05: a 0.01 gap is worth C/5 logits)")
+    ap.add_argument("--aux-rollout", type=float, default=0.0, metavar="W",
+                    help="weight of the rollout head's loss: each branched decision's 1-round branch score from branch_q.npy (0 = off)")
     ap.add_argument("--soft-prior", help="frozen prior network for --soft-targets (<path>.pt; default the --init weights, 'uniform' for none)")
     args = ap.parse_args()
     preset = RANGES.get(args.range, {})
@@ -288,12 +305,21 @@ def main():
     n_train = int(sum(len(tr) * d.fraction for d, (tr, _) in zip(datasets, splits)))
     f_t, f_g, f_c = first.territory.shape[-1], first.glob.shape[-1], first.cand.shape[-1]
 
+    if args.aux_rollout < 0:
+        raise SystemExit("--aux-rollout must be >= 0")
     if args.init:
         ck = torch.load(args.init, map_location=device)
-        model = DeloveNet(**ck["config"]).to(device)
-        model.load_state_dict(ck["state"])
+        cfg = dict(ck["config"])
+        if args.aux_rollout:
+            cfg["aux_rollout"] = True
+        model = DeloveNet(**cfg).to(device)
+        missing, unexpected = model.load_state_dict(ck["state"], strict=False)
+        if unexpected or any(not k.startswith("rollout.") for k in missing):
+            raise SystemExit(f"{args.init}: weights don't fit the network (missing {missing}, unexpected {unexpected})")
     else:
-        model = DeloveNet(f_t, f_g, f_c, hidden=args.hidden, rounds=args.rounds).to(device)
+        model = DeloveNet(f_t, f_g, f_c, hidden=args.hidden, rounds=args.rounds, aux_rollout=args.aux_rollout > 0).to(device)
+    if args.aux_rollout:
+        print(json.dumps(dict(aux_rollout=args.aux_rollout, with_branch_q=[d.name for d in datasets if d.q is not None])), flush=True)
     soft = None
     if args.soft_targets:
         prior_path = args.soft_prior or args.init
@@ -348,7 +374,7 @@ def main():
         per = {}
         tot, n = np.zeros(4), 0
         for d, (_, va) in zip(datasets, splits):
-            m = evaluate(model, d, va, device, args.batch, args.value_weight, args.beta, amp, args.credit_beta, soft)
+            m = evaluate(model, d, va, device, args.batch, args.value_weight, args.beta, amp, args.credit_beta, soft, args.aux_rollout)
             per[label(d)] = m
             tot += np.array([m["loss"], m["policy_loss"], m["value_loss"], m["top1"]]) * len(va)
             n += len(va)
@@ -361,7 +387,7 @@ def main():
                 break
             b = datasets[di].batch(ks, device)
             credit = args.credit_beta if step >= args.credit_warmup else None
-            loss, pl, vl, acc = step_loss(model, b, adjs[di], args.value_weight, args.beta, amp, credit, soft)
+            loss, pl, vl, acc = step_loss(model, b, adjs[di], args.value_weight, args.beta, amp, credit, soft, args.aux_rollout)
             opt.zero_grad(set_to_none=True)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)

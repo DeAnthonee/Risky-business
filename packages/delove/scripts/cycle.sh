@@ -36,6 +36,10 @@
 # packages/delove-gpu/README.md "Cloud workers"): REMOTE_MAX_GPU_HOURS (default 4) caps the spend, REMOTE_TIMINGS
 # (space-separated gpu.log files of earlier cycles) sizes the split, REMOTE_PROCS (default 1) processes per GPU,
 # REMOTE_GPU_TYPE (default NVIDIA GeForce RTX 4090), REMOTE_CLOUD (SECURE or COMMUNITY), REMOTE_REPLACEMENTS (default 2) and REMOTE_READY_MINUTES (default 15) for replacing a bad pod; progress in OUT/remote.log.
+# The cap is per pod, counted from each pod's creation; REMOTE_CAPACITY_WAIT (minutes, default 30) waits for RunPod
+# stock (nothing billed). Finished configurations are kept (OUT/remote/units/) when a pod is cut or fails: run cycle.sh
+# again and only the missing ones play (OUT/<step>/gpu.partial.json lists them); REMOTE_ACCEPT_PARTIAL=1 merges a step
+# from what was delivered instead.
 # REMOTE_TRAIN=1 trains on one rented cloud GPU instead, from datasets on the RunPod network volume REMOTE_VOLUME
 # (remote.py train; packages/delove-gpu/README.md "Cloud training"): with REMOTE_GPUS the generation pods run in the
 # volume's data center and leave their arrays on it (only gpu.json, gpu.log and the like come home; REMOTE_HOME_COPY=1
@@ -171,6 +175,8 @@ if (( ${#gpu_steps[@]} )); then
       [[ -n ${REMOTE_CLOUD:-} ]] && remote+=(--cloud "$REMOTE_CLOUD")
       [[ -n ${REMOTE_REPLACEMENTS:-} ]] && remote+=(--replacements "$REMOTE_REPLACEMENTS")
       [[ -n ${REMOTE_READY_MINUTES:-} ]] && remote+=(--ready-minutes "$REMOTE_READY_MINUTES")
+      [[ -n ${REMOTE_CAPACITY_WAIT:-} ]] && remote+=(--capacity-wait "$REMOTE_CAPACITY_WAIT")
+      [[ ${REMOTE_ACCEPT_PARTIAL:-0} == 1 ]] && remote+=(--accept-partial)
       if [[ ${REMOTE_TRAIN:-0} == 1 ]]; then  # the arrays go to the network volume, for the training pod
         remote+=(--volume "$REMOTE_VOLUME")
         [[ ${REMOTE_HOME_COPY:-0} == 1 ]] && remote+=(--home-copy)

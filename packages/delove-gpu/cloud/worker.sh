@@ -8,19 +8,54 @@
 #   JOB/cache/         optional: NVRTC kernels (*.cubin) from the training PC's delove_gpu/_cache/
 #   JOB/job.json       {"torch": "2.11.0+cu128", "verify": [verify.py args] or null, "volume": path or null, "home": "full" or "small",
 #                      "allowUnverified": bool, "commit": sha}
-#   JOB/lane-<i>.sh    one per lane: its GPU and one delove_gpu.generate per step (written by remote.py)
-#   JOB/lanes/<i>.<step>.jobs   each lane's tables of each step
+#   JOB/lane-<i>.sh    one per lane: its GPU and one delove_gpu.generate per configuration (written by remote.py)
+#   JOB/lanes/<i>.<step>.<key>.jobs   the tables of each of a lane's configurations
 #
-# Writes JOB/lanes/<i>/<step>/{data/<map>/,gpu.json,results.jsonl,gpu.log}, JOB/setup.log, JOB/env.json (GPU, driver,
+# Writes JOB/lanes/<i>/<step>/<key>/{data/<map>/,gpu.json,results.jsonl,gpu.log}, JOB/setup.log, JOB/env.json (GPU, driver,
 # torch), JOB/out.tar.gz (everything under lanes/ and the logs), and JOB/status: setup, running, packing, done or
 # failed: <why>. All lanes run at the same time (several may share a GPU); a lane plays its steps in order.
 # With a network volume (job.json "volume": a path under its mount, /workspace), the full archive is written there
 # instead, for the training pod (cloud/trainer.py), and JOB/out.tar.gz is a link to it ("home": "full") or a small
 # archive without the arrays (*.npy) for the training PC's gpu.json ("home": "small": the games stay in the cloud).
+#
+# `worker.sh JOB --salvage` (remote.py, when the pod's time is spent): stops the lanes and packs only the
+# configurations that finished (their gpu.json) into JOB/out.tar.gz (with a volume: <volume archive>-salvage.tar.gz).
 set -uo pipefail
 job=${1:-/root/job}
 repo=/root/repo
 cd "$job" || exit 1
+jget() { python3 -c 'import json,sys; v=json.load(open(sys.argv[1])).get(sys.argv[2]); print(v or "")' "$job/job.json" "$1"; }
+gz() { if command -v pigz >/dev/null; then pigz -1; else gzip -1; fi; }
+vol=$(jget volume)
+home=$(jget home)
+pack() {  # pack <members...>: JOB/out.tar.gz, and with a volume the full archive on it ($vol)
+  if [[ -n $vol ]]; then
+    mkdir -p "$(dirname "$vol")" && tar -cf - -C "$job" "$@" | gz > "$vol.part" && mv "$vol.part" "$vol" || return 1
+    if [[ $home == small ]]; then
+      tar -cf - --exclude='*.npy' -C "$job" "$@" | gz > "$job/out.tar.gz.tmp" || return 1
+    else
+      ln -sfn "$vol" "$job/out.tar.gz.tmp" || return 1
+    fi
+  else
+    tar -cf - -C "$job" "$@" | gz > "$job/out.tar.gz.tmp" || return 1
+  fi
+  mv -T "$job/out.tar.gz.tmp" "$job/out.tar.gz"
+}
+if [[ ${2:-} == --salvage ]]; then
+  pkill -f 'worker\.sh [^ ]+$'  # the main worker (its trap marks it failed and deletes the models)
+  pkill -f '[l]ane-[0-9]+\.sh'
+  pkill -f '[d]elove_gpu\.generate'
+  sleep 2
+  rm -rf "$job/models"
+  mapfile -t finished < <(cd "$job" && for f in lanes/*/*/*/gpu.json; do [[ -f $f ]] && dirname "$f"; done)
+  [[ -n $vol ]] && vol=${vol%.tar.gz}-salvage.tar.gz
+  rm -f "$job/out.tar.gz"
+  members=("${finished[@]}")
+  for f in setup.log env.json; do [[ -f $job/$f ]] && members+=("$f"); done
+  pack "${members[@]}" || exit 1
+  echo "salvaged ${#finished[@]} finished configuration(s)"
+  exit 0
+fi
 status() { echo "$*" > "$job/status.tmp" && mv "$job/status.tmp" "$job/status"; }
 fail() { status "failed: $*"; rm -rf "$job/models"; exit 1; }
 trap 'fail "worker interrupted"' INT TERM
@@ -97,8 +132,8 @@ fi
 (cd packages/delove-gpu && $py -c 'from delove_gpu import odds; odds.tables(2); odds.tables(3)') || fail "odds tables"
 
 # ---- the lanes ---------------------------------------------------------------------------------------------------------
-# remote.py writes one script per lane (lane-<i>.sh: CUDA_VISIBLE_DEVICES and one delove_gpu.generate per step, each
-# skipped once its gpu.json exists); every lane runs at the same time.
+# remote.py writes one script per lane (lane-<i>.sh: CUDA_VISIBLE_DEVICES and one delove_gpu.generate per configuration,
+# each skipped once its gpu.json exists); every lane runs at the same time.
 status running
 exec >> "$job/setup.log" 2>&1
 export PY=$py REPO=$repo JOB=$job
@@ -109,25 +144,8 @@ for p in "${pids[@]}"; do wait "$p" || failed=1; done
 rm -rf "$job/models"  # the private models leave the pod as soon as the games are played
 
 # ---- pack for download (gzip -1: the arrays shrink 11-25x) ----------------------------------------------------------------
-jget() { python3 -c 'import json,sys; v=json.load(open(sys.argv[1])).get(sys.argv[2]); print(v or "")' "$job/job.json" "$1"; }
-vol=$(jget volume)
-home=$(jget home)
-gz() { if command -v pigz >/dev/null; then pigz -1; else gzip -1; fi; }
-pack() {  # pack <members...>: JOB/out.tar.gz, and with a volume the full archive on it
-  if [[ -n $vol ]]; then
-    mkdir -p "$(dirname "$vol")" && tar -cf - -C "$job" "$@" | gz > "$vol.part" && mv "$vol.part" "$vol" || return 1
-    if [[ $home == small ]]; then
-      tar -cf - --exclude='*.npy' -C "$job" "$@" | gz > "$job/out.tar.gz.tmp" || return 1
-    else
-      ln -sfn "$vol" "$job/out.tar.gz.tmp" || return 1
-    fi
-  else
-    tar -cf - -C "$job" "$@" | gz > "$job/out.tar.gz.tmp" || return 1
-  fi
-  mv -T "$job/out.tar.gz.tmp" "$job/out.tar.gz"
-}
-# A failed lane still leaves the lanes that delivered their gpu.json: remote.py keeps those and replaces the rest.
-(( failed )) && { pack lanes setup.log env.json 2>/dev/null; fail "a lane failed (see lanes/*/*/gpu.log)"; }
+# A failed lane still leaves the configurations that delivered their gpu.json: remote.py keeps those and replaces the rest.
+(( failed )) && { pack lanes setup.log env.json 2>/dev/null; fail "a lane failed (see lanes/*/*/*/gpu.log)"; }
 status packing
 files=(lanes setup.log env.json)
 [[ -f $job/verify.log ]] && files+=(verify.log)

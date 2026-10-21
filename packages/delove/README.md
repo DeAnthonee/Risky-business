@@ -591,8 +591,11 @@ cycle.sh checks the mirror's fingerprint: if the engine changed since the last v
 instead: the steps' configurations are split over N RunPod GPUs (RTX 4090 by default) by their cost in earlier
 `gpu.log` files (`REMOTE_TIMINGS`), played with the same generate arguments, downloaded and merged into the same
 `DATA/<name>-<step>/<map>` and `OUT/<step>/gpu.json`. `RUNPOD_API_KEY` must be in the environment; the estimated cost
-is printed first, `REMOTE_MAX_GPU_HOURS` (default 4) caps it, and every pod is terminated at the end. Progress goes to
-`OUT/remote.log`. See [packages/delove-gpu, Cloud workers](../delove-gpu/README.md#cloud-workers).
+is printed first, `REMOTE_MAX_GPU_HOURS` (default 4) caps it (each pod's share counted from its creation), and every
+pod is terminated at the end. RunPod's stock is read first (`REMOTE_CAPACITY_WAIT`, minutes, default 30). A step whose
+configurations did not all come back is not merged: the finished ones are kept, `OUT/<step>/gpu.partial.json` lists
+the missing ones, and running cycle.sh again plays only those (`REMOTE_ACCEPT_PARTIAL=1` merges what came back
+instead). Progress goes to `OUT/remote.log`. See [packages/delove-gpu, Cloud workers](../delove-gpu/README.md#cloud-workers).
 
 **Training on a rented cloud GPU.** `REMOTE_TRAIN=1 REMOTE_VOLUME=<RunPod network volume id>` trains the candidate on
 one rented GPU instead (`remote.py train`): with `REMOTE_GPUS` the generation pods run in the volume's data center and
@@ -661,6 +664,16 @@ promotions are judged mainly on the points difference at 4-10 players (`docs/del
   bounds fixed for the same reason). Min-max stays the default, so the two can be compared.
   Smoke run (150 Classic 2p branch games with Jacob rollouts, CPU, from `delove@3`, 1 epoch, `--range close
   --branch-weights 0.5,1,2`): trains; whether it beats hard labels is cycle 12's A/B.
+- `--aux-rollout W`: adds a rollout head that learns each branched decision's 1-round result, the played option's
+  mean branch score from `branch_q.npy` (0..1), with weight W on a squared-error loss (KataGo-style auxiliary target:
+  a one-round outcome is far less noisy than the final points). Starting from a network without the head adds a fresh
+  one; the policy, the value head and the ONNX export are unchanged (`forward(..., aux=True)` returns the head;
+  checks `python packages/delove/python/test_aux.py`). Measured (#150; 1,200 CPU steps from `delove@8` on cycle 11's
+  Classic, World, Fantasy and Nine Realms, held-out games): the head predicts the 1-round score with **R² 0.89**
+  (0.81 at 4 players to 0.93 at 10; the value head only correlates 0.75 with it), while top-1 (0.627 vs 0.626) and the
+  value's R² on final points (0.372 both) don't move in a short fine-tune. So it is a sharp, cheap position signal
+  for later uses (a low-noise baseline for credit, or an after-move evaluator to cut rollouts) rather than a gain on
+  its own; it reads the board before the move, so it can't rank one decision's options yet.
 - `--device cpu|cuda`: where to train (default cuda when available).
 - `--alive LO-HI` (range specialists): only decisions with LO..HI players alive.
 - Keep a batch within the card: on big maps (Greater Europe, Fantasy) batch 1024 spilled past the RTX 4060's 8 GB into

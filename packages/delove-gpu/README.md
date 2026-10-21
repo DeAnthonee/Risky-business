@@ -746,7 +746,7 @@ is free and a cycle's generation is spread over several GPUs. Nothing in it is a
 | `cloud/worker.sh` | runs on a pod: unpacks the commit (`git archive`), Node 22, `npm ci` and builds the engine and self-play, installs the training PC's PyTorch version, loads the uploaded `_cache/` kernels, checks the fingerprint, runs every lane, deletes the models, packs `out.tar.gz` (gzip -1: the arrays shrink 11-25x) |
 | `cloud/merge.py` | joins several workers' map folders into one `DATA/<name>-<step>/<map>` (rows appended, `cand_offset` continued, `game` renumbered, counts summed; any per-row array such as `branch_tag.npy` included) and their summaries into the step's `gpu.json` (for a step whose arrays stay on the network volume, only the summary, counted from the `features.json` files) |
 | `cloud/trainer.sh`, `cloud/trainer.py` | run on the training pod (`remote.py train`, "Cloud training" below): set up the commit and PyTorch, unpack the earlier cycles' datasets from the network volume, wait for generation, merge this cycle's archives there with `merge.py` (and keep them on the volume as datasets), run `train.py` and `export_onnx.py`, pack only the candidate's files and `train.log` |
-| `tests/cloud_check.py` | offline checks (no GPU, no pods): a real map folder cut into workers and merged back is identical game for game; the split places every table once and its jobs lines round-trip; `remote.py run` against a fake API and clock terminates every pod on every path, replaces an unreachable pod, a failed upload, a failed worker and a lane that delivered nothing, and exits 1 (after downloading the healthy pods) when a pod's share never gets played; with `--volume` the pods are pinned to the volume's data center, the arrays stay on it and `trainer.py` merges them into the same games; `remote.py train` (fake API, pod and clock) terminates every pod on every path, uploads only the init model, sends go only after generation, exits 3 when a dataset is not in the cloud, pushes it with `--push-missing`, replaces a failed host but not a failed training, and handles a generation failure; the API key goes only in the `Authorization` header |
+| `tests/cloud_check.py` | offline checks (no GPU, no pods): a real map folder cut into workers and merged back is identical game for game; the split places every table once and its jobs lines round-trip; `remote.py run` against a fake API and clock terminates every pod on every path, replaces an unreachable pod, a failed upload, a failed worker and a lane that delivered nothing, and exits 1 (after downloading the healthy pods) when a pod's share never gets played; pods placed 20 minutes late still play to the end; pods cut at their time keep their finished configurations, which a rerun does not play again; `--accept-partial` merges them at once; no stock launches nothing; with `--volume` the pods are pinned to the volume's data center, the arrays stay on it and `trainer.py` merges them into the same games; `remote.py train` (fake API, pod and clock) terminates every pod on every path, uploads only the init model, sends go only after generation, exits 3 when a dataset is not in the cloud, pushes it with `--push-missing`, replaces a failed host but not a failed training, and handles a generation failure; the API key goes only in the `Authorization` header |
 
 **How a step is split.** The unit is a configuration (map, seats, settings): `generate` plays all of a configuration's
 tables in one engine, and a configuration takes about as long as its longest games whatever their number (a lockstep
@@ -755,7 +755,9 @@ are the same games as at home (same tables, seeds and batch for the same `--gpu-
 (`--gpus`) x processes per GPU (`--procs`); configurations go longest first onto the least-loaded lane, their cost
 read from the `... games in N s (batch B)` lines of earlier `gpu.log` files (`--timings`, any number; a configuration
 never measured is guessed from the same map and table size, else the board size, and marked "(guess)"). A lane runs
-one `generate` per step, so the workers' arrays come back per lane and step, and `merge.py` joins them.
+one `generate` per configuration, each with its own folder and `gpu.json` (`lanes/<lane>/<step>/<key>`, the key a hash
+of the tables, the generate arguments and the code), so every configuration that finishes can be kept on its own, and
+`merge.py` joins a step's configurations in plan order.
 
 **What it can and cannot shorten.** Cycle 6 on the RTX 4060 is about 6 hours of GPU generation; split over 6 lanes
 it is about 72 minutes of games per lane at the 4060's speed (`remote.py plan` on cycle 6's jobs and timings), and no
@@ -766,21 +768,37 @@ Getting under that needs a faster GPU per game (the first test below measures it
 **Cost and shutdown.** `plan` (and `run` before it launches) prints every lane with its configurations and minutes
 and the estimate: setup (~10 minutes) + the longest lane + download, times pods x GPUs x `--price` ($/GPU-hour;
 default 0.89, a Secure Cloud RTX 4090 in October 2026; the pods report their real price). `--max-gpu-hours` (default 4) is a hard cap: `run` refuses a bigger
-estimate, and terminates every pod when the cap's share of wall time is spent. Pods end on every path: each pod is
+estimate, and each planned pod (a slot) gets the cap's share, `--max-gpu-hours / (pods x GPUs)`, of billed pod time,
+counted from the moment each of its pods is rented: a pod RunPod places late loses nothing (issue #152: cycle 12's pods
+came up 14 minutes late, the old run-wide clock cut their lanes at 99% and nothing was kept), and a replacement gets
+only what its slot has left, so the cap still bounds the spend. A pod whose time is spent is told to stop and pack
+the configurations it finished (`worker.sh --salvage`), they are downloaded and kept, and it is terminated. Pods end on every path: each pod is
 terminated as soon as its arrays are downloaded, and every pod on failure, timeout or Ctrl+C (their ids are kept in
 `OUT/remote/pods.json`; `remote.py terminate --all` ends every `delove-*` pod of the account if this script was
-killed). Inside each pod a watchdog in the start command terminates it at the run's deadline (cap + 15 minutes) with
+killed). Inside each pod a watchdog in the start command terminates it at its slot's deadline (its time left + 15 minutes) with
 `runpodctl` and the pod's own key, even if the training PC is gone. Without `--yes`, `run` only prints the plan.
 
 **One bad pod never sinks the run.** All pods are watched at once. A pod that is not reachable over SSH within
 `--ready-minutes` (default 15), whose upload fails (retried 4 times) or whose start command fails, is terminated and
 a replacement takes over its lanes; so is a pod that ends with lanes that delivered no `gpu.json` (a lane that failed
 mid-run), and its replacement plays only those lanes, so the lanes it finished are kept. Each planned pod may be
-replaced `--replacements` times (default 2), and only while the time left still fits its lanes; a refused create
-(no stock) is retried every minute and does not count. No more pods run at once than the plan has (a replacement is rented only once the old pod's DELETE succeeded, retried
-each pass), and a replacement's watchdog gets only the time that is left, so the GPU-hour cap still holds. When a planned pod's share
-cannot be finished, the other pods still play and download theirs, every step whose lanes all delivered is merged,
-the incomplete steps are not (no `gpu.json`, so a rerun plays them), and `run` exits 1.
+replaced `--replacements` times (default 2), and only while its slot's time left still fits its lanes. No more pods
+run at once than the plan has (a replacement is rented only once the old pod's DELETE succeeded, retried each pass),
+and a replacement's watchdog gets only its slot's time left, so the GPU-hour cap still holds.
+
+**Stock.** Before renting anything, `run` reads RunPod's stock of `--gpu-type` (GraphQL `gpuTypes { lowestPrice
+{ stockStatus } }`, read-only; `--no-capacity-check` skips it) and waits up to `--capacity-wait` minutes (default 30)
+for any of the types to be in stock, launching nothing if none comes. A create that RunPod refuses ("no instances
+currently available") is retried every minute for up to `--capacity-wait` minutes per slot. Nothing is billed while
+waiting, and the slot's time only starts once its pod exists.
+
+**Kept configurations and partial steps.** Every configuration a pod delivers (done, failed lane, or cut at its time)
+is kept in `OUT/remote/units/<step>/<key>/` across runs. A step is merged once all its configurations are kept; until
+then `OUT/<step>/gpu.partial.json` lists the kept and the missing ones, the step has no `gpu.json`, and `run` exits 1.
+Running the same command again (or cycle.sh again) plans and plays only the missing configurations, then merges the
+step from all of them; a configuration is reused only with the same tables, generate arguments and code (its key).
+`--accept-partial` (`REMOTE_ACCEPT_PARTIAL=1`) merges such a step from what was kept instead: its `gpu.json` lists
+the missing configurations under `"partial"`, and `run` exits 0. The other pods always play and download theirs.
 
 **Secrets and models.** The API key is read from `RUNPOD_API_KEY` (set by the owner in the environment) and only sent
 in the `Authorization` header: never printed, logged or written. SSH uses a fresh ed25519 key per run, generated

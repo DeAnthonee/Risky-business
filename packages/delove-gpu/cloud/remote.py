@@ -23,12 +23,20 @@ longest-first by their measured cost (the "games in s (batch B)" lines of earlie
 Everything after `--` goes to delove_gpu.generate unchanged (cycle.sh builds it as for a local GPU step).
 
 One bad pod never sinks the run: a pod that is not reachable in time, fails its upload or start, or ends with lanes
-unplayed is terminated and replaced (--replacements, --ready-minutes); steps that could not be finished are left
-unmerged and the run exits 1, the others are merged.
+unplayed is terminated and replaced (--replacements, --ready-minutes). Every configuration is its own generate run
+with its own gpu.json, and each one that finishes is kept (OUT/remote/units/<step>/<key>/), also from a pod cut at its
+time limit (it is told to pack what it finished first): a step is merged once all its configurations are kept, and
+running the same command again plays only the missing ones (OUT/<step>/gpu.partial.json lists them;
+--accept-partial merges what there is). The run exits 1 when a step is left incomplete.
+
+The time limit is per planned pod (a slot): --max-gpu-hours / (pods x GPUs) of billed pod time, counted from the
+moment each pod is rented (a pod that RunPod only places late loses nothing); a replacement gets what its slot has
+left. Before launching, RunPod's stock of the GPU type is read (--capacity-wait: wait for it; nothing is billed
+while waiting); a pod RunPod cannot place is asked for again every minute for up to --capacity-wait minutes.
 
 Pods end on every path: this script terminates each pod as soon as its arrays are downloaded, and every pod it
 created on failure, timeout or Ctrl+C (and the ids are kept in OUT/remote/pods.json for `terminate`). Inside each pod
-a watchdog terminates it at the run's deadline even if this script dies (runpodctl, with the pod's own key). The
+a watchdog terminates it at its slot's deadline even if this script dies (runpodctl, with the pod's own key). The
 API key is read from RUNPOD_API_KEY and only ever sent in the Authorization header: never printed or written.
 The models are uploaded only to these pods; the worker deletes them once its games are played and terminating a pod
 destroys its disk.
@@ -59,6 +67,7 @@ from delove_gpu.fingerprint import REPO  # noqa: E402
 
 API = "https://rest.runpod.io/v1"
 PREFIX = "delove-"
+USER_AGENT = "delove-gpu-cloud/1"  # RunPod's Cloudflare refuses urllib's own (403, error 1010)
 GPU_4090 = "NVIDIA GeForce RTX 4090"
 MOUNT = "/workspace"  # where a pod mounts the network volume
 VOL = MOUNT + "/delove"  # this tooling's folder on it: incoming/<name>/<pod>.tar.gz, datasets/<dataset>/<map>.tar.gz
@@ -79,6 +88,19 @@ class Unit:
     games: int
     minutes: float
     measured: bool
+    key: str = ""  # what the unit plays (tables, generate arguments, mirror code): its folder name on the pod and at home
+
+
+def unit_keys(units: list, gen_args: list[str], commit: str):
+    """Each unit's key: a hash of its step, tables, the generate arguments and the code the pods run (the trees of the
+    packages generate reads), so a unit kept by an earlier run is reused only for exactly the same games."""
+    import hashlib
+
+    trees = subprocess.run(["git", "rev-parse", *(f"{commit}:packages/{p}" for p in ("delove-gpu", "engine", "selfplay", "delove"))],
+                           cwd=REPO, capture_output=True, text=True, check=True).stdout.split()
+    for u in units:
+        text = json.dumps([u.step, [table_line(t) for t in u.tables], gen_args, trees])
+        u.key = hashlib.sha256(text.encode()).hexdigest()[:16]
 
 
 @dataclass
@@ -178,7 +200,7 @@ def api(method: str, path: str, body: dict | None = None):
     req = urllib.request.Request(API + path, method=method, data=None if body is None else json.dumps(body).encode(),
                                  headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json",
                                           # RunPod's Cloudflare refuses urllib's default agent (HTTP 403, error code 1010)
-                                          "User-Agent": "delove-gpu-cloud/1"})
+                                          "User-Agent": USER_AGENT})
     try:
         with urllib.request.urlopen(req, timeout=60) as r:
             text = r.read()
@@ -187,6 +209,60 @@ def api(method: str, path: str, body: dict | None = None):
     except urllib.error.URLError as e:
         raise RunPodError(f"RunPod {method} {path}: {e.reason}") from None
     return json.loads(text) if text.strip() else {}
+
+
+GRAPHQL = "https://api.runpod.io/graphql"
+
+
+def gpu_stock(gpu_types: list[str], cloud: str, gpus: int) -> dict[str, dict | None]:
+    """RunPod's stock of each GPU type ({"stockStatus": "High" | "Medium" | "Low" | None, ...}) for a pod of `gpus`
+    GPUs in `cloud`, from its GraphQL API (the REST API has no stock); None for a type it does not report. Read-only:
+    nothing is rented. (Checked 2026-10-21: typed GraphQL variables get HTTP 400 here, so the values are inline, and
+    maxUnreservedGpuCount comes back null: stockStatus is what counts.)"""
+    key = os.environ.get("RUNPOD_API_KEY")
+    if not key:
+        raise SystemExit("RUNPOD_API_KEY is not set (the RunPod API key, in the environment only)")
+    q = (f"query {{ gpuTypes {{ id lowestPrice(input: {{gpuCount: {int(gpus)}, secureCloud: {'true' if cloud == 'SECURE' else 'false'}}}) "
+         "{ stockStatus maxUnreservedGpuCount } } }")
+    req = urllib.request.Request(GRAPHQL, data=json.dumps({"query": q}).encode(), method="POST",
+                                 headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json", "User-Agent": USER_AGENT})
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            r = json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        raise RunPodError(f"RunPod stock: HTTP {e.code} {e.read()[:300].decode(errors='replace')}") from None
+    except (urllib.error.URLError, TimeoutError) as e:
+        raise RunPodError(f"RunPod stock: {getattr(e, 'reason', e)}") from None
+    if r.get("errors"):
+        raise RunPodError(f"RunPod stock: {str(r['errors'])[:300]}")
+    found = {t["id"]: t.get("lowestPrice") for t in (r.get("data") or {}).get("gpuTypes") or []}
+    return {g: found.get(g) for g in gpu_types}
+
+
+def in_stock(stock: dict[str, dict | None]) -> bool:
+    return any(v and v.get("stockStatus") for v in stock.values())
+
+
+def wait_for_stock(args) -> bool:
+    """Before renting anything: is any of --gpu-type in stock? Waits up to --capacity-wait minutes (polling each
+    minute, nothing billed). A stock read that fails is reported and the run goes on (creating a pod is the real test)."""
+    types = [g.strip() for g in args.gpu_type.split(",")]
+    t0 = time.time()
+    said = 0.0
+    while True:
+        try:
+            stock = gpu_stock(types, args.cloud, args.gpus)
+        except RunPodError as e:
+            print(f"capacity check skipped ({e})", flush=True)
+            return True
+        if not said or time.time() - said >= 600 or in_stock(stock):  # every 10 minutes while waiting
+            said = time.time()
+            print("RunPod stock: " + ", ".join(f"{g}: {(v or {}).get('stockStatus') or 'none'}" for g, v in stock.items()), flush=True)
+        if in_stock(stock):
+            return True
+        if time.time() - t0 >= args.capacity_wait * 60:
+            return False
+        time.sleep(60)
 
 
 def volume_info(volume_id: str) -> dict:
@@ -348,13 +424,15 @@ def needed_models(units: list[Unit], gen_args: list[str], models: Path) -> list[
 
 
 def lane_script(lane: Lane, gen_args: list[str]) -> str:
+    """One generate run per configuration (unit), each with its own folder and gpu.json, so a lane cut at its time
+    limit still delivers every configuration it finished."""
     lines = ["#!/usr/bin/env bash", "set -uo pipefail", f"export CUDA_VISIBLE_DEVICES={lane.gpu}"]
-    for step in dict.fromkeys(u.step for u in lane.units):
-        d = f"$JOB/lanes/{lane.index}/{step}"
-        args = " ".join(shlex.quote(a) for a in gen_args)
+    args = " ".join(shlex.quote(a) for a in gen_args)
+    for u in lane.units:
+        d = f"$JOB/lanes/{lane.index}/{u.step}/{u.key}"
         lines += [f'd="{d}"; mkdir -p "$d"',
                   'if [[ ! -f $d/gpu.json ]]; then',
-                  f'  (cd "$REPO/packages/delove-gpu" && "$PY" -m delove_gpu.generate --models "$JOB/models" --jobs "$JOB/lanes/{lane.index}.{step}.jobs" {args}'
+                  f'  (cd "$REPO/packages/delove-gpu" && "$PY" -m delove_gpu.generate --models "$JOB/models" --jobs "$JOB/lanes/{lane.index}.{u.step}.{u.key}.jobs" {args}'
                   ' --out "$d/data" --summary "$d/gpu.json.tmp" --results "$d/results.jsonl") > "$d/gpu.log" 2>&1 || exit 1',
                   '  mv "$d/gpu.json.tmp" "$d/gpu.json"', 'fi']
     return "\n".join(lines) + "\n"
@@ -379,9 +457,9 @@ def build_upload(work: Path, pod_index: int, lanes: list[Lane], gen_args: list[s
                                                 "commit": commit, "volume": volume_tar and f"{VOL}/{volume_tar}", "home": home}),
                                     encoding="utf8")
     for lane in lanes:
-        for step in dict.fromkeys(u.step for u in lane.units):
-            lines = [table_line(t) for u in lane.units if u.step == step for t in u.tables]
-            (stage / "lanes" / f"{lane.index}.{step}.jobs").write_text("\n".join(lines) + "\n", encoding="utf8", newline="\n")
+        for u in lane.units:
+            lines = [table_line(t) for t in u.tables]
+            (stage / "lanes" / f"{lane.index}.{u.step}.{u.key}.jobs").write_text("\n".join(lines) + "\n", encoding="utf8", newline="\n")
         (stage / f"lane-{lane.index}.sh").write_text(lane_script(lane, gen_args), encoding="utf8", newline="\n")
     tar = work / f"upload-{pod_index}.tar"
     with tarfile.open(tar, "w") as t:
@@ -421,23 +499,32 @@ class Slot:
     pod: Pod | None = None
     retry_at: float = 0.0
     create_fails: int = 0
+    no_pod_since: float = 0.0  # when RunPod first could not place this slot's pod (0: it could)
+    billed: float = 0.0  # seconds of the slot's earlier pods (each billed from its creation)
     done: bool = False
     failed: str = ""
 
 
-def lane_dir(work: Path, lane: Lane, step: str) -> Path:
-    return work / f"pod-{lane.pod}" / "lanes" / str(lane.index) / step
+def unit_dir(work: Path, u: Unit) -> Path:
+    """Where a delivered configuration is kept (its data/, gpu.json, gpu.log; member.txt and volume.txt for a volume
+    run): OUT/remote/units/<step>/<key>, across runs, until its step is merged."""
+    return work / "units" / u.step / u.key
+
+
+def delivered(work: Path, u: Unit) -> bool:
+    return (unit_dir(work, u) / "gpu.json").exists()
 
 
 def todo(work: Path, lane: Lane) -> Lane | None:
-    """The lane with only the steps it has not delivered yet (None when it has delivered all of them)."""
-    units = [u for u in lane.units if not (lane_dir(work, lane, u.step) / "gpu.json").exists()]
+    """The lane with only the configurations it has not delivered yet (None when it has delivered all of them)."""
+    units = [u for u in lane.units if not delivered(work, u)]
     return Lane(lane.index, lane.pod, lane.gpu, units) if units else None
 
 
-def collect(work: Path, slot: Slot, tar: Path, volume_tar: str | None = None):
-    """Keep every lane and step of a pod's out.tar.gz that delivered its gpu.json, as work/pod-<k>/lanes/<i>/<step>
-    (with a network volume, volume.txt names the archive on it that holds the lane's arrays)."""
+def collect(work: Path, slot: Slot, tar: Path, volume_tar: str | None = None) -> int:
+    """Keep every configuration of a pod's out.tar.gz that delivered its gpu.json, as work/units/<step>/<key> (with a
+    network volume, volume.txt names the archive on it that holds its arrays and member.txt its path in there).
+    Returns how many were kept."""
     tmp = work / f"attempt-{slot.k}-{slot.tries}"
     shutil.rmtree(tmp, ignore_errors=True)
     extract(tar, tmp)
@@ -446,15 +533,19 @@ def collect(work: Path, slot: Slot, tar: Path, volume_tar: str | None = None):
     for f in ("env.json", "setup.log", "verify.log", "verify-fingerprint.json"):
         if (tmp / f).exists():
             shutil.copyfile(tmp / f, dest / f)
-    for d in sorted((tmp / "lanes").glob("*/*")):
+    kept = 0
+    for d in sorted((tmp / "lanes").glob("*/*/*")):  # lanes/<lane>/<step>/<key>
         if d.is_dir() and (d / "gpu.json").exists():
-            target = dest / "lanes" / d.parent.name / d.name
+            target = work / "units" / d.parent.name / d.name
             shutil.rmtree(target, ignore_errors=True)
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(d), str(target))
+            (target / "member.txt").write_text(d.relative_to(tmp).as_posix(), encoding="utf8")
             if volume_tar:
                 (target / "volume.txt").write_text(volume_tar, encoding="utf8")
+            kept += 1
     shutil.rmtree(tmp, ignore_errors=True)
+    return kept
 
 
 def run(args, gen_args: list[str]):
@@ -467,7 +558,16 @@ def run(args, gen_args: list[str]):
         return 0
     cache = Path(args.cache) if args.cache else PKG / "delove_gpu" / "_cache"
     timings = read_timings(args.timings)
-    units = make_units(steps, set(args.only.split(",")) if args.only else None, timings, cached=cache.is_dir() and any(cache.glob("*.cubin")))
+    all_units = make_units(steps, set(args.only.split(",")) if args.only else None, timings, cached=cache.is_dir() and any(cache.glob("*.cubin")))
+    commit = subprocess.run(["git", "rev-parse", args.commit], cwd=REPO, capture_output=True, text=True, check=True).stdout.strip()
+    unit_keys(all_units, gen_args, commit)
+    units = [u for u in all_units if not delivered(work, u)]
+    if len(units) < len(all_units):
+        print(f"{len(all_units) - len(units)} of {len(all_units)} configurations were delivered by an earlier run (OUT/remote/units/); "
+              f"planning the {len(units)} left", flush=True)
+    if not units:
+        return merge_all(args, steps, all_units, work, [], 0.0, volume_info(args.volume) if args.volume else None,
+                         "small" if args.volume and not args.home_copy else "full")
     lanes = assign(units, args.pods, args.gpus, args.procs, args.share)
     lanes = [lane for lane in lanes if lane.units]
     pods_used = sorted({lane.pod for lane in lanes})
@@ -477,8 +577,11 @@ def run(args, gen_args: list[str]):
     if not args.yes:
         print("dry run: add --yes to launch")
         return 0
-    commit = subprocess.run(["git", "rev-parse", args.commit], cwd=REPO, capture_output=True, text=True, check=True).stdout.strip()
     git_check(args.commit)
+    if args.capacity_check and not wait_for_stock(args):
+        print(f"no {args.gpu_type} in stock after {args.capacity_wait:.0f} min: nothing launched (try --gpu-type with a fallback, "
+              "--cloud COMMUNITY, or later)", flush=True)
+        return 1
     import importlib.metadata as md
 
     torch_version = args.torch or md.version("torch")
@@ -491,15 +594,16 @@ def run(args, gen_args: list[str]):
             model_files += [Path(args.models) / f"{vr}{ext}" for ext in (".onnx", ".pt") if Path(args.models, f"{vr}{ext}") not in model_files]
     vol = volume_info(args.volume) if args.volume else None
     home = "small" if vol and not args.home_copy else "full"
-    vtar = (lambda p: f"incoming/{args.name}/{p.name}.tar.gz") if vol else (lambda p: None)
+    vtar = (lambda p, suffix="": f"incoming/{args.name}/{p.name}{suffix}.tar.gz") if vol else (lambda p, suffix="": None)
     if vol:
         print(f"network volume {vol['id']} in {vol['dataCenterId']}: the arrays go to {VOL}/incoming/{args.name}/"
               + ("" if home == "small" else " and are downloaded too"), flush=True)
-    for old in list(work.glob("pod-*")) + list(work.glob("attempt-*")):  # a previous run's lanes may be another plan's
+    for old in list(work.glob("pod-*")) + list(work.glob("attempt-*")):  # a previous run's pods (its kept units are in units/)
         shutil.rmtree(old, ignore_errors=True)
-    # The hard limit: no more pods run at once than the plan has, and all of them are terminated when the cap's share
-    # of wall time is spent, whatever the plan said. A replacement's watchdog gets only the time that is left.
-    timeout_s = args.max_gpu_hours * 3600 / (len(pods_used) * args.gpus)
+    # The hard limit: no more pods run at once than the plan has, and each slot (planned pod) gets the cap's share of
+    # billed pod time, counted from each pod's creation: a pod RunPod places late loses nothing, a replacement gets only
+    # what its slot has left, and the pod's own watchdog ends it 15 minutes after its share, whatever happens here.
+    share_s = args.max_gpu_hours * 3600 / (len(pods_used) * args.gpus)
     ssh = Ssh(work)
     pods: list[Pod] = []
     slots = [Slot(k, [lane for lane in lanes if lane.pod == k]) for k in pods_used]
@@ -526,6 +630,42 @@ def run(args, gen_args: list[str]):
         slot.failed = why
         print(f"  slot {slot.k}: giving up ({why})", flush=True)
 
+    def left_s(slot: Slot) -> float:
+        """The slot's billed time still to spend (its current pod counts from its creation)."""
+        return share_s - slot.billed - (time.time() - slot.pod.started if slot.pod else 0.0)
+
+    def retire(slot: Slot):
+        """The slot's pod is gone: its billed time counts against the slot."""
+        p = slot.pod
+        slot.billed += (p.ended or time.time()) - p.started
+        slot.pod = None
+
+    def cut(slot: Slot):
+        """The slot's time is spent: the pod packs the configurations it finished (worker.sh --salvage), they are
+        downloaded and kept, and the pod is terminated."""
+        p = slot.pod
+        kept = 0
+        if p.state == "running" and p.ip:
+            try:
+                ssh.run(p, "bash /root/job/worker.sh /root/job --salvage", timeout=600)
+                dest = work / f"pod-{slot.k}.tar.gz"
+                ssh.get(p, "/root/job/out.tar.gz", dest)
+                kept = collect(work, slot, dest, vtar(p, "-salvage"))
+                dest.unlink()
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired, RuntimeError, ValueError, OSError, tarfile.TarError) as e:
+                print(f"  {p.name}: could not salvage its finished configurations ({type(e).__name__}: {str(e)[:200]})", flush=True)
+        try:
+            ssh.run(p, "rm -rf /root/job/models", timeout=30, check=False) if p.ip else None
+        except Exception:  # noqa: BLE001 - terminating matters more
+            pass
+        terminate(p)
+        if p.gone:
+            p.state = "cut"
+            retire(slot)
+        save()
+        give_up(slot, f"its time is spent ({share_s / 60:.0f} min of pod time, --max-gpu-hours {args.max_gpu_hours}); "
+                      f"{kept} finished configuration(s) kept")
+
     def drop(slot: Slot, why: str):
         """The slot's pod failed: terminate it; a replacement takes over what is left at a later pass, and only once the
         old pod is really gone (a DELETE that failed is retried each pass), so no slot ever pays for two pods."""
@@ -544,7 +684,7 @@ def run(args, gen_args: list[str]):
         terminate(p)
         if p.gone:
             p.state = "failed"
-            slot.pod = None
+            retire(slot)
             slot.retry_at = 0.0
         save()
 
@@ -556,24 +696,27 @@ def run(args, gen_args: list[str]):
         if slot.tries > args.replacements:
             give_up(slot, f"{slot.tries} pods tried")
             return
-        remaining = timeout_s - (time.time() - t0)
+        remaining = left_s(slot)
         need = (SETUP_MIN + max(lane.minutes for lane in left) / args.speed + 5) * 60
-        if slot.tries and remaining < need:
-            give_up(slot, f"{remaining / 60:.0f} min left, its lanes need about {need / 60:.0f}")
+        if remaining <= 0 or (slot.tries and remaining < need):
+            give_up(slot, f"{remaining / 60:.0f} min of its pod time left, its lanes need about {need / 60:.0f}")
             return
         slot.tries += 1
         try:
             p = create_pod(f"{PREFIX}{args.name}-{stamp}-{slot.k}" + (f"r{slot.tries - 1}" if slot.tries > 1 else ""), args, ssh.pub,
                            int(remaining + 900), vol)
         except RunPodError as e:
-            slot.tries -= 1  # nothing was rented
+            # Nothing was rented, so nothing is billed: ask again each minute, up to --capacity-wait minutes.
+            slot.tries -= 1
             slot.create_fails += 1
-            if slot.create_fails >= 10:
-                give_up(slot, f"no pod after 10 tries ({e})")
+            slot.no_pod_since = slot.no_pod_since or time.time()
+            if time.time() - slot.no_pod_since >= args.capacity_wait * 60:
+                give_up(slot, f"no pod after {slot.create_fails} tries over {args.capacity_wait:.0f} min ({e})")
             else:
                 print(f"  slot {slot.k}: no pod ({e}); trying again in a minute", flush=True)
                 slot.retry_at = time.time() + 60
             return
+        slot.no_pod_since = 0.0
         p.lanes = [lane.index for lane in left]
         slot.pod = p
         pods.append(p)
@@ -607,7 +750,8 @@ def run(args, gen_args: list[str]):
             ssh.run(p, "rm -rf /root/job/models", check=False)
             terminate(p)
             p.state = "done"
-            slot.pod, slot.done = None, True
+            retire(slot)
+            slot.done = True
             save()
         else:
             drop(slot, state if state != "done" else "done, but some lanes delivered nothing")
@@ -615,14 +759,12 @@ def run(args, gen_args: list[str]):
     try:
         last = 0.0
         while any(not s.done and not s.failed for s in slots):
-            if time.time() - t0 > timeout_s:
-                for s in slots:
-                    if not s.done and not s.failed:
-                        give_up(s, f"the run reached its limit ({timeout_s / 60:.0f} min, --max-gpu-hours {args.max_gpu_hours})")
-                break
             loud = time.time() - last > 120
             for s in slots:
                 if s.done or s.failed:
+                    continue
+                if s.pod is not None and s.pod.state != "terminating" and left_s(s) <= 0:
+                    cut(s)
                     continue
                 p = s.pod
                 if p is None:
@@ -643,7 +785,7 @@ def run(args, gen_args: list[str]):
                         drop(s, f"not reachable over SSH after {args.ready_minutes:.0f} min")
                     continue
                 try:
-                    status = ssh.run(p, "cat /root/job/status 2>/dev/null || echo missing; pgrep -f '[w]orker.sh' >/dev/null && echo alive || echo dead; for f in /root/job/lanes/*/*/gpu.log; do [ -f \"$f\" ] &&"
+                    status = ssh.run(p, "cat /root/job/status 2>/dev/null || echo missing; pgrep -f '[w]orker.sh' >/dev/null && echo alive || echo dead; for f in /root/job/lanes/*/*/*/gpu.log; do [ -f \"$f\" ] &&"
                                         " echo \"$f: $(grep -a ' step \\| games in ' \"$f\" | tail -n1 | cut -c1-160)\"; done; true", timeout=60)  # true: no gpu.log yet is not a failed poll
                 except (RuntimeError, subprocess.TimeoutExpired) as e:
                     print(f"  {p.name}: {e}", flush=True)
@@ -680,19 +822,26 @@ def run(args, gen_args: list[str]):
         print(f"pods: {len(pods)} ({len(pods) - len(slots)} replacements), {hours:.2f} pod-hours, "
               f"about ${sum(((p.ended or time.time()) - p.started) / 3600 * p.cost for p in pods):.2f}")
         ssh.forget()
-    rc = merge_all(args, steps, lanes, work, pods, time.time() - t0, vol, home)
+    rc = merge_all(args, steps, all_units, work, pods, time.time() - t0, vol, home)
     failed = [f"slot {s.k} (lanes {[lane.index for lane in s.lanes]}): {s.failed}" for s in slots if s.failed]
     if failed:
-        print("FAILED (the steps they left incomplete were not merged; the others were):\n  " + "\n  ".join(failed))
+        if args.accept_partial and all((Path(args.out) / st / "gpu.json").exists() for st, _ in steps):
+            print("INCOMPLETE, merged anyway (--accept-partial; each step's gpu.json lists what is missing):\n  " + "\n  ".join(failed))
+            return rc
+        print("FAILED (configurations they finished are kept in OUT/remote/units/; run the same command again to play the rest):\n  "
+              + "\n  ".join(failed))
         return 1
     return rc
 
 
-def merge_all(args, steps, lanes: list[Lane], work: Path, pods: list[Pod], seconds: float, vol: dict | None = None,
+def merge_all(args, steps, units: list[Unit], work: Path, pods: list[Pod], seconds: float, vol: dict | None = None,
               home: str = "full") -> int:
-    """Each finished step's gpu.json and gpu.log in OUT/<step>/, and its arrays in DATA/<name>-<step>/ (home "full").
-    With a network volume, OUT/remote/volume.json records which archive on it holds each lane's arrays, in merge order,
-    for `remote.py train` (cloud/trainer.py merges them there exactly as merge_step does here)."""
+    """Each step whose configurations are all kept (OUT/remote/units/): its gpu.json and gpu.log in OUT/<step>/, its
+    arrays in DATA/<name>-<step>/ (home "full"), configurations in plan order. A step with configurations missing
+    gets OUT/<step>/gpu.partial.json (what is kept, what is missing) and is not merged, unless --accept-partial: then
+    it is merged from what there is and its gpu.json says what is missing ("partial"). With a network volume,
+    OUT/remote/volume.json records which archive on it holds each configuration's arrays (and where in it), in merge
+    order, for `remote.py train` (cloud/trainer.py merges them there exactly as merge_step does here)."""
     from merge import merge_step
 
     manifest_file = work / "volume.json"
@@ -702,49 +851,59 @@ def merge_all(args, steps, lanes: list[Lane], work: Path, pods: list[Pod], secon
 
     out, data = Path(args.out), Path(args.data)
     env = {}
-    for k in sorted({lane.pod for lane in lanes}):
-        f = work / f"pod-{k}" / "env.json"
-        if f.exists():
-            env[f"pod {k}"] = json.loads(f.read_text(encoding="utf8"))
+    for f in sorted(work.glob("pod-*/env.json")):
+        env[f.parent.name.replace("-", " ")] = json.loads(f.read_text(encoding="utf8"))
+    describe = lambda u: {"config": u.label, "tables": [t.name for t in u.tables], "games": u.games}  # noqa: E731
+    rc = 0
     for step, _ in steps:
-        missing = [lane.index for lane in lanes if any(u.step == step for u in lane.units) and not (lane_dir(work, lane, step) / "gpu.json").exists()]
+        su = [u for u in units if u.step == step]
+        got = [u for u in su if delivered(work, u)]
+        missing = [u for u in su if not delivered(work, u)]
+        (out / step).mkdir(parents=True, exist_ok=True)  # cycle.sh makes it; a run by hand may not have
         if missing:
-            print(f"{step}: lanes {missing} delivered nothing; the step is not merged (run again to play it)")
+            (out / step / "gpu.partial.json").write_text(json.dumps({"kept": [describe(u) for u in got], "missing": [describe(u) for u in missing]},
+                                                                    indent=1) + "\n", encoding="utf8")
+            if not args.accept_partial or not got:
+                print(f"{step}: {len(missing)} of {len(su)} configurations missing ({', '.join(t.name for u in missing for t in u.tables)}); "
+                      f"the step is not merged (the {len(got)} kept are in OUT/remote/units/; run again to play the rest, "
+                      "or --accept-partial)")
+                rc = 1
+                continue
+        if not got:
             continue
-        parts, logs = [], []
-        for lane in lanes:
-            d = lane_dir(work, lane, step)
-            if (d / "gpu.json").exists():
-                parts.append((json.loads((d / "gpu.json").read_text(encoding="utf8")), d / "data"))
-                logs.append((lane, d / "gpu.log"))
-        if not parts:
-            continue
-        extra = {"lanes": [lane.index for lane, _ in logs], "pods": len(pods), "gpuType": args.gpu_type, "gpus": env,
+        parts = [(json.loads((unit_dir(work, u) / "gpu.json").read_text(encoding="utf8")), unit_dir(work, u) / "data") for u in got]
+        extra = {"configs": [u.label for u in got], "pods": len(pods), "gpuType": args.gpu_type, "gpus": env,
                  "wallSeconds": round(seconds, 1), "costPerHour": [p.cost for p in pods]}
+        if missing:
+            extra["partial"] = {"missing": [describe(u) for u in missing]}
         merged = merge_step(parts, data / f"{args.name}-{step}" if home == "full" else None, extra)
+        if missing:
+            merged["partial"] = extra["partial"]
+            print(f"{step}: merged WITHOUT {len(missing)} missing configuration(s) (--accept-partial)")
         if vol:
             manifest.update({"volume": vol["id"], "dataCenter": vol["dataCenterId"]})
             manifest.setdefault("steps", {})[step] = {
                 "dataset": f"{args.name}-{step}", "maps": [e["map"] for e in merged.get("export", [])],
-                "parts": [{"tar": (lane_dir(work, lane, step) / "volume.txt").read_text(encoding="utf8"), "lane": lane.index} for lane, _ in logs]}
+                "parts": [{"tar": (unit_dir(work, u) / "volume.txt").read_text(encoding="utf8"),
+                           "member": (unit_dir(work, u) / "member.txt").read_text(encoding="utf8")} for u in got]}
             manifest_file.write_text(json.dumps(manifest, indent=1) + "\n", encoding="utf8")
-        (out / step).mkdir(parents=True, exist_ok=True)  # cycle.sh makes it; a run by hand may not have
         with open(out / step / "gpu.log", "w", encoding="utf8", newline="\n") as f:
-            for lane, log in logs:
-                f.write(f"==== lane {lane.index} (pod {lane.pod}, GPU {lane.gpu}) ====\n")
-                f.write(log.read_text(encoding="utf8", errors="replace"))
+            for u in got:
+                f.write(f"==== {u.label} [{','.join(t.name for t in u.tables)}] ====\n")
+                f.write((unit_dir(work, u) / "gpu.log").read_text(encoding="utf8", errors="replace"))
         (out / step / "gpu.json").write_text(json.dumps(merged, indent=2) + "\n", encoding="utf8")
-        # every game's result (generate --results: placements, kills, points), lane after lane
+        # every game's result (generate --results: placements, kills, points), configuration after configuration
         with open(out / step / "results.jsonl", "w", encoding="utf8", newline="\n") as f:
-            for lane, log in logs:
-                if (log.parent / "results.jsonl").exists():
-                    f.write((log.parent / "results.jsonl").read_text(encoding="utf8"))
+            for u in got:
+                if (unit_dir(work, u) / "results.jsonl").exists():
+                    f.write((unit_dir(work, u) / "results.jsonl").read_text(encoding="utf8"))
+        if not missing:
+            (out / step / "gpu.partial.json").unlink(missing_ok=True)
         where = data / f"{args.name}-{step}" if home == "full" else f"the volume ({VOL}/incoming/{args.name}/)"
         print(f"{step}: {merged['games']} games -> {where} ({', '.join(e['map'] for e in merged.get('export', []))})")
-    if not args.keep:
-        for lane in lanes:
-            shutil.rmtree(work / f"pod-{lane.pod}" / "lanes" / str(lane.index), ignore_errors=True)
-    return 0
+        if not args.keep:
+            shutil.rmtree(work / "units" / step, ignore_errors=True)
+    return rc
 
 
 # ---- train on a cloud GPU -------------------------------------------------------------------------------------------
@@ -1157,7 +1316,12 @@ def main(argv=None) -> int:
             p.add_argument("--verify", help="also run verify.py on each pod first, with these arguments (e.g. '--ranker delove@3')")
             p.add_argument("--replacements", type=int, default=2, help="pods that may replace one that fails (per planned pod)")
             p.add_argument("--ready-minutes", type=float, default=15, help="a pod not reachable over SSH by then is replaced")
-            p.add_argument("--keep", action="store_true", help="keep the downloaded per-lane arrays after merging")
+            p.add_argument("--capacity-wait", type=float, default=30,
+                           help="minutes to wait for RunPod stock before launching, and for a pod it cannot place (nothing is billed meanwhile)")
+            p.add_argument("--no-capacity-check", dest="capacity_check", action="store_false", help="skip the stock read before launching")
+            p.add_argument("--accept-partial", action="store_true",
+                           help="merge a step from the configurations that were delivered even if some are missing (gpu.json says which)")
+            p.add_argument("--keep", action="store_true", help="keep the delivered configurations' arrays (OUT/remote/units/) after merging")
             p.add_argument("--volume", help="RunPod network volume id: the pods run in its data center and write their arrays to it, "
                                             "for `remote.py train` (only the small files come home, unless --home-copy)")
             p.add_argument("--home-copy", action="store_true", help="with --volume: download and merge the arrays at home too")

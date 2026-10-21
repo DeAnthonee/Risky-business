@@ -8,7 +8,8 @@ TRAINING ONLY. cloud/trainer.sh sets the pod up (the commit, PyTorch) and runs t
 
 0. earlier cycles' datasets (every "data" entry not named <name>-...) are unpacked first, while generation may still
    be playing; then the trainer waits for JOB/go.json, which remote.py writes once generation is done:
-     {"steps": {"a1": {"dataset": "c9-a1", "maps": ["classic"], "parts": [{"tar": "incoming/c9/<pod>.tar.gz", "lane": 0}, ...]}}}
+     {"steps": {"a1": {"dataset": "c9-a1", "maps": ["classic"], "parts": [{"tar": "incoming/c9/<pod>.tar.gz",
+                                                                            "member": "lanes/0/a1/<key>"}, ...]}}}
    or {"abort": "<why>"}.
 1. merge: every step of "steps" whose datasets are not on the volume yet is merged from the generation pods' archives
    (VOLUME/incoming/<name>/<pod>.tar.gz, lane after lane in the order remote.py merged them at home, so the folder is
@@ -90,9 +91,12 @@ def merge_steps(job: dict, volume: Path, work: Path) -> list[str]:
             continue
         inc = work / "incoming" / step
         shutil.rmtree(inc, ignore_errors=True)
+        # each part's folder in its archive: "member" (one configuration: lanes/<lane>/<step>/<key>), or, in a manifest
+        # written before configurations were delivered one by one, lanes/<lane>/<step>
+        member = lambda p: p.get("member") or f"lanes/{p['lane']}/{step}"  # noqa: E731
         by_tar: dict[str, list[str]] = {}
         for p in s["parts"]:
-            by_tar.setdefault(p["tar"], []).append(f"lanes/{p['lane']}/{step}")
+            by_tar.setdefault(p["tar"], []).append(member(p))
         for tar, members in by_tar.items():
             src = volume / tar
             if not src.exists():
@@ -100,7 +104,7 @@ def merge_steps(job: dict, volume: Path, work: Path) -> list[str]:
             unpack(src, inc / Path(tar).name, members)
         parts = []
         for p in s["parts"]:
-            d = inc / Path(p["tar"]).name / "lanes" / str(p["lane"]) / step
+            d = inc / Path(p["tar"]).name / member(p)
             parts.append((json.loads((d / "gpu.json").read_text(encoding="utf8")), d / "data"))
         out = work / "data" / ds
         shutil.rmtree(out, ignore_errors=True)

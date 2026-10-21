@@ -5,7 +5,7 @@
 #
 #   JOB/src.tar        git archive of the commit to run (the mirror, its fingerprint, the engine it reads)
 #   JOB/models/        the .pt and teacher .json files the tables need (private: deleted when the run ends)
-#   JOB/cache/         optional: NVRTC kernels (*.cubin) and odds tables (*.npz) from the training PC's _cache/
+#   JOB/cache/         optional: NVRTC kernels (*.cubin) from the training PC's delove_gpu/_cache/
 #   JOB/job.json       {"torch": "2.11.0+cu128", "verify": [verify.py args] or null}
 #   JOB/lane-<i>.sh    one per lane: its GPU and one delove_gpu.generate per step (written by remote.py)
 #   JOB/lanes/<i>.<step>.jobs   each lane's tables of each step
@@ -59,8 +59,8 @@ if [[ $have != "$want" ]]; then
   $py -m pip install -q "torch==${want%%+*}" --index-url "https://download.pytorch.org/whl/$cuda" || fail "pip torch $want"
 fi
 $py -m pip install -q -r packages/delove-gpu/requirements.txt || fail "pip requirements"
-mkdir -p packages/delove-gpu/_cache
-[[ -d $job/cache ]] && cp "$job"/cache/* packages/delove-gpu/_cache/ 2>/dev/null
+mkdir -p packages/delove-gpu/delove_gpu/_cache  # where fused.py and odds.py look
+[[ -d $job/cache ]] && cp "$job"/cache/* packages/delove-gpu/delove_gpu/_cache/ 2>/dev/null
 $py - > "$job/env.json" <<'EOF' || fail "no CUDA device"
 import json, torch
 print(json.dumps({"torch": torch.__version__, "cuda": torch.version.cuda, "gpus": [torch.cuda.get_device_name(i) for i in range(torch.cuda.device_count())],
@@ -77,6 +77,10 @@ if (( ${#vargs[@]} )); then
     && echo "verify: ok" || echo "verify: FAILED (see verify.log)"
   cp packages/delove-gpu/engine-fingerprint.json "$job/verify-fingerprint.json" 2>/dev/null
 fi
+
+# ---- the odds tables, once (not uploaded: 240 MB, about two minutes here): lanes sharing a pod would otherwise all build
+# them at the same time in the same _cache/, and older commits' odds.py shared its temporary file names (a lane crashed)
+(cd packages/delove-gpu && $py -c 'from delove_gpu import odds; odds.tables(2); odds.tables(3)') || fail "odds tables"
 
 # ---- the lanes ---------------------------------------------------------------------------------------------------------
 # remote.py writes one script per lane (lane-<i>.sh: CUDA_VISIBLE_DEVICES and one delove_gpu.generate per step, each

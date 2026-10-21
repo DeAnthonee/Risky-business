@@ -106,8 +106,8 @@ def build(defense_limit: int = 2) -> dict[str, np.ndarray]:
 
 def balanced(win: np.ndarray, out: Path) -> np.ndarray:
     """balanced(p) of odds.ts for every win chance, computed by Node (V8's Math.pow)."""
-    src = out.with_suffix(".win.bin")
-    dst = out.with_suffix(".bwin.bin")
+    src = out.with_suffix(f".{os.getpid()}.win.bin")  # per process: several generate processes may build at once
+    dst = out.with_suffix(f".{os.getpid()}.bwin.bin")
     win.astype("<f8").tofile(src)
     r = subprocess.run(["node", str(BALANCED_JS), str(src), str(dst)], cwd=REPO, capture_output=True, text=True, shell=os.name == "nt")
     if r.returncode:
@@ -129,5 +129,7 @@ def tables(defense_limit: int = 2) -> dict[str, np.ndarray]:
         return {k: z[k] for k in z.files}
     t = build(defense_limit)
     t["bwin"] = balanced(t["win"], f)
-    np.savez(f, **t)
+    tmp = f.with_suffix(f".{os.getpid()}.tmp.npz")
+    np.savez(tmp, **t)
+    os.replace(tmp, f)  # atomic: another process never loads a half-written table
     return t

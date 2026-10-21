@@ -14,6 +14,16 @@ function makeView(): GameView {
   return viewFor(s, 'a');
 }
 
+function makeView4(): GameView {
+  let s = createGame('PINGS_TEST_4', { ...DEFAULT_OPTIONS, maxPlayers: 4, map: 'classic', chooseCapitals: false }, 42);
+  s = addPlayer(s, 'a', 'Shen', true);
+  s = addPlayer(s, 'b', 'Ahri', true);
+  s = addPlayer(s, 'c', 'Leona', true);
+  s = addPlayer(s, 'd', 'Ronny@3', true);
+  s = startGame(s).state;
+  return viewFor(s, 'a');
+}
+
 const llmReturning = (...replies: string[]) => {
   let i = 0;
   const llm: Llm = {
@@ -261,8 +271,27 @@ describe('diplomatic ping system', () => {
     expect(c.popPing()).toBeNull();
   });
 
-  it('proposes and establishes Good Neighbor neutral border pacts', async () => {
-    const view = makeView();
+  it('rejects Good Neighbor proposals in 3-man endgame to avoid Mexican standoff stalemates', async () => {
+    const view = makeView(); // 3 players: 'a', 'b', 'c'
+    const c = new Commander({
+      llm: llmReturning(
+        // Shen tries to propose good neighbor in a 3-man game
+        JSON.stringify({ winPath: 'bonuses', plan: 'turn 1', ping: { type: 'good_neighbor', to: 'Ahri' } })
+      ),
+      seatName: 'Shen',
+      playerId: 'a',
+      learnings: '',
+      gameId: 'TEST_3MAN_STALEMATE_AVOIDANCE',
+      scoutingDir: null,
+    });
+
+    await c.planFor({ ...view, turnNumber: 1 });
+    // In a 3-man game, good_neighbor is rejected/dropped to avoid stalemate!
+    expect(c.popPing()).toBeNull();
+  });
+
+  it('proposes and establishes Good Neighbor neutral border pacts in 4+ player games', async () => {
+    const view = makeView4(); // 4 players
     const c = new Commander({
       llm: llmReturning(
         // Turn 1: Shen proposes good neighbor to Ahri
@@ -273,7 +302,7 @@ describe('diplomatic ping system', () => {
       seatName: 'Shen',
       playerId: 'a',
       learnings: '',
-      gameId: 'TEST_GOOD_NEIGHBOR',
+      gameId: 'TEST_GOOD_NEIGHBOR_4P',
       scoutingDir: null,
     });
 
@@ -289,5 +318,32 @@ describe('diplomatic ping system', () => {
     // On Turn 2, Ahri should now be in avoid (neutral border pact)
     const plan2 = await c.planFor({ ...view, turnNumber: 4 });
     expect(plan2?.avoid).toContain('b');
+  });
+
+  it('coordinates joint attack agreements to gang up on targets', async () => {
+    const view = makeView(); // 3 players: Shen ('a'), Ahri ('b'), Ronny@3 ('c')
+    const c = new Commander({
+      llm: llmReturning(
+        // Turn 1: Shen agrees to Ahri's call to attack Ronny@3
+        JSON.stringify({ winPath: 'kills', plan: 'agree to hit Ronny', ping: { type: 'agree', to: 'Ahri' } })
+      ),
+      seatName: 'Shen',
+      playerId: 'a',
+      learnings: '',
+      gameId: 'TEST_JOINT_ATTACK',
+      scoutingDir: null,
+    });
+
+    // Ahri whispers attack call to Shen
+    c.onMessages([
+      { id: 1, playerId: 'b', name: 'Ahri', message: '⚔️ [attack: Ronny@3]', to: 'a', toName: 'Shen' },
+    ]);
+
+    const plan = await c.planFor({ ...view, turnNumber: 1 });
+    // Shen agrees to the attack call
+    expect(c.popPing()).toMatchObject({ type: 'agree', to: 'Ahri' });
+    // Ahri is avoided as a partner, Ronny@3 is targeted!
+    expect(plan?.avoid).toContain('b');
+    expect(plan?.target).toBe('c');
   });
 });

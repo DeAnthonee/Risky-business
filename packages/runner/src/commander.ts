@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { getMap, type GameOptions, type GameView, type PlayerId } from '@risk/engine';
+import { getMap, type GameOptions, type GameView, type MapDef, type PlayerId } from '@risk/engine';
 import type { ChatResult } from '@risk/mcp';
 import { DealLedger } from './deals.js';
 import { extractJsonObject } from './diplomat.js';
@@ -330,13 +330,158 @@ export function getBorderNeighbors(view: GameView, me: PlayerId): { id: PlayerId
     .map((p) => ({ id: p.id, name: p.name }));
 }
 
+export function getContinentIncome(view: GameView, map: MapDef, playerId: PlayerId): number {
+  let bonus = 0;
+  for (const c of map.continents) {
+    const holdsAll = c.territories.every((t) => view.territories[t]?.owner === playerId);
+    if (holdsAll) bonus += c.bonus;
+  }
+  return bonus;
+}
+
+export interface GoodNeighborEvaluation {
+  neighborId: PlayerId;
+  name: string;
+  isBeneficial: boolean;
+  score: number;
+  divergentExitsCount: number;
+  bottleneckedIntoMe: boolean;
+  incomeDisparity: number;
+  armyRatio: number;
+  occupiesMyContinent: boolean;
+  verdict: string;
+}
+
+/**
+ * Evaluate whether establishing a Good Neighbor / neutral border pact with an adjacent neighbor
+ * is strategically beneficial or dangerous:
+ * 1. Divergent routes ("conquer in opposite directions"): do they have external exits facing away from you?
+ *    If they are in a cul-de-sac with nowhere else to go, they will inevitably march into you.
+ * 2. Parity & bonus disparity: are you both relatively equal? Letting them hold a huge bonus while you hold little is suicide.
+ * 3. Contested continent: do they occupy a territory inside a continent you are trying to secure?
+ */
+export function evaluateGoodNeighbor(view: GameView, meId: PlayerId, neighborId: PlayerId): GoodNeighborEvaluation {
+  const map = getMap(view.options.map);
+  const myTerrs = map.territoryIds.filter((t) => view.territories[t]?.owner === meId);
+  const theirTerrs = map.territoryIds.filter((t) => view.territories[t]?.owner === neighborId);
+  const neighborPlayer = view.players.find((p) => p.id === neighborId);
+  const neighborName = neighborPlayer?.name ?? neighborId;
+
+  const exitsToOthers = new Set<string>();
+  const exitsToMe = new Set<string>();
+  for (const t of theirTerrs) {
+    for (const adj of map.adjacency[t] ?? []) {
+      const owner = view.territories[adj]?.owner;
+      if (owner && owner !== neighborId) {
+        if (owner === meId) exitsToMe.add(adj);
+        else exitsToOthers.add(adj);
+      }
+    }
+  }
+
+  const myExitsToOthers = new Set<string>();
+  for (const t of myTerrs) {
+    for (const adj of map.adjacency[t] ?? []) {
+      const owner = view.territories[adj]?.owner;
+      if (owner && owner !== meId && owner !== neighborId) {
+        myExitsToOthers.add(adj);
+      }
+    }
+  }
+
+  const bottleneckedIntoMe = exitsToOthers.size === 0 && exitsToMe.size > 0;
+  const tightBottleneck = exitsToOthers.size === 1;
+
+  const myIncome = view.players.find((p) => p.id === meId)?.income?.total ?? (3 + getContinentIncome(view, map, meId));
+  const theirIncome = neighborPlayer?.income?.total ?? (3 + getContinentIncome(view, map, neighborId));
+  const incomeDisparity = theirIncome - myIncome;
+
+  const myArmies = view.players.find((p) => p.id === meId)?.armyCount ?? Math.max(1, myTerrs.reduce((s, t) => s + (view.territories[t]?.armies ?? 0), 0));
+  const theirArmies = neighborPlayer?.armyCount ?? Math.max(1, theirTerrs.reduce((s, t) => s + (view.territories[t]?.armies ?? 0), 0));
+  const armyRatio = Math.round((theirArmies / Math.max(1, myArmies)) * 100) / 100;
+
+  let occupiesMyContinent = false;
+  for (const c of map.continents) {
+    const myCount = c.territories.filter((t) => view.territories[t]?.owner === meId).length;
+    const theirCount = c.territories.filter((t) => view.territories[t]?.owner === neighborId).length;
+    if (myCount >= Math.ceil(c.territories.length * 0.5) && theirCount > 0) {
+      occupiesMyContinent = true;
+      break;
+    }
+  }
+
+  const livingNonNeutral = view.players.filter((p) => p.alive && !p.isNeutral);
+  const inThreeManEndgame = livingNonNeutral.length <= 3;
+
+  let score = 50;
+  const reasons: string[] = [];
+
+  if (inThreeManEndgame) {
+    score -= 100;
+    reasons.push('3-man endgame: neutral borders cause stalemate, must coordinate 2v1 attack instead');
+  }
+
+  if (bottleneckedIntoMe) {
+    score -= 100;
+    reasons.push('cul-de-sac trap: 100% of exits touch you with nowhere else to go');
+  } else if (tightBottleneck) {
+    score -= 20;
+    reasons.push('tight bottleneck: only 1 exit leading away from you');
+  } else if (exitsToOthers.size >= 2 && myExitsToOthers.size >= 1) {
+    score += 25;
+    reasons.push(`divergent routes: both conquer in opposite directions (${exitsToOthers.size} exits away from you)`);
+  }
+
+  if (incomeDisparity >= 4) {
+    score -= 60;
+    reasons.push(`severe bonus disparity: earns +${theirIncome} vs your +${myIncome} (turtling lets them snowball)`);
+  } else if (incomeDisparity >= 2) {
+    score -= 25;
+    reasons.push(`unequal bonus income: earns +${theirIncome} vs your +${myIncome}`);
+  } else if (Math.abs(incomeDisparity) <= 1) {
+    score += 20;
+    reasons.push(`income parity: +${theirIncome} vs +${myIncome}`);
+  }
+
+  if (armyRatio >= 1.6) {
+    score -= 30;
+    reasons.push(`disproportionately stronger (${theirArmies} vs ${myArmies} armies)`);
+  } else if (armyRatio >= 0.7 && armyRatio <= 1.4) {
+    score += 20;
+    reasons.push(`equal army strength (${theirArmies} vs ${myArmies})`);
+  }
+
+  if (occupiesMyContinent) {
+    score -= 40;
+    reasons.push('occupies territory inside your target continent');
+  }
+
+  const isBeneficial = score >= 50 && !bottleneckedIntoMe && incomeDisparity < 4 && !occupiesMyContinent && !inThreeManEndgame;
+  const verdict = isBeneficial
+    ? `VIABLE GOOD NEIGHBOR (beneficial pact: ${reasons.join(', ')})`
+    : `POOR CANDIDATE (${reasons.join(', ')})`;
+
+  return {
+    neighborId,
+    name: neighborName,
+    isBeneficial,
+    score,
+    divergentExitsCount: exitsToOthers.size,
+    bottleneckedIntoMe,
+    incomeDisparity,
+    armyRatio,
+    occupiesMyContinent,
+    verdict,
+  };
+}
+
 // ---------- the commander ----------
 
-const SCHEMA = `{"winPath": "diplomacy"|"bonuses"|"cards"|"capitals"|"kills"|"hopeless", "winPlan": string, "plan": string, "focus": string|null, "target": string|null, "avoid": string[], "aggression": number, "ping": {"type":"good_neighbor"|"alliance"|"attack"|"agree"|"decline"|"camaraderie"|"anger"|"taunt", "target":string|null, "to":string|null}|null, "note": string}`;
+const SCHEMA = `{"winPath": "diplomacy"|"bonuses"|"cards"|"capitals"|"kills"|"hopeless", "winPlan": string, "plan": string, "focus": string|null, "target": string|null, "avoid": string[], "aggression": number, "ping": {"type":"attack"|"alliance"|"taunt"|"good_neighbor"|"agree"|"decline"|"camaraderie"|"anger", "target":string|null, "to":string|null}|null, "note": string}`;
 
 /** Optional knobs the commander may add to its JSON; each line says what it does and the default. */
 const KNOBS = [
-  '- ping (object or null, e.g. {"type":"good_neighbor","to":"Leona"} or {"type":"alliance","to":"Ahri"} or {"type":"attack","target":"Ronny@4","to":null} or {"type":"agree","to":"Jinx"} or {"type":"decline","to":"Jinx"}): fast diplomatic ping. TYPES: "good_neighbor" (neutral border / non-aggression pact with an adjacent border neighbor — essential in Risk so both leave borders low and march stacks outward toward enemies), "alliance" (general alliance), "attack" (call joint attack on target), "agree"/"decline" (reply to incoming proposal), "taunt"/"camaraderie"/"anger" (emotes). RULES: (1) Maximum ONCE every 4 turns, UNLESS replying directly to an incoming proposal on your next turn. (2) NEVER decline or reply to taunts/emotes. (3) "Silence is a rejection": if an offer is ignored on the next turn, it expires. (4) Set ping to null if cooldown has not elapsed or no ping needed.',
+  '- ping (object or null, e.g. {"type":"attack","target":"Tryndamere","to":"Lux"} or {"type":"alliance","to":"Ahri"} or {"type":"taunt","to":null} or {"type":"good_neighbor","to":"Leona"} or {"type":"agree","to":"Jinx"} or {"type":"decline","to":"Jinx"}): fast diplomatic ping. TYPES: "attack" (call a joint attack on a rival to break stalemates or gang up 2v1), "alliance" (propose an offensive or defensive partnership), "taunt" (psychological trash talk to mock stalled rivals, bait attacks, or express character persona), "good_neighbor" (neutral border with an equal border neighbor when 4+ players remain — NEVER use in a 3-man endgame), "camaraderie"/"anger" (emotes), "agree"/"decline" (reply to incoming proposal). RULES: (1) Maximum ONCE every 4 turns, UNLESS replying directly to an incoming proposal on your next turn. (2) NEVER decline or reply to taunts/emotes. (3) "Silence is a rejection": if an offer is ignored on the next turn, it expires. (4) Set ping to null if cooldown has not elapsed or no ping needed.',
   '- placeOn (territory id or array of territory ids, e.g. ["brazil"] or ["brazil", "egypt"]): explicitly choose which of your territories receive your reinforcement troops this turn. Deploying a single spearhead is ideal for breaking fortified borders, but multi-pronged drafting across 2-3 territories is recommended when an elimination target has spread holdings requiring simultaneous attacks in 2-3 directions. Leave out to let the tactical chooser fund your campaign/front automatically.',
   '- route (ordered array of territory ids, e.g. ["peru", "venezuela", "central_america"]): explicitly specify your attack/expansion path in order so your stack advances along that chain without splitting into dead-end pockets.',
   '- fortifyTo (territory id, e.g. "peru"): explicitly choose which of your territories to pull your stack back to during the end-of-turn fortify phase (for example, expanding out with your capital stack and then fortifying back onto your capital or choke point).',
@@ -379,7 +524,8 @@ export class Commander {
   private ownTurns = 0;
   private lastPingOwnTurn = -999;
   private lastPingToRecipient = new Map<string, number>();
-  private pendingProposals = new Map<string, { from: string; type: PingType; turnReceived: number }>();
+  private lastPingTypeSentTo = new Map<string, PingType>();
+  private pendingProposals = new Map<string, { from: string; type: PingType; target?: string; turnReceived: number }>();
   private activeGoodNeighbors = new Set<string>();
 
   constructor(o: CommanderOptions) {
@@ -429,6 +575,11 @@ export class Commander {
           if (mid && !out.avoid.includes(mid)) out.avoid.push(mid);
         }
       }
+    }
+    const livingCount = view.players.filter((p) => p.alive && !p.isNeutral).length;
+    // In a 3-man endgame (or fewer), neutral border pacts are dissolved to avoid total stalemate!
+    if (livingCount <= 3 && this.activeGoodNeighbors.size > 0) {
+      this.activeGoodNeighbors.clear();
     }
     for (const name of this.activeGoodNeighbors) {
       const id = idOf(name);
@@ -544,13 +695,17 @@ export class Commander {
             this.pendingProposals.set(m.name.toLowerCase(), {
               from: m.name,
               type: parsed.type,
+              target: parsed.target,
               turnReceived: this.ownTurns,
             });
           } else if (parsed.type === 'agree') {
             // If they agreed to our recent proposal, establish active Good Neighbor pact
             const lastSentTo = this.lastPingToRecipient.get(m.name.toLowerCase());
+            const lastType = this.lastPingTypeSentTo.get(m.name.toLowerCase());
             if (lastSentTo !== undefined && this.ownTurns - lastSentTo <= 2) {
-              this.activeGoodNeighbors.add(m.name.toLowerCase());
+              if (lastType === 'good_neighbor') {
+                this.activeGoodNeighbors.add(m.name.toLowerCase());
+              }
             }
           }
         }
@@ -592,6 +747,7 @@ export class Commander {
     if (p.to) {
       const recipientKey = p.to.toLowerCase();
       this.lastPingToRecipient.set(recipientKey, this.ownTurns);
+      this.lastPingTypeSentTo.set(recipientKey, p.type);
       this.pendingProposals.delete(recipientKey);
     }
     return p;
@@ -659,6 +815,21 @@ export class Commander {
         }
       }
 
+      // 2b. Validate good_neighbor proposal viability:
+      if (p.ping && p.ping.type === 'good_neighbor') {
+        const recipientKey = p.ping.to?.toLowerCase();
+        const validId = recipientKey ? idOf(recipientKey) : undefined;
+        if (!validId) {
+          p.ping = null;
+        } else {
+          const evalRes = evaluateGoodNeighbor(view, this.o.playerId, validId);
+          if (!evalRes.isBeneficial) {
+            // Proposing good_neighbor is an unviable trap (cul-de-sac, severe bonus disparity, contested continent)
+            p.ping = null;
+          }
+        }
+      }
+
       // 3. Validate agree / decline:
       // A player can ONLY agree or decline if there is an active proposal from that player!
       // This strictly prevents declining a taunt, declining an emote, or declining out of nowhere.
@@ -677,9 +848,26 @@ export class Commander {
         } else {
           p.ping.to = validRecipient;
           if (p.ping.type === 'agree') {
-            this.activeGoodNeighbors.add(validRecipient.toLowerCase());
+            const proposal = this.pendingProposals.get(validRecipient.toLowerCase());
             const validId = idOf(validRecipient);
-            if (validId && !p.avoid.includes(validId)) p.avoid.push(validId);
+            if (proposal?.type === 'good_neighbor' && validId) {
+              const evalRes = evaluateGoodNeighbor(view, this.o.playerId, validId);
+              if (!evalRes.isBeneficial) {
+                // Incoming good_neighbor is an unviable trap: silence is a rejection
+                p.ping = null;
+              } else {
+                this.activeGoodNeighbors.add(validRecipient.toLowerCase());
+                if (!p.avoid.includes(validId)) p.avoid.push(validId);
+              }
+            } else if (proposal?.type === 'attack') {
+              if (proposal.target) {
+                const targetPlayer = view.players.find((x) => x.name.toLowerCase() === proposal.target!.toLowerCase() || x.id === proposal.target);
+                if (targetPlayer && !p.target) p.target = targetPlayer.id;
+              }
+              if (validId && !p.avoid.includes(validId)) p.avoid.push(validId);
+            } else {
+              if (validId && !p.avoid.includes(validId)) p.avoid.push(validId);
+            }
           }
         }
       }
@@ -710,19 +898,34 @@ export class Commander {
     if (p.ping === undefined) {
       const otherLLMs = view.players.filter((x) => x.alive && !x.isNeutral && x.id !== this.o.playerId && !isModelName(x.name));
       if (otherLLMs.length > 0) {
-        // Priority 1: If there is an unhandled proposal from an LLM and we want an alliance (avoiding them),
-        // or they proposed good_neighbor and they are not our target, reply agree to establish neutral borders!
+        // Priority 1: If there is an unhandled proposal from an LLM, reply agree if strategically aligned!
         for (const [senderKey, prop] of this.pendingProposals.entries()) {
           const senderLLM = otherLLMs.find((x) => x.name.toLowerCase() === senderKey);
           if (senderLLM) {
             const isAvoiding = p.avoid.some((a) => a.toLowerCase() === senderLLM.id.toLowerCase() || a.toLowerCase() === senderLLM.name.toLowerCase());
             const isTarget = p.target && (p.target.toLowerCase() === senderLLM.id.toLowerCase() || p.target.toLowerCase() === senderLLM.name.toLowerCase());
-            if (isAvoiding || (prop.type === 'good_neighbor' && !isTarget)) {
+            let shouldAgree = false;
+            if (prop.type === 'good_neighbor') {
+              const evalRes = evaluateGoodNeighbor(view, this.o.playerId, senderLLM.id);
+              shouldAgree = evalRes.isBeneficial && !isTarget;
+            } else if (prop.type === 'attack') {
+              // They called a joint attack! Agree if the sender is not our target
+              shouldAgree = !isTarget;
+            } else if (prop.type === 'alliance') {
+              shouldAgree = !isTarget;
+            }
+
+            if (shouldAgree) {
               p.ping = {
                 type: 'agree',
                 to: senderLLM.name,
               };
-              this.activeGoodNeighbors.add(senderKey);
+              if (prop.type === 'good_neighbor') {
+                this.activeGoodNeighbors.add(senderKey);
+              } else if (prop.type === 'attack' && prop.target) {
+                const targetPlayer = view.players.find((x) => x.name.toLowerCase() === prop.target!.toLowerCase() || x.id === prop.target);
+                if (targetPlayer) p.target = targetPlayer.id;
+              }
               if (!p.avoid.includes(senderLLM.id)) p.avoid.push(senderLLM.id);
               break;
             }
@@ -731,51 +934,106 @@ export class Commander {
 
         // Priority 2: If no reply is pending, check if the 4-turn cooldown has elapsed before initiating an unsolicited ping
         if (!p.ping && this.ownTurns - this.lastPingOwnTurn >= 4) {
-          const borderNeighbors = getBorderNeighbors(view, this.o.playerId);
-          const nonTargetNeighbors = borderNeighbors.filter((n) => n.id !== p.target && n.name.toLowerCase() !== p.target?.toLowerCase());
+          const livingPlayers = view.players.filter((x) => x.alive && !x.isNeutral);
+          const isStalemateOr3Man = livingPlayers.length <= 3 || this.getStall() >= 1;
+          const isAggressive = /shaco|draven|jinx|tryndamere|zed|kled|aatrox|gangplank|sett/i.test(this.o.seatName);
 
-          // Step 1: Good Neighbor proposal to an adjacent border neighbor
-          const eligibleNeighbor = nonTargetNeighbors.find((n) => {
-            const lastTo = this.lastPingToRecipient.get(n.name.toLowerCase()) ?? -999;
-            return this.ownTurns - lastTo >= 4 && !this.activeGoodNeighbors.has(n.name.toLowerCase());
-          });
+          if (isStalemateOr3Man) {
+            // In 3-man endgame or stalemate: NEVER play good neighbor with everyone!
+            // Team up 2v1 on the leader or target, or taunt to break the stalemate!
+            const targetPlayer = p.target
+              ? view.players.find((x) => x.id === p.target || x.name.toLowerCase() === p.target?.toLowerCase())
+              : otherLLMs.slice().sort((a, b) => (b.armyCount ?? 0) - (a.armyCount ?? 0))[0];
 
-          if (eligibleNeighbor && Math.random() < 0.65) {
-            p.ping = {
-              type: 'good_neighbor',
-              to: eligibleNeighbor.name,
-            };
-          } else if (p.avoid.length > 0) {
-            const avoidLLM = otherLLMs.find((x) => {
-              const matchesAvoid = p.avoid.some((a) => a.toLowerCase() === x.id.toLowerCase() || a.toLowerCase() === x.name.toLowerCase());
-              const lastTo = this.lastPingToRecipient.get(x.name.toLowerCase()) ?? -999;
-              return matchesAvoid && this.ownTurns - lastTo >= 4;
-            });
-            if (avoidLLM && Math.random() < 0.5) {
-              p.ping = {
-                type: 'alliance',
-                to: avoidLLM.name,
-              };
-            }
-          } else if (p.target) {
-            const targetPlayer = view.players.find((x) => x.name.toLowerCase() === p.target!.toLowerCase() || x.id === p.target);
-            if (targetPlayer && Math.random() < 0.4) {
-              const ally = otherLLMs.find((x) => {
-                const isNotTarget = x.id !== p.target && x.name.toLowerCase() !== p.target!.toLowerCase();
-                const lastTo = this.lastPingToRecipient.get(x.name.toLowerCase()) ?? -999;
-                return isNotTarget && this.ownTurns - lastTo >= 4;
-              });
+            const partnerLLM = otherLLMs.find((x) => x.id !== targetPlayer?.id && x.name.toLowerCase() !== targetPlayer?.name.toLowerCase());
+
+            const roll = Math.random();
+            if (targetPlayer && partnerLLM && roll < 0.45) {
+              // 45% Call for joint attack on target!
               p.ping = {
                 type: 'attack',
                 target: targetPlayer.name,
-                to: ally ? ally.name : null,
+                to: partnerLLM.name,
+              };
+            } else if (partnerLLM && roll < 0.75) {
+              // 30% Alliance proposal to partner
+              const lastTo = this.lastPingToRecipient.get(partnerLLM.name.toLowerCase()) ?? -999;
+              if (this.ownTurns - lastTo >= 4) {
+                p.ping = {
+                  type: 'alliance',
+                  to: partnerLLM.name,
+                };
+              }
+            } else {
+              // 25% Taunt to mock rivals and stir action!
+              p.ping = {
+                type: 'taunt',
+                to: targetPlayer ? targetPlayer.name : null,
               };
             }
-          } else if (view.round >= 2 && Math.random() < 0.2) {
-            p.ping = {
-              type: Math.random() < 0.5 ? 'camaraderie' : 'taunt',
-              to: null,
-            };
+          } else {
+            // 4+ players alive: balanced palette across all ping types
+            const borderNeighbors = getBorderNeighbors(view, this.o.playerId);
+            const nonTargetNeighbors = borderNeighbors.filter((n) => n.id !== p.target && n.name.toLowerCase() !== p.target?.toLowerCase());
+
+            const eligibleNeighbor = nonTargetNeighbors.find((n) => {
+              const lastTo = this.lastPingToRecipient.get(n.name.toLowerCase()) ?? -999;
+              const evalRes = evaluateGoodNeighbor(view, this.o.playerId, n.id);
+              return this.ownTurns - lastTo >= 4 && !this.activeGoodNeighbors.has(n.name.toLowerCase()) && evalRes.isBeneficial;
+            });
+
+            const roll = Math.random();
+            // Balanced distribution:
+            // 30%: Joint attack call if target exists
+            // 25%: Good neighbor (if eligible neighbor exists and activeGoodNeighbors < 1)
+            // 20%: Alliance proposal
+            // 15%: Taunt (or 30% if aggressive persona)
+            // 10%: Camaraderie
+            if (p.target && roll < 0.30) {
+              const targetPlayer = view.players.find((x) => x.name.toLowerCase() === p.target!.toLowerCase() || x.id === p.target);
+              if (targetPlayer) {
+                const ally = otherLLMs.find((x) => {
+                  const isNotTarget = x.id !== p.target && x.name.toLowerCase() !== p.target!.toLowerCase();
+                  const lastTo = this.lastPingToRecipient.get(x.name.toLowerCase()) ?? -999;
+                  return isNotTarget && this.ownTurns - lastTo >= 4;
+                });
+                p.ping = {
+                  type: 'attack',
+                  target: targetPlayer.name,
+                  to: ally ? ally.name : null,
+                };
+              }
+            } else if (eligibleNeighbor && this.activeGoodNeighbors.size < 1 && roll < 0.55) {
+              p.ping = {
+                type: 'good_neighbor',
+                to: eligibleNeighbor.name,
+              };
+            } else if (otherLLMs.length > 0 && roll < 0.75) {
+              const ally = otherLLMs.find((x) => {
+                const lastTo = this.lastPingToRecipient.get(x.name.toLowerCase()) ?? -999;
+                return x.id !== p.target && this.ownTurns - lastTo >= 4;
+              });
+              if (ally) {
+                p.ping = {
+                  type: 'alliance',
+                  to: ally.name,
+                };
+              }
+            } else if (isAggressive || roll < 0.90) {
+              const rival = otherLLMs.find((x) => {
+                const lastTo = this.lastPingToRecipient.get(x.name.toLowerCase()) ?? -999;
+                return this.ownTurns - lastTo >= 4;
+              });
+              p.ping = {
+                type: 'taunt',
+                to: rival ? rival.name : null,
+              };
+            } else {
+              p.ping = {
+                type: 'camaraderie',
+                to: null,
+              };
+            }
           }
         }
       }
@@ -867,8 +1125,12 @@ export class Commander {
       .filter(Boolean);
     const stall = this.getStall();
     const borderNeighbors = getBorderNeighbors(view, me);
+    const neighborEvals = borderNeighbors.map((n) => {
+      const ev = evaluateGoodNeighbor(view, me, n.id);
+      return `- ${n.name}: ${ev.verdict}`;
+    });
     const borderNeighborsText = borderNeighbors.length > 0
-      ? `Adjacent border neighbors (candidates for 🏡 [good neighbor] neutral border pacts): ${borderNeighbors.map((n) => n.name).join(', ')}`
+      ? `Adjacent border neighbors & Good Neighbor viability:\n${neighborEvals.join('\n')}`
       : 'Adjacent border neighbors: none (no shared borders with other living LLMs)';
     const goodNeighborsText = this.activeGoodNeighbors.size > 0
       ? `Active Good Neighbor pacts (neutral borders): ${Array.from(this.activeGoodNeighbors).join(', ')}`
@@ -892,7 +1154,8 @@ export class Commander {
       '- IN-ATTACK STACK SIPHONING AT JUNCTIONS: Along a branching route splitting into multiple targets, never dump 100% into one branch. Siphon the exact required troops into each branch while leaving a striking force at the junction to conquer secondary prongs.',
       '- DEFENSIVE ELIMINATION & BORDER CONSOLIDATION: Eliminating an adjacent wounded rival holding cards collapses awkward frontiers into fewer bottleneck doorways — an offensive kill that yields superior defense.',
       '- GEOGRAPHY & VIABILITY: Secure small, compact 1-2 choke continents early; never sprawl thin across multi-border continents on turns 1-3. Turtle and consolidate defense once bonus is held and card is earned.',
-      '- GOOD NEIGHBOR & NEUTRAL BORDERS: When you share a border with another player and your expansion targets lie elsewhere, establish a neutral border by proposing or accepting a "good_neighbor" ping (🏡 [good neighbor]). Neutral borders allow both players to minimize border guards (1-stacks) and march main strike forces outward toward enemies rather than wasting troops hitting each other.',
+      '- 3-PLAYER ENDGAME & STALEMATE BREAKTHROUGH: In a 3-player endgame (or when stalemated), DO NOT play Good Neighbor with everyone! Turtling in a 3-way lock results in paralysis. You MUST coordinate a 2v1: pick the runaway leader (or the most vulnerable bounty) and ping the other rival with ⚔️ [attack: Target] or 🛡️ [alliance] to take them down together, or broadcast 😈 [taunt] to provoke action! Good Neighbor is ONLY for 4+ players when divergent routes exist away from each other.',
+      '- WEIGHING GOOD NEIGHBOR VIABILITY: A "good_neighbor" pact (🏡 [good neighbor]) is only strategic when mutually beneficial: (1) Equal Parity: only ally with rivals relatively equal in strength and bonus income. Never good-neighbor a runaway giant holding a huge bonus (+5 to +7) while you hold little. (2) Divergent Routes ("Opposite Directions"): ensure your neighbor has external borders facing away from you so both of you can expand in opposite directions. NEVER good-neighbor someone trapped in a cul-de-sac with nowhere else to go on the map but into you! (3) Contested Land: if a neighbor holds land inside your target continent, they are an obstacle to conquer. (4) NEVER use good_neighbor when <= 3 players remain!',
       '- winPlan: one sentence: how you actually win from here.',
       `- hopeless: only if you see zero ways to win. Then set target to the player you like least (lowest rapport in your relationships text and the chat) and the bot goes all-in on them, ignoring garrisons. Never choose it just because you are behind.`,
       '- plan: your plan for this turn and the next few, one or two sentences (what to take, hold, break, who to hit).',
@@ -933,7 +1196,7 @@ export class Commander {
         ? [
             'Recent diplomatic pings from other LLMs (unverified, silence is a no):',
             ...recentPings.slice(-6),
-            'PING PROTOCOL: (1) Maximum ONCE every 4 turns. (2) Only reply with "agree" or "decline" if an LLM proposed an alliance or good_neighbor to you on their last turn. (3) Propose "good_neighbor" (🏡 [good neighbor]) to adjacent border neighbors to establish neutral borders. (4) NEVER decline or reply to taunts, camaraderie, or anger emotes — ignore them! (5) Silence is a rejection: if an opponent ignored your proposal, do not re-send for 4+ turns. (6) Use "ping": null if cooldown has not elapsed or no reply needed.',
+            'PING PROTOCOL: (1) Maximum ONCE every 4 turns, UNLESS replying directly to an incoming proposal on next turn. (2) Use full ping variety: call joint attacks (⚔️ [attack: Target]) to break stalemates, propose alliances (🛡️ [alliance]), trash-talk stalled rivals with taunts (😈 [taunt]), or propose neutral borders (🏡 [good neighbor]). (3) IN A 3-PLAYER ENDGAME / STALEMATE: NEVER play good neighbor with everyone! Gang up 2v1 on the leader or weakest rival using ⚔️ [attack: Target] and 🛡️ [alliance], or broadcast 😈 [taunt] to break the deadlock! (4) NEVER decline or reply to taunts, camaraderie, or anger emotes — ignore them! (5) Silence is a rejection: if an offer was ignored, wait 4+ turns before proposing again. (6) Use "ping": null if cooldown has not elapsed or no reply needed.',
             '',
           ]
         : []),

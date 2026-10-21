@@ -23,7 +23,8 @@
 #   train_init=<model id, or empty for a fresh network>  candidate=<cN-candidate>  train_args="--epochs 1.5 --lr 3e-4"
 #   gates=("<opponent> <players> <games> [options JSON]" ...)   ladder matches of the candidate
 #   gpu_gates=(<gate index> ... | all)   optional: gates played on the GPU (delove_gpu.ladder: the same games and the
-#                              same gates/g<i>-<k>.json as on the CPU); the others stay on the CPU. GPU_GATES
+#                              same gates/g<i>-<k>.json as on the CPU); the others stay on the CPU, and so does every
+#                              fog gate ("fogOfWar":true: the GPU mirror has no fog). GPU_GATES
 #                              (space-separated indices or all; 1 = all, 0 = none) overrides it.
 # Environment: CYCLE_NAME (overrides name, e.g. for a trial run), DELOVE_MODELS (models folder, default models/delove), OUT (default runs/delove/<name>), DATA (default
 # data/delove), PYTHON (default .venv/Scripts/python), PARALLEL, CHUNKS (chunks per process and step, default 4; or
@@ -375,7 +376,8 @@ cpu_gpool="$out/gates/cpu.txt"
 : > "$cpu_gpool"
 while read -r i k opp players games options; do
   [[ -f "$out/gates/g$i-$k.json" ]] && continue
-  if gate_on_gpu "$i"; then
+  # Fog gates always play on the CPU: the GPU mirror has no fog (each seat plays on its view there, foggedAgent).
+  if gate_on_gpu "$i" && [[ $options != *'"fogOfWar":true'* && $options != *'"fogOfWar": true'* ]]; then
     echo "$i $k $opp $players $games $(( seed * 1000 + 100 * i + k )) $options" >> "$gpu_gpool"
   else
     echo "$i $k $opp $players $games $options" >> "$cpu_gpool"

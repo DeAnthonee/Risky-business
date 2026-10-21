@@ -31,8 +31,9 @@ What "good" means, decided by the owner:
 4. **Fast iteration.** Training should run as much as possible on the training PC's GPU so we can try more ideas per
    day.
 
-**Fog of war is a required milestone** (owner, 2026-10-20): tournaments run with fog on. Today the board encoder sees
-the whole board, so the seat player refuses fog games; the plan is `docs/delove-fog.md` (section 9).
+**Fog of war is a required milestone** (owner, 2026-10-20): tournaments run with fog on. The first capability is
+built (#155): seat-view inputs, fog dropout in training and fair fog games in self-play; the seat player seats only
+fog-trained models at fog tables. The plan and what is left: `docs/delove-fog.md` (section 9).
 
 **The finished product** (owner, 2026-10-20): three separate specialist networks plus a "housing" that picks which one
 plays each decision by the players still alive: **Long Range** (4+ alive: reach the last 3 with the most kills, the
@@ -299,7 +300,7 @@ to `runs/delove/<name>/cycle.md`.
 ```bash
 npm run delove-seat -- --server https://risky.deanthoneeking.com --join <CODE> --agents delove@3,delove-teacher@2 --names "Delove@3,Sensei@2"
 ```
-Fog of war off (enforced by `delove-seat`); one seat per agent. For full environment parity options (random fog 50/50, blizzards, capitals, progressive/fixed/exponential cards), see **[docs/game-settings.md](game-settings.md)**.
+Fog of war only for fog-trained models (`fogInputs`, enforced by `delove-seat`); one seat per agent. For full environment parity options (random fog 50/50, blizzards, capitals, progressive/fixed/exponential cards), see **[docs/game-settings.md](game-settings.md)**.
 
 ## 7. Decisions made by the owner
 
@@ -325,6 +326,7 @@ Fog of war off (enforced by `delove-seat`); one seat per agent. For full environ
 
 | what | who | state |
 | --- | --- | --- |
+| fog of war, first capability: seat-view inputs, fog dropout, fair fog games and gates, `delove-seat` at fog tables | session "Fog of war" | built in **#155** (no GPU mirror change, fingerprint untouched); measurement: a fog-dropout fine-tune of `delove@8` on the fog ladder (see the PR); next: a cycle candidate with `--fog-dropout`, then seat memory and the determinized teacher (`docs/delove-fog.md`) |
 | GPU rules, teacher and branch-and-score for every map, 2-10 seats and every setting; points arrays from the GPU; `cycle.sh` GPU steps for any step | session "GPU engine for every map and 2-10 players" | done, **PR #82** merged |
 | cycle 5: all maps 2-10p on the GPU, points target; gate table with points; live dashboard (`scripts/dashboard.mjs`); `train.py --amp` and `#F` fractions | coordinator | done, not promoted (section 3); PR #105 |
 | Jacob Sensei on the GPU mirror (teacher kernel, per-seat teacher versions, verified by replay) | session "Port Jacob Sensei to the GPU mirror" | done, **PR #110**: 0 mismatches (verify.py on the pre-Bohemia engine, fingerprint at `da9ec34`; matrix `jacob` suite 118/118) |
@@ -395,7 +397,10 @@ tables with LLM characters, with fog of war on. In order:
    (packages/delove-gpu README, "Stage games"). Train on them mixed with the real stage games, not instead of them.
 3. **Fog of war, started early, in parallel** (`docs/delove-fog.md`): fog dropout first (train on normal games with the
    unseen territories blanked out, so Delove stops leaning on information a fogged player lacks), then the seat-view
-   encoder, a determinized branch teacher and fog gates.
+   encoder, a determinized branch teacher and fog gates. **Built (#155):** the seat view as network inputs, fog dropout
+   (`train.py --fog-dropout P` on any full-board data), fair fog games for every seat in self-play and the ladder, fog
+   gates on the CPU, and `delove-seat` playing fog with a fog-trained model. Next: train fog dropout into a cycle's
+   candidate (p 0.2-0.3) with a fog gate beside the usual ones, then the seat's memory and the determinized teacher.
 4. **The real yardstick.** Seat Delove at live tables with the Claude and ChatGPT characters (fog on once item 3
    lands), and track its leaderboard points per game. Started 2026-10-21 with Claude subagent seats
    ([delove-yardstick.md](delove-yardstick.md)): with capitals and blizzards on, `delove@6` averaged -1.0 points against

@@ -31,10 +31,10 @@ In standard Gen 5 character league play (`packages/runner/src/presets.ts:gameOpt
 
 ### A. Fog of War (`fogOfWar`)
 - **Standard League Games**: `random() < 0.5` (50% ON, 50% OFF). Under fog of war, players see only their owned territories and adjacent borders.
-- **Delove Model Evaluation (Current Requirement)**: **`fogOfWar: false`**.
+- **Delove Model Evaluation**: **`fogOfWar: false`** for models trained on the full board.
   > [!IMPORTANT]
-  > Delove neural networks (`delove@1`, `delove@2`, `delove@3`) and the current board encoder (`packages/selfplay/src/encode.ts`) were trained on full board observability. `packages/delove/src/seat.ts` automatically rejects fog of war games. All official Gen 5 games evaluating Delove must explicitly pass `--options '{"fogOfWar":false}'`.
-- **Delove Fog Training (Future)**: When developing partial-observability vision models, test against `packages/delove/configs/gen5-randomfog.json` (`fogOfWar: true`).
+  > Delove networks without fog inputs were trained on full board observability; `packages/delove/src/seat.ts` sits them out of fog games. A network trained with fog dropout (`train.py --fog-dropout`, `"fogInputs"` in its `.json`) takes fog seats ([docs/delove-fog.md](delove-fog.md)). Games evaluating a full-board model pass `--options '{"fogOfWar":false}'`.
+- **Delove Fog Evaluation**: the fog gate uses `packages/delove/configs/gen5-randomfog.json` (`fogOfWar: true`); in self-play every seat, Delove or teacher, plays on its own seat view (`foggedAgent`), so the gate is fair.
 
 ### B. Blizzards (`blizzards`)
 - **50% Chance**: `blizzards: 8` (8 random territories become impassable for the entire game).
@@ -92,7 +92,7 @@ They fix the switches that league play samples (blizzards 8, capitals on):
 1. **`packages/delove/configs/gen5-nofog.json`**:
    Baseline Gen 5 options with `fogOfWar: false`, `blizzards: 8`, `capitals: true`, `cardValues: "progressive"`.
 2. **`packages/delove/configs/gen5-randomfog.json`**:
-   The same with `fogOfWar: true` (always on, despite the name) for testing future fog models; `delove-seat` refuses fog games today.
+   The same with `fogOfWar: true` (always on, despite the name): the fog gate; `delove-seat` seats only fog-trained models (`fogInputs`) at fog tables.
 3. **`packages/delove/configs/gen5-fixedcards.json`**:
    Options with `cardValues: "fixed"` for testing set-collection strategies without progressive escalation.
 

@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { MessageChannel, receiveMessageOnPort, Worker } from 'node:worker_threads';
 import { getMap, type GameState, type MapDef } from '@risk/engine';
 import { searchAgent } from './search.js';
-import { decisionInput, encodeDecision, stepAgent, type Agent, type Features, type StepContext } from '@risk/selfplay';
+import { encodeDecision, FOG_INPUT_VERSION, seatInput, fogInputs, GLOBAL_FEATURES, stepAgent, TERRITORY_FEATURES, type Agent, type Features, type StepContext } from '@risk/selfplay';
 
 /** Largest candidate list a decision can have (Greater Europe connected fortify stays far below this). */
 const MAX_CANDIDATES = 1 << 16;
@@ -24,11 +24,26 @@ export class NetScorer {
   private readonly out = new Float32Array(new SharedArrayBuffer((MAX_CANDIDATES + 1) * 4));
   private readonly errors = new MessageChannel();
 
+  /** The model's fog input layout (`fogInputs` in its <model>.json, written by train.py --fog-dropout); 0 = none. */
+  readonly fogInputs: number;
+
   constructor(
     readonly modelPath: string,
     /** The batched value model (<model>.value.onnx), needed only for values(). */
     readonly valuePath: string | null = null,
-  ) {}
+  ) {
+    this.fogInputs = modelFogInputs(modelPath);
+  }
+
+  /**
+   * The network inputs of an encoded decision. In a fog game (`fogged`) every model sees the seat view (fog.ts); a
+   * model with fog inputs also gets the two fog columns (0 in a normal game), one without gets the old width.
+   */
+  inputs(f: Features, mapId: string, fogged: boolean): { territory: Float32Array; global: Float32Array } {
+    if (!fogged && !this.fogInputs) return { territory: f.territory, global: f.global };
+    const x = fogInputs(f, mapId, fogged);
+    return this.fogInputs ? x : narrow(x, f.territories);
+  }
 
   private wait(what: string): void {
     const r = Atomics.wait(this.ctl, 0, 0, TIMEOUT_MS);
@@ -56,7 +71,8 @@ export class NetScorer {
   score(ctx: StepContext): { logits: Float32Array; value: number } {
     const worker = this.start();
     const seatIds = seatOrder(ctx.state);
-    const f = encodeDecision(decisionInput(ctx.state, seatIds, ctx.me, ctx.traits, ctx.candidates, ctx.fortifyFrom ?? -1));
+    const f = encodeDecision(seatInput(ctx.state, seatIds, ctx.me, ctx.traits, ctx.candidates, ctx.fortifyFrom ?? -1));
+    const x = this.inputs(f, ctx.state.options.map, !!ctx.state.options.fogOfWar);
     const C = f.candidates;
     if (C > MAX_CANDIDATES) throw new Error(`Delove: ${C} candidates, more than ${MAX_CANDIDATES}`);
     Atomics.store(this.ctl, 0, 0);
@@ -64,8 +80,8 @@ export class NetScorer {
       kind: 'decision',
       T: f.territories,
       C,
-      territory: f.territory,
-      global: f.global,
+      territory: x.territory,
+      global: x.global,
       adj: adjacencyMatrix(getMap(ctx.state.options.map)),
       cand: f.cand,
       candFrom: BigInt64Array.from(f.candFrom, (x) => BigInt(x)),
@@ -75,9 +91,10 @@ export class NetScorer {
     return { logits: this.out.slice(0, C), value: this.out[this.out.length - 1] };
   }
 
-  /** Win probability for the decider of each encoded position (one batched call; all on one map). */
-  values(positions: Features[], mapId: string): Float32Array {
-    if (positions.length === 0) return new Float32Array(0);
+  /** Win probability for the decider of each encoded position (one batched call; all on one map; `fogged`: a fog game). */
+  values(encoded: Features[], mapId: string, fogged = false): Float32Array {
+    if (encoded.length === 0) return new Float32Array(0);
+    const positions = encoded.map((f) => ({ territories: f.territories, ...this.inputs(f, mapId, fogged) }));
     if (positions.length > MAX_CANDIDATES) throw new Error(`Delove: ${positions.length} positions in one batch`);
     const worker = this.start();
     const T = positions[0].territories;
@@ -92,6 +109,28 @@ export class NetScorer {
     this.wait('rating positions');
     return this.out.slice(0, positions.length);
   }
+}
+
+/** The fog input layout a model was trained with: `fogInputs` in the <model>.json beside it (0: none, or no file). */
+export function modelFogInputs(modelPath: string): number {
+  const json = modelPath.replace(/\.onnx$/, '.json');
+  if (!existsSync(json)) return 0;
+  try {
+    const v = Number(JSON.parse(readFileSync(json, 'utf8')).fogInputs ?? 0);
+    if (v > FOG_INPUT_VERSION) throw new Error(`fog inputs v${v}, this player reads up to v${FOG_INPUT_VERSION}`);
+    return v;
+  } catch (e) {
+    throw new Error(`Delove model ${modelPath}: ${(e as Error).message}`);
+  }
+}
+
+/** Fog inputs without the fog columns: the input width of a model trained before fog (the seat view, as it can read it). */
+function narrow(x: { territory: Float32Array; global: Float32Array }, T: number): { territory: Float32Array; global: Float32Array } {
+  const TF = TERRITORY_FEATURES.length;
+  const TW = x.territory.length / T;
+  const territory = new Float32Array(T * TF);
+  for (let i = 0; i < T; i++) territory.set(x.territory.subarray(i * TW, i * TW + TF), i * TF);
+  return { territory, global: x.global.slice(0, GLOBAL_FEATURES.length) };
 }
 
 /** Seat ids in seating order: the order players joined, the Neutral left out (as the self-play harness seats them). */
@@ -120,11 +159,12 @@ export function adjacencyMatrix(map: MapDef): Float32Array {
  */
 export function netAgent(id: string, modelPath: string, temperature = 0): Agent {
   const scorer = new NetScorer(modelPath);
-  return stepAgent(id, (ctx) => {
+  const agent = stepAgent(id, (ctx) => {
     if (ctx.candidates.length === 1) return 0;
     const { logits } = scorer.score(ctx);
     return temperature > 0 ? sample(logits, temperature, ctx.random) : argmax(logits);
   });
+  return scorer.fogInputs ? { ...agent, fogInputs: scorer.fogInputs } : agent;
 }
 
 /**

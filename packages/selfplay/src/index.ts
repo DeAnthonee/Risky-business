@@ -11,3 +11,5 @@ export * from './npy.js';
 export * from './export.js';
 export * from './positions.js';
 export * from './scenario.js';
+export * from './fog.js';
+export * from './seat-view.js';

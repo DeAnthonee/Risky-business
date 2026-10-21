@@ -22,6 +22,11 @@ export interface DecisionContext {
 export interface Agent {
   id: string;
   choose(ctx: DecisionContext): Action | null;
+  /**
+   * Set when the agent was trained for fog of war (a network with fog inputs, fog.ts FOG_INPUT_VERSION): the live
+   * seat player only sits such agents at fog tables. Every agent can play a fog game fairly (foggedAgent).
+   */
+  fogInputs?: number;
 }
 
 /** The built-in Risky bot (the one that fills seats on the live server), playing exactly the same code. */

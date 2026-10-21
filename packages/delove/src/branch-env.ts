@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { Agent } from '@risk/selfplay';
+import { stepAgent, type Agent, type StepContext } from '@risk/selfplay';
 import { BRANCH_SCORES, branchAgent, DEFAULT_BRANCH, type BranchOptions, type BranchScore, type RolloutNet } from './branch.js';
 import { modelsDir, NetScorer } from './net-agent.js';
 import {
@@ -86,7 +86,7 @@ export function branchFromEnv(dir = modelsDir(), env: NodeJS.ProcessEnv = proces
   const valuePath = rankerPath.slice(0, -'.onnx'.length) + '.value.onnx';
   const valuer = existsSync(rankerPath) && existsSync(valuePath) ? new NetScorer(rankerPath, valuePath) : null;
   const num = (k: string, d: number) => (env[k] === undefined ? d : Number(env[k]));
-  return branchAgent(
+  const search = branchAgent(
     score === undefined ? 'delove-branch@1' : `delove-branch@1:${score}`,
     rolloutPick,
     ranker,
@@ -108,6 +108,28 @@ export function branchFromEnv(dir = modelsDir(), env: NodeJS.ProcessEnv = proces
     valuer,
     rolloutNet(env.DELOVE_BRANCH_ROLLOUT, dir, ranker),
   );
+  return fogSafe(search, ranker, rolloutPick);
+}
+
+/**
+ * Branch and score never searches under fog of war (no determinized teacher yet, docs/delove-fog.md section 4): its
+ * rollouts would play out a rebuilt board whose hidden territories are blank. In a fog game it plays its ranker's top
+ * move on the seat view instead (the rollout teacher's pick without a ranker), and it takes fog seats only when the
+ * ranker was trained for fog (its `fogInputs`).
+ */
+export function fogSafe(search: Agent, ranker: NetScorer | null, teacherPick: (ctx: StepContext) => number): Agent {
+  const bare = stepAgent(search.id, (ctx) => {
+    if (ctx.candidates.length === 1 || !ranker) return teacherPick(ctx);
+    const { logits } = ranker.score(ctx);
+    let best = 0;
+    for (let i = 1; i < logits.length; i++) if (logits[i] > logits[best]) best = i;
+    return best;
+  });
+  return {
+    ...search,
+    choose: (ctx) => (ctx.state.options.fogOfWar ? bare.choose(ctx) : search.choose(ctx)),
+    ...(ranker?.fogInputs ? { fogInputs: ranker.fogInputs } : {}),
+  };
 }
 
 /**

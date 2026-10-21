@@ -88,6 +88,21 @@ npm run selfplay -- play --agents "split:60/40>X,Y" --options '{"map":"europe","
   agent plays each share over a run. The summary adds `byShare` (wins and mean placement per share, whoever played it).
   Mix ratio scenarios with real stage games rather than training on them alone: they are realistic, not real.
 
+### Fog of war games
+
+`play` and `ladder` take `{"fogOfWar": true}`. No seat sees through the fog: `runBatch` wraps every agent with
+`foggedAgent` (`src/seat-view.ts`), which in a fog game hands it its seat's view rebuilt as the live seat player does it
+(`stateFromView(viewFor(state, me))`: hidden territories blank, opponents' hands dealt at random to their real sizes)
+with the view's legal moves and their candidates. In a normal game it is a no-op. An agent that works out its own legal
+moves from the state (`risky@1`) can misread hidden territories as unclaimed in a manual setup; such a move, illegal on
+the true board, is replaced by the seat's first candidate (the league's fog games use `autoSetup`, which has no setup). The decision log still records the true state, and `export` still leaves fog games out.
+
+Networks read fog through `src/fog.ts` (`fogInputs`, `FOG_INPUT_VERSION`): the seat view as network inputs, a function
+of the full-board features (the encoder itself is unchanged), plus a `hidden` column per territory and `hidden_share`
+in the globals, 0 on a full board. `seatInput` builds a decision's encoder input with the view's public income totals.
+Training uses the same transform on full-board arrays (fog dropout, `packages/delove/python/fog.py`;
+[docs/delove-fog.md](../../docs/delove-fog.md)).
+
 ## Ladder (step 2)
 
 ```bash

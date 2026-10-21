@@ -231,7 +231,7 @@ Library names (the private models repo, next to `delove@N`) are `delove-long-ran
   scenarios: 3 alive"` (about $2-3 for both on rented GPUs; the measured balance per ratio is in the `packages/delove-gpu`
   README, "Stage games"). Mix them with the real stage games and the normal pool, never alone (`#F` weights in
   `train_data`, e.g. `xc/classic#0.5`; 70/30 is mostly settled on the first turn). `node
-  scripts/stage/split-jobs.mjs [GAMES]` rewrites both files; `scripts/stage/measure-stages.mjs` re-measures the
+  scripts/stage/split-jobs.mjs [GAMES] [OPPONENT]` rewrites both files (e.g. `10000 delove@7` for the newer base); `scripts/stage/measure-stages.mjs` re-measures the
   stage statistics the boards are drawn from.
 - **Gate:** each specialist against the base on its own stage, then the routed trio against the base in full games,
   with the yardstick below; the promotion rule is in `docs/delove-status.md` ("Range specialists: how they are

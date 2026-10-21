@@ -3,15 +3,16 @@
 // split-mid.jobs next to this script. Each ratio gets about GAMES games over the 6-10 seat tables of close.jobs /
 // mid.jobs (cycle 8's maps and table sizes, the same league settings per table, the same mix of games per table);
 // rotations of a 3-way split (who moves first) share their ratio's games. Every line has its own range of game
-// numbers (the START column), so no two lines play the same seeds. The stage agents: the branch player and delove@6
-// in the other seats. Run it again after changing the tables or ratios:
+// numbers (the START column), so no two lines play the same seeds. The stage agents: the branch player and OPPONENT
+// (default delove@6) in the other seats. Run it again after changing the tables or ratios:
 //
-//   node packages/delove/scripts/stage/split-jobs.mjs [GAMES=10000]
+//   node packages/delove/scripts/stage/split-jobs.mjs [GAMES=10000] [OPPONENT=delove@6]
 import { writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const GAMES = Number(process.argv[2] ?? 10000);
+const OPP = process.argv[3] ?? 'delove@6';
 const here = dirname(fileURLToPath(import.meta.url));
 const league = { autoSetup: true, balancedBlitz: true, chooseCapitals: true };
 const A = { cardValues: 'progressive' };
@@ -35,9 +36,9 @@ const TABLES = [
   ['wl10', 'world_large', 10, 75, [B, C]],
 ];
 const STAGES = {
-  close: { agents: ['delove-branch@1', 'delove@6'], ratios: [['50/50'], ['60/40'], ['40/60'], ['70/30'], ['30/70']] },
+  close: { agents: ['delove-branch@1', OPP], ratios: [['50/50'], ['60/40'], ['40/60'], ['70/30'], ['30/70']] },
   mid: {
-    agents: ['delove-branch@1', 'delove@6', 'delove@6'],
+    agents: ['delove-branch@1', OPP, OPP],
     ratios: [['34/33/33'], ['50/25/25', '25/50/25', '25/25/50'], ['40/40/20', '40/20/40', '20/40/40'], ['60/20/20', '20/60/20', '20/20/60']],
   },
 };

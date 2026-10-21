@@ -683,6 +683,29 @@ mean points per seat for the candidate and the opponent, their difference with a
 gate's chunks), the candidate's mean place and kills per seat, and the games that hit the turn limit. Since cycle 5
 promotions are judged mainly on the points difference at 4-10 players (`docs/delove-status.md` section 3).
 
+**Gates: paired statistics and SPRT** (`scripts/sprt.mjs`, #PR). Every ladder match is played in mirrored pairs (same
+seed, seats swapped), and each result now lists every pair's points difference per seat (`pairPointsDiff`, from
+`runMatch` and `delove_gpu.ladder` alike). The summary's second table uses them:
+- Each gate's paired 95% interval: one unit per pair rather than per 20-game chunk. Gate files from before #PR fall
+  back to chunks, marked "(chunks)".
+- A sequential probability ratio test on the owner's promotion rule, the way Stockfish's fishtest decides patches.
+  The statistic is the pooled points difference at 4-10 players against the first gate's opponent, each table weighted
+  equally. It is tested as H0 "no better than 0" against H1 "at least `GATE_SPRT_H1` better" (default 0.15 points per
+  seat), at 5% error each way. 2-player tables are checked for "not significantly worse".
+
+With `GATE_SPRT=1`, `cycle.sh` keeps adding 2 chunks to each pooled table (and to any 2-player table still in doubt)
+until the test decides, up to `GATE_SPRT_MAX` games per table (default 800). Clear results stop at the planned games;
+close calls get more games automatically instead of a recheck by hand. On cycle 13's gate files (chunk fallback) it
+reproduces the gate table and accepts H1 (pooled +0.16, LLR 3.52 against a bound of 2.94), the call the cycle made after
+its manual recheck.
+
+`PANEL=1` adds the **fixed reference panel** to the gates, so every cycle plays the same opponents and progress reads
+off one table: `delove@6` (World 6p, 2p), `delove@3` (World 6p), `jacob-sensei@1` and `@2` (World 6p; `@2` also 2p) and
+Sensei 2 (2p). Panel gates are reported, never pooled into the SPRT. Copy each cycle's panel row into
+`docs/delove-status.md`, "Progress, measured directly".
+
+    node packages/delove/scripts/sprt.mjs runs/delove/<cycle>/gates [--h1 0.15] [--alpha 0.05] [--beta 0.05] [--base delove@N] [--json]
+
 **Training options** (`python/train.py`, through `train_args` and `train_data`):
 - `--amp`: the network in bfloat16 mixed precision (losses, optimizer and weights stay float32). On the RTX 4060 it
   gives the same validation loss as float32 (0.9455 vs 0.9449 on cycle 5 data) at 1.9x the speed, and less memory.

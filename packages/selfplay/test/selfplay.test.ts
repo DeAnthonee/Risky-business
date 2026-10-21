@@ -262,6 +262,16 @@ describe('ladder', () => {
     expect(mirror.score).toBe(0.5);
   });
 
+  it('reports the points difference of each mirrored pair (for paired statistics)', async () => {
+    const m = await runMatch({ candidate: riskyBot, best: randomAgent, games: 8, players: 4, seed: 3 });
+    expect(m.pairPointsDiff).toHaveLength(4);
+    const mean = m.pairPointsDiff!.reduce((a, b) => a + b, 0) / 4;
+    // every seat plays every game, so the mean of the pair differences is the match's points difference
+    expect(mean).toBeCloseTo(m.pointsDiff!, 2);
+    const mirror = await runMatch({ candidate: riskyBot, best: riskyBot, games: 4, players: 2, seed: 1 });
+    expect(mirror.pairPointsDiff).toEqual([0, 0]);
+  });
+
   it('rates candidates against the best and promotes winners in the ladder file', () => {
     const path = join(tmp, 'ladder', 'ladder.json');
     const r = summarizeMatch('net@2', 'risky@1', Array.from({ length: 200 }, (_, i) => (i % 3 === 0 ? 0 : 1)), [], 0);

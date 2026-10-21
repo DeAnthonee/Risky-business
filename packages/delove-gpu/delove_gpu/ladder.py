@@ -121,6 +121,7 @@ class Match:
             raise RuntimeError(f"{self.key}: {len(by_i)} of {self.games} games")
         scores, turns, turn_limit = [], [], 0
         pts = {"cand": 0.0, "best": 0.0, "candSeats": 0, "bestSeats": 0, "place": 0, "kills": 0}
+        game_diff = []  # per game: candidate's mean points per seat minus the best's (pairPointsDiff)
         for i in range(self.games):  # game order, seat order: the sums runMatch adds up, in its order
             g = by_i[i]
             w = g["winner"]
@@ -128,20 +129,30 @@ class Match:
             turns.append(g["turns"])
             if w is None:
                 turn_limit += 1
+            gc = gb = 0.0
+            nc = nb = 0
             for s, p in enumerate(g["points"]):
                 if (s + i) % 2 == 0:
                     pts["cand"] += p
                     pts["candSeats"] += 1
                     pts["place"] += g["placement"][s]
                     pts["kills"] += g["kills"][s]
+                    gc += p
+                    nc += 1
                 else:
                     pts["best"] += p
                     pts["bestSeats"] += 1
+                    gb += p
+                    nb += 1
+            game_diff.append(gc / max(1, nc) - gb / max(1, nb))
         points = r3(pts["cand"] / max(1, pts["candSeats"]))
         best_points = r3(pts["best"] / max(1, pts["bestSeats"]))
         out = summarize(self.candidate, self.best, scores, turns, turn_limit, 2)
         out.update({"points": points, "bestPoints": best_points, "pointsDiff": r3(points - best_points),
-                    "meanPlacement": r3(pts["place"] / max(1, pts["candSeats"])), "killsPerGame": r3(pts["kills"] / max(1, pts["candSeats"]))})
+                    "meanPlacement": r3(pts["place"] / max(1, pts["candSeats"])), "killsPerGame": r3(pts["kills"] / max(1, pts["candSeats"])),
+                    # as runMatch's pairPointsDiff (whole floats as ints, as JSON.stringify writes them)
+                    "pairPointsDiff": [int(v) if float(v).is_integer() else v
+                                       for v in (r3((game_diff[2 * k] + game_diff[2 * k + 1]) / 2) for k in range(self.games // 2))]})
         return tidy({**out, **promotion(out)})
 
     def games_of(self, results: list[dict]) -> list[dict]:

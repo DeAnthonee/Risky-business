@@ -7,7 +7,7 @@ numbers go in [packages/delove/CYCLES.md](../../packages/delove/CYCLES.md) and t
 Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. **Append a line in the same PR** as any change to
 this area (README hard rule 12).
 
-- 2026-10-21 #PR fog measurement: `--fog-dropout 0.25` fine-tune of `delove@8` vs a no-dropout control on the fog and no-fog ladders (docs/delove-fog.md status, delove-status section 8)
+- 2026-10-21 #163 fog measurement: `--fog-dropout 0.25` fine-tune of `delove@8` vs a no-dropout control on the fog and no-fog ladders (docs/delove-fog.md status, delove-status section 8)
 - 2026-10-21 #160 gates: paired statistics and an SPRT on the promotion rule (`scripts/sprt.mjs`; `cycle.sh` `GATE_SPRT=1` adds chunks until decided, `PANEL=1` adds the fixed reference panel; the summary always shows the paired table)
 - 2026-10-21 #158 delove-status section 3: "Progress, measured directly": each promotion's pooled gain (@4-@10) and a direct head-to-head of bare delove@10 vs delove@6 / delove@3 (+1.1 to +1.6 points per seat at 6-10p, every interval above 0)
 - 2026-10-21 #157 yardstick made neutral: the LLM seat brief and room name no longer say which seat is the trained model (Delove sits as `<Tier> Garen`); turn order is shuffled by the engine (Delove doesn't always move last; the doc said so); 2 games per tier (Haiku, Sonnet, Opus) per model

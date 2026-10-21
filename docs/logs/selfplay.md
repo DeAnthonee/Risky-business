@@ -7,7 +7,7 @@ Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. Changes from
 commit hash instead. **Append a line in the same PR** as any change to this area (README hard rule 12). Say when a
 change bumps `LOG_VERSION` or `ENCODER_VERSION`.
 
-- 2026-10-20 #PR stage games (`src/positions.ts`): `play --agents 'LEAD>STAGE'` records only from the moment that many players are left (`GameConfig.stage`), `pos:FILE>STAGE` and `GameConfig.start` play from captured positions, `positions --records` extracts them from game records; game summaries gain `stage`; no `LOG_VERSION` / `ENCODER_VERSION` change (decision records unchanged, `i` stays the step number)
+- 2026-10-20 #137 stage games (`src/positions.ts`): `play --agents 'LEAD>STAGE'` records only from the moment that many players are left (`GameConfig.stage`), `pos:FILE>STAGE` and `GameConfig.start` play from captured positions, `positions --records` extracts them from game records; game summaries gain `stage`; no `LOG_VERSION` / `ENCODER_VERSION` change (decision records unchanged, `i` stays the step number)
 - 2026-10-19 #79 placement points in games, logs, ladder and export (training on leaderboard points)
 - 2026-10-19 #72 hooks for the GPU self-play prototype
 - 2026-10-19 #71 faster export and CLI options for Delove cycles

@@ -154,6 +154,34 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
     res.json({ season: season || String(store.rankings.season), current: !season || season === String(store.rankings.season), rankings });
   });
   api.get('/rankings/seasons', (_req, res) => res.json({ current: store.rankings.season, seasons: store.rankings.seasons() }));
+  // Match history for the home page: finished games from the archive index, newest first. Only the public outcome
+  // (seats, places, winner, turns), never a board, so fog games are safe to list. Empty when records are off.
+  api.get(
+    '/history',
+    wrap((req, res) => {
+      const limit = Math.max(1, Math.min(Number(req.query.limit) || 20, 100));
+      const games = store.archive
+        .list(Infinity)
+        .filter((g) => g.finished && g.winner)
+        .slice(0, limit)
+        .map((g) => ({
+          id: g.id,
+          room: g.room,
+          name: g.name,
+          map: g.map,
+          fog: g.fog,
+          ...(g.tournamentId ? { tournamentId: g.tournamentId } : {}),
+          scenario: !!g.scenarioOf,
+          startedAt: g.startedAt,
+          endedAt: g.endedAt,
+          winner: g.winner,
+          reason: g.reason,
+          turns: g.turns,
+          players: g.players.map((p) => ({ id: p.id, name: p.name, isBot: p.isBot, characterId: p.characterId, place: p.place })),
+        }));
+      res.json({ enabled: store.archive.enabled, games });
+    }),
+  );
   api.get('/rankings/profile', (req, res) => {
     const key = String(req.query.key ?? '').slice(0, 200);
     if (!key) return res.status(400).json({ error: 'Profile key is required' });

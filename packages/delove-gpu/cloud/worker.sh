@@ -67,9 +67,10 @@ print(json.dumps({"torch": torch.__version__, "cuda": torch.version.cuda, "gpus"
                   "capability": "".join(map(str, torch.cuda.get_device_capability()))}))
 EOF
 cat "$job/env.json"
-$py packages/delove-gpu/delove_gpu/fingerprint.py check || fail "the GPU mirror is not verified for this commit's engine"
 
-# ---- verify.py (once per new GPU type, when asked) -------------------------------------------------------------------
+# ---- verify.py (once per new GPU type, or for a commit whose mirror is not verified yet, when asked) ------------------
+# Before the fingerprint check: a passing run writes the fingerprint for this commit (download verify-fingerprint.json
+# and commit it), so the games below may run on a commit whose mirror was stale; a failing one leaves it stale.
 mapfile -t vargs < <(python3 -c 'import json,sys; [print(a) for a in (json.load(open(sys.argv[1])).get("verify") or [])]' "$job/job.json")
 if (( ${#vargs[@]} )); then
   status "running: verify.py"
@@ -77,6 +78,10 @@ if (( ${#vargs[@]} )); then
     && echo "verify: ok" || echo "verify: FAILED (see verify.log)"
   cp packages/delove-gpu/engine-fingerprint.json "$job/verify-fingerprint.json" 2>/dev/null
 fi
+$py packages/delove-gpu/delove_gpu/fingerprint.py check || {
+  tar -czf "$job/out.tar.gz" -C "$job" setup.log env.json verify.log verify-fingerprint.json 2>/dev/null
+  fail "the GPU mirror is not verified for this commit's engine"
+}
 
 # ---- the odds tables, once (not uploaded: 240 MB, about two minutes here): lanes sharing a pod would otherwise all build
 # them at the same time in the same _cache/, and older commits' odds.py shared its temporary file names (a lane crashed)
@@ -99,6 +104,7 @@ rm -rf "$job/models"  # the private models leave the pod as soon as the games ar
 status packing
 files=(lanes setup.log env.json)
 [[ -f $job/verify.log ]] && files+=(verify.log)
+[[ -f $job/verify-fingerprint.json ]] && files+=(verify-fingerprint.json)
 if command -v pigz >/dev/null; then
   tar -cf - -C "$job" "${files[@]}" | pigz -1 > "$job/out.tar.gz.tmp"
 else

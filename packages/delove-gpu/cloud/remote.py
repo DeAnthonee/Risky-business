@@ -400,6 +400,10 @@ def run(args, gen_args: list[str]):
 
     torch_version = args.torch or md.version("torch")
     model_files = needed_models(units, gen_args, Path(args.models))
+    if args.verify:  # verify.py's CPU side plays the ranker's ONNX export (and the GPU side its .pt)
+        va = shlex.split(args.verify)
+        vr = va[va.index("--ranker") + 1] if "--ranker" in va else "delove@2"
+        model_files += [Path(args.models) / f"{vr}{ext}" for ext in (".onnx", ".pt") if Path(args.models, f"{vr}{ext}") not in model_files]
     # The hard limit: every pod is terminated when the cap's share of wall time is spent, whatever the plan said.
     timeout_s = args.max_gpu_hours * 3600 / (len(pods_used) * args.gpus)
     deadline_s = int(timeout_s + 900)

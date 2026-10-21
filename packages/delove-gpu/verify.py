@@ -15,8 +15,10 @@ or a StaleMirror error) says the engine changed:
    with --models (a folder with delove-teacher@N.json and the ranker's .pt and .onnx), also the GPU teachers
    (tests/teacher_replay.py: the logged pick at every step of the newest Sensei and of Jacob Sensei, jacob-sensei@1),
    branch and score at branch.ts's defaults and at the cycle settings, with Sensei and with Jacob as the rollout
-   teacher, and with the points and kills scores at four seats (tests/branch_replay.py against the CPU's
-   DELOVE_BRANCH_TRACE: options, exact mean scores, picks), the training-array writer (tests/export_check.py: bit for
+   teacher, with the points and kills scores at four seats, and with the ranker playing the rollouts
+   (DELOVE_BRANCH_ROLLOUT: every seat at two seats, the decider's seat at four) (tests/branch_replay.py against the
+   CPU's DELOVE_BRANCH_TRACE: options, exact mean scores, picks; rollout copies decided by a network near-tie
+   reported apart), the training-array writer (tests/export_check.py: bit for
    bit against export) and the kernel's Math.log1p (tests/log1p_check.py);
 4. only if everything matches, writes engine-fingerprint.json (hashes of the engine files the mirror copies, and
    what was replayed). Commit it with the mirror changes.
@@ -127,6 +129,13 @@ def main() -> int:
             extra_env[name] = {"DELOVE_BRANCH_RANKER": args.ranker, "DELOVE_BRANCH_TRACE": str(out / f"trace-{name}.jsonl"),
                                "DELOVE_BRANCH_TEACHER": rt, **({"DELOVE_BRANCH_HORIZON": h, "DELOVE_BRANCH_MARGIN": mg} if h else {}),
                                **({"DELOVE_BRANCH_SCORE": score} if score else {})}
+        # network rollouts (DELOVE_BRANCH_ROLLOUT, the ranker playing them): every seat at two seats, the decider's at
+        # four (Jacob in the others); slower on the CPU (one ONNX call per rollout move), so fewer games
+        for name, seats, n_seats in [("branch-netroll", "", 1), ("branch-netself", ":self", 3)]:
+            logs[name] = (",".join(["delove-branch@1"] + [JACOB] * n_seats), max(6, nb // 4))
+            extra_env[name] = {"DELOVE_BRANCH_RANKER": args.ranker, "DELOVE_BRANCH_TRACE": str(out / f"trace-{name}.jsonl"),
+                               "DELOVE_BRANCH_TEACHER": JACOB, "DELOVE_BRANCH_HORIZON": "1", "DELOVE_BRANCH_MARGIN": "0.01",
+                               "DELOVE_BRANCH_ROLLOUT": args.ranker + seats}
     if args.model:
         model = Path(args.model).resolve()
         net_agent = model.stem  # delove@N, as net-agent.ts registers models/delove/<id>.onnx
@@ -207,7 +216,9 @@ def main() -> int:
         for name, extra, rt in [("branch-default", [], teacher_id), ("branch-cycle", ["--horizon", "1", "--margin", "0.01"], teacher_id),
                                 ("branch-jacob", ["--horizon", "1", "--margin", "0.01"], JACOB),
                                 ("branch-points", ["--horizon", "1", "--margin", "0.01", "--score", "points"], teacher_id),
-                                ("branch-kills", ["--horizon", "1", "--margin", "0.01", "--score", "kills"], teacher_id)]:
+                                ("branch-kills", ["--horizon", "1", "--margin", "0.01", "--score", "kills"], teacher_id),
+                                ("branch-netroll", ["--horizon", "1", "--margin", "0.01", "--rollout", args.ranker], JACOB),
+                                ("branch-netself", ["--horizon", "1", "--margin", "0.01", "--rollout", args.ranker + ":self"], JACOB)]:
             jobs.append(("branch", [str(tests / "branch_replay.py"), str(out / name), "--trace", str(out / f"trace-{name}.jsonl"), "--models",
                                     str(models), "--ranker", args.ranker, "--teacher", rt, *extra],
                          r"(\d+) games, (\d+) branch-player decisions .*means identical on \d+, different on 0;", 2))

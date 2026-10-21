@@ -567,6 +567,29 @@ same `margin` lets rollout noise change more moves, and it pays for pulling leve
 for growing. The kill credit alone makes no measurable difference. **Cycle 7 should keep the share score.** Kills and
 placements are already in the value target (cycle 5, points), which is where the leaderboard reaches the network.
 
+### Range scores vs the share score (`--score range`): first measurement
+
+Head to head on the GPU (`scripts/score_compare.py h2h-jobs --variants share,range --net delove@6 --other
+jacob-sensei@1`; ranker `delove@6`, Jacob Sensei rollouts, horizon 1, margin 0.01, seed 7; RunPod RTX 4090,
+2026-10-21): a `delove-branch@1:range` and a `delove-branch@1:share` seat at the same table, rotated round it in every
+order (at 2 players a duel between them; at 3 the third seat `delove@6`; at 6 the field `delove@6` and one Jacob
+Sensei). Games start from the deal, so a 3-player game is Mid Range's objective until a player falls, then Close
+Range's; a 6-player game is Long Range's until 3 are left. Leaderboard points per game (placement + kills), 95%
+intervals, paired by game; 2,228 games:
+
+| table | games | metric that decides it | range | share | range − share (95%) | also |
+| --- | --- | --- | --- | --- | --- | --- |
+| 2 players (Close: P(win), 12 × 2 search) | 800 | win share | 0.507 | 0.491 | +0.016 (points +0.05 ± 0.21) | Classic 0.515, World 0.500: even |
+| 3 players (Mid: P(top 2) + threat) | 900 | top 2 | 0.716 | 0.672 | **+0.043 ± 0.051** | Classic **+0.109 ± 0.072**, World −0.022 ± 0.072; fewer wins (0.323 vs 0.400), so points −0.20 ± 0.19 |
+| 6 players (Long: share + 2 × kills) | 528 | points | +2.63 | +2.17 | **+0.46 ± 0.58** | World **+0.99 ± 0.83**, Classic −0.08 ± 0.79; kills 1.81 vs 1.53 per game |
+
+So each range score moves its own metric in the intended direction, with a significant result on one map per range
+for Mid and Long. The duel search is even: 12 copies of 2 rounds did not beat 6 of 1 at 2 players. Mid trades wins
+for second places, which is its objective (the Mid Range stage decides on top 2, not points). Turn-limit games: 0.1%
+to 0.2%. These are teacher-vs-teacher numbers; whether a specialist trained on these labels beats `delove@6` on its
+stage is the next cycle's gate (`npm run delove:stages`). The per-game results stay on the training PC.
+Pod spend for the verification and both runs: about $3.60.
+
 Speed work has two guards. `scripts/golden.mjs record|check <file>` replays ~60 seeded games across maps, player
 counts, settings and players (teachers, `risky@1`, the network, the branch player) and fails if any logged decision,
 its features or a result changes: record before touching the engine, self-play or Delove code, check after.

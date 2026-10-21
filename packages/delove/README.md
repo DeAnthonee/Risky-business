@@ -683,10 +683,10 @@ mean points per seat for the candidate and the opponent, their difference with a
 gate's chunks), the candidate's mean place and kills per seat, and the games that hit the turn limit. Since cycle 5
 promotions are judged mainly on the points difference at 4-10 players (`docs/delove-status.md` section 3).
 
-**Gates: paired statistics and SPRT** (`scripts/sprt.mjs`, #PR). Every ladder match is played in mirrored pairs (same
+**Gates: paired statistics and SPRT** (`scripts/sprt.mjs`, #160). Every ladder match is played in mirrored pairs (same
 seed, seats swapped), and each result now lists every pair's points difference per seat (`pairPointsDiff`, from
 `runMatch` and `delove_gpu.ladder` alike). The summary's second table uses them:
-- Each gate's paired 95% interval: one unit per pair rather than per 20-game chunk. Gate files from before #PR fall
+- Each gate's paired 95% interval: one unit per pair rather than per 20-game chunk. Gate files from before #160 fall
   back to chunks, marked "(chunks)".
 - A sequential probability ratio test on the owner's promotion rule, the way Stockfish's fishtest decides patches.
   The statistic is the pooled points difference at 4-10 players against the first gate's opponent, each table weighted

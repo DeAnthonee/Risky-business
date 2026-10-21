@@ -59,6 +59,10 @@ DELOVE_BRANCH_RANKER=delove@6 DELOVE_BRANCH_TEACHER=jacob-sensei@1 DELOVE_BRANCH
 Every strong game AI searches when it plays (AlphaGo, Pluribus, Cicero); in Delove's own cycles the branch player
 wins several times its seat share at the big tables where the network it trains still trails Jacob Sensei. It
 thinks for longer per move (rollouts on the CPU), which matters little at tables with language-model seats.
+Measured on the CPU ladder (#142; ranker delove@6, Jacob rollouts, 5 options, mirrored seeds): against the bare
+delove@6, **+2.07 points per seat at World 6p** (95% +1.77 to +2.38; score 0.858), **+1.43 at Classic 4p** (+0.95 to
++1.91; 0.740), even at Classic 2p (0.490, -0.06 points); against Jacob Sensei at World 6p +1.81 (+1.53 to +2.09; 0.830),
+where the bare network scores -0.75. About 65 s per World 6-player game for the whole table.
 
 ### Generation 5 Testing & Environment Parity
 

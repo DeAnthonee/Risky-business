@@ -123,6 +123,10 @@ gen_args() {
   [[ -n ${DELOVE_BRANCH_MARGIN:-} ]] && args+=(--margin "$DELOVE_BRANCH_MARGIN")
   [[ -n ${DELOVE_BRANCH_SKIP+x} ]] && args+=(--skip "$DELOVE_BRANCH_SKIP")
   [[ -n ${DELOVE_BRANCH_SCORE:-} ]] && args+=(--score "$DELOVE_BRANCH_SCORE")
+  [[ -n ${DELOVE_BRANCH_KILL_WEIGHT:-} ]] && args+=(--kill-weight "$DELOVE_BRANCH_KILL_WEIGHT")
+  [[ -n ${DELOVE_BRANCH_THREAT:-} ]] && args+=(--threat "$DELOVE_BRANCH_THREAT")
+  [[ -n ${DELOVE_BRANCH_CLOSE_ROLLOUTS:-} ]] && args+=(--close-rollouts "$DELOVE_BRANCH_CLOSE_ROLLOUTS")
+  [[ -n ${DELOVE_BRANCH_CLOSE_HORIZON:-} ]] && args+=(--close-horizon "$DELOVE_BRANCH_CLOSE_HORIZON")
   if [[ -n ${DELOVE_BRANCH_VALUE:-} && ${DELOVE_BRANCH_VALUE} != 0 ]]; then
     echo "GPU steps: DELOVE_BRANCH_VALUE is not mirrored on the GPU"; return 1
   fi

@@ -27,7 +27,7 @@ import numpy as np
 import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from delove_gpu.branch import BranchEngine, GpuBranch, default_branch, net_ranker  # noqa: E402
+from delove_gpu.branch import SCORES, BranchEngine, GpuBranch, default_branch, net_ranker  # noqa: E402
 from delove_gpu.config import GameConfig  # noqa: E402
 from delove_gpu.encode import Encoder  # noqa: E402
 from delove_gpu.engine import KIND_NAMES  # noqa: E402
@@ -168,7 +168,7 @@ def main():
     ap.add_argument("--rollouts", type=int, default=d.rollouts)
     ap.add_argument("--horizon", type=int, default=d.horizon)
     ap.add_argument("--margin", type=float, default=d.margin)
-    ap.add_argument("--score", default=d.score, choices=["share", "points", "kills"], help="as DELOVE_BRANCH_SCORE for the log")
+    ap.add_argument("--score", default=d.score, choices=SCORES, help="as DELOVE_BRANCH_SCORE for the log")
     ap.add_argument("--batch", type=int, default=400)
     ap.add_argument("--games", type=int, default=0)
     args = ap.parse_args()

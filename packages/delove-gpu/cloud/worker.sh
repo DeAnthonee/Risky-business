@@ -70,9 +70,10 @@ print(json.dumps({"torch": torch.__version__, "cuda": torch.version.cuda, "gpus"
                   "capability": "".join(map(str, torch.cuda.get_device_capability()))}))
 EOF
 cat "$job/env.json"
-$py packages/delove-gpu/delove_gpu/fingerprint.py check || fail "the GPU mirror is not verified for this commit's engine"
-
-# ---- verify.py (once per new GPU type, when asked) -------------------------------------------------------------------
+# ---- verify.py (once per new GPU type, or to verify a changed mirror, when asked) ---------------------------------------
+# It runs before the fingerprint check, so a commit whose mirror changed can be verified here: verify.py rewrites
+# engine-fingerprint.json only when everything matched (verify-fingerprint.json comes home to commit), and the check
+# below then passes for this run's games; a failed verify leaves the old fingerprint and the check stops the lanes.
 mapfile -t vargs < <(python3 -c 'import json,sys; [print(a) for a in (json.load(open(sys.argv[1])).get("verify") or [])]' "$job/job.json")
 if (( ${#vargs[@]} )); then
   status "running: verify.py"
@@ -80,6 +81,7 @@ if (( ${#vargs[@]} )); then
     && echo "verify: ok" || echo "verify: FAILED (see verify.log)"
   cp packages/delove-gpu/engine-fingerprint.json "$job/verify-fingerprint.json" 2>/dev/null
 fi
+$py packages/delove-gpu/delove_gpu/fingerprint.py check || fail "the GPU mirror is not verified for this commit's engine"
 
 # ---- the odds tables, once (not uploaded: 240 MB, about two minutes here): lanes sharing a pod would otherwise all build
 # them at the same time in the same _cache/, and older commits' odds.py shared its temporary file names (a lane crashed)
@@ -120,5 +122,6 @@ pack() {  # pack <members...>: JOB/out.tar.gz, and with a volume the full archiv
 status packing
 files=(lanes setup.log env.json)
 [[ -f $job/verify.log ]] && files+=(verify.log)
+[[ -f $job/verify-fingerprint.json ]] && files+=(verify-fingerprint.json)
 pack "${files[@]}" || fail "pack"
 status done

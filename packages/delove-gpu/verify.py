@@ -15,7 +15,7 @@ or a StaleMirror error) says the engine changed:
    with --models (a folder with delove-teacher@N.json and the ranker's .pt and .onnx), also the GPU teachers
    (tests/teacher_replay.py: the logged pick at every step of the newest Sensei and of Jacob Sensei, jacob-sensei@1),
    branch and score at branch.ts's defaults and at the cycle settings, with Sensei and with Jacob as the rollout
-   teacher, and with the points and kills scores at four seats (tests/branch_replay.py against the CPU's
+   teacher, and with the points, kills and range scores at four seats (tests/branch_replay.py against the CPU's
    DELOVE_BRANCH_TRACE: options, exact mean scores, picks), the training-array writer (tests/export_check.py: bit for
    bit against export) and the kernel's Math.log1p (tests/log1p_check.py);
 4. only if everything matches, writes engine-fingerprint.json (hashes of the engine files the mirror copies, and
@@ -120,9 +120,10 @@ def main() -> int:
         nb = max(20, g // 5)
         for name, h, mg, rt in [("branch-default", None, None, teacher_id), ("branch-cycle", "1", "0.01", teacher_id),
                                 ("branch-jacob", "1", "0.01", JACOB), ("branch-points", "1", "0.01", teacher_id),
-                                ("branch-kills", "1", "0.01", teacher_id)]:
-            # branch-points / branch-kills: DELOVE_BRANCH_SCORE at four seats, where places and kills count
-            score = name.split("-")[1] if name in ("branch-points", "branch-kills") else None
+                                ("branch-kills", "1", "0.01", teacher_id), ("branch-range", "1", "0.01", JACOB)]:
+            # branch-points / branch-kills / branch-range: DELOVE_BRANCH_SCORE at four seats, where places and kills count
+            # (range: long at 4 alive, then mid and close as players fall)
+            score = name.split("-")[1] if name in ("branch-points", "branch-kills", "branch-range") else None
             logs[name] = (",".join(["delove-branch@1"] + [rt] * (3 if score else 1)), nb)
             extra_env[name] = {"DELOVE_BRANCH_RANKER": args.ranker, "DELOVE_BRANCH_TRACE": str(out / f"trace-{name}.jsonl"),
                                "DELOVE_BRANCH_TEACHER": rt, **({"DELOVE_BRANCH_HORIZON": h, "DELOVE_BRANCH_MARGIN": mg} if h else {}),
@@ -207,7 +208,8 @@ def main() -> int:
         for name, extra, rt in [("branch-default", [], teacher_id), ("branch-cycle", ["--horizon", "1", "--margin", "0.01"], teacher_id),
                                 ("branch-jacob", ["--horizon", "1", "--margin", "0.01"], JACOB),
                                 ("branch-points", ["--horizon", "1", "--margin", "0.01", "--score", "points"], teacher_id),
-                                ("branch-kills", ["--horizon", "1", "--margin", "0.01", "--score", "kills"], teacher_id)]:
+                                ("branch-kills", ["--horizon", "1", "--margin", "0.01", "--score", "kills"], teacher_id),
+                                ("branch-range", ["--horizon", "1", "--margin", "0.01", "--score", "range"], JACOB)]:
             jobs.append(("branch", [str(tests / "branch_replay.py"), str(out / name), "--trace", str(out / f"trace-{name}.jsonl"), "--models",
                                     str(models), "--ranker", args.ranker, "--teacher", rt, *extra],
                          r"(\d+) games, (\d+) branch-player decisions .*means identical on \d+, different on 0;", 2))

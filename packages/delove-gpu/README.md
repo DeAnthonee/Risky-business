@@ -201,10 +201,18 @@ at a table (`delove-teacher@N`, `jacob-sensei@N`, any mix) plays its own version
   `--score points` (branch.ts `pointsScore`, `DELOVE_BRANCH_SCORE=points`) scores the copies by leaderboard points
   instead: every alive player's share score, the expected place from the pairwise gaps, the placement points table and
   `KILL_POINTS` read from the built engine (as `outcome.py` does), kills from the kernel's record of who eliminated
-  whom; `--score kills` is the share score plus that kill credit; same doubles in the same order. `generate.py` also
-  takes GPU-only seats `delove-branch@1:share` / `:points` / `:kills` (one branch player per score at the same table,
-  each with its own rollout copies) for comparing scores head to head (`scripts/score_compare.py`; results in
-  packages/delove/README.md).
+  whom; `--score kills` is the share score plus that kill credit; same doubles in the same order. The range scores
+  (packages/delove/README.md, "Each its own teacher") are kernel modes too: `long` (share + `--kill-weight` × kill
+  credit), `mid` (P(top 2) from the pairwise gaps mixed with the threat deflection, `threat_deflection`: the strongest
+  rival's border armies over `NBR` / `DEG`); `close` is the share score with `--close-rollouts` × `--close-horizon`;
+  `range` picks one per decision by players alive, so `GpuBranch.decide` splits a batch of decisions into up to three
+  groups (score, rollouts, horizon), each run through `k_branch_sim` in chunks that fit the copy pool (a 12-copy
+  `close` group takes twice the copies, so it runs in chunks rather than growing the pool; batch sizes are unchanged).
+  The seeds are drawn per decision as before (`k_branch_prep` with each decision's own count). `generate.py` also
+  takes seats `delove-branch@1:<score>` (any score; one branch player per score at the same table, each with its own
+  rollout copies; register.ts registers the same ids on the CPU) for a jobs line with its own score or for comparing
+  scores head to head (`scripts/score_compare.py h2h-jobs`, now with 2- and 3-seat tables, `--net` / `--other` for
+  the field and a top-2 column; results in packages/delove/README.md).
 - **Training arrays** (`generate.py` Recorder, `npy.py`): export.ts's files and `features.json`, with the feature names
   and versions read from the built self-play package. The encoder computes in float64 and rounds to float32 once, as
   encode.ts stores doubles into a Float32Array, so the arrays are bit-identical to `export`'s. One extra array, not in

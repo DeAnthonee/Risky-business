@@ -2,7 +2,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { registerAgent } from '@risk/selfplay';
-import { branchAgent, branchStats, DEFAULT_BRANCH, writeBranchStats, type BranchOptions } from './branch.js';
+import { BRANCH_SCORES, branchAgent, branchStats, DEFAULT_BRANCH, writeBranchStats, type BranchOptions } from './branch.js';
 import { discoverNetAgents, modelsDir, NetScorer } from './net-agent.js';
 import { DEFAULT_JACOB_PARAMS, jacob, JACOB_SENSEI_1_PARAMS, jacobPickWith, makeJacob, type JacobParams } from './jacob.js';
 import { DEFAULT_TEACHER_PARAMS, makeTeacher, teacher, teacherPickWith, type TeacherParams } from './teacher.js';
@@ -44,16 +44,17 @@ if (existsSync(dir)) {
  * newest tuned Sensei; a Jacob Sensei id such as jacob-sensei@1 also works), DELOVE_BRANCH_RANKER the network that proposes alternatives (default delove@2);
  * DELOVE_BRANCH_OPTIONS / _ROLLOUTS / _HORIZON / _MARGIN override the search size, DELOVE_BRANCH_VALUE (0-1) blends
  * the ranker's win chance into branch scores, DELOVE_BRANCH_SCORE=points scores rollouts by leaderboard points
- * (placement + kills, branch.ts pointsScore) instead of the share score (=kills: the share score plus a kill credit),
- * DELOVE_BRANCH_SKIP (comma-separated
+ * (placement + kills, branch.ts pointsScore) instead of the share score (=kills: the share score plus a kill credit;
+ * =long / mid / close / range: the range specialists' objectives, branch.ts; DELOVE_BRANCH_KILL_WEIGHT,
+ * _THREAT, _CLOSE_ROLLOUTS and _CLOSE_HORIZON tune them), DELOVE_BRANCH_SKIP (comma-separated
  * decision kinds, e.g. occupy,trade) the kinds it plays without branching. With DELOVE_BRANCH_STATS=<dir> each process
  * writes what branching did to <dir>/stats-<pid>-<random>.json when it exits (the random part because Windows reuses
  * process ids, and a later process would overwrite an earlier one's stats).
  */
 function branchScore(v: string | undefined): BranchOptions['score'] {
   if (v === undefined || v === '') return DEFAULT_BRANCH.score;
-  if (v !== 'share' && v !== 'points' && v !== 'kills') throw new Error(`DELOVE_BRANCH_SCORE must be share, points or kills, not ${v}`);
-  return v;
+  if (!(BRANCH_SCORES as readonly string[]).includes(v)) throw new Error(`DELOVE_BRANCH_SCORE must be one of ${BRANCH_SCORES.join(', ')}, not ${v}`);
+  return v as BranchOptions['score'];
 }
 
 {
@@ -66,8 +67,7 @@ function branchScore(v: string | undefined): BranchOptions['score'] {
   const valuePath = rankerPath.slice(0, -'.onnx'.length) + '.value.onnx';
   const valuer = existsSync(rankerPath) && existsSync(valuePath) ? new NetScorer(rankerPath, valuePath) : null;
   const env = (k: string, d: number) => (process.env[k] === undefined ? d : Number(process.env[k]));
-  registerAgent(
-    branchAgent('delove-branch@1', rolloutPick, ranker, {
+  const settings: BranchOptions = {
       ...DEFAULT_BRANCH,
       options: env('DELOVE_BRANCH_OPTIONS', DEFAULT_BRANCH.options),
       rollouts: env('DELOVE_BRANCH_ROLLOUTS', DEFAULT_BRANCH.rollouts),
@@ -76,10 +76,17 @@ function branchScore(v: string | undefined): BranchOptions['score'] {
       skip: process.env.DELOVE_BRANCH_SKIP === undefined ? DEFAULT_BRANCH.skip : process.env.DELOVE_BRANCH_SKIP.split(',').filter(Boolean),
       valueWeight: env('DELOVE_BRANCH_VALUE', DEFAULT_BRANCH.valueWeight),
       score: branchScore(process.env.DELOVE_BRANCH_SCORE),
+      killWeight: env('DELOVE_BRANCH_KILL_WEIGHT', DEFAULT_BRANCH.killWeight),
+      threat: env('DELOVE_BRANCH_THREAT', DEFAULT_BRANCH.threat),
+      closeRollouts: env('DELOVE_BRANCH_CLOSE_ROLLOUTS', DEFAULT_BRANCH.closeRollouts),
+      closeHorizon: env('DELOVE_BRANCH_CLOSE_HORIZON', DEFAULT_BRANCH.closeHorizon),
       // DELOVE_STRENGTH=<file>: the strength meter's fitted share weights (python/fit_strength.py) for branch scores.
       weights: process.env.DELOVE_STRENGTH ? JSON.parse(readFileSync(process.env.DELOVE_STRENGTH, 'utf8')).weights : DEFAULT_BRANCH.weights,
-    }, valuer),
-  );
+  };
+  registerAgent(branchAgent('delove-branch@1', rolloutPick, ranker, settings, valuer));
+  // delove-branch@1:<score>: the same player with that branch score, so one table (a jobs line) can seat a score of
+  // its own, or several side by side (delove_gpu.generate takes the same ids)
+  for (const score of BRANCH_SCORES) registerAgent(branchAgent(`delove-branch@1:${score}`, rolloutPick, ranker, { ...settings, score }, valuer));
   const statsDir = process.env.DELOVE_BRANCH_STATS;
   if (statsDir) process.on('exit', () => void (branchStats.decisions > 0 && writeBranchStats(join(statsDir, `stats-${process.pid}-${randomUUID().slice(0, 8)}.json`))));
 }

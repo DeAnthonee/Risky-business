@@ -114,6 +114,17 @@ def branch_suite(scale: float) -> list[tuple]:
         ("br-classic-4p-kills-branch", "classic", 4, f"{BR},{T2},{NETP},{T1}", g(100), {}),
         ("br-world-6p-kills-branch", "world", 6, seats(6, BR, T2, NETP), g(30), {}),
         ("br-greater_europe-10p-kills-branch", "greater_europe", 10, seats(10, BR, T2, T1, NETP), g(12), {}),
+        # the range scores (DELOVE_BRANCH_SCORE=range: long at 4+ alive, mid at 3 with the threat deflection, close at 2
+        # with closeRollouts x closeHorizon), and each fixed range score
+        ("br-classic-2p-range-branch", "classic", 2, f"{BR},{T2}", g(100), {}),
+        ("br-skirmish-3p-range-branch", "skirmish", 3, f"{BR},{T2},{NETP}", g(100), {}),
+        ("br-classic-4p-range-branch", "classic", 4, f"{BR},{T2},{NETP},{T1}", g(100), {}),
+        ("br-world-6p-range-branch", "world", 6, seats(6, BR, T2, NETP), g(30), {}),
+        ("br-greater_europe-10p-range-branch", "greater_europe", 10, seats(10, BR, T2, T1, NETP), g(12), {}),
+        ("br-europe-5p-range-settings-branch", "europe", 5, seats(5, BR, T2, NETP), g(30), {"capitals": True, "neutrals": 6, "blizzards": 4}),
+        ("br-skirmish-3p-mid-settings-branch", "skirmish", 3, f"{BR},{T2},{NETP}", g(100), {"neutrals": 3, "fortifyMode": "adjacent"}),
+        ("br-classic-4p-long-branch", "classic", 4, f"{BR},{T2},{NETP},{T1}", g(100), {}),
+        ("br-skirmish-2p-close-branch", "skirmish", 2, f"{BR},{NETP}", g(100), {}),
     ]
 
 
@@ -178,8 +189,9 @@ def resolve_options(m: str, o: dict) -> dict:
 
 
 def branch_score(name: str) -> str | None:
-    """DELOVE_BRANCH_SCORE for a case named ...-points-... or ...-kills-... (None: the default)."""
-    return next((sc for sc in ("points", "kills") if f"-{sc}-" in name), None)
+    """DELOVE_BRANCH_SCORE for a case named ...-points-..., ...-kills-..., ...-range-... (or -long-, -mid-, -close-);
+    None: the default."""
+    return next((sc for sc in ("points", "kills", "range", "long", "mid", "close") if f"-{sc}-" in name), None)
 
 
 def rollout_teacher(name: str) -> str:

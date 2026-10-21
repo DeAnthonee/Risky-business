@@ -29,7 +29,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from .branch import SCORE_PARTS, BranchEngine, GpuBranch, cpu_order, default_branch, first_max, net_ranker
+from .branch import SCORE_PARTS, SCORES, BranchEngine, GpuBranch, cpu_order, default_branch, first_max, net_ranker
 from .config import GameConfig
 from .encode import Encoder
 from .engine import FINISHED, KIND_NAMES
@@ -44,11 +44,12 @@ BRANCH_ID = "delove-branch@1"
 
 
 def branch_score(agent: str) -> str | None:
-    """For a branch seat: None for delove-branch@1 (the run's --score), the score for a GPU-only comparison seat
-    `delove-branch@1:share` / `:points` / `:kills` (several kinds can sit at one table); not a branch seat: raises."""
+    """For a branch seat: None for delove-branch@1 (the run's --score), the score for a seat with its own score
+    `delove-branch@1:<score>` (any of SCORES, e.g. `:range` on one jobs line, or `:share` and `:points` side by side at
+    one table; register.ts registers the same ids on the CPU); not a branch seat: raises."""
     if agent == BRANCH_ID:
         return None
-    if agent.startswith(BRANCH_ID + ":") and agent.split(":", 1)[1] in ("share", "points", "kills"):
+    if agent.startswith(BRANCH_ID + ":") and agent.split(":", 1)[1] in SCORES:
         return agent.split(":", 1)[1]
     raise ValueError(agent)
 
@@ -393,7 +394,7 @@ class Group:
             return
         L = self.e.L
         nopt = (d.options[d.branched] >= 0).sum(1)
-        s["simulations"] += int(nopt.sum()) * self.r.bcfg.rollouts
+        s["simulations"] += int((nopt * d.rollouts[d.branched]).sum())
         s["simulatedMoves"] += d.moves
         s["changed"] += int(d.changed.sum())
         m = d.means[d.branched]
@@ -523,7 +524,12 @@ def main():
     ap.add_argument("--horizon", type=int, default=d.horizon)
     ap.add_argument("--margin", type=float, default=d.margin)
     ap.add_argument("--skip", default=",".join(d.skip))
-    ap.add_argument("--score", default=d.score, choices=["share", "points", "kills"], help="branch score (DELOVE_BRANCH_SCORE)")
+    ap.add_argument("--score", default=d.score, choices=SCORES, help="branch score (DELOVE_BRANCH_SCORE); a seat"
+                    " delove-branch@1:<score> keeps its own")
+    ap.add_argument("--kill-weight", type=float, default=d.kill_weight, help="score long: kill credit weight (DELOVE_BRANCH_KILL_WEIGHT)")
+    ap.add_argument("--threat", type=float, default=d.threat, help="score mid: threat deflection weight (DELOVE_BRANCH_THREAT)")
+    ap.add_argument("--close-rollouts", type=int, default=d.close_rollouts, help="score close: rollouts (DELOVE_BRANCH_CLOSE_ROLLOUTS)")
+    ap.add_argument("--close-horizon", type=int, default=d.close_horizon, help="score close: horizon (DELOVE_BRANCH_CLOSE_HORIZON)")
     ap.add_argument("--batch", type=int, default=0, help="games in flight per configuration (0: sized to --gpu-gb)")
     ap.add_argument("--gpu-gb", type=float, default=3.0, help="GPU memory for game states when sizing batches (networks come on top)")
     ap.add_argument("--out", help="write training arrays here (export's format, one folder per map)")
@@ -548,12 +554,15 @@ def main():
     cfg.options, cfg.rollouts, cfg.horizon, cfg.margin = args.options, args.rollouts, args.horizon, args.margin
     cfg.skip = [k for k in args.skip.split(",") if k]
     cfg.score = args.score
+    cfg.kill_weight, cfg.threat, cfg.close_rollouts, cfg.close_horizon = args.kill_weight, args.threat, args.close_rollouts, args.close_horizon
     run = Run(tables, args.seed, models, args.ranker, teacher, cfg, args.export_agents.split(","), Path(args.out) if args.out else None,
               args.max_turns, args.precision, "cuda", args.allow_unverified)
     res = run.run(args.batch or None, args.gpu_gb * 2**30)
     res["tables"] = table_summary(run.results)
     res["config"] = {"seed": args.seed, "ranker": args.ranker, "teacher": teacher, "options": cfg.options, "rollouts": cfg.rollouts,
-                     "horizon": cfg.horizon, "margin": cfg.margin, "skip": cfg.skip, "score": cfg.score, "weights": cfg.weights, "batch": args.batch,
+                     "horizon": cfg.horizon, "margin": cfg.margin, "skip": cfg.skip, "score": cfg.score,
+                     "killWeight": cfg.kill_weight, "threat": cfg.threat, "closeRollouts": cfg.close_rollouts, "closeHorizon": cfg.close_horizon,
+                     "weights": cfg.weights, "batch": args.batch,
                      "precision": args.precision}
     text = json.dumps(res, indent=2)
     print(text)

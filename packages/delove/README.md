@@ -168,6 +168,25 @@ Library names (the private models repo, next to `delove@N`) are `delove-long-ran
   --amp --branch-weights 0.5,1,2`. Checks: `python packages/delove/python/test_targets.py`. Cycle 7's script takes
   `RANGE_OBJECTIVES=1` (with `PREFIX`, `ROUTER`, `BASE`) to retrain its trio on its own games with these objectives,
   a direct A/B against cycle 7 with no new games.
+- **Each its own teacher** (range scores in branch and score, `src/branch.ts`): the range objectives above only
+  reweight the same labels, which moved about 3% of top moves. So the branch player that makes the labels can now
+  score its rollouts by each range's objective (`DELOVE_BRANCH_SCORE` / `delove_gpu.generate --score`):
+
+  | score | used at | a rollout's end position is worth |
+  | --- | --- | --- |
+  | `long` | 4+ alive | the share score plus `killWeight` (2) × the kill credit (`KILL_POINTS` per knock-out over the placement spread) |
+  | `mid` | 3 alive | 0.7 × P(top 2) + 0.3 × threat deflection (`threat`). P(top 2) = 1 − P(both rivals finish above), each rival's chance read off the share-score gap as `points` does; the deflection is `targets.py`'s threat credit, measured on the rollout's end board. A rival out: 1; the decider out: 0 |
+  | `close` | 2 alive | the share score (in a duel, the decider's share of the board), searched deeper: `closeRollouts` (12) copies of `closeHorizon` (2) rounds instead of 6 × 1 |
+  | `range` | any | per decision by players alive: `long` / `mid` / `close` |
+
+  **Per job:** a seat `delove-branch@1:<score>` (any score above, or `share` / `points` / `kills`) keeps its own score
+  on the CPU (`register.ts`) and the GPU (`generate.py`), so a stage jobs file (#137's `mid.jobs` / `close.jobs`) can
+  seat `delove-branch@1:range` while other tables keep the run's `--score`. Export those seats by their id
+  (`--export-agents` / `--only-agents delove-branch@1:range`, cycle.sh `export_agents`). A whole run takes
+  `--score range` (or `DELOVE_BRANCH_SCORE=range` for cycle.sh). Knobs: `DELOVE_BRANCH_KILL_WEIGHT`, `_THREAT`,
+  `_CLOSE_ROLLOUTS`, `_CLOSE_HORIZON` (`--kill-weight`, `--threat`, `--close-rollouts`, `--close-horizon` on the GPU).
+  The default stays `share`, so earlier cycles and the golden lock are unchanged. Results: below, "Range scores vs
+  the share score".
 - **Playing them as one player:** `models/delove/delove-range@N.json` holds the routes,
   `{"close": "delove-close-range@1", "mid": "delove-mid-range@1", "long": "delove-long-range@1"}`. The loader then registers
   `delove-range@N`, which plays each decision with the network for the players still alive (`rangeOf`), each network's

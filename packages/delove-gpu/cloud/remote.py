@@ -338,6 +338,17 @@ def needed_models(units: list[Unit], gen_args: list[str], models: Path) -> list[
     return files
 
 
+def verify_models(vargs: list[str], models: Path, have: list[Path]) -> list[Path]:
+    """What `verify.py --models` reads besides the tables' files: its ranker's .pt and .onnx (Node ranks with the
+    ONNX) and the matrix suites' network seat, delove@3 (tests/matrix.py NETP), both as .pt and .onnx."""
+    ranker = vargs[vargs.index("--ranker") + 1] if "--ranker" in vargs else "delove@2"
+    files = [models / f"{a}{ext}" for a in dict.fromkeys([ranker, "delove@3"]) for ext in (".pt", ".onnx")]
+    missing = [str(f) for f in files if not f.exists()]
+    if missing:
+        raise SystemExit(f"missing model files for --verify: {missing}")
+    return [f for f in files if f not in have]
+
+
 def lane_script(lane: Lane, gen_args: list[str]) -> str:
     lines = ["#!/usr/bin/env bash", "set -uo pipefail", f"export CUDA_VISIBLE_DEVICES={lane.gpu}"]
     for step in dict.fromkeys(u.step for u in lane.units):
@@ -433,7 +444,7 @@ def collect(work: Path, slot: Slot, tar: Path, volume_tar: str | None = None):
     extract(tar, tmp)
     dest = work / f"pod-{slot.k}"
     dest.mkdir(parents=True, exist_ok=True)
-    for f in ("env.json", "setup.log", "verify.log"):
+    for f in ("env.json", "setup.log", "verify.log", "verify-fingerprint.json"):
         if (tmp / f).exists():
             shutil.copyfile(tmp / f, dest / f)
     for d in sorted((tmp / "lanes").glob("*/*")):
@@ -473,6 +484,8 @@ def run(args, gen_args: list[str]):
 
     torch_version = args.torch or md.version("torch")
     model_files = needed_models(units, gen_args, Path(args.models))
+    if args.verify:
+        model_files += verify_models(shlex.split(args.verify), Path(args.models), model_files)
     vol = volume_info(args.volume) if args.volume else None
     home = "small" if vol and not args.home_copy else "full"
     vtar = (lambda p: f"incoming/{args.name}/{p.name}.tar.gz") if vol else (lambda p: None)

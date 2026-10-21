@@ -160,7 +160,11 @@ Library names (the private models repo, next to `delove@N`) are `delove-long-ran
   `top2` reads `placement.npy` (written by `delove_gpu.generate` since this change, with `kills.npy`; `export.ts`
   does not write it yet, as that file is in the GPU fingerprint). Older exports estimate a loser's place as the
   players alive at its seat's last recorded decision (see `targets.py`; `train.py` prints which datasets estimate).
-  Example: `train.py --range mid --data <pool...> --init <best>.pt --out .../cN-mid --epochs 1.5 --batch 512 --lr 2e-4
+  **Which `--init`:** a specialist line improves on itself. The first of each line starts from the base
+  (`--init delove@6.pt`); every later one starts from the current best of its own line
+  (`--init delove-mid-range@N.pt`), never from a newer base (docs/delove-status.md section 3, "Each specialist is
+  its own line"). The data is the newest shared pool.
+  Example: `train.py --range mid --data <pool...> --init delove-mid-range@N.pt --out .../cN-mid --epochs 1.5 --batch 512 --lr 2e-4
   --amp --branch-weights 0.5,1,2`. Checks: `python packages/delove/python/test_targets.py`. Cycle 7's script takes
   `RANGE_OBJECTIVES=1` (with `PREFIX`, `ROUTER`, `BASE`) to retrain its trio on its own games with these objectives,
   a direct A/B against cycle 7 with no new games.

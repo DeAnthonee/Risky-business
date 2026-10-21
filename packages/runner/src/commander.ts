@@ -591,9 +591,22 @@ export function evaluateGoodNeighbor(
     !occupiesMyContinent &&
     !inThreeManEndgame;
 
-  const verdict = isBeneficial
-    ? `VIABLE GOOD NEIGHBOR (beneficial pact: ${reasons.join(', ')})`
-    : `POOR CANDIDATE (${reasons.join(', ')})`;
+  let verdict: string;
+  if (isBeneficial) {
+    verdict = `VIABLE GOOD NEIGHBOR (adjacent target bonuses: your ${myTargetCont?.name} and ${neighborName}'s ${theirTargetCont?.name} border each other - mutual pact recommended!)`;
+  } else if (inThreeManEndgame) {
+    verdict = `3-MAN ENDGAME (neutral borders cause stalemate - coordinate 2v1 attack instead)`;
+  } else if (bottleneckedIntoMe) {
+    verdict = `DANGEROUS TRAP (cul-de-sac: 100% of their exits touch you with nowhere else to go - do not propose!)`;
+  } else if (incomeDisparity >= 4) {
+    verdict = `DANGEROUS TRAP (severe bonus disparity: earns +${theirIncome} vs your +${myIncome} - do not propose!)`;
+  } else if (occupiesMyContinent) {
+    verdict = `CONTESTED CONTINENT (occupies territory inside your target continent ${myTargetCont?.name} - obstacle to conquer)`;
+  } else if (!targetBonusesAdjacent) {
+    verdict = `BORDER NEIGHBOR (observable target bonus ${theirTargetCont?.name ?? 'unknown'} is not currently adjacent to your ${myTargetCont?.name ?? 'bonus'} - eligible to propose, but they will only accept if pursuing an adjacent bonus)`;
+  } else {
+    verdict = `BORDER NEIGHBOR (${reasons.join(', ')})`;
+  }
 
   return {
     neighborId,
@@ -618,7 +631,7 @@ const SCHEMA = `{"winPath": "diplomacy"|"bonuses"|"cards"|"capitals"|"kills"|"ho
 
 /** Optional knobs the commander may add to its JSON; each line says what it does and the default. */
 const KNOBS = [
-  '- ping (object or null, e.g. {"type":"attack","target":"Tryndamere","to":"Lux"} or {"type":"alliance","to":"Ahri"} or {"type":"taunt","to":null} or {"type":"good_neighbor","to":"Leona"} or {"type":"agree","to":"Jinx"} or {"type":"decline","to":"Jinx"}): fast diplomatic ping. TYPES: "attack" (call a joint attack on a rival to break stalemates or gang up 2v1), "alliance" (propose an offensive or defensive partnership), "taunt" (psychological trash talk to mock stalled rivals, bait attacks, or express character persona), "good_neighbor" (neutral border with an adjacent border neighbor ONLY when both players want continent bonuses right next to each other — NEVER across non-adjacent bonuses or in a 3-man endgame), "camaraderie"/"anger" (emotes), "agree"/"decline" (reply to incoming proposal). RULES: (1) Maximum ONCE every 4 turns, UNLESS replying directly to an incoming proposal on your next turn. (2) NEVER decline or reply to taunts/emotes. (3) "Silence is a rejection": if an offer is ignored on the next turn, it expires. (4) Set ping to null if cooldown has not elapsed or no ping needed.',
+  '- ping (object or null, e.g. {"type":"attack","target":"Tryndamere","to":"Lux"} or {"type":"alliance","to":"Ahri"} or {"type":"taunt","to":null} or {"type":"good_neighbor","to":"Leona"} or {"type":"agree","to":"Jinx"} or {"type":"decline","to":"Jinx"}): fast diplomatic ping. TYPES: "attack" (call a joint attack on a rival to break stalemates or gang up 2v1), "alliance" (propose an offensive or defensive partnership), "taunt" (psychological trash talk to mock stalled rivals, bait attacks, or express character persona), "good_neighbor" (neutral border pact: propose to adjacent border neighbors next to you to secure your shared frontier. Recipients only accept if their target continental bonus borders yours), "camaraderie"/"anger" (emotes), "agree"/"decline" (reply to incoming proposal). RULES: (1) Maximum ONCE every 4 turns, UNLESS replying directly to an incoming proposal on your next turn. (2) NEVER decline or reply to taunts/emotes. (3) "Silence is a rejection": if an offer is ignored on the next turn, it expires. (4) Set ping to null if cooldown has not elapsed or no ping needed.',
   '- placeOn (territory id or array of territory ids, e.g. ["brazil"] or ["brazil", "egypt"]): explicitly choose which of your territories receive your reinforcement troops this turn. Deploying a single spearhead is ideal for breaking fortified borders, but multi-pronged drafting across 2-3 territories is recommended when an elimination target has spread holdings requiring simultaneous attacks in 2-3 directions. Leave out to let the tactical chooser fund your campaign/front automatically.',
   '- route (ordered array of territory ids, e.g. ["peru", "venezuela", "central_america"]): explicitly specify your attack/expansion path in order so your stack advances along that chain without splitting into dead-end pockets.',
   '- fortifyTo (territory id, e.g. "peru"): explicitly choose which of your territories to pull your stack back to during the end-of-turn fortify phase (for example, expanding out with your capital stack and then fortifying back onto your capital or choke point).',
@@ -1149,26 +1162,47 @@ export class Commander {
             const borderNeighbors = getBorderNeighbors(view, this.o.playerId);
             const nonTargetNeighbors = borderNeighbors.filter((n) => n.id !== p.target && n.name.toLowerCase() !== p.target?.toLowerCase());
 
-            const eligibleNeighbor = nonTargetNeighbors.find((n) => {
+            const candidateNeighbors = nonTargetNeighbors.filter((n) => {
               const lastTo = this.lastPingToRecipient.get(n.name.toLowerCase()) ?? -999;
-              const evalRes = evaluateGoodNeighbor(view, this.o.playerId, n.id, p.focus);
-              return this.ownTurns - lastTo >= 4 && !this.activeGoodNeighbors.has(n.name.toLowerCase()) && evalRes.isBeneficial;
+              return this.ownTurns - lastTo >= 4 && !this.activeGoodNeighbors.has(n.name.toLowerCase());
             });
+
+            // Priority 1: A neighbor whose target bonus is adjacent and safe
+            let eligibleNeighbor = candidateNeighbors.find((n) => {
+              const evalRes = evaluateGoodNeighbor(view, this.o.playerId, n.id, p.focus);
+              return evalRes.isBeneficial;
+            });
+
+            // Priority 2: Any safe border neighbor next to us (not cul-de-sac trap or runaway giant)
+            if (!eligibleNeighbor) {
+              eligibleNeighbor = candidateNeighbors.find((n) => {
+                const evalRes = evaluateGoodNeighbor(view, this.o.playerId, n.id, p.focus);
+                return !evalRes.bottleneckedIntoMe && evalRes.incomeDisparity < 4 && !evalRes.occupiesMyContinent;
+              });
+            }
+
+            // Priority 3: Any border neighbor who is not a cul-de-sac bottlenecked into us
+            if (!eligibleNeighbor) {
+              eligibleNeighbor = candidateNeighbors.find((n) => {
+                const evalRes = evaluateGoodNeighbor(view, this.o.playerId, n.id, p.focus);
+                return !evalRes.bottleneckedIntoMe;
+              });
+            }
 
             const roll = Math.random();
             // Roll distribution:
-            // 0.00 - 0.35 (35%): Good Neighbor proposal if an eligible border neighbor exists
-            // 0.35 - 0.65 (30%): Joint attack call if target exists
-            // 0.65 - 0.85 (20%): Alliance proposal to a non-target LLM
+            // 0.00 - 0.40 (40%): Good Neighbor proposal if an eligible border neighbor exists
+            // 0.40 - 0.70 (30%): Joint attack call if target exists
+            // 0.70 - 0.85 (15%): Alliance proposal to a non-target LLM
             // 0.85 - 0.95 (10%): Taunt (rare, only 10% or 15% if aggressive persona)
             // 0.95 - 1.00 (5%): Camaraderie
             // Default: silence (p.ping remains null)
-            if (eligibleNeighbor && this.activeGoodNeighbors.size < 1 && roll < 0.35) {
+            if (eligibleNeighbor && this.activeGoodNeighbors.size < 1 && roll < 0.40) {
               p.ping = {
                 type: 'good_neighbor',
                 to: eligibleNeighbor.name,
               };
-            } else if (p.target && roll < 0.65) {
+            } else if (p.target && roll < 0.70) {
               const targetPlayer = view.players.find((x) => x.name.toLowerCase() === p.target!.toLowerCase() || x.id === p.target);
               if (targetPlayer) {
                 const ally = otherLLMs.find((x) => {
@@ -1199,7 +1233,7 @@ export class Commander {
                 const lastTo = this.lastPingToRecipient.get(x.name.toLowerCase()) ?? -999;
                 return this.ownTurns - lastTo >= 4;
               });
-              if (rival && Math.random() < 0.5) {
+              if (rival && Math.random() < 0.3) {
                 p.ping = {
                   type: 'taunt',
                   to: rival.name,
@@ -1338,7 +1372,7 @@ export class Commander {
       '- DEFENSIVE ELIMINATION & BORDER CONSOLIDATION: Eliminating an adjacent wounded rival holding cards collapses awkward frontiers into fewer bottleneck doorways — an offensive kill that yields superior defense.',
       '- GEOGRAPHY & VIABILITY: Secure small, compact 1-2 choke continents early; never sprawl thin across multi-border continents on turns 1-3. Turtle and consolidate defense once bonus is held and card is earned.',
       '- 3-PLAYER ENDGAME & STALEMATE BREAKTHROUGH: In a 3-player endgame (or when stalemated), DO NOT play Good Neighbor with everyone! Turtling in a 3-way lock results in paralysis. You MUST coordinate a 2v1: pick the runaway leader (or the most vulnerable bounty) and ping the other rival with ⚔️ [attack: Target] or 🛡️ [alliance] to take them down together, or broadcast 😈 [taunt] to provoke action! Good Neighbor is ONLY for 4+ players when divergent routes exist away from each other.',
-      '- ADJACENT TARGET BONUSES & GOOD NEIGHBOR POLICY: A "good_neighbor" pact (🏡 [good neighbor]) is ONLY valid when both players are pursuing continental bonuses right next to each other! (1) Adjacent Target Bonuses: only ally with a neighbor if your target bonus continent and their target bonus continent directly border each other on the map (e.g. North America and South America, or Europe and Africa). You should only be pursuing one bonus at a time. NEVER make Good Neighbors with someone whose bonus is far away or on the other side of the map! (2) Never ally over the same bonus: if you both want the same continent, they are an obstacle to conquer, not a partner. (3) Parity: only ally with rivals relatively equal in strength and bonus income. (4) Divergent Routes: ensure both players can expand outward in opposite directions away from each other. (5) Low Player Count: NEVER use good_neighbor when <= 3 players remain!',
+      '- ADJACENT TARGET BONUSES & GOOD NEIGHBOR POLICY: Propose 🏡 [good neighbor] to adjacent border neighbors next to you to secure your frontier so both can expand in opposite directions. (1) ACCEPTANCE CRITERIA: When evaluating an incoming proposal, you must ONLY accept if both your target continent bonus and their target continent bonus directly border each other on the map (e.g. North America and South America, or Europe and Africa). If they are pursuing a bonus far away, or contesting your exact same bonus, DENY it (silence is a rejection). (2) REQUESTING: You may propose 🏡 [good neighbor] to any adjacent border neighbor without knowing their target bonus in advance; if their bonus is not adjacent, they will simply deny it. (3) 3-MAN ENDGAME: NEVER play good neighbor when <= 3 players remain — coordinate 2v1 attacks instead!',
       '- winPlan: one sentence: how you actually win from here.',
       `- hopeless: only if you see zero ways to win. Then set target to the player you like least (lowest rapport in your relationships text and the chat) and the bot goes all-in on them, ignoring garrisons. Never choose it just because you are behind.`,
       '- plan: your plan for this turn and the next few, one or two sentences (what to take, hold, break, who to hit).',
@@ -1379,7 +1413,7 @@ export class Commander {
         ? [
             'Recent diplomatic pings from other LLMs (unverified, silence is a no):',
             ...recentPings.slice(-6),
-            'PING PROTOCOL: (1) Maximum ONCE every 4 turns, UNLESS replying directly to an incoming proposal on next turn. (2) Use full ping variety: call joint attacks (⚔️ [attack: Target]) to break stalemates, propose alliances (🛡️ [alliance]), trash-talk stalled rivals with taunts (😈 [taunt]), or propose neutral borders (🏡 [good neighbor]). (3) IN A 3-PLAYER ENDGAME / STALEMATE: NEVER play good neighbor with everyone! Gang up 2v1 on the leader or weakest rival using ⚔️ [attack: Target] and 🛡️ [alliance], or broadcast 😈 [taunt] to break the deadlock! (4) NEVER decline or reply to taunts, camaraderie, or anger emotes — ignore them! (5) Silence is a rejection: if an offer was ignored, wait 4+ turns before proposing again. (6) Use "ping": null if cooldown has not elapsed or no reply needed.',
+            'PING PROTOCOL: (1) Maximum ONCE every 4 turns, UNLESS replying directly to an incoming proposal on next turn. (2) Use full ping variety: propose neutral borders (🏡 [good neighbor]) with adjacent border neighbors to secure frontiers, call joint attacks (⚔️ [attack: Target]) to break stalemates, propose alliances (🛡️ [alliance]), or trash-talk stalled rivals with rare taunts (😈 [taunt]). (3) IN A 3-PLAYER ENDGAME / STALEMATE: NEVER play good neighbor with everyone! Gang up 2v1 on the leader or weakest rival using ⚔️ [attack: Target] and 🛡️ [alliance], or broadcast 😈 [taunt] to break the deadlock! (4) NEVER decline or reply to taunts, camaraderie, or anger emotes — ignore them! (5) Silence is a rejection: if an offer was ignored, wait 4+ turns before proposing again. (6) Use "ping": null if cooldown has not elapsed or no reply needed.',
             '',
           ]
         : []),

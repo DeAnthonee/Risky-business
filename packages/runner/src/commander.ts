@@ -404,7 +404,8 @@ export function evaluateGoodNeighbor(view: GameView, meId: PlayerId, neighborId:
   for (const c of map.continents) {
     const myCount = c.territories.filter((t) => view.territories[t]?.owner === meId).length;
     const theirCount = c.territories.filter((t) => view.territories[t]?.owner === neighborId).length;
-    if (myCount >= Math.ceil(c.territories.length * 0.5) && theirCount > 0) {
+    // Only consider them an obstacle if we already hold almost the entire continent (missing 1 territory) and they hold that piece
+    if (c.territories.length >= 3 && myCount >= c.territories.length - 1 && theirCount > 0) {
       occupiesMyContinent = true;
       break;
     }
@@ -953,12 +954,12 @@ export class Commander {
         // Priority 2: If no reply is pending, check if the 4-turn cooldown has elapsed before initiating an unsolicited ping
         if (!p.ping && this.ownTurns - this.lastPingOwnTurn >= 4) {
           const livingPlayers = view.players.filter((x) => x.alive && !x.isNeutral);
-          const isStalemateOr3Man = livingPlayers.length <= 3 || this.getStall() >= 1;
+          const isStalemateOr3Man = livingPlayers.length <= 3 || this.getStall() >= 4;
           const isAggressive = /shaco|draven|jinx|tryndamere|zed|kled|aatrox|gangplank|sett/i.test(this.o.seatName);
 
           if (isStalemateOr3Man) {
-            // In 3-man endgame or stalemate: NEVER play good neighbor with everyone!
-            // Team up 2v1 on the leader or target, or taunt to break the stalemate!
+            // In 3-man endgame or severe stalemate: NEVER play good neighbor with everyone!
+            // Team up 2v1 on the leader or target, or occasionally taunt to break the stalemate!
             const targetPlayer = p.target
               ? view.players.find((x) => x.id === p.target || x.name.toLowerCase() === p.target?.toLowerCase())
               : otherLLMs.slice().sort((a, b) => (b.armyCount ?? 0) - (a.armyCount ?? 0))[0];
@@ -966,15 +967,15 @@ export class Commander {
             const partnerLLM = otherLLMs.find((x) => x.id !== targetPlayer?.id && x.name.toLowerCase() !== targetPlayer?.name.toLowerCase());
 
             const roll = Math.random();
-            if (targetPlayer && partnerLLM && roll < 0.45) {
-              // 45% Call for joint attack on target!
+            if (targetPlayer && partnerLLM && roll < 0.50) {
+              // 50% Call for joint attack on target!
               p.ping = {
                 type: 'attack',
                 target: targetPlayer.name,
                 to: partnerLLM.name,
               };
-            } else if (partnerLLM && roll < 0.75) {
-              // 30% Alliance proposal to partner
+            } else if (partnerLLM && roll < 0.85) {
+              // 35% Alliance proposal to partner
               const lastTo = this.lastPingToRecipient.get(partnerLLM.name.toLowerCase()) ?? -999;
               if (this.ownTurns - lastTo >= 4) {
                 p.ping = {
@@ -982,15 +983,15 @@ export class Commander {
                   to: partnerLLM.name,
                 };
               }
-            } else {
-              // 25% Taunt to mock rivals and stir action!
+            } else if (targetPlayer && roll < 0.95) {
+              // 10% Taunt to mock the target
               p.ping = {
                 type: 'taunt',
-                to: targetPlayer ? targetPlayer.name : null,
+                to: targetPlayer.name,
               };
             }
           } else {
-            // 4+ players alive: balanced palette across all ping types
+            // 4+ players alive: balanced diplomacy, silence by default
             const borderNeighbors = getBorderNeighbors(view, this.o.playerId);
             const nonTargetNeighbors = borderNeighbors.filter((n) => n.id !== p.target && n.name.toLowerCase() !== p.target?.toLowerCase());
 
@@ -1001,13 +1002,19 @@ export class Commander {
             });
 
             const roll = Math.random();
-            // Balanced distribution:
-            // 30%: Joint attack call if target exists
-            // 25%: Good neighbor (if eligible neighbor exists and activeGoodNeighbors < 1)
-            // 20%: Alliance proposal
-            // 15%: Taunt (or 30% if aggressive persona)
-            // 10%: Camaraderie
-            if (p.target && roll < 0.30) {
+            // Roll distribution:
+            // 0.00 - 0.35 (35%): Good Neighbor proposal if an eligible border neighbor exists
+            // 0.35 - 0.65 (30%): Joint attack call if target exists
+            // 0.65 - 0.85 (20%): Alliance proposal to a non-target LLM
+            // 0.85 - 0.95 (10%): Taunt (rare, only 10% or 15% if aggressive persona)
+            // 0.95 - 1.00 (5%): Camaraderie
+            // Default: silence (p.ping remains null)
+            if (eligibleNeighbor && this.activeGoodNeighbors.size < 1 && roll < 0.35) {
+              p.ping = {
+                type: 'good_neighbor',
+                to: eligibleNeighbor.name,
+              };
+            } else if (p.target && roll < 0.65) {
               const targetPlayer = view.players.find((x) => x.name.toLowerCase() === p.target!.toLowerCase() || x.id === p.target);
               if (targetPlayer) {
                 const ally = otherLLMs.find((x) => {
@@ -1021,12 +1028,7 @@ export class Commander {
                   to: ally ? ally.name : null,
                 };
               }
-            } else if (eligibleNeighbor && this.activeGoodNeighbors.size < 1 && roll < 0.55) {
-              p.ping = {
-                type: 'good_neighbor',
-                to: eligibleNeighbor.name,
-              };
-            } else if (otherLLMs.length > 0 && roll < 0.75) {
+            } else if (otherLLMs.length > 0 && roll < 0.85) {
               const ally = otherLLMs.find((x) => {
                 const lastTo = this.lastPingToRecipient.get(x.name.toLowerCase()) ?? -999;
                 return x.id !== p.target && this.ownTurns - lastTo >= 4;
@@ -1037,16 +1039,19 @@ export class Commander {
                   to: ally.name,
                 };
               }
-            } else if (isAggressive || roll < 0.90) {
+            } else if (roll < (isAggressive ? 0.95 : 0.90)) {
+              // Rare taunt (only 10%, or 15% for aggressive persona)
               const rival = otherLLMs.find((x) => {
                 const lastTo = this.lastPingToRecipient.get(x.name.toLowerCase()) ?? -999;
                 return this.ownTurns - lastTo >= 4;
               });
-              p.ping = {
-                type: 'taunt',
-                to: rival ? rival.name : null,
-              };
-            } else {
+              if (rival && Math.random() < 0.5) {
+                p.ping = {
+                  type: 'taunt',
+                  to: rival.name,
+                };
+              }
+            } else if (roll < 0.98) {
               p.ping = {
                 type: 'camaraderie',
                 to: null,

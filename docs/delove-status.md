@@ -6,7 +6,7 @@ next. The plan of record is `docs/delove.md`; the per-cycle tables are in `packa
 things is in `packages/delove/README.md` and `packages/delove-gpu/README.md`. Keep this file current: update it in
 the same PR as any change to the plan, the best model or the way training runs.
 
-Last updated: 2026-10-20 (current best: `delove@6`; range specialist yardstick and library names added).
+Last updated: 2026-10-21 (current best: `delove@7`, cycle 10; range specialists even, not promoted).
 
 ---
 

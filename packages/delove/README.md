@@ -27,11 +27,24 @@ uses). It doesn't chat and has no character: it waits for its turn, rebuilds the
 move like in self-play and sends it.
 
 ```bash
-# join a game someone created (the host starts it); one seat per version
-npm run delove-seat -- --server https://risky.deanthoneeking.com --join ABC123 --agents delove@3,delove-teacher@2
+# join a game someone created (the host starts it): Delove with search at play time, the default
+npm run delove-seat -- --server https://risky.deanthoneeking.com --join ABC123
+# one seat per version: the bare network (no search) and a teacher
+npm run delove-seat -- --server https://risky.deanthoneeking.com --join ABC123 --agents delove@8,delove-teacher@2
 # or create one: Delove hosts, adds 2 built-in bots and starts; watch it at <server>/?game=<code>
-npm run delove-seat -- --server http://localhost:8080 --create --agents delove@1,delove-teacher@1 --bots 2
+npm run delove-seat -- --server http://localhost:8080 --create --bots 2
 ```
+
+**The default seat searches at play time** (`--agents delove-branch`, seat name "Delove Search"): branch and score
+(`src/branch.ts`) with the newest base network in the models folder (`delove@N.onnx`, highest N) ranking the moves,
+Jacob Sensei 2 playing the rollouts, 5 options per decision and the range score (each stage's goal by players alive:
+points at 4+, top 2 at 3, the win at 2). It prints its settings when it sits down. Any `DELOVE_BRANCH_*` variable
+overrides one setting (`DELOVE_BRANCH_SCORE=share` goes back to the share score, `DELOVE_BRANCH_RANKER=delove@6` pins a
+network; `liveBranchEnv` in `src/branch-env.ts`); self-play and cycle runs keep `branchFromEnv`'s own defaults. The
+bare network is its own id (`--agents delove@8`). Time per decision with delove@8, measured on the training PC's CPU
+(2026-10-21, capitals and 8 blizzards, the other seats Jacob Sensei 2): Classic 6 players 0.17 s mean, 0.35 s at the
+90th percentile, 1.0 s at most, a whole turn 3.8 s mean, 16 s at most; World 10 players 0.56 s mean, 1.2 s p90, 1.7 s
+at most, a turn 9.9 s mean, 47 s at most. The server has no turn timer, so this only sets the pace spectators see.
 
 `--pace 400` (ms between moves, so spectators can follow), `--names "A,B"`, `--options '{"capitals":true}'`,
 `--no-start`. Fog of war games are refused for now: Delove was trained on the full board.

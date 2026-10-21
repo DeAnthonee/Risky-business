@@ -3,7 +3,7 @@ import { parseArgs } from 'node:util';
 import type { GameOptions } from '@risk/engine';
 import { HttpRiskApi } from '@risk/mcp';
 import type { Agent } from '@risk/selfplay';
-import { branchFromEnv } from './branch-env.js';
+import { branchFromEnv, liveBranchEnv } from './branch-env.js';
 import { discoverNetAgents } from './net-agent.js';
 import { defaultName, discoverTunedTeachers, playSeat } from './seat.js';
 import { jacob, jacob2 } from './jacob.js';
@@ -11,18 +11,22 @@ import { teacher } from './teacher.js';
 
 const USAGE = `delove-seat: seat Delove players in a real game over the HTTP API (no chat, no character)
 
-  npm run delove-seat -- --join CODE [--agents delove@1,delove-teacher@1]
-  npm run delove-seat -- --create [--agents delove@1,delove-teacher@1] [--bots 2] [--options '{"map":"classic"}'] [--no-start]
+  npm run delove-seat -- --join CODE [--agents delove-branch,delove@8]
+  npm run delove-seat -- --create [--agents delove-branch,delove-teacher@1] [--bots 2] [--options '{"map":"classic"}'] [--no-start]
 
   --server URL     game server (default RISK_SERVER_URL or http://localhost:8080)
-  --agents IDS     Delove versions, one seat each (default delove@1): delove-teacher@1, every tuned
+  --agents IDS     Delove versions, one seat each (default delove-branch: Delove with search at
+                   play time, below): delove-teacher@1, every tuned
                    teacher models/delove/delove-teacher@N.json and every models/delove/delove@N.onnx
                    (or DELOVE_MODELS); sensei, sensei@1 and sensei@2 name the teachers;
                    jacob-sensei@1 (or jacob) is Jacob Sensei, jacob-sensei@2 (or jacob2) Jacob
                    Sensei 2; delove-branch@1 (or delove-branch) is Delove with
-                   search at play time (branch and score), set up by the DELOVE_BRANCH_* variables, e.g.
-                   DELOVE_BRANCH_RANKER=delove@6 DELOVE_BRANCH_TEACHER=jacob-sensei@1 DELOVE_BRANCH_OPTIONS=5
-                   DELOVE_BRANCH_HORIZON=1 DELOVE_BRANCH_MARGIN=0.01 (packages/delove/README.md)
+                   search at play time (branch and score): by default the newest delove@N ranks the
+                   moves, Jacob Sensei 2 plays the rollouts, 5 options are tried per decision and
+                   rollouts are scored by the range score (each stage's goal by players alive); any
+                   DELOVE_BRANCH_* variable overrides that, e.g. DELOVE_BRANCH_SCORE=share
+                   DELOVE_BRANCH_RANKER=delove@6 DELOVE_BRANCH_OPTIONS=3 (packages/delove/README.md).
+                   The bare network (no search) is its own id: --agents delove@8
   --names NAMES    seat names, same order (default "Delove 1", "Sensei 1", "Sensei 2", ...)
   --join CODE      join a game someone created; the host starts it
   --create         create a game (the first seat hosts), add --bots built-in bots, start it (unless --no-start)
@@ -65,10 +69,12 @@ async function main() {
       return entries;
     }),
   );
-  const ids = (values.agents ?? 'delove@1').split(',').map((s) => s.trim()).filter(Boolean);
+  const ids = (values.agents ?? 'delove-branch').split(',').map((s) => s.trim()).filter(Boolean);
   // Branch and score loads its ranker network, so it is only built when a seat asks for it.
   if (ids.some((id) => id === 'delove-branch' || id === 'delove-branch@1')) {
-    const branch = branchFromEnv();
+    const env = liveBranchEnv();
+    const branch = branchFromEnv(undefined, env);
+    console.log(`delove-branch: ranker ${env.DELOVE_BRANCH_RANKER ?? 'none'}, rollouts by ${env.DELOVE_BRANCH_TEACHER}, ${env.DELOVE_BRANCH_OPTIONS} options per decision, ${env.DELOVE_BRANCH_SCORE} score`);
     known.set(branch.id, branch).set('delove-branch', branch);
   }
   const agents = ids.map((id) => known.get(id) ?? fail(`unknown Delove version "${id}" (known: ${[...known.keys()].join(', ')})`));

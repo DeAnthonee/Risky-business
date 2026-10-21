@@ -118,3 +118,32 @@ export function branchFromEnv(dir = modelsDir(), env: NodeJS.ProcessEnv = proces
 export function branchSeatsFromEnv(dir = modelsDir(), env: NodeJS.ProcessEnv = process.env): Agent[] {
   return [branchFromEnv(dir, env), ...BRANCH_SCORES.map((score) => branchFromEnv(dir, env, score))];
 }
+
+/** The newest base network in the models folder (delove@N.onnx with the highest N), or null when there is none. */
+export function newestBaseModel(dir = modelsDir()): string | null {
+  if (!existsSync(dir)) return null;
+  const versions = readdirSync(dir).map((f) => /^delove@(\d+)\.onnx$/.exec(f)).filter((m) => m !== null).map((m) => Number(m![1]));
+  return versions.length ? `delove@${Math.max(...versions)}` : null;
+}
+
+/**
+ * The live seat's search, unless DELOVE_BRANCH_* says otherwise: Jacob Sensei 2 rollouts, 5 options per decision and
+ * the range score (each stage's goal by players alive: points at 4+, top 2 at 3, the win at 2; branch.ts).
+ */
+export const LIVE_BRANCH_DEFAULTS = { teacher: 'jacob-sensei@2', options: 5, score: 'range' } as const;
+
+/**
+ * The environment for the live seat's search (seat-cli.ts): DELOVE_BRANCH_RANKER defaults to the newest base network
+ * (newestBaseModel), DELOVE_BRANCH_TEACHER to Jacob Sensei 2, DELOVE_BRANCH_OPTIONS to 5 and DELOVE_BRANCH_SCORE to
+ * range (DELOVE_BRANCH_SCORE=share switches back to the share score). A variable already set wins. Self-play (register.ts) keeps branchFromEnv's own defaults, so training runs don't change.
+ */
+export function liveBranchEnv(dir = modelsDir(), env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const ranker = env.DELOVE_BRANCH_RANKER ?? newestBaseModel(dir) ?? undefined;
+  return {
+    ...env,
+    ...(ranker ? { DELOVE_BRANCH_RANKER: ranker } : {}),
+    DELOVE_BRANCH_TEACHER: env.DELOVE_BRANCH_TEACHER ?? LIVE_BRANCH_DEFAULTS.teacher,
+    DELOVE_BRANCH_OPTIONS: env.DELOVE_BRANCH_OPTIONS ?? String(LIVE_BRANCH_DEFAULTS.options),
+    DELOVE_BRANCH_SCORE: env.DELOVE_BRANCH_SCORE ?? LIVE_BRANCH_DEFAULTS.score,
+  };
+}

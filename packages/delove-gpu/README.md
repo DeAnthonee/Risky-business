@@ -49,7 +49,7 @@ turn + T capitals: 256 moves on Four Crowns, 474 on Classic, 1,326 on Greater Eu
 | `delove_gpu/rng.py` | the engine's mulberry32 as a counter-based generator on tensors, one stream per game |
 | `delove_gpu/engine.py` | `State` (the tensors of B games of one configuration) and the rules as batched tensor operations for Classic 2-player: the readable reference (`exact=False`: faster sampling, below) |
 | `delove_gpu/fused.py` | the rules of any configuration with one CUDA thread per game (NVRTC, one compile per configuration, binary cached in `_cache/`) |
-| `delove_gpu/teacher.py` | the hand-coded teachers inside the kernel: Sensei (`packages/delove/src/teacher.ts`, `delove-teacher@N`) and Jacob Sensei (`packages/delove/src/jacob.ts`, `jacob-sensei@N`), any tuned numbers, several versions at one table |
+| `delove_gpu/teacher.py` | the hand-coded teachers inside the kernel: Sensei (`packages/delove/src/teacher.ts`, `delove-teacher@N`) and Jacob Sensei (`packages/delove/src/jacob.ts`, `jacob-sensei@N`, staged versions with duel numbers such as `jacob-sensei@2`), any tuned numbers, several versions at one table |
 | `delove_gpu/odds.py` | the blitz odds of `packages/engine/src/odds.ts` as exact double-precision tables for the teacher (both defence-dice limits, balanced blitz, every stack size) |
 | `delove_gpu/branch.py` | branch and score (`packages/delove/src/branch.ts`): options, common-random-number rollouts, scores, pick |
 | `delove_gpu/generate.py` | plays whole cycle steps (any mix of configurations; branch, teacher and network seats) and writes `export`'s training arrays directly |
@@ -305,6 +305,29 @@ Proof (2026-10-20, 0 mismatches; logs under `<training PC>\Risky-business-stage2
 | `tests/matrix.py --suite jacob` (scale 0.5) | every map and table size, mixed tables, every setting, branch with Jacob rollouts (the table above) | 118 of 118 cases identical: 3,213,258 teacher picks, 25,124 of 25,125 branch picks (1 ranker near-tie) |
 | `verify.py --models` | fresh logs: Jacob self-play, branch with Jacob rollouts, and the `jacob` suite at scale 0.1 next to the other suites | 4,563,002 steps identical on `engine.py`, `fused.py`, the teacher and branch; 500 Jacob self-play games (131,150 picks) and 100 branch games with Jacob rollouts (12,086 decisions, 6,309 branched, means identical); matrix rules 60/60, settings 120/120, branch 10/10, `jacob` 118/118 cases identical. Fingerprint written, `jacob.ts` in `RULE_FILES` |
 
+### Jacob Sensei 2 (`jacob-sensei@2`)
+
+`jacob-sensei@2` (`packages/delove/src/jacob.ts`, `packages/delove/README.md` "Jacob Sensei 2") adds eleven numbers to
+`JACOB_KEYS` (`killWin`, `killPath`, `killCarry`, `leaderPunch`, `borderDelta`, `dormantWake`, `holdEv`, `cardTight`,
+`duelDeny`, `duelEv`, `capitalPad`). Each term runs only where its number is above 0 (`borderDelta`: not 0), exactly as
+`jacob.ts` guards it, so `jacob-sensei@1`'s row (all 0) and Sensei's rows take the same code paths and doubles as
+before. The terms read only what the kernel's `Board` already has (owners, armies, `nen`, `tcount`, `holder`, the
+target, the player stats, hands, capitals), with the same operations in the same order as the TypeScript.
+
+It is a staged version: once one rival is left it plays `JACOB_SENSEI_2_DUEL_PARAMS` instead of
+`JACOB_SENSEI_2_PARAMS`. So a row now has two halves of `NP0` numbers each (`NP = 2 x NP0`): the main numbers with a
+`staged` flag, then the duel numbers; `teacher_pick_g` counts the living rivals before `board_init` and reads the duel
+half when the flag is on and one is left. Versions that are not staged repeat their numbers in the duel half (never
+read). `agent_params("jacob-sensei@2")` reads both literals from `jacob.ts` (a `jacob-sensei@N.json`, N >= 3, may carry
+a `"duel"` object). `tests/matrix.py --suite jacob2` is the `jacob` suite with `jacob-sensei@2` in Jacob's seats (mixed
+with `jacob-sensei@1` at the mixed tables) and as the rollout teacher (`j2b-*`); `verify.py --models` runs it with the
+other suites.
+
+Proof (2026-10-21, `verify.py --models --ranker delove@3` on a cloud RTX 4090, the merged tree of #144): 5,403,954 steps
+identical on `engine.py`, `fused.py`, the teacher and branch; matrix rules 72/72, settings 120/120, branch 18/18, `jacob`
+128/128 and `jacob2` 128/128 cases identical; the stage check 234 games identical; `k_teacher_run` (with
+`jacob-sensei@2` in the fast seats) 370 of 370 `generate.py` games identical to CPU play + export. Fingerprint written.
+
 ### Speed of a cycle step
 
 Cycle 3's Classic 2-player step (`c3-classic2.jobs`: 6,000 games, branch player against `delove@2`, `c2-candidate` and
@@ -444,6 +467,9 @@ stage is a short tail (cycle 7 split the same games by players alive and the spe
 .venv/Scripts/python -m delove_gpu.generate ... --jobs ../delove/scripts/stage/close.jobs --seed 902 --out data/delove/stage-close
 # from game records (npm run selfplay -- positions writes the file): 2-alive positions, played by the branch player and Jacob
 .venv/Scripts/python -m delove_gpu.generate ... --table "rec2 2000 pos:data/positions.jsonl>delove-branch@1,jacob-sensei@1" --seed 903 --out data/delove/stage-rec
+# ratio scenarios (synthetic boards split 50/50 .. 70/30 at 2 alive, 34/33/33 .. 60/20/20 at 3), about 10,000 games a ratio
+.venv/Scripts/python -m delove_gpu.generate ... --jobs ../delove/scripts/stage/split-close.jobs --seed 904 --out data/delove/split-close
+.venv/Scripts/python -m delove_gpu.generate ... --jobs ../delove/scripts/stage/split-mid.jobs --seed 905 --out data/delove/split-mid
 ```
 
 - **A lead-in** (`A,...,F>X,Y,Z`): the lead-in seats play an ordinary game; `k_teacher_run` stops a game the moment
@@ -456,13 +482,41 @@ stage is a short tail (cycle 7 split the same games by players alive and the spe
   hands in order, deck and discard, turn order, phase, pending conquest, capitals, blizzards, eliminations and their
   order) and reseeds it as `startState` does. The positions of one file are grouped by configuration (map, seats,
   settings), each a table of its own (`NAME:MAP-Np` in the results); game i plays position i mod count. Positions tables play at home only
-  (`remote.py` refuses them: the file is not shipped to the pods); lead-in tables run on rented GPUs like any table.
+  (`remote.py` refuses them: the file is not shipped to the pods); lead-in and split tables run on rented GPUs like
+  any table.
+- **Ratio scenarios** (`split:60/40>X,Y`, the table size as `maxPlayers` in the options): synthetic boards where the
+  survivors hold the board in that split (packages/selfplay README, "Stage games"). Game i's position is drawn from
+  its seed by `packages/selfplay/src/scenario.ts` itself: `stage.SplitSource` asks the built self-play package for it
+  through node (one call per 512 queued games, prefetched) and `load_positions` plays it like a file's position, so
+  the CPU and the GPU start from the very same state and nothing is mirrored. No file is needed, so split tables run
+  on rented GPUs like lead-in tables (`remote.py` passes the `split:` token on). `--results` adds each game's
+  `split: {shares, survivors}` (the share of each seat, and the seat of share j). The jobs files
+  `scripts/stage/split-close.jobs` and `split-mid.jobs` (written by `split-jobs.mjs`) give each line its own START so
+  no two lines share seeds.
+  Measured at home (RTX 4060, shared, 2026-10-21; ranker `delove@6`, branch player vs `delove@6`): full-size
+  configurations play 117k (Classic 6p) / 62k (World 10p) 2-alive games an hour and 96k / 35k 3-alive ones; about
+  85 recorded decisions a game at 2 alive, 109 at 3 (a 3-alive game goes on to its 2-alive end, so `split-mid`
+  folders also hold 2-alive rows). `remote.py run` (dry run) prices both files, 90,000 games, at about $2.1 on 1
+  pod (2.3 h), $2.3 on 2 (78 min) or $2.8 on 4 (47 min). With Jacob Sensei in every seat (about 400 games a ratio):
+
+  | split | stage turns (median) | wins by share (the mover first) |
+  | --- | --- | --- |
+  | 50/50 | 8 | 0.63 / 0.37 |
+  | 60/40 · 40/60 | 6 · 7 | 0.92 / 0.08 · 0.27 / 0.73 |
+  | 70/30 · 30/70 | 2 · 3 | 0.98 / 0.02 · 0.14 / 0.86 |
+  | 34/33/33 | 16 | 0.35 / 0.45 / 0.20 (top 2: 0.73 / 0.78 / 0.50) |
+  | 50/25/25 (3 orders) | 12-14 | the 50: 0.42-0.69 |
+  | 40/40/20 (3 orders) | 15-16 | the 20: 0.16-0.25 |
+  | 60/20/20 (3 orders) | 8-13 | the 60: 0.52-0.82 |
+
+  70/30 is mostly settled on the mover's first turn (median 0 turns with the branch player): weight it lightly.
 - **The data** is the usual training arrays, with every decision from the stage (players alive = the stage or fewer);
   `train.py --alive 3-3` / `--alive 2-2` keep the specialist's range as before. The outcome (z, points) is the whole
   game's, at the table size the game started with.
 - **Proof** (`tests/stage_check.py`, part of `verify.py --models`): lead-ins by teachers and by network seats, league
   settings, an already-at-stage table and positions from bot-game records (`tests/stage_records.mjs`, fog on in some)
-  are played on the CPU (`play` + `export`) and on the GPU; every game must end the same way (winner, turns, the turn
+  and ratio scenarios (2 and 3 survivors on 6-10 seat tables, capitals, blizzards, card modes) are played on the CPU
+  (`play` + `export`) and on the GPU; every game must end the same way (winner, turns, the turn
   the stage began, who played each seat) and the two datasets must hold the same games bit for bit.
 
 ## Ladder gates on the GPU

@@ -6,7 +6,7 @@ import type { Agent } from '@risk/selfplay';
 import { branchFromEnv } from './branch-env.js';
 import { discoverNetAgents } from './net-agent.js';
 import { defaultName, discoverTunedTeachers, playSeat } from './seat.js';
-import { jacob } from './jacob.js';
+import { jacob, jacob2 } from './jacob.js';
 import { teacher } from './teacher.js';
 
 const USAGE = `delove-seat: seat Delove players in a real game over the HTTP API (no chat, no character)
@@ -18,7 +18,8 @@ const USAGE = `delove-seat: seat Delove players in a real game over the HTTP API
   --agents IDS     Delove versions, one seat each (default delove@1): delove-teacher@1, every tuned
                    teacher models/delove/delove-teacher@N.json and every models/delove/delove@N.onnx
                    (or DELOVE_MODELS); sensei, sensei@1 and sensei@2 name the teachers;
-                   jacob-sensei@1 (or jacob) is Jacob Sensei; delove-branch@1 (or delove-branch) is Delove with
+                   jacob-sensei@1 (or jacob) is Jacob Sensei, jacob-sensei@2 (or jacob2) Jacob
+                   Sensei 2; delove-branch@1 (or delove-branch) is Delove with
                    search at play time (branch and score), set up by the DELOVE_BRANCH_* variables, e.g.
                    DELOVE_BRANCH_RANKER=delove@6 DELOVE_BRANCH_TEACHER=jacob-sensei@1 DELOVE_BRANCH_OPTIONS=5
                    DELOVE_BRANCH_HORIZON=1 DELOVE_BRANCH_MARGIN=0.01 (packages/delove/README.md)
@@ -53,13 +54,14 @@ async function main() {
   if (!values.join === !values.create) fail('give exactly one of --join CODE or --create');
 
   const tuned = discoverTunedTeachers();
-  const allAgents = [teacher, ...tuned, jacob, ...discoverNetAgents()];
+  const allAgents = [teacher, ...tuned, jacob, jacob2, ...discoverNetAgents()];
   const known = new Map<string, Agent>(
     allAgents.flatMap((a) => {
       const entries: [string, Agent][] = [[a.id, a]];
       if (a.id === 'delove-teacher@1') entries.push(['sensei@1', a], ['sensei', a]);
       if (a.id === 'delove-teacher@2') entries.push(['sensei@2', a]);
       if (a.id === jacob.id) entries.push(['jacob', a]);
+      if (a.id === jacob2.id) entries.push(['jacob2', a]);
       return entries;
     }),
   );

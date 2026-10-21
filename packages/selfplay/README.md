@@ -38,6 +38,8 @@ npm run selfplay -- play --agents "jacob-sensei@1,jacob-sensei@1,jacob-sensei@1,
 npm run selfplay -- positions --records archive/games --out data/positions.jsonl --alive 3,2
 # play from the file's 2-alive moments: game i plays position i mod count with its own dice
 npm run selfplay -- play --agents "pos:data/positions.jsonl>X,Y" --games 1000 --seed 1 --log runs/stage-close
+# ratio scenarios: an 8-seat Europe table, 2 survivors holding the board 60/40, drawn from each game's seed
+npm run selfplay -- play --agents "split:60/40>X,Y" --options '{"map":"europe","maxPlayers":8}' --games 1000 --seed 1 --log runs/split
 ```
 
 - **Agents `LEAD>STAGE`.** The number of stage agents is the stage (3 or 2 players alive). The lead-in agents play an
@@ -55,6 +57,36 @@ npm run selfplay -- play --agents "pos:data/positions.jsonl>X,Y" --games 1000 --
   (`startState`) reseeds it: `rngState` = the game seed and the undrawn deck reshuffled with
   mulberry32(seed ^ 0x5bd1e995), as branch and score reseeds its copies, so one position gives many different games.
   A positions table takes no `--options` / `--map`: each position carries its own settings.
+- **Ratio scenarios** (`split:SHARES>STAGE`, `src/scenario.ts`): synthetic late-game boards drawn from the game seed
+  alone, a third source of stage games next to the lead-in and the positions file, so they need no file and run on
+  rented GPUs. `--agents 'split:60/40>X,Y' --options '{"maxPlayers":8,"map":"europe",...}'`: at an 8-seat table, 2
+  survivors (chosen at random) hold the board 60/40 and the other 6 seats are out (in a random order, each taken by a
+  survivor, bigger survivors more often). Shares are whole percentages adding up to 100, listed in turn order from the
+  player to move (60/40: the bigger side moves first; 40/60: the smaller); 3-way splits like `50/25/25` work the same.
+  `splitPosition` builds it with the engine (`node packages/delove/scripts/stage/measure-stages.mjs` re-measures
+  `STAGE_STATS`): a fresh deal of that table (turn order, deck, blizzards), then
+  - territories: one seed per survivor, spread out (each next one as far as possible from the others), then regions
+    grown from them, the survivor furthest below its target taking a neighbouring territory (compact choices first; a
+    boxed-in survivor takes a bordering one from the neighbour furthest over its share), so each holds one contiguous
+    region with fronts and whole continents (about 94% of survivors hold one region, 95% hold 96% or more of their
+    land in one piece);
+  - armies: a total drawn from real stage starts (`STAGE_STATS`: Jacob Sensei lead-ins at league settings, the median
+    armies per territory of that map and table size times a pooled spread), split by the shares **counting the
+    mover's reinforcements as its own**, so the split is the balance when its first attack comes (on the placed board
+    alone a 50/50 mover would hold about 59% by then: Jacob Sensei won 83-96% of such duels as the mover; counted
+    this way, 50-66%). Each territory keeps 1 and the rest goes in a few big stacks, mostly on the fronts (more where
+    more enemy territories touch, capitals doubled): heavy-tailed weights (`STACKING`) as lumpy as real stage boards
+    (biggest stack a median 26% of a survivor's armies, 68% of its territories at 1 army; real: 22%, 70%);
+  - each share on territories and on armies gets up to `SHARE_JITTER` (3) points of noise, so no two boards are
+    exactly 60/40;
+  - the turn (rounds played), card sets traded (shared out among the seats as `tradesMade`), hand sizes (the mover may
+    hold 5 and must trade) and the discard pile are drawn from the same measurements; with Capital Conquest each
+    survivor's seed is its capital and the fallen seats' capitals lie elsewhere on the board;
+  - the survivor before the mover ends its turn through the engine, so the mover starts a real turn (reinforcements,
+    a forced trade).
+  The position is played as a positions-file position (`startState`, the stage agents rotating by game index), so each
+  agent plays each share over a run. The summary adds `byShare` (wins and mean placement per share, whoever played it).
+  Mix ratio scenarios with real stage games rather than training on them alone: they are realistic, not real.
 
 ## Ladder (step 2)
 

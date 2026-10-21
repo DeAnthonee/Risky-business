@@ -9,7 +9,9 @@ agents, logged, then `export --only-agents delove-branch@1`) and on the GPU (gen
 
 Cases cover a lead-in by teachers (the fast kernel's stop at N players alive), a lead-in with network seats (the
 step-by-step path), settings (capitals, exponential cards, blizzards), and positions from game records
-(tests/stage_records.mjs writes them; `positions` extracts the 3- and 2-alive moments; fog switched off).
+(tests/stage_records.mjs writes them; `positions` extracts the 3- and 2-alive moments; fog switched off), and ratio
+scenarios (`split:`, packages/selfplay/src/scenario.ts: 2 and 3 survivors at 6-10 seat tables, Capital Conquest,
+blizzards, card modes; the GPU asks node for the same positions).
 
     python tests/stage_check.py --models <models> --out runs/gpu-verify/stage [--scale 1] [--seed 5]
 """
@@ -51,6 +53,12 @@ def cases(scale: float, positions: Path, NETP: str = NETP) -> list[tuple[str, in
         ("lead-classic-3p-3", g(30), seats(3, J) + f">{BR},{J},{T2}", {}),  # already 3 alive: the stage is the whole game
         ("pos-2", g(40), f"pos:{positions}>{BR},{J}", {}),
         ("pos-3", g(30), f"pos:{positions}>{BR},{J},{NETP}", {}),
+        ("split-classic-6p-60-40", g(30), f"split:60/40>{BR},{J}", {"maxPlayers": 6}),
+        ("split-europe-8p-30-70-settings", g(24), f"split:30/70>{BR},{NETP}",
+         {"map": "europe", "maxPlayers": 8, "autoSetup": True, "chooseCapitals": True, "capitals": True, "cardValues": "fixed"}),
+        ("split-world-10p-50-25-25-settings", g(16), f"split:50/25/25>{BR},{J},{NETP}",
+         {"map": "world", "maxPlayers": 10, "capitals": True, "cardValues": "exponential", "blizzards": 8}),
+        ("split-asia-8p-34-33-33", g(20), f"split:34/33/33>{BR},{J},{T2}", {"map": "asia", "maxPlayers": 8, "cardValues": "progressive"}),
     ]
 
 

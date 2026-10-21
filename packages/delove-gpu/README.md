@@ -448,6 +448,9 @@ stage is a short tail (cycle 7 split the same games by players alive and the spe
 .venv/Scripts/python -m delove_gpu.generate ... --jobs ../delove/scripts/stage/close.jobs --seed 902 --out data/delove/stage-close
 # from game records (npm run selfplay -- positions writes the file): 2-alive positions, played by the branch player and Jacob
 .venv/Scripts/python -m delove_gpu.generate ... --table "rec2 2000 pos:data/positions.jsonl>delove-branch@1,jacob-sensei@1" --seed 903 --out data/delove/stage-rec
+# ratio scenarios (synthetic boards split 50/50 .. 70/30 at 2 alive, 34/33/33 .. 60/20/20 at 3), about 10,000 games a ratio
+.venv/Scripts/python -m delove_gpu.generate ... --jobs ../delove/scripts/stage/split-close.jobs --seed 904 --out data/delove/split-close
+.venv/Scripts/python -m delove_gpu.generate ... --jobs ../delove/scripts/stage/split-mid.jobs --seed 905 --out data/delove/split-mid
 ```
 
 - **A lead-in** (`A,...,F>X,Y,Z`): the lead-in seats play an ordinary game; `k_teacher_run` stops a game the moment
@@ -460,13 +463,41 @@ stage is a short tail (cycle 7 split the same games by players alive and the spe
   hands in order, deck and discard, turn order, phase, pending conquest, capitals, blizzards, eliminations and their
   order) and reseeds it as `startState` does. The positions of one file are grouped by configuration (map, seats,
   settings), each a table of its own (`NAME:MAP-Np` in the results); game i plays position i mod count. Positions tables play at home only
-  (`remote.py` refuses them: the file is not shipped to the pods); lead-in tables run on rented GPUs like any table.
+  (`remote.py` refuses them: the file is not shipped to the pods); lead-in and split tables run on rented GPUs like
+  any table.
+- **Ratio scenarios** (`split:60/40>X,Y`, the table size as `maxPlayers` in the options): synthetic boards where the
+  survivors hold the board in that split (packages/selfplay README, "Stage games"). Game i's position is drawn from
+  its seed by `packages/selfplay/src/scenario.ts` itself: `stage.SplitSource` asks the built self-play package for it
+  through node (one call per 512 queued games, prefetched) and `load_positions` plays it like a file's position, so
+  the CPU and the GPU start from the very same state and nothing is mirrored. No file is needed, so split tables run
+  on rented GPUs like lead-in tables (`remote.py` passes the `split:` token on). `--results` adds each game's
+  `split: {shares, survivors}` (the share of each seat, and the seat of share j). The jobs files
+  `scripts/stage/split-close.jobs` and `split-mid.jobs` (written by `split-jobs.mjs`) give each line its own START so
+  no two lines share seeds.
+  Measured at home (RTX 4060, shared, 2026-10-21; ranker `delove@6`, branch player vs `delove@6`): full-size
+  configurations play 117k (Classic 6p) / 62k (World 10p) 2-alive games an hour and 96k / 35k 3-alive ones; about
+  85 recorded decisions a game at 2 alive, 109 at 3 (a 3-alive game goes on to its 2-alive end, so `split-mid`
+  folders also hold 2-alive rows). `remote.py run` (dry run) prices both files, 90,000 games, at about $2.1 on 1
+  pod (2.3 h), $2.3 on 2 (78 min) or $2.8 on 4 (47 min). With Jacob Sensei in every seat (about 400 games a ratio):
+
+  | split | stage turns (median) | wins by share (the mover first) |
+  | --- | --- | --- |
+  | 50/50 | 8 | 0.63 / 0.37 |
+  | 60/40 · 40/60 | 6 · 7 | 0.92 / 0.08 · 0.27 / 0.73 |
+  | 70/30 · 30/70 | 2 · 3 | 0.98 / 0.02 · 0.14 / 0.86 |
+  | 34/33/33 | 16 | 0.35 / 0.45 / 0.20 (top 2: 0.73 / 0.78 / 0.50) |
+  | 50/25/25 (3 orders) | 12-14 | the 50: 0.42-0.69 |
+  | 40/40/20 (3 orders) | 15-16 | the 20: 0.16-0.25 |
+  | 60/20/20 (3 orders) | 8-13 | the 60: 0.52-0.82 |
+
+  70/30 is mostly settled on the mover's first turn (median 0 turns with the branch player): weight it lightly.
 - **The data** is the usual training arrays, with every decision from the stage (players alive = the stage or fewer);
   `train.py --alive 3-3` / `--alive 2-2` keep the specialist's range as before. The outcome (z, points) is the whole
   game's, at the table size the game started with.
 - **Proof** (`tests/stage_check.py`, part of `verify.py --models`): lead-ins by teachers and by network seats, league
   settings, an already-at-stage table and positions from bot-game records (`tests/stage_records.mjs`, fog on in some)
-  are played on the CPU (`play` + `export`) and on the GPU; every game must end the same way (winner, turns, the turn
+  and ratio scenarios (2 and 3 survivors on 6-10 seat tables, capitals, blizzards, card modes) are played on the CPU
+  (`play` + `export`) and on the GPU; every game must end the same way (winner, turns, the turn
   the stage began, who played each seat) and the two datasets must hold the same games bit for bit.
 
 ## Ladder gates on the GPU

@@ -9,7 +9,7 @@ import { finalPlacements, rankLeaderboard, uniqueBoardNames, type GameState, typ
  * higher of this number and the one saved in `rankings.json.season`: a code season at or below the saved one changes
  * nothing, a newer one starts that season on the next start.
  * Season 1 was everything before the first wipe (including the Gen 5 seed from #92); season 2 ran from #107 to #119;
- * season 3 from #119 to #134.
+ * season 3 from #119 to #135.
  */
 export const RANKINGS_SEASON = 4;
 

@@ -29,6 +29,11 @@ branch_q.npy (delove_gpu.generate, or branch_q.py for a CPU export). The prior i
 default the --init weights; "uniform" for none). Other decisions, and datasets without branch_q.npy, keep the played
 move as the target; --branch-weights, range credit and :modes weight soft and hard decisions alike.
 
+Growing the network (--grow-rounds N, with --init): the network gets N message-passing rounds instead of its own
+count; the new rounds are added after the old ones with their last layer at zero, so each passes its input through
+and training starts from exactly the same player (network surgery, as OpenAI Five changed its architecture over ten
+months without restarting). Adding rounds is exact; widening the hidden size is not (LayerNorm's statistics change).
+
 Rollout head (--aux-rollout W): an extra head learns each branched decision's 1-round result, the played option's mean
 rollout score from branch_q.npy (0..1, from the decider's side), with weight W on a squared-error loss. A one-round
 outcome is far less noisy than the game's final points, so it gives the shared trunk a sharper position signal (the
@@ -60,7 +65,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from delove_model import DeloveNet, segment_log_softmax
+from delove_model import DeloveNet, grow_rounds, segment_log_softmax
 from fog import FOG_INPUT_VERSION, FogMap, fog_inputs, widen_state
 from soft import policy_losses, soft_targets
 from targets import RANGES, TARGETS, alive_counts, range_target
@@ -276,6 +281,9 @@ def main():
     ap.add_argument("--soft-scale", type=float, metavar="S",
                     help="--soft-targets: scale scores by an absolute gap S, clip((q - lowest compared) / S, 0, 1), instead of"
                          " min-max within each decision (e.g. 0.05: a 0.01 gap is worth C/5 logits)")
+    ap.add_argument("--grow-rounds", type=int, metavar="N",
+                    help="with --init: grow the network to N message-passing rounds; the new rounds start as exact pass-throughs, "
+                         "so training starts from the same player (network surgery)")
     ap.add_argument("--aux-rollout", type=float, default=0.0, metavar="W",
                     help="weight of the rollout head's loss: each branched decision's 1-round branch score from branch_q.npy (0 = off)")
     ap.add_argument("--soft-prior", help="frozen prior network for --soft-targets (<path>.pt; default the --init weights, 'uniform' for none)")
@@ -347,14 +355,23 @@ def main():
         if args.aux_rollout:
             cfg["aux_rollout"] = True
         state = ck["state"]
+        old_rounds = cfg["rounds"]
+        if args.grow_rounds:
+            if args.grow_rounds <= old_rounds:
+                raise SystemExit(f"--grow-rounds {args.grow_rounds}: {args.init} already has {old_rounds} rounds")
+            cfg["rounds"] = args.grow_rounds
         if fog and cfg["f_territory"] < f_t:  # a network from before fog: zero weights for the fog columns
             cfg["f_territory"], cfg["f_global"] = f_t, f_g
             state = widen_state(state, f_t, f_g)
             print(json.dumps(dict(widened=args.init, f_territory=f_t, f_global=f_g)), flush=True)
         model = DeloveNet(**cfg).to(device)
         missing, unexpected = model.load_state_dict(state, strict=False)
-        if unexpected or any(not k.startswith("rollout.") for k in missing):
+        new_block = lambda k: k.startswith("blocks.") and int(k.split(".")[1]) >= old_rounds
+        if unexpected or any(not (k.startswith("rollout.") or (args.grow_rounds and new_block(k))) for k in missing):
             raise SystemExit(f"{args.init}: weights don't fit the network (missing {missing}, unexpected {unexpected})")
+        if args.grow_rounds:
+            grow_rounds(model, old_rounds)
+            print(json.dumps(dict(grown=args.init, rounds=f"{old_rounds} -> {args.grow_rounds}")), flush=True)
     else:
         model = DeloveNet(f_t, f_g, f_c, hidden=args.hidden, rounds=args.rounds, aux_rollout=args.aux_rollout > 0).to(device)
     if args.aux_rollout:

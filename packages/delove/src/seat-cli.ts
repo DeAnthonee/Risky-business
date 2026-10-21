@@ -3,7 +3,7 @@ import { parseArgs } from 'node:util';
 import type { GameOptions } from '@risk/engine';
 import { HttpRiskApi } from '@risk/mcp';
 import type { Agent } from '@risk/selfplay';
-import { branchFromEnv, liveBranchEnv } from './branch-env.js';
+import { branchFromEnv, LIVE_BRANCH_DEFAULT_PRESET, LIVE_BRANCH_PRESETS, liveBranchEnv, type LiveBranchPresetName } from './branch-env.js';
 import { discoverNetAgents } from './net-agent.js';
 import { defaultName, discoverTunedTeachers, playSeat } from './seat.js';
 import { jacob, jacob2 } from './jacob.js';
@@ -21,12 +21,13 @@ const USAGE = `delove-seat: seat Delove players in a real game over the HTTP API
                    (or DELOVE_MODELS); sensei, sensei@1 and sensei@2 name the teachers;
                    jacob-sensei@1 (or jacob) is Jacob Sensei, jacob-sensei@2 (or jacob2) Jacob
                    Sensei 2; delove-branch@1 (or delove-branch) is Delove with
-                   search at play time (branch and score): by default the newest delove@N ranks the
-                   moves, Jacob Sensei 2 plays the rollouts, 5 options are tried per decision and
-                   rollouts are scored by the range score (each stage's goal by players alive); any
-                   DELOVE_BRANCH_* variable overrides that, e.g. DELOVE_BRANCH_SCORE=share
-                   DELOVE_BRANCH_RANKER=delove@6 DELOVE_BRANCH_OPTIONS=3 (packages/delove/README.md).
+                   search at play time (branch and score): the newest delove@N ranks the moves, set
+                   by --preset (below); any DELOVE_BRANCH_* variable overrides one setting, e.g.
+                   DELOVE_BRANCH_RANKER=delove@6 (packages/delove/README.md).
                    The bare network (no search) is its own id: --agents delove@8
+  --preset NAME    live search preset for delove-branch: measured (default: Jacob Sensei 1 rollouts,
+                   5 options, share score, horizon 1, margin 0.01) or js2-range (Jacob Sensei 2,
+                   range score, horizon 2, margin 0.02)
   --names NAMES    seat names, same order (default "Delove 1", "Sensei 1", "Sensei 2", ...)
   --join CODE      join a game someone created; the host starts it
   --create         create a game (the first seat hosts), add --bots built-in bots, start it (unless --no-start)
@@ -45,6 +46,7 @@ async function main() {
     options: {
       server: { type: 'string' },
       agents: { type: 'string' },
+      preset: { type: 'string' },
       names: { type: 'string' },
       join: { type: 'string' },
       create: { type: 'boolean' },
@@ -73,9 +75,11 @@ async function main() {
   const ids = (values.agents ?? 'delove-branch').split(',').map((s) => s.trim()).filter(Boolean);
   // Branch and score loads its ranker network, so it is only built when a seat asks for it.
   if (ids.some((id) => id === 'delove-branch' || id === 'delove-branch@1')) {
-    const env = liveBranchEnv();
+    const preset = (values.preset ?? LIVE_BRANCH_DEFAULT_PRESET) as LiveBranchPresetName;
+    if (!(preset in LIVE_BRANCH_PRESETS)) fail(`--preset must be one of ${Object.keys(LIVE_BRANCH_PRESETS).join(', ')}`);
+    const env = liveBranchEnv(undefined, process.env, preset);
     const branch = branchFromEnv(undefined, env);
-    console.log(`delove-branch: ranker ${env.DELOVE_BRANCH_RANKER ?? 'none'}, rollouts by ${env.DELOVE_BRANCH_TEACHER}, ${env.DELOVE_BRANCH_OPTIONS} options per decision, ${env.DELOVE_BRANCH_SCORE} score`);
+    console.log(`delove-branch (${preset}): ranker ${env.DELOVE_BRANCH_RANKER ?? 'none'}, rollouts by ${env.DELOVE_BRANCH_TEACHER}, ${env.DELOVE_BRANCH_OPTIONS} options, ${env.DELOVE_BRANCH_SCORE} score, horizon ${env.DELOVE_BRANCH_HORIZON}, margin ${env.DELOVE_BRANCH_MARGIN}`);
     known.set(branch.id, branch).set('delove-branch', branch);
   }
   const agents = ids.map((id) => known.get(id) ?? fail(`unknown Delove version "${id}" (known: ${[...known.keys()].join(', ')})`));

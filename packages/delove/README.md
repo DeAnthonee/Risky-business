@@ -35,16 +35,22 @@ npm run delove-seat -- --server https://risky.deanthoneeking.com --join ABC123 -
 npm run delove-seat -- --server http://localhost:8080 --create --bots 2
 ```
 
-**The default seat searches at play time** (`--agents delove-branch`, seat name "Delove Search"): branch and score
-(`src/branch.ts`) with the newest base network in the models folder (`delove@N.onnx`, highest N) ranking the moves,
-Jacob Sensei 2 playing the rollouts, 5 options per decision and the range score (each stage's goal by players alive:
-points at 4+, top 2 at 3, the win at 2). It prints its settings when it sits down. Any `DELOVE_BRANCH_*` variable
-overrides one setting (`DELOVE_BRANCH_SCORE=share` goes back to the share score, `DELOVE_BRANCH_RANKER=delove@6` pins a
-network; `liveBranchEnv` in `src/branch-env.ts`); self-play and cycle runs keep `branchFromEnv`'s own defaults. The
-bare network is its own id (`--agents delove@8`). Time per decision with delove@8, measured on the training PC's CPU
-(2026-10-21, capitals and 8 blizzards, the other seats Jacob Sensei 2): Classic 6 players 0.17 s mean, 0.35 s at the
-90th percentile, 1.0 s at most, a whole turn 3.8 s mean, 16 s at most; World 10 players 0.56 s mean, 1.2 s p90, 1.7 s
-at most, a turn 9.9 s mean, 47 s at most. The server has no turn timer, so this only sets the pace spectators see.
+**The default seat searches at play time** (`--agents delove-branch`, seat name "Delove Search"; "Search at play
+time" below explains it). The newest base network in the models folder (`delove@N.onnx`, highest N) ranks the moves and
+`--preset` picks the rest (`LIVE_BRANCH_PRESETS` in `src/branch-env.ts`):
+
+| preset | rollouts | options | score | horizon | margin | evidence |
+| --- | --- | --- | --- | --- | --- | --- |
+| `measured` (default) | Jacob Sensei 1 | 5 | share | 1 | 0.01 | #142's CPU ladder (below): +2.07 points per seat at World 6p, +1.43 at Classic 4p, even at Classic 2p against the bare network |
+| `js2-range` (opt-in) | Jacob Sensei 2 | 5 | range (each stage's goal by players alive) | 2 | 0.02 | no mirrored ladder yet; live yardstick baseline 2 ([docs/delove-yardstick.md](../../docs/delove-yardstick.md)) |
+
+It prints its settings when it sits down. Any `DELOVE_BRANCH_*` variable overrides one setting
+(`DELOVE_BRANCH_RANKER=delove@8` pins a network so a promotion doesn't change it mid-run); self-play and cycle runs keep
+`branchFromEnv`'s own defaults. The bare network is its own id (`--agents delove@8`). Time per decision with delove@8
+and the `js2-range` preset, measured on the training PC's CPU (2026-10-21, capitals and 8 blizzards, the other seats
+Jacob Sensei 2): Classic 6 players 0.17 s mean, 0.35 s at the 90th percentile, 1.0 s at most, a whole turn 3.8 s mean,
+16 s at most; World 10 players 0.56 s mean, 1.2 s p90, 1.7 s at most, a turn 9.9 s mean, 47 s at most (horizon 1 in
+`measured` rolls out less). The server has no turn timer, so this only sets the pace spectators see.
 
 `--pace 400` (ms between moves, so spectators can follow), `--names "A,B"`, `--options '{"capitals":true}'`,
 `--no-start`. Fog of war: only a network trained for it (fog inputs, `"fogInputs"` in its `.json`, from
@@ -62,12 +68,12 @@ every opponent an empty hand, so the network and Jacob Sensei read every opponen
 **Search at play time** (`--agents delove-branch`, seat name "Delove Search"): the seat plays branch and score
 (`src/branch.ts`, the same player that makes the training data) instead of the bare network: at each important
 decision it tries the network's favourites on copies of the board and keeps the best. It is configured by the same
-`DELOVE_BRANCH_*` variables as self-play (`src/branch-env.ts`); for live tables use the cycle settings with more
-options (#141 measured 4-5 options at +0.23 / +0.28 points per game over 3):
+`DELOVE_BRANCH_*` variables as self-play (`src/branch-env.ts`). The default `measured` preset is the cycle settings
+with more options (#141 measured 4-5 options at +0.23 / +0.28 points per game over 3), the setup measured below:
 
 ```bash
-DELOVE_BRANCH_RANKER=delove@6 DELOVE_BRANCH_TEACHER=jacob-sensei@1 DELOVE_BRANCH_OPTIONS=5 DELOVE_BRANCH_HORIZON=1 \
-  DELOVE_BRANCH_MARGIN=0.01 npm run delove-seat -- --server https://risky.deanthoneeking.com --join ABC123 --agents delove-branch
+npm run delove-seat -- --server https://risky.deanthoneeking.com --join ABC123                       # measured
+npm run delove-seat -- --server https://risky.deanthoneeking.com --join ABC123 --preset js2-range    # opt-in
 ```
 
 Every strong game AI searches when it plays (AlphaGo, Pluribus, Cicero); in Delove's own cycles the branch player

@@ -148,24 +148,40 @@ export function newestBaseModel(dir = modelsDir()): string | null {
   return versions.length ? `delove@${Math.max(...versions)}` : null;
 }
 
+/** One live search setting: the rollout teacher, options per decision, rollout score, horizon and margin. */
+export interface LiveBranchPreset { teacher: string; options: number; score: BranchScore; horizon: number; margin: number }
+
 /**
- * The live seat's search, unless DELOVE_BRANCH_* says otherwise: Jacob Sensei 2 rollouts, 5 options per decision and
- * the range score (each stage's goal by players alive: points at 4+, top 2 at 3, the win at 2; branch.ts).
+ * The live seat's search presets. `measured` is the default: #142's measured setup (Jacob Sensei 1 rollouts, 5 options,
+ * share score, horizon 1, margin 0.01; +2.07 points per seat at World 6p and +1.43 at Classic 4p against the bare
+ * network). `js2-range` is opt-in (`delove-seat --preset js2-range`): Jacob Sensei 2 rollouts and the range score (each
+ * stage's goal by players alive) with horizon 2 and margin 0.02, the setting live yardstick baseline 2 ran; it has no
+ * mirrored live-strength ladder yet.
  */
-export const LIVE_BRANCH_DEFAULTS = { teacher: 'jacob-sensei@2', options: 5, score: 'range' } as const;
+export const LIVE_BRANCH_PRESETS = {
+  measured: { teacher: 'jacob-sensei@1', options: 5, score: 'share', horizon: 1, margin: 0.01 },
+  'js2-range': { teacher: 'jacob-sensei@2', options: 5, score: 'range', horizon: 2, margin: 0.02 },
+} as const satisfies Record<string, LiveBranchPreset>;
+export type LiveBranchPresetName = keyof typeof LIVE_BRANCH_PRESETS;
+export const LIVE_BRANCH_DEFAULT_PRESET: LiveBranchPresetName = 'measured';
 
 /**
  * The environment for the live seat's search (seat-cli.ts): DELOVE_BRANCH_RANKER defaults to the newest base network
- * (newestBaseModel), DELOVE_BRANCH_TEACHER to Jacob Sensei 2, DELOVE_BRANCH_OPTIONS to 5 and DELOVE_BRANCH_SCORE to
- * range (DELOVE_BRANCH_SCORE=share switches back to the share score). A variable already set wins. Self-play (register.ts) keeps branchFromEnv's own defaults, so training runs don't change.
+ * (newestBaseModel); DELOVE_BRANCH_TEACHER, _OPTIONS, _SCORE, _HORIZON and _MARGIN come from the preset (default
+ * `measured`). A variable already set wins. Self-play (register.ts) keeps branchFromEnv's own defaults, so training runs
+ * don't change.
  */
-export function liveBranchEnv(dir = modelsDir(), env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+export function liveBranchEnv(dir = modelsDir(), env: NodeJS.ProcessEnv = process.env, preset: LiveBranchPresetName = LIVE_BRANCH_DEFAULT_PRESET): NodeJS.ProcessEnv {
+  const p: LiveBranchPreset = LIVE_BRANCH_PRESETS[preset];
+  if (!p) throw new Error(`unknown live search preset ${preset} (known: ${Object.keys(LIVE_BRANCH_PRESETS).join(', ')})`);
   const ranker = env.DELOVE_BRANCH_RANKER ?? newestBaseModel(dir) ?? undefined;
   return {
     ...env,
     ...(ranker ? { DELOVE_BRANCH_RANKER: ranker } : {}),
-    DELOVE_BRANCH_TEACHER: env.DELOVE_BRANCH_TEACHER ?? LIVE_BRANCH_DEFAULTS.teacher,
-    DELOVE_BRANCH_OPTIONS: env.DELOVE_BRANCH_OPTIONS ?? String(LIVE_BRANCH_DEFAULTS.options),
-    DELOVE_BRANCH_SCORE: env.DELOVE_BRANCH_SCORE ?? LIVE_BRANCH_DEFAULTS.score,
+    DELOVE_BRANCH_TEACHER: env.DELOVE_BRANCH_TEACHER ?? p.teacher,
+    DELOVE_BRANCH_OPTIONS: env.DELOVE_BRANCH_OPTIONS ?? String(p.options),
+    DELOVE_BRANCH_SCORE: env.DELOVE_BRANCH_SCORE ?? p.score,
+    DELOVE_BRANCH_HORIZON: env.DELOVE_BRANCH_HORIZON ?? String(p.horizon),
+    DELOVE_BRANCH_MARGIN: env.DELOVE_BRANCH_MARGIN ?? String(p.margin),
   };
 }

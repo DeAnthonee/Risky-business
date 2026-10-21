@@ -84,7 +84,7 @@ function jobsTables(path) {
     const [name, games, agents, ...rest] = l.trim().split(/\s+/);
     let options = {};
     try { options = rest.length ? JSON.parse(rest.join(' ')) : {}; } catch { /* keep {} */ }
-    return { name, games: Number(games), agents, seats: agents.split(',').length, map: options.map ?? 'classic' };
+    return { name, games: Number(games), agents, seats: agents.split('>')[0].split(',').length, map: options.map ?? 'classic' };
   });
 }
 

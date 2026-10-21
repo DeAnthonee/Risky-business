@@ -14,6 +14,10 @@ stream mixSeed(seed, 0x5eed + seat)), so a table here is the same set of games a
 Tables with the same configuration (map, seats, settings) share one engine; configurations run one after another,
 each map's arrays going to OUT/<map>/ (several configurations on one map append to the same folder, like export).
 `--jobs FILE` reads a jobs file (`name games agents [options JSON]` per line, as generate.sh / cycle.sh take).
+
+Stage tables (the range specialists, delove_gpu/stage.py): agents `A,B,C,D,E,F>X,Y,Z` play a lead-in until 3 players
+are left, then X,Y,Z take over and only that part is recorded; `pos:FILE>X,Y` starts every game from a positions
+file's 2-alive moments.
 """
 from __future__ import annotations
 
@@ -37,6 +41,7 @@ from .fingerprint import REPO
 from .npy import NpyWriter
 from .outcome import game_outcome
 from .play import load_delove
+from .stage import load_positions, parse_agents, position_config, read_positions, stage_seats
 from .teacher import agent_params, is_teacher, mix_seed
 
 TEACHER, BRANCH, NET = 0, 1, 2
@@ -69,6 +74,13 @@ class Table:
     start: int = 0
     options: dict = field(default_factory=dict)
     seed: int | None = None  # this table's base seed (default: the run's); ladder.py gives every match its own
+    stage: list[str] | None = None  # stage agents (stage.py): they take the survivors' seats when this many are left
+    positions: list[dict] | None = None  # a positions table: game i starts from positions[i % len]
+    index: list[int] | None = None  # the game numbers this table plays (default start .. start + games - 1)
+
+    @property
+    def indexes(self) -> list[int]:
+        return self.index if self.index is not None else [self.start + i for i in range(self.games)]
 
     @property
     def config(self) -> GameConfig:
@@ -88,7 +100,28 @@ def parse_table(s: str) -> Table:
         rest = rest.strip()
     if rest:
         options = json.loads(rest)
-    return Table(parts[0], int(parts[1]), parts[2].split(","), start, options)
+    lead, pos_file, stage = parse_agents(parts[2])
+    if pos_file is None:
+        return Table(parts[0], int(parts[1]), lead, start, options, stage=stage)
+    if options:
+        raise argparse.ArgumentTypeError(f"table {s!r}: a positions file carries its own settings")
+    return Table(parts[0], int(parts[1]), [stage[0]], start, stage=stage, positions=read_positions(pos_file, len(stage)))
+
+
+def expand_positions(tables: list[Table]) -> list[Table]:
+    """A positions table becomes one table per configuration its positions are played at (map, seats, settings),
+    each with the game numbers whose position (game i: positions[i % count]) is at that table, named NAME:MAP-Np."""
+    out = []
+    for t in tables:
+        if t.positions is None:
+            out.append(t)
+            continue
+        by: dict[GameConfig, list[int]] = {}
+        for i in t.indexes:
+            by.setdefault(position_config(t.positions[i % len(t.positions)]), []).append(i)
+        for cfg, idx in by.items():
+            out.append(replace(t, name=f"{t.name}:{cfg.map}-{cfg.seats}p", games=len(idx), agents=[t.stage[0]] * cfg.seats, options=cfg.options_json(), index=idx))
+    return out
 
 
 def read_jobs(path: str) -> list[Table]:
@@ -244,7 +277,7 @@ class Run:
         self.tables, self.seed, self.bcfg, self.models = tables, seed, bcfg, models
         self.ranker, self.teacher_id, self.max_turns, self.precision = ranker, teacher, max_turns, precision
         self.device, self.allow_unverified = torch.device(device), allow_unverified
-        self.agent_ids = sorted({a for t in tables for a in t.agents} | {ranker})
+        self.agent_ids = sorted({a for t in tables for a in t.agents + (t.stage or [])} | {ranker})
         # teacher versions: row 0 the rollout teacher (it also makes the branch player's own teacher moves), then every
         # other teacher seated at a table (delove-teacher@N, jacob-sensei@N), each with its own numbers
         self.versions = [teacher] + [a for a in self.agent_ids if is_teacher(a) and a != teacher]
@@ -288,7 +321,7 @@ class Run:
         for t in self.tables:
             by_cfg.setdefault(t.config, []).append(t)
         for cfg, tables in by_cfg.items():
-            n_branch = len({a for t in tables for a in t.agents if is_branch(a)})
+            n_branch = len({a for t in tables for a in t.agents + (t.stage or []) if is_branch(a)})
             B = batch or auto_batch(cfg, self.bcfg, n_branch, budget)
             B = min(B, max(256, (sum(t.games for t in tables) + 255) // 256 * 256))
             g = Group(self, cfg, tables, B)
@@ -323,10 +356,10 @@ class Group:
         self.nets = {a: net_ranker(self.enc, mod, self.adj, run.precision) for a, mod in run.net_modules.items()}
         # one GpuBranch per branch seat kind at these tables (agent index -> its branch and score)
         self.branches = {ids.index(a): GpuBranch(e, self.nets[run.ranker], replace(run.bcfg, score=branch_score(a) or run.bcfg.score))
-                         for a in sorted({a for t in tables for a in t.agents if is_branch(a)})}
+                         for a in sorted({a for t in tables for a in t.agents + (t.stage or []) if is_branch(a)})}
         self.export_idx = torch.tensor([ids.index(a) for a in run.export_agents], dtype=torch.long, device=e.dev)
         self.rec = run.recorder(e.m)
-        self.queue = [(ti, i) for ti, t in enumerate(tables) for i in range(t.games)]
+        self.queue = [(ti, i) for ti, t in enumerate(tables) for i in t.indexes]  # i: the game number (its seed)
         self.queue.reverse()
         self.seat_agent = torch.zeros(B, e.n, dtype=torch.long, device=e.dev)
         self.uid = torch.full((B,), -1, dtype=torch.long, device=e.dev)
@@ -335,30 +368,64 @@ class Group:
         self.fortify_to = KIND_NAMES.index("fortify_to")
         self.slot_game: list[tuple[int, int] | None] = [None] * B
         self.occupied = torch.zeros(B, dtype=torch.bool, device=e.dev)
+        # stage games: in their lead-in (nothing recorded), the players alive at which the stage starts (0: none)
+        self.lead = torch.zeros(B, dtype=torch.bool, device=e.dev)
+        self.stop = torch.zeros(B, dtype=torch.long, device=e.dev)
+        self.stage_at: list[dict | None] = [None] * B
 
     def fill(self, slots: list[int]):
         r = self.r
-        g, seeds = [], []
+        g, seeds, pos = [], [], []
         for b in slots:
             if not self.queue:
                 break
             ti, i = self.queue.pop()
             t = self.tables[ti]
             g.append(b)
-            seeds.append(mix_seed(r.seed if t.seed is None else t.seed, t.start + i))
+            seeds.append(mix_seed(r.seed if t.seed is None else t.seed, i))
+            pos.append(t.positions[i % len(t.positions)] if t.positions is not None else None)
             self.slot_game[b] = (ti, i)
             self.seat_agent[b] = torch.tensor([r.agent_ids.index(a) for a in t.agents], device=self.dev)
             self.e.tver[b] = self.agent_tver[self.seat_agent[b]]
             self.uid[b] = r.next_uid
             self.decisions[b] = 0
+            self.lead[b] = t.stage is not None
+            self.stop[b] = len(t.stage) if t.stage is not None else 0
+            self.stage_at[b] = None
             r.next_uid += 1
         if not g:
             return
+        fresh = [k for k, p in enumerate(pos) if p is None]
+        if fresh:
+            self.e.reset(torch.tensor([g[k] for k in fresh], device=self.dev), torch.tensor([seeds[k] for k in fresh], dtype=torch.long))
+        placed = [k for k, p in enumerate(pos) if p is not None]
+        if placed:
+            load_positions(self.e, [g[k] for k in placed], [pos[k] for k in placed], [seeds[k] for k in placed])
         gt = torch.tensor(g, device=self.dev)
-        st = torch.tensor(seeds, dtype=torch.long)
-        self.e.reset(gt, st)
-        self.e.seat_streams(gt, st)
+        self.e.seat_streams(gt, torch.tensor(seeds, dtype=torch.long))
         self.occupied[gt] = True
+        self.switch()
+
+    def switch(self):
+        """Stage games whose lead-in is over (`stop` or fewer real players alive): the stage agents take the
+        survivors' seats (stage.stage_seats, as positions.ts) and recording starts."""
+        e, r = self.e, self.r
+        nalive = e.alive[:, : e.n].long().sum(1)
+        ready = (self.occupied & self.lead & ~e.done & (nalive <= self.stop)).nonzero(as_tuple=True)[0].tolist()
+        if not ready:
+            return
+        order, cur_pos, alive, turn = e.order.cpu(), e.cur_pos.cpu(), e.alive.cpu(), e.turn.cpu()
+        for b in ready:
+            ti, i = self.slot_game[b]
+            t = self.tables[ti]
+            for q, k in stage_seats(order[b].tolist(), int(cur_pos[b]), alive[b].tolist(), len(t.stage), i).items():
+                self.seat_agent[b, q] = r.agent_ids.index(t.stage[k])
+            e.tver[b] = self.agent_tver[self.seat_agent[b]]
+            self.stage_at[b] = {"turn": int(turn[b]), "decisions": int(self.decisions[b]), "alive": int(nalive[b]),
+                                "agents": [r.agent_ids[x] for x in self.seat_agent[b].tolist()]}
+        ix = torch.tensor(ready, device=self.dev)
+        self.lead[ix] = False
+        self.stop[ix] = 0
 
     def finish(self, slots: torch.Tensor):
         e = self.e
@@ -368,9 +435,11 @@ class Group:
             won = int(e.phase[b]) == FINISHED
             winner = int(e.winner[b]) if won else None
             out = game_outcome(e, b)
-            self.r.results.append({"table": t.name, "index": t.start + i, "winner": winner, "turns": int(e.turn[b]), "agents": t.agents,
-                                   "decisions": int(self.decisions[b]), "placement": out["placement"], "kills": out["kills"],
-                                   "points": out["points"]})
+            res = {"table": t.name, "index": i, "winner": winner, "turns": int(e.turn[b]), "agents": t.agents,
+                   "decisions": int(self.decisions[b]), "placement": out["placement"], "kills": out["kills"], "points": out["points"]}
+            if t.stage is not None:  # when the stage began (None: the game ended in its lead-in) and who played it
+                res["stage"] = self.stage_at[b]
+            self.r.results.append(res)
             if self.rec:
                 self.rec.finish_game(int(self.uid[b]), out)
             self.slot_game[b] = None
@@ -380,7 +449,7 @@ class Group:
         if self.rec is None or games.numel() == 0:
             return
         ag = self.seat_agent[games, self.e.cur[games]]
-        keep = (ag[:, None] == self.export_idx[None, :]).any(1)
+        keep = (ag[:, None] == self.export_idx[None, :]).any(1) & ~self.lead[games]
         g = games[keep]
         self.rec.add(self.enc, terr, glob, g, ordered, cnt, chosen, self.uid, self.e.cur, tag=self.btag)
 
@@ -425,9 +494,12 @@ class Group:
         fast = (self.agent_type == TEACHER).clone()
         if self.rec is not None and self.export_idx.numel():
             fast[self.export_idx] = False
+        is_teacher = self.agent_type == TEACHER
         while bool(self.occupied.any()):
-            tseat = fast[self.seat_agent]  # [B, seats]
-            e.teacher_run(tseat, self.occupied & ~e.done, self.decisions)
+            # a lead-in records nothing, so all its teacher seats play in place, up to the stage's players alive
+            tseat = torch.where(self.lead[:, None], is_teacher[self.seat_agent], fast[self.seat_agent])  # [B, seats]
+            e.teacher_run(tseat, self.occupied & ~e.done, self.decisions, stop=self.stop)
+            self.switch()
             done = (self.occupied & e.done).nonzero(as_tuple=True)[0]
             if done.numel():
                 self.finish(done)
@@ -440,7 +512,7 @@ class Group:
             typ = self.agent_type[ag]
             tact = e.teacher(active & ((typ == TEACHER) | (typ == BRANCH)))
             # features only where a network decides or a decision is recorded (not for teacher seats)
-            exported = (ag[:, None] == self.export_idx[None, :]).any(1) if self.rec else torch.zeros_like(active)
+            exported = ((ag[:, None] == self.export_idx[None, :]).any(1) & ~self.lead) if self.rec else torch.zeros_like(active)
             terr, glob = self.enc.encode((active & ((typ != TEACHER) | exported)).nonzero(as_tuple=True)[0])
             self.enc.last = (terr, glob)
             act1 = torch.where(active & (typ == TEACHER), tact, -1)
@@ -537,6 +609,7 @@ def main():
     tables = list(args.table)
     for j in args.jobs:
         tables += read_jobs(j)
+    tables = expand_positions(tables)
     if not tables:
         ap.error("no tables (--table or --jobs)")
     models = Path(args.models)

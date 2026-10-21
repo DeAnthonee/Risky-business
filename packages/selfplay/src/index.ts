@@ -9,3 +9,4 @@ export * from './ladder.js';
 export * from './encode.js';
 export * from './npy.js';
 export * from './export.js';
+export * from './positions.js';

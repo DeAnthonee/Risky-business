@@ -1,9 +1,12 @@
 #!/usr/bin/env node
+import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { parseArgs } from 'node:util';
-import { MAPS, parseOptions, type GameOptions } from '@risk/engine';
+import { MAPS, parseOptions, RECORD_FORMAT, type GameOptions, type GameRecord } from '@risk/engine';
 import { knownAgents, resolveAgent } from './agents.js';
 import { exportDataset } from './export.js';
 import { DEFAULT_PROMOTION, loadLadder, promotionDecision, recordMatch, runMatch, saveLadder } from './ladder.js';
+import { positionsFromRecord, readPositions, startState, type StartPosition } from './positions.js';
 import { runBatch } from './runner.js';
 import type { Traits } from './traits.js';
 
@@ -13,6 +16,7 @@ const USAGE = `risk-selfplay: headless Risk self-play, rating ladder and decisio
   ladder   --candidate ID [--best ID] [--file ladder.json] [--games 200] [--seed 1]
            [--threshold 0.55] [--min-games 200] [--log DIR]
   export   --log DIR[,DIR...] --out DIR [--maps classic,world] [--only-agents ID[,ID...]]
+  positions --records PATH[,PATH...] --out FILE [--alive 3,2]
   agents   list the agent ids that can play
 
 common: [--map classic] [--players N (ladder)] [--options '{"fogOfWar":false}'] [--traits '{"aggression":0.8}']
@@ -20,6 +24,12 @@ common: [--map classic] [--players N (ladder)] [--options '{"fogOfWar":false}'] 
 
 play     plays games i = start .. start+games-1, game i seeded from (seed, i): split one big run over several
          processes with --start and the same --seed. --log writes meta.json, decisions-*.jsonl.gz, games-*.jsonl.
+         Stage games (the Delove range specialists, positions.ts): --agents 'A,B,C,D,E,F>X,Y,Z' plays a lead-in with
+         A..F until 3 players are left, then X,Y,Z take the survivors' seats and only that part is logged;
+         --agents 'pos:FILE>X,Y' plays from a positions file's 2-alive moments (game i: position i mod count, its
+         own dice from the game seed).
+positions writes the starting positions of game records (files or archive folders): the moment each record's
+         players alive dropped to each --alive count, one JSON per line.
 export   encodes decision logs (format v2) into NumPy arrays for the trainer, one folder per map
          (see packages/selfplay/README.md "Dataset export").
 ladder   plays mirrored pairs of games candidate vs best; with --file, rates the candidate against the file's best
@@ -71,6 +81,8 @@ async function main() {
       maps: { type: 'string' },
       force: { type: 'boolean' },
       'only-agents': { type: 'string' },
+      records: { type: 'string' },
+      alive: { type: 'string' },
     },
   });
 
@@ -82,6 +94,25 @@ async function main() {
     const agents = values['only-agents']?.split(',').map((a) => a.trim());
     const results = await exportDataset(values.log.split(','), values.out, { ...(maps ? { maps } : {}), ...(agents ? { agents } : {}), force: !!values.force });
     console.log(JSON.stringify({ out: values.out, maps: results, seconds: (Date.now() - t0) / 1000 }, null, 2));
+    return;
+  }
+
+  if (cmd === 'positions') {
+    if (!values.records || !values.out) fail('positions needs --records and --out');
+    const alive = (values.alive ?? '3,2').split(',').map((x) => intArg(x.trim(), 'alive', 0));
+    if (alive.some((k) => k < 2)) fail('--alive counts must be 2 or more');
+    const files = values.records.split(',').flatMap((p) => recordFiles(p.trim()));
+    const out: StartPosition[] = [];
+    let records = 0;
+    for (const f of files) {
+      const r = JSON.parse(readFileSync(f, 'utf8')) as GameRecord;
+      if (r.format !== RECORD_FORMAT) continue;
+      records++;
+      out.push(...positionsFromRecord(r, alive));
+    }
+    writeFileSync(values.out, out.map((p) => JSON.stringify(p) + '\n').join(''));
+    const count = (key: (p: StartPosition) => string) => out.reduce<Record<string, number>>((a, p) => ((a[key(p)] = (a[key(p)] ?? 0) + 1), a), {});
+    console.log(JSON.stringify({ records, positions: out.length, byAlive: count((p) => String(p.alive)), byMap: count((p) => p.map), bySeats: count((p) => String(p.seats)), out: values.out }, null, 2));
     return;
   }
 
@@ -101,14 +132,26 @@ async function main() {
 
   if (cmd === 'play') {
     if (!values.agents) fail('play needs --agents');
-    const agents = values.agents.split(',').map((id) => resolveAgent(id.trim()));
+    const [lead, stageList] = values.agents.split('>');
+    const list = (s: string) => s.split(',').map((id) => resolveAgent(id.trim()));
+    const stageAgents = stageList === undefined ? null : list(stageList);
+    let positions: StartPosition[] | null = null;
+    if (lead.startsWith('pos:')) {
+      if (!stageAgents) fail('--agents pos:FILE needs the stage agents after a ">"');
+      if (Object.keys(jsonArg<object>(values.options, 'options') ?? {}).length || values.map) fail('a positions file carries its own settings: no --options or --map');
+      positions = readPositions(lead.slice(4), stageAgents.length);
+      if (!positions.length) fail(`${lead.slice(4)} has no position with ${stageAgents.length} players alive`);
+    }
+    const agents = positions ? stageAgents! : list(lead);
     const games = intArg(values.games, 'games', 100);
     let done = 0;
     const results = await runBatch({
       games,
       seed,
       startIndex: intArg(values.start, 'start', 0),
-      seats: () => agents.map((agent) => ({ agent, traits })),
+      seats: (i) => (positions ? new Array(positions[i % positions.length].seats).fill(agents[0]) : agents).map((agent) => ({ agent, traits })),
+      ...(stageAgents ? { stage: { alive: stageAgents.length, agents: stageAgents } } : {}),
+      ...(positions ? { start: (i: number, s: number) => ({ state: startState(positions![i % positions!.length], s, `g${i}`), eliminated: positions![i % positions!.length].eliminated }) } : {}),
       options,
       maxTurns,
       logDir: values.log,
@@ -116,12 +159,13 @@ async function main() {
       onGame: () => progress(++done, games),
     });
     process.stderr.write('\n');
-    const winsBySeat = agents.map((_, s) => results.filter((r) => r.winner === s).length);
+    const winsBySeat = positions ? [] : agents.map((_, s) => results.filter((r) => r.winner === s).length);
     console.log(
       JSON.stringify(
         {
           games: results.length,
           agents: agents.map((a) => a.id),
+          ...(stageAgents ? { stage: { alive: stageAgents.length, agents: stageAgents.map((a) => a.id), reached: results.filter((r) => r.stage).length } } : {}),
           winsBySeat,
           turnLimit: results.filter((r) => r.winner === null).length,
           meanTurns: Math.round((results.reduce((a, r) => a + r.turns, 0) / results.length) * 10) / 10,
@@ -180,6 +224,15 @@ async function main() {
   }
 
   fail(cmd ? `Unknown command "${cmd}"` : 'No command given');
+}
+
+/** Record files under a path: the file itself, or every .json below a folder (an archive's games/), sorted. */
+function recordFiles(path: string): string[] {
+  if (!statSync(path).isDirectory()) return [path];
+  return readdirSync(path, { recursive: true, encoding: 'utf8' })
+    .filter((f) => f.endsWith('.json'))
+    .map((f) => join(path, f))
+    .sort();
 }
 
 main().catch((err) => {

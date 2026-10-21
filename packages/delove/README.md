@@ -254,6 +254,12 @@ DELOVE_MODELS=models/delove PYTHON=.venv/Scripts/python bash packages/delove/scr
 Each invocation writes its phase times to `times.tsv` and a copy to `times-<YYYYmmdd-HHMMSS>.tsv` (its start), so a
 cycle stopped and resumed keeps every invocation's times.
 
+**Splitting a cycle between home and the cloud.** `GENERATE_ONLY=1` stops `cycle.sh` after generation. Cycle 8 played
+its small and medium boards at home that way (steps `a1`-`a4`, `GPU_LANES=4`), played its huge boards on 8 rented
+GPUs with `packages/delove-gpu/cloud/remote.py run --name c8 --step b=...` into the same `DATA` and `OUT`, then ran the
+full config (every step listed): finished steps are skipped, so it went straight to training and gates. With
+`REMOTE_GPUS=N` a single `cycle.sh` run sends every GPU step to the cloud instead.
+
 **GPU lanes and league settings.** `GPU_LANES=N` runs N GPU processes at once and deals the config's GPU steps to them
 in turn: split a long step (the big tables) into several so every lane stays busy (cycle 6's second lane idled 5 hours
 behind a single big-tables step). Cycle 6's jobs files show the league settings every table now uses (auto setup,

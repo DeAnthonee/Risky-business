@@ -7,6 +7,7 @@ numbers go in [packages/delove/CYCLES.md](../../packages/delove/CYCLES.md) and t
 Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. **Append a line in the same PR** as any change to
 this area (README hard rule 12).
 
+- 2026-10-21 #144 `jacob-sensei@2` (Jacob Sensei 2): RISK_LEARNINGS.md sections 7-21 as 11 tunable terms in `src/jacob.ts` (0 in `jacob-sensei@1`, which plays bit-identically), staged duel numbers (`jacobPickWith(params, duel)`, `"duel"` in jacob-sensei@N.json), `tune.ts --fitness points`, `tables.ts --options` and a points-difference interval; vs @1 0.53-0.57 at 2p and +0.42 to +1.33 points per seat at 4-10p; README section, delove-status sections 3, 8, 9
 - 2026-10-21 #143 live seat bug: `stateFromView` gave every opponent 0 cards (dropped `cardCount`), so delove@N and Jacob misread card threats in every live game; opponents' hand sizes and the deck/discard sizes are now rebuilt from the view (random deal of the unseen cards); yardstick caveat for games 1-6
 - 2026-10-21 #139 live yardstick: `docs/delove-yardstick.md` (delove@6 vs 5 Claude Haiku/Sonnet/Opus seats on the live board, one row per game) and its rerun kit `packages/delove/scripts/yardstick/` (setup.mjs, monitor.mjs, seat-prompt.md); delove-status section 9 item 4
 - 2026-10-21 #136 each range specialist is its own line: `@1` from the base of its day, every later candidate `--init` from the best of its own line on the newest shared games; re-seeding from a new base is an owner decision (delove-status section 3, packages/delove README)

@@ -169,6 +169,11 @@ class Recorder:
         # What branch and score did at each recorded decision (not in export.ts's arrays; train.py --branch-weights):
         # 0 the teacher's move without comparing options, 1 options compared and the teacher's move kept, 2 changed.
         self.tag = w("branch_tag", "<i1", [])
+        # Per candidate row (aligned with cand.npy): the mean branch score of that candidate's option at a branched
+        # decision (the score the pick is made on, float32), NaN where the candidate was not compared (unbranched
+        # decisions, fortify_to steps, candidates outside the options). train.py --soft-targets; CPU logs get the same
+        # array from the branch trace (packages/delove/python/branch_q.py).
+        self.q = w("branch_q", "<f4", [])
         self.offset.append(np.array([0], dtype=np.int64))
         self.ncand = 0
         self.uids: list[np.ndarray] = []  # game uid of each row, for z at the end
@@ -179,9 +184,12 @@ class Recorder:
         self.keys: list = []
 
     def add(self, enc: Encoder, terr, glob, games: torch.Tensor, ordered: torch.Tensor, cnt: torch.Tensor, chosen: torch.Tensor,
-            uid: torch.Tensor, seat: torch.Tensor, keys: list | None = None, tag: torch.Tensor | None = None):
+            uid: torch.Tensor, seat: torch.Tensor, keys: list | None = None, tag: torch.Tensor | None = None,
+            q: tuple[torch.Tensor, torch.Tensor] | None = None):
         """Rows for decisions in `games`: candidates ordered[g, :cnt[g]] (actions.ts order), chosen action. `keys`
-        (one per game, optional) are kept in self.keys in row order, for tests that compare rows with export's."""
+        (one per game, optional) are kept in self.keys in row order, for tests that compare rows with export's. `q`:
+        (options [B, K] first-step actions, -1 = none; means [B, K] float64, NaN = not branched) of this step's branch
+        decisions, written to branch_q.npy per candidate row."""
         if games.numel() == 0:
             return
         if keys is not None:
@@ -213,6 +221,7 @@ class Recorder:
         self.game.append(np.array([self.game_index[x] for x in u.tolist()], dtype=np.int32))
         self.seat.append(seat[games].to(torch.int32).cpu().numpy())
         self.tag.append((tag[games] if tag is not None else torch.zeros_like(games)).to(torch.int8).cpu().numpy())
+        self.q.append(option_q(ordered, q, games)[bi, col].to(torch.float32).cpu().numpy())
         self.uids.append(np.stack([u, seat[games].cpu().numpy()], 1))
 
     def finish_game(self, uid: int, out: dict):
@@ -221,7 +230,7 @@ class Recorder:
             self.out_of[(uid, s)] = (z, out["points"][s], out["points01"][s], out["placement"][s], out["kills"][s])
 
     def close(self, sources: list[str]) -> dict:
-        for w in (self.territory, self.glob, self.cand, self.cand_from, self.cand_to, self.offset, self.choice, self.game, self.seat, self.tag):
+        for w in (self.territory, self.glob, self.cand, self.cand_from, self.cand_to, self.offset, self.choice, self.game, self.seat, self.tag, self.q):
             w.close()
         us = np.concatenate(self.uids) if self.uids else np.zeros((0, 2), dtype=np.int64)
         vals = np.array([self.out_of[(int(u), int(s))] for u, s in us], dtype=np.float64).reshape(-1, 5)
@@ -445,13 +454,13 @@ class Group:
             self.slot_game[b] = None
         self.occupied[slots] = False
 
-    def _record(self, games, ordered, cnt, chosen, terr, glob):
+    def _record(self, games, ordered, cnt, chosen, terr, glob, q=None):
         if self.rec is None or games.numel() == 0:
             return
         ag = self.seat_agent[games, self.e.cur[games]]
         keep = (ag[:, None] == self.export_idx[None, :]).any(1) & ~self.lead[games]
         g = games[keep]
-        self.rec.add(self.enc, terr, glob, g, ordered, cnt, chosen, self.uid, self.e.cur, tag=self.btag)
+        self.rec.add(self.enc, terr, glob, g, ordered, cnt, chosen, self.uid, self.e.cur, tag=self.btag, q=q)
 
     def _branch_stats(self, d):
         s = self.r.stats
@@ -484,6 +493,9 @@ class Group:
         e, dev, B, r = self.e, self.dev, self.B, self.r
         ar = torch.arange(B, device=dev)
         self.btag = torch.zeros(B, dtype=torch.int8, device=dev)  # this step's branch tag per game (Recorder)
+        kq = max([b.cfg.options for b in self.branches.values()] or [1])
+        self.bq_opts = torch.full((B, kq), -1, dtype=torch.long, device=dev)  # this step's branch options and mean scores
+        self.bq_means = torch.full((B, kq), float("nan"), dtype=torch.float64, device=dev)
         torch.cuda.reset_peak_memory_stats(dev)
         self.fill(list(range(B)))
         t0, it, total = time.time(), 0, sum(t.games for t in self.tables)
@@ -526,6 +538,8 @@ class Group:
                     act1[g] = first_max(rank(g, mask), self.cpu_order)  # ties: first candidate (fortify_to: territory order)
             act2 = torch.full((B,), -1, dtype=torch.long, device=dev)
             self.btag.zero_()
+            self.bq_opts.fill_(-1)
+            self.bq_means.fill_(float("nan"))
             for idx, branch in self.branches.items():
                 bg = (active & (ag == idx)).nonzero(as_tuple=True)[0]
                 if bg.numel():
@@ -533,9 +547,12 @@ class Group:
                     act1[bg] = d.act1
                     act2[bg] = d.act2
                     self.btag[bg] = d.branched.to(torch.int8) + d.changed.to(torch.int8)
+                    k = d.options.shape[1]
+                    self.bq_opts[bg, :k] = torch.where(d.branched[:, None], d.options, -1)
+                    self.bq_means[bg, :k] = torch.where(d.branched[:, None], d.means[:, :, 0], float("nan"))
                     self._branch_stats(d)
             ordered, cnt = e.cand_order() if self.rec else (None, None)
-            self._record(active.nonzero(as_tuple=True)[0], ordered, cnt, act1, terr, glob)
+            self._record(active.nonzero(as_tuple=True)[0], ordered, cnt, act1, terr, glob, (self.bq_opts, self.bq_means))
             counted = active & (act1 >= 0)
             self.decisions += (counted & (e.L.kind[act1.clamp(min=0)] != self.fortify_to)).long()
             e.step(act1)
@@ -561,6 +578,19 @@ class Group:
                       flush=True)
         return {"games": done_games, "seconds": round(time.time() - t0, 1), "steps": it, "odds_outside_tables": int(e.tstats[0]),
                 "peak_gpu_gb": round(torch.cuda.max_memory_allocated(dev) / 2**30, 2)}
+
+
+def option_q(ordered: torch.Tensor, q: tuple[torch.Tensor, torch.Tensor] | None, games: torch.Tensor) -> torch.Tensor:
+    """[n, L] float64: for each candidate ordered[g, j] of `games`, the mean score of the branch option that played it
+    (q = (options [B, K], means [B, K]); NaN where it was not an option or there was no branch decision)."""
+    o = ordered[games]
+    out = torch.full(o.shape, float("nan"), dtype=torch.float64, device=o.device)
+    if q is None:
+        return out
+    opts, means = q[0][games], q[1][games]
+    hit = (o[:, :, None] == opts[:, None, :]) & (opts[:, None, :] >= 0)
+    val = means.gather(1, hit.long().argmax(2))
+    return torch.where(hit.any(2), val, out)
 
 
 def table_summary(results: list[dict]) -> list[dict]:

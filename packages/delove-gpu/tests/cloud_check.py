@@ -134,7 +134,11 @@ def check_run(data: Path, jobs: str) -> bool:
     and no upload tar (it holds the models) is left behind. One bad pod never sinks the others: a pod that is never
     reachable, an upload that fails, a worker that fails and a lane that delivers nothing are each replaced and the run
     still merges all 20 games; a pod whose first DELETE fails gets no replacement until a DELETE succeeds; a slot that never gets a working pod ends the run with exit 1 after the healthy pod's
-    lanes were downloaded; Ctrl+C mid-upload terminates everything."""
+    lanes were downloaded; Ctrl+C mid-upload terminates everything.
+    Issue #152: pods RunPod places only 20 minutes late still play to the end (each pod's time counts from its
+    creation); pods cut at their time limit pack the configurations they finished (worker.sh --salvage), which are kept
+    and listed in gpu.partial.json, and running again plays only the missing ones and merges all 20 games;
+    --accept-partial merges the kept ones at once; no stock of the GPU type launches nothing."""
     import subprocess as sp
     import tarfile as tf
 
@@ -146,7 +150,9 @@ def check_run(data: Path, jobs: str) -> bool:
     # scenario: (pods expected, exit expected, merged games expected)
     scenarios = {"success": (2, 0, 20), "unreachable pod": (3, 0, 20), "upload fails": (3, 0, 20), "worker fails": (3, 0, 20),
                  "lane delivers nothing": (3, 0, 20), "delete fails once": (3, 0, 20), "slot never works": (4, 1, 0), "crash": (2, "interrupted", 0),
-                 "volume": (3, 0, 20), "volume, home copy": (2, 0, 20)}
+                 "volume": (3, 0, 20), "volume, home copy": (2, 0, 20), "late pods": (2, 0, 20), "cut, then rerun": (3, 0, 20),
+                 "cut, accept partial": (2, 0, 10), "no stock": (0, 1, 0)}
+    tables = ["w10a", "w10b", "ge6a", "ge6b"]
     for scenario, (want_pods, want_rc, want_games) in scenarios.items():
         tmp = Path(tempfile.mkdtemp(prefix="cloud-run-"))
         calls, pods = [], {}
@@ -169,6 +175,8 @@ def check_run(data: Path, jobs: str) -> bool:
 
         def api(method, path, body=None):
             calls.append((method, path))
+            if method == "POST" and scenario == "late pods" and Clock.now < start + 20 * 60:
+                raise remote.RunPodError("RunPod POST /pods: HTTP 500 There are no instances currently available")
             if method == "POST":
                 i = f"pod{len(pods)}"
                 pods[i] = body
@@ -187,14 +195,23 @@ def check_run(data: Path, jobs: str) -> bool:
         class FakeSsh:
             def __init__(self, work):
                 self.pub = "ssh-ed25519 AAAA test"
-                self.lanes, self.jobs = {}, {}
+                self.lanes, self.jobs, self.units, self.salvaged, self.created = {}, {}, {}, set(), {}
 
             def run(self, pod, cmd, timeout=0, check=True):
                 if cmd.startswith("cat /root/job/status"):
                     if scenario in ("worker fails", "lane delivers nothing", "volume") and pod.id == "pod1":
-                        return "failed: a lane failed\n"
-                    return "done\n"
+                        return "failed: a lane failed\nalive\n"
+                    if scenario == "late pods" and Clock.now < pod.started + 45 * 60:
+                        return "running\nalive\n"  # 45 min of games: past the run's old wall limit (60 min from launch)
+                    if scenario.startswith("cut") and pod.id in ("pod0", "pod1"):
+                        return "running\nalive\n"  # never ends: cut at the slot's limit
+                    return "done\nalive\n"
+                if "--salvage" in cmd:
+                    self.salvaged.add(pod.id)
                 return "ok\n"
+
+            def finished(self, pod, table):  # a cut pod finished its w10* configurations, not its ge6* ones
+                return pod.id not in self.salvaged or table.startswith("w10")
 
             def put(self, pod, local, remote_path, timeout=0):
                 if scenario == "crash":
@@ -204,16 +221,23 @@ def check_run(data: Path, jobs: str) -> bool:
                 with tf.open(local) as t:
                     self.lanes[pod.id] = sorted(int(m.name[5:-3]) for m in t.getmembers() if m.name.startswith("lane-") and m.name.endswith(".sh"))
                     self.jobs[pod.id] = json.loads(t.extractfile("job.json").read())
+                    # lanes/<lane>.<step>.<key>.jobs: one per configuration, its first table's name says which games it plays
+                    self.units[pod.id] = [(int(m.name.split("/")[1].split(".")[0]), m.name.split(".")[-2],
+                                           t.extractfile(m).read().decode().split()[0])
+                                          for m in t.getmembers() if m.name.startswith("lanes/") and m.name.endswith(".jobs")]
 
             def get(self, pod, remote_path, local, timeout=0):
                 if scenario == "worker fails" and pod.id == "pod1":
                     raise sp.CalledProcessError(1, "ssh")  # the worker left nothing
                 stage = tmp / f"stage-{pod.id}"
-                for li in self.lanes[pod.id]:
+                for li, key, table in self.units[pod.id]:
                     if scenario in ("lane delivers nothing", "volume") and pod.id == "pod1" and li == self.lanes[pod.id][-1]:
                         continue  # this lane failed on this pod; the others delivered
-                    d = stage / "lanes" / str(li) / "big"
-                    games = pool[li * 5:(li + 1) * 5]
+                    if not self.finished(pod, table):
+                        continue
+                    d = stage / "lanes" / str(li) / "big" / key
+                    h = tables.index(table)
+                    games = pool[h * 5:(h + 1) * 5]
                     cut(data, games, d / "data" / data.name, [f"gpu:lane{li}"])
                     summary = {"games": len(games), "seconds": 1.0, "groups": [], "branch": {"decisions": 1}, "config": {},
                                "tables": [{"table": f"t{li}", "agents": ["a"], "games": len(games), "wins": [1], "turnLimit": 0,
@@ -244,8 +268,12 @@ def check_run(data: Path, jobs: str) -> bool:
             fake_ssh["s"] = FakeSsh(work)
             return fake_ssh["s"]
 
-        saved = remote.api, remote.Ssh, remote.time
-        remote.api, remote.Ssh, remote.time = api, make_ssh, Clock
+        def stock(types, cloud, gpus):
+            return {g: (None if scenario == "no stock" else {"stockStatus": "High", "maxUnreservedGpuCount": 8}) for g in types}
+
+        start = Clock.now
+        saved = remote.api, remote.Ssh, remote.time, remote.gpu_stock
+        remote.api, remote.Ssh, remote.time, remote.gpu_stock = api, make_ssh, Clock, stock
         models = tmp / "models"
         models.mkdir()
         for m in ("delove@2", "delove@3"):
@@ -254,16 +282,31 @@ def check_run(data: Path, jobs: str) -> bool:
         out, dat = tmp / "runs", tmp / "data"
         (out / "big").mkdir(parents=True)
         # 2 pods x 2 processes: 4 lanes, one configuration each (w10a, w10b, ge6a, ge6b), 5 games per lane
-        argv = ["run", "--name", "t", "--step", f"big={jobs}", "--only", "w10a,w10b,ge6a,ge6b", "--pods", "2", "--procs", "2",
-                "--models", str(models), "--data", str(dat), "--out", str(out), "--max-gpu-hours", "10", "--cache", str(tmp / "nocache"),
+        # the issue #152 scenarios run with a 60-minute share per pod (2 GPU-hours over 2 pods)
+        cap = "2" if scenario in ("late pods", "cut, then rerun", "cut, accept partial") else "10"
+        argv = ["run", "--name", "t", "--step", f"big={jobs}", "--only", ",".join(tables), "--pods", "2", "--procs", "2", "--speed", "2",
+                "--models", str(models), "--data", str(dat), "--out", str(out), "--max-gpu-hours", cap, "--cache", str(tmp / "nocache"),
                 "--yes", *(["--volume", "vol1"] if use_volume else []), *(["--home-copy"] if scenario == "volume, home copy" else []),
-                "--", "--seed", "1", "--ranker", "delove@3"]
+                *(["--accept-partial"] if scenario == "cut, accept partial" else []), "--", "--seed", "1", "--ranker", "delove@3"]
+        first_rc, partial, kept_units, rerun_units = None, {}, 0, []
         try:
             rc = remote.main(argv)
+            if scenario == "cut, then rerun":
+                first_rc = rc
+                pf = out / "big" / "gpu.partial.json"
+                partial = json.loads(pf.read_text(encoding="utf8")) if pf.exists() else {}
+                kept_units = len(list((out / "remote" / "units" / "big").glob("*/gpu.json")))
+                scenario = "rerun"  # the same command again: the fake pods now finish everything
+                s0 = fake_ssh["s"]
+                rc = remote.main(argv)
+                s1 = fake_ssh["s"]
+                rerun_units = sorted(t for us in s1.units.values() for _, _, t in us)
+                scenario = "cut, then rerun"
+                fake_ssh["first"] = s0
         except KeyboardInterrupt:
             rc = "interrupted"
         finally:
-            remote.api, remote.Ssh, remote.time = saved
+            remote.api, remote.Ssh, remote.time, remote.gpu_stock = saved
         deleted = sorted(set(p for m, p in calls if m == "DELETE"))
         terminated = deleted == sorted(f"/pods/{i}" for i in pods)
         good = terminated and len(pods) == want_pods and rc == want_rc and not list(tmp.glob("runs/remote/upload-*.tar"))
@@ -282,6 +325,18 @@ def check_run(data: Path, jobs: str) -> bool:
             good = good and "pod0" in s.lanes and ("DELETE", "/pods/pod0") in calls
         if scenario == "success":
             good = good and "watchdog" in json.dumps(pods["pod0"]["dockerStartCmd"]) and "networkVolumeId" not in pods["pod0"]
+        if scenario == "late pods":  # 20 min without stock, then 45 min of games: both pods ran to the end, no cut
+            good = good and not s.salvaged and Clock.now - start > 60 * 60
+        if scenario == "cut, then rerun":  # the cut kept the 2 w10 configurations; the rerun played only the 2 ge6 ones
+            s0 = fake_ssh.get("first")
+            good = good and first_rc == 1 and s0 is not None and s0.salvaged == {"pod0", "pod1"} and kept_units == 2
+            good = good and sorted(t for u in partial.get("missing", []) for t in u["tables"]) == ["ge6a", "ge6b"]
+            good = good and rerun_units == ["ge6a", "ge6b"] and not (out / "big" / "gpu.partial.json").exists()
+            good = good and not (out / "remote" / "units" / "big").exists()  # merged and cleaned up
+        if scenario == "cut, accept partial":
+            good = good and sorted(t for u in res.get("partial", {}).get("missing", []) for t in u["tables"]) == ["ge6a", "ge6b"]
+        if scenario == "no stock":
+            good = good and not any(c[0] == "POST" for c in calls)
         if use_volume and s:  # pinned to the volume's data center; the archives on it are what volume.json says, in merge order
             small = scenario == "volume"
             good = good and all(b.get("networkVolumeId") == "vol1" and b.get("dataCenterIds") == ["EU-RO-1"] for b in pods.values())
@@ -289,11 +344,12 @@ def check_run(data: Path, jobs: str) -> bool:
                                 for j in s.jobs.values())
             man = json.loads((out / "remote" / "volume.json").read_text(encoding="utf8"))
             parts = man["steps"]["big"]["parts"]
-            good = good and man["volume"] == "vol1" and [x["lane"] for x in parts] == [0, 1, 2, 3] and all((volume / x["tar"]).exists() for x in parts)
+            good = good and man["volume"] == "vol1" and len(parts) == 4 and all((volume / x["tar"]).exists() for x in parts)
+            good = good and all(x["member"].startswith("lanes/") and x["member"].count("/") == 3 for x in parts)
             good = good and (out / "remote" / "eta").exists()
             if small:  # no arrays came home: gpu.json counted from features.json; the merge is the trainer's, on the volume
                 good = good and not (dat / "t-big").exists() and res.get("export", [{}])[0].get("games") == 20
-                good = good and parts[-1]["tar"].endswith("r1.tar.gz")  # the replaced lane comes from the replacement's archive
+                good = good and sum(x["tar"].endswith("r1.tar.gz") for x in parts) == 1  # the replaced lane: the replacement's archive
                 good = good and check_trainer(data, volume, man, pool[:20], tmp)
                 got = 20 if good else 0
         print(f"run ({scenario}): {len(pods)} pods created, {len(deleted)} terminated, exit {rc}, {got} games merged -> {'OK' if good else 'MISMATCH'}")

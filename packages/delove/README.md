@@ -45,6 +45,20 @@ the deck and discard theirs, dealt at random from the cards the seat can't see. 
 every opponent an empty hand, so the network and Jacob Sensei read every opponent's card count as 0 in live games
 (training saw the real counts).
 
+**Search at play time** (`--agents delove-branch`, seat name "Delove Search"): the seat plays branch and score
+(`src/branch.ts`, the same player that makes the training data) instead of the bare network: at each important
+decision it tries the network's favourites on copies of the board and keeps the best. It is configured by the same
+`DELOVE_BRANCH_*` variables as self-play (`src/branch-env.ts`); for live tables use the cycle settings with more
+options (#141 measured 4-5 options at +0.23 / +0.28 points per game over 3):
+
+```bash
+DELOVE_BRANCH_RANKER=delove@6 DELOVE_BRANCH_TEACHER=jacob-sensei@1 DELOVE_BRANCH_OPTIONS=5 DELOVE_BRANCH_HORIZON=1 \n  DELOVE_BRANCH_MARGIN=0.01 npm run delove-seat -- --server https://risky.deanthoneeking.com --join ABC123 --agents delove-branch
+```
+
+Every strong game AI searches when it plays (AlphaGo, Pluribus, Cicero); in Delove's own cycles the branch player
+wins several times its seat share at the big tables where the network it trains still trails Jacob Sensei. It
+thinks for longer per move (rollouts on the CPU), which matters little at tables with language-model seats.
+
 ### Generation 5 Testing & Environment Parity
 
 To evaluate Delove models on the exact game options used in Generation 5 live league play, see [`docs/game-settings.md`](../../docs/game-settings.md) and pre-built configs in `packages/delove/configs/`:

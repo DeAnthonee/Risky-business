@@ -4,7 +4,7 @@ import { registerAgent } from '@risk/selfplay';
 import { branchStats, writeBranchStats } from './branch.js';
 import { branchFromEnv, tunedParams } from './branch-env.js';
 import { discoverNetAgents, modelsDir } from './net-agent.js';
-import { jacob, makeJacob } from './jacob.js';
+import { jacob, jacob2, makeJacob } from './jacob.js';
 import { makeTeacher, teacher } from './teacher.js';
 
 /**
@@ -15,13 +15,14 @@ import { makeTeacher, teacher } from './teacher.js';
  */
 registerAgent(teacher);
 registerAgent(jacob);
+registerAgent(jacob2);
 
 // Tuned teachers: models/delove/delove-teacher@N.json holds that version's judgement numbers (src/tune.ts); later
-// Jacob Sensei versions (src/jacob.ts) are models/delove/jacob-sensei@N.json, N >= 2 (@1 is fixed in the code).
+// Jacob Sensei versions (src/jacob.ts) are models/delove/jacob-sensei@N.json, N >= 3 (@1 and @2 are fixed in the code).
 const dir = modelsDir();
 const tuned = tunedParams(dir);
 for (const [id, params] of tuned.sensei) registerAgent(makeTeacher(id, params));
-for (const [id, params] of tuned.jacob) if (id !== jacob.id) registerAgent(makeJacob(id, params));
+for (const [id, v] of tuned.jacob) if (id !== jacob.id && id !== jacob2.id) registerAgent(makeJacob(id, v.params, v.duel));
 
 /**
  * delove-branch@1: branch and score (src/branch.ts), configured by the DELOVE_BRANCH_* variables (branch-env.ts).

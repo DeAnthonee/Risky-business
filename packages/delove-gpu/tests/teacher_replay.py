@@ -130,7 +130,7 @@ def main():
                 break
         if batch:
             replay_batch(batch, args.agent, params, stats, args.max_turns, not args.no_board, cfg)
-    odds_out = f", odds outside the tables {stats['odds_out']}" if stats["odds_out"] else ""  # no nested quotes: Python < 3.12 on the pods
+    odds_out = f", odds outside the tables {stats['odds_out']}" if stats["odds_out"] else ""
     print(f"{stats['ok_games']}/{stats['games']} games replayed to the end, {stats['steps']} steps, "
           f"{stats['checked']} {args.agent} decisions checked, {stats['mismatch']} mismatches {stats['by_kind'] or ''}"
           f"{odds_out}, {time.time() - t0:.0f}s")

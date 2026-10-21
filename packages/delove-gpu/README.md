@@ -612,8 +612,9 @@ is free and a cycle's generation is spread over several GPUs. Nothing in it is a
 | --- | --- |
 | `cloud/remote.py` | runs on the training PC: splits the GPU steps over lanes, launches pods through the RunPod REST API, uploads, polls, downloads, terminates, merges (`plan`, `run`, `pods`, `terminate`) |
 | `cloud/worker.sh` | runs on a pod: unpacks the commit (`git archive`), Node 22, `npm ci` and builds the engine and self-play, installs the training PC's PyTorch version, loads the uploaded `_cache/` kernels, checks the fingerprint, runs every lane, deletes the models, packs `out.tar.gz` (gzip -1: the arrays shrink 11-25x) |
-| `cloud/merge.py` | joins several workers' map folders into one `DATA/<name>-<step>/<map>` (rows appended, `cand_offset` continued, `game` renumbered, counts summed; any per-row array such as `branch_tag.npy` included) and their summaries into the step's `gpu.json` |
-| `tests/cloud_check.py` | offline checks (no GPU, no pods): a real map folder cut into workers and merged back is identical game for game; the split places every table once and its jobs lines round-trip; `remote.py run` against a fake API terminates every pod on success, on a worker failure and on Ctrl+C |
+| `cloud/merge.py` | joins several workers' map folders into one `DATA/<name>-<step>/<map>` (rows appended, `cand_offset` continued, `game` renumbered, counts summed; any per-row array such as `branch_tag.npy` included) and their summaries into the step's `gpu.json` (for a step whose arrays stay on the network volume, only the summary, counted from the `features.json` files) |
+| `cloud/trainer.sh`, `cloud/trainer.py` | run on the training pod (`remote.py train`, "Cloud training" below): set up the commit and PyTorch, unpack the earlier cycles' datasets from the network volume, wait for generation, merge this cycle's archives there with `merge.py` (and keep them on the volume as datasets), run `train.py` and `export_onnx.py`, pack only the candidate's files and `train.log` |
+| `tests/cloud_check.py` | offline checks (no GPU, no pods): a real map folder cut into workers and merged back is identical game for game; the split places every table once and its jobs lines round-trip; `remote.py run` against a fake API and clock terminates every pod on every path, replaces an unreachable pod, a failed upload, a failed worker and a lane that delivered nothing, and exits 1 (after downloading the healthy pods) when a pod's share never gets played; with `--volume` the pods are pinned to the volume's data center, the arrays stay on it and `trainer.py` merges them into the same games; `remote.py train` (fake API, pod and clock) terminates every pod on every path, uploads only the init model, sends go only after generation, exits 3 when a dataset is not in the cloud, pushes it with `--push-missing`, replaces a failed host but not a failed training, and handles a generation failure; the API key goes only in the `Authorization` header |
 
 **How a step is split.** The unit is a configuration (map, seats, settings): `generate` plays all of a configuration's
 tables in one engine, and a configuration takes about as long as its longest games whatever their number (a lockstep
@@ -639,15 +640,26 @@ terminated as soon as its arrays are downloaded, and every pod on failure, timeo
 killed). Inside each pod a watchdog in the start command terminates it at the run's deadline (cap + 15 minutes) with
 `runpodctl` and the pod's own key, even if the training PC is gone. Without `--yes`, `run` only prints the plan.
 
+**One bad pod never sinks the run.** All pods are watched at once. A pod that is not reachable over SSH within
+`--ready-minutes` (default 15), whose upload fails (retried 4 times) or whose start command fails, is terminated and
+a replacement takes over its lanes; so is a pod that ends with lanes that delivered no `gpu.json` (a lane that failed
+mid-run), and its replacement plays only those lanes, so the lanes it finished are kept. Each planned pod may be
+replaced `--replacements` times (default 2), and only while the time left still fits its lanes; a refused create
+(no stock) is retried every minute and does not count. No more pods run at once than the plan has (a replacement is rented only once the old pod's DELETE succeeded, retried
+each pass), and a replacement's watchdog gets only the time that is left, so the GPU-hour cap still holds. When a planned pod's share
+cannot be finished, the other pods still play and download theirs, every step whose lanes all delivered is merged,
+the incomplete steps are not (no `gpu.json`, so a rerun plays them), and `run` exits 1.
+
 **Secrets and models.** The API key is read from `RUNPOD_API_KEY` (set by the owner in the environment) and only sent
 in the `Authorization` header: never printed, logged or written. SSH uses a fresh ed25519 key per run, generated
 under `OUT/remote/` and deleted at the end. The pods get only the models the tables need (each network seat's and the
 ranker's `.pt`, the teachers' `.json`), uploaded straight to the owner's pods; the worker deletes them once its games
-are played, `remote.py` deletes them again before terminating, terminating destroys the pod's disk (no network
-volume is used), and the local upload tar is deleted right after the upload.
+are played, `remote.py` deletes them again before terminating, terminating destroys the pod's disk (models are never
+written to a network volume: `--volume` holds training arrays only), and the local upload tar is deleted right after
+the upload.
 
 **Running it.** From a cycle: `REMOTE_GPUS=6` (and `REMOTE_TIMINGS`, `REMOTE_MAX_GPU_HOURS`, `REMOTE_PROCS`,
-`REMOTE_GPU_TYPE`: one RunPod GPU type id or several comma-separated, tried in that order, `REMOTE_CLOUD`) makes cycle.sh hand every GPU step to `remote.py run` with the same generate
+`REMOTE_GPU_TYPE`: one RunPod GPU type id or several comma-separated, tried in that order, `REMOTE_CLOUD`, `REMOTE_REPLACEMENTS`, `REMOTE_READY_MINUTES`) makes cycle.sh hand every GPU step to `remote.py run` with the same generate
 arguments as a local step; progress goes to `OUT/remote.log`, the merged arrays to `DATA/<name>-<step>/<map>` and each
 step's `gpu.json` and `gpu.log` to `OUT/<step>/`, so training, `summary.mjs` and the dashboard are unchanged. By hand
 (from `packages/delove-gpu`; the generate arguments go after `--`):
@@ -697,6 +709,68 @@ cycle 6's). The same four one after another take 756 s on the home 4060, about 4
 1.18-1.75x measured above: four processes give about 1.4x one process's throughput, not 4x; each runs 2-3x slower
 than alone (step 100 in 47-93 s against 45 s). The GPU, not the 32-core CPU, is what they share, so more pods with one
 process each scale far better; `--procs 2` may still fill a lane's straggler tail. $0.22.
+
+## Cloud training
+
+`remote.py train` trains a cycle's candidate on one rented GPU (RTX 4090 by default) with the generated games never
+leaving RunPod: the arrays go from the generation pods to a **RunPod network volume**, the training pod reads them
+there, and only the candidate's files (`.pt`, `.json`, `.onnx`, `.value.onnx`, about 10-30 MB) and `train.log` come
+home. The home GPU is then needed only for the gates. Opt-in: `REMOTE_TRAIN=1 REMOTE_VOLUME=<id>` in `cycle.sh`;
+home training stays the default and is the fallback.
+
+**Why a network volume.** A volume lives in one data center and every pod that mounts it (at `/workspace`) runs
+there, so generation and training meet on it with no transfer through home and no pod idling as a receiver.
+Pod-to-pod over SSH was the alternative: generation pods anywhere, but the training pod (or a receiver) must be up
+during all of generation and every generation pod would need an SSH key to it. The price of the volume is that the
+generation pods are pinned to its data center: pick one with RTX 4090 stock (`REMOTE_GPU_TYPE` takes a fallback list;
+a refused create is retried every minute).
+
+**Volume layout** (`/workspace/delove/`): `incoming/<name>/<pod>.tar.gz`, one archive per generation pod (`worker.sh`
+packs it there instead of `out.tar.gz`; only `gpu.json`, `gpu.log`, `results.jsonl` and `features.json` come home,
+unless `--home-copy`), and `datasets/<dataset>/<map>.tar.gz`, every merged dataset (gzip -1), kept for later cycles'
+`train_data`. `OUT/remote/volume.json` (written by `remote.py run --volume`) lists, step by step, which archive holds
+each lane's arrays in the order the home merge uses, so `trainer.py` writes the same folder a home merge would.
+
+**The training pod.** `cycle.sh` starts `remote.py train` with generation: it rents nothing until
+`REMOTE_TRAIN_LEAD` minutes (default 12) before generation's estimated end (`OUT/remote/eta`, kept up to date by
+`remote.py run`), then rents a pod in the volume's data center, checks what the volume holds, uploads the commit
+(`git archive`) and the init model only, and starts `trainer.sh`: PyTorch, then the earlier cycles' datasets unpacked
+onto the pod's own disk (`--disk-gb`, default 200; cycle 8's datasets are about 120 GB unpacked). When every GPU
+step's `gpu.json` (and CPU step's `export.json`) exists, `remote.py` writes `go.json`: the pod merges this cycle's
+archives (`merge.py`), keeps them as `datasets/`, deletes the incoming archives, runs `train.py` with the config's
+`train_data` (resolved to `<dataset>/<map>`; modes, `#F` and repeats kept) and `train_args`, then `export_onnx.py`.
+`remote.py` downloads the result into `DELOVE_MODELS` and `OUT/train.log`, and `cycle.sh` goes on to the gates.
+
+**When the data is not in the cloud.** The datasets of earlier cycles are on the volume only once pushed. A dataset
+the volume lacks makes `train` exit 3 before anything private is uploaded, and `cycle.sh` trains at home (which needs
+the arrays at home: `REMOTE_HOME_COPY=1` keeps a home copy of a volume run). `REMOTE_TRAIN_PUSH=cycle` uploads this
+cycle's missing datasets (CPU steps) from `DATA`; `REMOTE_TRAIN_PUSH=all` also the earlier ones, once: cycle 8's
+`train_data` used about 75 GB of cycle 5 and 6 arrays, about 5-7 GB compressed. To seed the volume outside a cycle:
+`remote.py train --no-train --push-missing all --data <dataset>/<map> ...` (any cheap GPU type will do).
+
+**Guarantees kept.** The estimate is printed first and `--max-gpu-hours` (default 1.5) is a hard cap; the pod's
+watchdog terminates it at the deadline even if the training PC is gone; every pod is terminated on every path (done,
+failure, generation failing, Ctrl+C; ids in `OUT/remote-train/pods.json`), and a replacement is rented only after the
+old pod's DELETE succeeded. A host that fails (not reachable, setup, driver) is replaced up to `--replacements`
+times; a failed training is not (it would fail again). The init model and the trained files exist only on the pod,
+are deleted before it is terminated, and are never written to the volume. The API key goes only in the
+`Authorization` header.
+
+**Cost and time (estimates; nothing measured yet, no paid run without the owner's OK).** Cycle 8 at home: 30 minutes
+of training (22k steps) after 45 minutes of generation on 10 pods. In the cloud, the setup and the earlier datasets
+overlap generation's end; after it, merging cycle 8's arrays (about 4 GB compressed, 47 GB unpacked) takes about 4-6
+minutes, training about 14 (2-2.5x the 4060) and the download a minute: about 20 minutes instead of 30, so about 10
+minutes saved per cycle (more if the merge is skipped later, by training on the per-lane folders). The pod is up about
+35 minutes: about $0.40-0.50 at $0.69-0.89/hour. The volume costs about $0.07/GB-month, so 50 GB (the compressed
+datasets of a few cycles) is about $3.50 a month. The generation pods download only small files: a minute or two
+less each.
+
+```bash
+python cloud/remote.py volume create --dc EU-RO-1 --size 50          # prints the monthly cost; --yes creates it
+python cloud/remote.py volume info <id>
+python cloud/remote.py train --name c9 --candidate c9-candidate --init delove@5 --models <models> --out <runs>/c9 \
+    --volume <id> --data c9-a1/classic --data "c6-big/world#0.3" ... -- --epochs 1.5 --batch 512 --amp   # dry run; --yes
+```
 
 ## What is left
 

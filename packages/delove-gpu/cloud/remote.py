@@ -15,6 +15,10 @@ longest-first by their measured cost (the "games in s (batch B)" lines of earlie
         --out runs/delove/c7 --max-gpu-hours 6 --yes -- --seed 307 --ranker delove@3 --teacher jacob-sensei@1 ...
     python cloud/remote.py pods                   # this account's delove-* pods, running or not
     python cloud/remote.py terminate --all        # terminate every delove-* pod (after a crash of this script)
+    # train a candidate on one cloud GPU from a network volume (README "Cloud training"; train.py's arguments after --)
+    python cloud/remote.py train --name c9 --candidate c9-candidate --init delove@5 --models models/delove --out runs/delove/c9 \
+        --volume <id> --data c9-a1/classic --data c6-big/world#0.3 --yes -- --epochs 1.5 --amp
+    python cloud/remote.py volume info <id>       # or: volume create --dc EU-RO-1 --size 50 [--yes]
 
 Everything after `--` goes to delove_gpu.generate unchanged (cycle.sh builds it as for a local GPU step).
 
@@ -56,6 +60,8 @@ from delove_gpu.fingerprint import REPO  # noqa: E402
 API = "https://rest.runpod.io/v1"
 PREFIX = "delove-"
 GPU_4090 = "NVIDIA GeForce RTX 4090"
+MOUNT = "/workspace"  # where a pod mounts the network volume
+VOL = MOUNT + "/delove"  # this tooling's folder on it: incoming/<name>/<pod>.tar.gz, datasets/<dataset>/<map>.tar.gz
 IMAGE = "runpod/pytorch:1.4.1-cu1281-torch291-ubuntu2204"  # the worker installs the training PC's torch on top
 SETUP_MIN = 10.0  # pod start, npm, pip and upload, before the first game (minutes; measure and adjust)
 COMPILE_S = 60.0  # one NVRTC compile per configuration when its kernel is not in the uploaded cache
@@ -181,6 +187,14 @@ def api(method: str, path: str, body: dict | None = None):
     return json.loads(text) if text.strip() else {}
 
 
+def volume_info(volume_id: str) -> dict:
+    """{id, name, size, dataCenterId} of a network volume of this account."""
+    r = api("GET", f"/networkvolumes/{volume_id}")
+    if not r.get("dataCenterId"):
+        raise SystemExit(f"network volume {volume_id}: no data center in RunPod's answer")
+    return r
+
+
 def watchdog_cmd(deadline_s: int) -> list[str]:
     """The pod's start command: a watchdog that terminates the pod at the deadline (with runpodctl and the pod's own
     key, so it works even if the training PC is gone), then the image's own start script (sshd with PUBLIC_KEY)."""
@@ -206,12 +220,14 @@ class Pod:
     lanes: list = field(default_factory=list)
 
 
-def create_pod(name: str, args, pub: str, deadline_s: int) -> Pod:
+def create_pod(name: str, args, pub: str, deadline_s: int, volume: dict | None = None) -> Pod:
     body = {"name": name, "imageName": args.image, "gpuTypeIds": [g.strip() for g in args.gpu_type.split(",")], "gpuTypePriority": "custom",
             "gpuCount": args.gpus, "cloudType": args.cloud,
             "containerDiskInGb": args.disk_gb, "volumeInGb": 0, "ports": ["22/tcp"], "supportPublicIp": True,
             "env": {"PUBLIC_KEY": pub, "SSH_PUBLIC_KEY": pub},  # no allowedCudaVersions: any value refuses every placement (worker.sh checks the driver)
             "dockerStartCmd": watchdog_cmd(deadline_s)}
+    if volume:  # the network volume (mounted at /workspace) pins the pod to the volume's data center
+        body.update({"networkVolumeId": volume["id"], "dataCenterIds": [volume["dataCenterId"]], "volumeMountPath": MOUNT})
     r = api("POST", "/pods", body)
     return Pod(r["id"], name, float(r.get("costPerHr") or 0), started=time.time())
 
@@ -273,7 +289,7 @@ class Ssh:
 
     def get(self, pod: Pod, remote: str, local: Path, timeout: float = 4 * 3600):
         q = shlex.quote(remote)
-        size = int(self.run(pod, f"stat -c %s {q}").strip())
+        size = int(self.run(pod, f"stat -Lc %s {q}").strip())  # -L: out.tar.gz may link to the network volume
         with open(local, "wb") as f:
             subprocess.run([self.exe, *self.opts("-p", pod), f"root@{pod.ip}", f"cat {q}"], stdout=f, check=True, timeout=timeout)
         if local.stat().st_size != size:
@@ -336,7 +352,7 @@ def lane_script(lane: Lane, gen_args: list[str]) -> str:
 
 
 def build_upload(work: Path, pod_index: int, lanes: list[Lane], gen_args: list[str], model_files: list[Path], cache: Path | None,
-                 commit: str, torch_version: str, verify: list[str] | None) -> Path:
+                 commit: str, torch_version: str, verify: list[str] | None, volume_tar: str | None = None, home: str = "full") -> Path:
     stage = work / f"stage-{pod_index}"
     shutil.rmtree(stage, ignore_errors=True)
     (stage / "lanes").mkdir(parents=True)
@@ -350,7 +366,8 @@ def build_upload(work: Path, pod_index: int, lanes: list[Lane], gen_args: list[s
         for c in cache.glob("*.cubin"):  # the odds tables (240 MB) are built on the pod, once, in about two minutes
             shutil.copyfile(c, stage / "cache" / c.name)
     (stage / "worker.sh").write_bytes((HERE / "worker.sh").read_bytes().replace(b"\r\n", b"\n"))  # a CRLF checkout
-    (stage / "job.json").write_text(json.dumps({"torch": torch_version, "verify": verify}), encoding="utf8")
+    (stage / "job.json").write_text(json.dumps({"torch": torch_version, "verify": verify,
+                                                "volume": volume_tar and f"{VOL}/{volume_tar}", "home": home}), encoding="utf8")
     for lane in lanes:
         for step in dict.fromkeys(u.step for u in lane.units):
             lines = [table_line(t) for u in lane.units if u.step == step for t in u.tables]
@@ -408,8 +425,9 @@ def todo(work: Path, lane: Lane) -> Lane | None:
     return Lane(lane.index, lane.pod, lane.gpu, units) if units else None
 
 
-def collect(work: Path, slot: Slot, tar: Path):
-    """Keep every lane and step of a pod's out.tar.gz that delivered its gpu.json, as work/pod-<k>/lanes/<i>/<step>."""
+def collect(work: Path, slot: Slot, tar: Path, volume_tar: str | None = None):
+    """Keep every lane and step of a pod's out.tar.gz that delivered its gpu.json, as work/pod-<k>/lanes/<i>/<step>
+    (with a network volume, volume.txt names the archive on it that holds the lane's arrays)."""
     tmp = work / f"attempt-{slot.k}-{slot.tries}"
     shutil.rmtree(tmp, ignore_errors=True)
     extract(tar, tmp)
@@ -424,6 +442,8 @@ def collect(work: Path, slot: Slot, tar: Path):
             shutil.rmtree(target, ignore_errors=True)
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(d), str(target))
+            if volume_tar:
+                (target / "volume.txt").write_text(volume_tar, encoding="utf8")
     shutil.rmtree(tmp, ignore_errors=True)
 
 
@@ -453,6 +473,12 @@ def run(args, gen_args: list[str]):
 
     torch_version = args.torch or md.version("torch")
     model_files = needed_models(units, gen_args, Path(args.models))
+    vol = volume_info(args.volume) if args.volume else None
+    home = "small" if vol and not args.home_copy else "full"
+    vtar = (lambda p: f"incoming/{args.name}/{p.name}.tar.gz") if vol else (lambda p: None)
+    if vol:
+        print(f"network volume {vol['id']} in {vol['dataCenterId']}: the arrays go to {VOL}/incoming/{args.name}/"
+              + ("" if home == "small" else " and are downloaded too"), flush=True)
     for old in list(work.glob("pod-*")) + list(work.glob("attempt-*")):  # a previous run's lanes may be another plan's
         shutil.rmtree(old, ignore_errors=True)
     # The hard limit: no more pods run at once than the plan has, and all of them are terminated when the cap's share
@@ -465,6 +491,17 @@ def run(args, gen_args: list[str]):
     t0 = time.time()
     stamp = dt.datetime.now().strftime("%m%d-%H%M")
     verify = shlex.split(args.verify) if args.verify else None
+    eta_file = work / "eta"  # the estimated end, for `remote.py train --eta` (it rents its pod a little before)
+    eta_file.write_text(f"{t0 + wall * 60:.0f}\n", encoding="utf8")
+
+    def eta():
+        ends = [time.time()]
+        for s in slots:
+            left = [lane for lane in (todo(work, lane) for lane in s.lanes) if lane] if not (s.done or s.failed) else []
+            if left:
+                begun = s.pod.started if s.pod else time.time()
+                ends.append(begun + (SETUP_MIN + max(lane.minutes for lane in left) / args.speed + 5) * 60)
+        eta_file.write_text(f"{max(ends):.0f}\n", encoding="utf8")
 
     def save():
         ledger.write_text(json.dumps([p.__dict__ for p in pods], indent=1), encoding="utf8")
@@ -511,7 +548,7 @@ def run(args, gen_args: list[str]):
         slot.tries += 1
         try:
             p = create_pod(f"{PREFIX}{args.name}-{stamp}-{slot.k}" + (f"r{slot.tries - 1}" if slot.tries > 1 else ""), args, ssh.pub,
-                           int(remaining + 900))
+                           int(remaining + 900), vol)
         except RunPodError as e:
             slot.tries -= 1  # nothing was rented
             slot.create_fails += 1
@@ -530,7 +567,7 @@ def run(args, gen_args: list[str]):
     def start(slot: Slot):
         p = slot.pod
         left = [lane for lane in (todo(work, lane) for lane in slot.lanes) if lane]
-        tar = build_upload(work, slot.k, left, gen_args, model_files, cache, commit, torch_version, verify)
+        tar = build_upload(work, slot.k, left, gen_args, model_files, cache, commit, torch_version, verify, vtar(p), home)
         try:
             ssh.put(p, tar, "/root/upload.tar")
         finally:
@@ -548,7 +585,7 @@ def run(args, gen_args: list[str]):
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired, RuntimeError, ValueError):
             print(f"  {p.name}: no out.tar.gz to download")
         if dest.exists():
-            collect(work, slot, dest)
+            collect(work, slot, dest, vtar(p))
             dest.unlink()
         if all(todo(work, lane) is None for lane in slot.lanes):
             ssh.run(p, "rm -rf /root/job/models", check=False)
@@ -611,6 +648,7 @@ def run(args, gen_args: list[str]):
                     finish(s, state)
             if loud:
                 last = time.time()
+                eta()
             time.sleep(15)
     finally:
         for p in pods:
@@ -626,7 +664,7 @@ def run(args, gen_args: list[str]):
         print(f"pods: {len(pods)} ({len(pods) - len(slots)} replacements), {hours:.2f} pod-hours, "
               f"about ${sum(((p.ended or time.time()) - p.started) / 3600 * p.cost for p in pods):.2f}")
         ssh.forget()
-    rc = merge_all(args, steps, lanes, work, pods, time.time() - t0)
+    rc = merge_all(args, steps, lanes, work, pods, time.time() - t0, vol, home)
     failed = [f"slot {s.k} (lanes {[lane.index for lane in s.lanes]}): {s.failed}" for s in slots if s.failed]
     if failed:
         print("FAILED (the steps they left incomplete were not merged; the others were):\n  " + "\n  ".join(failed))
@@ -634,8 +672,17 @@ def run(args, gen_args: list[str]):
     return rc
 
 
-def merge_all(args, steps, lanes: list[Lane], work: Path, pods: list[Pod], seconds: float) -> int:
+def merge_all(args, steps, lanes: list[Lane], work: Path, pods: list[Pod], seconds: float, vol: dict | None = None,
+              home: str = "full") -> int:
+    """Each finished step's gpu.json and gpu.log in OUT/<step>/, and its arrays in DATA/<name>-<step>/ (home "full").
+    With a network volume, OUT/remote/volume.json records which archive on it holds each lane's arrays, in merge order,
+    for `remote.py train` (cloud/trainer.py merges them there exactly as merge_step does here)."""
     from merge import merge_step
+
+    manifest_file = work / "volume.json"
+    manifest = json.loads(manifest_file.read_text(encoding="utf8")) if manifest_file.exists() else {}
+    if vol and manifest.get("volume") not in (None, vol["id"]):
+        manifest = {}  # another volume's archives
 
     out, data = Path(args.out), Path(args.data)
     env = {}
@@ -658,17 +705,380 @@ def merge_all(args, steps, lanes: list[Lane], work: Path, pods: list[Pod], secon
             continue
         extra = {"lanes": [lane.index for lane, _ in logs], "pods": len(pods), "gpuType": args.gpu_type, "gpus": env,
                  "wallSeconds": round(seconds, 1), "costPerHour": [p.cost for p in pods]}
-        merged = merge_step(parts, data / f"{args.name}-{step}", extra)
+        merged = merge_step(parts, data / f"{args.name}-{step}" if home == "full" else None, extra)
+        if vol:
+            manifest.update({"volume": vol["id"], "dataCenter": vol["dataCenterId"]})
+            manifest.setdefault("steps", {})[step] = {
+                "dataset": f"{args.name}-{step}", "maps": [e["map"] for e in merged.get("export", [])],
+                "parts": [{"tar": (lane_dir(work, lane, step) / "volume.txt").read_text(encoding="utf8"), "lane": lane.index} for lane, _ in logs]}
+            manifest_file.write_text(json.dumps(manifest, indent=1) + "\n", encoding="utf8")
         (out / step).mkdir(parents=True, exist_ok=True)  # cycle.sh makes it; a run by hand may not have
         with open(out / step / "gpu.log", "w", encoding="utf8", newline="\n") as f:
             for lane, log in logs:
                 f.write(f"==== lane {lane.index} (pod {lane.pod}, GPU {lane.gpu}) ====\n")
                 f.write(log.read_text(encoding="utf8", errors="replace"))
         (out / step / "gpu.json").write_text(json.dumps(merged, indent=2) + "\n", encoding="utf8")
-        print(f"{step}: {merged['games']} games -> {data / f'{args.name}-{step}'} ({', '.join(e['map'] for e in merged.get('export', []))})")
+        where = data / f"{args.name}-{step}" if home == "full" else f"the volume ({VOL}/incoming/{args.name}/)"
+        print(f"{step}: {merged['games']} games -> {where} ({', '.join(e['map'] for e in merged.get('export', []))})")
     if not args.keep:
         for lane in lanes:
             shutil.rmtree(work / f"pod-{lane.pod}" / "lanes" / str(lane.index), ignore_errors=True)
+    return 0
+
+
+# ---- train on a cloud GPU -------------------------------------------------------------------------------------------
+TRAIN_SETUP_MIN = 8.0  # pod start, the commit, PyTorch (minutes; measure and adjust)
+TRAIN_PREP_MIN = 8.0  # merging the cycle's arrays and unpacking every dataset on the pod (about 120 GB for cycle 8)
+MISSING = 3  # `train` exit code: a dataset is not on the volume (nothing trained; cycle.sh trains at home instead)
+MODES = ("imitate", "winners", "advantage", "value")
+
+
+def parse_data(spec: str) -> dict:
+    """'<dataset>/<map>[:mode][#F]' (cycle.sh's resolved train_data entry) as trainer.py's {dataset, map, suffix}."""
+    rest, suffix = spec, ""
+    if "#" in rest:
+        rest, f = rest.rsplit("#", 1)
+        suffix = f"#{f}"
+    for m in MODES:
+        if rest.endswith(":" + m):
+            rest, suffix = rest[: -len(m) - 1], f":{m}{suffix}"
+    parts = rest.replace("\\", "/").strip("/").split("/")
+    if len(parts) != 2 or not all(parts) or any(p in (".", "..") for p in parts):
+        raise SystemExit(f"--data {spec!r}: not <dataset>/<map> (a path outside DATA cannot train in the cloud)")
+    return {"dataset": parts[0], "map": parts[1], "suffix": suffix}
+
+
+def on_volume(inventory: set[str], steps: dict, ds: str, m: str) -> bool:
+    """The dataset is on the volume already, or the incoming archives to merge it are."""
+    if f"datasets/{ds}/{m}.tar.gz" in inventory:
+        return True
+    return any(s["dataset"] == ds and m in s["maps"] and all(p["tar"] in inventory for p in s["parts"]) for s in steps.values())
+
+
+def pack_dataset(folder: Path, out: Path):
+    with tarfile.open(out, "w:gz", compresslevel=1) as t:
+        t.add(folder, arcname=folder.name)
+
+
+def train(args, train_args: list[str]) -> int:
+    """One training pod in the volume's data center (cloud/trainer.sh, cloud/trainer.py). With --wait-for, the pod is
+    rented --lead-minutes before generation's estimated end (--eta), sets up and unpacks the earlier cycles' datasets
+    while generation finishes, and gets this cycle's steps (go.json) once every --wait-for file exists. Exit 0: the
+    candidate's files are in --models and train.log in OUT; 3 (MISSING): a dataset is not in the cloud, nothing was
+    trained; 1: a failure. Every pod is terminated on every path."""
+    out = Path(args.out)
+    work = out / "remote-train"
+    data = [parse_data(d) for d in args.data]
+    mine = lambda ds: ds.startswith(f"{args.name}-")  # noqa: E731 - this cycle's datasets (merged on the pod)
+    train_min = 0 if args.no_train else args.home_minutes / args.speed
+    minutes = TRAIN_SETUP_MIN + TRAIN_PREP_MIN + train_min + 3
+    gpu_hours = minutes / 60
+    print(f"train {args.candidate or '(no training)'} on one cloud GPU: {len({(d['dataset'], d['map']) for d in data})} datasets; about {minutes:.0f} min "
+          f"of pod ({TRAIN_SETUP_MIN:.0f} setup + {TRAIN_PREP_MIN:.0f} data + {train_min:.0f} training at {args.speed}x the home GPU "
+          f"+ 3 export and download), about ${gpu_hours * args.price:.2f} at ${args.price:.2f}/GPU-hour"
+          + (f"; the setup and earlier datasets overlap generation's last {args.lead_minutes:.0f} min" if args.wait_for else ""), flush=True)
+    if gpu_hours > args.max_gpu_hours:
+        raise SystemExit(f"estimated {gpu_hours:.2f} GPU-hours is over the cap --max-gpu-hours {args.max_gpu_hours}; nothing launched")
+    if not args.yes:
+        print("dry run: add --yes to launch")
+        return 0
+    work.mkdir(parents=True, exist_ok=True)
+    models = Path(args.models)
+    init = models / f"{args.init}.pt" if args.init else None
+    if init and not init.exists():
+        raise SystemExit(f"missing init model {init}")
+    commit = subprocess.run(["git", "rev-parse", args.commit], cwd=REPO, capture_output=True, text=True, check=True).stdout.strip()
+    import importlib.metadata as md
+
+    torch_version = args.torch or md.version("torch")
+    abort_file = Path(args.abort_file) if args.abort_file else work / "abort"
+    wait_for = [Path(f) for f in args.wait_for]
+    launched = time.time()
+    manifest_file = Path(args.manifest) if args.manifest else out / "remote" / "volume.json"
+    data_root = Path(args.data_root) if args.data_root else None
+
+    def generated() -> bool:
+        return all(f.exists() for f in wait_for)
+
+    def waited_too_long() -> bool:
+        return time.time() - launched > args.wait_minutes * 60
+
+    # No pod while generation still has more than --lead-minutes to go (its estimated end: remote.py run's eta file).
+    while wait_for and not generated():
+        if abort_file.exists():
+            print(f"{abort_file}: generation failed; nothing rented", flush=True)
+            return 1
+        if waited_too_long():
+            print(f"generation not done after {args.wait_minutes:.0f} min; nothing rented", flush=True)
+            return 1
+        try:
+            eta = float(Path(args.eta).read_text(encoding="utf8").strip()) if args.eta else None
+        except (OSError, ValueError):
+            eta = None
+        if eta is not None and time.time() >= eta - args.lead_minutes * 60:
+            break
+        time.sleep(30)
+
+    vol = volume_info(args.volume)
+    ssh = Ssh(work)
+    pods: list[Pod] = []
+    ledger = work / "pods.json"
+    t0 = time.time()
+    limit = args.max_gpu_hours * 3600  # one pod at a time, so the wall time is the GPU time
+    stamp = dt.datetime.now().strftime("%m%d-%H%M")
+
+    def save():
+        ledger.write_text(json.dumps([p.__dict__ for p in pods], indent=1), encoding="utf8")
+
+    def left() -> float:
+        return limit - (time.time() - t0)
+
+    def end(p: Pod):
+        """Terminate p and wait until RunPod confirms it (a failed DELETE is retried), so two pods never run at once."""
+        if p.ip and not p.gone:
+            try:
+                ssh.run(p, "rm -rf /root/job/models /root/job/out", timeout=30, check=False)
+            except Exception:  # noqa: BLE001 - terminating matters more
+                pass
+        while not p.gone:
+            terminate(p)
+            if not p.gone:
+                if left() < -600:
+                    break  # the pod's own watchdog ends it at the deadline
+                time.sleep(15)
+        if p.state != "done":
+            p.state = "failed"
+        save()
+
+    def tail(p: Pod) -> str:
+        try:
+            return ssh.run(p, "tail -n 25 /root/job/setup.log /root/job/prep.log /root/job/train.log 2>/dev/null; true", timeout=60, check=False)
+        except Exception:  # noqa: BLE001
+            return ""
+
+    def inventory(p: Pod) -> set[str]:
+        return set(ssh.run(p, f"cd {VOL} 2>/dev/null && find datasets incoming -name '*.tar.gz' 2>/dev/null; true", timeout=120).split())
+
+    def have(p: Pod, inv: set[str], steps: dict, which) -> bool:
+        """The datasets of `data` that `which` picks are on the volume (or their archives are), after pushing the ones
+        --push-missing allows; False (and why) when one cannot be had in the cloud."""
+        missing = sorted({(d["dataset"], d["map"]) for d in data if which(d["dataset"]) and not on_volume(inv, steps, d["dataset"], d["map"])})
+        push, stuck = [], []
+        for ds, m in missing:
+            home = data_root / ds / m if data_root else None
+            if (args.push_missing == "all" or (args.push_missing == "cycle" and mine(ds))) and home and (home / "features.json").exists():
+                push.append((ds, m, home))
+            else:
+                stuck.append(f"{ds}/{m}")
+        if stuck:
+            print(f"not on the volume {vol['id']}: {', '.join(stuck)} (--push-missing {args.push_missing}); nothing trained in the cloud", flush=True)
+            return False
+        for ds, m, home in push:
+            print(f"  pushing {ds}/{m} from {home} to the volume (once: later cycles find it there)", flush=True)
+            local = work / f"push-{ds}-{m}.tar.gz"
+            try:
+                pack_dataset(home, local)
+                ssh.run(p, f"mkdir -p {VOL}/datasets/{shlex.quote(ds)}")
+                ssh.put(p, local, f"{VOL}/datasets/{ds}/{m}.tar.gz", timeout=6 * 3600)
+            finally:
+                local.unlink(missing_ok=True)
+        return True
+
+    def start(p: Pod) -> bool:
+        """Earlier datasets checked (and pushed), the job uploaded and the trainer started. False: a dataset is missing
+        (nothing private was uploaded)."""
+        if not have(p, inventory(p), {}, lambda ds: not mine(ds)):
+            return False
+        stage = work / "stage"
+        shutil.rmtree(stage, ignore_errors=True)
+        (stage / "models").mkdir(parents=True)
+        with open(stage / "src.tar", "wb") as f:
+            subprocess.run(["git", "-c", "core.autocrlf=false", "archive", "--format=tar", commit], cwd=REPO, stdout=f, check=True)
+        if init:
+            shutil.copyfile(init, stage / "models" / init.name)
+        (stage / "trainer.sh").write_bytes((HERE / "trainer.sh").read_bytes().replace(b"\r\n", b"\n"))
+        job = {"torch": torch_version, "name": args.name, "candidate": args.candidate, "init": args.init or None,
+               "train": not args.no_train, "train_args": train_args, "data": data}
+        (stage / "job.json").write_text(json.dumps(job, indent=1), encoding="utf8")
+        tar = work / "upload.tar"
+        with tarfile.open(tar, "w") as t:
+            for x in sorted(stage.iterdir()):
+                t.add(x, arcname=x.name)
+        shutil.rmtree(stage)  # the staged copy of the init model
+        try:
+            ssh.put(p, tar, "/root/upload.tar")
+        finally:
+            tar.unlink(missing_ok=True)  # it holds the init model
+        ssh.run(p, "mkdir -p /root/job && tar -xf /root/upload.tar -C /root/job && rm /root/upload.tar && "
+                   "(setsid nohup bash /root/job/trainer.sh /root/job > /root/job/trainer.out 2>&1 < /dev/null &)")
+        p.state = "running"
+        save()
+        return True
+
+    def send(p: Pod, go: dict):
+        f = work / "go.json"
+        f.write_text(json.dumps(go, indent=1), encoding="utf8")
+        ssh.put(p, f, "/root/job/go.json")
+        f.unlink()
+
+    def go_steps(p: Pod) -> dict | None:
+        """This cycle's steps for go.json (generation's volume.json), or None when a dataset of this cycle is missing."""
+        manifest = json.loads(manifest_file.read_text(encoding="utf8")) if manifest_file.exists() else {}
+        if manifest and manifest.get("volume") != vol["id"]:
+            print(f"{manifest_file} is for volume {manifest.get('volume')}, not {vol['id']}: its steps are ignored", flush=True)
+            manifest = {}
+        inv = inventory(p)
+        steps = {k: s for k, s in manifest.get("steps", {}).items()
+                 if all(f"datasets/{s['dataset']}/{m}.tar.gz" in inv for m in s["maps"]) or all(x["tar"] in inv for x in s["parts"])}
+        for k in sorted(set(manifest.get("steps", {})) - set(steps)):
+            print(f"  step {k}: its archives are not on the volume: not merged", flush=True)
+        return steps if have(p, inv, steps, mine) else None
+
+    def deliver(p: Pod) -> bool:
+        dest = work / "result.tar.gz"
+        ssh.get(p, "/root/job/result.tar.gz", dest)
+        res = work / "result"
+        shutil.rmtree(res, ignore_errors=True)
+        extract(dest, res)
+        dest.unlink()
+        names = [f"{args.candidate}{s}" for s in (".pt", ".json", ".value.onnx", ".onnx")]  # .onnx last: cycle.sh's "trained"
+        lacking = [n for n in names + ["train.log"] if not (res / n).exists()]
+        if lacking:
+            print(f"  the result lacks {lacking}", flush=True)
+            return False
+        shutil.copyfile(res / "train.log", out / "train.log")
+        models.mkdir(parents=True, exist_ok=True)
+        for n in names:
+            shutil.copyfile(res / n, models / n)
+        shutil.rmtree(res)
+        print(f"trained {args.candidate} -> {models} (train.log in {out})", flush=True)
+        return True
+
+    errors = (subprocess.CalledProcessError, subprocess.TimeoutExpired, RuntimeError, ValueError, OSError)
+    rc = 1
+    try:
+        tries = refused = 0
+        while tries <= args.replacements:
+            if left() < (TRAIN_SETUP_MIN + 5) * 60:
+                print("too little of --max-gpu-hours is left for another pod; giving up", flush=True)
+                break
+            try:
+                p = create_pod(f"{PREFIX}{args.name}-train-{stamp}" + (f"r{tries}" if tries else ""), args, ssh.pub, int(left() + 900), vol)
+            except RunPodError as e:
+                refused += 1
+                if refused >= 10:
+                    print(f"no pod in {vol['dataCenterId']} after 10 tries ({e})", flush=True)
+                    break
+                print(f"  no pod ({e}); trying again in a minute", flush=True)
+                time.sleep(60)
+                continue
+            tries += 1
+            pods.append(p)
+            save()
+            print(f"pod {p.name} ({p.id}) created in {vol['dataCenterId']}, ${p.cost:.2f}/h", flush=True)
+            up = False
+            while time.time() - p.started < args.ready_minutes * 60:
+                if ready(p, ssh):
+                    up = True
+                    break
+                time.sleep(15)
+            if not up:
+                print(f"  pod {p.name}: not reachable over SSH after {args.ready_minutes:.0f} min", flush=True)
+                end(p)
+                continue
+            print(f"pod {p.name} ready at {p.ip}:{p.port}", flush=True)
+            try:
+                if not start(p):
+                    rc = MISSING
+                    break
+            except errors as e:
+                print(f"  pod {p.name}: upload or start failed ({type(e).__name__}: {str(e)[:200]})", flush=True)
+                end(p)
+                continue
+            replace, sent, last = False, False, 0.0
+            while True:
+                if left() < 0:
+                    print(f"the run reached its limit ({limit / 60:.0f} min, --max-gpu-hours {args.max_gpu_hours})", flush=True)
+                    break
+                if not sent and (abort_file.exists() or waited_too_long()):
+                    why = "generation failed" if abort_file.exists() else f"generation not done after {args.wait_minutes:.0f} min"
+                    print(f"  {why}; ending {p.name}", flush=True)
+                    try:
+                        send(p, {"abort": why})
+                    except errors:
+                        pass
+                    break
+                try:
+                    st = ssh.run(p, "cat /root/job/status 2>/dev/null || echo missing; pgrep -f '[t]rainer' >/dev/null && echo alive || echo dead;"
+                                    " tail -n 1 /root/job/prep.log 2>/dev/null; tail -n 1 /root/job/train.log 2>/dev/null; true", timeout=60)
+                except (RuntimeError, subprocess.TimeoutExpired) as e:
+                    print(f"  {p.name}: {e}", flush=True)
+                    time.sleep(15)
+                    continue
+                lines = st.splitlines()
+                state = lines[0] if lines else "?"
+                if state != "done" and not state.startswith("failed") and len(lines) > 1 and lines[1] == "dead":
+                    p.dead += 1  # twice in a row: the trainer is gone without a status
+                    if p.dead >= 2:
+                        state = f"failed: setup: the trainer stopped while {state}"
+                else:
+                    p.dead = 0
+                if not sent and generated() and not state.startswith("failed"):
+                    try:
+                        steps = go_steps(p)
+                        send(p, {"steps": steps} if steps is not None else {"abort": "a dataset is not on the volume"})
+                    except errors as e:
+                        print(f"  {p.name}: sending go.json failed ({type(e).__name__}: {str(e)[:200]})", flush=True)
+                        time.sleep(15)
+                        continue
+                    sent = True
+                    if steps is None:
+                        rc = MISSING
+                        break
+                    print(f"  {p.name}: generation done; {len(steps)} steps to merge", flush=True)
+                if time.time() - last > 120:
+                    last = time.time()
+                    print(f"[{dt.datetime.now():%H:%M:%S}] {p.name}: {state}", flush=True)
+                    for line in lines[2:]:
+                        print("    " + line[:200], flush=True)
+                if state == "done":
+                    try:
+                        rc = 0 if args.no_train or deliver(p) else 1
+                    except errors as e:
+                        print(f"  {p.name}: download failed ({type(e).__name__}: {str(e)[:200]})", flush=True)
+                    p.state = "done"
+                    break
+                if state.startswith("failed"):
+                    print(f"  {p.name}: {state}\n{tail(p)}", flush=True)
+                    replace = state.startswith("failed: setup")  # the host, not the data or the training
+                    break
+                time.sleep(30)
+            end(p)
+            if not replace:
+                break
+    finally:
+        for p in pods:
+            if not p.gone:
+                end(p)
+        save()
+        hours = sum(((p.ended or time.time()) - p.started) / 3600 for p in pods)
+        print(f"pods: {len(pods)}, {hours:.2f} pod-hours, about ${sum(((p.ended or time.time()) - p.started) / 3600 * p.cost for p in pods):.2f}, "
+              f"{(time.time() - t0) / 60:.1f} min from the first pod", flush=True)
+        ssh.forget()
+    return rc
+
+
+def volume_cmd(args) -> int:
+    if args.action == "info":
+        v = volume_info(args.id)
+        print(f"{v['id']}  {v.get('name')}  {v.get('size')} GB  {v['dataCenterId']}")
+        return 0
+    if not args.yes:
+        print(f"would create network volume {args.label!r}, {args.size} GB in {args.dc} "
+              f"(billed while it exists: about ${args.size * 0.07:.2f}/month at $0.07/GB-month); add --yes")
+        return 0
+    v = api("POST", "/networkvolumes", {"name": args.label, "size": args.size, "dataCenterId": args.dc})
+    print(f"created network volume {v['id']} ({args.size} GB in {v.get('dataCenterId', args.dc)}): REMOTE_VOLUME={v['id']}")
     return 0
 
 
@@ -727,7 +1137,51 @@ def main(argv=None) -> int:
             p.add_argument("--replacements", type=int, default=2, help="pods that may replace one that fails (per planned pod)")
             p.add_argument("--ready-minutes", type=float, default=15, help="a pod not reachable over SSH by then is replaced")
             p.add_argument("--keep", action="store_true", help="keep the downloaded per-lane arrays after merging")
+            p.add_argument("--volume", help="RunPod network volume id: the pods run in its data center and write their arrays to it, "
+                                            "for `remote.py train` (only the small files come home, unless --home-copy)")
+            p.add_argument("--home-copy", action="store_true", help="with --volume: download and merge the arrays at home too")
             p.add_argument("--yes", action="store_true", help="launch (without it: print the plan and cost only)")
+    p = sub.add_parser("train", help="train a cycle's candidate on one cloud GPU, from datasets on a network volume (train.py's "
+                                      "arguments after --)")
+    p.add_argument("--name", required=True, help="the cycle's name (its datasets are <name>-<step>)")
+    p.add_argument("--candidate", help="the model to train (e.g. c9-candidate): <models>/<candidate>.pt, .json, .onnx, .value.onnx")
+    p.add_argument("--init", help="start from <models>/<init>.pt (the only model uploaded)")
+    p.add_argument("--models", required=True)
+    p.add_argument("--out", required=True, help="the cycle's runs folder: OUT/train.log, OUT/remote-train/, OUT/remote/volume.json")
+    p.add_argument("--data", action="append", default=[], help="<dataset>/<map>[:mode][#F] (repeat; in train.py's order, repeats included)")
+    p.add_argument("--volume", required=True, help="the RunPod network volume id (the pod runs in its data center)")
+    p.add_argument("--manifest", help="generation's volume.json (default OUT/remote/volume.json): this cycle's archives to merge")
+    p.add_argument("--data-root", help="the training PC's DATA, for --push-missing")
+    p.add_argument("--push-missing", choices=["none", "cycle", "all"], default="none",
+                   help="upload datasets the volume lacks from DATA (cycle: only this cycle's, e.g. CPU steps); else exit 3")
+    p.add_argument("--wait-for", action="append", default=[], help="files generation writes when done (each GPU step's gpu.json): "
+                   "the pod sets up and unpacks the earlier datasets first, and merges and trains once they all exist")
+    p.add_argument("--eta", help="generation's estimated end (remote.py run writes OUT/remote/eta): no pod before --lead-minutes before it")
+    p.add_argument("--lead-minutes", type=float, default=12, help="rent the pod this long before --eta")
+    p.add_argument("--wait-minutes", type=float, default=240, help="give up (and terminate) if --wait-for is not there by then")
+    p.add_argument("--abort-file", help="cycle.sh touches it when generation failed (default OUT/remote-train/abort)")
+    p.add_argument("--no-train", action="store_true", help="only merge and push onto the volume (e.g. to seed older datasets once)")
+    p.add_argument("--home-minutes", type=float, default=30, help="the same training on the home GPU (estimate only)")
+    p.add_argument("--speed", type=float, default=2.2, help="the cloud GPU's training speed vs the home GPU (estimate only)")
+    p.add_argument("--price", type=float, default=0.89)
+    p.add_argument("--max-gpu-hours", type=float, default=1.5, help="hard cap: refuse a bigger estimate, terminate at it")
+    p.add_argument("--gpu-type", default=GPU_4090)
+    p.add_argument("--gpus", type=int, default=1)
+    p.add_argument("--cloud", default="SECURE", choices=["SECURE", "COMMUNITY"])
+    p.add_argument("--image", default=IMAGE)
+    p.add_argument("--disk-gb", type=int, default=200, help="the pod's own disk: every dataset unpacked (cycle 8: about 120 GB)")
+    p.add_argument("--replacements", type=int, default=2, help="pods that may replace one whose host fails (not the training)")
+    p.add_argument("--ready-minutes", type=float, default=15)
+    p.add_argument("--commit", default="HEAD")
+    p.add_argument("--torch")
+    p.add_argument("--yes", action="store_true")
+    v = sub.add_parser("volume", help="a network volume: info ID, or create (--label --size --dc --yes)")
+    v.add_argument("action", choices=["info", "create"])
+    v.add_argument("id", nargs="?")
+    v.add_argument("--label", default="delove-data")
+    v.add_argument("--size", type=int, default=100, help="GB")
+    v.add_argument("--dc", help="data center id, e.g. EU-RO-1 (one with RTX 4090 stock)")
+    v.add_argument("--yes", action="store_true")
     sub.add_parser("pods")
     t = sub.add_parser("terminate")
     t.add_argument("ids", nargs="*")
@@ -745,6 +1199,17 @@ def main(argv=None) -> int:
             if bad in gen_args:
                 raise SystemExit(f"{bad} is set by remote.py, not after --")
         return run(args, gen_args)
+    if args.cmd == "train":
+        if not args.no_train and not args.candidate:
+            raise SystemExit("--candidate is required (or --no-train)")
+        for bad in ("--data", "--out", "--init"):
+            if bad in gen_args:
+                raise SystemExit(f"{bad} is set by remote.py, not after --")
+        return train(args, gen_args)
+    if args.cmd == "volume":
+        if (args.action == "info") != bool(args.id) or (args.action == "create" and not args.dc):
+            raise SystemExit("volume info ID | volume create --dc DC [--size GB] [--label NAME] [--yes]")
+        return volume_cmd(args)
     if args.cmd == "pods":
         list_pods(args)
     elif args.cmd == "terminate":

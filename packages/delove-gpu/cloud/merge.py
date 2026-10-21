@@ -128,16 +128,23 @@ def merge_summaries(parts: list[dict], export: list[dict], extra: dict | None = 
     return out
 
 
-def merge_step(parts: list[tuple[dict, Path]], out: Path, extra: dict | None = None) -> dict:
+def count_map(srcs: list[Path]) -> dict:
+    """merge_map's counts from the folders' features.json alone (the arrays may be elsewhere, e.g. on a network volume)."""
+    infos = [json.loads((s / "features.json").read_text(encoding="utf8")) for s in srcs]
+    return {k: sum(int(i.get(k, 0)) for i in infos) for k in COUNTS}
+
+
+def merge_step(parts: list[tuple[dict, Path]], out: Path | None, extra: dict | None = None) -> dict:
     """parts: (summary, data folder) of each worker that played some of this step. Writes out/<map>/ per map and
-    returns the merged summary (the caller writes it as the step's gpu.json)."""
+    returns the merged summary (the caller writes it as the step's gpu.json). out=None writes nothing and counts from
+    the features.json files only (the step's arrays stay on the cloud volume; cloud/trainer.py merges them there)."""
     maps: dict[str, list[Path]] = {}
     for _, d in parts:
         for m in sorted(p.parent.name for p in d.glob("*/features.json")):
             maps.setdefault(m, []).append(d / m)
     export = []
     for m, srcs in maps.items():
-        counts = merge_map(srcs, out / m)
+        counts = merge_map(srcs, out / m) if out is not None else count_map(srcs)
         export.append({"map": m, **counts})
     return merge_summaries([s for s, _ in parts], export, extra)
 

@@ -646,7 +646,7 @@ promotions are judged mainly on the points difference at 4-10 players (`docs/del
   mean branch score from `branch_q.npy` (0..1), with weight W on a squared-error loss (KataGo-style auxiliary target:
   a one-round outcome is far less noisy than the final points). Starting from a network without the head adds a fresh
   one; the policy, the value head and the ONNX export are unchanged (`forward(..., aux=True)` returns the head;
-  checks `python packages/delove/python/test_aux.py`). Measured (#PR; 1,200 CPU steps from `delove@8` on cycle 11's
+  checks `python packages/delove/python/test_aux.py`). Measured (#150; 1,200 CPU steps from `delove@8` on cycle 11's
   Classic, World, Fantasy and Nine Realms, held-out games): the head predicts the 1-round score with **R² 0.89**
   (0.81 at 4 players to 0.93 at 10; the value head only correlates 0.75 with it), while top-1 (0.627 vs 0.626) and the
   value's R² on final points (0.372 both) don't move in a short fine-tune. So it is a sharp, cheap position signal

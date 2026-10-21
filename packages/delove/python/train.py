@@ -22,6 +22,13 @@ the policy loss by what branch and score did at each decision (branch_tag.npy, w
 teacher's move played without comparing options, 1 options compared and the teacher's move kept, 2 the move changed;
 datasets without branch_tag.npy keep weight 1.
 
+Soft targets (--soft-targets C, soft.py): at every branched decision the policy learns branch and score's whole
+comparison instead of only the played move: target = softmax(prior logit + C x the compared candidates' scores scaled
+0..1 within the decision; the uncompared ones get the prior-weighted mean), the per-option scores read from
+branch_q.npy (delove_gpu.generate, or branch_q.py for a CPU export). The prior is a frozen network (--soft-prior,
+default the --init weights; "uniform" for none). Other decisions, and datasets without branch_q.npy, keep the played
+move as the target; --branch-weights, range credit and :modes weight soft and hard decisions alike.
+
 Range specialists (--range long|mid|close) each learn their own objective from the same pool of games (targets.py):
 the decisions with that many players alive, a value target of their own (long: leaderboard points; mid: finishing top
 2, plus credit for steering the strongest rival's threat onto the third player; close: winning the duel), and range
@@ -40,6 +47,7 @@ import torch
 import torch.nn.functional as F
 
 from delove_model import DeloveNet, segment_log_softmax
+from soft import policy_losses, soft_targets
 from targets import RANGES, TARGETS, alive_counts, range_target
 
 SUPPORTED_ENCODER = 2
@@ -65,6 +73,11 @@ class Data:
         tag_path = os.path.join(folder, "branch_tag.npy")
         if branch_weights is not None and os.path.exists(tag_path):
             self.tag_weight = np.asarray(branch_weights, dtype=np.float32)[np.asarray(np.load(tag_path, mmap_mode="r")).clip(0, 2)]
+        # Per candidate row: the branch score of its option at a branched decision, NaN elsewhere (--soft-targets).
+        q_path = os.path.join(folder, "branch_q.npy")
+        self.q = load("branch_q") if os.path.exists(q_path) else None
+        if self.q is not None and len(self.q) != len(self.cand):
+            raise SystemExit(f"{folder}: branch_q.npy has {len(self.q)} rows, cand.npy {len(self.cand)}")
         T = len(self.info["territoryIds"])
         adj = np.zeros((T, T), dtype=np.float32)
         for i, ns in enumerate(self.info["adjacency"]):
@@ -104,6 +117,7 @@ class Data:
             cand_to=t(self.cand_to[rows], torch.int64),
             cand_batch=t(seg, torch.int64),
             target=t(target, torch.int64),
+            q=t(self.q[rows]) if self.q is not None else None,
             z=t(self.z[ks]),
             w=t(self.policy_weight(ks)),
             advantage=self.mode == "advantage",
@@ -132,13 +146,31 @@ def blocks(idx, block, rng):
     return [chunks[i] for i in order]
 
 
-def step_loss(model, b, adj, value_weight, beta=0.3, amp=False, credit_beta=None):
-    """credit_beta (range credit): every copied move is also weighted by exp((target - V) / credit_beta)."""
+class Soft:
+    """--soft-targets: the scale C on the scaled branch scores, and the frozen prior network (None: uniform prior)."""
+
+    def __init__(self, c, prior=None):
+        self.c, self.prior = c, prior
+
+    @torch.no_grad()
+    def targets(self, b, adj, ctx):
+        if self.prior is None:
+            prior = torch.zeros(b["cand"].shape[0], device=b["cand"].device)
+        else:
+            with ctx:
+                prior, _ = self.prior(b["territory"], b["glob"], adj, b["cand"], b["cand_from"], b["cand_to"], b["cand_batch"])
+        return soft_targets(prior.float(), b["q"], b["cand_batch"], b["n"], self.c)
+
+
+def step_loss(model, b, adj, value_weight, beta=0.3, amp=False, credit_beta=None, soft=None):
+    """credit_beta (range credit): every copied move is also weighted by exp((target - V) / credit_beta). soft (Soft):
+    branched decisions learn the soft target from branch_q instead of the played move."""
     ctx = torch.autocast("cuda", dtype=torch.bfloat16) if amp else contextlib.nullcontext()
     with ctx:
         logits, value = model(b["territory"], b["glob"], adj, b["cand"], b["cand_from"], b["cand_to"], b["cand_batch"])
     logits, value = logits.float(), value.float()
     logp = segment_log_softmax(logits, b["cand_batch"], b["n"])
+    tgt, is_soft = soft.targets(b, adj, ctx) if soft is not None and b["q"] is not None and b["policy"] else (None, None)
     w = b["w"]
     if b["advantage"]:
         w = torch.exp(((b["z"] - value.detach()) / beta).clamp(-3.0, 2.0))
@@ -146,7 +178,7 @@ def step_loss(model, b, adj, value_weight, beta=0.3, amp=False, credit_beta=None
     elif credit_beta and b["policy"]:
         c = torch.exp(((b["z"] - value.detach()) / credit_beta).clamp(-3.0, 2.0))
         w = w * c / c.mean()
-    policy_loss = -(logp[b["target"]] * w).sum() / w.sum().clamp(min=1e-6)
+    policy_loss = (policy_losses(logp, b["target"], b["cand_batch"], b["n"], tgt, is_soft) * w).sum() / w.sum().clamp(min=1e-6)
     value_loss = F.binary_cross_entropy(value.clamp(1e-6, 1 - 1e-6), b["z"])
     # Top-1: the played candidate has the highest logit in its decision.
     mx = torch.full((b["n"],), float("-inf"), device=logits.device).scatter_reduce(0, b["cand_batch"], logits, reduce="amax")
@@ -155,14 +187,14 @@ def step_loss(model, b, adj, value_weight, beta=0.3, amp=False, credit_beta=None
 
 
 @torch.no_grad()
-def evaluate(model, data, idx, device, batch_size, value_weight, beta=0.3, amp=False, credit_beta=None):
+def evaluate(model, data, idx, device, batch_size, value_weight, beta=0.3, amp=False, credit_beta=None, soft=None):
     adj = torch.as_tensor(data.adj, device=device)
     model.eval()
     tot = np.zeros(4)
     n = 0
     for i in range(0, len(idx), batch_size):
         b = data.batch(idx[i : i + batch_size], device)
-        losses = step_loss(model, b, adj, value_weight, beta, amp, credit_beta)
+        losses = step_loss(model, b, adj, value_weight, beta, amp, credit_beta, soft)
         tot += np.array([x.item() for x in losses]) * b["n"]
         n += b["n"]
     model.train()
@@ -199,8 +231,12 @@ def main():
     ap.add_argument("--max-val", type=int, default=100_000, help="cap on validation decisions per evaluation")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--alive", help="LO-HI: train and validate only on decisions with LO..HI players still alive (range specialists: 2-2 close, 3-3 mid, 4-10 long)")
+    ap.add_argument("--device", help="cpu or cuda (default: cuda when available)")
     ap.add_argument("--amp", action="store_true", help="mixed precision: the network in bfloat16 (CUDA only)")
     ap.add_argument("--branch-weights", help="W0,W1,W2: policy weight of teacher-only, compared-and-kept and changed decisions")
+    ap.add_argument("--soft-targets", type=float, default=0.0, metavar="C",
+                    help="branched decisions learn softmax(prior + C x scaled branch scores) from branch_q.npy (0 = off; soft.py)")
+    ap.add_argument("--soft-prior", help="frozen prior network for --soft-targets (<path>.pt; default the --init weights, 'uniform' for none)")
     args = ap.parse_args()
     preset = RANGES.get(args.range, {})
     for k in ("alive", "value_target", "threat_credit", "credit_beta"):
@@ -213,7 +249,7 @@ def main():
 
     torch.manual_seed(args.seed)
     rng = np.random.default_rng(args.seed)
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = args.device or ("cuda" if torch.cuda.is_available() else "cpu")
     amp = args.amp and device == "cuda"
     bw = [float(x) for x in args.branch_weights.split(",")] if args.branch_weights else None
     if bw is not None and len(bw) != 3:
@@ -255,6 +291,20 @@ def main():
         model.load_state_dict(ck["state"])
     else:
         model = DeloveNet(f_t, f_g, f_c, hidden=args.hidden, rounds=args.rounds).to(device)
+    soft = None
+    if args.soft_targets:
+        prior_path = args.soft_prior or args.init
+        prior = None
+        if prior_path and prior_path != "uniform":
+            pk = torch.load(prior_path, map_location=device)
+            prior = DeloveNet(**pk["config"]).to(device)
+            prior.load_state_dict(pk["state"])
+            prior.eval()
+            for p_ in prior.parameters():
+                p_.requires_grad_(False)
+        soft = Soft(args.soft_targets, prior)
+        print(json.dumps(dict(soft_targets=args.soft_targets, soft_prior=prior_path if prior is not None else "uniform",
+                              with_branch_q=[d.name for d in datasets if d.q is not None])), flush=True)
     params = sum(p.numel() for p in model.parameters())
     steps_total = int(args.epochs * n_train / args.batch)
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
@@ -293,7 +343,7 @@ def main():
         per = {}
         tot, n = np.zeros(4), 0
         for d, (_, va) in zip(datasets, splits):
-            m = evaluate(model, d, va, device, args.batch, args.value_weight, args.beta, amp, args.credit_beta)
+            m = evaluate(model, d, va, device, args.batch, args.value_weight, args.beta, amp, args.credit_beta, soft)
             per[label(d)] = m
             tot += np.array([m["loss"], m["policy_loss"], m["value_loss"], m["top1"]]) * len(va)
             n += len(va)
@@ -306,7 +356,7 @@ def main():
                 break
             b = datasets[di].batch(ks, device)
             credit = args.credit_beta if step >= args.credit_warmup else None
-            loss, pl, vl, acc = step_loss(model, b, adjs[di], args.value_weight, args.beta, amp, credit)
+            loss, pl, vl, acc = step_loss(model, b, adjs[di], args.value_weight, args.beta, amp, credit, soft)
             opt.zero_grad(set_to_none=True)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)

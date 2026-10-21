@@ -481,6 +481,19 @@ promotions are judged mainly on the points difference at 4-10 players (`docs/del
 - `--branch-weights W0,W1,W2`: weights the policy by what branch and score did at each decision (`branch_tag.npy`,
   written by `delove_gpu.generate`): 0 the teacher's move without comparing, 1 compared and kept, 2 changed. Cycle 6
   used `0.5,1,2`. Datasets without `branch_tag.npy` (CPU exports, older cycles) keep weight 1.
+- `--soft-targets C` (with `--soft-prior P.pt`, default the `--init` weights, or `uniform`): at every branched
+  decision the policy learns branch and score's whole comparison instead of only the played move, Gumbel
+  AlphaZero's "completed Q" target: softmax(prior logit + C x the compared options' mean scores scaled 0..1 within the
+  decision), where the options never compared get the prior-weighted mean of the compared ones, so they keep the
+  prior's order (`python/soft.py`; checks `python packages/delove/python/test_soft.py`). The prior is a frozen
+  network, never the one being trained. The scores come from `branch_q.npy` (one float32 per candidate, NaN where not
+  compared): `delove_gpu.generate` writes it; for a CPU export run the games with `DELOVE_BRANCH_TRACE` and then
+  `python packages/delove/python/branch_q.py --export <export> --log <log dir> <trace file> [--log ...] --agents
+  delove-branch@1` (logs in export's order). Decisions with fewer than two compared options, and datasets without the
+  array, keep the played move; `--branch-weights`, range credit and `:modes` weight soft and hard decisions alike.
+  Smoke run (150 Classic 2p branch games with Jacob rollouts, CPU, from `delove@3`, 1 epoch, `--range close
+  --branch-weights 0.5,1,2`): trains; whether it beats hard labels is cycle 12's A/B.
+- `--device cpu|cuda`: where to train (default cuda when available).
 - `--alive LO-HI` (range specialists): only decisions with LO..HI players alive.
 - Keep a batch within the card: on big maps (Greater Europe, Fantasy) batch 1024 spilled past the RTX 4060's 8 GB into
   shared memory and ran 5x slower; batch 512 fits.

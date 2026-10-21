@@ -210,7 +210,11 @@ at a table (`delove-teacher@N`, `jacob-sensei@N`, any mix) plays its own version
   encode.ts stores doubles into a Float32Array, so the arrays are bit-identical to `export`'s. One extra array, not in
   export's: `branch_tag.npy` (int8 per decision: 0 the teacher's move without comparing options, 1 compared and kept,
   2 changed), which `train.py --branch-weights` reads; and `placement.npy` / `kills.npy` (int32: the decider's final
-  place and kills, from `outcome.py`), which the Mid Range target reads (`train.py --range mid`, `--value-target top2`).
+  place and kills, from `outcome.py`), which the Mid Range target reads (`train.py --range mid`, `--value-target top2`);
+  and `branch_q.npy` (float32 per candidate row, aligned with `cand.npy`: the mean branch score of the candidate's
+  option at a branched decision, the score the pick is made on, rounded once from the double; NaN where the candidate
+  was not compared), which `train.py --soft-targets` reads. A CPU export gets the same array from the play log and the
+  branch trace (`packages/delove/python/branch_q.py`); `tests/dataset_compare.py` hashes it when both datasets have it.
   A cloud merge needs every part written by the same version (`merge.py` refuses folders with different arrays).
 
 - **Outcomes** (`outcome.py`): z, and log v3's leaderboard placements, kills and points (`points.npy`, `points01.npy`):

@@ -31,7 +31,12 @@
 # CHUNK = fixed games per chunk), GATE_CHUNK (games per gate chunk, default 20), GPU_BATCH (games in flight on the
 # GPU per configuration; default: sized to GPU_GB of game state, default 3), GPU_LANES (N GPU processes at once, the
 # config's GPU steps dealt to them in turn; split a long step into several so the lanes stay busy). Re-running resumes: finished chunks, exports, GPU steps, the trained model and finished gate
-# chunks are kept. GPU gates refuse a stale GPU mirror (fingerprint.py check) unless GPU_GATES_ALLOW_UNVERIFIED=1;
+# chunks are kept. GATE_SPRT=1 keeps adding gate chunks to the pooled 4-10p tables (and to 2-player tables still in
+# doubt) until the sequential test of scripts/sprt.mjs decides, up to GATE_SPRT_MAX games per table (default 800):
+# GATE_SPRT_H1 (default 0.15 points per seat) is the gain worth detecting, GATE_SPRT_ALPHA / _BETA (default 0.05) the
+# error rates; the summary always adds the paired statistics. PANEL=1 adds the fixed reference panel (panel_gates
+# below: older Deloves and the teachers) to the gates, so every cycle measures the same opponents.
+# GPU gates refuse a stale GPU mirror (fingerprint.py check) unless GPU_GATES_ALLOW_UNVERIFIED=1;
 # GPU_GATE_PROCS (default 1) GPU processes share the gate configurations, each sizing its batch to GPU_GATE_GB (default 1).
 # REMOTE_GPUS=N plays the GPU steps on N rented cloud GPUs instead (RunPod; RUNPOD_API_KEY in the environment; see
 # packages/delove-gpu/README.md "Cloud workers"): REMOTE_MAX_GPU_HOURS (default 4) caps the spend, REMOTE_TIMINGS
@@ -354,6 +359,12 @@ fi
 
 # ---- 4. ladder gates, all at once -------------------------------------------------------------------------------
 gate_chunk=${GATE_CHUNK:-20}
+# The fixed reference panel (PANEL=1): the same opponents every cycle, so progress reads off one table across cycles.
+panel_gates=(
+  'delove@6 6 200 {"map":"world"}' 'delove@6 2 400 {}' 'delove@3 6 200 {"map":"world"}'
+  'jacob-sensei@1 6 200 {"map":"world"}' 'jacob-sensei@2 6 200 {"map":"world"}' 'jacob-sensei@2 2 400 {}' 'delove-teacher@2 2 400 {}'
+)
+[[ ${PANEL:-0} == 1 ]] && gates+=("${panel_gates[@]}")
 mkdir -p "$out/gates"
 gpool="$out/gates/pool.txt"
 : > "$gpool"
@@ -415,6 +426,16 @@ if [[ -n $gpu_gate_runner ]]; then
   wait "$gpu_gate_runner" || { echo "FAILED GPU gates (see $out/gates/gpu.log)"; gates_failed=1; }
 fi
 (( gates_failed )) && exit 1
+# GATE_SPRT=1: more chunks for the tables whose call is still open, until the sequential test decides.
+if [[ ${GATE_SPRT:-0} == 1 ]]; then
+  sprt_args=(--h1 "${GATE_SPRT_H1:-0.15}" --alpha "${GATE_SPRT_ALPHA:-0.05}" --beta "${GATE_SPRT_BETA:-0.05}" --max-games "${GATE_SPRT_MAX:-800}")
+  for ((round = 1; round <= 20; round++)); do
+    more=$(node packages/delove/scripts/sprt.mjs "$out/gates" "${sprt_args[@]}" --next 2)
+    [[ -z $more ]] && break
+    echo "SPRT round $round: $(wc -l <<< "$more") more gate chunks"
+    printf '%s\n' "$more" | tr '\n' '\0' | xargs -0 -P "$parallel" -I{} bash -c 'run_gate "$1"' _ {} || { echo "FAILED SPRT gate chunks"; exit 1; }
+  done
+fi
 stamp "gates done"
 stamp "summary"
 
@@ -454,6 +475,10 @@ gates.forEach((g, i) => {
     `${f2(w("points"))} | ${f2(w("bestPoints"))} | ${f2(d)} (${f2(d - 1.96 * dse)} to ${f2(d + 1.96 * dse)}) | ${w("meanPlacement").toFixed(2)} | ${w("killsPerGame").toFixed(2)} | ${tl} |`);
 });
 ' "$out/gates" "${gates[@]}"
+  echo
+  echo "### $name: paired statistics (mirrored pairs) and SPRT"
+  echo
+  node packages/delove/scripts/sprt.mjs "$out/gates" --h1 "${GATE_SPRT_H1:-0.15}" --alpha "${GATE_SPRT_ALPHA:-0.05}" --beta "${GATE_SPRT_BETA:-0.05}" --max-games "${GATE_SPRT_MAX:-800}"
   echo
   echo "### $name: time per phase (minutes from the start)"
   echo

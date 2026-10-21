@@ -60,6 +60,11 @@ export interface MatchResult {
   pointsDiff?: number;
   meanPlacement?: number;
   killsPerGame?: number;
+  /**
+   * Per mirrored pair (games 2k and 2k+1, same seed, seats swapped): the candidate's mean points per seat minus the
+   * best's, averaged over the pair's two games. The paired statistics of packages/delove/scripts/sprt.mjs read it.
+   */
+  pairPointsDiff?: number[];
 }
 
 /** Seats of game i: candidate on even seats in even games, on odd seats in odd games. */
@@ -126,6 +131,7 @@ export async function runMatch(cfg: MatchConfig): Promise<MatchResult> {
   const turns: number[] = [];
   let turnLimit = 0;
   const pts = { cand: 0, best: 0, candSeats: 0, bestSeats: 0, place: 0, kills: 0 };
+  const gameDiff: number[] = [];
   await runBatch({
     games,
     seed: cfg.seed,
@@ -139,10 +145,12 @@ export async function runMatch(cfg: MatchConfig): Promise<MatchResult> {
       scores.push(candidateScore(result.winner, i));
       turns.push(result.turns);
       if (result.winner === null) turnLimit++;
+      const g = { cand: 0, best: 0, candSeats: 0, bestSeats: 0 };
       result.points.forEach((p, s) => {
-        if ((s + i) % 2 === 0) (pts.cand += p, pts.candSeats++, (pts.place += result.placement[s]), (pts.kills += result.kills[s]));
-        else (pts.best += p), pts.bestSeats++;
+        if ((s + i) % 2 === 0) (pts.cand += p, pts.candSeats++, (pts.place += result.placement[s]), (pts.kills += result.kills[s]), (g.cand += p), g.candSeats++);
+        else (pts.best += p), pts.bestSeats++, (g.best += p), g.bestSeats++;
       });
+      gameDiff[i] = g.cand / Math.max(1, g.candSeats) - g.best / Math.max(1, g.bestSeats);
       cfg.onGame?.(result, i);
     },
   });
@@ -156,6 +164,7 @@ export async function runMatch(cfg: MatchConfig): Promise<MatchResult> {
     pointsDiff: r2(points - bestPoints),
     meanPlacement: r2(pts.place / Math.max(1, pts.candSeats)),
     killsPerGame: r2(pts.kills / Math.max(1, pts.candSeats)),
+    pairPointsDiff: Array.from({ length: games / 2 }, (_, k) => r2((gameDiff[2 * k] + gameDiff[2 * k + 1]) / 2)),
   };
 }
 

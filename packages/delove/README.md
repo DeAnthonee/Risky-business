@@ -194,6 +194,25 @@ Library names (the private models repo, next to `delove@N`) are `delove-long-ran
   --amp --branch-weights 0.5,1,2`. Checks: `python packages/delove/python/test_targets.py`. Cycle 7's script takes
   `RANGE_OBJECTIVES=1` (with `PREFIX`, `ROUTER`, `BASE`) to retrain its trio on its own games with these objectives,
   a direct A/B against cycle 7 with no new games.
+- **Each its own teacher** (range scores in branch and score, `src/branch.ts`): the range objectives above only
+  reweight the same labels, which moved about 3% of top moves. So the branch player that makes the labels can now
+  score its rollouts by each range's objective (`DELOVE_BRANCH_SCORE` / `delove_gpu.generate --score`):
+
+  | score | used at | a rollout's end position is worth |
+  | --- | --- | --- |
+  | `long` | 4+ alive | the share score plus `killWeight` (2) × the kill credit (`KILL_POINTS` per knock-out over the placement spread) |
+  | `mid` | 3 alive | 0.7 × P(top 2) + 0.3 × threat deflection (`threat`). P(top 2) = 1 − P(both rivals finish above), each rival's chance read off the share-score gap as `points` does; the deflection is `targets.py`'s threat credit, measured on the rollout's end board. A rival out: 1; the decider out: 0 |
+  | `close` | 2 alive | the share score (in a duel, the decider's share of the board), searched deeper: `closeRollouts` (12) copies of `closeHorizon` (2) rounds instead of 6 × 1 |
+  | `range` | any | per decision by players alive: `long` / `mid` / `close` |
+
+  **Per job:** a seat `delove-branch@1:<score>` (any score above, or `share` / `points` / `kills`) keeps its own score
+  on the CPU (`register.ts`) and the GPU (`generate.py`), so a stage jobs file (#137's `mid.jobs` / `close.jobs`) can
+  seat `delove-branch@1:range` while other tables keep the run's `--score`. Export those seats by their id
+  (`--export-agents` / `--only-agents delove-branch@1:range`, cycle.sh `export_agents`). A whole run takes
+  `--score range` (or `DELOVE_BRANCH_SCORE=range` for cycle.sh). Knobs: `DELOVE_BRANCH_KILL_WEIGHT`, `_THREAT`,
+  `_CLOSE_ROLLOUTS`, `_CLOSE_HORIZON` (`--kill-weight`, `--threat`, `--close-rollouts`, `--close-horizon` on the GPU).
+  The default stays `share`, so earlier cycles and the golden lock are unchanged. Results: below, "Range scores vs
+  the share score".
 - **Playing them as one player:** `models/delove/delove-range@N.json` holds the routes,
   `{"close": "delove-close-range@1", "mid": "delove-mid-range@1", "long": "delove-long-range@1"}`. The loader then registers
   `delove-range@N`, which plays each decision with the network for the players still alive (`rangeOf`), each network's
@@ -750,6 +769,96 @@ The points score loses: it turns small share gaps into whole places, at about tw
 same `margin` lets rollout noise change more moves, and it pays for pulling level with the nearest rival rather than
 for growing. The kill credit alone makes no measurable difference. **Cycle 7 should keep the share score.** Kills and
 placements are already in the value target (cycle 5, points), which is where the leaderboard reaches the network.
+
+### Range scores vs the share score (`--score range`): first measurement
+
+Head to head on the GPU (`scripts/score_compare.py h2h-jobs --variants share,range --net delove@6 --other
+jacob-sensei@1`; ranker `delove@6`, Jacob Sensei rollouts, horizon 1, margin 0.01, seed 7; RunPod RTX 4090,
+2026-10-21): a `delove-branch@1:range` and a `delove-branch@1:share` seat at the same table, rotated round it in every
+order (at 2 players a duel between them; at 3 the third seat `delove@6`; at 6 the field `delove@6` and one Jacob
+Sensei). Games start from the deal, so a 3-player game is Mid Range's objective until a player falls, then Close
+Range's; a 6-player game is Long Range's until 3 are left. Leaderboard points per game (placement + kills), 95%
+intervals, paired by game; 2,228 games:
+
+| table | games | metric that decides it | range | share | range − share (95%) | also |
+| --- | --- | --- | --- | --- | --- | --- |
+| 2 players (Close: P(win), 12 × 2 search) | 800 | win share | 0.507 | 0.491 | +0.016 (points +0.05 ± 0.21) | Classic 0.515, World 0.500: even |
+| 3 players (Mid: P(top 2) + threat) | 900 | top 2 | 0.716 | 0.672 | **+0.043 ± 0.051** | Classic **+0.109 ± 0.072**, World −0.022 ± 0.072; fewer wins (0.323 vs 0.400), so points −0.20 ± 0.19 |
+| 6 players (Long: share + 2 × kills) | 528 | points | +2.63 | +2.17 | **+0.46 ± 0.58** | World **+0.99 ± 0.83**, Classic −0.08 ± 0.79; kills 1.81 vs 1.53 per game |
+
+So each range score moves its own metric in the intended direction, with a significant result on one map per range
+for Mid and Long. The duel search is even: 12 copies of 2 rounds did not beat 6 of 1 at 2 players. Mid trades wins
+for second places, which is its objective (the Mid Range stage decides on top 2, not points). Turn-limit games: 0.1%
+to 0.2%. These are teacher-vs-teacher numbers; whether a specialist trained on these labels beats `delove@6` on its
+stage is the next cycle's gate (`npm run delove:stages`). The per-game results stay on the training PC.
+Pod spend for the verification and both runs: about $3.60.
+
+### Rollouts played by Delove (`DELOVE_BRANCH_ROLLOUT`): tried, not better; more options are
+
+The plan's top lever after cycle 8 (`docs/delove-status.md` section 9 item 1) was a stronger teacher: Delove itself
+playing the branch rollouts instead of the hand-coded teacher, and more options per decision. Both are in now, opt-in
+(the defaults are unchanged: golden lock 57/57 identical):
+
+- `DELOVE_BRANCH_ROLLOUT=<model>` (or `<model>:all`): that network's top move in **every** seat of every rollout copy
+  (ties to the first candidate, as `delove@N` plays; deterministic). `<model>:self`: the network plays only the
+  **decider's** seat, and the rollout teacher (`DELOVE_BRANCH_TEACHER`) the others. Branch.ts `rolloutNet`; the GPU
+  mirror's `--rollout` (`cycle.sh` passes the variable to GPU steps), proved against TypeScript traces
+  (`packages/delove-gpu/README.md`: 109,522 of 109,524 rollout copies identical, the other 2 reported network near-ties).
+- `DELOVE_BRANCH_OPTIONS=4` or `5`: more options (the teacher's move plus 3 or 4 of the ranker's favourites).
+
+**Every seat or the decider's?** Both were built and measured, because the argument cuts both ways: the network models
+the decider's own continuation better than Jacob at 2 players (Delove beats Jacob there), but Jacob is the stronger
+multiplayer player (it beats `delove@5` 0.685 at World 6p) and the cycle's tables are mostly Jacob seats, so it models
+the opponents better. The numbers settle it: at 4-10 players the network makes the search **worse** in every seat
+(-0.52 points per game pooled) and still worse in the decider's seat only (-0.43; even at 4 players, worst at 10); at
+2 players both are even to slightly ahead (World 0.52-0.53). Of the two, the decider's seat only loses less and costs
+less, so it is the one to use if network rollouts are used at all; the measured gain is in more options instead.
+
+Measured on rented RTX 4090s (`packages/delove-gpu/bench/rollout_compare.py`, 2026-10-20; ranker `delove@5`, Jacob
+Sensei the rollout teacher, horizon 1, margin 0.01, league settings in two variants per table). 4-10 players: one branch
+seat moving round the table among Jacob Sensei seats, every variant on the **same** games (seed, seats, settings), so the
+difference is paired game by game; mean leaderboard points of the branch seat per game, 95% intervals. 2 players: each
+variant head to head with the Jacob-rollout branch player, both seat orders.
+
+| players | tables (games per variant) | Jacob rollouts (baseline) | network, every seat | network, decider's seat | Jacob, 4 options | Jacob, 5 options |
+| --- | --- | --- | --- | --- | --- | --- |
+| 4 | Classic, Fantasy (1,000) | +1.48 | **-0.23 ± 0.20** (Classic, 500) | +0.06 ± 0.13 | **+0.24 ± 0.13** | **+0.16 ± 0.13** |
+| 6 | World, Greater Europe (1,000) | +3.27 | **-0.81 ± 0.45** (World, 500) | **-0.38 ± 0.35** (750) | +0.18 ± 0.32 | **+0.40 ± 0.32** |
+| 10 | World, Fantasy (1,000) | +3.35 | not run (cost) | **-0.95 ± 0.47** | +0.27 ± 0.48 | +0.28 ± 0.50 |
+| **4-10 pooled** | | | **-0.52 ± 0.25** (1,000) | **-0.43 ± 0.20** (2,750) | **+0.23 ± 0.20** (3,000) | **+0.28 ± 0.20** (3,000) |
+| 2 | Classic (1,000, win share vs baseline) | 0.5 | 0.511 ± 0.031 | 0.507 ± 0.031 | **0.534 ± 0.031** | 0.511 ± 0.031 |
+| 2 | World (1,000, win share vs baseline) | 0.5 | 0.528 ± 0.031 | 0.524 ± 0.031 | 0.506 ± 0.031 | 0.505 ± 0.031 |
+
+Points are the branch seat's mean leaderboard points per game (placement + kills; the baseline column) and the paired
+difference to the baseline on the same games. Not run: the network in every seat at 10 players (the costliest variant,
+after it lost at 4 and 6), and 250 of the Greater Europe games with the network in the decider's seat (cut by the run's
+time limit). Data: `<training PC>\Risky-business-stage2\runs\delove\netroll\` (`compare-report.md` and the runs'
+`results.jsonl`).
+
+**Cost per decision.** A network rollout is a lockstep loop: every copy whose network seat is to move gets one batched
+forward pass (encoder plus network, about 15-20 ms of kernel latency, mostly the encoder's small PyTorch operations),
+and a rollout lasts as many steps as its longest copy has network moves. Wall time per branched decision on an RTX 4090
+shared by three processes (a group's seconds over its branched decisions; the 2-player rows hold both branch players):
+
+| table | Jacob rollouts | network, decider's seat | network, every seat | Jacob, 4 / 5 options |
+| --- | --- | --- | --- | --- |
+| Classic 2p (head to head, 1,000 games) | 0.6 ms | 3.3 ms | 4.4 ms | 0.6 / 0.6 ms |
+| World 2p | 0.9 ms | 7.3 ms | 7.6 ms | 0.9 / 1.0 ms |
+| Classic 4p (250 games) | 0.5-0.9 ms | 10-12 ms | 16-21 ms | 0.7-1.4 / 0.6-0.7 ms |
+| World 6p (250 games) | 2.5-2.8 ms | 26-44 ms | 40-63 ms | 2.5-4.9 / 2.6-4.6 ms |
+| Fantasy 4p | 0.8-1.5 ms | 28-39 ms | | 1.3-1.7 / 1.0-1.2 ms |
+| Greater Europe 6p | 5.0-5.4 ms | 55 ms | | 2.9-4.8 / 3.7-7.5 ms |
+| World 10p | 1.6-2.0 ms | 55-104 ms | | 1.9-3.4 / 2.2-2.5 ms |
+| Fantasy 10p | 3.1-7.3 ms | 71-134 ms | | 3.6-6.3 / 3.2-5.0 ms |
+
+So network rollouts cost 10-30x Jacob's (more on bigger tables: a round is longer), while 4 or 5 options cost about the
+same as 3 on the GPU (the rollout copies run side by side; the step is latency-bound). On the CPU pool every option plays
+its rollouts one after another (5 options play 5/3 of the rollouts of 3; not timed here).
+
+**For the next cycle:** keep Jacob rollouts and set `DELOVE_BRANCH_OPTIONS=4` (4 and 5 gain the same at 4-10 players;
+4 also wins at Classic 2p and costs less on the CPU pool). Network rollouts stay opt-in;
+they would need a stronger network than the teacher in multiplayer first (the bar: beating Jacob-rollout branch play at
+4-10 players on points, which `delove@5` does not).
 
 Speed work has two guards. `scripts/golden.mjs record|check <file>` replays ~60 seeded games across maps, player
 counts, settings and players (teachers, `risky@1`, the network, the branch player) and fails if any logged decision,

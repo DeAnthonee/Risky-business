@@ -201,10 +201,31 @@ at a table (`delove-teacher@N`, `jacob-sensei@N`, any mix) plays its own version
   `--score points` (branch.ts `pointsScore`, `DELOVE_BRANCH_SCORE=points`) scores the copies by leaderboard points
   instead: every alive player's share score, the expected place from the pairwise gaps, the placement points table and
   `KILL_POINTS` read from the built engine (as `outcome.py` does), kills from the kernel's record of who eliminated
-  whom; `--score kills` is the share score plus that kill credit; same doubles in the same order. `generate.py` also
-  takes GPU-only seats `delove-branch@1:share` / `:points` / `:kills` (one branch player per score at the same table,
-  each with its own rollout copies) for comparing scores head to head (`scripts/score_compare.py`; results in
-  packages/delove/README.md).
+  whom; `--score kills` is the share score plus that kill credit; same doubles in the same order. The range scores
+  (packages/delove/README.md, "Each its own teacher") are kernel modes too: `long` (share + `--kill-weight` × kill
+  credit), `mid` (P(top 2) from the pairwise gaps mixed with the threat deflection, `threat_deflection`: the strongest
+  rival's border armies over `NBR` / `DEG`); `close` is the share score with `--close-rollouts` × `--close-horizon`;
+  `range` picks one per decision by players alive, so `GpuBranch.decide` splits a batch of decisions into up to three
+  groups (score, rollouts, horizon), each run through `k_branch_sim` in chunks that fit the copy pool (a 12-copy
+  `close` group takes twice the copies, so it runs in chunks rather than growing the pool; batch sizes are unchanged).
+  The seeds are drawn per decision as before (`k_branch_prep` with each decision's own count). `generate.py` also
+  takes seats `delove-branch@1:<score>` (any score; one branch player per score at the same table, each with its own
+  rollout copies; branch-env.ts registers the same ids on the CPU; a score token combines with the rollout and option tokens below, e.g. `delove-branch@1:range:o4`) for a jobs line with its own score or for comparing
+  scores head to head (`scripts/score_compare.py h2h-jobs`, now with 2- and 3-seat tables, `--net` / `--other` for
+  the field and a top-2 column; results in packages/delove/README.md).
+- **Network rollouts** (`--rollout MODEL[:self]`, `DELOVE_BRANCH_ROLLOUT` in branch.ts): a Delove network plays the
+  rollouts instead of the teacher, its top move (ties to the first candidate, as `delove@N` plays) in every seat, or in
+  the decider's seat only with the rollout teacher in the others (`:self`). `k_branch_sim` splits into three kernels:
+  `k_branch_start` (reseed, reshuffle, play the option), `k_branch_roll` (the teacher plays the other seats on, in a
+  lane group, until a network seat is to move or the rollout ends) and `k_branch_score`; between them, in lockstep,
+  every copy whose network seat is to move gets one batched forward pass (`GpuBranch._net_rollouts`: the encoder and
+  the fp32 network over the copies in use, across games, options and seeds). A rollout lasts as many lockstep steps as
+  its longest copy has network moves (about one round of every seat's moves with `all`, the rest of the decider's turn
+  with `self`), and each step costs the encoder's and the network's kernel latency (about 15-20 ms, mostly the
+  encoder's many small PyTorch operations), so these rollouts cost far more than the teacher's one kernel (measured
+  in packages/delove/README.md: 10-30x per branched decision). Comparison seats `delove-branch@1:net` / `:netself` / `:teacher` (and `:o4`, `:o5`: options; any mix of
+  tokens, e.g. `delove-branch@1:net:o4`) play side by side in one run with `--rollout-net MODEL`; each set of comparison
+  seats runs as its own engine group (and cloud lane), timed apart (`bench/rollout_compare.py`).
 - **Training arrays** (`generate.py` Recorder, `npy.py`): export.ts's files and `features.json`, with the feature names
   and versions read from the built self-play package. The encoder computes in float64 and rounds to float32 once, as
   encode.ts stores doubles into a Float32Array, so the arrays are bit-identical to `export`'s. One extra array, not in
@@ -250,7 +271,9 @@ Results (2026-10-19, `delove-teacher@2`, ranker `c2-candidate`, cycle 3's settin
 | `teacher_replay.py` | 1,000 `delove-teacher@2` self-play games | 275,993 of 275,993 decisions: the logged pick (0 mismatches); with delove-teacher@1's numbers instead every game fails at its first placements |
 | `branch_replay.py` | 300 branch games, the three cycle tables (`c2t`, `c2d`, `c2c`, 100 each) | 37,633 of 37,633 branch decisions: the same pick; 19,639 branched decisions with the CPU's options: every option's mean score identical (same doubles); 1 decision where the ranker ordered its two alternatives differently (a near-tie between the ONNX logits in Node and the PyTorch ones here; the pick was the same) |
 | `branch_replay.py` at branch.ts's defaults (horizon 2, margin 0.02, ranker `delove@2`; `verify.py`, fresh seeds) | 100 branch games against Sensei 2 | 13,021 of 13,021 decisions: the same pick; all 6,965 branched decisions with identical mean scores |
+| `branch_replay.py --rollout delove@5` / `--rollout delove@5:self` (2026-10-20/21; Jacob Sensei, horizon 1, margin 0.01, ranker `delove@5`; the trace has every copy's score and the smallest top-two logit gap of its network moves) | 78 branch games: Classic 2p against Jacob (28 + 20), Classic 4p with Jacob and `delove@5` (11 + 12, 3 of them on league settings) and World 6p (3 + 4) | 11,359 of 11,359 decisions the same pick; 6,103 of 6,105 branched decisions with identical mean scores, 1 with a ranker near-tie in its options and 1 with a rollout near-tie; of 109,524 rollout copies 109,522 identical, 2 different after a network near-tie (logit gap under 1e-4), reported apart as designed |
 | `branch_replay.py --score points` / `--score kills` (horizon 1, margin 0.01, ranker `delove@3`) | points: 30 Classic 2p games against Sensei 2 and 30 Classic 4p games (Sensei 2, `delove@3`, Sensei 1); kills: 30 Classic 4p games | points: 9,443 of 9,443 decisions the same pick, all 5,216 branched decisions with identical mean scores; kills: 6,418 of 6,418 the same pick, all 3,709 branched identical |
+| `branch_replay.py --score range` and the matrix `br-*-range-*` / `-long-` / `-mid-` / `-close-` cases (2026-10-21, `verify.py --models` on a RunPod RTX 4090; rollout teacher Jacob Sensei for `branch-range`, Sensei 2 in the matrix) | 100 Classic 4p games (`branch-range`: long at 4 alive, then mid and close as players fall), plus 9 matrix tables: Classic 2p / 4p, Four Crowns 2p / 3p, World 6p, Greater Europe 10p, Europe 5p with capitals, neutrals and blizzards, and Four Crowns 3p `mid` with neutrals | `branch-range`: 17,452 of 17,452 decisions the same pick, all 9,890 branched decisions with identical mean scores; matrix: 15,250 of 15,250 the same pick, 8,805 of 8,809 branched identical (4 ranker near-ties in the option order, as above); the whole run 4,792,399 steps identical, fingerprint re-recorded |
 | `export_check.py` | the `c2t` log's 13,600 branch decisions, 196,341 candidates | every array bit for bit equal to `export`'s, candidate order included |
 | `dataset_compare.py` | cycle 3's whole Classic 2-player step played on the GPU vs on the CPU (6,000 games, same seeds) | 6,000 of 6,000 games identical, row for row |
 
@@ -915,3 +938,7 @@ on every map, table size and setting but fog of war, each verified against the T
 3. **Other players in the pool:** `risky@1` (`packages/engine/src/bot.ts`, short) and sampling (`-explore`) network
    seats, which need ONNX-identical sampling arithmetic; `DELOVE_BRANCH_VALUE` (the value head's blend).
 4. **Fog of war:** the encoder would need a seat's-eye view first (export skips fog games today anyway).
+5. **A cheaper network step** (for network rollouts, ladder gates and network seats): a lockstep network step costs
+   about 15-20 ms, mostly the encoder's hundreds of small PyTorch operations (about half) and the candidate features,
+   with the GPU nearly idle. The encoder as one CUDA kernel (checked bit for bit against `export` as today) would cut
+   that several times; until then network rollouts cost 10-30x the teacher's per decision.

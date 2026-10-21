@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { registerAgent } from '@risk/selfplay';
 import { branchStats, writeBranchStats } from './branch.js';
-import { branchFromEnv, tunedParams } from './branch-env.js';
+import { branchSeatsFromEnv, tunedParams } from './branch-env.js';
 import { discoverNetAgents, modelsDir } from './net-agent.js';
 import { jacob, jacob2, makeJacob } from './jacob.js';
 import { makeTeacher, teacher } from './teacher.js';
@@ -28,9 +28,10 @@ for (const [id, v] of tuned.jacob) if (id !== jacob.id && id !== jacob2.id) regi
  * delove-branch@1: branch and score (src/branch.ts), configured by the DELOVE_BRANCH_* variables (branch-env.ts).
  * With DELOVE_BRANCH_STATS=<dir> each process writes what branching did to <dir>/stats-<pid>-<random>.json when it
  * exits (the random part because Windows reuses process ids, and a later process would overwrite an earlier one's
- * stats). DELOVE_BRANCH_TRACE=<file> traces each branched decision (branch.ts).
+ * stats). DELOVE_BRANCH_TRACE=<file> traces each branched decision (branch.ts). delove-branch@1:<score> is the same
+ * player with that branch score (branch-env.ts branchSeatsFromEnv).
  */
-registerAgent(branchFromEnv(dir));
+for (const agent of branchSeatsFromEnv(dir)) registerAgent(agent);
 const statsDir = process.env.DELOVE_BRANCH_STATS;
 if (statsDir) process.on('exit', () => void (branchStats.decisions > 0 && writeBranchStats(join(statsDir, `stats-${process.pid}-${randomUUID().slice(0, 8)}.json`))));
 

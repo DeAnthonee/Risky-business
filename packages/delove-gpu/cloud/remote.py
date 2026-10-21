@@ -75,13 +75,13 @@ IMAGE = "runpod/pytorch:1.4.1-cu1281-torch291-ubuntu2204"  # the worker installs
 SETUP_MIN = 10.0  # pod start, npm, pip and upload, before the first game (minutes; measure and adjust)
 COMPILE_S = 60.0  # one NVRTC compile per configuration when its kernel is not in the uploaded cache
 WAVE_EXP = 0.3  # a configuration's time grows ~games^0.3 (a lockstep step costs far less than in proportion to its games)
-TIMING = re.compile(r"^\s{2}(\S+/\d+p(?: \{.*\})?): (\d+) games in ([\d.]+)s \(batch (\d+)\)\s*$")
+TIMING = re.compile(r"^\s{2}(\S+/\d+p(?: \{.*\})?(?: \[[^\]]*\])?): (\d+) games in ([\d.]+)s \(batch (\d+)\)\s*$")
 
 
 # ---- the plan -------------------------------------------------------------------------------------------------------
 @dataclass
 class Unit:
-    """One configuration of one step: generate plays its tables in one engine."""
+    """One configuration of one step (generate.engine_group): generate plays its tables in one engine."""
     step: str
     label: str
     tables: list
@@ -144,7 +144,7 @@ def estimate(label: str, games: int, timings: dict, cached: bool) -> tuple[float
 
 
 def make_units(steps: list[tuple[str, str]], only: set[str] | None, timings: dict, cached: bool) -> list[Unit]:
-    from delove_gpu.generate import read_jobs
+    from delove_gpu.generate import engine_group, read_jobs
 
     units = []
     for step, jobs in steps:
@@ -154,7 +154,7 @@ def make_units(steps: list[tuple[str, str]], only: set[str] | None, timings: dic
                 continue
             if t.positions is not None:
                 raise SystemExit(f"{jobs}: table {t.name} starts from a positions file: play it at home (generate.py), not on rented GPUs")
-            groups.setdefault(t.config.label(), []).append(t)
+            groups.setdefault(engine_group(t), []).append(t)
         for label, tables in groups.items():
             games = sum(t.games for t in tables)
             mins, measured = estimate(label, games, timings, cached)
@@ -407,11 +407,15 @@ def needed_models(units: list[Unit], gen_args: list[str], models: Path) -> list[
     """The .pt of every network seat and the ranker, and every teacher's .json (delove-teacher@N, jacob-sensei@N: small;
     generate picks the newest delove-teacher@N.json as rollout teacher when --teacher is not given). Nothing else of the
     models folder leaves the training PC."""
+    from delove_gpu.generate import is_branch
     from delove_gpu.teacher import is_teacher
 
     agents = {a for u in units for t in u.tables for a in t.agents + (t.stage or [])}
-    ranker = gen_args[gen_args.index("--ranker") + 1] if "--ranker" in gen_args else "delove@2"
-    nets = {a for a in agents | {ranker} if a != "delove-branch@1" and not is_teacher(a)}
+    arg = lambda k: gen_args[gen_args.index(k) + 1] if k in gen_args else None  # noqa: E731
+    ranker = arg("--ranker") or "delove@2"
+    # the network playing the rollouts (--rollout MODEL[:self], or --rollout-net MODEL for the comparison seats)
+    rollout = (arg("--rollout") or "").partition(":")[0] or arg("--rollout-net")
+    nets = {a for a in agents | {ranker} | ({rollout} if rollout else set()) if not is_branch(a) and not is_teacher(a)}
     files = [models / f"{a}.pt" for a in sorted(nets)] + sorted(p for p in models.glob("*.json") if is_teacher(p.stem))
     missing = [str(f) for f in files if not f.exists()]
     if missing:
@@ -449,8 +453,9 @@ def build_upload(work: Path, pod_index: int, lanes: list[Lane], gen_args: list[s
         for c in cache.glob("*.cubin"):  # the odds tables (240 MB) are built on the pod, once, in about two minutes
             shutil.copyfile(c, stage / "cache" / c.name)
     (stage / "worker.sh").write_bytes((HERE / "worker.sh").read_bytes().replace(b"\r\n", b"\n"))  # a CRLF checkout
-    (stage / "job.json").write_text(json.dumps({"torch": torch_version, "verify": verify,
-                                                "volume": volume_tar and f"{VOL}/{volume_tar}", "home": home}), encoding="utf8")
+    (stage / "job.json").write_text(json.dumps({"torch": torch_version, "verify": verify, "allowUnverified": "--allow-unverified" in gen_args,
+                                                "commit": commit, "volume": volume_tar and f"{VOL}/{volume_tar}", "home": home}),
+                                    encoding="utf8")
     for lane in lanes:
         for u in lane.units:
             lines = [table_line(t) for t in u.tables]
@@ -525,7 +530,7 @@ def collect(work: Path, slot: Slot, tar: Path, volume_tar: str | None = None) ->
     extract(tar, tmp)
     dest = work / f"pod-{slot.k}"
     dest.mkdir(parents=True, exist_ok=True)
-    for f in ("env.json", "setup.log", "verify.log"):
+    for f in ("env.json", "setup.log", "verify.log", "verify-fingerprint.json"):
         if (tmp / f).exists():
             shutil.copyfile(tmp / f, dest / f)
     kept = 0
@@ -581,6 +586,12 @@ def run(args, gen_args: list[str]):
 
     torch_version = args.torch or md.version("torch")
     model_files = needed_models(units, gen_args, Path(args.models))
+    if args.verify:  # verify.py's CPU side plays the rankers' ONNX exports (and the GPU side their .pt): its --ranker, and
+        # the matrix suites' own (tests/matrix.py NETP)
+        va = shlex.split(args.verify)
+        netp = re.search(r'NETP = "[^"]*", "([^"]+)"', (PKG / "tests" / "matrix.py").read_text(encoding="utf8")).group(1)
+        for vr in dict.fromkeys([va[va.index("--ranker") + 1] if "--ranker" in va else "delove@2", netp]):
+            model_files += [Path(args.models) / f"{vr}{ext}" for ext in (".onnx", ".pt") if Path(args.models, f"{vr}{ext}") not in model_files]
     vol = volume_info(args.volume) if args.volume else None
     home = "small" if vol and not args.home_copy else "full"
     vtar = (lambda p, suffix="": f"incoming/{args.name}/{p.name}{suffix}.tar.gz") if vol else (lambda p, suffix="": None)
@@ -881,6 +892,11 @@ def merge_all(args, steps, units: list[Unit], work: Path, pods: list[Pod], secon
                 f.write(f"==== {u.label} [{','.join(t.name for t in u.tables)}] ====\n")
                 f.write((unit_dir(work, u) / "gpu.log").read_text(encoding="utf8", errors="replace"))
         (out / step / "gpu.json").write_text(json.dumps(merged, indent=2) + "\n", encoding="utf8")
+        # every game's result (generate --results: placements, kills, points), configuration after configuration
+        with open(out / step / "results.jsonl", "w", encoding="utf8", newline="\n") as f:
+            for u in got:
+                if (unit_dir(work, u) / "results.jsonl").exists():
+                    f.write((unit_dir(work, u) / "results.jsonl").read_text(encoding="utf8"))
         if not missing:
             (out / step / "gpu.partial.json").unlink(missing_ok=True)
         where = data / f"{args.name}-{step}" if home == "full" else f"the volume ({VOL}/incoming/{args.name}/)"

@@ -49,8 +49,30 @@ const END_ONLY: Candidate[] = [['end_turn']];
  * KILL_POINTS per player the decider has eliminated, scaled so the placement spread is 0 to 1. `score: 'kills'` keeps
  * the share score and only adds the kill credit (KILL_POINTS / the placement spread per player eliminated).
  *
+ * Range scores aim each specialist's teacher at its own objective (the range specialists, packages/delove/README.md):
+ *
+ * - `long` (Delove Long Range: reach the last 3 with the most kills): the share score plus `killWeight` times the kill
+ *   credit, so a knock-out inside the rollout counts `killWeight` times what `kills` gives it;
+ * - `mid` (Mid Range: finish top 2): with 3 alive, (1 - threat) * P(top 2) + threat * threat deflection. P(top 2) is
+ *   1 minus the chance both rivals finish above (each read off the share-score gap as in `points`); the deflection
+ *   is the share of the strongest rival's border armies that face the third player rather than the decider
+ *   (python/targets.py threat_deflection). 2 alive (a rival fell) = top 2: 1; the decider out: 0; 4 or more alive:
+ *   the share score;
+ * - `close` (Close Range: win the duel): the share score (with 2 alive, the decider's share of the board) with a
+ *   deeper search: `closeRollouts` copies of `closeHorizon` rounds instead of `rollouts` and `horizon`;
+ * - `range`: per decision, by the non-neutral players alive: 4 or more `long`, 3 `mid`, 2 `close`.
+ *
  * Setup and capital picks, decisions with a single option and the kinds in `skip` are played by the teacher directly.
+ *
+ * With a rollout network (branchAgent's `rolloutNet`, DELOVE_BRANCH_ROLLOUT) the copies are played forward by a Delove
+ * network's top move instead of the teacher: in every seat (`seats: 'all'`), or in the decider's seat only with the
+ * teacher in the others (`'self'`). Everything else (the options, the seeds, the scores, the pick) is unchanged.
  */
+export const BRANCH_SCORES = ['share', 'points', 'kills', 'long', 'mid', 'close', 'range'] as const;
+export type BranchScore = (typeof BRANCH_SCORES)[number];
+/** How one decision's rollouts are scored (positionScore): a branch score with 'close' and 'range' resolved. */
+export type ScoreMode = 'share' | 'points' | 'kills' | 'long' | 'mid';
+
 export interface BranchOptions {
   /** Options compared per decision (the teacher's move + network candidates). */
   options: number;
@@ -63,9 +85,16 @@ export interface BranchOptions {
   weights: { armies: number; income: number; territories: number; cards: number; continents: number };
   /**
    * How a rollout's end position is scored: 'share' (positionScore's share score), 'points' (pointsScore) or 'kills'
-   * (the share score plus killCredit).
+   * (the share score plus killCredit); the range scores 'long', 'mid', 'close' and 'range' (by players alive).
    */
-  score: 'share' | 'points' | 'kills';
+  score: BranchScore;
+  /** `long`: weight of the kill credit added to the share score. */
+  killWeight: number;
+  /** `mid`: weight of the threat deflection mixed with P(top 2). */
+  threat: number;
+  /** `close`: rollouts and horizon of the duel search (instead of `rollouts` and `horizon`). */
+  closeRollouts: number;
+  closeHorizon: number;
   /**
    * Blend of the network's win chance into a branch's score: score = (1 - valueWeight) * objective share +
    * valueWeight * V(end position), V from the valuer's batched value model (one call per decision). 0 = off.
@@ -86,6 +115,10 @@ export const DEFAULT_BRANCH: BranchOptions = {
   skip: ['occupy'],
   valueWeight: 0,
   score: 'share',
+  killWeight: 2,
+  threat: 0.3,
+  closeRollouts: 12,
+  closeHorizon: 2,
   weights: { armies: 0.3, income: 0.3, territories: 0.15, cards: 0.15, continents: 0.1 },
 };
 
@@ -132,23 +165,39 @@ function share(mine: number, total: number, players: number): number {
   return total > 0 ? mine / total : 1 / players;
 }
 
+/** The range settings positionScore reads for 'long' (killWeight) and 'mid' (threat). */
+export type RangeWeights = Pick<BranchOptions, 'killWeight' | 'threat'>;
+
 /**
  * A rollout end position from `me`'s side. `mode` 'share' (the default): won 1, lost 0, otherwise the weighted share
- * score. `mode` 'points': pointsScore; 'kills': the share score plus killCredit. The other fields are the share parts
- * either way.
+ * score. `mode` 'points': pointsScore; 'kills': the share score plus killCredit; 'long': the share score plus
+ * killWeight * killCredit; 'mid': P(top 2) mixed with the threat deflection (3 alive), see BranchOptions. The other
+ * fields are the share parts either way.
  */
-export function positionScore(s: GameState, me: PlayerId, w: BranchOptions['weights'], mode: BranchOptions['score'] = 'share'): Score {
+export function positionScore(
+  s: GameState,
+  me: PlayerId,
+  w: BranchOptions['weights'],
+  mode: ScoreMode = 'share',
+  range: RangeWeights = DEFAULT_BRANCH,
+): Score {
   const zero = { armies: 0, income: 0, territories: 0, cards: 0, continents: 0 };
   const all1 = { armies: 1, income: 1, territories: 1, cards: 1, continents: 1 };
   const points = mode === 'points';
   const kills = mode === 'kills';
+  const long = mode === 'long';
+  const mid = mode === 'mid';
   if (s.phase === 'finished') {
     const won = s.winner === me;
-    const score = points ? pointsScore(s, me, won ? 1 : null) : kills ? (won ? 1 : 0) + killCredit(s, me) : won ? 1 : 0;
+    const v = won ? 1 : 0;
+    const score = points ? pointsScore(s, me, won ? 1 : null) : kills ? v + killCredit(s, me) : long ? v + range.killWeight * killCredit(s, me) : v;
     return won ? { score, ...all1, won: 1, lost: 0 } : { score, ...zero, won: 0, lost: 1 };
   }
   const alive = s.players.filter((p) => p.alive && !p.isNeutral);
-  if (!alive.some((p) => p.id === me)) return { score: points ? pointsScore(s, me, null) : kills ? killCredit(s, me) : 0, ...zero, won: 0, lost: 1 };
+  if (!alive.some((p) => p.id === me)) {
+    const score = points ? pointsScore(s, me, null) : kills ? killCredit(s, me) : long ? 0 + range.killWeight * killCredit(s, me) : 0;
+    return { score, ...zero, won: 0, lost: 1 };
+  }
   const map = getMap(s.options.map);
   const by = (p: PlayerId) => {
     let territories = 0;
@@ -171,16 +220,66 @@ export function positionScore(s: GameState, me: PlayerId, w: BranchOptions['weig
   const weighted = (sc: typeof zero) => w.armies * sc.armies + w.income * sc.income + w.territories * sc.territories + w.cards * sc.cards + w.continents * sc.continents;
   const sc = shares(all.find((x) => x.id === me)!);
   const mine = weighted(sc);
-  if (!points) return { score: kills ? mine + killCredit(s, me) : mine, ...sc, won: 0, lost: 0 };
-  // Expected place among the players still alive: 1 + for each rival the chance it finishes above me, read off the
-  // gap in share score (even shares: a coin flip; a lead of 1/n of the board or more: certain).
-  let place = 1;
-  for (const x of all) {
-    if (x.id === me) continue;
-    const beat = 0.5 + 0.5 * n * (mine - weighted(shares(x)));
-    place += 1 - (beat < 0 ? 0 : beat > 1 ? 1 : beat);
+  // a rival's chance of finishing above me, read off the gap in share score (even shares: a coin flip; a lead of 1/n
+  // of the board or more: certain)
+  const beat = (x: (typeof all)[number]) => {
+    const b = 0.5 + 0.5 * n * (mine - weighted(shares(x)));
+    return b < 0 ? 0 : b > 1 ? 1 : b;
+  };
+  if (mid && n <= 2) return { score: 1, ...sc, won: 0, lost: 0 };
+  if (mid && n === 3) {
+    // P(top 2) = 1 - P(both rivals finish above me)
+    let last = 1;
+    for (const x of all) if (x.id !== me) last *= 1 - beat(x);
+    const top2 = 1 - last;
+    return { score: (1 - range.threat) * top2 + range.threat * threatDeflection(s, me, all.map((x) => ({ id: x.id, ...shares(x) }))), ...sc, won: 0, lost: 0 };
   }
+  if (!points) return { score: kills ? mine + killCredit(s, me) : long ? mine + range.killWeight * killCredit(s, me) : mine, ...sc, won: 0, lost: 0 };
+  // Expected place among the players still alive: 1 + for each rival the chance it finishes above me.
+  let place = 1;
+  for (const x of all) if (x.id !== me) place += 1 - beat(x);
   return { score: pointsScore(s, me, place), ...sc, won: 0, lost: 0 };
+}
+
+/**
+ * With 3 alive: the share of the strongest rival's border armies that face the third player rather than `me`, in
+ * 0..1 (0.5 when it touches neither). Strongest = largest army share + territory share (the first in seat order on a
+ * tie); a border army is one on a territory adjacent to a territory of that player (one adjacent to both counts for
+ * both). As python/targets.py threat_deflection reads it from the encoded position.
+ */
+export function threatDeflection(s: GameState, me: PlayerId, alive: { id: PlayerId; armies: number; territories: number }[]): number {
+  let lead: PlayerId | null = null;
+  let best = -Infinity;
+  for (const x of alive) {
+    if (x.id === me) continue;
+    const v = x.armies + x.territories;
+    if (v > best) (best = v), (lead = x.id);
+  }
+  const third = alive.find((x) => x.id !== me && x.id !== lead)!.id;
+  const map = getMap(s.options.map);
+  let onMe = 0;
+  let onThird = 0;
+  for (const t of map.territoryIds) {
+    if (s.territories[t].owner !== lead) continue;
+    let me1 = false;
+    let th1 = false;
+    for (const u of map.adjacency[t]) {
+      const o = s.territories[u].owner;
+      if (o === me) me1 = true;
+      else if (o === third) th1 = true;
+    }
+    if (me1) onMe += s.territories[t].armies;
+    if (th1) onThird += s.territories[t].armies;
+  }
+  const tot = onMe + onThird;
+  return tot > 0 ? onThird / tot : 0.5;
+}
+
+/** The objective, rollouts and horizon of one decision under `opts` (with `alive` non-neutral players alive). */
+export function decisionScore(opts: BranchOptions, alive: number): { mode: ScoreMode; rollouts: number; horizon: number } {
+  const score = opts.score === 'range' ? (alive >= 4 ? 'long' : alive === 3 ? 'mid' : 'close') : opts.score;
+  if (score === 'close') return { mode: 'share', rollouts: opts.closeRollouts, horizon: opts.closeHorizon };
+  return { mode: score, rollouts: opts.rollouts, horizon: opts.horizon };
 }
 
 /** KILL_POINTS for each player `me` has eliminated, over the table's placement spread (pointsScore's scale). */
@@ -215,6 +314,43 @@ export function pointsScore(s: GameState, me: PlayerId, place: number | null): n
 }
 
 const MAX_ROLLOUT_STEPS = 4000;
+
+/**
+ * A Delove network playing the rollouts (DELOVE_BRANCH_ROLLOUT): its top move (ties: the first candidate, as
+ * `delove@N` plays) in every seat, or only in the decider's seat (`'self'`) with the teacher in the others.
+ */
+export interface RolloutNet {
+  net: NetScorer;
+  seats: 'all' | 'self';
+}
+
+/** The best logit's index and its gap to the second best (Infinity with one candidate). */
+function topGap(logits: Float32Array): { best: number; gap: number } {
+  let best = 0;
+  for (let i = 1; i < logits.length; i++) if (logits[i] > logits[best]) best = i;
+  let second = -Infinity;
+  for (let i = 0; i < logits.length; i++) if (i !== best && logits[i] > second) second = logits[i];
+  return { best, gap: logits[best] - second };
+}
+
+/**
+ * The player of one rollout copy: the network's top move in its seats, the teacher's in the rest. `gap` keeps the
+ * smallest top-two logit gap of the network's picks, for the trace: a copy decided by a near-tie can play differently
+ * with ONNX in Node than with PyTorch on the GPU.
+ */
+function rolloutPlayer(teacher: StepPick, rollout: RolloutNet, me: PlayerId): { pick: StepPick; gap: number } {
+  const r = {
+    gap: Infinity,
+    pick: (ctx: StepContext): number => {
+      if (rollout.seats === 'self' && ctx.me !== me) return teacher(ctx);
+      if (ctx.candidates.length === 1) return 0;
+      const t = topGap(rollout.net.score(ctx).logits);
+      if (t.gap < r.gap) r.gap = t.gap;
+      return t.best;
+    },
+  };
+  return r;
+}
 
 /** Play `state` forward `horizon` rounds (or to the end) with `pick` in every seat. */
 function rollout(state: GameState, horizon: number, pick: StepPick, random: () => number): { state: GameState; moves: number } {
@@ -253,7 +389,8 @@ function isImportant(ctx: DecisionContext): boolean {
 
 /**
  * The branching player. `teacher` plays every seat in the rollouts and makes the unimportant decisions; `ranker`
- * (a Delove network) proposes the alternatives worth trying.
+ * (a Delove network) proposes the alternatives worth trying; `rolloutNet` (optional) is a network that plays the
+ * rollouts instead of the teacher, in every seat or in the decider's only.
  */
 export function branchAgent(
   id: string,
@@ -262,6 +399,7 @@ export function branchAgent(
   opts: BranchOptions = DEFAULT_BRANCH,
   /** Rates branch end positions when opts.valueWeight > 0 (a NetScorer with its .value.onnx). */
   valuer: NetScorer | null = null,
+  rolloutNet: RolloutNet | null = null,
 ): Agent {
   return {
     id,
@@ -293,11 +431,16 @@ export function branchAgent(
       branchStats.branched++;
       const kind = dctx.candidates[teacherIndex][0];
       branchStats.branchedByKind[kind] = (branchStats.branchedByKind[kind] ?? 0) + 1;
-      const seeds = Array.from({ length: opts.rollouts }, () => Math.floor(dctx.random() * 0xffffffff) >>> 0);
+      const ds = decisionScore(opts, dctx.state.players.filter((p) => p.alive && !p.isNeutral).length);
+      const seeds = Array.from({ length: ds.rollouts }, () => Math.floor(dctx.random() * 0xffffffff) >>> 0);
       const useValue = opts.valueWeight > 0 && valuer !== null;
       const ends: { option: number; state: GameState }[] = [];
+      // with a rollout network: each copy's score and smallest logit gap, option by option (for the trace)
+      const copies: { score: number; gap: number }[][] = [];
       const results: { mean: number; parts: Score }[] = actions.map((action, option) => {
         const parts: Score = { score: 0, armies: 0, income: 0, territories: 0, cards: 0, continents: 0, won: 0, lost: 0 };
+        const mine: { score: number; gap: number }[] = [];
+        copies.push(mine);
         for (const seed of seeds) {
           const copy: GameState = { ...dctx.state, rngState: seed, deck: shuffle(createRng(seed ^ 0x5bd1e995), dctx.state.deck) };
           let after: GameState;
@@ -307,10 +450,12 @@ export function branchAgent(
             parts.score = -Infinity;
             break;
           }
-          const r = rollout(after, opts.horizon, teacher, seededRandom(seed));
+          const player = rolloutNet ? rolloutPlayer(teacher, rolloutNet, dctx.me) : null;
+          const r = rollout(after, ds.horizon, player ? player.pick : teacher, seededRandom(seed));
           branchStats.simulations++;
           branchStats.simulatedMoves += r.moves;
-          const sc = positionScore(r.state, dctx.me, opts.weights, opts.score);
+          const sc = positionScore(r.state, dctx.me, opts.weights, ds.mode, opts);
+          if (player) mine.push({ score: sc.score, gap: player.gap });
           for (const k of Object.keys(parts) as (keyof Score)[]) parts[k] += sc[k];
           if (useValue) ends.push({ option, state: r.state });
         }
@@ -342,7 +487,13 @@ export function branchAgent(
       branchStats.gain += results[best].mean - results[0].mean;
       if (TRACE) {
         const options = order.slice(0, actions.length);
-        appendFileSync(TRACE, JSON.stringify({ game: dctx.state.id, turn: dctx.state.turnNumber, seat: dctx.seat, options, means: results.map((r) => r.mean), best }) + '\n');
+        const line: Record<string, unknown> = { game: dctx.state.id, turn: dctx.state.turnNumber, seat: dctx.seat, options, means: results.map((r) => r.mean), best };
+        if (rolloutNet) {
+          // per option, per copy: the score, and the smallest logit gap of its network picks (null: none)
+          line.scores = copies.map((o) => o.map((c) => c.score));
+          line.gaps = copies.map((o) => o.map((c) => (Number.isFinite(c.gap) ? c.gap : null)));
+        }
+        appendFileSync(TRACE, JSON.stringify(line) + '\n');
       }
       for (const k of Object.keys(branchStats.chosen) as (keyof Score)[]) branchStats.chosen[k] += results[best].parts[k];
       return actions[best];

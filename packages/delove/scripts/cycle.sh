@@ -35,7 +35,7 @@
 # REMOTE_GPUS=N plays the GPU steps on N rented cloud GPUs instead (RunPod; RUNPOD_API_KEY in the environment; see
 # packages/delove-gpu/README.md "Cloud workers"): REMOTE_MAX_GPU_HOURS (default 4) caps the spend, REMOTE_TIMINGS
 # (space-separated gpu.log files of earlier cycles) sizes the split, REMOTE_PROCS (default 1) processes per GPU,
-# REMOTE_GPU_TYPE (default NVIDIA GeForce RTX 4090), REMOTE_CLOUD (SECURE or COMMUNITY); progress in OUT/remote.log.
+# REMOTE_GPU_TYPE (default NVIDIA GeForce RTX 4090), REMOTE_CLOUD (SECURE or COMMUNITY), REMOTE_REPLACEMENTS (default 2) and REMOTE_READY_MINUTES (default 15) for replacing a bad pod; progress in OUT/remote.log.
 set -euo pipefail
 config=$1
 export_agents=delove-branch@1

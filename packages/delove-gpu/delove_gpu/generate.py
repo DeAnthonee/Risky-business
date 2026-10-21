@@ -43,19 +43,35 @@ TEACHER, BRANCH, NET = 0, 1, 2
 BRANCH_ID = "delove-branch@1"
 
 
-def branch_score(agent: str) -> str | None:
-    """For a branch seat: None for delove-branch@1 (the run's --score), the score for a GPU-only comparison seat
-    `delove-branch@1:share` / `:points` / `:kills` (several kinds can sit at one table); not a branch seat: raises."""
+# GPU-only comparison seats: delove-branch@1 followed by any of these ':' tokens (several kinds can sit at one table)
+ROLLOUT_TOKENS = {"teacher": "teacher", "net": "all", "netself": "self"}
+
+
+def branch_variant(agent: str) -> dict:
+    """For a branch seat, what it changes from the run's branch settings: {} for delove-branch@1; for a comparison seat
+    `delove-branch@1:<token>[:<token>...]` the score (share / points / kills), who plays the rollouts (teacher, net:
+    the --rollout-net network in every seat, netself: in the decider's seat) and the options (o4: 4 options).
+    Not a branch seat: raises ValueError."""
     if agent == BRANCH_ID:
-        return None
-    if agent.startswith(BRANCH_ID + ":") and agent.split(":", 1)[1] in ("share", "points", "kills"):
-        return agent.split(":", 1)[1]
-    raise ValueError(agent)
+        return {}
+    if not agent.startswith(BRANCH_ID + ":"):
+        raise ValueError(agent)
+    out = {}
+    for tok in agent.split(":")[1:]:
+        if tok in ("share", "points", "kills"):
+            out["score"] = tok
+        elif tok in ROLLOUT_TOKENS:
+            out["rollout"] = ROLLOUT_TOKENS[tok]
+        elif tok[:1] == "o" and tok[1:].isdigit() and int(tok[1:]) >= 1:
+            out["options"] = int(tok[1:])
+        else:
+            raise ValueError(agent)
+    return out
 
 
 def is_branch(agent: str) -> bool:
     try:
-        branch_score(agent)
+        branch_variant(agent)
         return True
     except ValueError:
         return False
@@ -233,11 +249,16 @@ class Run:
     """What every configuration of one run shares: the networks, the teacher, the recorders, results and stats."""
 
     def __init__(self, tables: list[Table], seed: int, models: Path, ranker: str, teacher: str, bcfg, export_agents: list[str],
-                 out: Path | None, max_turns: int, precision: str, device: str, allow_unverified: bool):
+                 out: Path | None, max_turns: int, precision: str, device: str, allow_unverified: bool, rollout_net: str | None = None):
         self.tables, self.seed, self.bcfg, self.models = tables, seed, bcfg, models
         self.ranker, self.teacher_id, self.max_turns, self.precision = ranker, teacher, max_turns, precision
         self.device, self.allow_unverified = torch.device(device), allow_unverified
-        self.agent_ids = sorted({a for t in tables for a in t.agents} | {ranker})
+        # the network playing network rollouts (branch.ts rolloutNet), needed when a branch seat uses them
+        self.rollout_net = rollout_net
+        self.branch_cfgs = {a: replace(bcfg, **branch_variant(a)) for t in tables for a in t.agents if is_branch(a)}
+        if any(c.rollout != "teacher" for c in self.branch_cfgs.values()) and not rollout_net:
+            raise SystemExit("a branch seat plays network rollouts: name the network with --rollout-net")
+        self.agent_ids = sorted({a for t in tables for a in t.agents} | {ranker} | ({rollout_net} if rollout_net else set()))
         # teacher versions: row 0 the rollout teacher (it also makes the branch player's own teacher moves), then every
         # other teacher seated at a table (delove-teacher@N, jacob-sensei@N), each with its own numbers
         self.versions = [teacher] + [a for a in self.agent_ids if is_teacher(a) and a != teacher]
@@ -265,7 +286,7 @@ class Run:
         self.results: list[dict] = []
         self.next_uid = 0
         self.stats = {"decisions": 0, "branched": 0, "simulations": 0, "simulatedMoves": 0, "changed": 0, "gain": 0.0,
-                      "changedByKind": {}, "branchedByKind": {}, "chosen": {k: 0.0 for k in SCORE_PARTS}}
+                      "changedByKind": {}, "branchedByKind": {}, "chosen": {k: 0.0 for k in SCORE_PARTS}, "rolloutNetSteps": 0}
         self.groups: list[dict] = []
 
     def recorder(self, m) -> Recorder | None:
@@ -281,8 +302,9 @@ class Run:
         for t in self.tables:
             by_cfg.setdefault(t.config, []).append(t)
         for cfg, tables in by_cfg.items():
-            n_branch = len({a for t in tables for a in t.agents if is_branch(a)})
-            B = batch or auto_batch(cfg, self.bcfg, n_branch, budget)
+            kinds = {a for t in tables for a in t.agents if is_branch(a)}
+            big = max((self.branch_cfgs[a] for a in kinds), key=lambda c: c.options * c.rollouts, default=self.bcfg)
+            B = batch or auto_batch(cfg, big, len(kinds), budget)
             B = min(B, max(256, (sum(t.games for t in tables) + 255) // 256 * 256))
             g = Group(self, cfg, tables, B)
             info = g.run(progress)
@@ -315,7 +337,9 @@ class Group:
         self.agent_tver = torch.tensor([run.versions.index(a) if a in run.versions else 0 for a in ids], dtype=torch.uint8, device=e.dev)
         self.nets = {a: net_ranker(self.enc, mod, self.adj, run.precision) for a, mod in run.net_modules.items()}
         # one GpuBranch per branch seat kind at these tables (agent index -> its branch and score)
-        self.branches = {ids.index(a): GpuBranch(e, self.nets[run.ranker], replace(run.bcfg, score=branch_score(a) or run.bcfg.score))
+        roll_net = run.net_modules.get(run.rollout_net) if run.rollout_net else None
+        self.branches = {ids.index(a): GpuBranch(e, self.nets[run.ranker], run.branch_cfgs[a],
+                                                 roll_net=roll_net if run.branch_cfgs[a].rollout != "teacher" else None)
                          for a in sorted({a for t in tables for a in t.agents if is_branch(a)})}
         self.export_idx = torch.tensor([ids.index(a) for a in run.export_agents], dtype=torch.long, device=e.dev)
         self.rec = run.recorder(e.m)
@@ -480,6 +504,7 @@ class Group:
                 print(f"    {self.cfg.label()} step {it}: {done_games}/{total} games, {limit} at the turn limit, {time.time() - t0:.0f}s"
                       f" | branch {json.dumps({k: st[k] for k in ('decisions', 'branched', 'simulations', 'simulatedMoves', 'changed', 'gain', 'changedByKind', 'branchedByKind')})}",
                       flush=True)
+        r.stats["rolloutNetSteps"] += sum(b.roll_steps for b in self.branches.values())
         return {"games": done_games, "seconds": round(time.time() - t0, 1), "steps": it, "odds_outside_tables": int(e.tstats[0]),
                 "peak_gpu_gb": round(torch.cuda.max_memory_allocated(dev) / 2**30, 2)}
 
@@ -517,6 +542,10 @@ def main():
     ap.add_argument("--margin", type=float, default=d.margin)
     ap.add_argument("--skip", default=",".join(d.skip))
     ap.add_argument("--score", default=d.score, choices=["share", "points", "kills"], help="branch score (DELOVE_BRANCH_SCORE)")
+    ap.add_argument("--rollout", default=None, help="who plays the rollouts of delove-branch@1 (DELOVE_BRANCH_ROLLOUT): unset the teacher;"
+                    " MODEL or MODEL:all a Delove network in every seat; MODEL:self in the decider's seat only (the teacher in the"
+                    " others). Comparison seats delove-branch@1:net / :netself / :teacher pick their own, with MODEL (or --rollout-net)")
+    ap.add_argument("--rollout-net", default=None, help="the rollout network for :net / :netself seats when --rollout is not given")
     ap.add_argument("--batch", type=int, default=0, help="games in flight per configuration (0: sized to --gpu-gb)")
     ap.add_argument("--gpu-gb", type=float, default=3.0, help="GPU memory for game states when sizing batches (networks come on top)")
     ap.add_argument("--out", help="write training arrays here (export's format, one folder per map)")
@@ -541,12 +570,19 @@ def main():
     cfg.options, cfg.rollouts, cfg.horizon, cfg.margin = args.options, args.rollouts, args.horizon, args.margin
     cfg.skip = [k for k in args.skip.split(",") if k]
     cfg.score = args.score
+    rollout_net = args.rollout_net
+    if args.rollout:
+        rollout_net, _, seats = args.rollout.partition(":")
+        if seats not in ("", "all", "self"):
+            ap.error(f"--rollout {args.rollout}: want MODEL, MODEL:all or MODEL:self")
+        cfg.rollout = seats or "all"
     run = Run(tables, args.seed, models, args.ranker, teacher, cfg, args.export_agents.split(","), Path(args.out) if args.out else None,
-              args.max_turns, args.precision, "cuda", args.allow_unverified)
+              args.max_turns, args.precision, "cuda", args.allow_unverified, rollout_net)
     res = run.run(args.batch or None, args.gpu_gb * 2**30)
     res["tables"] = table_summary(run.results)
     res["config"] = {"seed": args.seed, "ranker": args.ranker, "teacher": teacher, "options": cfg.options, "rollouts": cfg.rollouts,
-                     "horizon": cfg.horizon, "margin": cfg.margin, "skip": cfg.skip, "score": cfg.score, "weights": cfg.weights, "batch": args.batch,
+                     "horizon": cfg.horizon, "margin": cfg.margin, "skip": cfg.skip, "score": cfg.score, "rollout": cfg.rollout, "rolloutNet": rollout_net,
+                     "weights": cfg.weights, "batch": args.batch,
                      "precision": args.precision}
     text = json.dumps(res, indent=2)
     print(text)

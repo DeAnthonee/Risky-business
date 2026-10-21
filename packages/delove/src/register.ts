@@ -2,7 +2,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { registerAgent } from '@risk/selfplay';
-import { branchAgent, branchStats, DEFAULT_BRANCH, writeBranchStats, type BranchOptions } from './branch.js';
+import { branchAgent, branchStats, DEFAULT_BRANCH, writeBranchStats, type BranchOptions, type RolloutNet } from './branch.js';
 import { discoverNetAgents, modelsDir, NetScorer } from './net-agent.js';
 import { DEFAULT_JACOB_PARAMS, jacob, JACOB_SENSEI_1_PARAMS, jacobPickWith, makeJacob, type JacobParams } from './jacob.js';
 import { DEFAULT_TEACHER_PARAMS, makeTeacher, teacher, teacherPickWith, type TeacherParams } from './teacher.js';
@@ -46,7 +46,9 @@ if (existsSync(dir)) {
  * the ranker's win chance into branch scores, DELOVE_BRANCH_SCORE=points scores rollouts by leaderboard points
  * (placement + kills, branch.ts pointsScore) instead of the share score (=kills: the share score plus a kill credit),
  * DELOVE_BRANCH_SKIP (comma-separated
- * decision kinds, e.g. occupy,trade) the kinds it plays without branching. With DELOVE_BRANCH_STATS=<dir> each process
+ * decision kinds, e.g. occupy,trade) the kinds it plays without branching. DELOVE_BRANCH_ROLLOUT=<model> has that
+ * network (e.g. delove@5) play the rollouts in every seat instead of the teacher, <model>:self in the decider's seat
+ * only (unset: the teacher, as before). With DELOVE_BRANCH_STATS=<dir> each process
  * writes what branching did to <dir>/stats-<pid>-<random>.json when it exits (the random part because Windows reuses
  * process ids, and a later process would overwrite an earlier one's stats).
  */
@@ -54,6 +56,16 @@ function branchScore(v: string | undefined): BranchOptions['score'] {
   if (v === undefined || v === '') return DEFAULT_BRANCH.score;
   if (v !== 'share' && v !== 'points' && v !== 'kills') throw new Error(`DELOVE_BRANCH_SCORE must be share, points or kills, not ${v}`);
   return v;
+}
+
+/** DELOVE_BRANCH_ROLLOUT: '<model>' or '<model>:all' (every seat), '<model>:self' (the decider's seat); unset: none. */
+function rolloutNet(v: string | undefined, models: string, ranker: NetScorer | null): RolloutNet | null {
+  if (v === undefined || v === '') return null;
+  const [id, seats = 'all'] = v.split(':');
+  if (seats !== 'all' && seats !== 'self') throw new Error(`DELOVE_BRANCH_ROLLOUT must be <model>, <model>:all or <model>:self, not ${v}`);
+  const path = join(models, `${id}.onnx`);
+  if (!existsSync(path)) throw new Error(`DELOVE_BRANCH_ROLLOUT: ${path} not found`);
+  return { net: ranker && ranker.modelPath === path ? ranker : new NetScorer(path), seats };
 }
 
 {
@@ -78,7 +90,7 @@ function branchScore(v: string | undefined): BranchOptions['score'] {
       score: branchScore(process.env.DELOVE_BRANCH_SCORE),
       // DELOVE_STRENGTH=<file>: the strength meter's fitted share weights (python/fit_strength.py) for branch scores.
       weights: process.env.DELOVE_STRENGTH ? JSON.parse(readFileSync(process.env.DELOVE_STRENGTH, 'utf8')).weights : DEFAULT_BRANCH.weights,
-    }, valuer),
+    }, valuer, rolloutNet(process.env.DELOVE_BRANCH_ROLLOUT, dir, ranker)),
   );
   const statsDir = process.env.DELOVE_BRANCH_STATS;
   if (statsDir) process.on('exit', () => void (branchStats.decisions > 0 && writeBranchStats(join(statsDir, `stats-${process.pid}-${randomUUID().slice(0, 8)}.json`))));

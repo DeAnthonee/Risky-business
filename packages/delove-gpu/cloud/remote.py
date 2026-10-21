@@ -296,11 +296,15 @@ def needed_models(units: list[Unit], gen_args: list[str], models: Path) -> list[
     """The .pt of every network seat and the ranker, and every teacher's .json (delove-teacher@N, jacob-sensei@N: small;
     generate picks the newest delove-teacher@N.json as rollout teacher when --teacher is not given). Nothing else of the
     models folder leaves the training PC."""
+    from delove_gpu.generate import is_branch
     from delove_gpu.teacher import is_teacher
 
     agents = {a for u in units for t in u.tables for a in t.agents}
-    ranker = gen_args[gen_args.index("--ranker") + 1] if "--ranker" in gen_args else "delove@2"
-    nets = {a for a in agents | {ranker} if a != "delove-branch@1" and not is_teacher(a)}
+    arg = lambda k: gen_args[gen_args.index(k) + 1] if k in gen_args else None  # noqa: E731
+    ranker = arg("--ranker") or "delove@2"
+    # the network playing the rollouts (--rollout MODEL[:self], or --rollout-net MODEL for the comparison seats)
+    rollout = (arg("--rollout") or "").partition(":")[0] or arg("--rollout-net")
+    nets = {a for a in agents | {ranker} | ({rollout} if rollout else set()) if not is_branch(a) and not is_teacher(a)}
     files = [models / f"{a}.pt" for a in sorted(nets)] + sorted(p for p in models.glob("*.json") if is_teacher(p.stem))
     missing = [str(f) for f in files if not f.exists()]
     if missing:

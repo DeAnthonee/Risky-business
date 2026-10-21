@@ -321,6 +321,17 @@ instead: the steps' configurations are split over N RunPod GPUs (RTX 4090 by def
 is printed first, `REMOTE_MAX_GPU_HOURS` (default 4) caps it, and every pod is terminated at the end. Progress goes to
 `OUT/remote.log`. See [packages/delove-gpu, Cloud workers](../delove-gpu/README.md#cloud-workers).
 
+**Training on a rented cloud GPU.** `REMOTE_TRAIN=1 REMOTE_VOLUME=<RunPod network volume id>` trains the candidate on
+one rented GPU instead (`remote.py train`): with `REMOTE_GPUS` the generation pods run in the volume's data center and
+leave their arrays on it, the training pod is rented `REMOTE_TRAIN_LEAD` minutes (default 12) before generation's
+estimated end, merges the cycle's arrays there, trains with the same `train_data` and `train_args`, and sends back only
+the candidate's `.pt`, `.json`, `.onnx` and `.value.onnx` and `train.log` (progress in `OUT/remote-train.log`). Every
+`train_data` entry must be a step of the cycle or `<dataset>/<map>` under `DATA`. A dataset not on the volume trains
+the candidate at home instead (exit 3), unless `REMOTE_TRAIN_PUSH=cycle` (this cycle's, e.g. CPU steps) or `all`
+(earlier cycles' too, once) pushes it from `DATA`; home training needs the arrays at home (`REMOTE_HOME_COPY=1`).
+`REMOTE_TRAIN_MAX_GPU_HOURS` (default 1.5) caps it. See
+[packages/delove-gpu, Cloud training](../delove-gpu/README.md#cloud-training).
+
 **Gates on the GPU.** `gpu_gates=(all)` in the config, or a list of gate indices (`gpu_gates=(4 6 7)`, 0-based in
 `gates=(...)`), plays those gates on the GPU (`python -m delove_gpu.ladder`, [packages/delove-gpu](../delove-gpu/README.md#ladder-gates-on-the-gpu))
 and the rest on the CPU, at the same time; `GPU_GATES=1` (all), `GPU_GATES="4 6"` or `GPU_GATES=0` (none) overrides

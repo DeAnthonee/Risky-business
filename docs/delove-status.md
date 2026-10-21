@@ -307,8 +307,9 @@ tables with LLM characters, with fog of war on. In order:
 4. **The real yardstick.** Seat Delove at live tables with the Claude and ChatGPT characters (fog on once item 3
    lands), and track its leaderboard points per game over seasons.
 5. **Faster cycles** (no strength change): the faster big-table search (#117, 2.5-5x, in review), 10 cloud pods for a
-   whole cycle's generation (about 47 minutes, about $7), and later a training pod fed directly by the generation
-   pods. Budget: about $20/day.
+   whole cycle's generation (about 47 minutes, about $7), and a training pod fed directly by the generation pods
+   through a RunPod network volume (`REMOTE_TRAIN=1`, built, not yet run for pay: about 10 minutes and $0.40-0.50 a
+   cycle, plus about $3.50 a month of volume; packages/delove-gpu README "Cloud training"). Budget: about $20/day.
 6. **Later:** turn-window credit (the strength meter's change over short windows as extra per-move credit); a live
    "power bar" for spectators.
 

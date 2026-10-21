@@ -7,7 +7,7 @@ numbers go in [packages/delove/CYCLES.md](../../packages/delove/CYCLES.md) and t
 Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. **Append a line in the same PR** as any change to
 this area (README hard rule 12).
 
-- 2026-10-21 #PRNUM cycle 11: `delove@8` (5 search options, base only, +0.36 points per seat at 4-10p over `delove@7`); `c11.cycle`
+- 2026-10-21 #149 cycle 11: `delove@8` (5 search options, base only, +0.36 points per seat at 4-10p over `delove@7`); `c11.cycle`
 - 2026-10-21 #146 ratio-scenario jobs `scripts/stage/split-close.jobs` / `split-mid.jobs` (about 10,000 games per ratio, 6-10 seat tables, branch vs `delove@6`) written by `split-jobs.mjs`, `measure-stages.mjs` for the stage statistics, `generate.sh` reads a START column
 - 2026-10-21 #147 cycle 10: `delove@7` (4 search options), first range specialists with `--range` and #137's stage games (all even, not promoted); `c10.cycle`, `c10s.cycle` (stage games, generate-only), `c10-specialists.sh`
 - 2026-10-21 #142 search at play time: `delove-seat --agents delove-branch` plays branch and score live (`DELOVE_BRANCH_*`, now in `src/branch-env.ts`, shared with register.ts)

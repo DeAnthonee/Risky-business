@@ -161,7 +161,9 @@ Library names (the private models repo, next to `delove@N`) are `delove-long-ran
   does not write it yet, as that file is in the GPU fingerprint). Older exports estimate a loser's place as the
   players alive at its seat's last recorded decision (see `targets.py`; `train.py` prints which datasets estimate).
   Example: `train.py --range mid --data <pool...> --init <best>.pt --out .../cN-mid --epochs 1.5 --batch 512 --lr 2e-4
-  --amp --branch-weights 0.5,1,2`. Checks: `python packages/delove/python/test_targets.py`.
+  --amp --branch-weights 0.5,1,2`. Checks: `python packages/delove/python/test_targets.py`. Cycle 7's script takes
+  `RANGE_OBJECTIVES=1` (with `PREFIX`, `ROUTER`, `BASE`) to retrain its trio on its own games with these objectives,
+  a direct A/B against cycle 7 with no new games.
 - **Playing them as one player:** `models/delove/delove-range@N.json` holds the routes,
   `{"close": "delove-close-range@1", "mid": "delove-mid-range@1", "long": "delove-long-range@1"}`. The loader then registers
   `delove-range@N`, which plays each decision with the network for the players still alive (`rangeOf`), each network's

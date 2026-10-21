@@ -288,6 +288,10 @@ def main() -> int:
                          r"(\d+) games, (\d+) branch-player decisions .*means identical on \d+, different on 0;", 2))
         jobs.append(("branch", [str(tests / "export_check.py"), str(out / "branch-cycle"), str(out / "branch-export")],
                      r"(\d+) decisions, .*differs from the log at 0 steps; IDENTICAL", 1))
+        # stage games (a lead-in to N players alive, positions from game records): the GPU generator's games and
+        # arrays against the CPU's play + export of the same tables
+        jobs.append(("branch", [str(tests / "stage_check.py"), "--models", str(models), "--ranker", args.ranker, "--seed", str(seed),
+                                "--out", str(out / "stage")], r"(\d+) stage games identical", 1))
         for engine, cmd, pattern, group in jobs:
             r = run([py, "-u", *cmd], capture_output=True, text=True)
             text = r.stdout + r.stderr

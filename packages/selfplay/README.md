@@ -24,6 +24,38 @@ npm run selfplay -- play --agents risky@1,risky@1 --games 5000 --seed 1 --log ru
 - Speed on one core: about 12 two-player classic games a second (9 with logging), a 6-player World game in about
   a second.
 
+### Stage games: starting where 3 or 2 players are left
+
+For the Delove range specialists (Mid Range at 3 alive, Close Range in the 1v1), whose stages are a short tail of a
+normal game. `src/positions.ts`; the GPU mirror plays the same games (`packages/delove-gpu` README, "Stage games").
+
+```bash
+# a lead-in: six Jacob Senseis play World until 3 are left, then X, Y, Z take the survivors' seats
+npm run selfplay -- play --agents "jacob-sensei@1,jacob-sensei@1,jacob-sensei@1,jacob-sensei@1,jacob-sensei@1,jacob-sensei@1>X,Y,Z" \
+  --map world --games 1000 --seed 1 --log runs/stage-mid
+# starting positions from game records (single files or an archive's games/ folder): the moment each record's players
+# alive dropped to 3 and to 2, fog switched off, seats renamed s0..sN-1
+npm run selfplay -- positions --records archive/games --out data/positions.jsonl --alive 3,2
+# play from the file's 2-alive moments: game i plays position i mod count with its own dice
+npm run selfplay -- play --agents "pos:data/positions.jsonl>X,Y" --games 1000 --seed 1 --log runs/stage-close
+```
+
+- **Agents `LEAD>STAGE`.** The number of stage agents is the stage (3 or 2 players alive). The lead-in agents play an
+  ordinary game (game i seeded as any game i); after each action, once that many real players or fewer are alive, the
+  stage agents take the survivors' seats: survivors in turn order from the player to move get stage agent
+  `(r + i) % k`, so every role moves round the table over a run. Dead seats keep their agent (they never move again).
+  Each seat keeps its own random stream, so a stage game is the same game as the lead-in alone up to the switch.
+- **Only the stage is logged.** Decision records start at the switch (`i` stays the step number in the whole game) and
+  have the usual format (no `LOG_VERSION` change); outcomes are the whole game's, scored over every seat at the table
+  (placement points over all seats, kills including the lead-in's). The game summary gains `stage: {turn, step,
+  alive, agents}` (`null` when the game ended before the stage, e.g. a capitals win).
+- **Positions** (`StartPosition`: source, map, seats, alive, players already out in order, the full engine state):
+  `positionsFromRecord` replays a record to the step after the elimination that left 3 (or 2) players. A position whose
+  Neutral a fresh game would not have (a surrender's) is left out, as is a moment after the game was won. Playing one
+  (`startState`) reseeds it: `rngState` = the game seed and the undrawn deck reshuffled with
+  mulberry32(seed ^ 0x5bd1e995), as branch and score reseeds its copies, so one position gives many different games.
+  A positions table takes no `--options` / `--map`: each position carries its own settings.
+
 ## Ladder (step 2)
 
 ```bash

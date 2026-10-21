@@ -3,8 +3,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { addPlayer, applyAction, createGame, startGame, viewFor, type GameState } from '@risk/engine';
-import { teacher } from '../src/index.js';
-import { defaultName, discoverTunedTeachers, chooseFromView } from '../src/seat.js';
+import { seededRandom } from '@risk/selfplay';
+import { branchAgent, DEFAULT_BRANCH, jacob, jacobPickWith, JACOB_SENSEI_1_PARAMS, teacher } from '../src/index.js';
+import { defaultName, discoverTunedTeachers, chooseFromView, stateFromView } from '../src/seat.js';
 
 describe('Delove seat player', () => {
   it('plays a whole game from player views alone, every move legal on the real state', () => {
@@ -57,5 +58,44 @@ describe('Delove seat player', () => {
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }
+  });
+
+  it("rebuilds every card count the view hides: opponents' hands, deck and discard", () => {
+    let state: GameState = createGame('seat-cards', { maxPlayers: 4, map: 'world' }, 3);
+    for (const id of ['a', 'b', 'c', 'd']) state = addPlayer(state, id, id, true);
+    state = startGame(state).state;
+    // Play until the hands are mixed: some players hold cards and some have traded.
+    while (state.phase !== 'finished' && (state.discard.length === 0 || state.players.filter((p) => p.cards.length > 0).length < 3)) {
+      const me = state.currentPlayer!;
+      state = applyAction(state, me, chooseFromView(jacob, viewFor(state, me), me, () => 0.5)!).state;
+    }
+    const me = state.currentPlayer!;
+    const rebuilt = stateFromView(viewFor(state, me), seededRandom(7));
+    for (const p of state.players) {
+      const q = rebuilt.players.find((x) => x.id === p.id)!;
+      expect(q.cards.length).toBe(p.cards.length);
+      if (p.id === me) expect(q.cards).toEqual(p.cards);
+    }
+    expect(rebuilt.deck.length).toBe(state.deck.length);
+    expect(rebuilt.discard.length).toBe(state.discard.length);
+    const ids = [...rebuilt.players.flatMap((p) => p.cards), ...rebuilt.deck, ...rebuilt.discard].map((c) => c.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it('plays branch and score (search at play time) from player views, every move legal', () => {
+    let state: GameState = createGame('seat-branch', { maxPlayers: 3 }, 4);
+    for (const id of ['a', 'b', 'c']) state = addPlayer(state, id, id, true);
+    state = startGame(state).state;
+    const search = branchAgent('delove-branch@1', jacobPickWith(JACOB_SENSEI_1_PARAMS), null, { ...DEFAULT_BRANCH, options: 2, rollouts: 2, horizon: 1 });
+    const random = seededRandom(11);
+    let moves = 0;
+    while (state.phase !== 'finished' && state.turnNumber < 12) {
+      const me = state.currentPlayer!;
+      const agent = me === 'a' ? search : jacob;
+      state = applyAction(state, me, chooseFromView(agent, viewFor(state, me), me, random)!).state; // throws on an illegal move
+      moves++;
+    }
+    expect(moves).toBeGreaterThan(30);
+    expect(defaultName('delove-branch@1')).toBe('Delove Search');
   });
 });

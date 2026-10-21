@@ -474,7 +474,8 @@ def run(args, gen_args: list[str]):
         print(f"  slot {slot.k}: giving up ({why})", flush=True)
 
     def drop(slot: Slot, why: str):
-        """The slot's pod failed: terminate it; a replacement takes over what is left at the next pass."""
+        """The slot's pod failed: terminate it; a replacement takes over what is left at a later pass, and only once the
+        old pod is really gone (a DELETE that failed is retried each pass), so no slot ever pays for two pods."""
         p = slot.pod
         print(f"  pod {p.name}: {why}", flush=True)
         if p.ip and not p.gone:
@@ -482,10 +483,16 @@ def run(args, gen_args: list[str]):
                 ssh.run(p, "rm -rf /root/job/models", timeout=30, check=False)
             except Exception:  # noqa: BLE001 - terminating matters more
                 pass
+        p.state = "terminating"
+        release(slot)
+
+    def release(slot: Slot):
+        p = slot.pod
         terminate(p)
-        p.state = "failed"
-        slot.pod = None
-        slot.retry_at = 0.0
+        if p.gone:
+            p.state = "failed"
+            slot.pod = None
+            slot.retry_at = 0.0
         save()
 
     def launch(slot: Slot):
@@ -568,6 +575,9 @@ def run(args, gen_args: list[str]):
                 if p is None:
                     if time.time() >= s.retry_at:
                         launch(s)
+                    continue
+                if p.state == "terminating":
+                    release(s)
                     continue
                 if p.state == "starting":
                     if ready(p, ssh):

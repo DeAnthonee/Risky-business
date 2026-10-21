@@ -644,8 +644,8 @@ killed). Inside each pod a watchdog in the start command terminates it at the ru
 a replacement takes over its lanes; so is a pod that ends with lanes that delivered no `gpu.json` (a lane that failed
 mid-run), and its replacement plays only those lanes, so the lanes it finished are kept. Each planned pod may be
 replaced `--replacements` times (default 2), and only while the time left still fits its lanes; a refused create
-(no stock) is retried every minute and does not count. No more pods run at once than the plan has, and a
-replacement's watchdog gets only the time that is left, so the GPU-hour cap still holds. When a planned pod's share
+(no stock) is retried every minute and does not count. No more pods run at once than the plan has (a replacement is rented only once the old pod's DELETE succeeded, retried
+each pass), and a replacement's watchdog gets only the time that is left, so the GPU-hour cap still holds. When a planned pod's share
 cannot be finished, the other pods still play and download theirs, every step whose lanes all delivered is merged,
 the incomplete steps are not (no `gpu.json`, so a rerun plays them), and `run` exits 1.
 

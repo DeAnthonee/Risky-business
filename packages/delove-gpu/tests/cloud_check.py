@@ -127,7 +127,7 @@ def check_run(data: Path, jobs: str) -> bool:
     'plays' its lanes by returning a cut of `data` per lane and step. In every scenario every pod created is terminated
     and no upload tar (it holds the models) is left behind. One bad pod never sinks the others: a pod that is never
     reachable, an upload that fails, a worker that fails and a lane that delivers nothing are each replaced and the run
-    still merges all 20 games; a slot that never gets a working pod ends the run with exit 1 after the healthy pod's
+    still merges all 20 games; a pod whose first DELETE fails gets no replacement until a DELETE succeeds; a slot that never gets a working pod ends the run with exit 1 after the healthy pod's
     lanes were downloaded; Ctrl+C mid-upload terminates everything."""
     import subprocess as sp
     import tarfile as tf
@@ -139,7 +139,7 @@ def check_run(data: Path, jobs: str) -> bool:
     ok = True
     # scenario: (pods expected, exit expected, merged games expected)
     scenarios = {"success": (2, 0, 20), "unreachable pod": (3, 0, 20), "upload fails": (3, 0, 20), "worker fails": (3, 0, 20),
-                 "lane delivers nothing": (3, 0, 20), "slot never works": (4, 1, 0), "crash": (2, "interrupted", 0)}
+                 "lane delivers nothing": (3, 0, 20), "delete fails once": (3, 0, 20), "slot never works": (4, 1, 0), "crash": (2, "interrupted", 0)}
     for scenario, (want_pods, want_rc, want_games) in scenarios.items():
         tmp = Path(tempfile.mkdtemp(prefix="cloud-run-"))
         calls, pods = [], {}
@@ -166,9 +166,11 @@ def check_run(data: Path, jobs: str) -> bool:
                 return {"id": i, "costPerHr": 0.89}
             if method == "GET":
                 i = path.rsplit("/", 1)[-1]
-                if scenario in ("unreachable pod", "slot never works") and bad(i):
+                if scenario in ("unreachable pod", "delete fails once", "slot never works") and bad(i):
                     return {"publicIp": "", "portMappings": None, "costPerHr": 0.89}
                 return {"publicIp": "203.0.113.1", "portMappings": {"22": 22000}, "costPerHr": 0.89}
+            if scenario == "delete fails once" and path == "/pods/pod1" and calls.count(("DELETE", path)) == 1:
+                raise remote.RunPodError("RunPod DELETE /pods/pod1: HTTP 500")  # the bad pod is still there, still billed
             return {}
 
         class FakeSsh:
@@ -241,7 +243,7 @@ def check_run(data: Path, jobs: str) -> bool:
             rc = "interrupted"
         finally:
             remote.api, remote.Ssh, remote.time = saved
-        deleted = sorted(p for m, p in calls if m == "DELETE")
+        deleted = sorted(set(p for m, p in calls if m == "DELETE"))
         terminated = deleted == sorted(f"/pods/{i}" for i in pods)
         good = terminated and len(pods) == want_pods and rc == want_rc and not list(tmp.glob("runs/remote/upload-*.tar"))
         res = json.loads((out / "big" / "gpu.json").read_text(encoding="utf8")) if (out / "big" / "gpu.json").exists() else {}
@@ -251,6 +253,10 @@ def check_run(data: Path, jobs: str) -> bool:
         s = fake_ssh.get("s")
         if scenario == "lane delivers nothing" and s:  # the replacement got only the lane that delivered nothing
             good = good and s.lanes.get("pod2") == s.lanes.get("pod1", [None])[-1:]
+        if scenario == "delete fails once":  # no replacement was rented while the bad pod could still be billed
+            deletes = [n for n, c in enumerate(calls) if c == ("DELETE", "/pods/pod1")]
+            posts = [n for n, c in enumerate(calls) if c[0] == "POST"]
+            good = good and len(deletes) == 2 and len(posts) == 3 and posts[2] > deletes[1]
         if scenario == "slot never works" and s:  # the healthy pod still played and was downloaded
             good = good and "pod0" in s.lanes and ("DELETE", "/pods/pod0") in calls
         if scenario == "success":

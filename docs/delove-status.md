@@ -362,7 +362,7 @@ tables with LLM characters, with fog of war on. In order:
    on them plus the old split. Watch the stage length: after a Jacob Sensei lead-in the 3-alive part lasts 7 turns
    (median; 2-alive: 4), as one player has usually run away by then; if the specialists need closer positions,
    filter positions by balance (as the yardstick's capture does) or add lead-ins by stronger, more even seats.
-   **Ratio scenarios** (#PRNUM) are the closer positions: synthetic boards where 2 survivors hold the board 50/50,
+   **Ratio scenarios** (#146) are the closer positions: synthetic boards where 2 survivors hold the board 50/50,
    60/40, 40/60, 70/30 or 30/70, or 3 hold it 34/33/33 or a turn order of 50/25/25, 40/40/20, 60/20/20, as contiguous
    regions with armies, turn, trades and hands drawn from real stage starts (`scripts/stage/split-close.jobs` and
    `split-mid.jobs`, about 10,000 games a ratio on the 6-10 seat tables, branch player vs `delove@6`). Drawn from the

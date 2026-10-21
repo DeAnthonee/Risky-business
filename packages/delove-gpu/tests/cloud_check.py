@@ -6,9 +6,11 @@
    same row and candidate counts. Also checks the merged gpu.json tables and branch statistics.
 2. plan: remote.py's split puts every configuration of the jobs files on exactly one lane, and the lane scripts and
    jobs lines it uploads parse back to the same tables (parse_table).
-3. run: remote.py end to end against a fake RunPod API and fake pods: every pod is terminated on success, on a
-   worker failure and on Ctrl+C mid-upload, no upload tar (it holds the models) is left behind, and on success the
-   merged arrays and gpu.json land in DATA/<name>-<step>/ and OUT/<step>/ (with --data and --jobs).
+3. run: remote.py end to end against a fake RunPod API, fake pods and a fake clock: every pod is terminated on every
+   path and no upload tar (it holds the models) is left behind; a pod that is never reachable, an upload that fails,
+   a worker that fails and a lane that delivers nothing are each replaced, and the run still merges every game into
+   DATA/<name>-<step>/ and OUT/<step>/; a slot that never gets a working pod exits 1 after the healthy pod's lanes
+   were downloaded; Ctrl+C mid-upload terminates everything (with --data and --jobs).
 
     python tests/cloud_check.py --data data/delove/c6-micro/skirmish [--games 600] [--jobs packages/delove/scripts/cycles/c6-big.jobs]
 """
@@ -121,9 +123,13 @@ def check_plan(jobs: str) -> bool:
 
 
 def check_run(data: Path, jobs: str) -> bool:
-    """remote.run end to end against a fake RunPod API and fake pods (no network): each pod 'plays' its lanes by
-    returning a cut of `data` per lane and step. Every pod must be terminated on success, on a worker failure and on a
-    crash mid-upload; on success the step's arrays and gpu.json land where cycle.sh expects them."""
+    """remote.run end to end against a fake RunPod API, fake pods and a fake clock (no network, no waiting): each pod
+    'plays' its lanes by returning a cut of `data` per lane and step. In every scenario every pod created is terminated
+    and no upload tar (it holds the models) is left behind. One bad pod never sinks the others: a pod that is never
+    reachable, an upload that fails, a worker that fails and a lane that delivers nothing are each replaced and the run
+    still merges all 20 games; a pod whose first DELETE fails gets no replacement until a DELETE succeeds; a slot that never gets a working pod ends the run with exit 1 after the healthy pod's
+    lanes were downloaded; Ctrl+C mid-upload terminates everything."""
+    import subprocess as sp
     import tarfile as tf
 
     import remote
@@ -131,18 +137,40 @@ def check_run(data: Path, jobs: str) -> bool:
     game = np.load(data / "game.npy", mmap_mode="r")
     pool = list(dict.fromkeys(np.asarray(game[:20000]).tolist()))
     ok = True
-    for scenario in ("success", "worker fails", "crash"):
+    # scenario: (pods expected, exit expected, merged games expected)
+    scenarios = {"success": (2, 0, 20), "unreachable pod": (3, 0, 20), "upload fails": (3, 0, 20), "worker fails": (3, 0, 20),
+                 "lane delivers nothing": (3, 0, 20), "delete fails once": (3, 0, 20), "slot never works": (4, 1, 0), "crash": (2, "interrupted", 0)}
+    for scenario, (want_pods, want_rc, want_games) in scenarios.items():
         tmp = Path(tempfile.mkdtemp(prefix="cloud-run-"))
         calls, pods = [], {}
+
+        class Clock:  # remote.time: time() and sleep() on a fake clock, so the 15-minute ready limit passes at once
+            now = 1.0e9
+
+            @classmethod
+            def time(cls):
+                return cls.now
+
+            @classmethod
+            def sleep(cls, s):
+                cls.now += s
+
+        def bad(pod_id):  # the first pod of slot 1 (pod1) is the bad one; "slot never works" makes every slot-1 pod bad
+            return pod_id == "pod1" or (scenario == "slot never works" and pods.get(pod_id, {}).get("name", "").split("-")[-1].startswith("1"))
 
         def api(method, path, body=None):
             calls.append((method, path))
             if method == "POST":
                 i = f"pod{len(pods)}"
                 pods[i] = body
-                return {"id": i, "costPerHr": 0.69}
+                return {"id": i, "costPerHr": 0.89}
             if method == "GET":
-                return {"publicIp": "203.0.113.1", "portMappings": {"22": 22000}, "costPerHr": 0.69}
+                i = path.rsplit("/", 1)[-1]
+                if scenario in ("unreachable pod", "delete fails once", "slot never works") and bad(i):
+                    return {"publicIp": "", "portMappings": None, "costPerHr": 0.89}
+                return {"publicIp": "203.0.113.1", "portMappings": {"22": 22000}, "costPerHr": 0.89}
+            if scenario == "delete fails once" and path == "/pods/pod1" and calls.count(("DELETE", path)) == 1:
+                raise remote.RunPodError("RunPod DELETE /pods/pod1: HTTP 500")  # the bad pod is still there, still billed
             return {}
 
         class FakeSsh:
@@ -152,36 +180,52 @@ def check_run(data: Path, jobs: str) -> bool:
 
             def run(self, pod, cmd, timeout=0, check=True):
                 if cmd.startswith("cat /root/job/status"):
-                    return "failed: a lane failed\n" if scenario == "worker fails" and pod.id == "pod0" else "done\n"
+                    if scenario in ("worker fails", "lane delivers nothing") and pod.id == "pod1":
+                        return "failed: a lane failed\n"
+                    return "done\n"
                 return "ok\n"
 
             def put(self, pod, local, remote_path, timeout=0):
                 if scenario == "crash":
                     raise KeyboardInterrupt("simulated Ctrl+C during upload")
+                if scenario == "upload fails" and pod.id == "pod1":
+                    raise sp.CalledProcessError(255, "ssh")
                 with tf.open(local) as t:
-                    self.lanes[pod.id] = [int(m.name[5:-3]) for m in t.getmembers() if m.name.startswith("lane-") and m.name.endswith(".sh")]
+                    self.lanes[pod.id] = sorted(int(m.name[5:-3]) for m in t.getmembers() if m.name.startswith("lane-") and m.name.endswith(".sh"))
 
             def get(self, pod, remote_path, local, timeout=0):
+                if scenario == "worker fails" and pod.id == "pod1":
+                    raise sp.CalledProcessError(1, "ssh")  # the worker left nothing
                 stage = tmp / f"stage-{pod.id}"
                 for li in self.lanes[pod.id]:
+                    if scenario == "lane delivers nothing" and pod.id == "pod1" and li == self.lanes[pod.id][-1]:
+                        continue  # this lane failed on this pod; the others delivered
                     d = stage / "lanes" / str(li) / "big"
-                    games = pool[li * 10:(li + 1) * 10]
+                    games = pool[li * 5:(li + 1) * 5]
                     cut(data, games, d / "data" / data.name, [f"gpu:lane{li}"])
                     summary = {"games": len(games), "seconds": 1.0, "groups": [], "branch": {"decisions": 1}, "config": {},
                                "tables": [{"table": f"t{li}", "agents": ["a"], "games": len(games), "wins": [1], "turnLimit": 0,
                                            "turns": 10, "decisions": 1, "meanTurns": 1}]}
                     (d / "gpu.json").write_text(json.dumps(summary), encoding="utf8")
                     (d / "gpu.log").write_text("log\n", encoding="utf8")
+                stage.mkdir(parents=True, exist_ok=True)
                 (stage / "env.json").write_text("{}", encoding="utf8")
                 with tf.open(local, "w:gz") as t:
                     for p in stage.iterdir():
                         t.add(p, arcname=p.name)
+                shutil.rmtree(stage)
 
             def forget(self):
                 pass
 
-        saved = remote.api, remote.Ssh, remote.time.sleep
-        remote.api, remote.Ssh, remote.time.sleep = api, FakeSsh, lambda s: None
+        fake_ssh = {}
+
+        def make_ssh(work):
+            fake_ssh["s"] = FakeSsh(work)
+            return fake_ssh["s"]
+
+        saved = remote.api, remote.Ssh, remote.time
+        remote.api, remote.Ssh, remote.time = api, make_ssh, Clock
         models = tmp / "models"
         models.mkdir()
         for m in ("delove@2", "delove@3"):
@@ -189,26 +233,35 @@ def check_run(data: Path, jobs: str) -> bool:
         (models / "jacob-sensei@1.json").write_text("{}")
         out, dat = tmp / "runs", tmp / "data"
         (out / "big").mkdir(parents=True)
-        argv = ["run", "--name", "t", "--step", f"big={jobs}", "--only", "w10a,w10b,ge6a,ge6b", "--pods", "2", "--models", str(models),
-                "--data", str(dat), "--out", str(out), "--max-gpu-hours", "10", "--cache", str(tmp / "nocache"), "--yes", "--",
-                "--seed", "1", "--ranker", "delove@3"]
+        # 2 pods x 2 processes: 4 lanes, one configuration each (w10a, w10b, ge6a, ge6b), 5 games per lane
+        argv = ["run", "--name", "t", "--step", f"big={jobs}", "--only", "w10a,w10b,ge6a,ge6b", "--pods", "2", "--procs", "2",
+                "--models", str(models), "--data", str(dat), "--out", str(out), "--max-gpu-hours", "10", "--cache", str(tmp / "nocache"),
+                "--yes", "--", "--seed", "1", "--ranker", "delove@3"]
         try:
             rc = remote.main(argv)
         except KeyboardInterrupt:
             rc = "interrupted"
         finally:
-            remote.api, remote.Ssh, remote.time.sleep = saved
-        deleted = sorted(p for m, p in calls if m == "DELETE")
-        terminated = deleted == sorted(f"/pods/{i}" for i in pods) and len(pods) == 2
-        good = terminated and not list(tmp.glob("runs/remote/upload-*.tar"))
+            remote.api, remote.Ssh, remote.time = saved
+        deleted = sorted(set(p for m, p in calls if m == "DELETE"))
+        terminated = deleted == sorted(f"/pods/{i}" for i in pods)
+        good = terminated and len(pods) == want_pods and rc == want_rc and not list(tmp.glob("runs/remote/upload-*.tar"))
+        res = json.loads((out / "big" / "gpu.json").read_text(encoding="utf8")) if (out / "big" / "gpu.json").exists() else {}
+        merged = dat / "t-big" / data.name
+        got = sum(game_hashes(merged).values()) if merged.exists() else 0
+        good = good and res.get("games", 0) == want_games and got == want_games
+        s = fake_ssh.get("s")
+        if scenario == "lane delivers nothing" and s:  # the replacement got only the lane that delivered nothing
+            good = good and s.lanes.get("pod2") == s.lanes.get("pod1", [None])[-1:]
+        if scenario == "delete fails once":  # no replacement was rented while the bad pod could still be billed
+            deletes = [n for n, c in enumerate(calls) if c == ("DELETE", "/pods/pod1")]
+            posts = [n for n, c in enumerate(calls) if c[0] == "POST"]
+            good = good and len(deletes) == 2 and len(posts) == 3 and posts[2] > deletes[1]
+        if scenario == "slot never works" and s:  # the healthy pod still played and was downloaded
+            good = good and "pod0" in s.lanes and ("DELETE", "/pods/pod0") in calls
         if scenario == "success":
-            res = json.loads((out / "big" / "gpu.json").read_text(encoding="utf8")) if (out / "big" / "gpu.json").exists() else {}
-            merged = dat / "t-big" / data.name
-            good = good and rc == 0 and res.get("games") == 20 and sum(game_hashes(merged).values()) == 20  # 2 lanes x 10 games
-            good = good and "watchdog" in json.dumps(next(iter(pods.values()))["dockerStartCmd"])
-        else:
-            good = good and rc in (1, "interrupted") and not (out / "big" / "gpu.json").exists()
-        print(f"run ({scenario}): {len(pods)} pods created, {len(deleted)} terminated, exit {rc} -> {'OK' if good else 'MISMATCH'}")
+            good = good and "watchdog" in json.dumps(pods["pod0"]["dockerStartCmd"])
+        print(f"run ({scenario}): {len(pods)} pods created, {len(deleted)} terminated, exit {rc}, {got} games merged -> {'OK' if good else 'MISMATCH'}")
         ok = ok and good
         shutil.rmtree(tmp, ignore_errors=True)
     return ok

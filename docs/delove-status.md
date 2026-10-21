@@ -133,6 +133,14 @@ current base `delove@N` on its own stage metric** (the difference's 95% interval
 (the interval not below 0). The coordinator publishes it to the private models repo next to `delove@N`, with a
 `delove-range@N.json` routes file for the new trio (models repo README, "The range specialists").
 
+**Each specialist is its own line** (owner, 2026-10-21): a specialist improves on *itself*, never restarts as a copy
+of the newest base. `delove-<range>-range@1` is fine-tuned from the base of its day (`delove@6` for the first lines);
+every later candidate starts from the **current best of its own line** (`--init delove-<range>-range@N.pt`) and trains
+on the newest shared pool of games. What a new base learns still reaches the specialists through those games (the
+base generates and ranks them), not through its weights. The bar stays the current base on the specialist's stage,
+so a line that stops beating new bases shows up at its next comparison; re-seeding a line from a new base is a
+deliberate owner decision, recorded here, never a default step of a cycle.
+
 ## 4. The training flow, and why we think each part works
 
 A **cycle** turns "a stronger teacher" into "a stronger student", then makes the student the next teacher's

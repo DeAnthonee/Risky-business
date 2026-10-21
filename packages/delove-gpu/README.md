@@ -215,7 +215,7 @@ at a table (`delove-teacher@N`, `jacob-sensei@N`, any mix) plays its own version
   its longest copy has network moves (about one round of every seat's moves with `all`, the rest of the decider's turn
   with `self`), and each step costs the encoder's and the network's kernel latency (about 15-20 ms, mostly the
   encoder's many small PyTorch operations), so these rollouts cost far more than the teacher's one kernel (measured
-  below). Comparison seats `delove-branch@1:net` / `:netself` / `:teacher` (and `:o4`, `:o5`: options; any mix of
+  in packages/delove/README.md: 10-30x per branched decision). Comparison seats `delove-branch@1:net` / `:netself` / `:teacher` (and `:o4`, `:o5`: options; any mix of
   tokens, e.g. `delove-branch@1:net:o4`) play side by side in one run with `--rollout-net MODEL`; each set of comparison
   seats runs as its own engine group (and cloud lane), timed apart (`bench/rollout_compare.py`).
 - **Training arrays** (`generate.py` Recorder, `npy.py`): export.ts's files and `features.json`, with the feature names
@@ -728,3 +728,7 @@ on every map, table size and setting but fog of war, each verified against the T
 3. **Other players in the pool:** `risky@1` (`packages/engine/src/bot.ts`, short) and sampling (`-explore`) network
    seats, which need ONNX-identical sampling arithmetic; `DELOVE_BRANCH_VALUE` (the value head's blend).
 4. **Fog of war:** the encoder would need a seat's-eye view first (export skips fog games today anyway).
+5. **A cheaper network step** (for network rollouts, ladder gates and network seats): a lockstep network step costs
+   about 15-20 ms, mostly the encoder's hundreds of small PyTorch operations (about half) and the candidate features,
+   with the GPU nearly idle. The encoder as one CUDA kernel (checked bit for bit against `export` as today) would cut
+   that several times; until then network rollouts cost 10-30x the teacher's per decision.

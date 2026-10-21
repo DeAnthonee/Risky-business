@@ -4,7 +4,7 @@ Covers `packages/delove` (teacher, network agent, seat player, trainer, cycle sc
 numbers go in [packages/delove/CYCLES.md](../../packages/delove/CYCLES.md) and the current state in
 [docs/delove-status.md](../delove-status.md); this log only lists the merged changes. GPU mirror: [delove-gpu.md](delove-gpu.md).
 
-Newest first, one line per change: `- YYYY-MM-DD #143 what changed`. **Append a line in the same PR** as any change to
+Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. **Append a line in the same PR** as any change to
 this area (README hard rule 12).
 
 - 2026-10-21 #143 live seat bug: `stateFromView` gave every opponent 0 cards (dropped `cardCount`), so delove@N and Jacob misread card threats in every live game; opponents' hand sizes and the deck/discard sizes are now rebuilt from the view (random deal of the unseen cards); yardstick caveat for games 1-6

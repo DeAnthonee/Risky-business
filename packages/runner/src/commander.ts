@@ -339,11 +339,98 @@ export function getContinentIncome(view: GameView, map: MapDef, playerId: Player
   return bonus;
 }
 
+/** Check whether two distinct continents share at least one adjacent border on the map. */
+export function areContinentsAdjacent(map: MapDef, c1: string, c2: string): boolean {
+  if (c1 === c2) return false;
+  const cont1 = map.continentById[c1];
+  const cont2 = map.continentById[c2];
+  if (!cont1 || !cont2) return false;
+  const cont2Terrs = new Set(cont2.territories);
+  for (const t1 of cont1.territories) {
+    for (const adj of map.adjacency[t1] ?? []) {
+      if (cont2Terrs.has(adj)) return true;
+    }
+  }
+  return false;
+}
+
+export interface TargetContinent {
+  id: string;
+  name: string;
+  isHeld: boolean;
+  owned: number;
+  total: number;
+  score: number;
+}
+
+/**
+ * Determine a player's primary target continent bonus on the board:
+ * 1. An explicit focus continent from their plan, OR
+ * 2. A continent they already hold (defending their bonus), OR
+ * 3. The continent where they hold the strongest position / highest completion share.
+ * Players only pursue one bonus at a time.
+ */
+export function getPrimaryTargetContinent(
+  view: GameView,
+  map: MapDef,
+  playerId: PlayerId,
+  focusId?: string | null
+): TargetContinent | null {
+  const resolvedContId = focusId
+    ? map.continentById[focusId]?.id ?? map.territoryById[focusId]?.continent
+    : null;
+
+  if (resolvedContId && map.continentById[resolvedContId]) {
+    const c = map.continentById[resolvedContId];
+    const total = c.territories.length;
+    const owned = c.territories.filter((t) => view.territories[t]?.owner === playerId).length;
+    return {
+      id: c.id,
+      name: c.name,
+      isHeld: owned === total,
+      owned,
+      total,
+      score: 1000,
+    };
+  }
+
+  let best: TargetContinent | null = null;
+  for (const c of map.continents) {
+    const total = c.territories.length;
+    const owned = c.territories.filter((t) => view.territories[t]?.owner === playerId).length;
+    if (owned === 0) continue;
+    const armies = c.territories
+      .filter((t) => view.territories[t]?.owner === playerId)
+      .reduce((s, t) => s + (view.territories[t]?.armies ?? 0), 0);
+
+    const isHeld = owned === total;
+    const share = owned / total;
+    const compactBonus = total <= 4 ? 20 : total <= 6 ? 10 : 0;
+    const score = (isHeld ? 200 : 0) + share * 100 + compactBonus + c.bonus * 5 + Math.min(armies, 15);
+
+    if (!best || score > best.score) {
+      best = {
+        id: c.id,
+        name: c.name,
+        isHeld,
+        owned,
+        total,
+        score,
+      };
+    }
+  }
+
+  return best;
+}
+
 export interface GoodNeighborEvaluation {
   neighborId: PlayerId;
   name: string;
   isBeneficial: boolean;
   score: number;
+  myTargetContinent: { id: string; name: string } | null;
+  theirTargetContinent: { id: string; name: string } | null;
+  targetBonusesAdjacent: boolean;
   divergentExitsCount: number;
   bottleneckedIntoMe: boolean;
   incomeDisparity: number;
@@ -355,17 +442,35 @@ export interface GoodNeighborEvaluation {
 /**
  * Evaluate whether establishing a Good Neighbor / neutral border pact with an adjacent neighbor
  * is strategically beneficial or dangerous:
- * 1. Divergent routes ("conquer in opposite directions"): do they have external exits facing away from you?
+ * 1. ADJACENT TARGET BONUSES: Both players must be pursuing continent bonuses right next to each other!
+ *    If their bonuses are far away or not adjacent, a neutral border makes zero strategic sense.
+ * 2. Divergent routes ("conquer in opposite directions"): do they have external exits facing away from you?
  *    If they are in a cul-de-sac with nowhere else to go, they will inevitably march into you.
- * 2. Parity & bonus disparity: are you both relatively equal? Letting them hold a huge bonus while you hold little is suicide.
- * 3. Contested continent: do they occupy a territory inside a continent you are trying to secure?
+ * 3. Parity & bonus disparity: are you both relatively equal? Letting them hold a huge bonus while you hold little is suicide.
+ * 4. Contested continent: do they occupy a territory inside a continent you are trying to secure?
  */
-export function evaluateGoodNeighbor(view: GameView, meId: PlayerId, neighborId: PlayerId): GoodNeighborEvaluation {
+export function evaluateGoodNeighbor(
+  view: GameView,
+  meId: PlayerId,
+  neighborId: PlayerId,
+  myFocusContinent?: string | null
+): GoodNeighborEvaluation {
   const map = getMap(view.options.map);
   const myTerrs = map.territoryIds.filter((t) => view.territories[t]?.owner === meId);
   const theirTerrs = map.territoryIds.filter((t) => view.territories[t]?.owner === neighborId);
   const neighborPlayer = view.players.find((p) => p.id === neighborId);
   const neighborName = neighborPlayer?.name ?? neighborId;
+
+  // 1. Determine target continent bonuses: both players must be pursuing adjacent bonuses
+  const myTargetCont = getPrimaryTargetContinent(view, map, meId, myFocusContinent);
+  const theirTargetCont = getPrimaryTargetContinent(view, map, neighborId);
+
+  const targetBonusesAdjacent = !!(
+    myTargetCont &&
+    theirTargetCont &&
+    myTargetCont.id !== theirTargetCont.id &&
+    areContinentsAdjacent(map, myTargetCont.id, theirTargetCont.id)
+  );
 
   const exitsToOthers = new Set<string>();
   const exitsToMe = new Set<string>();
@@ -401,13 +506,13 @@ export function evaluateGoodNeighbor(view: GameView, meId: PlayerId, neighborId:
   const armyRatio = Math.round((theirArmies / Math.max(1, myArmies)) * 100) / 100;
 
   let occupiesMyContinent = false;
-  for (const c of map.continents) {
-    const myCount = c.territories.filter((t) => view.territories[t]?.owner === meId).length;
-    const theirCount = c.territories.filter((t) => view.territories[t]?.owner === neighborId).length;
-    // Only consider them an obstacle if we already hold almost the entire continent (missing 1 territory) and they hold that piece
-    if (c.territories.length >= 3 && myCount >= c.territories.length - 1 && theirCount > 0) {
-      occupiesMyContinent = true;
-      break;
+  if (myTargetCont) {
+    const c = map.continentById[myTargetCont.id];
+    if (c) {
+      const theirCount = c.territories.filter((t) => view.territories[t]?.owner === neighborId).length;
+      if (theirCount > 0) {
+        occupiesMyContinent = true;
+      }
     }
   }
 
@@ -416,6 +521,27 @@ export function evaluateGoodNeighbor(view: GameView, meId: PlayerId, neighborId:
 
   let score = 50;
   const reasons: string[] = [];
+
+  // Check 1: Target Bonuses MUST be adjacent and non-conflicting
+  if (!myTargetCont || !theirTargetCont) {
+    score -= 100;
+    reasons.push('no clear target continent bonus identified for both players');
+  } else if (myTargetCont.id === theirTargetCont.id) {
+    score -= 100;
+    reasons.push(`both contesting the same target continent (${myTargetCont.name})`);
+  } else if (!targetBonusesAdjacent) {
+    score -= 100;
+    reasons.push(`target bonuses are not adjacent (your ${myTargetCont.name} vs ${neighborName}'s ${theirTargetCont.name})`);
+  } else {
+    // They are adjacent! Does our shared border touch these target continents?
+    const myTargetTerrs = new Set(map.continentById[myTargetCont.id]?.territories ?? []);
+    const theirTargetTerrs = new Set(map.continentById[theirTargetCont.id]?.territories ?? []);
+    const touchesTargetFrontier = myTerrs.some((t) =>
+      myTargetTerrs.has(t) && (map.adjacency[t] ?? []).some((adj) => view.territories[adj]?.owner === neighborId && theirTargetTerrs.has(adj))
+    );
+    score += 30;
+    reasons.push(`adjacent target bonuses: your ${myTargetCont.name} and ${neighborName}'s ${theirTargetCont.name}${touchesTargetFrontier ? ' share a frontier border' : ' border each other'}`);
+  }
 
   if (inThreeManEndgame) {
     score -= 100;
@@ -453,11 +579,18 @@ export function evaluateGoodNeighbor(view: GameView, meId: PlayerId, neighborId:
   }
 
   if (occupiesMyContinent) {
-    score -= 40;
-    reasons.push('occupies territory inside your target continent');
+    score -= 50;
+    reasons.push(`occupies territory inside your target continent (${myTargetCont?.name})`);
   }
 
-  const isBeneficial = score >= 50 && !bottleneckedIntoMe && incomeDisparity < 4 && !occupiesMyContinent && !inThreeManEndgame;
+  const isBeneficial =
+    score >= 50 &&
+    targetBonusesAdjacent &&
+    !bottleneckedIntoMe &&
+    incomeDisparity < 4 &&
+    !occupiesMyContinent &&
+    !inThreeManEndgame;
+
   const verdict = isBeneficial
     ? `VIABLE GOOD NEIGHBOR (beneficial pact: ${reasons.join(', ')})`
     : `POOR CANDIDATE (${reasons.join(', ')})`;
@@ -467,6 +600,9 @@ export function evaluateGoodNeighbor(view: GameView, meId: PlayerId, neighborId:
     name: neighborName,
     isBeneficial,
     score,
+    myTargetContinent: myTargetCont ? { id: myTargetCont.id, name: myTargetCont.name } : null,
+    theirTargetContinent: theirTargetCont ? { id: theirTargetCont.id, name: theirTargetCont.name } : null,
+    targetBonusesAdjacent,
     divergentExitsCount: exitsToOthers.size,
     bottleneckedIntoMe,
     incomeDisparity,
@@ -482,7 +618,7 @@ const SCHEMA = `{"winPath": "diplomacy"|"bonuses"|"cards"|"capitals"|"kills"|"ho
 
 /** Optional knobs the commander may add to its JSON; each line says what it does and the default. */
 const KNOBS = [
-  '- ping (object or null, e.g. {"type":"attack","target":"Tryndamere","to":"Lux"} or {"type":"alliance","to":"Ahri"} or {"type":"taunt","to":null} or {"type":"good_neighbor","to":"Leona"} or {"type":"agree","to":"Jinx"} or {"type":"decline","to":"Jinx"}): fast diplomatic ping. TYPES: "attack" (call a joint attack on a rival to break stalemates or gang up 2v1), "alliance" (propose an offensive or defensive partnership), "taunt" (psychological trash talk to mock stalled rivals, bait attacks, or express character persona), "good_neighbor" (neutral border with an equal border neighbor when 4+ players remain — NEVER use in a 3-man endgame), "camaraderie"/"anger" (emotes), "agree"/"decline" (reply to incoming proposal). RULES: (1) Maximum ONCE every 4 turns, UNLESS replying directly to an incoming proposal on your next turn. (2) NEVER decline or reply to taunts/emotes. (3) "Silence is a rejection": if an offer is ignored on the next turn, it expires. (4) Set ping to null if cooldown has not elapsed or no ping needed.',
+  '- ping (object or null, e.g. {"type":"attack","target":"Tryndamere","to":"Lux"} or {"type":"alliance","to":"Ahri"} or {"type":"taunt","to":null} or {"type":"good_neighbor","to":"Leona"} or {"type":"agree","to":"Jinx"} or {"type":"decline","to":"Jinx"}): fast diplomatic ping. TYPES: "attack" (call a joint attack on a rival to break stalemates or gang up 2v1), "alliance" (propose an offensive or defensive partnership), "taunt" (psychological trash talk to mock stalled rivals, bait attacks, or express character persona), "good_neighbor" (neutral border with an adjacent border neighbor ONLY when both players want continent bonuses right next to each other — NEVER across non-adjacent bonuses or in a 3-man endgame), "camaraderie"/"anger" (emotes), "agree"/"decline" (reply to incoming proposal). RULES: (1) Maximum ONCE every 4 turns, UNLESS replying directly to an incoming proposal on your next turn. (2) NEVER decline or reply to taunts/emotes. (3) "Silence is a rejection": if an offer is ignored on the next turn, it expires. (4) Set ping to null if cooldown has not elapsed or no ping needed.',
   '- placeOn (territory id or array of territory ids, e.g. ["brazil"] or ["brazil", "egypt"]): explicitly choose which of your territories receive your reinforcement troops this turn. Deploying a single spearhead is ideal for breaking fortified borders, but multi-pronged drafting across 2-3 territories is recommended when an elimination target has spread holdings requiring simultaneous attacks in 2-3 directions. Leave out to let the tactical chooser fund your campaign/front automatically.',
   '- route (ordered array of territory ids, e.g. ["peru", "venezuela", "central_america"]): explicitly specify your attack/expansion path in order so your stack advances along that chain without splitting into dead-end pockets.',
   '- fortifyTo (territory id, e.g. "peru"): explicitly choose which of your territories to pull your stack back to during the end-of-turn fortify phase (for example, expanding out with your capital stack and then fortifying back onto your capital or choke point).',
@@ -831,16 +967,34 @@ export class Commander {
       }
 
       // 2b. Validate good_neighbor proposal viability:
+      // A player can request Good Neighbor from an adjacent border neighbor next to them,
+      // without knowing if the recipient wants an adjacent bonus or not (which will be denied if non-adjacent).
+      // However, we prevent requests across non-bordering rivals, in 3-man stalemates, or against attack targets/cul-de-sacs.
       if (p.ping && p.ping.type === 'good_neighbor') {
         const recipientKey = p.ping.to?.toLowerCase();
         const validId = recipientKey ? idOf(recipientKey) : undefined;
         if (!validId) {
           p.ping = null;
         } else {
-          const evalRes = evaluateGoodNeighbor(view, this.o.playerId, validId);
-          if (!evalRes.isBeneficial) {
-            // Proposing good_neighbor is an unviable trap (cul-de-sac, severe bonus disparity, contested continent)
+          const borderNeighbors = getBorderNeighbors(view, this.o.playerId);
+          const isBorderNeighbor = borderNeighbors.some((n) => n.id === validId);
+          const livingNonNeutral = view.players.filter((x) => x.alive && !x.isNeutral);
+          const isTarget = p.target && (p.target.toLowerCase() === validId.toLowerCase() || p.target.toLowerCase() === recipientKey);
+          if (!isBorderNeighbor || livingNonNeutral.length <= 3 || isTarget) {
             p.ping = null;
+          } else {
+            // Cul-de-sac check: never propose to someone trapped with nowhere else to go
+            const map = getMap(view.options.map);
+            const theirTerrs = map.territoryIds.filter((t) => view.territories[t]?.owner === validId);
+            const exitsToOthers = theirTerrs.some((t) =>
+              (map.adjacency[t] ?? []).some((adj) => {
+                const owner = view.territories[adj]?.owner;
+                return owner && owner !== validId && owner !== this.o.playerId;
+              })
+            );
+            if (!exitsToOthers) {
+              p.ping = null;
+            }
           }
         }
       }
@@ -866,7 +1020,7 @@ export class Commander {
             const proposal = this.pendingProposals.get(validRecipient.toLowerCase());
             const validId = idOf(validRecipient);
             if (proposal?.type === 'good_neighbor' && validId) {
-              const evalRes = evaluateGoodNeighbor(view, this.o.playerId, validId);
+              const evalRes = evaluateGoodNeighbor(view, this.o.playerId, validId, p.focus);
               if (!evalRes.isBeneficial) {
                 // Incoming good_neighbor is an unviable trap: silence is a rejection
                 p.ping = null;
@@ -924,7 +1078,7 @@ export class Commander {
             const isTarget = p.target && (p.target.toLowerCase() === senderLLM.id.toLowerCase() || p.target.toLowerCase() === senderLLM.name.toLowerCase());
             let shouldAgree = false;
             if (prop.type === 'good_neighbor') {
-              const evalRes = evaluateGoodNeighbor(view, this.o.playerId, senderLLM.id);
+              const evalRes = evaluateGoodNeighbor(view, this.o.playerId, senderLLM.id, p.focus);
               shouldAgree = evalRes.isBeneficial && !isTarget;
             } else if (prop.type === 'attack') {
               // They called a joint attack! Agree if the sender is not our target
@@ -997,7 +1151,7 @@ export class Commander {
 
             const eligibleNeighbor = nonTargetNeighbors.find((n) => {
               const lastTo = this.lastPingToRecipient.get(n.name.toLowerCase()) ?? -999;
-              const evalRes = evaluateGoodNeighbor(view, this.o.playerId, n.id);
+              const evalRes = evaluateGoodNeighbor(view, this.o.playerId, n.id, p.focus);
               return this.ownTurns - lastTo >= 4 && !this.activeGoodNeighbors.has(n.name.toLowerCase()) && evalRes.isBeneficial;
             });
 
@@ -1147,14 +1301,20 @@ export class Commander {
       })
       .filter(Boolean);
     const stall = this.getStall();
+    const map = getMap(view.options.map);
+    const myFocus = this.plan?.focus ?? null;
+    const myTarget = getPrimaryTargetContinent(view, map, me, myFocus);
+    const targetBonusHeader = myTarget
+      ? `Your target bonus continent: ${myTarget.name} (${myTarget.isHeld ? 'HELD' : `${myTarget.owned}/${myTarget.total} territories held`})`
+      : 'Your target bonus continent: none';
     const borderNeighbors = getBorderNeighbors(view, me);
     const neighborEvals = borderNeighbors.map((n) => {
-      const ev = evaluateGoodNeighbor(view, me, n.id);
+      const ev = evaluateGoodNeighbor(view, me, n.id, myFocus);
       return `- ${n.name}: ${ev.verdict}`;
     });
     const borderNeighborsText = borderNeighbors.length > 0
-      ? `Adjacent border neighbors & Good Neighbor viability:\n${neighborEvals.join('\n')}`
-      : 'Adjacent border neighbors: none (no shared borders with other living LLMs)';
+      ? `${targetBonusHeader}\nAdjacent border neighbors & Good Neighbor viability:\n${neighborEvals.join('\n')}`
+      : `${targetBonusHeader}\nAdjacent border neighbors: none (no shared borders with other living LLMs)`;
     const goodNeighborsText = this.activeGoodNeighbors.size > 0
       ? `Active Good Neighbor pacts (neutral borders): ${Array.from(this.activeGoodNeighbors).join(', ')}`
       : 'Active Good Neighbor pacts: none';
@@ -1178,7 +1338,7 @@ export class Commander {
       '- DEFENSIVE ELIMINATION & BORDER CONSOLIDATION: Eliminating an adjacent wounded rival holding cards collapses awkward frontiers into fewer bottleneck doorways — an offensive kill that yields superior defense.',
       '- GEOGRAPHY & VIABILITY: Secure small, compact 1-2 choke continents early; never sprawl thin across multi-border continents on turns 1-3. Turtle and consolidate defense once bonus is held and card is earned.',
       '- 3-PLAYER ENDGAME & STALEMATE BREAKTHROUGH: In a 3-player endgame (or when stalemated), DO NOT play Good Neighbor with everyone! Turtling in a 3-way lock results in paralysis. You MUST coordinate a 2v1: pick the runaway leader (or the most vulnerable bounty) and ping the other rival with ⚔️ [attack: Target] or 🛡️ [alliance] to take them down together, or broadcast 😈 [taunt] to provoke action! Good Neighbor is ONLY for 4+ players when divergent routes exist away from each other.',
-      '- WEIGHING GOOD NEIGHBOR VIABILITY: A "good_neighbor" pact (🏡 [good neighbor]) is only strategic when mutually beneficial: (1) Equal Parity: only ally with rivals relatively equal in strength and bonus income. Never good-neighbor a runaway giant holding a huge bonus (+5 to +7) while you hold little. (2) Divergent Routes ("Opposite Directions"): ensure your neighbor has external borders facing away from you so both of you can expand in opposite directions. NEVER good-neighbor someone trapped in a cul-de-sac with nowhere else to go on the map but into you! (3) Contested Land: if a neighbor holds land inside your target continent, they are an obstacle to conquer. (4) NEVER use good_neighbor when <= 3 players remain!',
+      '- ADJACENT TARGET BONUSES & GOOD NEIGHBOR POLICY: A "good_neighbor" pact (🏡 [good neighbor]) is ONLY valid when both players are pursuing continental bonuses right next to each other! (1) Adjacent Target Bonuses: only ally with a neighbor if your target bonus continent and their target bonus continent directly border each other on the map (e.g. North America and South America, or Europe and Africa). You should only be pursuing one bonus at a time. NEVER make Good Neighbors with someone whose bonus is far away or on the other side of the map! (2) Never ally over the same bonus: if you both want the same continent, they are an obstacle to conquer, not a partner. (3) Parity: only ally with rivals relatively equal in strength and bonus income. (4) Divergent Routes: ensure both players can expand outward in opposite directions away from each other. (5) Low Player Count: NEVER use good_neighbor when <= 3 players remain!',
       '- winPlan: one sentence: how you actually win from here.',
       `- hopeless: only if you see zero ways to win. Then set target to the player you like least (lowest rapport in your relationships text and the chat) and the bot goes all-in on them, ignoring garrisons. Never choose it just because you are behind.`,
       '- plan: your plan for this turn and the next few, one or two sentences (what to take, hold, break, who to hit).',

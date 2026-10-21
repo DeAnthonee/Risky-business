@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { addPlayer, createGame, startGame, viewFor, type GameView } from '@risk/engine';
+import { addPlayer, createGame, startGame, viewFor, getMap, type GameView } from '@risk/engine';
 import { formatPing, isModelName, parsePing, type PingAction } from '../src/pings.js';
-import { Commander, parsePlanReply } from '../src/commander.js';
+import { Commander, parsePlanReply, areContinentsAdjacent, getPrimaryTargetContinent } from '../src/commander.js';
 import { DEFAULT_OPTIONS } from '../src/presets.js';
 import type { Llm } from '../src/llm.js';
 
@@ -379,5 +379,149 @@ describe('diplomatic ping system', () => {
     // On Turn 2, the mutual handshake should automatically seal the pact, putting Ahri in avoid!
     const plan2 = await c.planFor({ ...view, turnNumber: 5 });
     expect(plan2?.avoid).toContain('b');
+  });
+
+  it('correctly computes whether map continents are topologically adjacent across borders', () => {
+    const map = getMap('classic');
+    expect(areContinentsAdjacent(map, 'north_america', 'south_america')).toBe(true);
+    expect(areContinentsAdjacent(map, 'south_america', 'africa')).toBe(true);
+    expect(areContinentsAdjacent(map, 'europe', 'africa')).toBe(true);
+    expect(areContinentsAdjacent(map, 'europe', 'asia')).toBe(true);
+    expect(areContinentsAdjacent(map, 'asia', 'australia')).toBe(true);
+
+    // Non-adjacent continents
+    expect(areContinentsAdjacent(map, 'south_america', 'europe')).toBe(false);
+    expect(areContinentsAdjacent(map, 'south_america', 'australia')).toBe(false);
+    expect(areContinentsAdjacent(map, 'south_america', 'asia')).toBe(false);
+    expect(areContinentsAdjacent(map, 'north_america', 'australia')).toBe(false);
+
+    // Same continent
+    expect(areContinentsAdjacent(map, 'europe', 'europe')).toBe(false);
+  });
+
+  it('rejects Good Neighbor proposals when players are pursuing non-adjacent continent bonuses (e.g. South America vs Europe)', async () => {
+    const map = getMap('classic');
+    let s = createGame('TEST_REJECT_NON_ADJ', { ...DEFAULT_OPTIONS, fogOfWar: false, maxPlayers: 4, map: 'classic', chooseCapitals: false }, 42);
+    s = addPlayer(s, 'a', 'Shen', true);
+    s = addPlayer(s, 'b', 'Ahri', true);
+    s = addPlayer(s, 'c', 'Leona', true);
+    s = addPlayer(s, 'd', 'Darius', true);
+    s = startGame(s).state;
+
+    // Shen holds South America
+    for (const t of ['brazil', 'venezuela', 'peru', 'argentina']) {
+      s.territories[t] = { owner: 'a', armies: 3 };
+    }
+    // Darius holds Europe
+    for (const t of map.continentById['europe'].territories) {
+      s.territories[t] = { owner: 'd', armies: 3 };
+    }
+    // Darius also holds Central America so they are adjacent border neighbors
+    s.territories['central_america'] = { owner: 'd', armies: 3 };
+
+    const view = viewFor(s, 'a');
+
+    const c = new Commander({
+      llm: llmReturning(
+        // Shen attempts to agree to Darius's Good Neighbor proposal
+        JSON.stringify({ winPath: 'bonuses', focus: 'south_america', plan: 'hold SA', ping: { type: 'agree', to: 'Darius' } })
+      ),
+      seatName: 'Shen',
+      playerId: 'a',
+      learnings: '',
+      gameId: 'TEST_REJECT_NON_ADJ',
+      scoutingDir: null,
+    });
+
+    // Darius proposes Good Neighbor to Shen
+    c.onMessages([
+      { id: 1, playerId: 'd', name: 'Darius', message: '🏡 [good neighbor]', to: 'a', toName: 'Shen' },
+    ]);
+
+    const plan = await c.planFor({ ...view, turnNumber: 1 });
+    // Agreement must be strictly rejected/dropped because South America and Europe are non-adjacent bonuses!
+    expect(c.popPing()).toBeNull();
+    expect(plan?.avoid).not.toContain('d');
+  });
+
+  it('accepts Good Neighbor proposals when players are pursuing adjacent continent bonuses (e.g. South America vs Africa)', async () => {
+    const map = getMap('classic');
+    let s = createGame('TEST_ACCEPT_ADJ', { ...DEFAULT_OPTIONS, fogOfWar: false, maxPlayers: 4, map: 'classic', chooseCapitals: false }, 42);
+    s = addPlayer(s, 'a', 'Shen', true);
+    s = addPlayer(s, 'b', 'Ahri', true);
+    s = addPlayer(s, 'c', 'Leona', true);
+    s = addPlayer(s, 'd', 'Darius', true);
+    s = startGame(s).state;
+
+    // Shen holds South America
+    for (const t of ['brazil', 'venezuela', 'peru', 'argentina']) {
+      s.territories[t] = { owner: 'a', armies: 3 };
+    }
+    // Ahri holds Africa (borders South America across Brazil <-> North Africa)
+    for (const t of map.continentById['africa'].territories) {
+      s.territories[t] = { owner: 'b', armies: 3 };
+    }
+
+    const view = viewFor(s, 'a');
+
+    const c = new Commander({
+      llm: llmReturning(
+        // Shen agrees to Ahri's Good Neighbor proposal
+        JSON.stringify({ winPath: 'bonuses', focus: 'south_america', plan: 'hold SA', ping: { type: 'agree', to: 'Ahri' } })
+      ),
+      seatName: 'Shen',
+      playerId: 'a',
+      learnings: '',
+      gameId: 'TEST_ACCEPT_ADJ',
+      scoutingDir: null,
+    });
+
+    // Ahri proposes Good Neighbor to Shen
+    c.onMessages([
+      { id: 1, playerId: 'b', name: 'Ahri', message: '🏡 [good neighbor]', to: 'a', toName: 'Shen' },
+    ]);
+
+    const plan = await c.planFor({ ...view, turnNumber: 1 });
+    // Agreement accepted because South America and Africa are adjacent continent bonuses!
+    expect(c.popPing()).toMatchObject({ type: 'agree', to: 'Ahri', target: 'good neighbor' });
+    expect(plan?.avoid).toContain('b');
+  });
+
+  it('rejects Good Neighbor proposals when both players are contesting the SAME continent bonus', async () => {
+    let s = createGame('TEST_REJECT_SAME_CONT', { ...DEFAULT_OPTIONS, fogOfWar: false, maxPlayers: 4, map: 'classic', chooseCapitals: false }, 42);
+    s = addPlayer(s, 'a', 'Shen', true);
+    s = addPlayer(s, 'b', 'Ahri', true);
+    s = addPlayer(s, 'c', 'Leona', true);
+    s = addPlayer(s, 'd', 'Darius', true);
+    s = startGame(s).state;
+
+    // Both Shen and Ahri contest South America
+    s.territories['brazil'] = { owner: 'a', armies: 3 };
+    s.territories['argentina'] = { owner: 'a', armies: 3 };
+    s.territories['peru'] = { owner: 'b', armies: 3 };
+    s.territories['venezuela'] = { owner: 'b', armies: 3 };
+
+    const view = viewFor(s, 'a');
+
+    const c = new Commander({
+      llm: llmReturning(
+        JSON.stringify({ winPath: 'bonuses', focus: 'south_america', plan: 'hold SA', ping: { type: 'agree', to: 'Ahri' } })
+      ),
+      seatName: 'Shen',
+      playerId: 'a',
+      learnings: '',
+      gameId: 'TEST_REJECT_SAME_CONT',
+      scoutingDir: null,
+    });
+
+    // Ahri proposes Good Neighbor
+    c.onMessages([
+      { id: 1, playerId: 'b', name: 'Ahri', message: '🏡 [good neighbor]', to: 'a', toName: 'Shen' },
+    ]);
+
+    const plan = await c.planFor({ ...view, turnNumber: 1 });
+    // Agreement rejected because both are fighting over the exact same continent bonus!
+    expect(c.popPing()).toBeNull();
+    expect(plan?.avoid).not.toContain('b');
   });
 });

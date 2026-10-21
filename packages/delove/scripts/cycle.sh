@@ -236,6 +236,9 @@ wait "$watcher"
 [[ -n $gpu_runner ]] && { wait "$gpu_runner" || touch "$out/pool.failed"; }
 [[ -f "$out/pool.failed" ]] && { rm -f "$out/pool.failed"; echo "generation failed"; exit 1; }
 stamp "exports done"
+# GENERATE_ONLY=1: stop here (play part of a cycle now, train and gate later with the full config: finished steps are
+# kept, so a later run of a config that lists them skips straight to the steps still to play).
+[[ -n ${GENERATE_ONLY:-} ]] && { echo "GENERATE_ONLY: stopping after generation"; exit 0; }
 
 # ---- 3. train on the GPU ----------------------------------------------------------------------------------------
 cand="$models/$candidate"

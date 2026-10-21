@@ -1,0 +1,10 @@
+# Cycle 8, step a2: Classic 2p, Four Crowns 1v1, Classic 6p. League settings (docs/game-settings.md) with four card/capitals/blizzard variants; Jacob Sensei
+# teaches and fills about half the seats; delove@4 / delove@3 the rest; the branch seat moves round the table.
+c2a      2000 delove-branch@1,jacob-sensei@1 {"autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"progressive"}
+c2b      2000 delove-branch@1,delove@4 {"autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"fixed","capitals":true}
+c2c      2000 jacob-sensei@1,delove-branch@1 {"autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"exponential","blizzards":8}
+c2d      2000 delove@4,delove-branch@1 {"autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"progressive","capitals":true,"blizzards":8}
+mca      3000 delove-branch@1,jacob-sensei@1 {"map":"skirmish","autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"progressive"}
+mcb      3000 delove-branch@1,delove@4 {"map":"skirmish","autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"fixed","capitals":true}
+c6a      1000 jacob-sensei@1,delove@4,jacob-sensei@1,delove@3,jacob-sensei@1,delove-branch@1 {"autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"exponential","blizzards":8}
+c6b      1000 jacob-sensei@1,delove-branch@1,delove@4,jacob-sensei@1,delove@3,jacob-sensei@1 {"autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"progressive","capitals":true,"blizzards":8}

@@ -1,0 +1,16 @@
+# Cycle 10's stage games (#137) for the Mid and Close Range specialists, played on pods next to c10.cycle (which was
+# already running when #137 merged), with the same branch settings; data goes to DATA/c10-sm and DATA/c10-sc. Run with
+# GENERATE_ONLY=1 and the c10.cycle environment, OUT=<runs>/c10s; packages/delove/scripts/cycles/c10-specialists.sh trains on it.
+name=c10
+seed=3101
+steps=(
+  "sm packages/delove/scripts/stage/mid.jobs Stage games: 3 alive"
+  "sc packages/delove/scripts/stage/close.jobs Stage games: 2 alive"
+)
+gpu_steps=(all)
+export_agents=delove-branch@1
+train_data=()
+train_init=delove@6
+candidate=c10s-unused
+train_args=""
+gates=()

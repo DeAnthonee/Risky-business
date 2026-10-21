@@ -1,0 +1,6 @@
+# Cycle 10, step a1: Classic 4-player. League settings (docs/game-settings.md) with four card/capitals/blizzard variants; Jacob Sensei
+# teaches and fills about half the seats; delove@6 / delove@5 the rest; the branch seat moves round the table.
+c4a      1000 jacob-sensei@1,delove-branch@1,delove@6,jacob-sensei@1 {"autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"progressive"}
+c4b      1000 jacob-sensei@1,delove@6,jacob-sensei@1,delove-branch@1 {"autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"fixed","capitals":true}
+c4c      1000 jacob-sensei@1,delove-branch@1,delove@6,jacob-sensei@1 {"autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"exponential","blizzards":8}
+c4d      1000 jacob-sensei@1,delove@6,jacob-sensei@1,delove-branch@1 {"autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"progressive","capitals":true,"blizzards":8}

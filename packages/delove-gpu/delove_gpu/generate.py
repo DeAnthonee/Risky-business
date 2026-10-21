@@ -17,7 +17,8 @@ each map's arrays going to OUT/<map>/ (several configurations on one map append 
 
 Stage tables (the range specialists, delove_gpu/stage.py): agents `A,B,C,D,E,F>X,Y,Z` play a lead-in until 3 players
 are left, then X,Y,Z take over and only that part is recorded; `pos:FILE>X,Y` starts every game from a positions
-file's 2-alive moments.
+file's 2-alive moments; `split:60/40>X,Y` (options with maxPlayers: the table size) starts every game from a ratio
+scenario drawn from its seed (packages/selfplay/src/scenario.ts, asked for through node).
 """
 from __future__ import annotations
 
@@ -41,7 +42,7 @@ from .fingerprint import REPO
 from .npy import NpyWriter
 from .outcome import game_outcome
 from .play import load_delove
-from .stage import load_positions, parse_agents, position_config, read_positions, stage_seats
+from .stage import SplitSource, load_positions, parse_agents, parse_split, position_config, read_positions, stage_seats
 from .teacher import agent_params, is_teacher, mix_seed
 
 TEACHER, BRANCH, NET = 0, 1, 2
@@ -77,6 +78,7 @@ class Table:
     stage: list[str] | None = None  # stage agents (stage.py): they take the survivors' seats when this many are left
     positions: list[dict] | None = None  # a positions table: game i starts from positions[i % len]
     index: list[int] | None = None  # the game numbers this table plays (default start .. start + games - 1)
+    split: list[int] | None = None  # a ratio-scenario table (stage.py SplitSource): the survivors' shares, e.g. [60, 40]
 
     @property
     def indexes(self) -> list[int]:
@@ -100,6 +102,12 @@ def parse_table(s: str) -> Table:
         rest = rest.strip()
     if rest:
         options = json.loads(rest)
+    shares, split_stage = parse_split(parts[2])
+    if shares is not None:
+        seats = options.get("maxPlayers")
+        if not isinstance(seats, int):
+            raise argparse.ArgumentTypeError(f"table {s!r}: a split table needs its table size as maxPlayers in the options")
+        return Table(parts[0], int(parts[1]), [split_stage[0]] * seats, start, options, stage=split_stage, split=shares)
     lead, pos_file, stage = parse_agents(parts[2])
     if pos_file is None:
         return Table(parts[0], int(parts[1]), lead, start, options, stage=stage)
@@ -303,6 +311,7 @@ class Run:
         self.consts = ts_constants() if out else None
         self.recorders: dict[str, Recorder] = {}
         self.results: list[dict] = []
+        self.splits = SplitSource()  # ratio scenarios, drawn by node a few hundred at a time
         self.next_uid = 0
         self.stats = {"decisions": 0, "branched": 0, "simulations": 0, "simulatedMoves": 0, "changed": 0, "gain": 0.0,
                       "changedByKind": {}, "branchedByKind": {}, "chosen": {k: 0.0 for k in SCORE_PARTS}}
@@ -372,6 +381,7 @@ class Group:
         self.lead = torch.zeros(B, dtype=torch.bool, device=e.dev)
         self.stop = torch.zeros(B, dtype=torch.long, device=e.dev)
         self.stage_at: list[dict | None] = [None] * B
+        self.split_at: list[dict | None] = [None] * B  # a ratio scenario's shares per seat and who held which
 
     def fill(self, slots: list[int]):
         r = self.r
@@ -383,7 +393,8 @@ class Group:
             t = self.tables[ti]
             g.append(b)
             seeds.append(mix_seed(r.seed if t.seed is None else t.seed, i))
-            pos.append(t.positions[i % len(t.positions)] if t.positions is not None else None)
+            pos.append(t.positions[i % len(t.positions)] if t.positions is not None else self.split_position(ti, i, seeds[-1]) if t.split else None)
+            self.split_at[b] = {"shares": pos[-1]["shares"], "survivors": pos[-1]["survivors"]} if t.split else None
             self.slot_game[b] = (ti, i)
             self.seat_agent[b] = torch.tensor([r.agent_ids.index(a) for a in t.agents], device=self.dev)
             self.e.tver[b] = self.agent_tver[self.seat_agent[b]]
@@ -405,6 +416,18 @@ class Group:
         self.e.seat_streams(gt, torch.tensor(seeds, dtype=torch.long))
         self.occupied[gt] = True
         self.switch()
+
+    def split_request(self, ti: int, seed: int) -> dict:
+        t = self.tables[ti]
+        return {"shares": t.split, "options": t.options, "seats": len(t.agents), "seed": seed}
+
+    def split_position(self, ti: int, i: int, seed: int, ahead: int = 512) -> dict:
+        """Game i's ratio scenario (stage.SplitSource), drawn together with the next `ahead` split games queued here."""
+        r = self.r
+        nxt = [(tj, j) for tj, j in reversed(self.queue[-ahead:]) if self.tables[tj].split]
+        seed_of = lambda tj, j: mix_seed(r.seed if self.tables[tj].seed is None else self.tables[tj].seed, j)  # noqa: E731
+        return r.splits.get((id(self), ti, i), self.split_request(ti, seed),
+                            [((id(self), tj, j), self.split_request(tj, seed_of(tj, j))) for tj, j in nxt])
 
     def switch(self):
         """Stage games whose lead-in is over (`stop` or fewer real players alive): the stage agents take the
@@ -439,6 +462,8 @@ class Group:
                    "decisions": int(self.decisions[b]), "placement": out["placement"], "kills": out["kills"], "points": out["points"]}
             if t.stage is not None:  # when the stage began (None: the game ended in its lead-in) and who played it
                 res["stage"] = self.stage_at[b]
+            if t.split:  # a ratio scenario: each seat's share, and the seat of share j
+                res["split"] = self.split_at[b]
             self.r.results.append(res)
             if self.rec:
                 self.rec.finish_game(int(self.uid[b]), out)

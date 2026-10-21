@@ -8,6 +8,7 @@ import { exportDataset } from './export.js';
 import { DEFAULT_PROMOTION, loadLadder, promotionDecision, recordMatch, runMatch, saveLadder } from './ladder.js';
 import { positionsFromRecord, readPositions, startState, type StartPosition } from './positions.js';
 import { runBatch } from './runner.js';
+import { parseSplit, splitPosition, type SplitPosition } from './scenario.js';
 import type { Traits } from './traits.js';
 
 const USAGE = `risk-selfplay: headless Risk self-play, rating ladder and decision logs (never touches the game server)
@@ -27,7 +28,8 @@ play     plays games i = start .. start+games-1, game i seeded from (seed, i): s
          Stage games (the Delove range specialists, positions.ts): --agents 'A,B,C,D,E,F>X,Y,Z' plays a lead-in with
          A..F until 3 players are left, then X,Y,Z take the survivors' seats and only that part is logged;
          --agents 'pos:FILE>X,Y' plays from a positions file's 2-alive moments (game i: position i mod count, its
-         own dice from the game seed).
+         own dice from the game seed); --agents 'split:60/40>X,Y' --options '{"maxPlayers":8,...}' plays ratio
+         scenarios (scenario.ts: the board split 60/40 between 2 survivors at an 8-seat table, drawn from the game seed).
 positions writes the starting positions of game records (files or archive folders): the moment each record's
          players alive dropped to each --alive count, one JSON per line.
 export   encodes decision logs (format v2) into NumPy arrays for the trainer, one folder per map
@@ -142,16 +144,42 @@ async function main() {
       positions = readPositions(lead.slice(4), stageAgents.length);
       if (!positions.length) fail(`${lead.slice(4)} has no position with ${stageAgents.length} players alive`);
     }
-    const agents = positions ? stageAgents! : list(lead);
+    let split: { shares: number[]; seats: number } | null = null;
+    if (lead.startsWith('split:')) {
+      if (!stageAgents) fail('--agents split:SHARES needs the stage agents after a ">"');
+      const shares = (() => {
+        try {
+          return parseSplit(lead.slice(6));
+        } catch (err) {
+          fail((err as Error).message);
+        }
+      })();
+      if (shares.length !== stageAgents.length) fail(`a ${shares.join('/')} split needs ${shares.length} stage agents, not ${stageAgents.length}`);
+      if (!options.maxPlayers) fail('--agents split:... needs the table size as maxPlayers in --options');
+      split = { shares, seats: options.maxPlayers };
+    }
+    /** Ratio scenario of game i (seed s), kept for the summary's per-share results. */
+    const splits = new Map<number, SplitPosition>();
+    const agents = positions || split ? stageAgents! : list(lead);
     const games = intArg(values.games, 'games', 100);
     let done = 0;
     const results = await runBatch({
       games,
       seed,
       startIndex: intArg(values.start, 'start', 0),
-      seats: (i) => (positions ? new Array(positions[i % positions.length].seats).fill(agents[0]) : agents).map((agent) => ({ agent, traits })),
+      seats: (i) =>
+        (positions ? new Array(positions[i % positions.length].seats).fill(agents[0]) : split ? new Array(split.seats).fill(agents[0]) : agents).map((agent) => ({ agent, traits })),
       ...(stageAgents ? { stage: { alive: stageAgents.length, agents: stageAgents } } : {}),
       ...(positions ? { start: (i: number, s: number) => ({ state: startState(positions![i % positions!.length], s, `g${i}`), eliminated: positions![i % positions!.length].eliminated }) } : {}),
+      ...(split
+        ? {
+            start: (i: number, s: number) => {
+              const p = splitPosition(split!.shares, options, split!.seats, s);
+              splits.set(i, p);
+              return { state: startState(p, s, `g${i}`), eliminated: p.eliminated };
+            },
+          }
+        : {}),
       options,
       maxTurns,
       logDir: values.log,
@@ -159,7 +187,12 @@ async function main() {
       onGame: () => progress(++done, games),
     });
     process.stderr.write('\n');
-    const winsBySeat = positions ? [] : agents.map((_, s) => results.filter((r) => r.winner === s).length);
+    const winsBySeat = positions || split ? [] : agents.map((_, s) => results.filter((r) => r.winner === s).length);
+    // ratio scenarios: how each share did (the survivor holding share j at the start), whoever played it
+    const byShare = split?.shares.map((share, j) => {
+      const rows = results.map((r) => ({ r, q: splits.get(r.index)!.survivors[j] }));
+      return { share, wins: rows.filter(({ r, q }) => r.winner === q).length, meanPlacement: Math.round((rows.reduce((a, { r, q }) => a + r.placement[q], 0) / rows.length) * 100) / 100 };
+    });
     console.log(
       JSON.stringify(
         {
@@ -167,6 +200,7 @@ async function main() {
           agents: agents.map((a) => a.id),
           ...(stageAgents ? { stage: { alive: stageAgents.length, agents: stageAgents.map((a) => a.id), reached: results.filter((r) => r.stage).length } } : {}),
           winsBySeat,
+          ...(byShare ? { split: split!.shares.join('/'), byShare } : {}),
           turnLimit: results.filter((r) => r.winner === null).length,
           meanTurns: Math.round((results.reduce((a, r) => a + r.turns, 0) / results.length) * 10) / 10,
           decisions: results.reduce((a, r) => a + r.decisions, 0),

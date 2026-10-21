@@ -3,8 +3,8 @@
 #
 #   bash packages/delove/scripts/generate.sh packages/delove/scripts/round-02.jobs runs/delove/r02 202 [14]
 #
-# Each line of the jobs file is "<name> <games> <agent,agent,...> [options JSON]" (one seat per agent, '#' starts a
-# comment; the options are any game settings, e.g. {"map":"skirmish"}). Games are split into chunks of up to 500
+# Each line of the jobs file is "<name> <games> <agent,agent,...> [start] [options JSON]" (one seat per agent, '#' starts
+# a comment; start: the first game number, default 0; the options are any game settings, e.g. {"map":"skirmish"}). Games are split into chunks of up to 500
 # (CHUNK) played by up to PARALLEL processes (default 14); chunk logs go to OUT/<name>/c<start>, results to
 # OUT/<name>-c<start>.json and a chunk's errors to OUT/<name>-c<start>.err. Exploring versions (delove@N-explore)
 # sample at DELOVE_TEMPERATURE (default here 0.7); branch-and-score stats go to OUT (DELOVE_BRANCH_STATS). A failed
@@ -15,8 +15,10 @@ mkdir -p "$out"
 chunks=$(mktemp)
 trap 'rm -f "$chunks"' EXIT
 grep -v '^\s*\(#\|$\)' "$jobs" | while read -r name total agents options; do
+  base=0
+  if [[ $options =~ ^([0-9]+)[[:space:]]*(.*)$ ]]; then base=${BASH_REMATCH[1]}; options=${BASH_REMATCH[2]}; fi
   for ((s = 0; s < total; s += chunk)); do
-    echo "$name $s $agents $(( total - s < chunk ? total - s : chunk )) ${options:-"{}"}"
+    echo "$name $(( base + s )) $agents $(( total - s < chunk ? total - s : chunk )) ${options:-"{}"}"
   done
 done > "$chunks"
 echo "$(wc -l < "$chunks") chunks of up to $chunk games, $parallel at a time -> $out"

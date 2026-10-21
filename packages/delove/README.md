@@ -177,6 +177,13 @@ Library names (the private models repo, next to `delove@N`) are `delove-long-ran
   positions captured from game records (`npm run selfplay -- positions`). They run like any jobs file: on the GPU
   (`packages/delove-gpu` README, "Stage games"), as a `cycle.sh` step, or on the CPU with `scripts/generate.sh`; train
   with `--alive 3-3` / `--alive 2-2` as above.
+- **Ratio scenarios (closer stages).** After a Jacob lead-in one player has usually run away (median stage 7 turns
+  at 3 alive, 4 at 2), so `scripts/stage/split-close.jobs` (2 alive: 50/50, 60/40, 40/60, 70/30, 30/70) and
+  `split-mid.jobs` (3 alive: 34/33/33 and each turn order of 50/25/25, 40/40/20, 60/20/20) start from synthetic boards
+  split as the ratio says, about 10,000 games a ratio over the 6-10 seat tables of cycle 8, the branch player against
+  `delove@6` (`split:SHARES>...` agents; packages/selfplay README, "Stage games"). They are drawn from each game's
+  seed, so they run on rented GPUs as well as at home. Mix them with the real stage games and the normal pool, never
+  alone. `node scripts/stage/split-jobs.mjs [GAMES]` rewrites both files.
 - **Gate:** each specialist against the base on its own stage, then the routed trio against the base in full games,
   with the yardstick below; the promotion rule is in `docs/delove-status.md` ("Range specialists: how they are
   compared").

@@ -24,7 +24,7 @@ datasets without branch_tag.npy keep weight 1.
 
 Soft targets (--soft-targets C, soft.py): at every branched decision the policy learns branch and score's whole
 comparison instead of only the played move: target = softmax(prior logit + C x the compared candidates' scores scaled
-0..1 within the decision; the uncompared ones get the prior-weighted mean), the per-option scores read from
+0..1 within the decision, or by an absolute gap with --soft-scale S; the uncompared ones get the prior-weighted mean), the per-option scores read from
 branch_q.npy (delove_gpu.generate, or branch_q.py for a CPU export). The prior is a frozen network (--soft-prior,
 default the --init weights; "uniform" for none). Other decisions, and datasets without branch_q.npy, keep the played
 move as the target; --branch-weights, range credit and :modes weight soft and hard decisions alike.
@@ -149,8 +149,8 @@ def blocks(idx, block, rng):
 class Soft:
     """--soft-targets: the scale C on the scaled branch scores, and the frozen prior network (None: uniform prior)."""
 
-    def __init__(self, c, prior=None):
-        self.c, self.prior = c, prior
+    def __init__(self, c, prior=None, scale=None):
+        self.c, self.prior, self.scale = c, prior, scale
 
     @torch.no_grad()
     def targets(self, b, adj, ctx):
@@ -159,7 +159,7 @@ class Soft:
         else:
             with ctx:
                 prior, _ = self.prior(b["territory"], b["glob"], adj, b["cand"], b["cand_from"], b["cand_to"], b["cand_batch"])
-        return soft_targets(prior.float(), b["q"], b["cand_batch"], b["n"], self.c)
+        return soft_targets(prior.float(), b["q"], b["cand_batch"], b["n"], self.c, self.scale)
 
 
 def step_loss(model, b, adj, value_weight, beta=0.3, amp=False, credit_beta=None, soft=None):
@@ -236,6 +236,9 @@ def main():
     ap.add_argument("--branch-weights", help="W0,W1,W2: policy weight of teacher-only, compared-and-kept and changed decisions")
     ap.add_argument("--soft-targets", type=float, default=0.0, metavar="C",
                     help="branched decisions learn softmax(prior + C x scaled branch scores) from branch_q.npy (0 = off; soft.py)")
+    ap.add_argument("--soft-scale", type=float, metavar="S",
+                    help="--soft-targets: scale scores by an absolute gap S, clip((q - lowest compared) / S, 0, 1), instead of"
+                         " min-max within each decision (e.g. 0.05: a 0.01 gap is worth C/5 logits)")
     ap.add_argument("--soft-prior", help="frozen prior network for --soft-targets (<path>.pt; default the --init weights, 'uniform' for none)")
     args = ap.parse_args()
     preset = RANGES.get(args.range, {})
@@ -302,8 +305,10 @@ def main():
             prior.eval()
             for p_ in prior.parameters():
                 p_.requires_grad_(False)
-        soft = Soft(args.soft_targets, prior)
-        print(json.dumps(dict(soft_targets=args.soft_targets, soft_prior=prior_path if prior is not None else "uniform",
+        if args.soft_scale is not None and args.soft_scale <= 0:
+            raise SystemExit("--soft-scale must be > 0")
+        soft = Soft(args.soft_targets, prior, args.soft_scale)
+        print(json.dumps(dict(soft_targets=args.soft_targets, soft_scale=args.soft_scale or "min-max", soft_prior=prior_path if prior is not None else "uniform",
                               with_branch_q=[d.name for d in datasets if d.q is not None])), flush=True)
     params = sum(p.numel() for p in model.parameters())
     steps_total = int(args.epochs * n_train / args.batch)

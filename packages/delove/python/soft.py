@@ -4,7 +4,9 @@ A branched decision compared a few options (the teacher's move and the ranker's 
 holds each compared candidate's mean score (NaN for the others). Instead of copying only the played move, the policy
 learns the whole comparison, as Gumbel AlphaZero / MuZero train on "completed Q" (Danihelka et al. 2022):
 
-    q_hat  = the compared candidates' scores scaled to 0..1 within the decision (min-max; 0.5 each if all equal)
+    q_hat  = the compared candidates' scores scaled to 0..1 within the decision (min-max; 0.5 each if all equal),
+             or with an absolute scale S: clip((q - the lowest compared score) / S, 0, 1), so a gap of rollout-noise
+             size stays a small shift instead of becoming 0 vs 1 (Gumbel MuZero's fixed value bounds)
     q_done = q_hat for compared candidates; for the others, the prior-weighted mean of the compared q_hat
     target = softmax(prior_logit + c * q_done) over every candidate of the decision
 
@@ -20,8 +22,9 @@ import torch
 from delove_model import segment_log_softmax
 
 
-def soft_targets(prior_logits: torch.Tensor, q: torch.Tensor, seg: torch.Tensor, n: int, c: float):
-    """prior_logits, q: [rows] (q NaN where not compared); seg: [rows] decision of each row; n decisions.
+def soft_targets(prior_logits: torch.Tensor, q: torch.Tensor, seg: torch.Tensor, n: int, c: float, scale: float | None = None):
+    """prior_logits, q: [rows] (q NaN where not compared); seg: [rows] decision of each row; n decisions; scale: None
+    for min-max within each decision, or the absolute score gap S that counts as the full 0..1.
     Returns (target probabilities [rows], soft [n] bool: the decision has a soft target)."""
     prior_logits = prior_logits.float()
     q = q.float()
@@ -31,8 +34,11 @@ def soft_targets(prior_logits: torch.Tensor, q: torch.Tensor, seg: torch.Tensor,
     inf = torch.full((n,), float("inf"), device=q.device)
     qmin = inf.scatter_reduce(0, seg, torch.where(ev, q, float("inf")), reduce="amin", include_self=True)
     qmax = (-inf).scatter_reduce(0, seg, torch.where(ev, q, float("-inf")), reduce="amax", include_self=True)
-    span = (qmax - qmin)[seg]
-    qn = torch.where(ev & (span > 0), (q - qmin[seg]) / torch.where(span > 0, span, 1.0), torch.full_like(q, 0.5))
+    if scale is not None:
+        qn = ((q - qmin[seg]) / scale).clamp(0.0, 1.0)
+    else:
+        span = (qmax - qmin)[seg]
+        qn = torch.where(ev & (span > 0), (q - qmin[seg]) / torch.where(span > 0, span, 1.0), torch.full_like(q, 0.5))
     qn = torch.where(ev, qn, torch.zeros_like(q))
     pi = segment_log_softmax(prior_logits, seg, n).exp()
     num = torch.zeros(n, device=q.device).index_add_(0, seg, torch.where(ev, pi * qn, torch.zeros_like(q)))

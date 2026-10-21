@@ -491,6 +491,10 @@ promotions are judged mainly on the points difference at 4-10 players (`docs/del
   `python packages/delove/python/branch_q.py --export <export> --log <log dir> <trace file> [--log ...] --agents
   delove-branch@1` (logs in export's order). Decisions with fewer than two compared options, and datasets without the
   array, keep the played move; `--branch-weights`, range credit and `:modes` weight soft and hard decisions alike.
+  `--soft-scale S` scales the scores by an absolute gap instead of min-max within each decision: q_hat = clip((q - the
+  lowest compared score) / S, 0, 1), so two options 0.002 apart (rollout noise at 6 copies) stay 0.2 logits apart at
+  C=5 with S=0.05, where min-max would make them 0 vs 1, as sharp as a hard label (Gumbel MuZero keeps its value
+  bounds fixed for the same reason). Min-max stays the default, so the two can be compared.
   Smoke run (150 Classic 2p branch games with Jacob rollouts, CPU, from `delove@3`, 1 epoch, `--range close
   --branch-weights 0.5,1,2`): trains; whether it beats hard labels is cycle 12's A/B.
 - `--device cpu|cuda`: where to train (default cuda when available).

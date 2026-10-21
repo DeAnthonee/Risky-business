@@ -57,6 +57,24 @@ def test_scale_free_and_c_zero_is_prior():
     assert close(z, torch.softmax(prior, 0))
 
 
+def test_absolute_scale_keeps_small_gaps_soft():
+    # two compared options 0.002 apart (rollout noise): min-max makes them 0 vs 1, a fixed scale S keeps them close
+    prior = torch.zeros(3)
+    q = torch.tensor([0.500, 0.502, NAN])
+    seg = torch.zeros(3, dtype=torch.long)
+    mm, _ = soft_targets(prior, q, seg, 1, 5.0)
+    ab, soft = soft_targets(prior, q, seg, 1, 5.0, scale=0.05)
+    assert soft.tolist() == [True]
+    assert math.isclose(mm[1].item() / mm[0].item(), math.exp(5.0), rel_tol=1e-4)
+    assert math.isclose(ab[1].item() / ab[0].item(), math.exp(5.0 * 0.002 / 0.05), rel_tol=1e-3)  # 0.2 logits
+    # a gap of S or more is the full shift C, clipped
+    big, _ = soft_targets(prior, torch.tensor([0.1, 0.4, NAN]), seg, 1, 5.0, scale=0.05)
+    assert math.isclose(big[1].item() / big[0].item(), math.exp(5.0), rel_tol=1e-4)
+    # equal scores: no shift between them (q_hat 0 for both)
+    eq, _ = soft_targets(prior, torch.tensor([0.3, 0.3, NAN]), seg, 1, 5.0, scale=0.05)
+    assert close(eq[0], eq[1])
+
+
 def test_policy_losses():
     logp = torch.log(torch.tensor([0.5, 0.25, 0.25, 0.9, 0.1]))
     seg = torch.tensor([0, 0, 0, 1, 1])

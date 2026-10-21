@@ -93,6 +93,7 @@ Every documentation file in the repo, what it covers and when to read it.
 | [docs/fog-power-rankings.md](docs/fog-power-rankings.md) | how AI commanders estimate opponent power under fog of war | changing the runner's threat assessment |
 | [packages/llm-player/README.md](packages/llm-player/README.md) | setting up and running the local-model player, how it decides | working on `packages/llm-player` |
 | [packages/runner/README.md](packages/runner/README.md) | the bot runner: league loop, setup, learning loop, files it writes, move chooser, options | working on `packages/runner` |
+| [docs/how-to-run-league-models.md](docs/how-to-run-league-models.md) | step-by-step instructions to run League of Legends AI characters & DeLOVE models locally or live | setting up, running, or spectating League AI and DeLOVE matches |
 
 ### Training (self-play and Delove)
 

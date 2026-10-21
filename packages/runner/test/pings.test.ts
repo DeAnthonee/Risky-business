@@ -39,7 +39,9 @@ describe('diplomatic ping system', () => {
     expect(isModelName('Ronny@3')).toBe(true);
     expect(isModelName('Ronny@4')).toBe(true);
     expect(isModelName('Ronny@5')).toBe(true);
+    expect(isModelName('Ronny@6')).toBe(true);
     expect(isModelName('Demario@4')).toBe(true);
+    expect(isModelName('Demario@5')).toBe(true);
     expect(isModelName('Jacob-sensei@3')).toBe(true);
     expect(isModelName('Sensei@3')).toBe(true);
     expect(isModelName('Delove')).toBe(true);

@@ -14,7 +14,7 @@ const log = (msg) => {
 };
 
 log(`Risk continuous model orchestrator targeting ${SERVER_URL}`);
-log(`Pool of 20: 10 League LLMs + 10 Models (5 DeLOVE@5 + 5 DeLOVE@4)`);
+log(`Pool of 20: 10 League LLMs + 10 Models (5 DeLOVE@6 + 5 DeLOVE@5)`);
 log(`Matches: Random draws from pool of 20 (6 to 10 players, Fog of War: OFF).`);
 
 let gamesCompleted = 0;
@@ -58,18 +58,18 @@ const LLM_POOL = [
 ];
 
 const MODEL_POOL = [
+  // 5 DeLOVE model 6 players
+  { name: 'Ronny@6', agent: 'delove@6' },
+  { name: 'Joey@6', agent: 'delove@6' },
+  { name: 'Hans@6', agent: 'delove@6' },
+  { name: 'Demonte@6', agent: 'delove@6' },
+  { name: 'Dejean@6', agent: 'delove@6' },
   // 5 DeLOVE model 5 players
-  { name: 'Ronny@5', agent: 'delove@5' },
-  { name: 'Joey@5', agent: 'delove@5' },
-  { name: 'Hans@5', agent: 'delove@5' },
-  { name: 'Demonte@5', agent: 'delove@5' },
-  { name: 'Dejean@5', agent: 'delove@5' },
-  // 5 DeLOVE model 4 players
-  { name: 'Demario@4', agent: 'delove@4' },
-  { name: 'Kai@4', agent: 'delove@4' },
-  { name: 'Lauren@4', agent: 'delove@4' },
-  { name: 'Diane@4', agent: 'delove@4' },
-  { name: 'Jason@4', agent: 'delove@4' },
+  { name: 'Demario@5', agent: 'delove@5' },
+  { name: 'Kai@5', agent: 'delove@5' },
+  { name: 'Lauren@5', agent: 'delove@5' },
+  { name: 'Diane@5', agent: 'delove@5' },
+  { name: 'Jason@5', agent: 'delove@5' },
 ];
 
 const POOL_OF_20 = [
@@ -111,7 +111,7 @@ for (let g = 1; g <= TOTAL_GAMES; g++) {
   const namesArg = selectedModels.map((s) => s.name).join(',');
 
   log(`================================================================`);
-  log(`Starting Generation 5 (DeLOVE 5) Match ${g}/${TOTAL_GAMES} on ${SERVER_URL} (Map: ${selectedMap}, Players: ${playerCount} [${selectedLLMs.length} LLMs: ${selectedLLMs.map((s) => s.name).join(', ')} + ${openSeats} Models: ${openSeats > 0 ? namesArg : 'None'}], Fog: ${fogOfWar ? 'ON' : 'OFF'})`);
+  log(`Starting Generation 5 (DeLOVE 6) Match ${g}/${TOTAL_GAMES} on ${SERVER_URL} (Map: ${selectedMap}, Players: ${playerCount} [${selectedLLMs.length} LLMs: ${selectedLLMs.map((s) => s.name).join(', ')} + ${openSeats} Models: ${openSeats > 0 ? namesArg : 'None'}], Fog: ${fogOfWar ? 'ON' : 'OFF'})`);
   log(`================================================================`);
 
   // Spawn runner for 1 game

@@ -23,6 +23,25 @@ describe('Delove seat player', () => {
     expect(moves).toBeGreaterThan(50);
   });
 
+  it.each([
+    ['manual setup, 4 seats', { maxPlayers: 4, fogOfWar: true }],
+    ['league fog settings, World 6 seats', { maxPlayers: 6, map: 'world', fogOfWar: true, autoSetup: true, capitals: true, chooseCapitals: true, blizzards: 8 }],
+  ] as const)('plays a fog game from fogged views alone, every move legal on the real state (%s)', (_n, options) => {
+    let state: GameState = createGame('seat-fog', options, 12);
+    for (const id of ['a', 'b', 'c', 'd', 'e', 'f'].slice(0, options.maxPlayers)) state = addPlayer(state, id, id, true);
+    state = startGame(state).state;
+    let hidden = 0;
+    while (state.phase !== 'finished' && state.turnNumber < 120) {
+      const me = state.currentPlayer!;
+      const view = viewFor(state, me);
+      hidden += Object.values(view.territories).filter((t) => t.hidden).length ? 1 : 0;
+      const action = chooseFromView(jacob, view, me, seededRandom(state.version));
+      expect(action).not.toBeNull();
+      state = applyAction(state, me, action!).state; // throws on an illegal move (e.g. a setup claim on a hidden territory)
+    }
+    expect(hidden).toBeGreaterThan(50);
+  });
+
   it('does nothing when it is not its turn', () => {
     let state: GameState = createGame('seat-test-2', { maxPlayers: 2 }, 1);
     state = addPlayer(addPlayer(state, 'a', 'a', true), 'b', 'b', true);

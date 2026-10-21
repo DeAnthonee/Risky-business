@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import type { GameOptions } from '@risk/engine';
 import type { Agent } from './agents.js';
 import { playGame, type GameConfig, type GameResult, type Seat } from './game.js';
+import { foggedAgent } from './seat-view.js';
 import { JsonlWriter, writeLogMeta } from './log.js';
 import { gameSeed } from './seed.js';
 
@@ -62,8 +63,9 @@ export async function runBatch(cfg: BatchConfig): Promise<GameSummary[]> {
       const result = playGame({
         id: `g${i}`,
         seed,
-        seats: cfg.seats(i),
-        ...(cfg.stage ? { stage: { ...cfg.stage, rotate: i } } : {}),
+        // Every agent plays fog games on its seat's view (foggedAgent; a no-op in normal games): no seat sees through fog.
+        seats: cfg.seats(i).map((s) => ({ ...s, agent: foggedAgent(s.agent) })),
+        ...(cfg.stage ? { stage: { ...cfg.stage, agents: cfg.stage.agents.map(foggedAgent), rotate: i } } : {}),
         ...(cfg.start ? { start: cfg.start(i, seed) } : {}),
         options: cfg.options,
         maxTurns: cfg.maxTurns,

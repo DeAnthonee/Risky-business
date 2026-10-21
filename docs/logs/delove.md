@@ -7,6 +7,7 @@ numbers go in [packages/delove/CYCLES.md](../../packages/delove/CYCLES.md) and t
 Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. **Append a line in the same PR** as any change to
 this area (README hard rule 12).
 
+- 2026-10-21 #143 live seat bug: `stateFromView` gave every opponent 0 cards (dropped `cardCount`), so delove@N and Jacob misread card threats in every live game; opponents' hand sizes and the deck/discard sizes are now rebuilt from the view (random deal of the unseen cards); yardstick caveat for games 1-6
 - 2026-10-20 #137 stage games for the range specialists: `scripts/stage/mid.jobs` (3 alive) and `close.jobs` (2 alive), `LEAD>STAGE` tables on cycle 8's maps; `dashboard.mjs` / `run-timing.mjs` count a stage table's seats from its lead-in; README range specialists, delove-status sections 8 and 9 item 2
 - 2026-10-21 #139 live yardstick: `docs/delove-yardstick.md` (delove@6 vs 5 Claude Haiku/Sonnet/Opus seats on the live board, one row per game) and its rerun kit `packages/delove/scripts/yardstick/` (setup.mjs, monitor.mjs, seat-prompt.md); delove-status section 9 item 4
 - 2026-10-21 #136 each range specialist is its own line: `@1` from the base of its day, every later candidate `--init` from the best of its own line on the newest shared games; re-seeding from a new base is an owner decision (delove-status section 3, packages/delove README)

@@ -387,7 +387,7 @@ the 255-register kernel fits fewer copies on the GPU at once.
 change, and its last `verify.py` run (#112) predates them. What covers them: `k_teacher` (1 lane, the same `teacher_pick_g`
 code) and `k_branch_sim` (16 lanes, every score mode) replayed `verify.py`'s matrix suites identically (jacob 128/128, branch
 18/18, #117); `k_teacher_run` with 8 lanes runs only in `generate.py`, so for #117 it rested on the before/after runs
-above. Since #PRNUM `verify.py` covers it too (step 3, with a CUDA device): three small tables, Classic 2p, Skirmish 4p
+above. Since #140 `verify.py` covers it too (step 3, with a CUDA device): three small tables, Classic 2p, Skirmish 4p
 (capitals, exponential cards) and Greater Europe 10p (blizzards, balanced blitz), each with `delove-teacher@1` as the
 recorded seat and Jacob Sensei and the newest tuned Sensei (with `--models`) alternating in the other seats, so several
 fast seats play in a row inside one `k_teacher_run` launch. `generate.py` plays them on the GPU and `play` + `export

@@ -265,7 +265,8 @@ def main() -> int:
             results.append({"engine": {"branch": "branch", "jacob": "teacher"}.get(suite, "fused.py"), "check": f"matrix {suite}", "cases": int(m.group(2)),
                             "steps": steps, "logs": [rel(out / f"matrix-{suite}")]})
 
-    commit = subprocess.run(["git", "rev-parse", "HEAD"], cwd=REPO, capture_output=True, text=True).stdout.strip()
+    # a cloud pod's tree is a git archive (no .git): its worker passes the commit in DELOVE_COMMIT
+    commit = subprocess.run(["git", "rev-parse", "HEAD"], cwd=REPO, capture_output=True, text=True).stdout.strip() or os.environ.get("DELOVE_COMMIT", "")
     dirty = subprocess.run(["git", "status", "--porcelain", "--", *fingerprint.RULE_FILES], cwd=REPO, capture_output=True, text=True).stdout.strip()
     fingerprint.write({
         "at": dt.datetime.now().isoformat(timespec="seconds"),

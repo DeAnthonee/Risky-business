@@ -74,6 +74,7 @@ cat "$job/env.json"
 mapfile -t vargs < <(python3 -c 'import json,sys; [print(a) for a in (json.load(open(sys.argv[1])).get("verify") or [])]' "$job/job.json")
 if (( ${#vargs[@]} )); then
   status "running: verify.py"
+  export DELOVE_COMMIT=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("commit") or "")' "$job/job.json")
   $py packages/delove-gpu/verify.py --no-build --models "$job/models" "${vargs[@]}" > "$job/verify.log" 2>&1 \
     && echo "verify: ok" || echo "verify: FAILED (see verify.log)"
   cp packages/delove-gpu/engine-fingerprint.json "$job/verify-fingerprint.json" 2>/dev/null

@@ -41,8 +41,21 @@ time" below explains it). The newest base network in the models folder (`delove@
 
 | preset | rollouts | options | score | horizon | margin | evidence |
 | --- | --- | --- | --- | --- | --- | --- |
-| `measured` (default) | Jacob Sensei 1 | 5 | share | 1 | 0.01 | #142's CPU ladder (below): +2.07 points per seat at World 6p, +1.43 at Classic 4p, even at Classic 2p against the bare network |
-| `js2-range` (opt-in) | Jacob Sensei 2 | 5 | range (each stage's goal by players alive) | 2 | 0.02 | no mirrored ladder yet; live yardstick baseline 2 ([docs/delove-yardstick.md](../../docs/delove-yardstick.md)) |
+| `js2-range` (default since #164) | Jacob Sensei 2 | 5 | range (each stage's goal by players alive) | 2 | 0.02 | preset ladder (#164, below): **+2.33 points per seat at World 6p, +1.17 at Classic 4p, +0.12 at Classic 2p** against the bare delove@8; **+1.01 against `measured` head to head at World 6p** |
+| `measured` | Jacob Sensei 1 | 5 | share | 1 | 0.01 | #142's CPU ladder: +2.07 / +1.43 / even; in the preset ladder +1.91 / +0.76 / -0.24 against the bare delove@8, about 4x faster per decision |
+
+**The preset ladder** (#164; 2026-10-21, CPU, mirrored seeds, ranker delove@8 for all; 400 games at Classic 2p, 200 at
+4p and World 6p; points difference per seat with 95% interval; C = `js2-range` with horizon 1 and margin 0.01):
+
+| preset | vs bare delove@8, World 6p | Classic 4p | Classic 2p | ms per decision (busy CPU) |
+| --- | --- | --- | --- | --- |
+| `js2-range` | +2.33 (+1.97 to +2.69) | +1.17 (+0.89 to +1.44) | +0.12 (-0.07 to +0.31) | 184 |
+| C | +2.11 (+1.84 to +2.38) | +1.09 (+0.77 to +1.41) | -0.07 (-0.34 to +0.19) | 100 |
+| `measured` | +1.91 (+1.54 to +2.27) | +0.76 (+0.42 to +1.10) | -0.24 (-0.54 to +0.06) | 47 |
+
+Head to head, `js2-range` vs `measured`: World 6p +1.01 (+0.76 to +1.25), Classic 4p +0.41 (-0.01 to +0.83), Classic
+2p +0.18 (-0.17 to +0.53). Most of the gain is Jacob Sensei 2 and the range score (C); horizon 2 adds a little more
+at about twice the time, which the live tables can afford.
 
 It prints its settings when it sits down. Any `DELOVE_BRANCH_*` variable overrides one setting
 (`DELOVE_BRANCH_RANKER=delove@8` pins a network so a promotion doesn't change it mid-run); self-play and cycle runs keep
@@ -68,12 +81,12 @@ every opponent an empty hand, so the network and Jacob Sensei read every opponen
 **Search at play time** (`--agents delove-branch`, seat name "Delove Search"): the seat plays branch and score
 (`src/branch.ts`, the same player that makes the training data) instead of the bare network: at each important
 decision it tries the network's favourites on copies of the board and keeps the best. It is configured by the same
-`DELOVE_BRANCH_*` variables as self-play (`src/branch-env.ts`). The default `measured` preset is the cycle settings
-with more options (#141 measured 4-5 options at +0.23 / +0.28 points per game over 3), the setup measured below:
+`DELOVE_BRANCH_*` variables as self-play (`src/branch-env.ts`). The default is `js2-range` (the preset ladder above);
+`measured`, #142's setup (the cycle settings with more options, #141), is about 4x faster:
 
 ```bash
-npm run delove-seat -- --server https://risky.deanthoneeking.com --join ABC123                       # measured
-npm run delove-seat -- --server https://risky.deanthoneeking.com --join ABC123 --preset js2-range    # opt-in
+npm run delove-seat -- --server https://risky.deanthoneeking.com --join ABC123                       # js2-range
+npm run delove-seat -- --server https://risky.deanthoneeking.com --join ABC123 --preset measured     # faster
 ```
 
 Every strong game AI searches when it plays (AlphaGo, Pluribus, Cicero); in Delove's own cycles the branch player

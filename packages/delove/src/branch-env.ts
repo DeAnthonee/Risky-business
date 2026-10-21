@@ -163,12 +163,12 @@ export const LIVE_BRANCH_PRESETS = {
   'js2-range': { teacher: 'jacob-sensei@2', options: 5, score: 'range', horizon: 2, margin: 0.02 },
 } as const satisfies Record<string, LiveBranchPreset>;
 export type LiveBranchPresetName = keyof typeof LIVE_BRANCH_PRESETS;
-export const LIVE_BRANCH_DEFAULT_PRESET: LiveBranchPresetName = 'measured';
+export const LIVE_BRANCH_DEFAULT_PRESET: LiveBranchPresetName = 'js2-range';
 
 /**
  * The environment for the live seat's search (seat-cli.ts): DELOVE_BRANCH_RANKER defaults to the newest base network
  * (newestBaseModel); DELOVE_BRANCH_TEACHER, _OPTIONS, _SCORE, _HORIZON and _MARGIN come from the preset (default
- * `measured`). A variable already set wins. Self-play (register.ts) keeps branchFromEnv's own defaults, so training runs
+ * `js2-range`, the winner of #164's mirrored ladder). A variable already set wins. Self-play (register.ts) keeps branchFromEnv's own defaults, so training runs
  * don't change.
  */
 export function liveBranchEnv(dir = modelsDir(), env: NodeJS.ProcessEnv = process.env, preset: LiveBranchPresetName = LIVE_BRANCH_DEFAULT_PRESET): NodeJS.ProcessEnv {

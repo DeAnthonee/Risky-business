@@ -41,7 +41,8 @@ export interface RecordHeader {
   version: typeof RECORD_VERSION;
   /** Unique per game (room codes are reused once a room is gone). */
   id: string;
-  room: { id: string; name: string; tournamentId?: string };
+  /** board "training": a model-vs-model yardstick game, ranked on the training leaderboard, not the public one. */
+  room: { id: string; name: string; tournamentId?: string; board?: 'training' };
   map: GameOptions['map'];
   fog: boolean;
   options: GameOptions;

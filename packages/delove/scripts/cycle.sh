@@ -35,7 +35,17 @@
 # REMOTE_GPUS=N plays the GPU steps on N rented cloud GPUs instead (RunPod; RUNPOD_API_KEY in the environment; see
 # packages/delove-gpu/README.md "Cloud workers"): REMOTE_MAX_GPU_HOURS (default 4) caps the spend, REMOTE_TIMINGS
 # (space-separated gpu.log files of earlier cycles) sizes the split, REMOTE_PROCS (default 1) processes per GPU,
-# REMOTE_GPU_TYPE (default NVIDIA GeForce RTX 4090), REMOTE_CLOUD (SECURE or COMMUNITY); progress in OUT/remote.log.
+# REMOTE_GPU_TYPE (default NVIDIA GeForce RTX 4090), REMOTE_CLOUD (SECURE or COMMUNITY), REMOTE_REPLACEMENTS (default 2) and REMOTE_READY_MINUTES (default 15) for replacing a bad pod; progress in OUT/remote.log.
+# REMOTE_TRAIN=1 trains on one rented cloud GPU instead, from datasets on the RunPod network volume REMOTE_VOLUME
+# (remote.py train; packages/delove-gpu/README.md "Cloud training"): with REMOTE_GPUS the generation pods run in the
+# volume's data center and leave their arrays on it (only gpu.json, gpu.log and the like come home; REMOTE_HOME_COPY=1
+# downloads the arrays too), and the training pod is rented REMOTE_TRAIN_LEAD minutes (default 12) before generation's
+# estimated end, so its setup and the earlier cycles' datasets overlap it. Every train_data entry must be a step of this
+# cycle or <dataset>/<map> under DATA; a dataset not on the volume is pushed from DATA only with REMOTE_TRAIN_PUSH=cycle
+# (this cycle's, e.g. CPU steps) or all (seeds the volume once); otherwise the candidate trains at home as usual, which
+# needs the arrays at home. REMOTE_TRAIN_MAX_GPU_HOURS (default 1.5), REMOTE_TRAIN_MINUTES (the home training's minutes,
+# for the estimate; default 30), REMOTE_TRAIN_GPU_TYPE (default REMOTE_GPU_TYPE), REMOTE_TRAIN_DISK_GB (default 200);
+# progress in OUT/remote-train.log.
 set -euo pipefail
 config=$1
 export_agents=delove-branch@1
@@ -155,6 +165,12 @@ if (( ${#gpu_steps[@]} )); then
       for t in ${REMOTE_TIMINGS:-}; do remote+=(--timings "$(abs "$t")"); done
       [[ -n ${REMOTE_GPU_TYPE:-} ]] && remote+=(--gpu-type "$REMOTE_GPU_TYPE")
       [[ -n ${REMOTE_CLOUD:-} ]] && remote+=(--cloud "$REMOTE_CLOUD")
+      [[ -n ${REMOTE_REPLACEMENTS:-} ]] && remote+=(--replacements "$REMOTE_REPLACEMENTS")
+      [[ -n ${REMOTE_READY_MINUTES:-} ]] && remote+=(--ready-minutes "$REMOTE_READY_MINUTES")
+      if [[ ${REMOTE_TRAIN:-0} == 1 ]]; then  # the arrays go to the network volume, for the training pod
+        remote+=(--volume "$REMOTE_VOLUME")
+        [[ ${REMOTE_HOME_COPY:-0} == 1 ]] && remote+=(--home-copy)
+      fi
       gen_args || exit 1
       "$python" packages/delove-gpu/cloud/remote.py run "${remote[@]}" -- "${args[@]}" > "$out/remote.log" 2>&1         || { echo "FAILED remote GPU steps (see $out/remote.log)"; exit 1; }
       stamp "generated and exported the GPU steps (remote, $REMOTE_GPUS GPUs)"
@@ -180,6 +196,44 @@ if (( ${#gpu_steps[@]} )); then
     ) &
   fi
   gpu_runner=$!
+fi
+
+# REMOTE_TRAIN=1: the cloud training job (packages/delove-gpu/cloud/remote.py train). train_data resolved for the volume:
+# "<step>/<map>" of this cycle is the dataset <name>-<step>/<map>, anything else must be "<dataset>/<map>".
+remote_train=""; rt=()
+if [[ ${REMOTE_TRAIN:-0} == 1 ]]; then
+  [[ -n ${REMOTE_VOLUME:-} ]] || { echo "REMOTE_TRAIN=1 needs REMOTE_VOLUME (a RunPod network volume id)"; exit 1; }
+  is_step() { local s st; for s in "${steps[@]}"; do read -r st _ <<< "$s"; [[ $st == "$1" ]] && return 0; done; return 1; }
+  rt=(--name "$name" --candidate "$candidate" --models "$(absdir "$models")" --out "$(absdir "$out")" --volume "$REMOTE_VOLUME"
+    --data-root "$(absdir "$data")" --push-missing "${REMOTE_TRAIN_PUSH:-none}" --max-gpu-hours "${REMOTE_TRAIN_MAX_GPU_HOURS:-1.5}"
+    --home-minutes "${REMOTE_TRAIN_MINUTES:-30}" --disk-gb "${REMOTE_TRAIN_DISK_GB:-200}" --abort-file "$(absdir "$out")/remote-train.abort" --yes)
+  [[ -n ${train_init:-} ]] && rt+=(--init "$train_init")
+  rt_type=${REMOTE_TRAIN_GPU_TYPE:-${REMOTE_GPU_TYPE:-}}
+  [[ -n $rt_type ]] && rt+=(--gpu-type "$rt_type")
+  [[ -n ${REMOTE_CLOUD:-} ]] && rt+=(--cloud "$REMOTE_CLOUD")
+  for d in "${train_data[@]}"; do
+    reps=1; [[ $d == *"*"* ]] && reps=${d##*"*"} && d=${d%"*"*}
+    first=${d%%/*}
+    spec=$d; is_step "$first" && spec="$name-$d"
+    [[ $spec == /* || $spec == ?:* || $spec != */* ]] && { echo "REMOTE_TRAIN: $d is not <step>/<map> or <dataset>/<map>; training at home"; rt=(); break; }
+    for ((i = 0; i < reps; i++)); do rt+=(--data "$spec"); done
+  done
+  if (( ${#rt[@]} )); then
+    rm -f "$out/remote-train.abort"
+    if [[ -n ${REMOTE_GPUS:-} && -z ${GENERATE_ONLY:-} && ! -f "$models/$candidate.onnx" ]]; then
+      # Rented before generation ends: it waits for every step's gpu.json (GPU) or export.json (CPU) to merge and train.
+      rm -f "$out/remote/eta"
+      for s in "${steps[@]}"; do
+        read -r st _ <<< "$s"
+        if on_gpu "$st"; then rt+=(--wait-for "$(absdir "$out/$st")/gpu.json"); else rt+=(--wait-for "$(absdir "$out/$st")/export.json"); fi
+      done
+      rt+=(--eta "$(absdir "$out")/remote/eta" --lead-minutes "${REMOTE_TRAIN_LEAD:-12}")
+      mkdir -p "$out/remote"
+      # shellcheck disable=SC2086
+      "$python" packages/delove-gpu/cloud/remote.py train "${rt[@]}" -- $train_args > "$out/remote-train.log" 2>&1 &
+      remote_train=$!
+    fi
+  fi
 fi
 
 export out seed root
@@ -235,7 +289,13 @@ tr '\n' '\0' < "$pool" | xargs -0 -P "$parallel" -I{} bash -c 'run_chunk "$1"' _
 stamp "generation done"
 wait "$watcher"
 [[ -n $gpu_runner ]] && { wait "$gpu_runner" || touch "$out/pool.failed"; }
-[[ -f "$out/pool.failed" ]] && { rm -f "$out/pool.failed"; echo "generation failed"; exit 1; }
+if [[ -f "$out/pool.failed" ]]; then
+  rm -f "$out/pool.failed"
+  echo "generation failed"
+  # the cloud training job ends its pod (if it has one) and exits
+  [[ -n $remote_train ]] && { touch "$out/remote-train.abort"; wait "$remote_train" || true; }
+  exit 1
+fi
 stamp "exports done"
 # GENERATE_ONLY=1: stop here (play part of a cycle now, train and gate later with the full config: finished steps are
 # kept, so a later run of a config that lists them skips straight to the steps still to play).
@@ -243,6 +303,22 @@ stamp "exports done"
 
 # ---- 3. train on the GPU ----------------------------------------------------------------------------------------
 cand="$models/$candidate"
+if [[ ! -f "$cand.onnx" && ${REMOTE_TRAIN:-0} == 1 && ${#rt[@]} -gt 0 ]]; then
+  rc=0
+  if [[ -n $remote_train ]]; then
+    wait "$remote_train" || rc=$?
+  else
+    # shellcheck disable=SC2086
+    "$python" packages/delove-gpu/cloud/remote.py train "${rt[@]}" -- $train_args > "$out/remote-train.log" 2>&1 || rc=$?
+  fi
+  if (( rc == 0 )) && [[ -f "$cand.onnx" ]]; then
+    stamp "trained $candidate (cloud)"
+  elif (( rc == 3 )); then
+    echo "REMOTE_TRAIN: a dataset is not on the volume (see $out/remote-train.log); training at home"
+  else
+    echo "REMOTE_TRAIN failed (exit $rc, see $out/remote-train.log); training at home"
+  fi
+fi
 if [[ ! -f "$cand.onnx" ]]; then
   args=()
   for d in "${train_data[@]}"; do

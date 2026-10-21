@@ -179,6 +179,7 @@ export class SeatRunner {
     if (!text) return;
 
     let toPlayerId: string | undefined;
+    let broadcastText = text;
     if (ping.to) {
       const targetPlayer = view.players.find(
         (p) =>
@@ -190,15 +191,23 @@ export class SeatRunner {
       if (targetPlayer) {
         toPlayerId = targetPlayer.id;
       } else {
-        // Recipient is a model or invalid: never ping model players!
-        return;
+        // If recipient was a model or invalid, do not whisper to them.
+        // If it was an attack ping, convert to public attack call against that target.
+        if (ping.type === 'attack') {
+          broadcastText = formatPing({ type: 'attack', target: ping.to });
+          toPlayerId = undefined; // all-chat
+        } else if (ping.type === 'taunt' || ping.type === 'camaraderie' || ping.type === 'anger') {
+          toPlayerId = undefined; // all-chat
+        } else {
+          return;
+        }
       }
     }
 
     this.fire(
       (async () => {
-        await this.o.api.sendChat(this.o.gameId, this.o.token, text, toPlayerId);
-        this.o.log(`[PING] ${this.o.name}${toPlayerId ? ` -> ${ping.to}` : ' (all)'}: ${text}`);
+        await this.o.api.sendChat(this.o.gameId, this.o.token, broadcastText, toPlayerId);
+        this.o.log(`[PING] ${this.o.name}${toPlayerId ? ` -> ${ping.to}` : ' (all)'}: ${broadcastText}`);
       })()
     );
   }

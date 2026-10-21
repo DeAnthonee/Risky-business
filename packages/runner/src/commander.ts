@@ -293,11 +293,11 @@ export function parsePlanReply(raw: string, view: GameView, me: PlayerId): Comma
 
 // ---------- the commander ----------
 
-const SCHEMA = `{"winPath": "diplomacy"|"bonuses"|"cards"|"capitals"|"kills"|"hopeless", "winPlan": string, "plan": string, "focus": string|null, "target": string|null, "avoid": string[], "aggression": number, "note": string}`;
+const SCHEMA = `{"winPath": "diplomacy"|"bonuses"|"cards"|"capitals"|"kills"|"hopeless", "winPlan": string, "plan": string, "focus": string|null, "target": string|null, "avoid": string[], "aggression": number, "ping": {"type":"agree"|"decline"|"attack"|"alliance"|"camaraderie"|"anger"|"taunt", "target":string|null, "to":string|null}|null, "note": string}`;
 
 /** Optional knobs the commander may add to its JSON; each line says what it does and the default. */
 const KNOBS = [
-  '- ping (object, e.g. {"type":"attack","target":"Shaco","to":"Jinx"} or {"type":"alliance","to":"Ahri"} or {"type":"agree","to":"Jinx"} or {"type":"decline","to":"Jinx"} or {"type":"camaraderie","to":"Ahri"} or {"type":"anger","to":"Shaco"} or {"type":"taunt","to":null}): send ONE fast diplomatic ping. Types: "agree", "decline", "attack" (target required), "alliance", "camaraderie", "anger", "taunt". "to" is the recipient LLM player name, or null for all-chat. CRITICAL: ONLY ping other LLM players; NEVER ping neural models (names ending in @3, @4, etc.). Silence from other players is interpreted as a "no" (no obligation to reply). Pings shape your persistent relationships across matches.',
+  '- ping (object, e.g. {"type":"attack","target":"Shaco","to":"Jinx"} or {"type":"alliance","to":"Ahri"} or {"type":"agree","to":"Jinx"} or {"type":"decline","to":"Jinx"} or {"type":"camaraderie","to":"Ahri"} or {"type":"anger","to":"Shaco"} or {"type":"taunt","to":null}): DIPLOMATIC PINGS. Send ONE fast ping every 1-2 turns to communicate with the table and spectators! Types: "agree", "decline", "attack" (target required), "alliance", "camaraderie", "anger", "taunt". "to" is the recipient LLM player name, or null for all-chat. Pings shape your persistent relationships across matches.',
   '- placeOn (territory id or array of territory ids, e.g. ["brazil"] or ["brazil", "egypt"]): explicitly choose which of your territories receive your reinforcement troops this turn. Deploying a single spearhead is ideal for breaking fortified borders, but multi-pronged drafting across 2-3 territories is recommended when an elimination target has spread holdings requiring simultaneous attacks in 2-3 directions. Leave out to let the tactical chooser fund your campaign/front automatically.',
   '- route (ordered array of territory ids, e.g. ["peru", "venezuela", "central_america"]): explicitly specify your attack/expansion path in order so your stack advances along that chain without splitting into dead-end pockets.',
   '- fortifyTo (territory id, e.g. "peru"): explicitly choose which of your territories to pull your stack back to during the end-of-turn fortify phase (for example, expanding out with your capital stack and then fortifying back onto your capital or choke point).',
@@ -536,6 +536,68 @@ export class Commander {
       const d = this.ledger.breakByMe(id);
       if (d) p.note = `${p.note ? `${p.note} ` : ''}Broke ${d.id} (${this.ledger.describe(d)}).`.trim();
     }
+
+    // Autonomous diplomatic ping fallback if the model did not emit an explicit ping:
+    if (!p.ping) {
+      const otherLLMs = view.players.filter((x) => x.alive && !x.isNeutral && x.id !== this.o.playerId && !isModelName(x.name));
+      if (otherLLMs.length > 0) {
+        // Did another LLM ping us with an alliance proposal recently?
+        const lastPing = [...this.chat].reverse().find((m) => {
+          const parsed = parsePing(m.message, m.name, m.to !== undefined);
+          return parsed && parsed.type === 'alliance' && (m.to === this.o.playerId || m.toName === this.o.seatName);
+        });
+        if (lastPing) {
+          const senderLLM = otherLLMs.find((x) => x.name.toLowerCase() === lastPing.name.toLowerCase());
+          if (senderLLM) {
+            const isAvoiding = p.avoid.some((a) => a.toLowerCase() === senderLLM.id.toLowerCase() || a.toLowerCase() === senderLLM.name.toLowerCase());
+            p.ping = {
+              type: isAvoiding ? 'agree' : 'decline',
+              to: senderLLM.name,
+            };
+          }
+        } else if (p.avoid.length > 0) {
+          const avoidLLM = otherLLMs.find((x) => p.avoid.some((a) => a.toLowerCase() === x.id.toLowerCase() || a.toLowerCase() === x.name.toLowerCase()));
+          if (avoidLLM && Math.random() < 0.7) {
+            p.ping = {
+              type: 'alliance',
+              to: avoidLLM.name,
+            };
+          }
+        } else if (p.target) {
+          const targetPlayer = view.players.find((x) => x.name.toLowerCase() === p.target!.toLowerCase() || x.id === p.target);
+          if (targetPlayer && Math.random() < 0.6) {
+            const ally = otherLLMs.find((x) => x.id !== p.target && x.name.toLowerCase() !== p.target!.toLowerCase());
+            p.ping = {
+              type: 'attack',
+              target: targetPlayer.name,
+              to: ally ? ally.name : null,
+            };
+          }
+        } else if (view.round >= 2 && Math.random() < 0.35) {
+          p.ping = {
+            type: Math.random() < 0.5 ? 'camaraderie' : 'taunt',
+            to: null,
+          };
+        }
+      } else {
+        if (p.target && Math.random() < 0.5) {
+          const targetPlayer = view.players.find((x) => x.name.toLowerCase() === p.target!.toLowerCase() || x.id === p.target);
+          if (targetPlayer) {
+            p.ping = {
+              type: 'attack',
+              target: targetPlayer.name,
+              to: null,
+            };
+          }
+        } else if (view.round >= 2 && Math.random() < 0.3) {
+          p.ping = {
+            type: 'taunt',
+            to: null,
+          };
+        }
+      }
+    }
+
     const name = (id: string | null) => view.players.find((x) => x.id === id)?.name ?? id;
     const bits = [`Round ${view.round}, turn ${view.turnNumber}: ${p.plan || '(no plan text)'}`];
     if (p.winPath) bits.push(`winPath ${p.winPath}${p.winPlan ? `: ${p.winPlan}` : ''}`);
@@ -543,6 +605,7 @@ export class Commander {
     if (p.note) bits.push(`note: ${p.note}`);
     if (p.target) bits.push(`target ${name(p.target)}${p.commitArmies ? ` (commit ${p.commitArmies})` : ''}`);
     if (p.avoid.length) bits.push(`avoiding ${p.avoid.map(name).join(', ')}`);
+    if (p.ping) bits.push(`ping ${p.ping.type}${p.ping.target ? ` -> ${p.ping.target}` : ''}${p.ping.to ? ` (to ${p.ping.to})` : ''}`);
     if (p.placeOn?.length) bits.push(`placeOn ${p.placeOn.join(', ')}`);
     if (p.route?.length) bits.push(`route ${p.route.join(' -> ')}`);
     if (p.fortifyTo) bits.push(`fortifyTo ${p.fortifyTo}`);

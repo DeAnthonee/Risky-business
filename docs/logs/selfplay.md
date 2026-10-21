@@ -3,7 +3,7 @@
 Covers `packages/selfplay` (headless games, ladder, decision log `LOG_VERSION`, board encoder `ENCODER_VERSION`,
 dataset export). Guides: [packages/selfplay/README.md](../../packages/selfplay/README.md), [docs/training.md](../training.md).
 
-Newest first, one line per change: `- YYYY-MM-DD #155 what changed`. Changes from before pull requests carry the
+Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. Changes from before pull requests carry the
 commit hash instead. **Append a line in the same PR** as any change to this area (README hard rule 12). Say when a
 change bumps `LOG_VERSION` or `ENCODER_VERSION`.
 

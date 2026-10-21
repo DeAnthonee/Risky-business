@@ -4,7 +4,7 @@ Covers `packages/delove` (teacher, network agent, seat player, trainer, cycle sc
 numbers go in [packages/delove/CYCLES.md](../../packages/delove/CYCLES.md) and the current state in
 [docs/delove-status.md](../delove-status.md); this log only lists the merged changes. GPU mirror: [delove-gpu.md](delove-gpu.md).
 
-Newest first, one line per change: `- YYYY-MM-DD #155 what changed`. **Append a line in the same PR** as any change to
+Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. **Append a line in the same PR** as any change to
 this area (README hard rule 12).
 
 - 2026-10-21 #155 fog of war, first capability: `train.py --fog-dropout P` (`python/fog.py`, bit-identical to fog.ts, `test_fog.py`; widens a pre-fog checkpoint with zero weights; `fogInputs` in the model .json; `fog` validation line); the network player reads fog inputs and plays fog games on its seat view; `delove-seat` seats fog-trained models at fog tables; `chooseFromView` uses the view's legal moves; `cycle.sh` keeps fog gates on the CPU; docs/delove-fog.md status, delove-status, game-settings, README

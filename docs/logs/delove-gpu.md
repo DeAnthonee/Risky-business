@@ -3,7 +3,7 @@
 Covers `packages/delove-gpu` (the training-only GPU mirror of the rules, its replay tests, the engine fingerprint).
 Guide: [packages/delove-gpu/README.md](../../packages/delove-gpu/README.md).
 
-Newest first, one line per change: `- YYYY-MM-DD #155 what changed`. **Append a line in the same PR** as any change to
+Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. **Append a line in the same PR** as any change to
 this area (README hard rule 12), and say when the fingerprint (`engine-fingerprint.json`) was re-verified.
 
 - 2026-10-21 #148 range branch scores on the GPU (kernel modes long / mid with `threat_deflection`; `GpuBranch.decide` runs up to 3 score groups per batch, chunked to the copy pool; seats `delove-branch@1:<score>`; `--kill-weight`, `--threat`, `--close-rollouts`, `--close-horizon`); matrix and verify.py gain range cases; `score_compare.py h2h-jobs` 2-3 seats, `--net` / `--other`, top 2; cloud: `--verify` runs before the fingerprint check and brings verify.log / verify-fingerprint.json home, uploads verify's ONNX files, `results.jsonl` kept per step, `needed_models` knows `:<score>` seats; `teacher_replay.py` parses on Python < 3.12. Fingerprint re-verified on a RunPod RTX 4090 for the integration tree (deploy with #144 + #141 + #148, commit 6167950; no rule file changed after it): 5,323,769 steps identical, every branch log incl. range and #141's network rollouts identical, matrix rules 72/72, settings 120/120, branch 27/27, jacob 128/128, jacob2 128/128

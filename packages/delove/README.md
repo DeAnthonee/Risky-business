@@ -94,6 +94,9 @@ npm run delove -- ladder --candidate c15-fog --best delove@8 --players 6 --games
   `"delove@8 6 200 {\"fogOfWar\":true,\"autoSetup\":true,...}"`; it plays on the CPU even with `gpu_gates`.
   `train_args` takes `--fog-dropout` like any other option.
 - `train.py --soft-targets` with a pre-fog prior widens the prior the same way.
+- The search seat (`delove-branch`) never searches under fog (no determinized teacher yet): in a fog game it plays its
+  ranker's top move on the seat view, and `delove-seat` gives it a fog seat only when the ranker has fog inputs
+  (`DELOVE_BRANCH_RANKER=<fog-trained model>`).
 
 ## Train a version (Stage 1: learn from the teacher)
 

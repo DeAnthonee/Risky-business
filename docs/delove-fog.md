@@ -32,7 +32,8 @@ already has.
   for the two columns, so it starts as exactly the same player. Validation reports the same decisions all fogged too.
 - **Playing fog games:** every network plays a fog game on its seat view (a model without fog inputs gets the seat view
   without the two columns); `delove-seat` sits a model at a fog table only when it has fog inputs, others still sit
-  fog games out. The ladder and `play` take `{"fogOfWar": true}` games, fair for every seat; a cycle's fog gates stay
+  fog games out. Branch and score never searches under fog: there it plays its ranker's top move (`fogSafe`,
+  `branch-env.ts`). The ladder and `play` take `{"fogOfWar": true}` games, fair for every seat; a cycle's fog gates stay
   on the CPU (`cycle.sh`).
 - **Not built yet (next):** the seat's memory (section 2.2: last-seen owners and armies, income bounds), which needs
   logged fog games or a tracker in self-play; the determinized branch teacher (section 4); fog in the GPU mirror

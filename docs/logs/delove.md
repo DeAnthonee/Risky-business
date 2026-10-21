@@ -7,6 +7,7 @@ numbers go in [packages/delove/CYCLES.md](../../packages/delove/CYCLES.md) and t
 Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. **Append a line in the same PR** as any change to
 this area (README hard rule 12).
 
+- 2026-10-21 #PR live seat bug: `stateFromView` gave every opponent 0 cards (dropped `cardCount`), so delove@N and Jacob misread card threats in every live game; opponents' hand sizes and the deck/discard sizes are now rebuilt from the view (random deal of the unseen cards); yardstick caveat for games 1-6
 - 2026-10-21 #139 live yardstick: `docs/delove-yardstick.md` (delove@6 vs 5 Claude Haiku/Sonnet/Opus seats on the live board, one row per game) and its rerun kit `packages/delove/scripts/yardstick/` (setup.mjs, monitor.mjs, seat-prompt.md); delove-status section 9 item 4
 - 2026-10-21 #136 each range specialist is its own line: `@1` from the base of its day, every later candidate `--init` from the best of its own line on the newest shared games; re-seeding from a new base is an owner decision (delove-status section 3, packages/delove README)
 - 2026-10-20 #132 range specialists learn their own objectives: `train.py --range long|mid|close` (alive range, value target points / top2 + threat credit / win, range credit `--credit-beta` after `--credit-warmup`), `--value-target top2|win`, `python/targets.py` + `test_targets.py`; exports without `placement.npy` estimate the top 2 from players alive at the seat's last decision; `c7-specialists.sh` `RANGE_OBJECTIVES=1` / `PREFIX` / `ROUTER`

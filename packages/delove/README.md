@@ -225,8 +225,13 @@ Library names (the private models repo, next to `delove@N`) are `delove-long-ran
   `split-mid.jobs` (3 alive: 34/33/33 and each turn order of 50/25/25, 40/40/20, 60/20/20) start from synthetic boards
   split as the ratio says, about 10,000 games a ratio over the 6-10 seat tables of cycle 8, the branch player against
   `delove@6` (`split:SHARES>...` agents; packages/selfplay README, "Stage games"). They are drawn from each game's
-  seed, so they run on rented GPUs as well as at home. Mix them with the real stage games and the normal pool, never
-  alone. `node scripts/stage/split-jobs.mjs [GAMES]` rewrites both files.
+  seed, so they run on rented GPUs as well as at home: two more cycle steps, e.g. `"xc
+  packages/delove/scripts/stage/split-close.jobs Ratio scenarios: 2 alive"` and `"xm .../split-mid.jobs Ratio
+  scenarios: 3 alive"` (about $2-3 for both on rented GPUs; the measured balance per ratio is in the `packages/delove-gpu`
+  README, "Stage games"). Mix them with the real stage games and the normal pool, never alone (`#F` weights in
+  `train_data`, e.g. `xc/classic#0.5`; 70/30 is mostly settled on the first turn). `node
+  scripts/stage/split-jobs.mjs [GAMES]` rewrites both files; `scripts/stage/measure-stages.mjs` re-measures the
+  stage statistics the boards are drawn from.
 - **Gate:** each specialist against the base on its own stage, then the routed trio against the base in full games,
   with the yardstick below; the promotion rule is in `docs/delove-status.md` ("Range specialists: how they are
   compared").

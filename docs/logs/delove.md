@@ -7,7 +7,7 @@ numbers go in [packages/delove/CYCLES.md](../../packages/delove/CYCLES.md) and t
 Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. **Append a line in the same PR** as any change to
 this area (README hard rule 12).
 
-- 2026-10-21 #PRNUM cycle 10: `delove@7` (4 search options), first range specialists with `--range` and #137's stage games (all even, not promoted); `c10.cycle`, `c10s.cycle` (stage games, generate-only), `c10-specialists.sh`
+- 2026-10-21 #147 cycle 10: `delove@7` (4 search options), first range specialists with `--range` and #137's stage games (all even, not promoted); `c10.cycle`, `c10s.cycle` (stage games, generate-only), `c10-specialists.sh`
 - 2026-10-21 #142 search at play time: `delove-seat --agents delove-branch` plays branch and score live (`DELOVE_BRANCH_*`, now in `src/branch-env.ts`, shared with register.ts)
 - 2026-10-21 #145 S3: `train.py --soft-targets C` / `--soft-prior` (Gumbel completed-Q policy targets from the branch scores in `branch_q.npy`, frozen prior; `soft.py`, `test_soft.py`), `--soft-scale S` (absolute score scale instead of per-decision min-max), `--device`; `python/branch_q.py` writes `branch_q.npy` for a CPU export from the log and `DELOVE_BRANCH_TRACE`
 - 2026-10-21 #143 live seat bug: `stateFromView` gave every opponent 0 cards (dropped `cardCount`), so delove@N and Jacob misread card threats in every live game; opponents' hand sizes and the deck/discard sizes are now rebuilt from the view (random deal of the unseen cards); yardstick caveat for games 1-6

@@ -45,6 +45,7 @@ describe('diplomatic ping system', () => {
     expect(formatPing({ type: 'agree' })).toBe('🤝 [agree]');
     expect(formatPing({ type: 'decline' })).toBe('✋ [decline]');
     expect(formatPing({ type: 'alliance' })).toBe('🛡️ [alliance]');
+    expect(formatPing({ type: 'good_neighbor' })).toBe('🏡 [good neighbor]');
     expect(formatPing({ type: 'camaraderie' })).toBe('👊 [camaraderie]');
     expect(formatPing({ type: 'anger' })).toBe('💢 [anger]');
     expect(formatPing({ type: 'taunt' })).toBe('😈 [taunt]');
@@ -60,7 +61,10 @@ describe('diplomatic ping system', () => {
     expect(parsePing('[no]', 'Ahri', true)).toMatchObject({ type: 'decline', from: 'Ahri' });
 
     expect(parsePing('🛡️ [alliance]', 'Ahri', true)).toMatchObject({ type: 'alliance', from: 'Ahri', isWhisper: true });
-    expect(parsePing('[truce]', 'Ahri', false)).toMatchObject({ type: 'alliance', from: 'Ahri', isWhisper: false });
+    expect(parsePing('🏡 [good neighbor]', 'Ahri', true)).toMatchObject({ type: 'good_neighbor', from: 'Ahri', isWhisper: true });
+    expect(parsePing('[neutral border]', 'Ahri', false)).toMatchObject({ type: 'good_neighbor', from: 'Ahri' });
+    expect(parsePing('[truce]', 'Ahri', false)).toMatchObject({ type: 'good_neighbor', from: 'Ahri', isWhisper: false });
+    expect(parsePing('[peace]', 'Ahri', false)).toMatchObject({ type: 'good_neighbor', from: 'Ahri', isWhisper: false });
 
     expect(parsePing('👊 [camaraderie]', 'Ahri', false)).toMatchObject({ type: 'camaraderie', from: 'Ahri' });
     expect(parsePing('[fistbump]', 'Ahri', true)).toMatchObject({ type: 'camaraderie', from: 'Ahri' });
@@ -255,5 +259,35 @@ describe('diplomatic ping system', () => {
     // Turn 2: Shen tries to agree, but the proposal has expired due to silence!
     await c.planFor({ ...view, turnNumber: 4 });
     expect(c.popPing()).toBeNull();
+  });
+
+  it('proposes and establishes Good Neighbor neutral border pacts', async () => {
+    const view = makeView();
+    const c = new Commander({
+      llm: llmReturning(
+        // Turn 1: Shen proposes good neighbor to Ahri
+        JSON.stringify({ winPath: 'bonuses', plan: 'turn 1', ping: { type: 'good_neighbor', to: 'Ahri' } }),
+        // Turn 2: Shen maintains plan
+        JSON.stringify({ winPath: 'bonuses', plan: 'turn 2', ping: null })
+      ),
+      seatName: 'Shen',
+      playerId: 'a',
+      learnings: '',
+      gameId: 'TEST_GOOD_NEIGHBOR',
+      scoutingDir: null,
+    });
+
+    // Turn 1: Shen pings good neighbor to Ahri
+    await c.planFor({ ...view, turnNumber: 1 });
+    expect(c.popPing()).toMatchObject({ type: 'good_neighbor', to: 'Ahri' });
+
+    // Ahri agrees to the good neighbor pact
+    c.onMessages([
+      { id: 1, playerId: 'b', name: 'Ahri', message: '🤝 [agree]', to: 'a', toName: 'Shen' },
+    ]);
+
+    // On Turn 2, Ahri should now be in avoid (neutral border pact)
+    const plan2 = await c.planFor({ ...view, turnNumber: 4 });
+    expect(plan2?.avoid).toContain('b');
   });
 });

@@ -5,6 +5,7 @@ export type PingType =
   | 'decline'
   | 'attack'
   | 'alliance'
+  | 'good_neighbor'
   | 'camaraderie'
   | 'anger'
   | 'taunt';
@@ -40,6 +41,8 @@ export function formatPing(ping: PingAction): string {
       return ping.target ? `⚔️ [attack: ${ping.target}]` : '⚔️ [attack]';
     case 'alliance':
       return '🛡️ [alliance]';
+    case 'good_neighbor':
+      return '🏡 [good neighbor]';
     case 'camaraderie':
       return '👊 [camaraderie]';
     case 'anger':
@@ -76,9 +79,14 @@ export function parsePing(raw: string, from: string, isWhisper: boolean): Parsed
     return { type: 'decline', from, isWhisper, raw: text };
   }
 
-  // Alliance / truce: [alliance] or [truce]
-  if (/\[(alliance|truce)\]/i.test(text)) {
+  // Alliance: [alliance]
+  if (/\[alliance\]/i.test(text)) {
     return { type: 'alliance', from, isWhisper, raw: text };
+  }
+
+  // Good neighbor / neutral border: [good neighbor], [neutral border], [border], [truce], [peace]
+  if (/\[(?:good[\s_-]*neighbor|neutral[\s_-]*border|border|truce|peace)\]/i.test(text)) {
+    return { type: 'good_neighbor', from, isWhisper, raw: text };
   }
 
   // Camaraderie: [camaraderie], [fistbump], or [handshake]

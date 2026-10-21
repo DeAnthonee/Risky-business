@@ -331,6 +331,7 @@ Fog of war off (enforced by `delove-seat`); one seat per agent. For full environ
 | range specialists (4+ alive / 3 alive / 1v1, routed by players alive) | coordinator | tooling in **#114**; stage yardstick (`npm run delove:stages`: fixed start positions per stage, specialist vs base, the routed trio in full games, 95% intervals) and the library names in this PR; **cycle 7** trained Delove Long / Mid / Close Range from `delove@4` on cycles 5-6 split by players alive: the routed trio is even with `delove@4` (2p 0.501, 4-10p even, +0.53 points at league Classic 6p only), not promoted. Next try needs different lessons per phase (more 3-player endgames, a duel-focused search), not a split of the same ones; **cycle 7**trained Delove Long / Mid / Close Range from `delove@4` on cycles 5-6 split by players alive: the routed trio is even with `delove@4` (2p 0.501, 4-10p even, +0.53 points at league Classic 6p only), not promoted. Next try needs different lessons per phase (more 3-player endgames, a duel-focused search), not a split of the same ones |
 | range objectives: each specialist its own value target and credit from the same pool (`train.py --range long\|mid\|close`, `python/targets.py`; `placement.npy` / `kills.npy` from `delove_gpu.generate`) | session "Range objectives" | built (this PR), smoke-trained only: ~600 steps from `delove@5` on cycle 8 Classic, the target alone (same batches) changes 3.0 / 3.0 / 3.7% of top moves on each range's own positions vs a cycle-7-style control (Mid's seed-to-seed noise: 4.3%), so the policy effect is unproven until a full train and gates; the estimated top 2 for exports without `placement.npy` matched the exact one on 97.6-98.7% of 3-alive decisions (Classic 6p, World 5p) |
 | range-specific teacher labels: the branch player scores its rollouts by each range's objective (`long`: share + 2 × kill credit; `mid`: P(top 2) + threat deflection; `close`: deeper duel search; `range` picks per decision by players alive), mirrored on the GPU and verified; per job via `delove-branch@1:<score>` seats | session "Range-aware branch scoring" | built (#PR), verified on the GPU (4,792,399 steps; fingerprint re-recorded). Head to head with today's share scorer (2,228 games, packages/delove/README.md): 3 players top 2 +0.043 ± 0.051 (Classic +0.109 ± 0.072), 6 players +0.46 ± 0.58 points (World +0.99 ± 0.83; kills 1.81 vs 1.53 per game), duels even (0.507 vs 0.491). Next: cycle 12's stage jobs with `delove-branch@1:range` seats, then the specialists' stage gates |
+| stage games for Mid / Close Range (section 9 item 2): games recorded only from 3 or 2 players alive | session "Stage-focused data" | built (**#137**): `LEAD>STAGE` tables (a lead-in to N alive, then the stage agents; `packages/delove/scripts/stage/mid.jobs`, `close.jobs`) and `pos:FILE>...` from game-record positions (`npm run selfplay -- positions`), on the CPU and the GPU, identical (`tests/stage_check.py`, in `verify.py`). Home 4060: about 25k 3-alive and 39k 2-alive games an hour, about 75 recorded decisions each. Not yet trained on |
 | Jacob Sensei, a teacher that doesn't stall (section 9 item 1) | session "Jacob Sensei" | done, **PR #98** merged; GPU port (`delove_gpu/teacher.py`) done in **#110** (closes #99) |
 | all-map strength data | coordinator | 147 of 296 chunks (about 5k games, 5 maps), stopped to free the machine; finish on the GPU |
 | #39 tournament Earth map | other work | on hold (owner) |
@@ -361,11 +362,20 @@ tables with LLM characters, with fog of war on. In order:
    `delove-branch@1:range` seat on a stage jobs line), so the labels themselves differ, not only their weights.
    First measurement, range scorer vs the share scorer head to head: Mid Range +0.04 top 2 at 3 players, Long Range
    +0.46 points at 6 players (+0.99 on World), duels even; aimed at cycle 12.
+   **Stage games** (#137) give Mid and Close Range more lessons from their own stage: stage tables
+   (`packages/delove-gpu` README, "Stage games"; `scripts/stage/mid.jobs` and `close.jobs`, 4,300 games each,
+   cycle 8's maps and table sizes, league settings). Next: a cycle that generates them and trains Mid / Close Range
+   on them plus the old split. Watch the stage length: after a Jacob Sensei lead-in the 3-alive part lasts 7 turns
+   (median; 2-alive: 4), as one player has usually run away by then; if the specialists need closer positions,
+   filter positions by balance (as the yardstick's capture does) or add lead-ins by stronger, more even seats.
 3. **Fog of war, started early, in parallel** (`docs/delove-fog.md`): fog dropout first (train on normal games with the
    unseen territories blanked out, so Delove stops leaning on information a fogged player lacks), then the seat-view
    encoder, a determinized branch teacher and fog gates.
 4. **The real yardstick.** Seat Delove at live tables with the Claude and ChatGPT characters (fog on once item 3
-   lands), and track its leaderboard points per game over seasons.
+   lands), and track its leaderboard points per game. Started 2026-10-21 with Claude subagent seats
+   ([delove-yardstick.md](delove-yardstick.md)): with capitals and blizzards on, `delove@6` averaged -1.0 points against
+   Sonnet (3 games) and -2.5 against Opus (2 games), knocked out by round 3-9 with no kills; 2nd against Haiku in a
+   pilot without capitals or blizzards. Rerun the same lineup for every new model.
 5. **Faster cycles** (no strength change): the faster big-table search (#117, 2.5-5x, merged), 10 cloud pods for a
    whole cycle's generation (about 47 minutes, about $7), and a training pod fed directly by the generation pods
    through a RunPod network volume (`REMOTE_TRAIN=1`, built, not yet run for pay: about 10 minutes and $0.40-0.50 a

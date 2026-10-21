@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { legalMoves, type Action, type GameState, type GameView, type PlayerId } from '@risk/engine';
+import { buildDeck, createRng, getMap, legalMoves, shuffle, type Action, type Card, type GameState, type GameView, type PlayerId } from '@risk/engine';
 import { RiskHttpError, type RiskApi } from '@risk/mcp';
 import { candidates, makeTraits, type Agent } from '@risk/selfplay';
 import { modelsDir, seatOrder } from './net-agent.js';
@@ -13,19 +13,28 @@ import { DEFAULT_TEACHER_PARAMS, makeTeacher, teacher, type TeacherParams } from
  */
 
 /**
- * The engine state behind one player's view. Hidden parts (deck, discard, other hands, the RNG) are left empty:
- * legal moves and Delove's encoder never read them.
+ * The engine state behind one player's view. The RNG is left empty (legal moves and Delove's encoder never read it).
+ * What the view hides about the cards is filled in so every count is right: each opponent gets a hand of its real
+ * size (`cardCount`), and the deck and discard their real sizes, dealt from the cards this seat can't see. Which cards
+ * an opponent holds is a guess (one random deal, from `random`); the counts are exact. Delove's encoder and Jacob
+ * Sensei read only the counts (opponents' card threat, the worth of eliminating them); branch and score's rollouts
+ * also play the guessed cards. Without `random` the deal is in deck order.
  */
-export function stateFromView(view: GameView): GameState {
-  const { players, deckSize: _d, discardSize: _s, you: _y, legal: _l, continentOwners: _c, ...rest } = view;
+export function stateFromView(view: GameView, random?: () => number): GameState {
+  const { players, deckSize, discardSize, you: _y, legal: _l, continentOwners: _c, ...rest } = view;
+  const known = new Set(players.flatMap((p) => (p.cards ?? []).map((c) => c.id)));
+  let unseen = buildDeck(getMap(view.options.map)).filter((c) => !known.has(c.id));
+  if (random) unseen = shuffle(createRng(Math.floor(random() * 0x100000000) >>> 0), unseen);
+  const deal = (n: number): Card[] => unseen.splice(0, Math.max(0, Math.min(n, unseen.length)));
+  const hands = players.map((p) => p.cards ?? deal(p.cardCount));
   return {
     ...rest,
-    players: players.map(({ cardCount: _cc, territoryCount: _tc, armyCount: _ac, continents: _co, income: _i, cards, ...p }) => ({
+    players: players.map(({ cardCount: _cc, territoryCount: _tc, armyCount: _ac, continents: _co, income: _i, cards: _h, ...p }, i) => ({
       ...p,
-      cards: cards ?? [],
+      cards: hands[i],
     })),
-    deck: [],
-    discard: [],
+    deck: deal(deckSize),
+    discard: deal(discardSize),
     seed: 0,
     rngState: 0,
   };
@@ -33,7 +42,7 @@ export function stateFromView(view: GameView): GameState {
 
 /** Delove's move for this view, or null when it is not this seat's turn. */
 export function chooseFromView(agent: Agent, view: GameView, me: PlayerId, random: () => number): Action | null {
-  const state = stateFromView(view);
+  const state = stateFromView(view, random);
   const legal = legalMoves(state, me);
   if (!legal.yourTurn) return null;
   const cands = candidates(state, me, legal);
@@ -56,6 +65,7 @@ export function defaultName(id: string): string {
   if (id === teacher.id || id === 'sensei@1' || id === 'sensei') return 'Sensei 1';
   if (id === 'delove-teacher@2' || id === 'sensei@2') return 'Sensei 2';
   if (id === 'jacob-sensei@1' || id === 'jacob') return 'Jacob Sensei';
+  if (id === 'delove-branch@1' || id === 'delove-branch') return 'Delove Search';
   const m = /^delove@(\d+)(-explore)?$/.exec(id);
   return m ? `Delove ${m[1]}${m[2] ? ' (explore)' : ''}` : id;
 }

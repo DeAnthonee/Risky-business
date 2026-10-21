@@ -130,6 +130,8 @@ def make_units(steps: list[tuple[str, str]], only: set[str] | None, timings: dic
         for t in read_jobs(jobs):
             if only and t.name not in only:
                 continue
+            if t.positions is not None:
+                raise SystemExit(f"{jobs}: table {t.name} starts from a positions file: play it at home (generate.py), not on rented GPUs")
             groups.setdefault(t.config.label(), []).append(t)
         for label, tables in groups.items():
             games = sum(t.games for t in tables)
@@ -319,7 +321,8 @@ def ready(pod: Pod, ssh: Ssh) -> bool:
 
 # ---- the job a pod gets --------------------------------------------------------------------------------------------------
 def table_line(t) -> str:
-    return " ".join([t.name, str(t.games), ",".join(t.agents), *([str(t.start)] if t.start else []), json.dumps(t.options, separators=(",", ":"))])
+    agents = ",".join(t.agents) + (">" + ",".join(t.stage) if t.stage else "")  # a stage table's lead-in>stage agents
+    return " ".join([t.name, str(t.games), agents, *([str(t.start)] if t.start else []), json.dumps(t.options, separators=(",", ":"))])
 
 
 def needed_models(units: list[Unit], gen_args: list[str], models: Path) -> list[Path]:
@@ -329,7 +332,7 @@ def needed_models(units: list[Unit], gen_args: list[str], models: Path) -> list[
     from delove_gpu.generate import is_branch
     from delove_gpu.teacher import is_teacher
 
-    agents = {a for u in units for t in u.tables for a in t.agents}
+    agents = {a for u in units for t in u.tables for a in t.agents + (t.stage or [])}
     ranker = gen_args[gen_args.index("--ranker") + 1] if "--ranker" in gen_args else "delove@2"
     nets = {a for a in agents | {ranker} if not is_branch(a) and not is_teacher(a)}  # branch seats: delove-branch@1[:<score>]
     files = [models / f"{a}.pt" for a in sorted(nets)] + sorted(p for p in models.glob("*.json") if is_teacher(p.stem))

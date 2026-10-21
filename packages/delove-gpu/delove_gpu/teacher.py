@@ -739,11 +739,12 @@ extern "C" __global__ void k_teacher_play(STATE_ARGS, TP_ARGS, i64* arng, int rs
 }
 
 // Teacher seats play on, in place, until a seat that is not a teacher (tseat[b * NS + seat] == 0) is to move, the game
-// ends, or max_steps steps (each on the seat's own stream, exactly as one k_teacher + k_step per step). dec[b] counts
-// decisions as game.ts does (a fortify is one); steps[b] the steps played. RUN_G lanes per game (Grp): each lane picks
+// ends, stop[b] (> 0) real players or fewer are alive (a stage game's lead-in, stage.py), or max_steps steps (each on
+// the seat's own stream, exactly as one k_teacher + k_step per step). dec[b] counts decisions as game.ts does (a
+// fortify is one); steps[b] the steps played. RUN_G lanes per game (Grp): each lane picks
 // on its own copy of the seat's stream, lane 0 writes the stream back and makes the move.
 extern "C" __global__ void k_teacher_run(STATE_ARGS, TP_ARGS, i64* arng, int rstride, const u8* tver, const u8* tseat, const u8* active,
-                                         i64* dec, i64* steps, int max_steps, int max_turns, int B) {
+                                         const i64* stop, i64* dec, i64* steps, int max_steps, int max_turns, int B) {
   int i = blockIdx.x * blockDim.x + threadIdx.x, b = i / RUN_G;
   if (b >= B) return;  // the whole group
   Grp g = make_grp(i, RUN_G);
@@ -753,6 +754,11 @@ extern "C" __global__ void k_teacher_run(STATE_ARGS, TP_ARGS, i64* arng, int rst
   int n = 0;
   if (active[b]) {
     while (n < max_steps && !*s.done && tseat[(i64)b * NS + cur(s)]) {
+      if (stop[b] > 0) {
+        int alive = 0;
+        for (int q = 0; q < NS; q++) alive += s.alive[q];
+        if (alive <= stop[b]) break;
+      }
       i64* rp = agent_rng(arng, rstride, b, cur(s));
       i64 r = *rp;
       int a = teacher_pick_g<RUN_G>(s, seat_tp(tp, tver, b, cur(s)), &r, g);
@@ -865,12 +871,16 @@ class TeacherEngine(FusedEngine):
         self._launch_t("k_teacher", self.B, *self._state(), *self._tp(prm), ar, rstride, tv, act, out, self.B)
         return out
 
-    def teacher_run(self, tseat: torch.Tensor, active: torch.Tensor, dec: torch.Tensor, max_steps: int = 100_000) -> torch.Tensor:
+    def teacher_run(self, tseat: torch.Tensor, active: torch.Tensor, dec: torch.Tensor, max_steps: int = 100_000,
+                    stop: torch.Tensor | None = None) -> torch.Tensor:
         """Teacher seats (tseat [B, seats] bool, each playing its tver version) play on in every active game until
-        another seat is to move; returns the steps each game played. dec (int64 [B]) gains the decisions played."""
+        another seat is to move, or (stop: int64 [B], 0 = never) until stop[b] real players or fewer are alive; returns
+        the steps each game played. dec (int64 [B]) gains the decisions played."""
         steps = torch.zeros(self.B, dtype=torch.long, device=self.dev)
+        if stop is None:
+            stop = torch.zeros(self.B, dtype=torch.long, device=self.dev)
         self._launch_t("k_teacher_run", self.B * self.run_lanes, *self._state(), *self._tp(), self.arng, self.n, self.tver, tseat.to(torch.uint8).contiguous(),
-                       active.to(torch.uint8).contiguous(), dec, steps, max_steps, self.max_turns, self.B)
+                       active.to(torch.uint8).contiguous(), stop.to(torch.long).contiguous(), dec, steps, max_steps, self.max_turns, self.B)
         return steps
 
     def play_teacher(self, steps: int):

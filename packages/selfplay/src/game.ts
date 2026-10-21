@@ -18,6 +18,7 @@ import { actionSteps, candidates } from './actions.js';
 import type { Agent } from './agents.js';
 import { decisionInput } from './encode.js';
 import { LOG_VERSION, seatOf, type DecisionRecord, type Outcome } from './log.js';
+import { aliveCount, stageSeats } from './positions.js';
 import { mixSeed, seededRandom } from './seed.js';
 import { makeTraits, type Traits } from './traits.js';
 
@@ -26,9 +27,27 @@ export interface Seat {
   traits?: Partial<Traits>;
 }
 
+/**
+ * A stage-focused game (positions.ts): the seats' own agents play a lead-in until `alive` real players are left, then
+ * `agents` take the survivors' seats (stageSeats: in turn order from the player to move, rotated by `rotate`) and
+ * only from then on are decisions recorded.
+ */
+export interface StageConfig {
+  alive: number;
+  agents: Agent[];
+  rotate: number;
+}
+
 export interface GameConfig {
   seed: number;
   seats: Seat[];
+  /** Play a stage: lead-in by `seats`, recorded from the moment `stage.alive` players remain. */
+  stage?: StageConfig;
+  /**
+   * Begin from this state (a StartPosition made ready by startState) instead of a new game. Its players must be
+   * s0..s{seats-1} (and the Neutral); `eliminated` lists the players already out, in order.
+   */
+  start?: { state: GameState; eliminated: string[] };
   /** Engine options; maxPlayers defaults to the number of seats. Defaults otherwise as on the live server. */
   options?: Partial<GameOptions>;
   /** Stop after this many turns and call it a draw. Default 500. */
@@ -61,6 +80,8 @@ export interface GameResult {
   placement: number[];
   kills: number[];
   points: number[];
+  /** Stage games: when the stage began (null: never, the game ended before), and each seat's agent from then on. */
+  stage?: { turn: number; step: number; alive: number; agents: string[] } | null;
   /** Illegal actions per seat (only non-zero with onIllegal: 'surrender'). */
   illegal: number[];
   /** Decisions outside the discrete action space, per seat. */
@@ -83,10 +104,20 @@ export function playGame(cfg: GameConfig): GameResult {
   const maxTurns = cfg.maxTurns ?? 500;
   const id = cfg.id ?? `g${cfg.seed.toString(16)}`;
 
-  let state: GameState = createGame(id, { maxPlayers: n, ...cfg.options }, cfg.seed);
-  cfg.seats.forEach((s, i) => (state = addPlayer(state, ids[i], s.agent.id, true)));
-  state = startGame(state).state;
+  let state: GameState;
+  if (cfg.start) {
+    state = cfg.start.state;
+    const real = state.players.filter((p) => !p.isNeutral).map((p) => p.id);
+    if (real.join() !== ids.join()) throw new Error(`game ${id}: the start position's seats are ${real.join()}, not ${ids.join()}`);
+  } else {
+    state = createGame(id, { maxPlayers: n, ...cfg.options }, cfg.seed);
+    cfg.seats.forEach((s, i) => (state = addPlayer(state, ids[i], s.agent.id, true)));
+    state = startGame(state).state;
+  }
   const map = getMap(state.options.map);
+  const seatAgents = cfg.seats.map((s) => s.agent);
+  let staged = !cfg.stage;
+  let stage: GameResult['stage'] = cfg.stage ? null : undefined;
 
   const records: DecisionRecord[] = [];
   const illegal = new Array<number>(n).fill(0);
@@ -97,25 +128,31 @@ export function playGame(cfg: GameConfig): GameResult {
   let lastTurn = state.turnNumber;
   let reason: Outcome['reason'] = 'turn_limit';
   /** Player ids in the order they were eliminated (for final placements). */
-  const eliminationOrder: string[] = [];
+  const eliminationOrder: string[] = [...(cfg.start?.eliminated ?? [])];
 
   while (state.phase !== 'finished' && state.turnNumber < maxTurns) {
+    if (!staged && aliveCount(state) <= cfg.stage!.alive) {
+      for (const [s, a] of stageSeats(state, ids, cfg.stage!.agents.length, cfg.stage!.rotate)) seatAgents[s] = cfg.stage!.agents[a];
+      staged = true;
+      stage = { turn: state.turnNumber, step: stepCount, alive: aliveCount(state), agents: seatAgents.map((a) => a.id) };
+    }
     const me = state.currentPlayer!;
     const seat = ids.indexOf(me);
     const legal = legalMoves(state, me);
     const cands = candidates(state, me, legal);
-    const agent = cfg.seats[seat].agent;
+    const agent = seatAgents[seat];
     const action: Action = agent.choose({ state, me, seat, legal, candidates: cands, traits: traits[seat], random: randoms[seat] }) ?? { type: 'surrender' };
     const steps = actionSteps(state, me, legal, action, cands);
+    const firstStep = stepCount;
     stepCount += steps.length;
     if (steps[steps.length - 1].choice < 0) offList[seat]++;
-    if (cfg.record) {
-      for (const step of steps) {
+    if (cfg.record && staged) {
+      for (const [k, step] of steps.entries()) {
         records.push({
           v: LOG_VERSION,
           game: id,
           seed: cfg.seed,
-          i: records.length,
+          i: firstStep + k,
           agent: agent.id,
           ...decisionInput(state, ids, me, traits[seat], step.cands, step.fortifyFrom ?? -1),
           choice: step.choice,
@@ -167,6 +204,7 @@ export function playGame(cfg: GameConfig): GameResult {
     seed: cfg.seed,
     map: map.id,
     agents: cfg.seats.map((s) => s.agent.id),
+    ...(stage !== undefined ? { stage } : {}),
     winner,
     reason: winner === null ? 'turn_limit' : reason,
     turns: state.turnNumber,

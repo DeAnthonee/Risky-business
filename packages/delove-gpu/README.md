@@ -218,7 +218,11 @@ at a table (`delove-teacher@N`, `jacob-sensei@N`, any mix) plays its own version
   encode.ts stores doubles into a Float32Array, so the arrays are bit-identical to `export`'s. One extra array, not in
   export's: `branch_tag.npy` (int8 per decision: 0 the teacher's move without comparing options, 1 compared and kept,
   2 changed), which `train.py --branch-weights` reads; and `placement.npy` / `kills.npy` (int32: the decider's final
-  place and kills, from `outcome.py`), which the Mid Range target reads (`train.py --range mid`, `--value-target top2`).
+  place and kills, from `outcome.py`), which the Mid Range target reads (`train.py --range mid`, `--value-target top2`);
+  and `branch_q.npy` (float32 per candidate row, aligned with `cand.npy`: the mean branch score of the candidate's
+  option at a branched decision, the score the pick is made on, rounded once from the double; NaN where the candidate
+  was not compared), which `train.py --soft-targets` reads. A CPU export gets the same array from the play log and the
+  branch trace (`packages/delove/python/branch_q.py`); `tests/dataset_compare.py` hashes it when both datasets have it.
   A cloud merge needs every part written by the same version (`merge.py` refuses folders with different arrays).
 
 - **Outcomes** (`outcome.py`): z, and log v3's leaderboard placements, kills and points (`points.npy`, `points01.npy`):
@@ -395,10 +399,15 @@ the 255-register kernel fits fewer copies on the GPU at once.
 **Proof.** The lane groups changed no TS file, so `engine-fingerprint.json` (which hashes only the TS rule files) did not
 change, and its last `verify.py` run (#112) predates them. What covers them: `k_teacher` (1 lane, the same `teacher_pick_g`
 code) and `k_branch_sim` (16 lanes, every score mode) replayed `verify.py`'s matrix suites identically (jacob 128/128, branch
-18/18, #117); `k_teacher_run` with 8 lanes runs only in `generate.py`, which no `verify.py` step replays against the CPU,
-so it rests on the before/after runs above. A full `verify.py --models` run would repeat the first two with new seeds and
-not reach the third, so none was run for #117. Adding a `dataset_compare.py` step (GPU `generate.py` against CPU play and
-export) to `verify.py` would cover it.
+18/18, #117); `k_teacher_run` with 8 lanes runs only in `generate.py`, so for #117 it rested on the before/after runs
+above. Since #140 `verify.py` covers it too (step 3, with a CUDA device): three small tables, Classic 2p, Skirmish 4p
+(capitals, exponential cards) and Greater Europe 10p (blizzards, balanced blitz), each with `delove-teacher@1` as the
+recorded seat and Jacob Sensei and the newest tuned Sensei (with `--models`) alternating in the other seats, so several
+fast seats play in a row inside one `k_teacher_run` launch. `generate.py` plays them on the GPU and `play` + `export
+--only-agents delove-teacher@1` on the CPU, with the same seeds, and `dataset_compare.py` must find every game's rows
+identical. At `--games 500` that is 250 + 100 + 20 games, about 4 minutes on the RTX 4060 once the kernels are
+compiled (14 minutes the first time, the GPU shared with a training run). First run (2026-10-21, seeds 827 and 4292):
+74 of 74 and 370 of 370 games identical, row for row.
 
 **Cheaper settings are not worth it on the GPU.** `bench/branch_agreement.py` plays a table with the full settings and,
 at every decision of the branch player, also runs each variant from the same position and streams. On the
@@ -415,6 +424,41 @@ moved away from the teacher's move on 10,294 of them):
 The rollouts are latency-bound, so fewer copies save little time (16-28%). Yet each variant moves away from the full
 search on 4-14% of its branched decisions, against the 20% where the full search moves away from the teacher. The
 defaults stay as they are. The variants are options for a run that needs speed over labels.
+
+## Stage games: lessons for Mid Range and Close Range
+
+Delove Mid Range (3 players alive) and Close Range (the 1v1) learn only from their own stage, and in a normal game that
+stage is a short tail (cycle 7 split the same games by players alive and the specialists came out even with
+`delove@4`). Stage tables start the recorded part where 3 or 2 players are left (`delove_gpu/stage.py`, the mirror of
+`packages/selfplay/src/positions.ts`; the self-play README has the rules):
+
+```bash
+# from packages/delove-gpu: Mid Range (3 alive) and Close Range (2 alive), the cycle 8 maps and table sizes
+.venv/Scripts/python -m delove_gpu.generate --models <models> --ranker delove@6 --teacher jacob-sensei@1 --horizon 1 --margin 0.01 \
+  --jobs ../delove/scripts/stage/mid.jobs --seed 901 --out data/delove/stage-mid --summary runs/stage-mid.json --results runs/stage-mid.jsonl
+.venv/Scripts/python -m delove_gpu.generate ... --jobs ../delove/scripts/stage/close.jobs --seed 902 --out data/delove/stage-close
+# from game records (npm run selfplay -- positions writes the file): 2-alive positions, played by the branch player and Jacob
+.venv/Scripts/python -m delove_gpu.generate ... --table "rec2 2000 pos:data/positions.jsonl>delove-branch@1,jacob-sensei@1" --seed 903 --out data/delove/stage-rec
+```
+
+- **A lead-in** (`A,...,F>X,Y,Z`): the lead-in seats play an ordinary game; `k_teacher_run` stops a game the moment
+  `stop[b]` real players or fewer are alive (checked before every move), then the stage agents take the survivors'
+  seats (`stage_seats`, rotated by the game number) and the game goes on in the same slot. Nothing of the lead-in is
+  recorded and all its teacher seats play inside the kernel, so a lead-in by Jacob Sensei costs a fraction of the
+  stage; network seats in a lead-in play step by step, like any network seat. `--results` gives each game's
+  `stage: {turn, decisions, alive, agents}` (`null`: it ended before the stage).
+- **From positions** (`pos:FILE>X,Y`): `load_positions` writes a position's full state into a game slot (board,
+  hands in order, deck and discard, turn order, phase, pending conquest, capitals, blizzards, eliminations and their
+  order) and reseeds it as `startState` does. The positions of one file are grouped by configuration (map, seats,
+  settings), each a table of its own (`NAME:MAP-Np` in the results); game i plays position i mod count. Positions tables play at home only
+  (`remote.py` refuses them: the file is not shipped to the pods); lead-in tables run on rented GPUs like any table.
+- **The data** is the usual training arrays, with every decision from the stage (players alive = the stage or fewer);
+  `train.py --alive 3-3` / `--alive 2-2` keep the specialist's range as before. The outcome (z, points) is the whole
+  game's, at the table size the game started with.
+- **Proof** (`tests/stage_check.py`, part of `verify.py --models`): lead-ins by teachers and by network seats, league
+  settings, an already-at-stage table and positions from bot-game records (`tests/stage_records.mjs`, fog on in some)
+  are played on the CPU (`play` + `export`) and on the GPU; every game must end the same way (winner, turns, the turn
+  the stage began, who played each seat) and the two datasets must hold the same games bit for bit.
 
 ## Ladder gates on the GPU
 
@@ -510,7 +554,7 @@ does. The GPU is also the cheap way to more games per big-board gate (their 95% 
 The mirror is only right for the engine it was checked against. `engine-fingerprint.json` records hashes of the engine
 and self-play files it copies (`RULE_FILES` in `delove_gpu/fingerprint.py`: `engine.ts`, `cards.ts`, `rng.ts`,
 `types.ts`, `maps.ts`, every map's generated JSON, `ranking.ts`, self-play's `actions.ts`, `encode.ts`, `log.ts`,
-`game.ts`, `traits.ts`, `export.ts`, `npy.ts`, and Delove's `teacher.ts`, `jacob.ts`, `branch.ts` with the engine's `odds.ts`),
+`game.ts`, `positions.ts`, `traits.ts`, `export.ts`, `npy.ts`, and Delove's `teacher.ts`, `jacob.ts`, `branch.ts` with the engine's `odds.ts`),
 written only after logs made with exactly those files replayed identically.
 
 - **Training refuses a stale mirror.** `Engine(...)`, `FusedEngine(...)`, `TeacherEngine(...)` and `BranchEngine(...)`
@@ -536,7 +580,8 @@ written only after logs made with exactly those files replayed identically.
   against itself and branch games at branch.ts's defaults and at the cycle settings, with traces), replays them
   through `engine.py` and `fused.py` with the encoder and network checks, then the teacher, branch and training-array
   checks, the odds check and the matrix suites over every map, table size and setting (`--matrix-scale`, default 0.1
-  of `tests/matrix.py`'s game counts: about an hour), and writes the fingerprint only if every step matches. Commit the
+  of `tests/matrix.py`'s game counts: about an hour), then `generate.py`'s own teacher fast path (`k_teacher_run`,
+  three small tables against CPU play + export with `dataset_compare.py`), and writes the fingerprint only if every step matches. Commit the
   fingerprint (with any mirror fixes) in a PR. A change that does not touch the rules (a refactor, a comment) only
   needs the run; a mismatch means the mirror needs the same change, made in `packages/delove-gpu`, never the engine.
 

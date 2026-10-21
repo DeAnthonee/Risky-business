@@ -432,7 +432,7 @@ stage is a short tail (cycle 7 split the same games by players alive and the spe
 - **From positions** (`pos:FILE>X,Y`): `load_positions` writes a position's full state into a game slot (board,
   hands in order, deck and discard, turn order, phase, pending conquest, capitals, blizzards, eliminations and their
   order) and reseeds it as `startState` does. The positions of one file are grouped by configuration (map, seats,
-  settings), each a table of its own; game i plays position i mod count. Positions tables play at home only
+  settings), each a table of its own (`NAME:MAP-Np` in the results); game i plays position i mod count. Positions tables play at home only
   (`remote.py` refuses them: the file is not shipped to the pods); lead-in tables run on rented GPUs like any table.
 - **The data** is the usual training arrays, with every decision from the stage (players alive = the stage or fewer);
   `train.py --alive 3-3` / `--alive 2-2` keep the specialist's range as before. The outcome (z, points) is the whole

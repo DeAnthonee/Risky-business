@@ -6,7 +6,7 @@
 #   JOB/src.tar        git archive of the commit to run (the mirror, its fingerprint, the engine it reads)
 #   JOB/models/        the .pt and teacher .json files the tables need (private: deleted when the run ends)
 #   JOB/cache/         optional: NVRTC kernels (*.cubin) from the training PC's delove_gpu/_cache/
-#   JOB/job.json       {"torch": "2.11.0+cu128", "verify": [verify.py args] or null}
+#   JOB/job.json       {"torch": "2.11.0+cu128", "verify": [verify.py args] or null, "allowUnverified": bool}
 #   JOB/lane-<i>.sh    one per lane: its GPU and one delove_gpu.generate per step (written by remote.py)
 #   JOB/lanes/<i>.<step>.jobs   each lane's tables of each step
 #
@@ -78,10 +78,14 @@ if (( ${#vargs[@]} )); then
     && echo "verify: ok" || echo "verify: FAILED (see verify.log)"
   cp packages/delove-gpu/engine-fingerprint.json "$job/verify-fingerprint.json" 2>/dev/null
 fi
-$py packages/delove-gpu/delove_gpu/fingerprint.py check || {
+# generate --allow-unverified (benchmarks and comparisons, never training data) plays on a stale mirror, with a warning
+if [[ $(python3 -c 'import json,sys; print(1 if json.load(open(sys.argv[1])).get("allowUnverified") else 0)' "$job/job.json") == 1 ]]; then
+  $py packages/delove-gpu/delove_gpu/fingerprint.py check || echo "WARNING: the GPU mirror is not verified for this commit (--allow-unverified)"
+else $py packages/delove-gpu/delove_gpu/fingerprint.py check || {
   tar -czf "$job/out.tar.gz" -C "$job" setup.log env.json verify.log verify-fingerprint.json 2>/dev/null
   fail "the GPU mirror is not verified for this commit's engine"
 }
+fi
 
 # ---- the odds tables, once (not uploaded: 240 MB, about two minutes here): lanes sharing a pod would otherwise all build
 # them at the same time in the same _cache/, and older commits' odds.py shared its temporary file names (a lane crashed)

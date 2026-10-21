@@ -340,7 +340,8 @@ def build_upload(work: Path, pod_index: int, lanes: list[Lane], gen_args: list[s
         for c in cache.glob("*.cubin"):  # the odds tables (240 MB) are built on the pod, once, in about two minutes
             shutil.copyfile(c, stage / "cache" / c.name)
     (stage / "worker.sh").write_bytes((HERE / "worker.sh").read_bytes().replace(b"\r\n", b"\n"))  # a CRLF checkout
-    (stage / "job.json").write_text(json.dumps({"torch": torch_version, "verify": verify}), encoding="utf8")
+    (stage / "job.json").write_text(json.dumps({"torch": torch_version, "verify": verify, "allowUnverified": "--allow-unverified" in gen_args}),
+                                    encoding="utf8")
     for lane in lanes:
         for step in dict.fromkeys(u.step for u in lane.units):
             lines = [table_line(t) for u in lane.units if u.step == step for t in u.tables]

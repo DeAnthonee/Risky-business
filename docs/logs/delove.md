@@ -7,6 +7,7 @@ numbers go in [packages/delove/CYCLES.md](../../packages/delove/CYCLES.md) and t
 Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. **Append a line in the same PR** as any change to
 this area (README hard rule 12).
 
+- 2026-10-21 #160 gates: paired statistics and an SPRT on the promotion rule (`scripts/sprt.mjs`; `cycle.sh` `GATE_SPRT=1` adds chunks until decided, `PANEL=1` adds the fixed reference panel; the summary always shows the paired table)
 - 2026-10-21 #158 delove-status section 3: "Progress, measured directly": each promotion's pooled gain (@4-@10) and a direct head-to-head of bare delove@10 vs delove@6 / delove@3 (+1.1 to +1.6 points per seat at 6-10p, every interval above 0)
 - 2026-10-21 #157 yardstick made neutral: the LLM seat brief and room name no longer say which seat is the trained model (Delove sits as `<Tier> Garen`); turn order is shuffled by the engine (Delove doesn't always move last; the doc said so); 2 games per tier (Haiku, Sonnet, Opus) per model
 - 2026-10-21 #156 live yardstick baseline 2: six games with the live search seat (delove@8 + search with #154's `js2-range` preset: Jacob Sensei 2, range score, horizon 2, margin 0.02; card counts fixed) in docs/delove-yardstick.md; `monitor.mjs` records which seats attacked Delove in rounds 1-2; delove-status section 9 item 4

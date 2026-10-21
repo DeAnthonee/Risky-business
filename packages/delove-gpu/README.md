@@ -383,6 +383,14 @@ copies each; measured while cycle 6 shared the GPU, so only the ratios count): o
 the move itself) diverge less than with 32 copies per warp. Below 16 lanes, the attack loop stays long; at 32 lanes,
 the 255-register kernel fits fewer copies on the GPU at once.
 
+**Proof.** The lane groups changed no TS file, so `engine-fingerprint.json` (which hashes only the TS rule files) did not
+change, and its last `verify.py` run (#112) predates them. What covers them: `k_teacher` (1 lane, the same `teacher_pick_g`
+code) and `k_branch_sim` (16 lanes, every score mode) replayed `verify.py`'s matrix suites identically (jacob 128/128, branch
+18/18, #117); `k_teacher_run` with 8 lanes runs only in `generate.py`, which no `verify.py` step replays against the CPU,
+so it rests on the before/after runs above. A full `verify.py --models` run would repeat the first two with new seeds and
+not reach the third, so none was run for #117. Adding a `dataset_compare.py` step (GPU `generate.py` against CPU play and
+export) to `verify.py` would cover it.
+
 **Cheaper settings are not worth it on the GPU.** `bench/branch_agreement.py` plays a table with the full settings and,
 at every decision of the branch player, also runs each variant from the same position and streams. On the
 Greater Europe 10-player table (256 games, 10 minutes, 81,919 decisions, 50,262 branched by the full search, which

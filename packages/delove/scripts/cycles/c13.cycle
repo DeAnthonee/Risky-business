@@ -1,0 +1,48 @@
+# Cycle 13, run with (from the repo root; RUNPOD_API_KEY in the environment):
+#   DELOVE_BRANCH_RANKER=delove@9 DELOVE_BRANCH_TEACHER=jacob-sensei@2 DELOVE_BRANCH_HORIZON=1
+#   DELOVE_BRANCH_MARGIN=0.01 DELOVE_BRANCH_OPTIONS=5 REMOTE_GPUS=7 REMOTE_MAX_GPU_HOURS=9
+#   REMOTE_TIMINGS="<runs>/c12/a1/gpu.log ... <runs>/c12/b/gpu.log"
+#   DELOVE_MODELS=<models> DATA=<data> OUT=<runs>/c13 PYTHON=<venv python>
+#   bash packages/delove/scripts/cycle.sh packages/delove/scripts/cycles/c13.cycle
+# Cycle 12's recipe one step on (research plan): delove@9 ranks the search's 5 options and fills the network seats with
+# delove@8; Jacob Sensei 2 teaches. NEW: at the 6-10 player tables the branch seat scores its rollouts by the range
+# objectives (delove-branch@1:range, #148: long / mid / close by players alive); 2-4 player tables keep the share score.
+# Both seats are exported (export_agents, passed to the GPU steps since this cycle). Hard labels (cycle 12's soft
+# targets lost). The range specialists reuse cycle 12's stage and ratio games (c13-specialists.sh).
+name=c13
+seed=313
+steps=(
+  "a1 packages/delove/scripts/cycles/c13-a1.jobs Cycle 13, step a1: Classic 4-player"
+  "a2 packages/delove/scripts/cycles/c13-a2.jobs Cycle 13, step a2: Classic 2p, Four Crowns 1v1, Classic 6p"
+  "a3 packages/delove/scripts/cycles/c13-a3.jobs Cycle 13, step a3: Europe 8p, USA 10p, Asia 8p"
+  "a4 packages/delove/scripts/cycles/c13-a4.jobs Cycle 13, step a4: Bohemia, Nine Realms, World 6p"
+  "b packages/delove/scripts/cycles/c13-b.jobs Cycle 13, step b: the huge boards"
+)
+gpu_steps=(all)
+export_agents=delove-branch@1,delove-branch@1:range
+train_data=(a1/classic a2/classic a2/skirmish a3/europe a3/usa a3/asia a4/bohemia a4/nine_realms a4/world
+  b/world b/world_large b/greater_europe b/fantasy b/europe_classic
+  "c12-a1/classic#0.4" "c12-a2/classic#0.4" "c12-a2/skirmish#0.4" "c12-a3/europe#0.4" "c12-a3/usa#0.4" "c12-a3/asia#0.4"
+  "c12-a4/bohemia#0.4" "c12-a4/nine_realms#0.4" "c12-a4/world#0.4" "c12-b/world#0.4" "c12-b/world_large#0.4"
+  "c12-b/greater_europe#0.4" "c12-b/fantasy#0.4" "c12-b/europe_classic#0.4"
+  "c11-a1/classic#0.2" "c11-a2/classic#0.2" "c11-a3/europe#0.2" "c11-a4/bohemia#0.2" "c11-b/world#0.2" "c11-b/greater_europe#0.2")
+train_init=delove@9
+candidate=c13-candidate
+train_args="--epochs 1.5 --batch 512 --lr 2e-4 --hidden 192 --rounds 6 --value-target points --amp --branch-weights 0.5,1,2"
+gates=(
+  "delove@9 2 800"
+  "delove@9 4 200"
+  "delove@9 6 200"
+  "delove@9 6 200 {\"map\":\"world\"}"
+  "delove@9 10 200 {\"map\":\"world\"}"
+  "delove@9 6 200 {\"autoSetup\":true,\"balancedBlitz\":true,\"chooseCapitals\":true,\"cardValues\":\"progressive\",\"capitals\":true,\"blizzards\":8}"
+  "delove@9 6 200 {\"map\":\"world\",\"autoSetup\":true,\"balancedBlitz\":true,\"chooseCapitals\":true,\"cardValues\":\"fixed\",\"capitals\":true}"
+  "delove@9 4 200 {\"autoSetup\":true,\"balancedBlitz\":true,\"chooseCapitals\":true,\"cardValues\":\"exponential\",\"blizzards\":8}"
+  "delove@9 2 400 {\"autoSetup\":true,\"balancedBlitz\":true,\"chooseCapitals\":true,\"cardValues\":\"exponential\",\"blizzards\":8}"
+  "delove@9 6 200 {\"map\":\"bohemia\",\"autoSetup\":true,\"balancedBlitz\":true,\"chooseCapitals\":true,\"cardValues\":\"progressive\"}"
+  "delove@9 8 200 {\"map\":\"nine_realms\",\"autoSetup\":true,\"balancedBlitz\":true,\"chooseCapitals\":true,\"cardValues\":\"fixed\",\"capitals\":true}"
+  "jacob-sensei@1 6 200 {\"map\":\"world\"}"
+  "jacob-sensei@2 6 200 {\"map\":\"world\"}"
+  "jacob-sensei@2 2 400"
+  "delove-teacher@2 2 400"
+)

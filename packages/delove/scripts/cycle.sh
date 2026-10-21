@@ -138,6 +138,8 @@ gen_args() {
   [[ -n ${DELOVE_BRANCH_CLOSE_ROLLOUTS:-} ]] && args+=(--close-rollouts "$DELOVE_BRANCH_CLOSE_ROLLOUTS")
   [[ -n ${DELOVE_BRANCH_CLOSE_HORIZON:-} ]] && args+=(--close-horizon "$DELOVE_BRANCH_CLOSE_HORIZON")
   [[ -n ${DELOVE_BRANCH_ROLLOUT:-} ]] && args+=(--rollout "$DELOVE_BRANCH_ROLLOUT")
+  # The config's export_agents, so GPU steps also export per-job seats such as delove-branch@1:range (#148).
+  args+=(--export-agents "$export_agents")
   if [[ -n ${DELOVE_BRANCH_VALUE:-} && ${DELOVE_BRANCH_VALUE} != 0 ]]; then
     echo "GPU steps: DELOVE_BRANCH_VALUE is not mirrored on the GPU"; return 1
   fi

@@ -1,7 +1,7 @@
 """The replay proof over every map, table size and covered setting: plays logged CPU games for each case of a suite
 (the TypeScript engine and agents, in parallel over the CPU's threads), then replays every log through the GPU
 (tests/replay.py --fused: board, cards, phase and legal moves at every step; the teacher's logged pick at every step
-of delove-teacher@1, delove-teacher@2 and jacob-sensei@1 seats; tests/branch_replay.py for branch games) and prints one
+of delove-teacher@1, delove-teacher@2, jacob-sensei@1 and jacob-sensei@2 seats; tests/branch_replay.py for branch games) and prints one
 table.
 
     python tests/matrix.py --suite rules --out runs/gpu-verify/matrix [--seed 7] [--scale 1] [--models models/delove]
@@ -28,6 +28,7 @@ from delove_gpu.fingerprint import REPO  # noqa: E402
 
 PYTHON = sys.executable
 R, T1, T2, RK, J = "random@1", "delove-teacher@1", "delove-teacher@2", "risky@1", "jacob-sensei@1"
+J2 = "jacob-sensei@2"
 
 
 def seats(n: int, *agents: str) -> str:
@@ -175,7 +176,22 @@ def jacob_suite(scale: float) -> list[tuple]:
     return cases
 
 
-SUITES = {"rules": rules_suite, "settings": settings_suite, "branch": branch_suite, "net": net_suite, "jacob": jacob_suite}
+# Jacob Sensei 2 (jacob-sensei@2: @1 plus the section 7-21 terms): jacob_suite's cases with @2 in Jacob's seats, mixed
+# with @1 (two Jacob versions in one game) where @1 sat with others; branch cases (j2b-*) with @2 as the rollout teacher.
+def jacob2_suite(scale: float) -> list[tuple]:
+    cases = []
+    for name, m, n, agents, games, o in jacob_suite(scale):
+        a = agents.split(",")
+        if name.startswith("jmix-"):
+            a = [J2 if i % 3 == 0 else (J if i % 3 == 1 else x) for i, x in enumerate(a)]
+        else:
+            a = [J2 if x == J else x for x in a]
+        cases.append(("j2b-" + name[3:] if name.startswith("jb-") else "j2" + name[1:], m, n, ",".join(a), games, o))
+    return cases
+
+
+SUITES = {"rules": rules_suite, "settings": settings_suite, "branch": branch_suite, "net": net_suite, "jacob": jacob_suite,
+          "jacob2": jacob2_suite}
 BRANCH_ENV = {"DELOVE_BRANCH_RANKER": NETP, "DELOVE_BRANCH_HORIZON": "1", "DELOVE_BRANCH_MARGIN": "0.01"}
 
 
@@ -195,7 +211,7 @@ def branch_score(name: str) -> str | None:
 
 
 def rollout_teacher(name: str) -> str:
-    return J if name.startswith("jb-") else T2
+    return J if name.startswith("jb-") else J2 if name.startswith("j2b-") else T2
 
 
 def node_play(agents: str, games: int, start: int, seed: int, options: dict, log: Path, models: str | None,
@@ -262,7 +278,7 @@ def replay_case(name: str, d: Path, args) -> dict:
         shutil.copy(d / "options.json", Path(lg) / "options.json")
     cmd = [PYTHON, str(HERE / "replay.py"), *logs, "--fused", "--batch", str(args.batch)]
     if args.models:
-        cmd += ["--teacher", f"{T1}=", "--teacher", f"{T2}={Path(args.models) / (T2 + '.json')}", "--teacher", f"{J}="]
+        cmd += ["--teacher", f"{T1}=", "--teacher", f"{T2}={Path(args.models) / (T2 + '.json')}", "--teacher", f"{J}=", "--teacher", f"{J2}="]
     if name.endswith("-net") and args.models:
         cmd += ["--net", NETP, str(Path(args.models) / f"{NETP}.pt")]
     r = subprocess.run(cmd, capture_output=True, text=True)

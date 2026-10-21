@@ -49,7 +49,7 @@ turn + T capitals: 256 moves on Four Crowns, 474 on Classic, 1,326 on Greater Eu
 | `delove_gpu/rng.py` | the engine's mulberry32 as a counter-based generator on tensors, one stream per game |
 | `delove_gpu/engine.py` | `State` (the tensors of B games of one configuration) and the rules as batched tensor operations for Classic 2-player: the readable reference (`exact=False`: faster sampling, below) |
 | `delove_gpu/fused.py` | the rules of any configuration with one CUDA thread per game (NVRTC, one compile per configuration, binary cached in `_cache/`) |
-| `delove_gpu/teacher.py` | the hand-coded teachers inside the kernel: Sensei (`packages/delove/src/teacher.ts`, `delove-teacher@N`) and Jacob Sensei (`packages/delove/src/jacob.ts`, `jacob-sensei@N`), any tuned numbers, several versions at one table |
+| `delove_gpu/teacher.py` | the hand-coded teachers inside the kernel: Sensei (`packages/delove/src/teacher.ts`, `delove-teacher@N`) and Jacob Sensei (`packages/delove/src/jacob.ts`, `jacob-sensei@N`, staged versions with duel numbers such as `jacob-sensei@2`), any tuned numbers, several versions at one table |
 | `delove_gpu/odds.py` | the blitz odds of `packages/engine/src/odds.ts` as exact double-precision tables for the teacher (both defence-dice limits, balanced blitz, every stack size) |
 | `delove_gpu/branch.py` | branch and score (`packages/delove/src/branch.ts`): options, common-random-number rollouts, scores, pick |
 | `delove_gpu/generate.py` | plays whole cycle steps (any mix of configurations; branch, teacher and network seats) and writes `export`'s training arrays directly |
@@ -290,6 +290,29 @@ Proof (2026-10-20, 0 mismatches; logs under `<training PC>\Risky-business-stage2
 | `branch_replay.py`, Jacob rollouts | 150 branch games at the cycle settings (ranker `delove@3`, horizon 1, margin 0.01), 100 at branch.ts's defaults (ranker `delove@2`) | 31,035 of 31,035 branch decisions the same pick; all 16,180 branched decisions with identical mean scores |
 | `tests/matrix.py --suite jacob` (scale 0.5) | every map and table size, mixed tables, every setting, branch with Jacob rollouts (the table above) | 118 of 118 cases identical: 3,213,258 teacher picks, 25,124 of 25,125 branch picks (1 ranker near-tie) |
 | `verify.py --models` | fresh logs: Jacob self-play, branch with Jacob rollouts, and the `jacob` suite at scale 0.1 next to the other suites | 4,563,002 steps identical on `engine.py`, `fused.py`, the teacher and branch; 500 Jacob self-play games (131,150 picks) and 100 branch games with Jacob rollouts (12,086 decisions, 6,309 branched, means identical); matrix rules 60/60, settings 120/120, branch 10/10, `jacob` 118/118 cases identical. Fingerprint written, `jacob.ts` in `RULE_FILES` |
+
+### Jacob Sensei 2 (`jacob-sensei@2`)
+
+`jacob-sensei@2` (`packages/delove/src/jacob.ts`, `packages/delove/README.md` "Jacob Sensei 2") adds eleven numbers to
+`JACOB_KEYS` (`killWin`, `killPath`, `killCarry`, `leaderPunch`, `borderDelta`, `dormantWake`, `holdEv`, `cardTight`,
+`duelDeny`, `duelEv`, `capitalPad`). Each term runs only where its number is above 0 (`borderDelta`: not 0), exactly as
+`jacob.ts` guards it, so `jacob-sensei@1`'s row (all 0) and Sensei's rows take the same code paths and doubles as
+before. The terms read only what the kernel's `Board` already has (owners, armies, `nen`, `tcount`, `holder`, the
+target, the player stats, hands, capitals), with the same operations in the same order as the TypeScript.
+
+It is a staged version: once one rival is left it plays `JACOB_SENSEI_2_DUEL_PARAMS` instead of
+`JACOB_SENSEI_2_PARAMS`. So a row now has two halves of `NP0` numbers each (`NP = 2 x NP0`): the main numbers with a
+`staged` flag, then the duel numbers; `teacher_pick_g` counts the living rivals before `board_init` and reads the duel
+half when the flag is on and one is left. Versions that are not staged repeat their numbers in the duel half (never
+read). `agent_params("jacob-sensei@2")` reads both literals from `jacob.ts` (a `jacob-sensei@N.json`, N >= 3, may carry
+a `"duel"` object). `tests/matrix.py --suite jacob2` is the `jacob` suite with `jacob-sensei@2` in Jacob's seats (mixed
+with `jacob-sensei@1` at the mixed tables) and as the rollout teacher (`j2b-*`); `verify.py --models` runs it with the
+other suites.
+
+Proof (2026-10-21, `verify.py --models --ranker delove@3` on a cloud RTX 4090, the merged tree of #144): 5,403,954 steps
+identical on `engine.py`, `fused.py`, the teacher and branch; matrix rules 72/72, settings 120/120, branch 18/18, `jacob`
+128/128 and `jacob2` 128/128 cases identical; the stage check 234 games identical; `k_teacher_run` (with
+`jacob-sensei@2` in the fast seats) 370 of 370 `generate.py` games identical to CPU play + export. Fingerprint written.
 
 ### Speed of a cycle step
 

@@ -25,6 +25,10 @@ import { DEFAULT_TEACHER_PARAMS, makeTeacher, type TeacherParams } from './teach
  * candidate against itself on those tables (--selfplay-games each, default 16) and subtracts --stall x its turn-limit
  * share + --length x its mean game length / --max-turns: a version that wins mixed tables by sitting back
  * makes slow, stalling games when every seat plays it, which is what a rollout teacher does.
+ *
+ * --fitness points judges tables of 3+ players on leaderboard points instead of wins (what Delove is ranked on):
+ * 0.5 + (candidate's mean points per seat - the best's) / 6, so +0.24 points per seat clears the default 0.54 bar.
+ * Two-player tables stay on the win share.
  */
 
 /** Numbers being tuned: Sensei's (TeacherParams) or Jacob Sensei's (a superset). */
@@ -45,6 +49,8 @@ interface Job {
   map?: MapId;
   maxTurns: number;
   stall: number;
+  /** 'points': tables of 3+ players score 0.5 + pointsDiff / 6 instead of the win share. */
+  fitness?: 'wins' | 'points';
   /** Self-play job: every seat plays `candidate`; the result is the length and stall penalty (<= 0). */
   selfplay?: boolean;
   length?: number;
@@ -82,7 +88,9 @@ async function evaluate(job: Job): Promise<number> {
     maxTurns: job.maxTurns,
   });
   const decisive = r.wins + r.losses;
-  return (decisive ? r.wins / decisive : 0.5) - (job.stall * r.draws) / (decisive + r.draws);
+  const stalled = (job.stall * r.draws) / (decisive + r.draws);
+  if (job.fitness === 'points' && job.players > 2) return 0.5 + (r.pointsDiff ?? 0) / 6 - stalled;
+  return (decisive ? r.wins / decisive : 0.5) - stalled;
 }
 
 class Pool {
@@ -129,6 +137,7 @@ interface MatchSetup {
   mix: MixEntry[];
   maxTurns: number;
   stall: number;
+  fitness: 'wins' | 'points';
   selfplay: { map?: MapId; players: number }[];
   selfplayGames: number;
   length: number;
@@ -147,7 +156,7 @@ async function match(pool: Pool, candidate: Params, best: Params, games: number,
     const base = map ? (mi + 1) * 10_000_000 + players * 100_000 : players * 100_000;
     for (let g = 0; g < total; g += chunk) {
       const n = Math.min(chunk, total - g);
-      jobs.push(pool.run({ kind: setup.kind, candidate, best, games: n, seed: gameSeed(seed, base + g), players, map, maxTurns: setup.maxTurns, stall: setup.stall }));
+      jobs.push(pool.run({ kind: setup.kind, candidate, best, games: n, seed: gameSeed(seed, base + g), players, map, maxTurns: setup.maxTurns, stall: setup.stall, fitness: setup.fitness }));
       weights.push(n);
     }
   });
@@ -205,6 +214,7 @@ async function main() {
       selfplay: { type: 'string' },
       'selfplay-games': { type: 'string' },
       length: { type: 'string' },
+      fitness: { type: 'string' },
     },
   });
   if (!values.out) throw new Error('--out FILE is required (tuning state, resumed if it exists)');
@@ -234,6 +244,7 @@ async function main() {
     mix,
     maxTurns: Number(values['max-turns'] ?? 300),
     stall: Number(values.stall ?? 0.5),
+    fitness: values.fitness === 'points' ? 'points' : 'wins',
     selfplay,
     selfplayGames: Number(values['selfplay-games'] ?? 16),
     length: Number(values.length ?? 0),

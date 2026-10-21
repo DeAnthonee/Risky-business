@@ -38,7 +38,7 @@ npm run delove-seat -- --server http://localhost:8080 --create --agents delove@1
 `--agents` takes `delove-teacher@1`, every tuned teacher in the models folder (`delove-teacher@N.json`, e.g.
 `delove-teacher@2`), and every `delove@N.onnx`. `sensei` / `sensei@1` and `sensei@2` are aliases for the two teachers,
 and their seats are named "Sensei 1" and "Sensei 2" unless `--names` says otherwise (#88). `jacob-sensei@1` (alias `jacob`)
-sits as "Jacob Sensei".
+sits as "Jacob Sensei", `jacob-sensei@2` (alias `jacob2`) as "Jacob Sensei 2".
 
 The seat rebuilds the board from its view (`stateFromView`): each opponent's hand gets its real size (`cardCount`),
 the deck and discard theirs, dealt at random from the cards the seat can't see. Before #143 the rebuilt board gave
@@ -111,7 +111,8 @@ answer synchronously.
 | `delove@2` | distilled from the tuned teacher delove-teacher@2 (round 5) | done |
 | `delove@3` | fresh hidden-192 / 6-round network on branch-and-score decisions (cycle 4, `CYCLES.md`): 0.541 / 0.600 / 0.610 against delove@2 at 2 / 4 / 6 players | done |
 | `delove@4` … `delove@8` | the same network fine-tuned each cycle (cycles 6, 8, 9, 10, 11; `docs/delove-status.md` section 3); `delove@8`: about +0.36 leaderboard points per seat over `delove@7` at 4-10 players | `delove@8` current best (private models repo) |
-| `jacob-sensei@1` | Jacob Sensei: hand-coded teacher for big tables (`src/jacob.ts`, below); never stalls in self-play, even with Sensei 2 at 2 players, far ahead at 4-10 | candidate rollout teacher |
+| `jacob-sensei@1` | Jacob Sensei: hand-coded teacher for big tables (`src/jacob.ts`, below); never stalls in self-play, even with Sensei 2 at 2 players, far ahead at 4-10 | rollout teacher since cycle 6 |
+| `jacob-sensei@2` | Jacob Sensei 2 (`src/jacob.ts`, below): Jacob plus RISK_LEARNINGS.md sections 7-21, with its own duel numbers; vs `jacob-sensei@1` 0.53-0.57 at 2p and +0.4 to +1.3 points per seat at 4-10p | candidate rollout teacher (cycle 12) |
 
 `delove-teacher@1` picks only from the self-play candidates (never off-list), so every decision is a clean training
 label, and it is deterministic from the seed. Against `risky@1` (`--seed 3`):
@@ -315,7 +316,7 @@ Classic 4p 0.1, Asia 4p 0.1, World 6p 0.15, Fantasy 6p 0.1, Greater Europe 10p 0
 A first run without a length term accepted a version that wins mixed tables by sitting back and drags self-play
 games to the edge of the limit (Greater Europe 10p 158 -> 442 turns). So `--selfplay greater_europe:10,world:6,fantasy:10,classic:4
 --length 0.3` also plays each candidate against itself and charges (candidate - best) for turn-limit games and mean
-length. The result is `JACOB_SENSEI_1_PARAMS`. Later versions: `models/delove/jacob-sensei@N.json` (N >= 2) register
+length. The result is `JACOB_SENSEI_1_PARAMS`. Later versions: `models/delove/jacob-sensei@N.json` (N >= 3; @2 is fixed in the code) register
 on their own. `src/tables.ts` runs these checks over many tables at once:
 
 ```bash
@@ -363,6 +364,118 @@ seat, so those tables don't arise there, but steps that seat Sensei 2 as an oppo
 Sensei plus per-player armies, territories, income (`reinforcementsFor`) and cards for the power and hunt terms (one
 segment-sum over territories per position), the round for the late ramp, the conquest flag for the card urge, and the
 interior-to-front fortify branch; then add `src/jacob.ts` to `RULE_FILES` and re-verify with `verify.py`.
+
+## Jacob Sensei 2 (`jacob-sensei@2`): the later learnings, and a duel stage
+
+`jacob-sensei@2` ("Jacob Sensei 2", alias `jacob2`) is Jacob Sensei plus the tips impL0 (Jacob) wrote after #98
+(`RISK_LEARNINGS.md` sections 7-21 on the `feat/mechanics-learning` branch, read as game knowledge; that branch is not
+merged). Each learning that can be computed from the board is one more tunable number in `src/jacob.ts`; all of them
+are 0 in `JACOB_SENSEI_1_PARAMS`, so `jacob-sensei@1` plays exactly as before (`test/jacob2.test.ts` locks its choices).
+
+| section | learning | term (number) | range it helps |
+| --- | --- | --- | --- |
+| 15, 21 | the 2v1 elimination EV: passing a 41.7% kill on a card holder is a blunder; victims on 2-3 territories with 3+ cards are urgent | an attack on a rival the capture eliminates, or one on 3 territories or fewer with 3+ cards, needs only `killWin` to win (not `minWin`) | Long (kills), Close (the last kill) |
+| 21, findings | multi-hop kill paths: punch through a third party's 1-army buffer to reach a killable victim | a capture next to a killable rival the stack outweighs (`huntRatio` x their armies + the buffer) earns `killPath` x elimination worth / their territories (attacks and placement) | Long |
+| 21 | carry the spearhead to the dying victim, never leave the stack behind | occupy with everything when the new territory borders a rival on `killCarry` territories or fewer | Long |
+| 19, 17, 18 | runaway leader: punch through 1s to break its bonus; neighbour bonus denial | taking a 1-2 army territory of a rival above the table's mean power, on or next to a continent it holds, is worth `leaderPunch` x lead x that bonus | Long, Mid |
+| 20, 10, 13 | defensive elimination and border consolidation: captures that shrink the border are defence too | a capture is worth `borderDelta` less per border territory it adds, more per border it closes | Long, Mid |
+| 12 | don't open a caged stack | a capture next to a rival stack of 5+ that touches nothing of mine costs `dormantWake` x its armies (not for a kill, not in the duel) | Long, Mid |
+| 7, 9, 10, 13 | situational attack termination: take and hold, outposts don't attack for nothing, no blitzkrieg chains | once the turn's card is earned at a table of 3+, an attack that completes, breaks, kills, takes a capital or lands in the target continent, hunts, or comes from a surplus stack keeps the usual bar; any other needs `holdEv` more | Long, Mid |
+| 16 | high-card survival: with 4-5 cards, tighten | with 4+ cards a failed attack's exposure counts `1 + cardTight` times | Long, Mid |
+| 7 (1v1) | scorched earth in the duel: every territory starves the rival | with one rival left a capture is worth `duelDeny` (a quarter unless it drops their base income) and the attack bar is `duelEv` lower | Close |
+| 11 | garrison every capital you hold | a threatened capital I hold needs `capitalPad` more armies (defence need, placement, fortify) | all (capitals games) |
+
+Already in Jacob Sensei 1 or Sensei, so no new term: trade-surge concentration (21: placement puts the whole draft on
+one territory), fortify inside-out and doorway stacking (10, 17: `frontPull`, fortify toward threatened borders),
+small tight bonuses first (8: `target()` weighs bonus per border), neighbour bonus breaks (18: `breakBonus`), dice-mode
+safety (7: the odds use balanced blitz when it is on). Skipped: chat, deals and coalitions (6, 9, 18), fog deductions
+(4, 16), capital choice by neighbour clash and pocket capitals (14: needs other players' capital plans), card-block
+outposts (9: needs memory of earlier turns), frontier fortify balancing (moving part of a threatened border's stack:
+the candidates move all or half and Sensei never fortifies from a threatened border, which section 17's doorway rule
+backs), and the LLM-tool rules (`avoid`, `placeOn`, mid-turn re-plans: the teacher re-decides every step anyway).
+
+**The duel stage.** Tuned for big tables, the new numbers lost at 2 players (0.471 Classic, 0.473 World against
+`jacob-sensei@1`, 1,000 games each). So `jacob-sensei@2` is staged: `jacobPickWith(params, duel)` plays
+`JACOB_SENSEI_2_PARAMS` while two or more rivals are alive and `JACOB_SENSEI_2_DUEL_PARAMS` once one is left (a
+2-player game from the start, or the endgame duel of a bigger table; the Neutral does not count), like the Long/Close
+Range split of the specialists. A `models/delove/jacob-sensei@N.json` (N >= 3) can do the same with a `"duel": {...}`
+object.
+
+**Tuning.** Main numbers: `src/tune.ts --teacher jacob --fitness points` from `JACOB_SENSEI_1_PARAMS` with the new
+terms at first guesses, 40 generations of 10 mutants x 300 games, confirmed on 800 (3 accepted), on Classic 2p 0.25,
+World 2p 0.05, Classic / Asia 4p 0.1 / 0.05, World / Fantasy / Nine Realms 6p 0.15 / 0.1 / 0.05, USA 8p 0.05, Greater
+Europe / World 10p 0.1 / 0.1, 500-turn limit, `--stall 1`, `--selfplay greater_europe:10,world:6,fantasy:10,classic:4
+--length 0.3`. `--fitness points` (new) judges tables of 3+ on leaderboard points per seat (0.5 + difference / 6)
+instead of wins. Duel numbers: the same tuner from `JACOB_SENSEI_1_PARAMS` with `killWin`, `killCarry`,
+`borderDelta`, `cardTight`, `duelDeny`, `duelEv`, `capitalPad` at first guesses, 30 generations on 2-player tables
+only (Classic 0.35, World 0.2, Greater Europe 0.15, Fantasy / Europe / Asia 0.1), win share (1 accepted). About 1.5
+hours on the training PC's CPU.
+
+**Results** (2026-10-21, mirrored seed pairs, 500-turn limit; points = mean leaderboard points per seat, difference
+with a 95% interval over seed pairs; `src/tables.ts`, which now reports that interval and takes `--options`).
+
+Against `jacob-sensei@1`:
+
+| table | games | score (95%) | points difference (95%) |
+| --- | --- | --- | --- |
+| Classic 2p | 2,000 | 0.532 (0.514-0.550) | +0.19 (+0.08..+0.30) |
+| World 2p | 2,000 | 0.544 (0.526-0.561) | +0.26 (+0.16..+0.37) |
+| Fantasy 2p | 2,000 | 0.534 (0.517-0.552) | +0.20 (+0.10..+0.31) |
+| Asia 2p | 2,000 | 0.566 (0.547-0.586) | +0.40 (+0.28..+0.51) |
+| Classic 3p | 400 | 0.528 | +0.12 (-0.10..+0.33) |
+| Classic 4p | 400 | 0.593 | +0.42 (+0.13..+0.70) |
+| Asia 4p | 400 | 0.583 | +0.47 (+0.21..+0.73) |
+| World 5p | 400 | 0.608 | +0.56 (+0.32..+0.79) |
+| Classic 6p | 400 | 0.630 | +0.80 (+0.53..+1.08) |
+| World 6p | 400 | 0.610 | +0.57 (+0.30..+0.84) |
+| Fantasy 6p | 400 | 0.643 | +0.78 (+0.49..+1.08) |
+| Bohemia 6p | 400 | 0.630 | +0.67 (+0.39..+0.95) |
+| Nine Realms 6p | 400 | 0.658 | +0.74 (+0.49..+0.99) |
+| USA 8p | 400 | 0.650 | +1.00 (+0.73..+1.28) |
+| Asia 8p | 400 | 0.685 | +0.93 (+0.69..+1.17) |
+| World 10p | 400 | 0.675 | +1.09 (+0.83..+1.36) |
+| Greater Europe 10p | 400 | 0.718 | +1.09 (+0.80..+1.37) |
+| Fantasy 10p | 400 | 0.738 | +1.33 (+1.07..+1.59) |
+| league, progressive (`configs/gen5-nofog.json`): Classic 2p / World 2p | 400 each | 0.530 / 0.490 | +0.12 (-0.04..+0.27) / -0.04 (-0.18..+0.10) |
+| league, progressive: Classic 4p / World 6p / Fantasy 6p / World 10p | 400 each | 0.545-0.650 | +0.34 / +0.78 / +0.83 / +1.00 (all above 0) |
+| league, fixed cards (`configs/gen5-fixedcards.json`): Classic 2p / World 2p | 400 each | 0.520 / 0.508 | +0.09 / +0.04 (both cross 0) |
+| league, fixed cards: Classic 4p / World 6p / Fantasy 6p / World 10p | 400 each | 0.543-0.600 | +0.52 / +0.46 / +0.32 / +0.87 (all above 0) |
+
+Against `delove@6`, each Jacob on the same seeds (2p: 800 games, 4-10p: 200):
+
+| table | `jacob-sensei@2` score | its points difference | `jacob-sensei@1` score | its points difference |
+| --- | --- | --- | --- | --- |
+| Classic 2p | 0.413 (0.384-0.442) | -0.52 (-0.70..-0.35) | 0.403 (0.373-0.433) | -0.58 (-0.76..-0.41) |
+| World 2p | 0.376 (0.347-0.406) | -0.74 (-0.92..-0.57) | 0.354 (0.324-0.384) | -0.88 (-1.06..-0.70) |
+| Classic 4p | 0.550 | +0.35 (+0.02..+0.68) | 0.495 | -0.18 (-0.56..+0.19) |
+| World 6p | 0.685 | +1.01 (+0.64..+1.38) | 0.615 | +0.92 (+0.56..+1.28) |
+| Fantasy 6p | 0.745 | +1.40 (+1.06..+1.75) | 0.675 | +1.08 (+0.72..+1.44) |
+| Nine Realms 8p | 0.845 | +2.04 (+1.72..+2.36) | 0.655 | +0.99 (+0.61..+1.37) |
+| World 10p | 0.845 | +1.84 (+1.52..+2.16) | 0.630 | +0.53 (+0.12..+0.94) |
+| league: Classic 4p | 0.315 | -0.45 (-0.75..-0.15) | 0.308 | -0.60 (-0.85..-0.35) |
+| league: World 6p | 0.560 | +0.48 (+0.14..+0.81) | 0.455 | -0.20 (-0.55..+0.16) |
+| league: World 10p | 0.570 | +0.09 (-0.26..+0.44) | 0.495 | -0.56 (-0.99..-0.12) |
+
+Self-play (every seat `jacob-sensei@2`, 64 games per table): 0 of 960 games hit the turn limit on Classic 2/4/6p,
+World 4/6/10p, Greater Europe 4/10p, Fantasy 6/10p, Asia 8p, USA 10p, Europe 8p, Bohemia 6p, Nine Realms 8p; games are
+shorter than Jacob Sensei 1's (World 6p 69 turns against 79, Greater Europe 10p 96 against 120).
+
+**As the rollout teacher** (what a cycle uses it for): branch and score (`delove-branch@1`, 5 options, ranker
+`delove@6`, horizon 1, margin 0.01) with `jacob-sensei@2` rollouts against the same with `jacob-sensei@1` rollouts,
+the same jobs and seeds (`generate.py --teacher`, paired game by game; 4-10p: `bench/rollout_compare.py`'s league
+tables with `jacob-sensei@1` in the other seats; 2p: against `jacob-sensei@1`, both seat orders), 600 games per
+table on a cloud RTX 4090 (2026-10-21). The branch seat's points per game, `@1` -> `@2`:
+
+| table | `@1` rollouts | `@2` rollouts | paired difference (95%) |
+| --- | --- | --- | --- |
+| Classic 2p | 0.725 | 0.800 | +0.08 (-0.05..+0.20); win share 0.575 -> 0.600 |
+| Classic 4p | 1.730 | 1.797 | +0.07 (-0.11..+0.24) |
+| World 6p | 3.358 | 3.610 | +0.25 (-0.17..+0.67) |
+| Fantasy 10p | 3.750 | 4.318 | +0.57 (-0.12..+1.25) |
+| pooled 4-10p (1,800 pairs) | | | **+0.30 (+0.02..+0.57)** |
+
+On the GPU mirror it is the same kernel (`packages/delove-gpu` README, "Jacob Sensei 2"), so `generate.py --teacher
+jacob-sensei@2` (`DELOVE_BRANCH_TEACHER=jacob-sensei@2` in `cycle.sh`) makes it a cycle's rollout teacher.
 
 ## Stage 2: self-play rounds
 

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { readFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 import { isMainThread, parentPort, Worker } from 'node:worker_threads';
 import type { MapId } from '@risk/engine';
@@ -9,10 +10,12 @@ import { gameSeed, resolveAgent, runBatch, runMatch } from '@risk/selfplay';
  *
  *   node --import ./packages/delove/dist/register.js packages/delove/dist/tables.js \
  *     --agent jacob-sensei@1 [--vs delove-teacher@2] --tables classic:2,world:6,greater_europe:10 [--games 64]
- *     [--workers 6] [--seed 1] [--max-turns 500]
+ *     [--workers 6] [--seed 1] [--max-turns 500] [--options packages/delove/configs/gen5-nofog.json]
  *
  * Without --vs every seat is --agent (self-play: does it stall?). With --vs the two alternate seats in mirrored pairs
- * (as on the ladder): it reports the agent's score, mean leaderboard points per seat for both, and turn-limit games.
+ * (as on the ladder): it reports the agent's score, mean leaderboard points per seat for both, their difference with a
+ * 95% interval over seed pairs, and turn-limit games. --options (a JSON file or inline JSON) sets game options for every
+ * table (each table's map still wins), e.g. the league settings in packages/delove/configs/.
  */
 
 interface Job {
@@ -23,6 +26,7 @@ interface Job {
   games: number;
   seed: number;
   maxTurns: number;
+  options: Record<string, unknown>;
 }
 
 interface Out {
@@ -34,11 +38,13 @@ interface Out {
   points: number;
   vsPoints: number;
   pairs: number[];
+  /** Mirrored only: per seed pair, the agent's mean points per seat minus the other side's. */
+  diffs: number[];
 }
 
 async function runJob(job: Job): Promise<Out> {
   const agent = resolveAgent(job.agent);
-  const options = { map: job.map };
+  const options = { ...job.options, map: job.map };
   if (!job.vs) {
     const results = await runBatch({ games: job.games, seed: job.seed, seats: () => Array.from({ length: job.players }, () => ({ agent })), options, maxTurns: job.maxTurns });
     return {
@@ -49,10 +55,13 @@ async function runJob(job: Job): Promise<Out> {
       points: 0,
       vsPoints: 0,
       pairs: [],
+      diffs: [],
     };
   }
   const pairs: number[] = [];
+  const diffs: number[] = [];
   let pending = 0;
+  let pendingDiff = 0;
   const r = await runMatch({
     candidate: agent,
     best: resolveAgent(job.vs),
@@ -63,11 +72,16 @@ async function runJob(job: Job): Promise<Out> {
     maxTurns: job.maxTurns,
     onGame: (g, i) => {
       const s = g.winner === null ? 0.5 : (g.winner + i) % 2 === 0 ? 1 : 0;
-      if (i % 2 === 0) pending = s;
-      else pairs.push((pending + s) / 2);
+      // The agent sits where (seat + game) is even (runMatch's alternation).
+      const side = [0, 0];
+      const seats = [0, 0];
+      g.points.forEach((p, seat) => ((side[(seat + i) % 2] += p), seats[(seat + i) % 2]++));
+      const d = side[0] / Math.max(1, seats[0]) - side[1] / Math.max(1, seats[1]);
+      if (i % 2 === 0) (pending = s), (pendingDiff = d);
+      else pairs.push((pending + s) / 2), diffs.push((pendingDiff + d) / 2);
     },
   });
-  return { games: r.games, turnLimit: r.turnLimit, turns: r.meanTurns * r.games, score: r.score * r.games, points: (r.points ?? 0) * r.games, vsPoints: (r.bestPoints ?? 0) * r.games, pairs };
+  return { games: r.games, turnLimit: r.turnLimit, turns: r.meanTurns * r.games, score: r.score * r.games, points: (r.points ?? 0) * r.games, vsPoints: (r.bestPoints ?? 0) * r.games, pairs, diffs };
 }
 
 async function main() {
@@ -81,6 +95,7 @@ async function main() {
       seed: { type: 'string' },
       chunk: { type: 'string' },
       'max-turns': { type: 'string' },
+      options: { type: 'string' },
     },
   });
   if (!values.agent || !values.tables) throw new Error('--agent and --tables are required');
@@ -88,6 +103,7 @@ async function main() {
   const chunk = Number(values.chunk ?? 16);
   const seed = Number(values.seed ?? 1);
   const maxTurns = Number(values['max-turns'] ?? 500);
+  const extra = values.options ? JSON.parse(values.options.trim().startsWith('{') ? values.options : readFileSync(values.options, 'utf8')) : {};
   const tables = values.tables.split(',').map((t) => {
     const [map, players] = t.split(':');
     return { map: map as MapId, players: Number(players) };
@@ -96,10 +112,10 @@ async function main() {
   tables.forEach((t, ti) => {
     for (let g = 0; g < games; g += chunk) {
       const n = Math.min(chunk, games - g);
-      jobs.push({ table: ti, job: { agent: values.agent!, vs: values.vs ?? null, map: t.map, players: t.players, games: n, seed: gameSeed(seed, ti * 1_000_000 + g), maxTurns } });
+      jobs.push({ table: ti, job: { agent: values.agent!, vs: values.vs ?? null, map: t.map, players: t.players, games: n, seed: gameSeed(seed, ti * 1_000_000 + g), maxTurns, options: extra } });
     }
   });
-  const outs: Out[] = tables.map(() => ({ games: 0, turnLimit: 0, turns: 0, score: 0, points: 0, vsPoints: 0, pairs: [] }));
+  const outs: Out[] = tables.map(() => ({ games: 0, turnLimit: 0, turns: 0, score: 0, points: 0, vsPoints: 0, pairs: [], diffs: [] }));
   const t0 = Date.now();
   const workers = Math.max(1, Math.min(Number(values.workers ?? 6), jobs.length));
   let next = 0;
@@ -123,6 +139,7 @@ async function main() {
         acc.points += o.points;
         acc.vsPoints += o.vsPoints;
         acc.pairs.push(...o.pairs);
+        acc.diffs.push(...o.diffs);
       }
       await w.terminate();
     }),
@@ -136,11 +153,24 @@ async function main() {
       const u = o.pairs.length;
       const v = u > 1 ? o.pairs.reduce((a, s) => a + (s - mean) ** 2, 0) / (u - 1) : 0.25;
       const se = Math.sqrt(Math.max(v, 0.045) / Math.max(1, u));
-      Object.assign(row, { score: r(mean), scoreLow: r(mean - 1.96 * se), scoreHigh: r(mean + 1.96 * se), points: r(o.points / o.games, 2), vsPoints: r(o.vsPoints / o.games, 2) });
+      const dm = o.diffs.reduce((a, x) => a + x, 0) / Math.max(1, o.diffs.length);
+      const dv = o.diffs.length > 1 ? o.diffs.reduce((a, x) => a + (x - dm) ** 2, 0) / (o.diffs.length - 1) : 0;
+      const dse = Math.sqrt(dv / Math.max(1, o.diffs.length));
+      Object.assign(row, {
+        score: r(mean),
+        scoreLow: r(mean - 1.96 * se),
+        scoreHigh: r(mean + 1.96 * se),
+        points: r(o.points / o.games, 2),
+        vsPoints: r(o.vsPoints / o.games, 2),
+        // Points per seat, agent minus the other side, with a 95% interval over seed pairs.
+        pointsDiff: r(dm, 2),
+        pointsDiffLow: r(dm - 1.96 * dse, 2),
+        pointsDiffHigh: r(dm + 1.96 * dse, 2),
+      });
     }
     return row;
   });
-  console.log(JSON.stringify({ agent: values.agent, vs: values.vs ?? null, seconds: (Date.now() - t0) / 1000, tables: rows }));
+  console.log(JSON.stringify({ agent: values.agent, vs: values.vs ?? null, options: extra, seconds: (Date.now() - t0) / 1000, tables: rows }));
   for (const row of rows) console.error(Object.values(row).join('\t'));
 }
 

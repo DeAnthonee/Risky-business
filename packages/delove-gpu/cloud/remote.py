@@ -478,10 +478,12 @@ def run(args, gen_args: list[str]):
 
     torch_version = args.torch or md.version("torch")
     model_files = needed_models(units, gen_args, Path(args.models))
-    if args.verify:  # verify.py's CPU side plays the ranker's ONNX export (and the GPU side its .pt)
+    if args.verify:  # verify.py's CPU side plays the rankers' ONNX exports (and the GPU side their .pt): its --ranker, and
+        # the matrix suites' own (tests/matrix.py NETP)
         va = shlex.split(args.verify)
-        vr = va[va.index("--ranker") + 1] if "--ranker" in va else "delove@2"
-        model_files += [Path(args.models) / f"{vr}{ext}" for ext in (".onnx", ".pt") if Path(args.models, f"{vr}{ext}") not in model_files]
+        netp = re.search(r'NETP = "[^"]*", "([^"]+)"', (PKG / "tests" / "matrix.py").read_text(encoding="utf8")).group(1)
+        for vr in dict.fromkeys([va[va.index("--ranker") + 1] if "--ranker" in va else "delove@2", netp]):
+            model_files += [Path(args.models) / f"{vr}{ext}" for ext in (".onnx", ".pt") if Path(args.models, f"{vr}{ext}") not in model_files]
     vol = volume_info(args.volume) if args.volume else None
     home = "small" if vol and not args.home_copy else "full"
     vtar = (lambda p: f"incoming/{args.name}/{p.name}.tar.gz") if vol else (lambda p: None)

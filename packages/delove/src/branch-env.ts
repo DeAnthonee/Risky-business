@@ -50,6 +50,12 @@ function branchScore(v: string | undefined): BranchOptions['score'] {
   return v as BranchScore;
 }
 
+function branchRoot(v: string | undefined): BranchOptions['root'] {
+  if (v === undefined || v === '') return DEFAULT_BRANCH.root;
+  if (v !== 'top' && v !== 'gumbel') throw new Error(`DELOVE_BRANCH_ROOT must be top or gumbel, not ${v}`);
+  return v;
+}
+
 /** DELOVE_BRANCH_ROLLOUT: '<model>' or '<model>:all' (every seat), '<model>:self' (the decider's seat); unset: none. */
 function rolloutNet(v: string | undefined, models: string, ranker: NetScorer | null): RolloutNet | null {
   if (v === undefined || v === '') return null;
@@ -72,6 +78,8 @@ function rolloutNet(v: string | undefined, models: string, ranker: NetScorer | n
  * decision kinds, e.g. occupy,trade) the kinds it plays without branching, DELOVE_STRENGTH=<file> the strength meter's
  * fitted share weights (python/fit_strength.py). `score` replaces DELOVE_BRANCH_SCORE, for the seats
  * delove-branch@1:<score> (branchSeatsFromEnv).
+ * DELOVE_BRANCH_ROOT=gumbel searches a Gumbel root instead of the top options (branch.ts gumbelRoot): DELOVE_BRANCH_K
+ * candidates (default 8) within DELOVE_BRANCH_COPIES rollout copies (default 0: options x rollouts).
  * DELOVE_BRANCH_ROLLOUT=<model> has that network (e.g. delove@5) play the rollouts in every seat instead of the teacher,
  * <model>:self in the decider's seat only (unset: the teacher).
  */
@@ -103,6 +111,9 @@ export function branchFromEnv(dir = modelsDir(), env: NodeJS.ProcessEnv = proces
       threat: num('DELOVE_BRANCH_THREAT', DEFAULT_BRANCH.threat),
       closeRollouts: num('DELOVE_BRANCH_CLOSE_ROLLOUTS', DEFAULT_BRANCH.closeRollouts),
       closeHorizon: num('DELOVE_BRANCH_CLOSE_HORIZON', DEFAULT_BRANCH.closeHorizon),
+      root: branchRoot(env.DELOVE_BRANCH_ROOT),
+      gumbelK: num('DELOVE_BRANCH_K', DEFAULT_BRANCH.gumbelK),
+      copies: num('DELOVE_BRANCH_COPIES', DEFAULT_BRANCH.copies),
       weights: env.DELOVE_STRENGTH ? JSON.parse(readFileSync(env.DELOVE_STRENGTH, 'utf8')).weights : DEFAULT_BRANCH.weights,
     },
     valuer,

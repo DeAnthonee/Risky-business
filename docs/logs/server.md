@@ -7,6 +7,7 @@ except character saves ([characters.md](characters.md)) and deploy behaviour ([h
 Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. Changes from before pull requests carry the
 commit hash instead. **Append a line in the same PR** as any change to this area (README hard rule 12).
 
+- 2026-10-20 #135 leaderboard season 4: `RANKINGS_SEASON` 3 → 4 archives production's board on deploy (season 3 becomes `rankings.season-3.json`), season 4 starts empty
 - 2026-10-20 #122 match history: public `GET /api/history?limit=` lists finished games from the game-records index (outcomes only, never a board), newest first
 - 2026-10-20 #119 leaderboard seasons without a deploy: `POST /api/admin/rankings/new-season` archives the board (same path as the `RANKINGS_SEASON` bump; higher of code and saved season wins), `GET /api/rankings/seasons`, `?season=` on `/rankings` and `/rankings/profile`; archived game ids never count again; `RANKINGS_SEASON` 2 → 3 wipes production's board on deploy
 - 2026-10-20 #107 leaderboard wiped: the Gen 5 seed is removed, `RANKINGS_SEASON` 2 archives the old board, every row gets a unique display name

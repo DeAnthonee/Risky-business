@@ -122,26 +122,79 @@ teacher's move 77% of the time on held-out games), `--seed 5`:
 
 ## Range specialists: Delove Long, Mid and Close Range
 
-The owner's plan for a stronger player in real games: three networks that take turns within one game, picked by how
-many players are still alive. Each is fine-tuned from the best general model on the positions of its range.
+The owner's plan for a stronger player in real games: three **separate** networks that take turns within one game,
+picked by how many players are still alive, next to the base model `delove@N`. They are never merged into one
+network; each line keeps improving on its own. Each is fine-tuned from the best general model on the positions of its
+range.
 
 | specialist | plays when | aims for |
 | --- | --- | --- |
-| **Delove Long Range** (`delove-long@N`) | 4 or more players alive | stay in the top 3: grow, don't become the target, take cheap kills |
-| **Delove Mid Range** (`delove-mid@N`) | 3 alive | finish top 2: hit the right player |
-| **Delove Close Range** (`delove-close@N`) | 2 alive | win the duel |
+| **Delove Long Range** (`delove-long-range@N`) | 4 or more players alive | reach the last 3 with the most kills: the most leaderboard points |
+| **Delove Mid Range** (`delove-mid-range@N`) | 3 alive | finish top 2, by making someone else the obvious target |
+| **Delove Close Range** (`delove-close-range@N`) | 2 alive | win the duel |
+
+Library names (the private models repo, next to `delove@N`) are `delove-long-range@N`, `delove-mid-range@N` and
+`delove-close-range@N`; the shorter `delove-long@N` / `delove-mid@N` / `delove-close@N` from #114 still load.
 
 - **Training:** `train.py --alive LO-HI` keeps only decisions with LO..HI players alive (counted from the
   `slot<i>_alive` features of each dataset), e.g. `--alive 4-10 --init <best>.pt --out .../delove-long@1`, then
   `3-3` (mid) and `2-2` (close). In cycle 5's data, Classic 4p has 92k / 203k / 355k decisions for close / mid / long,
   World's big tables 90k / 320k / 709k, Classic 2p 1.5M close.
 - **Playing them as one player:** `models/delove/delove-range@N.json` holds the routes,
-  `{"close": "delove-close@1", "mid": "delove-mid@1", "long": "delove-long@1"}`. The loader then registers
+  `{"close": "delove-close-range@1", "mid": "delove-mid-range@1", "long": "delove-long-range@1"}`. The loader then registers
   `delove-range@N`, which plays each decision with the network for the players still alive (`rangeOf`), each network's
   top move. Specialists named `delove-long@N` / `delove-mid@N` / `delove-close@N` (or a cycle's `cN-long` / `cN-mid` /
   `cN-close`) are also players on their own. A route to a missing model skips the router rather than failing games.
-- **Gate:** the router against the best single model at 2-10 players, judged on leaderboard points
-  (`npm run delove -- ladder --candidate delove-range@1 --best delove@N --players 6 ...`). Keep it only if it wins.
+- **Gate:** each specialist against the base on its own stage, then the routed trio against the base in full games,
+  with the yardstick below; the promotion rule is in `docs/delove-status.md` ("Range specialists: how they are
+  compared").
+### The yardstick: specialist vs base on its own stage (`npm run delove:stages`)
+
+```bash
+npm run delove:stages -- --stage close --candidate delove-close-range@1 --base delove@5             # 400 positions, 800 games
+npm run delove:stages -- --stage mid   --candidate delove-mid-range@1   --base delove@5             # 300 positions
+npm run delove:stages -- --stage long  --candidate delove-long-range@1  --base delove@5             # 200 positions
+npm run delove:stages -- --stage full  --trio delove-long-range@1,delove-mid-range@1,delove-close-range@1 --base delove@5
+```
+
+(`src/stages.ts` over `src/stage-eval.ts`; add `--workers N`, default 6. Games run in `playStageGame`, self-play's
+game loop plus a start position and a stop test; it lives here rather than in `packages/selfplay/src/game.ts` because
+that file is in the GPU mirror's fingerprint, and it is tested to play the same games as `playGame`.) How it works:
+
+- **Fixed start positions per stage**, generated deterministically from `--seed` (default 1), the tables and the
+  settings: position *i* is on table *i* mod the stage's tables, reached by **Jacob Sensei in every seat**
+  (`--capture`, never one of the models being compared) and captured at the first turn start that fits the stage:
+
+  | stage | captured at | default tables | positions | decides on | also reported |
+  | --- | --- | --- | --- | --- | --- |
+  | `long` | turn 1 (every seat alive) | Classic 6, World 6, Asia 8, World 10 | 200 | mean leaderboard points per seat | P(top 3) |
+  | `mid` | first turn with exactly 3 alive, weakest holding ≥ 12% of the armies | Classic 4, World 4, Classic 5, World 6 | 300 | P(finish top 2) | points |
+  | `close` | first turn with exactly 2 alive, weaker holding ≥ 20% (fresh duels on 2-player tables) | Classic 2, Classic 4, World 4, World 5 | 400 (800 games) | win rate | points |
+  | `full` | the deal (whole games) | Classic 2, 4, 6, World 6, 10 | 200 | mean leaderboard points per seat | win share |
+
+  The balance floor keeps the set from being mostly decided games; a capture that skips the stage (two players out
+  in one turn), fails the floor or hits the turn limit moves on to the next seed. `--tables`, `--positions` and
+  `--options` (a JSON string or file such as `configs/gen5-nofog.json`; fog is refused) change the set; keep them the
+  same across comparisons. `--save-positions FILE` writes the set (a few MB, local only, not for git) and
+  `--load-positions FILE` replays exactly that set.
+- **Mirrored pairs:** every position is played twice, the candidate on alternate alive seats and then on the others,
+  with the same seed (dice and deck come from the position, so both games roll the same dice). The candidate's seats
+  play the **specialist only while the game is in its stage** and the base after it (`stagedAgent`), so a stage's
+  number measures that stage's network; `full` plays the routed trio (`--trio LONG,MID,CLOSE`, any ids, routed by
+  `routedAgent`) or any single `--candidate` (e.g. `delove-range@N`) throughout.
+- **Output:** a JSON line on stdout and a table on stderr, per table and pooled: the candidate's and the base's
+  metric, their **difference with a 95% interval over positions** (a position's pair is one unit), turn-limit games,
+  how many positions were *decided* (both games placed every seat the same, so the seats decided them, not the
+  players) and a verdict (`better` / `worse` when the difference's interval clears 0, else `even`).
+- **Speed** (CPU, 12 workers, `delove@4` vs `delove@5`, 48 positions each): close 36 s, mid 56 s, long 80 s, full
+  112 s (40 positions). A full 800-game close call takes about 5 minutes.
+
+Smoke run, `delove@4` (candidate, in every stage) against `delove@5` (base), 48 positions per stage (40 for
+`full`), seed 1, default settings, 2026-10-20: every stage `even`, as expected of two close versions
+(close win 0.531 vs 0.469, diff +0.06, 95% -0.03 to +0.15, 43 of 48 decided; mid top 2 0.667 vs 0.653, diff +0.01,
+-0.10 to +0.13; long points 0.71 vs 0.93, diff -0.21, -0.79 to +0.36; full points 0.30 vs 0.76, diff -0.46, -1.03 to
++0.11). Too small for a call: proof that the command works, not a result.
+
 - Not on the GPU mirror yet: `delove_gpu.generate` / `ladder` would need a per-decision model choice by players alive in
   their network seats.
 

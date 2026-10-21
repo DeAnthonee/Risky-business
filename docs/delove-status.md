@@ -6,7 +6,7 @@ next. The plan of record is `docs/delove.md`; the per-cycle tables are in `packa
 things is in `packages/delove/README.md` and `packages/delove-gpu/README.md`. Keep this file current: update it in
 the same PR as any change to the plan, the best model or the way training runs.
 
-Last updated: 2026-10-20 (current best: `delove@3`; all-maps GPU path in PR #82).
+Last updated: 2026-10-20 (current best: `delove@5`; range specialist yardstick and library names added).
 
 ---
 
@@ -23,9 +23,10 @@ What "good" means, decided by the owner:
    `docs/character-league.md`) scores **placement points plus 1 per kill**, not wins. Six seats: +3, +2, +1, -1, -2,
    -3, then +1 for every player you eliminate. A bot that places 2nd most of the time with kills is a good
    multiplayer bot. Training and gates should value what the leaderboard values.
-2. **Every map, 2 to 10 players.** One general model for all maps (`MAP_IDS` in `packages/engine/src/maps.ts`:
-   classic, world, world_large, europe, greater_europe, europe_classic, usa, asia, fantasy, skirmish, bohemia, nine_realms). No per-map
-   models unless one map later dominates live play.
+2. **Every map, 2 to 10 players.** One general model for all maps (the base `delove@N`; the range specialists below
+   are split by stage of the game, never by map) (`MAP_IDS` in `packages/engine/src/maps.ts`:
+   classic, world, world_large, europe, greater_europe, europe_classic, usa, asia, fantasy, skirmish, bohemia,
+   nine_realms). No per-map models unless one map later dominates live play.
 3. **Strong one-on-one as well.** Every multiplayer game ends as a duel, and the 1v1 has been Delove's weakest spot.
 4. **Fast iteration.** Training should run as much as possible on the training PC's GPU so we can try more ideas per
    day.
@@ -34,9 +35,13 @@ What "good" means, decided by the owner:
 the whole board, so the seat player refuses fog games; the plan is `docs/delove-fog.md` (section 9).
 
 **The finished product** (owner, 2026-10-20): three separate specialist networks plus a "housing" that picks which one
-plays each decision by the players still alive: **Long Range** (4+ alive: stay in the top 3; placements and kills
-both count), **Mid Range** (3 alive: finish top 2) and **Close Range** (the 1v1). The yardstick is Delove at tables
-with the Claude and ChatGPT characters on the live server, fog on, scored on leaderboard points.
+plays each decision by the players still alive: **Long Range** (4+ alive: reach the last 3 with the most kills, the
+most leaderboard points), **Mid Range** (3 alive: finish top 2 by making someone else the obvious target) and
+**Close Range** (the 1v1: win it). The three stay **separate networks, never merged into one**; each is its own line
+in the library (`delove-long-range@N`, `delove-mid-range@N`, `delove-close-range@N`, next to `delove@N`) and is always
+compared with the base model on its own stage (section 3, "Range specialists: how they are compared"). The final
+yardstick is Delove at tables with the Claude and ChatGPT characters on the live server, fog on, scored on
+leaderboard points.
 For testing parity with live Generation 5 play (including fog/no-fog matrix, blizzards, capitals, and card modes), see **[docs/game-settings.md](game-settings.md)** and config presets in `packages/delove/configs/`.
 
 ## 2. How the work is organised
@@ -101,6 +106,30 @@ the next `delove@N` when it is clearly better on mean leaderboard points at 4-10
 above 0 at most table sizes, none clearly below) and not significantly worse at 2 players (800+ mirrored games); or
 when it is statistically better at 2 players and not worse on points. The coordinator promotes and publishes to the
 private models repo (`DeAnthonee/delove-models`) without waiting. `delove@3` was promoted at 0.541 (2 players).
+
+### Range specialists: how they are compared
+
+Each specialist is measured against the **current base `delove@N` on its own stage**, never only in full games, with
+the stage yardstick `npm run delove:stages` (`packages/delove/README.md`, "The yardstick"):
+
+| specialist | start positions (fixed, seeded, reached by Jacob Sensei) | decides on | size of a call |
+| --- | --- | --- | --- |
+| Long Range | turn 1 of 6-10 player tables (Classic 6, World 6, Asia 8, World 10) | mean leaderboard points per seat (placement + kills); P(top 3) reported | 200 positions (400 games) |
+| Mid Range | first turn with exactly 3 alive (Classic 4/5, World 4/6) | P(finish top 2) | 300 positions (600 games) |
+| Close Range | first turn with exactly 2 alive, plus fresh duels | win rate | 400 positions (**800 mirrored games**, section 10) |
+| routed trio | full games from the deal, Classic 2/4/6, World 6/10 | mean leaderboard points per seat | 200 positions (400 games) |
+
+Every position is played twice with the seats swapped on the same seed; the specialist plays only while the game is
+in its stage (the base plays the candidate's seats outside it). Results are the candidate's and the base's metric and
+their difference with a 95% interval over positions. Keep the seed, tables and settings the same across a line's
+comparisons and record them with the result.
+
+**Promotion rule for a specialist** (owner, 2026-10-20): a specialist becomes the next `@N` of its line
+(`delove-long-range@N`, `delove-mid-range@N`, `delove-close-range@N`) when it is **statistically better than the
+current base `delove@N` on its own stage metric** (the difference's 95% interval above 0) **and the routed trio
+(the new specialist with the current best of the other two lines) is not worse than the base on full-game points**
+(the interval not below 0). The coordinator publishes it to the private models repo next to `delove@N`, with a
+`delove-range@N.json` routes file for the new trio (models repo README, "The range specialists").
 
 ## 4. The training flow, and why we think each part works
 
@@ -264,6 +293,9 @@ Fog of war off (enforced by `delove-seat`); one seat per agent. For full environ
   collaborator's model.
 - Train toward leaderboard points (placement plus kills), not wins.
 - One general model for every map and 2-10 players. Per-map fine-tunes only later, if one map dominates.
+- The range specialists are three separate networks plus a router, never merged into one; each is its own line
+  (`delove-long-range@N`, `delove-mid-range@N`, `delove-close-range@N`) next to `delove@N` in the private models
+  repo, and each is compared with the base on its own stage (section 3) (2026-10-20).
 - Move as much training as possible onto the GPU. Big maps on the GPU are a priority.
 - `delove@3` promoted at 0.541 (just under the automatic 0.55 bar).
 - Work happens in separate sessions with their own context; one coordinator; one reviewer.
@@ -281,7 +313,7 @@ Fog of war off (enforced by `delove-seat`); one seat per agent. For full environ
 | cloud GPU workers (RunPod; cycle steps split by cost over N rented GPUs, merged back) | sessions "Cloud GPU workers", "Guided RunPod setup" | done: #115, fixes #118 #121 #125 #126; first test bit-identical; cycle 8 played its huge boards on 8 RTX 4090s (7,500 games, 33 min, $5.45). 4 processes on one 4090 give only 1.4x: scale with more single-process pods (10 is the sweet spot, about $7 a cycle) |
 | points-aware branch score (kills and placement in the rollout score, opt-in), mirrored and verified on the GPU | session "Points-aware branch score" | done in #112, opt-in (`DELOVE_BRANCH_SCORE=points\|kills`): points loses at 4p (-0.51 ± 0.39 points/game, World), kills no different (Classic 4p), 2p no different; cycle 7 keeps share |
 | cycle 8: `delove@4` ranker, Bohemia and Nine Realms, part A at home (4 GPU lanes) and part B on the cloud; `cycle.sh GENERATE_ONLY` | coordinator | done: **`delove@5`** (section 3); PR #127 |
-| range specialists (4+ alive / 3 alive / 1v1, routed by players alive) | coordinator | tooling in **#114**; **cycle 7** trained Delove Long / Mid / Close Range from `delove@4` on cycles 5-6 split by players alive: the routed trio is even with `delove@4` (2p 0.501, 4-10p even, +0.53 points at league Classic 6p only), not promoted. Next try needs different lessons per phase (more 3-player endgames, a duel-focused search), not a split of the same ones |
+| range specialists (4+ alive / 3 alive / 1v1, routed by players alive) | coordinator | tooling in **#114**; stage yardstick (`npm run delove:stages`: fixed start positions per stage, specialist vs base, the routed trio in full games, 95% intervals) and the library names in this PR; **cycle 7** trained Delove Long / Mid / Close Range from `delove@4` on cycles 5-6 split by players alive: the routed trio is even with `delove@4` (2p 0.501, 4-10p even, +0.53 points at league Classic 6p only), not promoted. Next try needs different lessons per phase (more 3-player endgames, a duel-focused search), not a split of the same ones |
 | Jacob Sensei, a teacher that doesn't stall (section 9 item 1) | session "Jacob Sensei" | done, **PR #98** merged; GPU port (`delove_gpu/teacher.py`) done in **#110** (closes #99) |
 | all-map strength data | coordinator | 147 of 296 chunks (about 5k games, 5 maps), stopped to free the machine; finish on the GPU |
 | #39 tournament Earth map | other work | on hold (owner) |
@@ -300,7 +332,8 @@ tables with LLM characters, with fog of war on. In order:
 2. **Stage-focused games for the specialists.** Generate positions where 3 players or 2 players remain (from
    cycle games and from saved game records, which can start a game from a position), so Mid Range and Close Range
    learn from lessons aimed at their stage, not a slice of the old ones (cycle 7's lesson). Test each specialist on
-   its own stage, then the routed trio in full games against the single best model, on points.
+   its own stage, then the routed trio in full games against the single best model, on points
+   (`npm run delove:stages`, section 3).
 3. **Fog of war, started early, in parallel** (`docs/delove-fog.md`): fog dropout first (train on normal games with the
    unseen territories blanked out, so Delove stops leaning on information a fogged player lacks), then the seat-view
    encoder, a determinized branch teacher and fog gates.

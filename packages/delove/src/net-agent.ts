@@ -207,7 +207,7 @@ export function discoverNetAgents(dir = modelsDir()): Agent[] {
       return [rangeAgent(basename(f, '.json'), paths)];
     });
   return [...ranges, ...[...files]
-    .filter((f) => /^(delove@\d+|delove-(?:long|mid|close)@\d+|[rc]\d+-candidate|c\d+-(?:long|mid|close))\.onnx$/.test(f))
+    .filter((f) => /^(delove@\d+|delove-(?:long|mid|close)(?:-range)?@\d+|[rc]\d+-candidate|c\d+-(?:long|mid|close))\.onnx$/.test(f))
     .sort()
     .flatMap((f) => {
       const id = basename(f, '.onnx');

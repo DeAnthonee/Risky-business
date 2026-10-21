@@ -26,7 +26,9 @@ It is a **separate path** from the character work, and the two must not mix:
 
 Everything on this path is named **delove** so it never collides with a collaborator's model: player versions
 `delove@1`, `delove@2`, ... and the teacher `delove-teacher@1` on the ladder, code in `packages/delove`, weights in
-`models/delove/`. Another collaborator's base model gets its own name, package and folder, and the two compete on the
+`models/delove/`. The range specialists are their own lines next to `delove@N`: `delove-long-range@N` (4+ players
+alive), `delove-mid-range@N` (3 alive) and `delove-close-range@N` (the duel), three separate networks routed by
+players alive (`delove-range@N`), never merged into one (`docs/delove-status.md`, section 3). Another collaborator's base model gets its own name, package and folder, and the two compete on the
 same ladder.
 
 Keeping them apart lets us compare them later: the same ladder and the same tables can put `delove@N` against

@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 
 import torch
 
+from .encode import Encoder
 from .engine import ATTACK, FORTIFY, REINFORCE
 from .fingerprint import REPO
 from .fused import STATE_FIELDS
@@ -55,6 +56,8 @@ class BranchConfig:
     threat: float = 0.3  # 'mid': threat
     close_rollouts: int = 12  # 'close': closeRollouts / closeHorizon
     close_horizon: int = 2
+    # who plays the rollouts (branch.ts rolloutNet): 'teacher', or GpuBranch's roll_net in 'all' seats or the decider's ('self')
+    rollout: str = "teacher"
 
     def decision(self, alive: int) -> tuple[int, int, int]:
         """decisionScore in branch.ts: (kernel mode, rollouts, horizon) of a decision with `alive` players alive."""
@@ -274,9 +277,72 @@ extern "C" __global__ void k_branch_sim(STATE_ARGS, TP_ARGS, const i64* seeds, c
   }
 }
 
+// ---- rollouts played by a network (branch.ts rolloutNet): k_branch_sim in three parts, the network's moves made in
+// between from Python. live[j]: the copy still plays (0: no such option, or a seat had no move); ar[j]: the copy's
+// teacher stream; stop[j]: the round it stops at.
+// Start each copy: reseed, reshuffle the deck, play the option (one or two steps). One thread per copy.
+extern "C" __global__ void k_branch_start(STATE_ARGS, const i64* seeds, const i64* a1, const i64* a2, i64* ar, i64* moves,
+                                          i64* stop, u8* live, int horizon, int n) {
+  int j = blockIdx.x * blockDim.x + threadIdx.x;
+  if (j >= n) return;
+  moves[j] = 0;
+  live[j] = a1[j] >= 0;
+  if (a1[j] < 0) return;
+  MAKE_S(j);
+  unsigned int seed = (unsigned int)seeds[j];
+  *s.rng = (i64)seed;
+  i64 st = (i64)(seed ^ 0x5bd1e995u);
+  shuffle(s.deck, (int)*s.deck_n, &st);
+  apply(s, (int)a1[j], BIG_TURNS);
+  if (a2[j] >= 0) apply(s, (int)a2[j], BIG_TURNS);
+  ar[j] = (i64)seed;
+  stop[j] = *s.round + horizon;
+}
+
+// The teacher plays the copy on (k_branch_sim's loop, SIM_G lanes per copy) until the rollout ends or a seat the
+// network plays is to move: every seat with net == 1, the decider's (mes[j]) with net == 2.
+extern "C" __global__ void k_branch_roll(STATE_ARGS, TP_ARGS, i64* ar, i64* moves, const i64* stop, u8* live, const i64* mes,
+                                         int net, int n) {
+  int i = blockIdx.x * blockDim.x + threadIdx.x, j = i / SIM_G;
+  if (j >= n) return;  // the whole group
+  Grp g = make_grp(i, SIM_G);
+  bool lead = g.lane == 0;
+  if (!live[j] || net == 1) return;
+  MAKE_S(j);
+  TP_MAKE
+  i64 r = ar[j];
+  int mv = (int)moves[j];
+  bool dead = false;
+  while (!*s.done && *s.round < stop[j] && mv < MAX_ROLLOUT_STEPS && !(net == 2 && cur(s) == (int)mes[j])) {
+    int a = teacher_pick_g<SIM_G>(s, tp, &r, g);
+    if (a < 0) { dead = true; break; }
+    __syncwarp(g.mask);  // every lane has read the board for this pick
+    if (lead) apply(s, a, BIG_TURNS);
+    __syncwarp(g.mask);  // the move is on the board for every lane
+    if (!(a >= FFROM && a < FTO)) mv++;  // a fortify is one move of two steps
+  }
+  if (lead) {
+    ar[j] = r;
+    moves[j] = mv;
+    if (dead) live[j] = 0;
+  }
+}
+
+// positionScore of each copy's end position for mes[j]; a copy with no option (a1 < 0) scores -inf. One thread per copy.
+extern "C" __global__ void k_branch_score(STATE_ARGS, const i64* a1, const i64* mes, const double* w, int mode, const double* place,
+                                          const double* rw, double* out, int n) {
+  int j = blockIdx.x * blockDim.x + threadIdx.x;
+  if (j >= n) return;
+  double* o = out + (i64)j * 8;
+  if (a1[j] < 0) { o[0] = -DINF; for (int k = 1; k < 8; k++) o[k] = 0.0; return; }
+  MAKE_S(j);
+  position_score(s, (int)mes[j], w, mode, place, rw, o);
+}
+
 """
 
-BRANCH_KERNELS = ("k_branch_prep", "k_branch_sim")
+BRANCH_KERNELS = ("k_branch_prep", "k_branch_sim", "k_branch_start", "k_branch_roll", "k_branch_score")
+ROLL_TEACHER, ROLL_ALL, ROLL_SELF = 0, 1, 2  # who plays the rollouts: the teacher; a network in every seat; in the decider's
 SIM_LANES = 16  # lanes per rollout copy (k_branch_sim): see "Big tables: lane groups" in the README
 
 
@@ -333,13 +399,24 @@ class Decision:
     best: torch.Tensor  # index of the pick among the options
     moves: int  # rollout moves played
     rollouts: torch.Tensor  # copies per option of each branched decision (0 where not branched)
+    scores: torch.Tensor | None = None  # [n, OPT, max rollouts] each copy's score (nan where not branched or past R), for the tests
+
+
+ROLLOUT_MODES = {"teacher": ROLL_TEACHER, "all": ROLL_ALL, "self": ROLL_SELF}
 
 
 class GpuBranch:
-    """branchAgent over a BranchEngine of main games. `ranker(games, mask)` gives [n, A] logits (-inf where illegal)."""
+    """branchAgent over a BranchEngine of main games. `ranker(games, mask)` gives [n, A] logits (-inf where illegal).
+    `roll_net` (a Delove network, fp32) plays the rollouts when cfg.rollout is 'all' or 'self' (branch.ts rolloutNet)."""
 
-    def __init__(self, main: BranchEngine, ranker, cfg: BranchConfig, max_games: int | None = None):
+    def __init__(self, main: BranchEngine, ranker, cfg: BranchConfig, max_games: int | None = None, roll_net=None):
         self.e, self.ranker, self.cfg = main, ranker, cfg
+        if cfg.rollout not in ROLLOUT_MODES:
+            raise ValueError(f"branch rollout {cfg.rollout!r}: one of {list(ROLLOUT_MODES)}")
+        self.roll = ROLLOUT_MODES[cfg.rollout]
+        if self.roll != ROLL_TEACHER and roll_net is None:
+            raise ValueError(f"branch rollout {cfg.rollout!r} needs a rollout network")
+        self.roll_net = roll_net
         self.w = torch.tensor([cfg.weights[k] for k in WEIGHT_KEYS], dtype=torch.float64, device=main.dev)
         if cfg.score not in SCORES:
             raise ValueError(f"branch score {cfg.score!r}: one of {SCORES}")
@@ -364,6 +441,11 @@ class GpuBranch:
         max_games = max_games or main.B
         # copies for max_games decisions at cfg.rollouts; a group with more rollouts (close) runs in chunks that fit
         self.sims = SimPool(main, max(max_games * cfg.options * cfg.rollouts, cfg.options * self.max_r))
+        if self.roll != ROLL_TEACHER:
+            self.roll_enc = Encoder(self.sims.e)
+            self.roll_adj = self.sims.e.m.adj_matrix.float()
+            self.roll_order = cpu_order(self.sims.e.L, main.dev)
+        self.roll_steps = 0  # lockstep network steps of the rollouts (for timing)
 
     def important(self, games: torch.Tensor, mask: torch.Tensor, tact: torch.Tensor) -> torch.Tensor:
         e = self.e
@@ -413,15 +495,16 @@ class GpuBranch:
         act2_out = act2[:, 0].clone()
         means = torch.full((n, OPT, 8), float("nan"), dtype=torch.float64, device=dev)
         best = torch.zeros(n, dtype=torch.long, device=dev)
+        scores = torch.full((n, OPT, self.max_r), float("nan"), dtype=torch.float64, device=dev)
         moves = 0
         for ki, (mode, R, H) in enumerate(keys):
             sel = ig[key[ig] == ki]
             per = self.sims.capacity // (OPT * R)  # decisions per chunk of copies
             for lo in range(0, sel.numel(), per):
-                moves += self._run(games, sel[lo:lo + per], opts, act2, seeds, mode, R, H, means, best, act1_out, act2_out)
-        return Decision(games, act1_out, act2_out, imp, imp & (best != 0), opts, means, best, moves, nseeds)
+                moves += self._run(games, sel[lo:lo + per], opts, act2, seeds, mode, R, H, means, best, act1_out, act2_out, scores)
+        return Decision(games, act1_out, act2_out, imp, imp & (best != 0), opts, means, best, moves, nseeds, scores)
 
-    def _run(self, games, ig, opts, act2, seeds, mode, R, H, means, best, act1_out, act2_out) -> int:
+    def _run(self, games, ig, opts, act2, seeds, mode, R, H, means, best, act1_out, act2_out, scores) -> int:
         """Play and score the copies of decisions `ig` (rows of games) with one objective; fills their means, best
         option and pick. Returns the rollout moves played."""
         e, cfg, dev = self.e, self.cfg, self.e.dev
@@ -436,9 +519,13 @@ class GpuBranch:
         S = k * OPT * R
         out = torch.empty(S, 8, dtype=torch.float64, device=dev)
         mv = torch.empty(S, dtype=torch.long, device=dev)
-        self.sims.e.branch_sim(S, sd.contiguous(), a1.contiguous(), a2.contiguous(), me.contiguous(), self.w, mode, self.place, self.rw,
-                               H, out, mv)
+        if self.roll == ROLL_TEACHER:
+            self.sims.e.branch_sim(S, sd.contiguous(), a1.contiguous(), a2.contiguous(), me.contiguous(), self.w, mode, self.place,
+                                   self.rw, H, out, mv)
+        else:
+            self._net_rollouts(S, sd.contiguous(), a1.contiguous(), a2.contiguous(), me.contiguous(), out, mv, mode, H)
         parts = out.view(k, OPT, R, 8)
+        scores[ig, :, :R] = parts[:, :, :, 0]
         acc = torch.zeros(k, OPT, 8, dtype=torch.float64, device=dev)
         for r in range(R):  # parts[k] += sc[k], seed by seed, then / seeds.length
             acc = acc + parts[:, :, r, :]
@@ -457,6 +544,52 @@ class GpuBranch:
         act2_out[ig] = act2[ig].gather(1, bi[:, None]).squeeze(1)
         return int(mv.sum())
 
+    @torch.inference_mode()
+    def _net_rollouts(self, S: int, sd, a1, a2, me, out, mv, mode: int, horizon: int, max_rows: int = 262_144):
+        """k_branch_sim with the network playing its seats: the copies start (k_branch_start), then, in lockstep, the
+        teacher plays the other seats on (k_branch_roll) and every copy whose network seat is to move gets the
+        network's top move (one batched forward pass per step; ties to the first candidate, as net-agent.ts), until
+        every copy's rollout is over; then each is scored (k_branch_score)."""
+        se, dev, cfg, L = self.sims.e, self.e.dev, self.cfg, self.sims.e.L
+        ar = torch.zeros(S, dtype=torch.long, device=dev)
+        stop = torch.zeros(S, dtype=torch.long, device=dev)
+        live = torch.zeros(S, dtype=torch.uint8, device=dev)
+        se._launch_t("k_branch_start", S, *se._state(), sd, a1, a2, ar, mv, stop, live, horizon, S)
+        per = max(1, max_rows // se.m.T)
+        act = torch.full((S,), -1, dtype=torch.long, device=dev)
+        grid, block = ((S + se.BLOCK - 1) // se.BLOCK, 1, 1), (se.BLOCK, 1, 1)  # the rules kernels over the S copies only
+        while True:
+            if self.roll == ROLL_SELF:
+                se._launch_t("k_branch_roll", S * se.sim_lanes, *se._state(), *se._tp(), ar, mv, stop, live, me, ROLL_SELF, S)
+            cur = se.cur[:S]
+            need = (live.bool() & ~se.done[:S].bool() & (se.round[:S] < stop) & (mv < MAX_ROLLOUT_STEPS))
+            if self.roll == ROLL_SELF:
+                need &= cur == me
+            idx = need.nonzero(as_tuple=True)[0]
+            if idx.numel() == 0:
+                break
+            se.k["k_legal"](grid=grid, block=block, args=[*se._state(), se._mask, S])
+            mask = se._mask
+            nl = mask[idx].sum(1)
+            live[idx[nl == 0]] = 0  # no move: the rollout ends (branch.ts: no candidates)
+            act.fill_(-1)
+            one = idx[nl == 1]
+            act[one] = mask[one].long().argmax(1)
+            many = idx[nl > 1]
+            for lo in range(0, many.numel(), per):
+                g = many[lo:lo + per]
+                terr, glob = self.roll_enc.encode(g)
+                rows = self.roll_enc.row_of[g]
+                bi, a = mask[g].nonzero(as_tuple=True)
+                cand, cf, ct = self.roll_enc.candidates(rows[bi], a)
+                lg, _ = self.roll_net(terr, glob, self.roll_adj, cand, cf, ct, bi)
+                full = torch.full((g.numel(), mask.shape[1]), float("-inf"), device=dev)
+                full[bi, a] = lg.float()
+                act[g] = first_max(full, self.roll_order)
+            mv += ((act >= 0) & ~((act >= L.FFROM) & (act < L.FTO))).long()  # a fortify is one move of two steps
+            se.k["k_step"](grid=grid, block=block, args=[*se._state(), act, S, BIG_TURNS])
+            self.roll_steps += 1
+        se._launch_t("k_branch_score", S, *se._state(), a1, me, self.w, mode, self.place, self.rw, out, S)
 
 
 def cpu_order(L, device) -> torch.Tensor:

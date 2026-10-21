@@ -1,9 +1,10 @@
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { KILL_POINTS, placementPoints, type GameState } from '@risk/engine';
-import { playGame, type Agent } from '@risk/selfplay';
-import { decisionScore, DEFAULT_BRANCH, killCredit, pointsScore, positionScore, threatDeflection } from '../src/branch.js';
 import { getMap } from '@risk/engine';
-import { teacher } from '../src/index.js';
+import { playGame, type Agent, type StepContext } from '@risk/selfplay';
+import { branchAgent, decisionScore, DEFAULT_BRANCH, killCredit, pointsScore, positionScore, threatDeflection } from '../src/branch.js';
+import { DEFAULT_TEACHER_PARAMS, NetScorer, teacher, teacherPickWith } from '../src/index.js';
 
 /** A 4-player World position from the middle of a teacher game. */
 function midGame(): GameState {
@@ -116,4 +117,36 @@ describe('branch score', () => {
     expect(decisionScore({ ...o, score: 'close' }, 5)).toEqual({ mode: 'share', rollouts: o.closeRollouts, horizon: o.closeHorizon });
     expect(decisionScore({ ...o, score: 'share' }, 2)).toEqual({ mode: 'share', rollouts: o.rollouts, horizon: o.horizon });
   });
+});
+
+describe('branch and score with network rollouts (DELOVE_BRANCH_ROLLOUT)', () => {
+  // Random weights (hidden 8): plays badly, but goes through encoder -> ONNX -> worker -> move like a trained model.
+  const TINY = fileURLToPath(new URL('./fixtures/tiny.onnx', import.meta.url));
+  const opts = { ...DEFAULT_BRANCH, options: 2, rollouts: 2, horizon: 1, margin: 0.01 };
+
+  /** The rollout network wrapped to count its calls by whose turn it is (the decider's or another seat's). */
+  function counted(seats: 'all' | 'self') {
+    const net = new NetScorer(TINY);
+    const calls = { mine: 0, others: 0 };
+    let decider = '';
+    const spy = { score: (ctx: StepContext) => (ctx.me === decider ? calls.mine++ : calls.others++, net.score(ctx)) } as unknown as NetScorer;
+    const agent = branchAgent('b', teacherPickWith(DEFAULT_TEACHER_PARAMS), net, opts, null, { net: spy, seats });
+    const wrapped: Agent = { id: 'b', choose: (ctx) => ((decider = ctx.me), agent.choose(ctx)) };
+    return { agent: wrapped, calls };
+  }
+
+  for (const seats of ['all', 'self'] as const) {
+    it(`plays legally and deterministically with the network in ${seats === 'all' ? 'every seat' : "the decider's seat"}`, () => {
+      const play = () => {
+        const c = counted(seats);
+        const g = playGame({ seed: 4, seats: [{ agent: c.agent }, { agent: teacher }, { agent: teacher }], maxTurns: 4, record: true, onIllegal: 'throw' });
+        return { choices: g.records!.map((r) => r.choice), calls: c.calls };
+      };
+      const a = play();
+      expect(a).toEqual(play());
+      expect(a.calls.mine).toBeGreaterThan(0);
+      if (seats === 'all') expect(a.calls.others).toBeGreaterThan(0);
+      else expect(a.calls.others).toBe(0);
+    });
+  }
 });

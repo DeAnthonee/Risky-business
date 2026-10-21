@@ -6,7 +6,8 @@
 #   JOB/src.tar        git archive of the commit to run (the mirror, its fingerprint, the engine it reads)
 #   JOB/models/        the .pt and teacher .json files the tables need (private: deleted when the run ends)
 #   JOB/cache/         optional: NVRTC kernels (*.cubin) from the training PC's delove_gpu/_cache/
-#   JOB/job.json       {"torch": "2.11.0+cu128", "verify": [verify.py args] or null, "volume": path or null, "home": "full" or "small"}
+#   JOB/job.json       {"torch": "2.11.0+cu128", "verify": [verify.py args] or null, "volume": path or null, "home": "full" or "small",
+#                      "allowUnverified": bool, "commit": sha}
 #   JOB/lane-<i>.sh    one per lane: its GPU and one delove_gpu.generate per step (written by remote.py)
 #   JOB/lanes/<i>.<step>.jobs   each lane's tables of each step
 #
@@ -70,22 +71,25 @@ print(json.dumps({"torch": torch.__version__, "cuda": torch.version.cuda, "gpus"
                   "capability": "".join(map(str, torch.cuda.get_device_capability()))}))
 EOF
 cat "$job/env.json"
-# ---- verify.py (once per new GPU type, or to verify a changed mirror, when asked) ---------------------------------------
-# It runs before the fingerprint check, so a commit whose mirror changed can be verified here: verify.py rewrites
-# engine-fingerprint.json only when everything matched (verify-fingerprint.json comes home to commit), and the check
-# below then passes for this run's games; a failed verify leaves the old fingerprint and the check stops the lanes.
+
+# ---- verify.py (once per new GPU type, or for a commit whose mirror is not verified yet, when asked) ------------------
+# Before the fingerprint check: a passing run writes the fingerprint for this commit (download verify-fingerprint.json
+# and commit it), so the games below may run on a commit whose mirror was stale; a failing one leaves it stale.
 mapfile -t vargs < <(python3 -c 'import json,sys; [print(a) for a in (json.load(open(sys.argv[1])).get("verify") or [])]' "$job/job.json")
 if (( ${#vargs[@]} )); then
   status "running: verify.py"
+  export DELOVE_COMMIT=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("commit") or "")' "$job/job.json")
   $py packages/delove-gpu/verify.py --no-build --models "$job/models" "${vargs[@]}" > "$job/verify.log" 2>&1 \
     && echo "verify: ok" || echo "verify: FAILED (see verify.log)"
   cp packages/delove-gpu/engine-fingerprint.json "$job/verify-fingerprint.json" 2>/dev/null
 fi
-if ! $py packages/delove-gpu/delove_gpu/fingerprint.py check; then
-  # bring verify.py's log (and its runs/gpu-verify logs' summaries) home, so a failed verify can be read
-  [[ -f $job/verify.log ]] && tar -cf - -C "$job" verify.log setup.log env.json 2>/dev/null | gzip -1 > "$job/out.tar.gz.tmp" &&
-    mv -f "$job/out.tar.gz.tmp" "$job/out.tar.gz"
+# generate --allow-unverified (benchmarks and comparisons, never training data) plays on a stale mirror, with a warning
+if [[ $(python3 -c 'import json,sys; print(1 if json.load(open(sys.argv[1])).get("allowUnverified") else 0)' "$job/job.json") == 1 ]]; then
+  $py packages/delove-gpu/delove_gpu/fingerprint.py check || echo "WARNING: the GPU mirror is not verified for this commit (--allow-unverified)"
+else $py packages/delove-gpu/delove_gpu/fingerprint.py check || {
+  tar -czf "$job/out.tar.gz" -C "$job" setup.log env.json verify.log verify-fingerprint.json 2>/dev/null
   fail "the GPU mirror is not verified for this commit's engine"
+}
 fi
 
 # ---- the odds tables, once (not uploaded: 240 MB, about two minutes here): lanes sharing a pod would otherwise all build

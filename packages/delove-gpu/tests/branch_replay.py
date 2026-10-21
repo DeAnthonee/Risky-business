@@ -10,6 +10,13 @@ The options come from the ranker network (ONNX in Node, PyTorch here; fp32 both)
 the 2nd and 3rd options differently. Such a decision is reported as an option-order difference, and the game keeps
 being checked only until the seat's random stream could have diverged (a fortify option draws from it).
 
+With network rollouts (`--rollout MODEL[:self]`, the log made with DELOVE_BRANCH_ROLLOUT) the trace also holds each
+copy's score and the smallest gap between the top two logits of the network's picks in that copy. A copy whose score
+differs is a near-tie when that gap is below --near-tie (ONNX and PyTorch round differently, so a near-tie can flip a
+pick and the rest of the copy plays differently); a decision whose only differences are such copies is reported as a
+rollout near-tie (its pick may differ), any other difference fails. Rollouts never draw from the seat's stream, so the
+game stays checked after a rollout near-tie.
+
     python tests/branch_replay.py runs/gpu-verify/branch3/c2t --trace "runs/gpu-verify/branch3/trace-c2t-*.jsonl" \\
         --models models/delove --ranker c2-candidate --horizon 1 --margin 0.01 [--score points]
 """
@@ -56,12 +63,29 @@ def name(e, a):
     return f"{KIND_NAMES[int(L.kind[a])]}#{int(L.arg[a])}/{int(L.slot[a])}" if a >= 0 else "-"
 
 
-def replay_batch(recs, traces, e_args, ranker_pt, cfg, stats, gcfg=None):
+def copy_check(t, gpu_scores, near: float, stats) -> str | None:
+    """Network rollouts: compare the CPU's and the GPU's scores copy by copy. None when every differing copy is a
+    near-tie (and counts it), else what differs."""
+    real = []
+    for o, (cs, gs, gaps) in enumerate(zip(t["scores"], gpu_scores, t["gaps"])):
+        for r, (c, g, gap) in enumerate(zip(cs, gs, gaps)):
+            stats["copies"] += 1
+            if c == g:
+                stats["copies_exact"] += 1
+            elif gap is not None and gap < near:
+                stats["copies_near"] += 1
+            else:
+                stats["copies_diff"] += 1
+                real.append(f"option {o} copy {r}: cpu {c} gpu {g} (smallest logit gap {gap})")
+    return "; ".join(real[:3]) if real else None
+
+
+def replay_batch(recs, traces, e_args, ranker_pt, cfg, stats, gcfg=None, roll_pt=None, near: float = 1e-4):
     B = len(recs)
     e = BranchEngine(B, gcfg, **e_args)
     enc = Encoder(e)
     rank = net_ranker(enc, ranker_pt, e.m.adj_matrix)
-    br = GpuBranch(e, rank, cfg)
+    br = GpuBranch(e, rank, cfg, roll_net=roll_pt)
     g = torch.arange(B, device=e.dev)
     seeds = torch.tensor([r[0]["seed"] for r in recs])
     e.reset(g, seeds)
@@ -92,11 +116,13 @@ def replay_batch(recs, traces, e_args, ranker_pt, cfg, stats, gcfg=None):
             opts = d.options.tolist()
             means = d.means[:, :, 0].tolist()
             best = d.best.tolist()
+            scores = d.scores.tolist()
             for k, b in enumerate(decide):
                 r = recs_now[b]
                 logged = acts[b][r["choice"]]
                 stats["decisions"] += 1
                 why = None
+                near_tie = False  # a branched decision whose only differences are rollout near-ties
                 if branched[k]:
                     stats["branched"] += 1
                     tl = traces[r["game"]]
@@ -114,19 +140,27 @@ def replay_batch(recs, traces, e_args, ranker_pt, cfg, stats, gcfg=None):
                                 stats["opt_rank"] += 1
                         else:
                             gm = means[k][: len(gpu_opts)]
-                            if gm != t["means"]:
+                            real = copy_check(t, scores[k][: len(gpu_opts)], near, stats) if "scores" in t else None
+                            if gm == t["means"]:
+                                stats["means_exact"] += 1
+                            elif "scores" in t and real is None:
+                                stats["means_near"] += 1
+                                near_tie = True
+                            else:
                                 stats["mean_diff"] += 1
                                 err = max(abs(x - y) for x, y in zip(gm, t["means"]))
-                                why = f"means differ by up to {err:.3g}: cpu {t['means']} gpu {gm}"
-                            else:
-                                stats["means_exact"] += 1
+                                why = f"means differ by up to {err:.3g}: cpu {t['means']} gpu {gm}" + (f" [{real}]" if real else "")
                             if best[k] != t["best"]:
-                                why = (why or "") + f" pick: cpu option {t['best']} gpu {best[k]}"
+                                if near_tie:
+                                    stats["near_pick"] += 1
+                                else:
+                                    why = (why or "") + f" pick: cpu option {t['best']} gpu {best[k]}"
                 if a1[k] == logged:
                     stats["same_pick"] += 1
                 else:
                     stats["diff_pick"] += 1
-                    why = (why or "") + f" | picks: cpu {name(e, logged)} gpu {name(e, a1[k])}"
+                    if not near_tie:  # a rollout near-tie's pick is counted in near_pick; the stream is still in step
+                        why = (why or "") + f" | picks: cpu {name(e, logged)} gpu {name(e, a1[k])}"
                 if why:
                     stats["fail"].append(f"{r['game']} (seed {r['seed']}) turn {r['turn']} rec {ptr[b]}: {why.strip()}")
                     # the seat's stream stays in step only if the decision drew the same numbers
@@ -169,6 +203,8 @@ def main():
     ap.add_argument("--horizon", type=int, default=d.horizon)
     ap.add_argument("--margin", type=float, default=d.margin)
     ap.add_argument("--score", default=d.score, choices=SCORES, help="as DELOVE_BRANCH_SCORE for the log")
+    ap.add_argument("--rollout", default=None, help="as DELOVE_BRANCH_ROLLOUT for the log: MODEL (every seat) or MODEL:self")
+    ap.add_argument("--near-tie", type=float, default=1e-4, help="a rollout copy that differs is a near-tie below this logit gap")
     ap.add_argument("--batch", type=int, default=400)
     ap.add_argument("--games", type=int, default=0)
     args = ap.parse_args()
@@ -177,6 +213,11 @@ def main():
     models = Path(args.models)
     params = agent_params(args.teacher, models)
     ranker_pt = load_delove(models / f"{args.ranker}.pt", "cuda")
+    roll_pt = None
+    if args.rollout:
+        rid, _, seats = args.rollout.partition(":")
+        cfg.rollout = seats or "all"
+        roll_pt = ranker_pt if rid == args.ranker else load_delove(models / f"{rid}.pt", "cuda")
     e_args = dict(params=params, allow_unverified=True)
     stats = defaultdict(int)
     stats["fail"] = []
@@ -201,20 +242,23 @@ def main():
             batch.append(gm)
             n += 1
             if len(batch) == args.batch:
-                replay_batch(batch, traces, e_args, ranker_pt, cfg, stats, gcfg)
+                replay_batch(batch, traces, e_args, ranker_pt, cfg, stats, gcfg, roll_pt, args.near_tie)
                 batch = []
             if args.games and n >= args.games:
                 break
         if batch:
-            replay_batch(batch, traces, e_args, ranker_pt, cfg, stats, gcfg)
+            replay_batch(batch, traces, e_args, ranker_pt, cfg, stats, gcfg, roll_pt, args.near_tie)
     s = stats
     print(f"{s['games']} games, {s['decisions']} branch-player decisions ({s['branched']} branched, {s['fortify_to']} fortify_to steps): "
           f"same pick {s['same_pick']}, different {s['diff_pick']}; branched with the CPU's options: means identical on "
           f"{s['means_exact']}, different on {s['mean_diff']}; options differ on {s['opt_diff']} ({s['opt_rank']} only in "
           f"the ranker's order of the alternatives); games checked to the end {s['trusted_games']}/{s['games']}; {time.time() - t0:.0f}s")
+    if args.rollout:
+        print(f"network rollouts: {s['means_near']} branched decisions differ only by rollout near-ties ({s['near_pick']} of them a different "
+              f"pick); copies compared {s['copies']}: identical {s['copies_exact']}, near-ties {s['copies_near']}, other {s['copies_diff']}")
     for f in s["fail"][:25]:
         print("   ", f)
-    sys.exit(1 if s["mean_diff"] or s["diff_pick"] > s["opt_diff"] else 0)
+    sys.exit(1 if s["mean_diff"] or s["diff_pick"] > s["opt_diff"] + s["near_pick"] else 0)
 
 
 if __name__ == "__main__":

@@ -63,6 +63,10 @@ const END_ONLY: Candidate[] = [['end_turn']];
  * - `range`: per decision, by the non-neutral players alive: 4 or more `long`, 3 `mid`, 2 `close`.
  *
  * Setup and capital picks, decisions with a single option and the kinds in `skip` are played by the teacher directly.
+ *
+ * With a rollout network (branchAgent's `rolloutNet`, DELOVE_BRANCH_ROLLOUT) the copies are played forward by a Delove
+ * network's top move instead of the teacher: in every seat (`seats: 'all'`), or in the decider's seat only with the
+ * teacher in the others (`'self'`). Everything else (the options, the seeds, the scores, the pick) is unchanged.
  */
 export const BRANCH_SCORES = ['share', 'points', 'kills', 'long', 'mid', 'close', 'range'] as const;
 export type BranchScore = (typeof BRANCH_SCORES)[number];
@@ -311,6 +315,43 @@ export function pointsScore(s: GameState, me: PlayerId, place: number | null): n
 
 const MAX_ROLLOUT_STEPS = 4000;
 
+/**
+ * A Delove network playing the rollouts (DELOVE_BRANCH_ROLLOUT): its top move (ties: the first candidate, as
+ * `delove@N` plays) in every seat, or only in the decider's seat (`'self'`) with the teacher in the others.
+ */
+export interface RolloutNet {
+  net: NetScorer;
+  seats: 'all' | 'self';
+}
+
+/** The best logit's index and its gap to the second best (Infinity with one candidate). */
+function topGap(logits: Float32Array): { best: number; gap: number } {
+  let best = 0;
+  for (let i = 1; i < logits.length; i++) if (logits[i] > logits[best]) best = i;
+  let second = -Infinity;
+  for (let i = 0; i < logits.length; i++) if (i !== best && logits[i] > second) second = logits[i];
+  return { best, gap: logits[best] - second };
+}
+
+/**
+ * The player of one rollout copy: the network's top move in its seats, the teacher's in the rest. `gap` keeps the
+ * smallest top-two logit gap of the network's picks, for the trace: a copy decided by a near-tie can play differently
+ * with ONNX in Node than with PyTorch on the GPU.
+ */
+function rolloutPlayer(teacher: StepPick, rollout: RolloutNet, me: PlayerId): { pick: StepPick; gap: number } {
+  const r = {
+    gap: Infinity,
+    pick: (ctx: StepContext): number => {
+      if (rollout.seats === 'self' && ctx.me !== me) return teacher(ctx);
+      if (ctx.candidates.length === 1) return 0;
+      const t = topGap(rollout.net.score(ctx).logits);
+      if (t.gap < r.gap) r.gap = t.gap;
+      return t.best;
+    },
+  };
+  return r;
+}
+
 /** Play `state` forward `horizon` rounds (or to the end) with `pick` in every seat. */
 function rollout(state: GameState, horizon: number, pick: StepPick, random: () => number): { state: GameState; moves: number } {
   let s = state;
@@ -348,7 +389,8 @@ function isImportant(ctx: DecisionContext): boolean {
 
 /**
  * The branching player. `teacher` plays every seat in the rollouts and makes the unimportant decisions; `ranker`
- * (a Delove network) proposes the alternatives worth trying.
+ * (a Delove network) proposes the alternatives worth trying; `rolloutNet` (optional) is a network that plays the
+ * rollouts instead of the teacher, in every seat or in the decider's only.
  */
 export function branchAgent(
   id: string,
@@ -357,6 +399,7 @@ export function branchAgent(
   opts: BranchOptions = DEFAULT_BRANCH,
   /** Rates branch end positions when opts.valueWeight > 0 (a NetScorer with its .value.onnx). */
   valuer: NetScorer | null = null,
+  rolloutNet: RolloutNet | null = null,
 ): Agent {
   return {
     id,
@@ -392,8 +435,12 @@ export function branchAgent(
       const seeds = Array.from({ length: ds.rollouts }, () => Math.floor(dctx.random() * 0xffffffff) >>> 0);
       const useValue = opts.valueWeight > 0 && valuer !== null;
       const ends: { option: number; state: GameState }[] = [];
+      // with a rollout network: each copy's score and smallest logit gap, option by option (for the trace)
+      const copies: { score: number; gap: number }[][] = [];
       const results: { mean: number; parts: Score }[] = actions.map((action, option) => {
         const parts: Score = { score: 0, armies: 0, income: 0, territories: 0, cards: 0, continents: 0, won: 0, lost: 0 };
+        const mine: { score: number; gap: number }[] = [];
+        copies.push(mine);
         for (const seed of seeds) {
           const copy: GameState = { ...dctx.state, rngState: seed, deck: shuffle(createRng(seed ^ 0x5bd1e995), dctx.state.deck) };
           let after: GameState;
@@ -403,10 +450,12 @@ export function branchAgent(
             parts.score = -Infinity;
             break;
           }
-          const r = rollout(after, ds.horizon, teacher, seededRandom(seed));
+          const player = rolloutNet ? rolloutPlayer(teacher, rolloutNet, dctx.me) : null;
+          const r = rollout(after, ds.horizon, player ? player.pick : teacher, seededRandom(seed));
           branchStats.simulations++;
           branchStats.simulatedMoves += r.moves;
           const sc = positionScore(r.state, dctx.me, opts.weights, ds.mode, opts);
+          if (player) mine.push({ score: sc.score, gap: player.gap });
           for (const k of Object.keys(parts) as (keyof Score)[]) parts[k] += sc[k];
           if (useValue) ends.push({ option, state: r.state });
         }
@@ -438,7 +487,13 @@ export function branchAgent(
       branchStats.gain += results[best].mean - results[0].mean;
       if (TRACE) {
         const options = order.slice(0, actions.length);
-        appendFileSync(TRACE, JSON.stringify({ game: dctx.state.id, turn: dctx.state.turnNumber, seat: dctx.seat, options, means: results.map((r) => r.mean), best }) + '\n');
+        const line: Record<string, unknown> = { game: dctx.state.id, turn: dctx.state.turnNumber, seat: dctx.seat, options, means: results.map((r) => r.mean), best };
+        if (rolloutNet) {
+          // per option, per copy: the score, and the smallest logit gap of its network picks (null: none)
+          line.scores = copies.map((o) => o.map((c) => c.score));
+          line.gaps = copies.map((o) => o.map((c) => (Number.isFinite(c.gap) ? c.gap : null)));
+        }
+        appendFileSync(TRACE, JSON.stringify(line) + '\n');
       }
       for (const k of Object.keys(branchStats.chosen) as (keyof Score)[]) branchStats.chosen[k] += results[best].parts[k];
       return actions[best];

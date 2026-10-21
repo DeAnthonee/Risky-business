@@ -6,6 +6,10 @@ A stage table's agents are written `LEAD>STAGE`:
   lists), then X, Y, Z take the survivors' seats and only from then on are decisions recorded.
 - `pos:FILE>X,Y`: games start from a positions file's moments with 2 players alive (`npm run selfplay -- positions`
   writes them from game records). Game i plays position i mod count, with its own dice from the game seed.
+- `split:60/40>X,Y` (the options name the table size as maxPlayers): ratio scenarios, synthetic boards where the
+  survivors hold the board in that split (packages/selfplay/src/scenario.ts splitPosition). Game i's position is drawn
+  from its seed alone, so no file is needed (they run on rented GPUs too): SplitSource asks the built self-play
+  package for it through node, so the CPU and the GPU start from the very same position, played as a position.
 
 Who plays which survivor (stage_seats) and how a position is reseeded (load_positions) match positions.ts, so a
 stage game here is the same game as `npm run selfplay -- play` plays (tests/stage_check.py compares the data).
@@ -13,11 +17,14 @@ stage game here is the same game as `npm run selfplay -- play` plays (tests/stag
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 from pathlib import Path
 
 import torch
 
 from .config import COVERED, GameConfig
+from .fingerprint import REPO
 NEUTRAL = "neutral"
 PHASE_NAMES = ["lobby", "setup", "capitals", "reinforce", "attack", "fortify", "finished"]  # engine.py LOBBY..FINISHED, log.ts PHASES
 
@@ -32,6 +39,60 @@ def parse_agents(token: str) -> tuple[list[str] | None, str | None, list[str] | 
             raise ValueError(f"{token!r}: a positions table needs its stage agents after '>'")
         return None, lead[4:], st
     return [a.strip() for a in lead.split(",")], None, st
+
+
+def parse_split(token: str) -> tuple[list[int] | None, list[str] | None]:
+    """'split:60/40>X,Y' -> ([60, 40], [X, Y]); anything else -> (None, None). Shares as scenario.ts parseSplit."""
+    if not token.startswith("split:"):
+        return None, None
+    lead, sep, stage = token.partition(">")
+    st = [a.strip() for a in stage.split(",")] if sep else []
+    try:
+        shares = [int(x) for x in lead[6:].split("/")]
+    except ValueError:
+        shares = []
+    if len(shares) < 2 or min(shares) < 5 or sum(shares) != 100:
+        raise ValueError(f"{token!r}: want 2 or more whole-number shares of at least 5 that add up to 100, e.g. split:60/40>X,Y")
+    if len(st) != len(shares):
+        raise ValueError(f"{token!r}: a {lead[6:]} split needs {len(shares)} stage agents after '>'")
+    return shares, st
+
+
+# Reads a JSON list of {shares, options, seats, seed} on stdin, writes one SplitPosition per line (no shell metacharacters:
+# on Windows the command line goes through cmd.exe)
+SPLIT_JS = ("import * as s from './packages/selfplay/dist/index.js'; import { readFileSync } from 'node:fs';"
+            " for (const r of JSON.parse(readFileSync(0, 'utf8'))) console.log(JSON.stringify(s.splitPosition(r.shares, r.options, r.seats, r.seed)));")
+
+
+def split_positions(requests: list[dict]) -> list[dict]:
+    """scenario.ts splitPosition for each request ({shares, options, seats, seed}), from the built self-play package."""
+    if not requests:
+        return []
+    r = subprocess.run(["node", "--input-type=module", "-e", SPLIT_JS], cwd=REPO, input=json.dumps(requests), capture_output=True,
+                       text=True, shell=os.name == "nt")
+    if r.returncode:
+        raise RuntimeError(f"drawing ratio scenarios failed (npm run build first?): {r.stderr}")
+    out = [json.loads(line) for line in r.stdout.splitlines() if line.strip()]
+    if len(out) != len(requests):
+        raise RuntimeError(f"asked node for {len(requests)} ratio scenarios, got {len(out)}")
+    return out
+
+
+class SplitSource:
+    """Ratio scenarios on demand: one node call draws the asked game's position and those of the next games in the
+    queue (`ahead`), kept until their games start, so a run calls node once per few hundred games."""
+
+    def __init__(self):
+        self.cache: dict = {}
+        self.calls = 0
+
+    def get(self, key, request: dict, ahead: list[tuple]) -> dict:
+        if key not in self.cache:
+            want = [(key, request)] + [(k, q) for k, q in ahead if k not in self.cache and k != key]
+            for (k, _), p in zip(want, split_positions([q for _, q in want])):
+                self.cache[k] = p
+            self.calls += 1
+        return self.cache.pop(key)
 
 
 def read_positions(path: str | Path, alive: int) -> list[dict]:

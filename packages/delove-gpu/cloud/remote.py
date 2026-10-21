@@ -322,6 +322,8 @@ def ready(pod: Pod, ssh: Ssh) -> bool:
 # ---- the job a pod gets --------------------------------------------------------------------------------------------------
 def table_line(t) -> str:
     agents = ",".join(t.agents) + (">" + ",".join(t.stage) if t.stage else "")  # a stage table's lead-in>stage agents
+    if t.split:  # a ratio-scenario table: split:SHARES>stage agents (the table size is maxPlayers in its options)
+        agents = "split:" + "/".join(map(str, t.split)) + ">" + ",".join(t.stage)
     return " ".join([t.name, str(t.games), agents, *([str(t.start)] if t.start else []), json.dumps(t.options, separators=(",", ":"))])
 
 

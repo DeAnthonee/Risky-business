@@ -79,6 +79,18 @@ class DeloveNet(nn.Module):
         return logits, value
 
 
+def grow_rounds(model, old_rounds):
+    """Network surgery: the blocks from `old_rounds` on are new; zero each one's last layer so it passes its input
+    through unchanged (x + 0), so the grown network plays exactly like the one it came from, then learns.
+    (Adding rounds is exact; widening `hidden` is not, because LayerNorm's statistics change with the width.)"""
+    import torch as _t
+    with _t.no_grad():
+        for block in model.blocks[old_rounds:]:
+            last = block.mix[2]
+            last.weight.zero_()
+            last.bias.zero_()
+
+
 def segment_log_softmax(logits, seg, n_seg):
     """log softmax of `logits` within each segment (decision)."""
     mx = torch.full((n_seg,), float("-inf"), device=logits.device, dtype=logits.dtype)

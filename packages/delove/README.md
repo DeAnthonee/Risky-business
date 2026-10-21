@@ -742,6 +742,13 @@ Sensei 2 (2p). Panel gates are reported, never pooled into the SPRT. Copy each c
   value's R² on final points (0.372 both) don't move in a short fine-tune. So it is a sharp, cheap position signal
   for later uses (a low-noise baseline for credit, or an after-move evaluator to cut rollouts) rather than a gain on
   its own; it reads the board before the move, so it can't rank one decision's options yet.
+- `--grow-rounds N` (with `--init`): network surgery. The network grows to N message-passing rounds; the new rounds
+  are added after the old ones with their last layer at zero, so each passes its input through and the grown network
+  starts as exactly the same player (outputs bit-identical, `python packages/delove/python/test_grow.py`), then
+  learns. OpenAI Five changed its architecture about 20 times in ten months this way without restarting. Adding rounds
+  is exact; widening `--hidden` is not (LayerNorm's statistics change with the width). 6 to 8 rounds adds about 25%
+  parameters and training time; checkpoints, ONNX export and the GPU mirror's network read the round count from the
+  config, so nothing else changes. Cycle 14 trains it as a second candidate next to the plain fine-tune (#PR).
 - `--device cpu|cuda`: where to train (default cuda when available).
 - `--alive LO-HI` (range specialists): only decisions with LO..HI players alive.
 - Keep a batch within the card: on big maps (Greater Europe, Fantasy) batch 1024 spilled past the RTX 4060's 8 GB into

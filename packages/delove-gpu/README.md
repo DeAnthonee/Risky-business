@@ -596,7 +596,8 @@ python cloud/remote.py terminate --all       # end them all
 
 `--commit` (default `HEAD`) is the commit the pods run, by `git archive`, so it need not be pushed; uncommitted
 changes to the mirror, engine or self-play are warned about, since the pods will not have them. `--cache` (default
-`_cache/`) uploads the NVRTC kernels and odds tables: the cache key holds the GPU's compute capability and the
+`delove_gpu/_cache/`, where `fused.py` keeps them) uploads the NVRTC kernels (the 240 MB odds tables are built on each pod, once, before its
+lanes start): the cache key holds the GPU's compute capability and the
 PyTorch version, so the 4060's kernels load on a 4090 (both Ada, sm_89) and other GPUs compile their own (about a
 minute per configuration). `--verify '<verify.py args>'` runs `verify.py --models` on each pod before its games.
 

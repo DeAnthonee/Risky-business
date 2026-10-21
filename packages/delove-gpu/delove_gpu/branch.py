@@ -476,7 +476,8 @@ class GpuBranch:
         live = torch.zeros(S, dtype=torch.uint8, device=dev)
         se._launch_t("k_branch_start", S, *se._state(), sd, a1, a2, ar, mv, stop, live, cfg.horizon, S)
         per = max(1, max_rows // se.m.T)
-        act = torch.full((se.B,), -1, dtype=torch.long, device=dev)
+        act = torch.full((S,), -1, dtype=torch.long, device=dev)
+        grid, block = ((S + se.BLOCK - 1) // se.BLOCK, 1, 1), (se.BLOCK, 1, 1)  # the rules kernels over the S copies only
         while True:
             if self.roll == ROLL_SELF:
                 se._launch_t("k_branch_roll", S * se.sim_lanes, *se._state(), *se._tp(), ar, mv, stop, live, me, ROLL_SELF, S)
@@ -487,7 +488,8 @@ class GpuBranch:
             idx = need.nonzero(as_tuple=True)[0]
             if idx.numel() == 0:
                 break
-            mask = se.legal()
+            se.k["k_legal"](grid=grid, block=block, args=[*se._state(), se._mask, S])
+            mask = se._mask
             nl = mask[idx].sum(1)
             live[idx[nl == 0]] = 0  # no move: the rollout ends (branch.ts: no candidates)
             act.fill_(-1)
@@ -504,9 +506,8 @@ class GpuBranch:
                 full = torch.full((g.numel(), mask.shape[1]), float("-inf"), device=dev)
                 full[bi, a] = lg.float()
                 act[g] = first_max(full, self.roll_order)
-            moved = act[:S] >= 0
-            mv += (moved & ~((act[:S] >= L.FFROM) & (act[:S] < L.FTO))).long()  # a fortify is one move of two steps
-            se._launch("k_step", act, se.B, BIG_TURNS)
+            mv += ((act >= 0) & ~((act >= L.FFROM) & (act < L.FTO))).long()  # a fortify is one move of two steps
+            se.k["k_step"](grid=grid, block=block, args=[*se._state(), act, S, BIG_TURNS])
             self.roll_steps += 1
         se._launch_t("k_branch_score", S, *se._state(), a1, me, self.w, self.mode, self.place, out, S)
 

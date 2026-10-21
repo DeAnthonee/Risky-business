@@ -361,9 +361,9 @@ tables with LLM characters, with fog of war on. In order:
    points per game pooled over 4-10 players) and in the decider's seat only (-0.43; even at 4, -0.95 at 10), even to
    slightly ahead at 2 players, at 10-30x the cost per decision. What did help is **more options**: 4 or 5 options with
    Jacob rollouts gain +0.23 / +0.28 points per game pooled at 4-10 players (4 options also 0.534 at Classic 2p) at
-   about the same GPU cost, so the recommendation for the next cycle is `DELOVE_BRANCH_OPTIONS=4`. Network rollouts
-   become worth retrying once a network beats Jacob in multiplayer; a stronger teacher otherwise has to come from
-   elsewhere (more dice copies, a tuned Jacob 2, or a value-guided search).
+   about the same GPU cost (cycles 10 and 11 ran with 4 and 5 options). Network rollouts become worth retrying once a
+   network beats Jacob in multiplayer; otherwise the stronger teacher comes from elsewhere (Jacob Sensei 2, more dice
+   copies, a value-guided search).
 2. **Stage-focused games for the specialists.** Generate positions where 3 players or 2 players remain (from
    cycle games and from saved game records, which can start a game from a position), so Mid Range and Close Range
    learn from lessons aimed at their stage, not a slice of the old ones (cycle 7's lesson). Test each specialist on

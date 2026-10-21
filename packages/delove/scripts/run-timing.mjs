@@ -126,7 +126,7 @@ function cpuStep(sdir, step) {
     const start = born(stat(`${base}.err`)) ?? end - (r.seconds ?? 0) * 1000;
     let map = 'classic';
     try { map = JSON.parse(options || '{}').map ?? 'classic'; } catch { /* default */ }
-    const seats = agents.split(',').length;
+    const seats = agents.split('>')[0].split(',').length; // a stage table: LEAD>STAGE
     chunks.push({ name: `${g}-c${st}`, start, end, games: r.games, turnLimit: r.turnLimit ?? 0 });
     const k = `${map}/${seats}p`;
     const e = groups.get(k) ?? { cfg: k, tables: new Set(), games: 0, decisions: 0, turnLimit: 0, threadSeconds: 0 };

@@ -1,7 +1,8 @@
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { GameOptions } from '@risk/engine';
-import { playGame, type GameResult, type Seat } from './game.js';
+import type { Agent } from './agents.js';
+import { playGame, type GameConfig, type GameResult, type Seat } from './game.js';
 import { JsonlWriter, writeLogMeta } from './log.js';
 import { gameSeed } from './seed.js';
 
@@ -17,6 +18,13 @@ export interface BatchConfig {
   /** Seed of game i. Default gameSeed(seed, i). */
   seedOf?: (i: number) => number;
   options?: Partial<GameOptions>;
+  /**
+   * Stage-focused games (positions.ts): `agents` take the survivors' seats once `alive` real players remain (game i
+   * rotates them by i), and only those decisions are recorded.
+   */
+  stage?: { alive: number; agents: Agent[] };
+  /** Game i begins from this state instead of a new game (positions.ts startState); `seats(i)` must match it. */
+  start?: (i: number, seed: number) => GameConfig['start'];
   maxTurns?: number;
   onIllegal?: 'throw' | 'surrender';
   /**
@@ -50,10 +58,13 @@ export async function runBatch(cfg: BatchConfig): Promise<GameSummary[]> {
   try {
     for (let i = first; i <= last; i++) {
       const t0 = performance.now();
+      const seed = seedOf(i);
       const result = playGame({
         id: `g${i}`,
-        seed: seedOf(i),
+        seed,
         seats: cfg.seats(i),
+        ...(cfg.stage ? { stage: { ...cfg.stage, rotate: i } } : {}),
+        ...(cfg.start ? { start: cfg.start(i, seed) } : {}),
         options: cfg.options,
         maxTurns: cfg.maxTurns,
         onIllegal: cfg.onIllegal,

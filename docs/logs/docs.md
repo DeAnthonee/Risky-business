@@ -7,6 +7,7 @@ in `docs/http-api.md`) goes in that area's log instead.
 Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. **Append a line in the same PR** as any change to
 this area (README hard rule 12).
 
+- 2026-10-20 #137 game-records.md: starting positions for training (`npm run selfplay -- positions`)
 - 2026-10-20 #119 new docs/leaderboard-seasons.md (archive the board with one admin call or a `RANKINGS_SEASON` bump, view past seasons, never touch `ranking.ts` or `RULE_FILES`); README table of contents line; conventions.md server pointer
 - 2026-10-20 #102 README table of contents counts twelve boards; CONTRIBUTING section 5 notes `walls` for chokepoints; docs/map-making.md no longer says `walls` is pending
 - 2026-10-20 #101 how to make a new map (`docs/map-making.md`: design rules, `walls` chokepoints, previews, registration checklist, workflow, map status tracker), `scripts/preview-map.mjs`, `npm run maps:status` (`scripts/map-status.mjs`), the New map issue template and the PR template's New map checklist; pointers in CONTRIBUTING, conventions and the README table of contents

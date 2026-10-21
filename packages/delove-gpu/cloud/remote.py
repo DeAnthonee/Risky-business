@@ -18,6 +18,10 @@ longest-first by their measured cost (the "games in s (batch B)" lines of earlie
 
 Everything after `--` goes to delove_gpu.generate unchanged (cycle.sh builds it as for a local GPU step).
 
+One bad pod never sinks the run: a pod that is not reachable in time, fails its upload or start, or ends with lanes
+unplayed is terminated and replaced (--replacements, --ready-minutes); steps that could not be finished are left
+unmerged and the run exits 1, the others are merged.
+
 Pods end on every path: this script terminates each pod as soon as its arrays are downloaded, and every pod it
 created on failure, timeout or Ctrl+C (and the ids are kept in OUT/remote/pods.json for `terminate`). Inside each pod
 a watchdog terminates it at the run's deadline even if this script dies (runpodctl, with the pod's own key). The
@@ -280,21 +284,21 @@ class Ssh:
             f.unlink(missing_ok=True)
 
 
-def wait_ready(pod: Pod, ssh: Ssh, timeout_s: float):
-    t0 = time.time()
-    while time.time() - t0 < timeout_s:
+def ready(pod: Pod, ssh: Ssh) -> bool:
+    """One look (no waiting): the pod has a public IP and port 22 mapped, and its sshd answers."""
+    try:
         r = api("GET", f"/pods/{pod.id}")
-        ports = r.get("portMappings") or {}
-        if r.get("publicIp") and ports.get("22"):
-            pod.ip, pod.port = r["publicIp"], int(ports["22"])
-            pod.cost = float(r.get("costPerHr") or pod.cost)
-            try:
-                if ssh.run(pod, "echo ok", timeout=40).strip() == "ok":
-                    return
-            except (RuntimeError, subprocess.TimeoutExpired):
-                pass
-        time.sleep(10)
-    raise RuntimeError(f"pod {pod.name} not reachable over SSH after {timeout_s / 60:.0f} min")
+    except RunPodError:
+        return False
+    ports = r.get("portMappings") or {}
+    if not (r.get("publicIp") and ports.get("22")):
+        return False
+    pod.ip, pod.port = r["publicIp"], int(ports["22"])
+    pod.cost = float(r.get("costPerHr") or pod.cost)
+    try:
+        return ssh.run(pod, "echo ok", timeout=40).strip() == "ok"
+    except (RuntimeError, subprocess.TimeoutExpired):
+        return False
 
 
 # ---- the job a pod gets --------------------------------------------------------------------------------------------------
@@ -380,6 +384,49 @@ def git_check(commit: str):
         print(f"WARNING: uncommitted changes the pods will not have (they run {commit}):\n{dirty}")
 
 
+@dataclass
+class Slot:
+    """One planned pod's share of the lanes. A pod that never becomes reachable, fails its upload or start, or ends
+    with lanes unplayed is terminated and a replacement takes over what is left (at most --replacements times)."""
+    k: int
+    lanes: list
+    tries: int = 0
+    pod: Pod | None = None
+    retry_at: float = 0.0
+    create_fails: int = 0
+    done: bool = False
+    failed: str = ""
+
+
+def lane_dir(work: Path, lane: Lane, step: str) -> Path:
+    return work / f"pod-{lane.pod}" / "lanes" / str(lane.index) / step
+
+
+def todo(work: Path, lane: Lane) -> Lane | None:
+    """The lane with only the steps it has not delivered yet (None when it has delivered all of them)."""
+    units = [u for u in lane.units if not (lane_dir(work, lane, u.step) / "gpu.json").exists()]
+    return Lane(lane.index, lane.pod, lane.gpu, units) if units else None
+
+
+def collect(work: Path, slot: Slot, tar: Path):
+    """Keep every lane and step of a pod's out.tar.gz that delivered its gpu.json, as work/pod-<k>/lanes/<i>/<step>."""
+    tmp = work / f"attempt-{slot.k}-{slot.tries}"
+    shutil.rmtree(tmp, ignore_errors=True)
+    extract(tar, tmp)
+    dest = work / f"pod-{slot.k}"
+    dest.mkdir(parents=True, exist_ok=True)
+    for f in ("env.json", "setup.log", "verify.log"):
+        if (tmp / f).exists():
+            shutil.copyfile(tmp / f, dest / f)
+    for d in sorted((tmp / "lanes").glob("*/*")):
+        if d.is_dir() and (d / "gpu.json").exists():
+            target = dest / "lanes" / d.parent.name / d.name
+            shutil.rmtree(target, ignore_errors=True)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(d), str(target))
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
 def run(args, gen_args: list[str]):
     out = Path(args.out)
     work = out / "remote"
@@ -406,45 +453,131 @@ def run(args, gen_args: list[str]):
 
     torch_version = args.torch or md.version("torch")
     model_files = needed_models(units, gen_args, Path(args.models))
-    # The hard limit: every pod is terminated when the cap's share of wall time is spent, whatever the plan said.
+    for old in list(work.glob("pod-*")) + list(work.glob("attempt-*")):  # a previous run's lanes may be another plan's
+        shutil.rmtree(old, ignore_errors=True)
+    # The hard limit: no more pods run at once than the plan has, and all of them are terminated when the cap's share
+    # of wall time is spent, whatever the plan said. A replacement's watchdog gets only the time that is left.
     timeout_s = args.max_gpu_hours * 3600 / (len(pods_used) * args.gpus)
-    deadline_s = int(timeout_s + 900)
     ssh = Ssh(work)
     pods: list[Pod] = []
+    slots = [Slot(k, [lane for lane in lanes if lane.pod == k]) for k in pods_used]
     ledger = work / "pods.json"
     t0 = time.time()
+    stamp = dt.datetime.now().strftime("%m%d-%H%M")
+    verify = shlex.split(args.verify) if args.verify else None
 
     def save():
         ledger.write_text(json.dumps([p.__dict__ for p in pods], indent=1), encoding="utf8")
 
-    failed = []
-    try:
-        stamp = dt.datetime.now().strftime("%m%d-%H%M")
-        for k in pods_used:
-            p = create_pod(f"{PREFIX}{args.name}-{stamp}-{k}", args, ssh.pub, deadline_s)
-            p.lanes = [lane.index for lane in lanes if lane.pod == k]
-            pods.append(p)
-            save()
-            print(f"pod {p.name} ({p.id}) created, ${p.cost:.2f}/h", flush=True)
-        for k, p in zip(pods_used, pods):
-            wait_ready(p, ssh, 900)
-            print(f"pod {p.name} ready at {p.ip}:{p.port} (${p.cost:.2f}/h)", flush=True)
-            tar = build_upload(work, k, [lane for lane in lanes if lane.pod == k], gen_args, model_files, cache, commit, torch_version,
-                               shlex.split(args.verify) if args.verify else None)
+    def give_up(slot: Slot, why: str):
+        slot.failed = why
+        print(f"  slot {slot.k}: giving up ({why})", flush=True)
+
+    def drop(slot: Slot, why: str):
+        """The slot's pod failed: terminate it; a replacement takes over what is left at the next pass."""
+        p = slot.pod
+        print(f"  pod {p.name}: {why}", flush=True)
+        if p.ip and not p.gone:
             try:
-                ssh.put(p, tar, "/root/upload.tar")
-            finally:
-                tar.unlink(missing_ok=True)  # it holds the models
-            ssh.run(p, "mkdir -p /root/job && tar -xf /root/upload.tar -C /root/job && rm /root/upload.tar && "
-                       "(setsid nohup bash /root/job/worker.sh /root/job > /root/job/worker.out 2>&1 < /dev/null &)")
-            p.state = "running"
+                ssh.run(p, "rm -rf /root/job/models", timeout=30, check=False)
+            except Exception:  # noqa: BLE001 - terminating matters more
+                pass
+        terminate(p)
+        p.state = "failed"
+        slot.pod = None
+        slot.retry_at = 0.0
+        save()
+
+    def launch(slot: Slot):
+        left = [lane for lane in (todo(work, lane) for lane in slot.lanes) if lane]
+        if not left:
+            slot.done = True
+            return
+        if slot.tries > args.replacements:
+            give_up(slot, f"{slot.tries} pods tried")
+            return
+        remaining = timeout_s - (time.time() - t0)
+        need = (SETUP_MIN + max(lane.minutes for lane in left) / args.speed + 5) * 60
+        if slot.tries and remaining < need:
+            give_up(slot, f"{remaining / 60:.0f} min left, its lanes need about {need / 60:.0f}")
+            return
+        slot.tries += 1
+        try:
+            p = create_pod(f"{PREFIX}{args.name}-{stamp}-{slot.k}" + (f"r{slot.tries - 1}" if slot.tries > 1 else ""), args, ssh.pub,
+                           int(remaining + 900))
+        except RunPodError as e:
+            slot.tries -= 1  # nothing was rented
+            slot.create_fails += 1
+            if slot.create_fails >= 10:
+                give_up(slot, f"no pod after 10 tries ({e})")
+            else:
+                print(f"  slot {slot.k}: no pod ({e}); trying again in a minute", flush=True)
+                slot.retry_at = time.time() + 60
+            return
+        p.lanes = [lane.index for lane in left]
+        slot.pod = p
+        pods.append(p)
+        save()
+        print(f"pod {p.name} ({p.id}) created for lanes {p.lanes}{' (replacement)' if slot.tries > 1 else ''}, ${p.cost:.2f}/h", flush=True)
+
+    def start(slot: Slot):
+        p = slot.pod
+        left = [lane for lane in (todo(work, lane) for lane in slot.lanes) if lane]
+        tar = build_upload(work, slot.k, left, gen_args, model_files, cache, commit, torch_version, verify)
+        try:
+            ssh.put(p, tar, "/root/upload.tar")
+        finally:
+            tar.unlink(missing_ok=True)  # it holds the models
+        ssh.run(p, "mkdir -p /root/job && tar -xf /root/upload.tar -C /root/job && rm /root/upload.tar && "
+                   "(setsid nohup bash /root/job/worker.sh /root/job > /root/job/worker.out 2>&1 < /dev/null &)")
+        p.state = "running"
+        save()
+
+    def finish(slot: Slot, state: str):
+        p = slot.pod
+        dest = work / f"pod-{slot.k}.tar.gz"
+        try:
+            ssh.get(p, "/root/job/out.tar.gz", dest)
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, RuntimeError, ValueError):
+            print(f"  {p.name}: no out.tar.gz to download")
+        if dest.exists():
+            collect(work, slot, dest)
+            dest.unlink()
+        if all(todo(work, lane) is None for lane in slot.lanes):
+            ssh.run(p, "rm -rf /root/job/models", check=False)
+            terminate(p)
+            p.state = "done"
+            slot.pod, slot.done = None, True
             save()
+        else:
+            drop(slot, state if state != "done" else "done, but some lanes delivered nothing")
+
+    try:
         last = 0.0
-        while any(p.state == "running" for p in pods):
+        while any(not s.done and not s.failed for s in slots):
             if time.time() - t0 > timeout_s:
-                raise TimeoutError(f"the run reached its limit ({timeout_s / 60:.0f} min, --max-gpu-hours {args.max_gpu_hours})")
-            for k, p in zip(pods_used, pods):
-                if p.state != "running":
+                for s in slots:
+                    if not s.done and not s.failed:
+                        give_up(s, f"the run reached its limit ({timeout_s / 60:.0f} min, --max-gpu-hours {args.max_gpu_hours})")
+                break
+            loud = time.time() - last > 120
+            for s in slots:
+                if s.done or s.failed:
+                    continue
+                p = s.pod
+                if p is None:
+                    if time.time() >= s.retry_at:
+                        launch(s)
+                    continue
+                if p.state == "starting":
+                    if ready(p, ssh):
+                        print(f"pod {p.name} ready at {p.ip}:{p.port} (${p.cost:.2f}/h)", flush=True)
+                        try:
+                            start(s)
+                        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, RuntimeError, ValueError, OSError) as e:
+                            drop(s, f"upload or start failed ({type(e).__name__}: {str(e)[:200]})")
+                    elif time.time() - p.started > args.ready_minutes * 60:
+                        drop(s, f"not reachable over SSH after {args.ready_minutes:.0f} min")
                     continue
                 try:
                     status = ssh.run(p, "cat /root/job/status 2>/dev/null || echo missing; pgrep -f '[w]orker.sh' >/dev/null && echo alive || echo dead; for f in /root/job/lanes/*/*/gpu.log; do [ -f \"$f\" ] &&"
@@ -460,31 +593,15 @@ def run(args, gen_args: list[str]):
                         state = f"failed: the worker stopped while {state}"
                 else:
                     p.dead = 0
-                if time.time() - last > 120:
+                if loud:
                     print(f"[{dt.datetime.now():%H:%M:%S}] {p.name}: {state}", flush=True)
                     for line in lines[2:]:
                         print("    " + line.replace("/root/job/lanes/", "lane "), flush=True)
-                if state in ("done",) or state.startswith("failed"):
-                    dest = work / f"pod-{k}.tar.gz"
-                    try:
-                        ssh.get(p, "/root/job/out.tar.gz", dest)
-                    except (subprocess.CalledProcessError, RuntimeError, ValueError):
-                        print(f"  {p.name}: no out.tar.gz to download")
-                    ssh.run(p, "rm -rf /root/job/models", check=False)
-                    terminate(p)
-                    p.state = "done" if state == "done" else "failed"
-                    if state != "done":
-                        failed.append(f"{p.name}: {state}")
-                    save()
-                    if dest.exists():
-                        extract(dest, work / f"pod-{k}")
-                        dest.unlink()
-            if time.time() - last > 120:
+                if state == "done" or state.startswith("failed"):
+                    finish(s, state)
+            if loud:
                 last = time.time()
-            time.sleep(30)
-    except BaseException as e:
-        failed.append(f"{type(e).__name__}: {e}")
-        raise
+            time.sleep(15)
     finally:
         for p in pods:
             if not p.gone:
@@ -496,12 +613,15 @@ def run(args, gen_args: list[str]):
                 terminate(p)
         save()
         hours = sum(((p.ended or time.time()) - p.started) / 3600 for p in pods)
-        print(f"pods: {len(pods)}, {hours:.2f} pod-hours, about ${sum(((p.ended or time.time()) - p.started) / 3600 * p.cost for p in pods):.2f}")
+        print(f"pods: {len(pods)} ({len(pods) - len(slots)} replacements), {hours:.2f} pod-hours, "
+              f"about ${sum(((p.ended or time.time()) - p.started) / 3600 * p.cost for p in pods):.2f}")
         ssh.forget()
+    rc = merge_all(args, steps, lanes, work, pods, time.time() - t0)
+    failed = [f"slot {s.k} (lanes {[lane.index for lane in s.lanes]}): {s.failed}" for s in slots if s.failed]
     if failed:
-        print("FAILED:\n  " + "\n  ".join(failed))
+        print("FAILED (the steps they left incomplete were not merged; the others were):\n  " + "\n  ".join(failed))
         return 1
-    return merge_all(args, steps, lanes, work, pods, time.time() - t0)
+    return rc
 
 
 def merge_all(args, steps, lanes: list[Lane], work: Path, pods: list[Pod], seconds: float) -> int:
@@ -514,9 +634,13 @@ def merge_all(args, steps, lanes: list[Lane], work: Path, pods: list[Pod], secon
         if f.exists():
             env[f"pod {k}"] = json.loads(f.read_text(encoding="utf8"))
     for step, _ in steps:
+        missing = [lane.index for lane in lanes if any(u.step == step for u in lane.units) and not (lane_dir(work, lane, step) / "gpu.json").exists()]
+        if missing:
+            print(f"{step}: lanes {missing} delivered nothing; the step is not merged (run again to play it)")
+            continue
         parts, logs = [], []
         for lane in lanes:
-            d = work / f"pod-{lane.pod}" / "lanes" / str(lane.index) / step
+            d = lane_dir(work, lane, step)
             if (d / "gpu.json").exists():
                 parts.append((json.loads((d / "gpu.json").read_text(encoding="utf8")), d / "data"))
                 logs.append((lane, d / "gpu.log"))
@@ -590,6 +714,8 @@ def main(argv=None) -> int:
             p.add_argument("--image", default=IMAGE)
             p.add_argument("--disk-gb", type=int, default=80)
             p.add_argument("--verify", help="also run verify.py on each pod first, with these arguments (e.g. '--ranker delove@3')")
+            p.add_argument("--replacements", type=int, default=2, help="pods that may replace one that fails (per planned pod)")
+            p.add_argument("--ready-minutes", type=float, default=15, help="a pod not reachable over SSH by then is replaced")
             p.add_argument("--keep", action="store_true", help="keep the downloaded per-lane arrays after merging")
             p.add_argument("--yes", action="store_true", help="launch (without it: print the plan and cost only)")
     sub.add_parser("pods")

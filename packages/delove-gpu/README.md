@@ -613,7 +613,7 @@ is free and a cycle's generation is spread over several GPUs. Nothing in it is a
 | `cloud/remote.py` | runs on the training PC: splits the GPU steps over lanes, launches pods through the RunPod REST API, uploads, polls, downloads, terminates, merges (`plan`, `run`, `pods`, `terminate`) |
 | `cloud/worker.sh` | runs on a pod: unpacks the commit (`git archive`), Node 22, `npm ci` and builds the engine and self-play, installs the training PC's PyTorch version, loads the uploaded `_cache/` kernels, checks the fingerprint, runs every lane, deletes the models, packs `out.tar.gz` (gzip -1: the arrays shrink 11-25x) |
 | `cloud/merge.py` | joins several workers' map folders into one `DATA/<name>-<step>/<map>` (rows appended, `cand_offset` continued, `game` renumbered, counts summed; any per-row array such as `branch_tag.npy` included) and their summaries into the step's `gpu.json` |
-| `tests/cloud_check.py` | offline checks (no GPU, no pods): a real map folder cut into workers and merged back is identical game for game; the split places every table once and its jobs lines round-trip; `remote.py run` against a fake API terminates every pod on success, on a worker failure and on Ctrl+C |
+| `tests/cloud_check.py` | offline checks (no GPU, no pods): a real map folder cut into workers and merged back is identical game for game; the split places every table once and its jobs lines round-trip; `remote.py run` against a fake API and clock terminates every pod on every path, replaces an unreachable pod, a failed upload, a failed worker and a lane that delivered nothing, and exits 1 (after downloading the healthy pods) when a pod's share never gets played |
 
 **How a step is split.** The unit is a configuration (map, seats, settings): `generate` plays all of a configuration's
 tables in one engine, and a configuration takes about as long as its longest games whatever their number (a lockstep
@@ -639,6 +639,16 @@ terminated as soon as its arrays are downloaded, and every pod on failure, timeo
 killed). Inside each pod a watchdog in the start command terminates it at the run's deadline (cap + 15 minutes) with
 `runpodctl` and the pod's own key, even if the training PC is gone. Without `--yes`, `run` only prints the plan.
 
+**One bad pod never sinks the run.** All pods are watched at once. A pod that is not reachable over SSH within
+`--ready-minutes` (default 15), whose upload fails (retried 4 times) or whose start command fails, is terminated and
+a replacement takes over its lanes; so is a pod that ends with lanes that delivered no `gpu.json` (a lane that failed
+mid-run), and its replacement plays only those lanes, so the lanes it finished are kept. Each planned pod may be
+replaced `--replacements` times (default 2), and only while the time left still fits its lanes; a refused create
+(no stock) is retried every minute and does not count. No more pods run at once than the plan has, and a
+replacement's watchdog gets only the time that is left, so the GPU-hour cap still holds. When a planned pod's share
+cannot be finished, the other pods still play and download theirs, every step whose lanes all delivered is merged,
+the incomplete steps are not (no `gpu.json`, so a rerun plays them), and `run` exits 1.
+
 **Secrets and models.** The API key is read from `RUNPOD_API_KEY` (set by the owner in the environment) and only sent
 in the `Authorization` header: never printed, logged or written. SSH uses a fresh ed25519 key per run, generated
 under `OUT/remote/` and deleted at the end. The pods get only the models the tables need (each network seat's and the
@@ -647,7 +657,7 @@ are played, `remote.py` deletes them again before terminating, terminating destr
 volume is used), and the local upload tar is deleted right after the upload.
 
 **Running it.** From a cycle: `REMOTE_GPUS=6` (and `REMOTE_TIMINGS`, `REMOTE_MAX_GPU_HOURS`, `REMOTE_PROCS`,
-`REMOTE_GPU_TYPE`: one RunPod GPU type id or several comma-separated, tried in that order, `REMOTE_CLOUD`) makes cycle.sh hand every GPU step to `remote.py run` with the same generate
+`REMOTE_GPU_TYPE`: one RunPod GPU type id or several comma-separated, tried in that order, `REMOTE_CLOUD`, `REMOTE_REPLACEMENTS`, `REMOTE_READY_MINUTES`) makes cycle.sh hand every GPU step to `remote.py run` with the same generate
 arguments as a local step; progress goes to `OUT/remote.log`, the merged arrays to `DATA/<name>-<step>/<map>` and each
 step's `gpu.json` and `gpu.log` to `OUT/<step>/`, so training, `summary.mjs` and the dashboard are unchanged. By hand
 (from `packages/delove-gpu`; the generate arguments go after `--`):

@@ -154,6 +154,8 @@ if (( ${#gpu_steps[@]} )); then
       for t in ${REMOTE_TIMINGS:-}; do remote+=(--timings "$(abs "$t")"); done
       [[ -n ${REMOTE_GPU_TYPE:-} ]] && remote+=(--gpu-type "$REMOTE_GPU_TYPE")
       [[ -n ${REMOTE_CLOUD:-} ]] && remote+=(--cloud "$REMOTE_CLOUD")
+      [[ -n ${REMOTE_REPLACEMENTS:-} ]] && remote+=(--replacements "$REMOTE_REPLACEMENTS")
+      [[ -n ${REMOTE_READY_MINUTES:-} ]] && remote+=(--ready-minutes "$REMOTE_READY_MINUTES")
       gen_args || exit 1
       "$python" packages/delove-gpu/cloud/remote.py run "${remote[@]}" -- "${args[@]}" > "$out/remote.log" 2>&1         || { echo "FAILED remote GPU steps (see $out/remote.log)"; exit 1; }
       stamp "generated and exported the GPU steps (remote, $REMOTE_GPUS GPUs)"

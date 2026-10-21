@@ -176,4 +176,37 @@ describe('game archive', () => {
       await risk.shutdown('test');
     }
   });
+
+  it('serves finished games as public match history, newest first, without boards', async () => {
+    const dir = dataDir();
+    const store = new Store(join(dir, 'games.json'));
+    const first = startedGame(store);
+    play(first, 10_000);
+    const second = startedGame(store);
+    play(second, 10_000, 9);
+    const closed = startedGame(store);
+    play(closed, 30);
+    store.delete(closed.id, 'host');
+    const risk = createRiskServer(store, { clientDir: null, adminToken: 'sekret', sweepIntervalMs: 0 });
+    await new Promise<void>((resolve) => risk.server.listen(0, '127.0.0.1', resolve));
+    const base = `http://127.0.0.1:${(risk.server.address() as AddressInfo).port}/api/history`;
+    try {
+      const res = await fetch(base);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { enabled: boolean; games: Record<string, unknown>[] };
+      expect(body.enabled).toBe(true);
+      // The closed game has no winner and is left out; the newest finished game comes first.
+      expect(body.games.map((g) => g.room)).toEqual([second.id, first.id]);
+      expect(body.games[0]).toMatchObject({ name: 'Archive test', fog: true, scenario: false, winner: { id: second.state.winner } });
+      expect(body.games[0]).not.toHaveProperty('file');
+      expect(body.games[0]).not.toHaveProperty('steps');
+      const players = body.games[0].players as { name: string; place: number }[];
+      expect(players.map((p) => p.name).sort()).toEqual(['Alice', 'Bob']);
+      expect(players.map((p) => p.place).sort()).toEqual([1, 2]);
+      const one = (await (await fetch(`${base}?limit=1`)).json()) as { games: unknown[] };
+      expect(one.games).toHaveLength(1);
+    } finally {
+      await risk.shutdown('test');
+    }
+  });
 });

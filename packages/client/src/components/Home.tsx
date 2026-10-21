@@ -1,5 +1,6 @@
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { Leaderboard } from './Profiles';
+import { MatchHistory } from './MatchHistory';
 import { MapPreview, MapThumb } from './MapPreview';
 import { MAPS, MAP_IDS, maxBlizzards, type GameOptions } from '@risk/engine';
 import { api, type GameSummary, type TournamentSummary } from '../api';
@@ -160,6 +161,8 @@ export function Home({
   const sorted = [...games].sort((a, b) => phaseOrder(a) - phaseOrder(b) || b.updatedAt - a.updatedAt);
   const live = games.filter((g) => g.phase !== 'lobby' && g.phase !== 'finished').length;
   const waiting = games.filter((g) => g.joinable).length;
+  // A finished room stays up for a while: its final board can be opened from the match history.
+  const finishedRooms = new Set(games.filter((g) => g.phase === 'finished').map((g) => g.id));
 
   return (
     <div className="home p5">
@@ -253,6 +256,7 @@ export function Home({
         </section>
 
         <Leaderboard />
+        <MatchHistory openRooms={finishedRooms} onWatch={onSpectate} />
       </div>
 
       {tournaments.length > 0 && (

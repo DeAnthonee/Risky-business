@@ -52,6 +52,24 @@ export interface TournamentSummary {
   updatedAt: number;
 }
 
+/** One finished game in the match history (GET /api/history): the outcome only, never a board. */
+export interface MatchSummary {
+  id: string;
+  /** The room it was played in (still open for a while after the game ends). */
+  room: string;
+  name: string;
+  map: string;
+  fog: boolean;
+  tournamentId?: string;
+  scenario: boolean;
+  startedAt: number;
+  endedAt: number;
+  winner: { id: string; name: string };
+  reason: 'domination' | 'capitals' | null;
+  turns: number;
+  players: { id: string; name: string; isBot: boolean; characterId: string | null; place: number | null }[];
+}
+
 export type EntrantStatus = 'registered' | 'playing' | 'waiting' | 'out' | 'champion';
 
 export interface TournamentView {
@@ -94,6 +112,7 @@ export const api = {
   setOptions: (gameId: string, token: string, options: Partial<GameOptions>) =>
     request(`/games/${gameId}/options`, { method: 'POST', body: JSON.stringify({ options }) }, token),
   start: (gameId: string, token: string) => request(`/games/${gameId}/start`, { method: 'POST', body: '{}' }, token),
+  listHistory: (limit = 12) => request<{ enabled: boolean; games: MatchSummary[] }>(`/history?limit=${limit}`),
   listTournaments: () => request<{ tournaments: TournamentSummary[] }>('/tournaments'),
   getTournament: (id: string, token?: string) => request<{ tournament: TournamentView }>(`/tournaments/${id}`, {}, token),
   joinTournament: (id: string, playerName: string) =>

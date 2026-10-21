@@ -566,7 +566,7 @@ Getting under that needs a faster GPU per game (the first test below measures it
 
 **Cost and shutdown.** `plan` (and `run` before it launches) prints every lane with its configurations and minutes
 and the estimate: setup (~10 minutes) + the longest lane + download, times pods x GPUs x `--price` ($/GPU-hour;
-default 0.69, the pods report their real price). `--max-gpu-hours` (default 4) is a hard cap: `run` refuses a bigger
+default 0.89, a Secure Cloud RTX 4090 in October 2026; the pods report their real price). `--max-gpu-hours` (default 4) is a hard cap: `run` refuses a bigger
 estimate, and terminates every pod when the cap's share of wall time is spent. Pods end on every path: each pod is
 terminated as soon as its arrays are downloaded, and every pod on failure, timeout or Ctrl+C (their ids are kept in
 `OUT/remote/pods.json`; `remote.py terminate --all` ends every `delove-*` pod of the account if this script was

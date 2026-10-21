@@ -565,7 +565,7 @@ def main(argv=None) -> int:
         p.add_argument("--procs", type=int, default=1, help="generate processes per GPU (lanes sharing a GPU)")
         p.add_argument("--share", type=float, default=1.6, help="how much slower each of --procs lanes on one GPU runs (estimate only)")
         p.add_argument("--speed", type=float, default=1.0, help="GPU speed vs the training PC's RTX 4060 (estimate only)")
-        p.add_argument("--price", type=float, default=0.69, help="$ per GPU-hour for the estimate (the pods report their real price)")
+        p.add_argument("--price", type=float, default=0.89, help="$ per GPU-hour for the estimate (a Secure Cloud RTX 4090, October 2026; the pods report their real price)")
         p.add_argument("--max-gpu-hours", type=float, default=4.0, help="hard cap: refuse a bigger estimate, terminate everything at it")
         p.add_argument("--cache", help="NVRTC kernels and odds tables to upload (default: packages/delove-gpu/_cache)")
         if name == "run":

@@ -151,6 +151,14 @@ def report(args):
                     dm, dci = mean_ci(d)
                     diff = f"{dm:+.3f} ± {dci:.3f} ({len(d)} pairs)"
             print(f"| {n} | {', '.join(tables)} | {v} | {len(pts)} | {m:+.3f} ± {ci:.3f} | {diff} |")
+    if len(by_size) > 1:  # every multiplayer game together, each pair counted once
+        for v in variants:
+            if v == args.baseline:
+                continue
+            d = [multi[k][v] - multi[k][args.baseline] for k in multi if v in multi[k] and args.baseline in multi[k]]
+            if d:
+                dm, dci = mean_ci(d)
+                print(f"| {min(by_size)}-{max(by_size)} pooled | all | {v} | {len(d)} | | {dm:+.3f} ± {dci:.3f} ({len(d)} pairs) |")
     if duel:
         print("\n2 players, head to head (both seat orders): the variant's win share against " + args.baseline)
         print("| table | games | win share (95%) | turn limit |")

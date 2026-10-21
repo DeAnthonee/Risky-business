@@ -167,6 +167,7 @@ Full tables: `packages/delove/CYCLES.md`. Summary, oldest first:
 | cycle 3 | horizon 1, 4x the 2-player data | 7.8k | 2p 0.525 | the student matched the teacher only 62-71% of the time |
 | cycle 4 | fresh, larger network | 7.8k | **`delove@3`** | **network size was the 2-player bottleneck** |
 | strength meter (#79) | fit share weights to final points (4.7k games, 5 maps) | | hand weights order players best (58% vs 56%) | share-based meters top out around 65%; richer signals needed |
+| network rollouts (#PRNUM) | `delove@5` playing the branch rollouts (every seat, or the decider's only), and 4-5 options, vs Jacob rollouts; same games, paired | 21k+ on rented 4090s | network in every seat **worse** at 4-6p (-0.23, -0.81 points/game); decider's seat only even; **5 options +0.25 to +0.48** (4 options +0.32 at 4p, 0.534 at 2p) at about the same GPU cost; network rollouts cost 10-25x per decision | **the rollout player should be the best multiplayer player we have** (Jacob): the network's weaker opponent play misleads the search. More options is the cheap gain |
 | cycle 8 | `delove@4` as ranker, Jacob Sensei, league settings, Bohemia and Nine Realms; small boards at home on 4 GPU lanes, huge boards on 8 rented RTX 4090s | 40k, 34 turn-limit | **`delove@5`**: +0.27 points per seat pooled at 4-10p, even at 2p | **new lessons beat re-splitting old ones**; the cloud played 7,500 huge-board games in 33 min for $5.45, bit-identical to home |
 | cycle 7 | range specialists (Long / Mid / Close Range) fine-tuned from `delove@4` on cycles 5-6 split by players alive, routed in one player | 0 new | even with `delove@4` (2p 0.501; +0.53 points at one league table) | **a split of the same lessons teaches little new**: specialists need phase-specific lessons |
 | cycle 6 | Jacob Sensei teacher, league settings, search-weighted lessons, cycle 5 as value-only data, AMP, 2 GPU lanes | 30k, 47.5M sims | **`delove@4`**: 2p 0.532, **league settings 0.65-0.73 (+0.4 to +1.2 points per seat)** | **train on the settings that are played**: the defaults-only cycles had a blind spot. 6.7 h: the 10-player huge boards took 5.9 h of generation |
@@ -285,6 +286,7 @@ Fog of war off (enforced by `delove-seat`); one seat per agent. For full environ
 | Jacob Sensei, a teacher that doesn't stall (section 9 item 1) | session "Jacob Sensei" | done, **PR #98** merged; GPU port (`delove_gpu/teacher.py`) done in **#110** (closes #99) |
 | all-map strength data | coordinator | 147 of 296 chunks (about 5k games, 5 maps), stopped to free the machine; finish on the GPU |
 | #39 tournament Earth map | other work | on hold (owner) |
+| network rollouts and more options for branch and score (section 9 item 1) | session "Delove-played rollouts" | done in **#PRNUM**: opt-in `DELOVE_BRANCH_ROLLOUT`, mirrored and replay-checked; not better than Jacob rollouts (every seat clearly worse at 4-6p); `DELOVE_BRANCH_OPTIONS=5` (or 4) is the measured gain for the next cycle |
 | re-verify the GPU fingerprint for the new `bohemia` (#100) and `nine_realms` (#102) maps | session "Points-aware branch score" | done in **#112** (4,764,579 steps identical; covers both maps, Jacob and the new branch scores) |
 
 ## 9. What comes next, and why
@@ -294,9 +296,13 @@ tables with LLM characters, with fog of war on. In order:
 
 1. **A stronger teacher.** Every real jump came from a stronger teacher (Sensei 2, Jacob Sensei with search) or a
    bigger network (cycle 4); more of the same games (cycle 5) or the same games re-split (cycle 7) did not. Jacob
-   Sensei still beats `delove@5` 0.69 at World 6p. Next: Delove itself playing the branch rollouts instead of the
-   hand-coded teacher, more options per decision and more dice copies, affordable now on cloud GPUs (`REMOTE_GPUS`).
-   Bar: the new branch player beats Jacob-rollout branch play at 4-10 players on points.
+   Sensei still beats `delove@5` 0.69 at World 6p. Tried (#PRNUM): Delove playing the branch rollouts does **not**
+   pass the bar (beat Jacob-rollout branch play at 4-10 players on points): in every seat it is clearly worse at 4-6
+   players, in the decider's seat only it is even, at 10-25x the cost. What did help is **more options**: 5 options
+   with Jacob rollouts gain +0.25 to +0.48 points per game at 4-6 players at about the same GPU cost, so the recommendation for the next cycle is
+   `DELOVE_BRANCH_OPTIONS=5`. Network rollouts become worth retrying once a network beats Jacob in multiplayer;
+   a stronger teacher otherwise has to come from elsewhere (more dice copies, a tuned Jacob 2, or a value-guided
+   search).
 2. **Stage-focused games for the specialists.** Generate positions where 3 players or 2 players remain (from
    cycle games and from saved game records, which can start a game from a position), so Mid Range and Close Range
    learn from lessons aimed at their stage, not a slice of the old ones (cycle 7's lesson). Test each specialist on

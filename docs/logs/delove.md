@@ -7,6 +7,7 @@ numbers go in [packages/delove/CYCLES.md](../../packages/delove/CYCLES.md) and t
 Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. **Append a line in the same PR** as any change to
 this area (README hard rule 12).
 
+- 2026-10-21 #PRNUM Network rollouts for branch and score (`DELOVE_BRANCH_ROLLOUT=<model>[:self]`, branch.ts `rolloutNet`, opt-in; golden 57/57): measured against Jacob rollouts on 21,000 paired games, worse at 4-10 players (every seat -0.52, decider's seat -0.43 points/game pooled), even at 2p; 4-5 options with Jacob rollouts +0.23 / +0.28 points/game (recommended `DELOVE_BRANCH_OPTIONS=4`); `cycle.sh` passes `DELOVE_BRANCH_ROLLOUT` to GPU steps; README section and delove-status sections 5, 8, 9
 - 2026-10-20 #127 Cycle 8: `delove@5` (40k games, half the big boards on cloud GPUs); `cycle.sh` `GENERATE_ONLY`; delove-status: the owner's target (three specialists + housing, fog required) and a new section 9
 - 2026-10-20 #120 Cycle 7: range specialists from `delove@4` (`scripts/cycles/c7-specialists.sh`), even with `delove@4`, not promoted; CYCLES.md and delove-status sections 5, 8
 - 2026-10-20 #116 Cycle 6: `delove@4` (Jacob Sensei teacher, league settings, search-weighted lessons); `train.py` `:value` mode and `--branch-weights`; `cycle.sh` `GPU_LANES=N`; CYCLES.md and delove-status sections 3, 5, 8

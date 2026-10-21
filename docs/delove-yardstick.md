@@ -62,10 +62,11 @@ games: mean -2.5 points, mean place 5.5, out in round 3 both times. Delove made 
   comparing a new model against these rows.
 - Five or six games are a small sample. A real comparison needs more games per tier, ideally with seat order rotated.
 
-### Baseline 2: delove@8 + search, card counts fixed (games 7-12)
+### Baseline 2: delove@8 + search (JS2, range, h2/m0.02), card counts fixed (games 7-12)
 
 The same lineup, settings, seat brief and stop rule as games 1-6 (game 7 again uses the pilot's settings), played
-2026-10-21 by the **default live seat from #154**, "Delove Search": branch and score with `delove@8` ranking the moves
+2026-10-21 by the live search seat "Delove Search" with the settings that are now #154's opt-in `--preset js2-range`
+(#154's default became #142's measured setup before merging): branch and score with `delove@8` ranking the moves
 (pinned with `DELOVE_BRANCH_RANKER=delove@8`; delove@9 was promoted during the run), Jacob Sensei 2 rollouts,
 5 options per decision, the range score, horizon 2 and margin 0.02. The seat reads opponents' real card counts (#143).
 "Attacked early" is how many LLM seats attacked Delove in rounds 1-2: from the server's event log for games 9-12
@@ -87,6 +88,7 @@ The same lineup, settings, seat brief and stop rule as games 1-6 (game 7 again u
 | Haiku (pilot settings, 1 game) | 2nd, +2, 0 kills | 1st, +7, 4 kills |
 | Sonnet (3 games) | mean -1.0 points, place 4.3, 0 kills | mean -3.0, place 6.0, 0 kills |
 | Opus (2 games) | mean -2.5 points, place 5.5, 0 kills | mean +3.0, place 2.5, 4 kills |
+| kills, all six games | 0 | 8 |
 
 - The Sonnet seats went for Delove at once in every game: three of them attacked it in rounds 1-2 where counted, and it
   was always the first player out (rounds 1-5). Against Opus and Haiku fewer seats attacked early (1-2), Delove
@@ -110,11 +112,12 @@ Same lineup, settings and stop rule, so the new rows compare with the ones above
    `capitals: false, chooseCapitals: false, blizzards: 0` instead (a copy of the script with those three values).
    With `RISK_CHARACTERS_KEY` in the environment the room goes on the training board (#138); without it the room is
    public, and it is still never ranked because it is closed when Delove is out.
-2. Seat Delove (it waits for the start). Since #154 the seat searches by default; pin the ranker so a promotion
-   mid-run doesn't change the model, and use `--agents delove@N` for the bare network:
+2. Seat Delove (it waits for the start). Since #154 the seat searches by default (`--preset measured`); add
+   `--preset js2-range` to repeat baseline 2's settings exactly, pin the ranker so a promotion mid-run doesn't change
+   the model, and use `--agents delove@N` for the bare network:
 
    ```bash
-   DELOVE_MODELS=<models folder> DELOVE_BRANCH_RANKER=delove@9 npm run delove-seat -- --server https://risky.deanthoneeking.com --join <gameId> --names "Delove Search" --pace 400
+   DELOVE_MODELS=<models folder> DELOVE_BRANCH_RANKER=delove@9 npm run delove-seat -- --server https://risky.deanthoneeking.com --join <gameId> --preset js2-range --names "Delove Search" --pace 400
    ```
 
 3. Start one agent per LLM seat on the tier's model (Haiku, Sonnet, Opus, Fable), each with

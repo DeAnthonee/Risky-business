@@ -732,7 +732,13 @@ def merge_all(args, steps, lanes: list[Lane], work: Path, pods: list[Pod], secon
                 f.write(f"==== lane {lane.index} (pod {lane.pod}, GPU {lane.gpu}) ====\n")
                 f.write(log.read_text(encoding="utf8", errors="replace"))
         (out / step / "gpu.json").write_text(json.dumps(merged, indent=2) + "\n", encoding="utf8")
-        where = data / f"{args.name}-{step}" if home == "full" else f"the volume ({VOL}/incoming/{args.name}/)"
+        # each game's result line (generate.py --results), as a local step's: score_compare.py and gates read it
+        with open(out / step / "results.jsonl", "w", encoding="utf8", newline="\n") as f:
+            for lane, log in logs:
+                res = log.parent / "results.jsonl"
+                if res.exists():
+                    f.write(res.read_text(encoding="utf8"))
+        where =data / f"{args.name}-{step}" if home == "full" else f"the volume ({VOL}/incoming/{args.name}/)"
         print(f"{step}: {merged['games']} games -> {where} ({', '.join(e['map'] for e in merged.get('export', []))})")
     if not args.keep:
         for lane in lanes:

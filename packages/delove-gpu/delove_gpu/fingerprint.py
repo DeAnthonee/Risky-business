@@ -48,6 +48,8 @@ RULE_FILES = [
     "packages/selfplay/src/encode.ts",
     "packages/selfplay/src/log.ts",
     "packages/selfplay/src/game.ts",
+    # stage games: who takes which survivor, positions from records and how they are reseeded (delove_gpu/stage.py)
+    "packages/selfplay/src/positions.ts",
     "packages/selfplay/src/traits.ts",
     # the GPU teacher, branch and score, and the training-array writer
     "packages/delove/src/teacher.ts",

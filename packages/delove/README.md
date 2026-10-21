@@ -140,6 +140,14 @@ many players are still alive. Each is fine-tuned from the best general model on 
   `delove-range@N`, which plays each decision with the network for the players still alive (`rangeOf`), each network's
   top move. Specialists named `delove-long@N` / `delove-mid@N` / `delove-close@N` (or a cycle's `cN-long` / `cN-mid` /
   `cN-close`) are also players on their own. A route to a missing model skips the router rather than failing games.
+- **Stage games (their own lessons).** Cycle 7 showed a split of the same games teaches the specialists little new.
+  `scripts/stage/mid.jobs` (3 alive) and `scripts/stage/close.jobs` (the 1v1 left at the end of a multiplayer game)
+  are tables whose agents read `LEAD>STAGE`: Jacob Sensei (with `delove@5` seats at every other table) plays a
+  league-settings game on the cycle 8 maps and table sizes until the stage's players are left, then the branch player
+  and its opponents take the survivors' seats and only that part is recorded. `pos:FILE>X,Y` plays instead from
+  positions captured from game records (`npm run selfplay -- positions`). They run like any jobs file: on the GPU
+  (`packages/delove-gpu` README, "Stage games"), as a `cycle.sh` step, or on the CPU with `scripts/generate.sh`; train
+  with `--alive 3-3` / `--alive 2-2` as above.
 - **Gate:** the router against the best single model at 2-10 players, judged on leaderboard points
   (`npm run delove -- ladder --candidate delove-range@1 --best delove@N --players 6 ...`). Keep it only if it wins.
 - Not on the GPU mirror yet: `delove_gpu.generate` / `ladder` would need a per-decision model choice by players alive in

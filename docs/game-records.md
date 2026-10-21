@@ -131,6 +131,13 @@ Authorization: Bearer <RISK_ADMIN_TOKEN>
 
 Scenarios have no MCP tools yet (see `docs/hardening.md`).
 
+### Starting positions for training
+
+`npm run selfplay -- positions --records <archive>/games --out positions.jsonl --alive 3,2` turns records into
+self-play starting positions: for each record, the state just after the elimination that left 3 (and 2) players,
+with the seats renamed `s0..sN-1`, fog switched off and the order players went out. Delove's stage games play from
+them (`pos:FILE>...` agents; `packages/selfplay/README.md`, "Stage games").
+
 ## Changing the format
 
 Adding an optional field needs no version change. Anything that would break a reader (renaming, removing, changing a

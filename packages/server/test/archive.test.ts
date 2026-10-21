@@ -58,6 +58,26 @@ describe('game archive', () => {
     store.stopTimers();
   });
 
+  it('numbers the index places 1..N when a surrender brings a neutral into the game', () => {
+    const dir = dataDir();
+    const store = new Store(join(dir, 'games.json'));
+    const { room } = store.create('Surrender test', { fogOfWar: false }, 'Alice');
+    room.join('Bob');
+    room.join('Cleo');
+    room.start();
+    play(room, 60);
+    const quitter = room.state.players.find((p) => p.alive && !p.isNeutral && p.id !== room.state.currentPlayer)!;
+    room.act(quitter.id, { type: 'surrender' });
+    play(room, 20_000);
+    expect(room.state.phase).toBe('finished');
+
+    const [entry] = store.archive.list();
+    expect(entry.players.map((p) => p.place).sort((a, b) => a! - b!)).toEqual([1, 2, 3]);
+    expect(entry.players.find((p) => p.id === quitter.id)!.place).toBe(3);
+    expect(store.archive.get(entry.id)!.outcome.placings).toHaveLength(3);
+    store.stopTimers();
+  });
+
   it('keeps recording the same game across a restart', () => {
     const dir = dataDir();
     const file = join(dir, 'games.json');

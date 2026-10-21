@@ -23,11 +23,12 @@ import {
 } from '../src/index.js';
 
 /** A bot game played to the end (or maxSteps), recorded the way the server records it. */
-function recordedGame(options: { fogOfWar: boolean }, maxSteps = 6000): { record: GameRecord; final: GameState } {
+function recordedGame(options: { fogOfWar: boolean }, maxSteps = 6000, surrender?: { player: string; atStep: number }): { record: GameRecord; final: GameState } {
   let s = createGame('REC', options, 7);
   s = addPlayer(s, 'a', 'Alice', true);
   s = addPlayer(s, 'b', 'Bob', true);
   s = addPlayer(s, 'c', 'Cleo', true);
+  if (surrender) s = addPlayer(s, 'd', 'Dara', true);
   const started = startGame(s);
   s = started.state;
   const header = recordHeader('REC-1', { id: 'REC', name: 'Recorded' }, s, started.events, { a: 'test/alice' });
@@ -37,8 +38,9 @@ function recordedGame(options: { fogOfWar: boolean }, maxSteps = 6000): { record
   const rng = createRng(3);
   const random = () => nextFloat(rng);
   for (let n = 0; s.phase !== 'finished' && n < maxSteps; n++) {
-    const player = s.currentPlayer!;
-    const action = chooseBotAction(s, player, random)!;
+    const quits = surrender && n === surrender.atStep;
+    const player = quits ? surrender.player : s.currentPlayer!;
+    const action = quits ? ({ type: 'surrender' } as const) : chooseBotAction(s, player, random)!;
     const { state, events } = applyAction(s, player, action);
     entries.push(recordStep(header, s, player, action, events, n));
     const turn = recordTurnStart(header, state, events, n);
@@ -73,6 +75,18 @@ describe('game records', () => {
     expect(record.outcome.eliminations.every((e) => record.steps[e.step].events.some((ev) => ev.type === 'eliminated'))).toBe(true);
     expect(record.outcome.placings).toHaveLength(3);
     expect(record.outcome.board).toEqual(boardOf(final, record));
+  });
+
+  it('places only the real seats when a surrender brings a neutral into the game', () => {
+    const { record, final } = recordedGame({ fogOfWar: false }, 20_000, { player: 'd', atStep: 120 });
+    expect(final.phase).toBe('finished');
+    expect(record.players.some((p) => p.isNeutral)).toBe(false); // the neutral came after the header
+    expect(final.players.some((p) => p.isNeutral)).toBe(true);
+    expect(record.outcome.eliminations.some((e) => final.players.find((p) => p.id === e.player)?.isNeutral)).toBe(true);
+    expect([...record.outcome.placings].sort()).toEqual(['a', 'b', 'c', 'd']);
+    expect(record.outcome.placings[0]).toBe(final.winner);
+    expect(record.outcome.placings.at(-1)).toBe('d');
+    expect(verifyRecord(record)).toBeNull();
   });
 
   it('replays exactly: every step rebuilds the board it recorded', () => {

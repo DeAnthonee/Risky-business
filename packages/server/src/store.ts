@@ -74,7 +74,12 @@ export interface RoomSnapshot {
   tournamentId?: string;
   /** Set on a scenario: the recorded moment its game began from. Nobody hosts such a room. */
   scenarioOf?: ScenarioRef;
+  /** "training": ranked on the training leaderboard (rankings-training.json), never the public one. Absent = public. */
+  board?: RankingBoard;
 }
+
+/** The leaderboard a room's result goes to when it is not the public one (see docs/character-league.md). */
+export type RankingBoard = 'training';
 
 /** How long an idle room is kept, by phase. All values in milliseconds. */
 export interface RetentionPolicy {
@@ -122,6 +127,8 @@ export interface GameSummary {
   scenarioOf?: ScenarioRef;
   /** Set on a tournament table: the tournament it belongs to. */
   tournamentId?: string;
+  /** "training": a yardstick game ranked on the training leaderboard. Absent = public. */
+  board?: RankingBoard;
 }
 
 export interface ChangeMessage {
@@ -180,6 +187,8 @@ export class GameRoom extends EventEmitter {
   recordId?: string;
   /** A scenario: the recorded moment this room's game began from. */
   scenarioOf?: ScenarioRef;
+  /** "training": ranked on the training leaderboard. Absent = public. */
+  board?: RankingBoard;
   private botTimer: NodeJS.Timeout | null = null;
   private waiters = new Set<() => void>();
 
@@ -200,6 +209,8 @@ export class GameRoom extends EventEmitter {
     this.tournamentId = snapshot.tournamentId;
     this.recordId = snapshot.recordId;
     this.scenarioOf = snapshot.scenarioOf;
+    // Rooms saved before the training board existed are public.
+    if (snapshot.board === 'training') this.board = 'training';
     if (this.state.phase === 'finished') this.finishedAt = this.history.at(-1)?.at ?? this.updatedAt;
   }
 
@@ -219,6 +230,7 @@ export class GameRoom extends EventEmitter {
       ...(this.tournamentId ? { tournamentId: this.tournamentId } : {}),
       ...(this.recordId ? { recordId: this.recordId } : {}),
       ...(this.scenarioOf ? { scenarioOf: this.scenarioOf } : {}),
+      ...(this.board ? { board: this.board } : {}),
     };
   }
 
@@ -295,6 +307,7 @@ export class GameRoom extends EventEmitter {
       turnNumber: s.turnNumber,
       ...(this.scenarioOf ? { scenarioOf: this.scenarioOf } : {}),
       ...(this.tournamentId ? { tournamentId: this.tournamentId } : {}),
+      ...(this.board ? { board: this.board } : {}),
     };
   }
 
@@ -604,6 +617,8 @@ export class Store {
   rooms = new Map<string, GameRoom>();
   tournaments: TournamentManager;
   rankings: Rankings;
+  /** The training leaderboard: model-vs-model yardstick games (rooms with board "training"), same scoring, no seasons. */
+  training: Rankings;
   /** Every game's record, move by move (under <data dir>/archive; off without persistence). */
   archive: GameArchive;
   private saveTimer: NodeJS.Timeout | null = null;
@@ -617,6 +632,7 @@ export class Store {
   ) {
     this.retention = { ...DEFAULT_RETENTION, ...retention };
     this.rankings = new Rankings(file ? join(dirname(file), 'rankings.json') : null);
+    this.training = new Rankings(file ? join(dirname(file), 'rankings-training.json') : null, 1);
     const keep = Number(process.env.RISK_ARCHIVE_KEEP || DEFAULT_KEEP);
     this.archive = new GameArchive(
       file && process.env.RISK_ARCHIVE !== '0' ? join(dirname(file), 'archive') : null,
@@ -657,20 +673,54 @@ export class Store {
 
   private attach(room: GameRoom) {
     this.rooms.set(room.id, room);
-    // A scenario starts from someone else's position, so its result is not ranked.
-    const rank = () => {
-      if (!room.scenarioOf) this.rankings.record(room.state, room.characterIds, room.eliminationOrder);
-    };
-    rank();
+    this.rank(room);
     room.on('commit', (c: CommitInfo) => this.archive.onCommit(room, c));
     room.on('change', () => {
-      rank();
+      this.rank(room);
       this.scheduleSave();
     });
     room.on('chat', () => this.scheduleSave());
   }
 
-  create(name: string, options: Partial<GameOptions>, hostName: string, hostIsBot = false): { room: GameRoom; playerId: PlayerId; token: string } {
+  /** Record a finished room's result on its board. A scenario starts from someone else's position, so it is not ranked. */
+  private rank(room: GameRoom) {
+    if (room.scenarioOf) return;
+    this.board(room.board).record(room.state, room.characterIds, room.eliminationOrder);
+  }
+
+  /** The leaderboard for a board name: "training", or the public one when absent. */
+  board(board?: RankingBoard): Rankings {
+    return board === 'training' ? this.training : this.rankings;
+  }
+
+  /**
+   * Admin: move a game to the training board, for yardstick games played before they could be created there. The room
+   * (if still open) is flagged, a result already on the current public board moves to the training one (or a finished
+   * room is recorded there), and its finished game records are marked. Null when no room, result or record has this id.
+   */
+  moveToTraining(rawId: string): { gameId: string; room: boolean; result: 'moved' | 'recorded' | 'already' | 'none'; records: number } | null {
+    const id = rawId.toUpperCase();
+    const room = this.rooms.get(id);
+    const ranked = this.rankings.result(id);
+    // First, as it is the step that can fail: nothing has changed if the public board cannot be saved.
+    if (ranked) this.rankings.remove(id);
+    const wasTraining = !!this.training.result(id);
+    if (room && room.board !== 'training') {
+      room.board = 'training';
+      this.scheduleSave();
+    }
+    let result: 'moved' | 'recorded' | 'already' | 'none' = wasTraining ? 'already' : 'none';
+    if (ranked && this.training.add(ranked)) result = 'moved';
+    else if (room && !wasTraining) {
+      this.rank(room);
+      if (this.training.result(id)) result = 'recorded';
+    }
+    const records = this.archive.setBoard(id, 'training');
+    if (!room && !ranked && !records && result === 'none') return null;
+    return { gameId: id, room: !!room, result, records };
+  }
+
+  create(name: string, options: Partial<GameOptions>, hostName: string, hostIsBot = false, board?: RankingBoard): { room: GameRoom; playerId: PlayerId; token: string } {
     let id = joinCode();
     while (this.rooms.has(id)) id = joinCode();
     const state = createGame(id, options);
@@ -683,6 +733,7 @@ export class Store {
       chat: [],
       history: [],
       updatedAt: Date.now(),
+      ...(board ? { board } : {}),
     });
     this.attach(room);
     const { playerId, token } = room.join(hostName, hostIsBot);

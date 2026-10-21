@@ -61,23 +61,31 @@ export class LocalRiskApi implements RiskApi {
     room.bindCharacter(player, canonical);
     return { ok: true };
   }
-  async rankings(season?: string) {
+  async rankings(season?: string, board?: 'training') {
+    if (board) return { board, season: String(this.store.training.season), current: true, rankings: this.store.training.rows() };
     const r = this.store.rankings;
     const rankings = r.seasonRows(season);
     if (!rankings) throw new RiskHttpError(`No leaderboard season ${season}`, 404);
     return { season: season || String(r.season), current: !season || season === String(r.season), rankings };
   }
   async rankingSeasons() { return { current: this.store.rankings.season, seasons: this.store.rankings.seasons() }; }
-  async rankedProfile(key: string) {
+  async rankedProfile(key: string, board?: 'training') {
     let profile: string | null = null;
     try { profile = this.characters.get(key).markdown; } catch { /* a plain player */ }
-    return { stats: this.store.rankings.profile(key, key), profile };
+    return { stats: this.store.board(board).profile(key, key), profile };
   }
   async listGames() {
     return { games: this.store.list() };
   }
-  async createGame(playerName: string, gameName: string | undefined, options: Partial<GameOptions> | undefined) {
-    const { room, playerId, token } = this.store.create(gameName ?? '', sanitizeOptions(options), playerName);
+  async createGame(playerName: string, gameName: string | undefined, options: Partial<GameOptions> | undefined, board?: 'training', key?: string) {
+    if (board) {
+      try {
+        this.characters.checkWrite(key);
+      } catch {
+        throw new RiskHttpError('A training-board game needs the characters write key ("key")', 403);
+      }
+    }
+    const { room, playerId, token } = this.store.create(gameName ?? '', sanitizeOptions(options), playerName, false, board);
     return { gameId: room.id, playerId, token, state: room.view(playerId) };
   }
   async joinGame(gameId: string, playerName: string) {

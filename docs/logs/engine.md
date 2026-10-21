@@ -6,6 +6,7 @@ bot, ranking and the game-record format. Map data has its own log ([maps.md](map
 Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. Changes from before pull requests carry the
 commit hash instead. **Append a line in the same PR** as any change to this area (README hard rule 12).
 
+- 2026-10-20 #138 game records: optional `room.board: "training"` on `RecordHeader` for training-leaderboard games (optional field, no `RECORD_VERSION` bump)
 - 2026-10-20 #124 `record.ts`: `outcome.placings` holds real seats only; a neutral created by a mid-game surrender no longer gets a place (#123)
 - 2026-10-20 #107 `uniqueBoardNames` (board-names.ts): no two leaderboard rows share a display name ("Darius", "Darius2", ...)
 - 2026-10-20 #102 `nine_realms` map registered (MapId, MAP_IDS, starting armies, rules text, option descriptions)

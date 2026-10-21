@@ -7,6 +7,7 @@ numbers go in [packages/delove/CYCLES.md](../../packages/delove/CYCLES.md) and t
 Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. **Append a line in the same PR** as any change to
 this area (README hard rule 12).
 
+- 2026-10-20 #PR `cycle.sh` REMOTE_TRAIN=1 (with REMOTE_VOLUME): train the candidate on a rented cloud GPU from the RunPod network volume (`remote.py train`); with REMOTE_GPUS the generation's arrays stay on the volume and the training pod starts REMOTE_TRAIN_LEAD minutes before generation's estimated end; train_data resolved to `<dataset>/<map>`; falls back to home training when a dataset is not in the cloud (REMOTE_TRAIN_PUSH pushes it); REMOTE_HOME_COPY, REMOTE_TRAIN_MAX_GPU_HOURS, REMOTE_TRAIN_MINUTES, REMOTE_TRAIN_GPU_TYPE, REMOTE_TRAIN_DISK_GB; home training stays the default
 - 2026-10-21 #128 `cycle.sh` passes `REMOTE_REPLACEMENTS` and `REMOTE_READY_MINUTES` to `remote.py run` (a bad cloud pod is replaced instead of aborting the run)
 - 2026-10-20 #127 Cycle 8: `delove@5` (40k games, half the big boards on cloud GPUs); `cycle.sh` `GENERATE_ONLY`; delove-status: the owner's target (three specialists + housing, fog required) and a new section 9
 - 2026-10-20 #120 Cycle 7: range specialists from `delove@4` (`scripts/cycles/c7-specialists.sh`), even with `delove@4`, not promoted; CYCLES.md and delove-status sections 5, 8

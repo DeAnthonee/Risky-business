@@ -8,9 +8,10 @@ import { finalPlacements, rankLeaderboard, uniqueBoardNames, type GameState, typ
  * The admin route `POST /api/admin/rankings/new-season` does the same without a deploy. The season in force is the
  * higher of this number and the one saved in `rankings.json.season`: a code season at or below the saved one changes
  * nothing, a newer one starts that season on the next start.
- * Season 1 was everything before the first wipe (including the Gen 5 seed from #92); season 2 ran from #107 to #119.
+ * Season 1 was everything before the first wipe (including the Gen 5 seed from #92); season 2 ran from #107 to #119;
+ * season 3 from #119 to #135.
  */
-export const RANKINGS_SEASON = 3;
+export const RANKINGS_SEASON = 4;
 
 /** One leaderboard season: the current one, or an archive. `id` is the season, plus `-<n>` for a rare second archive. */
 export interface RankingSeason { id: string; season: number; current: boolean; games: number }
@@ -185,6 +186,33 @@ export class Rankings {
 
   profile(key: string, name: string, season?: string): RankingRow {
     return (this.seasonRows(season) ?? []).find(r => r.key === key) ?? { key, name, rank: 0, points: 0, games: 0, wins: 0, losses: 0, winRate: 0, avgPlacement: 0, kills: 0, victims: {} };
+  }
+
+  /** The ranked result of a game on the current board, or null. */
+  result(gameId: string): RankedGame | null { return this.games.find((g) => g.gameId === gameId) ?? null; }
+
+  /**
+   * Admin: take a game's result off the current board (it is moving to the training board). Its id stays known, so
+   * the same game is never recorded here again. Returns the result, or null when it is not on the current board.
+   */
+  remove(gameId: string): RankedGame | null {
+    const i = this.games.findIndex((g) => g.gameId === gameId);
+    if (i < 0) return null;
+    const [game] = this.games.splice(i, 1);
+    if (!this.save()) {
+      this.games.splice(i, 0, game);
+      throw new Error('Could not save the leaderboard; see the server log');
+    }
+    return game;
+  }
+
+  /** Admin: add a result taken off another board (see `remove`). False when this game is already here. */
+  add(game: RankedGame): boolean {
+    if (this.ids.has(game.gameId)) return false;
+    this.games.push(game);
+    this.ids.add(game.gameId);
+    this.save();
+    return true;
   }
 
   record(state: GameState, identities: Record<string, string>, eliminated: string[]) {

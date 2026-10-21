@@ -352,6 +352,23 @@
   transform: rotate(-2deg) skewX(-8deg);
   box-shadow: 5px 5px 0 var(--red);
 }
+.board-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+/* Pressed: red like a primary button, so it reads on the dark leaderboard and on hover. */
+.p5 button.board-toggle.on:not(:where(.map-wrap *)):not(:disabled) {
+  background: var(--red);
+  color: #fff;
+}
+.p5 button.board-toggle.on:not(:where(.map-wrap *)):hover:not(:disabled) {
+  background: #c8140d;
+}
+.board-note {
+  margin: -6px 0 10px;
+}
 .board-season {
   display: flex;
   align-items: center;

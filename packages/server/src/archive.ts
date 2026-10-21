@@ -36,6 +36,8 @@ export interface ArchivedRoom {
   recordId?: string;
   /** A scenario: the recorded moment the game began from. */
   scenarioOf?: ScenarioRef;
+  /** "training": a yardstick game, kept apart from public games (and from Delove's training pool). */
+  board?: 'training';
 }
 
 /** One line of index.jsonl: a game at a glance, without opening its record. */
@@ -49,6 +51,8 @@ export interface ArchiveIndexEntry {
   fog: boolean;
   tournamentId?: string;
   scenarioOf?: ScenarioRef;
+  /** "training": a yardstick game ranked on the training leaderboard. */
+  board?: 'training';
   startedAt: number;
   endedAt: number;
   finished: boolean;
@@ -133,7 +137,7 @@ export class GameArchive {
   begin(room: ArchivedRoom, state: GameState, events: GameEvent[], at: number) {
     if (!this.dir) return;
     const id = `${room.id}-${(state.startedAt ?? at).toString(36)}`;
-    const header = recordHeader(id, { id: room.id, name: room.name, ...(room.tournamentId ? { tournamentId: room.tournamentId } : {}) }, state, events, room.characterIds, room.scenarioOf);
+    const header = recordHeader(id, { id: room.id, name: room.name, ...(room.tournamentId ? { tournamentId: room.tournamentId } : {}), ...(room.board ? { board: room.board } : {}) }, state, events, room.characterIds, room.scenarioOf);
     mkdirSync(join(this.dir, 'live'), { recursive: true });
     const lines = [JSON.stringify({ kind: 'header', header })];
     const turn = recordTurnStart(header, state, events, at);
@@ -153,6 +157,8 @@ export class GameArchive {
       if (!existsSync(file)) return;
       const lines = readFileSync(file, 'utf8').split('\n').filter(Boolean);
       const header = (JSON.parse(lines[0]) as { header: RecordHeader }).header;
+      // A room moved to the training board after its game began.
+      if (room.board) header.room = { ...header.room, board: room.board };
       const entries = lines.slice(1).map((l) => JSON.parse(l) as RecordEntry);
       const record = assembleRecord(header, entries, room.state, Date.now(), endedBecause);
       const month = new Date(record.startedAt).toISOString().slice(0, 7);
@@ -206,6 +212,45 @@ export class GameArchive {
     }
   }
 
+  /**
+   * Mark every finished record of a room as on `board` (its record file and its index line), for a game moved to the
+   * training board after it was recorded. Returns how many records changed.
+   */
+  setBoard(roomId: string, board: 'training'): number {
+    if (!this.dir) return 0;
+    const index = join(this.dir, 'index.jsonl');
+    if (!existsSync(index)) return 0;
+    let changed = 0;
+    try {
+      const lines = readFileSync(index, 'utf8').split('\n').filter(Boolean);
+      const out = lines.map((line) => {
+        let entry: ArchiveIndexEntry;
+        try {
+          entry = JSON.parse(line);
+        } catch {
+          return line; // a torn line is left as it is
+        }
+        if (entry.room !== roomId || entry.board === board || !RECORD_FILE.test(entry.file)) return line;
+        const file = join(this.dir!, entry.file);
+        if (existsSync(file)) {
+          const record = JSON.parse(readFileSync(file, 'utf8')) as GameRecord;
+          record.room = { ...record.room, board };
+          writeFileSync(file + '.tmp', JSON.stringify(record));
+          renameSync(file + '.tmp', file);
+        }
+        changed++;
+        return JSON.stringify({ ...entry, board });
+      });
+      if (changed) {
+        writeFileSync(index + '.tmp', out.join('\n') + '\n');
+        renameSync(index + '.tmp', index);
+      }
+    } catch (err) {
+      console.error(`[archive] could not mark the records of ${roomId} as ${board}:`, err);
+    }
+    return changed;
+  }
+
   /** Recorded games, newest first. */
   list(limit = 100): ArchiveIndexEntry[] {
     if (!this.dir) return [];
@@ -244,6 +289,7 @@ function indexEntry(r: GameRecord, file: string): ArchiveIndexEntry {
     map: r.map,
     fog: r.fog,
     ...(r.room.tournamentId ? { tournamentId: r.room.tournamentId } : {}),
+    ...(r.room.board ? { board: r.room.board } : {}),
     ...(r.scenarioOf ? { scenarioOf: r.scenarioOf } : {}),
     startedAt: r.startedAt,
     endedAt: r.endedAt,

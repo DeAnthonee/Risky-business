@@ -51,7 +51,8 @@ Behaviour that the deploy pipeline relies on:
   runs in seasons (recorded in `rankings.json.season`): `POST /api/admin/rankings/new-season` (admin token), or the
   first start on a newer `RANKINGS_SEASON` in code, moves the old board to `rankings.season-<old>.json` (kept and
   still readable) and starts empty; the higher of the code and saved seasons wins. A corrupt file is moved to `rankings.json.corrupt`. See
-  [character-league.md](character-league.md).
+  [character-league.md](character-league.md). Training games (model-vs-model yardsticks) are ranked apart in
+  `$RISK_DATA_DIR/rankings-training.json` (no seasons).
 - **Room cleanup.** A sweeper runs every 30 seconds. Two quick rules come first, and spectators don't hold
   either one off:
   - a finished game closes 2 minutes after it ended (`RISK_FINISHED_CLOSE_MIN`);

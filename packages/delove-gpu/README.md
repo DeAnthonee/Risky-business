@@ -386,10 +386,15 @@ the 255-register kernel fits fewer copies on the GPU at once.
 **Proof.** The lane groups changed no TS file, so `engine-fingerprint.json` (which hashes only the TS rule files) did not
 change, and its last `verify.py` run (#112) predates them. What covers them: `k_teacher` (1 lane, the same `teacher_pick_g`
 code) and `k_branch_sim` (16 lanes, every score mode) replayed `verify.py`'s matrix suites identically (jacob 128/128, branch
-18/18, #117); `k_teacher_run` with 8 lanes runs only in `generate.py`, which no `verify.py` step replays against the CPU,
-so it rests on the before/after runs above. A full `verify.py --models` run would repeat the first two with new seeds and
-not reach the third, so none was run for #117. Adding a `dataset_compare.py` step (GPU `generate.py` against CPU play and
-export) to `verify.py` would cover it.
+18/18, #117); `k_teacher_run` with 8 lanes runs only in `generate.py`, so for #117 it rested on the before/after runs
+above. Since #140 `verify.py` covers it too (step 3, with a CUDA device): three small tables, Classic 2p, Skirmish 4p
+(capitals, exponential cards) and Greater Europe 10p (blizzards, balanced blitz), each with `delove-teacher@1` as the
+recorded seat and Jacob Sensei and the newest tuned Sensei (with `--models`) alternating in the other seats, so several
+fast seats play in a row inside one `k_teacher_run` launch. `generate.py` plays them on the GPU and `play` + `export
+--only-agents delove-teacher@1` on the CPU, with the same seeds, and `dataset_compare.py` must find every game's rows
+identical. At `--games 500` that is 250 + 100 + 20 games, about 4 minutes on the RTX 4060 once the kernels are
+compiled (14 minutes the first time, the GPU shared with a training run). First run (2026-10-21, seeds 827 and 4292):
+74 of 74 and 370 of 370 games identical, row for row.
 
 **Cheaper settings are not worth it on the GPU.** `bench/branch_agreement.py` plays a table with the full settings and,
 at every decision of the branch player, also runs each variant from the same position and streams. On the
@@ -562,7 +567,8 @@ written only after logs made with exactly those files replayed identically.
   against itself and branch games at branch.ts's defaults and at the cycle settings, with traces), replays them
   through `engine.py` and `fused.py` with the encoder and network checks, then the teacher, branch and training-array
   checks, the odds check and the matrix suites over every map, table size and setting (`--matrix-scale`, default 0.1
-  of `tests/matrix.py`'s game counts: about an hour), and writes the fingerprint only if every step matches. Commit the
+  of `tests/matrix.py`'s game counts: about an hour), then `generate.py`'s own teacher fast path (`k_teacher_run`,
+  three small tables against CPU play + export with `dataset_compare.py`), and writes the fingerprint only if every step matches. Commit the
   fingerprint (with any mirror fixes) in a PR. A change that does not touch the rules (a refactor, a comment) only
   needs the run; a mismatch means the mirror needs the same change, made in `packages/delove-gpu`, never the engine.
 

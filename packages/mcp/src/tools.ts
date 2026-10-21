@@ -224,12 +224,17 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
         playerName: z.string().max(24).optional().describe(`Your display name (default "${DEFAULT_NAME}")`),
         gameName: z.string().max(40).optional(),
         options: optionsSchema,
+        board: z
+          .literal('training')
+          .optional()
+          .describe('"training": a model-vs-model yardstick game, ranked on the separate training leaderboard (never the public one). Needs the characters write key in "key". Omit for a normal public game.'),
+        key: z.string().max(200).optional().describe('The characters write key, needed only with board "training" (the local stdio server reads it from RISK_CHARACTERS_KEY).'),
       },
     },
-    async ({ playerName, gameName, options }) => {
+    async ({ playerName, gameName, options, board, key }) => {
       try {
         const name = playerName ?? DEFAULT_NAME;
-        const r = await api.createGame(name, gameName, options);
+        const r = await api.createGame(name, gameName, options, board, key);
         const seat = { gameId: r.gameId, playerId: r.playerId, token: r.token, name };
         identities.set(seat);
         return text(
@@ -900,14 +905,15 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
   server.registerTool('select_character', { description: 'Bind your seat to a persistent character identity before the game starts, so the game counts for that character on the leaderboard. Needs the characters write key. The same character may play in separate lobbies simultaneously.', inputSchema: { gameId: gameIdSchema, token: tokenSchema, as: asSchema, id: z.string().min(3).max(100), key: characterKeySchema } }, async ({ gameId, token, as, id, key }) => {
     try { await api.setCharacter(gameId, requireToken(gameId, token, as), id, key); return text('Character selected: ' + id); } catch (e) { return errorText(e); }
   });
-  server.registerTool('leaderboard', { description: 'Completed-game rankings: points (placement plus +1 per player eliminated, floored at zero), wins, losses, average placement, total kills and how many times each player was eliminated by them (victims). The board runs in seasons: the current one by default; pass season (an id from the seasons list in the reply) to read an archived one.', inputSchema: { season: z.string().regex(/^\d+(-\d+)?$/).max(20).optional().describe('Season id, e.g. "1"; omit for the current season') } }, async ({ season }) => {
+  server.registerTool('leaderboard', { description: 'Completed-game rankings: points (placement plus +1 per player eliminated, floored at zero), wins, losses, average placement, total kills and how many times each player was eliminated by them (victims). The board runs in seasons: the current one by default; pass season (an id from the seasons list in the reply) to read an archived one. Pass board "training" for the training leaderboard instead: model-vs-model yardstick games (e.g. Delove against Claude seats), ranked by seat name, no seasons.', inputSchema: { season: z.string().regex(/^\d+(-\d+)?$/).max(20).optional().describe('Season id, e.g. "1"; omit for the current season'), board: z.literal('training').optional().describe('"training" for the training leaderboard; omit for the public one') } }, async ({ season, board }) => {
     try {
-      const [board, list] = await Promise.all([api.rankings(season), api.rankingSeasons()]);
-      return text(JSON.stringify({ ...board, seasons: list.seasons }, null, 2));
+      if (board) return text(JSON.stringify(await api.rankings(undefined, board), null, 2));
+      const [rows, list] = await Promise.all([api.rankings(season), api.rankingSeasons()]);
+      return text(JSON.stringify({ ...rows, seasons: list.seasons }, null, 2));
     } catch (e) { return errorText(e); }
   });
-  server.registerTool('ranked_profile', { description: 'Read a character or player ranking profile. Character keys use universe/name; player keys come from leaderboard.', inputSchema: { key: z.string().min(1).max(200) } }, async ({ key }) => {
-    try { return text(CHARACTER_DATA_NOTICE + '\n' + JSON.stringify(await api.rankedProfile(key), null, 2)); } catch (e) { return errorText(e); }
+  server.registerTool('ranked_profile', { description: 'Read a character or player ranking profile. Character keys use universe/name; player keys come from leaderboard. Pass board "training" for the standing on the training leaderboard.', inputSchema: { key: z.string().min(1).max(200), board: z.literal('training').optional().describe('"training" for the training leaderboard; omit for the public one') } }, async ({ key, board }) => {
+    try { return text(CHARACTER_DATA_NOTICE + '\n' + JSON.stringify(await api.rankedProfile(key, board), null, 2)); } catch (e) { return errorText(e); }
   });
   return server;
 }

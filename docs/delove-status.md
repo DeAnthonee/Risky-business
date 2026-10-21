@@ -104,6 +104,40 @@ on 10 cloud GPUs) → `delove@7` (cycle 10: the search compares 4 options) → `
 Chained, roughly: `delove@3` is about +95 Elo over `delove@1` at 2 players, +110 at 4 and +150 at 6. That's
 about +600 Elo over the built-in bot at 2 players. The gains are largest in multiplayer, which used to be the weak spot.
 
+### Progress, measured directly (how much better is the newest Delove?)
+
+Every promotion is gated against the version just before it, so each step is small and the total is easy to lose.
+These two tables are the proof of progress: each promotion's own gate, and a **direct head-to-head** of the newest
+model against older ones on the same seeds. Update them at every promotion (add a row to the first; rerun the second
+against `delove@6` and `delove@3` every few promotions).
+
+**Each promotion's gain over the previous version** (mean leaderboard points per seat, pooled over the 4-10 player gate
+tables, 95% interval; 2p win share):
+
+| version | cycle | what changed | pooled 4-10p points | 2p |
+| --- | --- | --- | --- | --- |
+| `delove@4` | 6 | Jacob Sensei teacher, league settings | +0.4 to +1.2 at league tables | 0.532 |
+| `delove@5` | 8 | `delove@4` ranks the search; Bohemia, Nine Realms | +0.27 (+0.15 to +0.39) | 0.507 |
+| `delove@6` | 9 | every game on 10 cloud GPUs | +0.16 (+0.05 to +0.27) | 0.529 |
+| `delove@7` | 10 | 4 search options | +0.23 (+0.11 to +0.36) | 0.500 |
+| `delove@8` | 11 | 5 search options | +0.36 (+0.22 to +0.50) | 0.505 |
+| `delove@9` | 12 | Jacob Sensei 2 rollouts | +0.30 (+0.18 to +0.43) | 0.497 |
+| `delove@10` | 13 | range scorer at the 6-10p tables | about +0.19 (gate +0.16, +0.04 to +0.27; 3 tables rechecked) | 0.513 |
+
+**Direct head-to-head, bare networks** (2026-10-21, CPU ladder, mirrored seeds; 400 games at 2p, 200 at 4-10p; points
+difference per seat with 95% interval):
+
+| `delove@10` vs | Classic 2p | Classic 4p | World 6p | World 10p |
+| --- | --- | --- | --- | --- |
+| `delove@6` (cycle 9) | 0.565, **+0.39** (+0.10 to +0.68) | 0.555, **+0.35** (+0.04 to +0.67) | 0.700, **+1.14** (+0.78 to +1.50) | 0.725, **+1.47** (+1.09 to +1.86) |
+| `delove@3` (cycle 4) | 0.621, **+0.73** (+0.46 to +0.99) | 0.642, **+0.89** (+0.71 to +1.08) | 0.785, **+1.59** (+1.29 to +1.90) | 0.870, **+1.63** (+1.28 to +1.98) |
+
+In words: four cycles took Delove from `delove@6` to `delove@10`, worth about **+1.1 to +1.5 leaderboard points per
+seat per game at 6-10 players** and a clear edge at 2 players, every interval above 0. Against its teachers: `delove@6`
+scored 0.355 against Jacob Sensei at World 6p; cycle 13's candidate scored 0.630, and is even with Jacob Sensei 2,
+its current teacher. On top of the network, **search at play time** (the live seat's default since #154) adds
++1.4 to +2.1 points per seat at 4-6 players over the bare network (#142).
+
 Scores are win shares in mirrored ladder matches (0.5 = even). With 4 or 6 players it's the share of games won by
 either of the candidate's seats. Since cycle 5 the gate table also reports mean leaderboard points per seat for each
 side and their difference with a 95% interval.

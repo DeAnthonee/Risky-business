@@ -81,7 +81,12 @@ if (( ${#vargs[@]} )); then
     && echo "verify: ok" || echo "verify: FAILED (see verify.log)"
   cp packages/delove-gpu/engine-fingerprint.json "$job/verify-fingerprint.json" 2>/dev/null
 fi
-$py packages/delove-gpu/delove_gpu/fingerprint.py check || fail "the GPU mirror is not verified for this commit's engine"
+if ! $py packages/delove-gpu/delove_gpu/fingerprint.py check; then
+  # bring verify.py's log (and its runs/gpu-verify logs' summaries) home, so a failed verify can be read
+  [[ -f $job/verify.log ]] && tar -cf - -C "$job" verify.log setup.log env.json 2>/dev/null | gzip -1 > "$job/out.tar.gz.tmp" &&
+    mv -f "$job/out.tar.gz.tmp" "$job/out.tar.gz"
+  fail "the GPU mirror is not verified for this commit's engine"
+fi
 
 # ---- the odds tables, once (not uploaded: 240 MB, about two minutes here): lanes sharing a pod would otherwise all build
 # them at the same time in the same _cache/, and older commits' odds.py shared its temporary file names (a lane crashed)

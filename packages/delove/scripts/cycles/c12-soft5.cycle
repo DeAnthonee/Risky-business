@@ -1,7 +1,7 @@
 # Cycle 12, variant soft5: c12.cycle's games and data, trained with --soft-targets 5 (soft targets, #145) instead of hard
 # labels, and gated the same way. Run after c12.cycle's games are in, with OUT=<runs>/c12-soft5 holding copies of
 # <runs>/c12/<step> folders (their gpu.json marks the steps played) and no REMOTE_GPUS:
-#   for s in a1 a2 a3 a4 b sm sc rm rc; do cp -r <runs>/c12/$s <runs>/c12-soft5/; done
+#   for s in a1 a2 a3 a4 b; do cp -r <runs>/c12/$s <runs>/c12-soft5/; done
 #   DELOVE_MODELS=<models> DATA=<data> OUT=<runs>/c12-soft5 PYTHON=<venv python>
 #   bash packages/delove/scripts/cycle.sh packages/delove/scripts/cycles/c12-soft5.cycle
 name=c12
@@ -12,10 +12,6 @@ steps=(
   "a3 packages/delove/scripts/cycles/c12-a3.jobs Cycle 12, step a3: Europe 8p, USA 10p, Asia 8p"
   "a4 packages/delove/scripts/cycles/c12-a4.jobs Cycle 12, step a4: Bohemia, Nine Realms, World 6p"
   "b packages/delove/scripts/cycles/c12-b.jobs Cycle 12, step b: the huge boards"
-  "sm packages/delove/scripts/cycles/c12-sm.jobs Cycle 12, stage games: 3 alive"
-  "sc packages/delove/scripts/cycles/c12-sc.jobs Cycle 12, stage games: 2 alive"
-  "rm packages/delove/scripts/cycles/c12-rm.jobs Cycle 12, ratio scenarios: 3 alive"
-  "rc packages/delove/scripts/cycles/c12-rc.jobs Cycle 12, ratio scenarios: 2 alive"
 )
 gpu_steps=(all)
 export_agents=delove-branch@1

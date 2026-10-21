@@ -40,6 +40,7 @@ from .play import load_delove
 from .teacher import agent_params, is_teacher, mix_seed
 
 TEACHER, BRANCH, NET = 0, 1, 2
+GROUP_STATS = ("decisions", "branched", "simulations", "simulatedMoves", "changed", "rolloutNetSteps")  # per engine group in the summary
 BRANCH_ID = "delove-branch@1"
 
 
@@ -75,6 +76,14 @@ def is_branch(agent: str) -> bool:
         return True
     except ValueError:
         return False
+
+
+def engine_group(t: "Table") -> str:
+    """The tables that share one engine (and one cloud lane): those of the same configuration, and with comparison seats
+    (delove-branch@1:<...>) of the same ones, so each variant of a comparison runs (and is timed) on its own. A cycle's
+    tables (plain delove-branch@1) group by configuration alone, as before."""
+    kinds = sorted({a for a in t.agents if is_branch(a) and a != BRANCH_ID})
+    return t.config.label() + (f" [{' '.join(kinds)}]" if kinds else "")
 
 
 @dataclass
@@ -298,20 +307,25 @@ class Run:
 
     def run(self, batch: int | None, budget: float, progress: bool = True) -> dict:
         t0 = time.time()
-        by_cfg: dict[GameConfig, list[Table]] = {}
+        groups: dict[str, list[Table]] = {}
         for t in self.tables:
-            by_cfg.setdefault(t.config, []).append(t)
-        for cfg, tables in by_cfg.items():
+            groups.setdefault(engine_group(t), []).append(t)
+        for label, tables in groups.items():
+            cfg = tables[0].config
             kinds = {a for t in tables for a in t.agents if is_branch(a)}
             big = max((self.branch_cfgs[a] for a in kinds), key=lambda c: c.options * c.rollouts, default=self.bcfg)
             B = batch or auto_batch(cfg, big, len(kinds), budget)
             B = min(B, max(256, (sum(t.games for t in tables) + 255) // 256 * 256))
             g = Group(self, cfg, tables, B)
+            before = {k: self.stats[k] for k in GROUP_STATS}
             info = g.run(progress)
-            info.update({"config": cfg.label(), "batch": B, "tables": [t.name for t in tables]})
+            info.update({"config": cfg.label(), "batch": B, "tables": [t.name for t in tables],
+                         "branch": {k: self.stats[k] - before[k] for k in GROUP_STATS}})
+            if label != cfg.label():
+                info["group"] = label
             self.groups.append(info)
             if progress:
-                print(f"  {cfg.label()}: {info['games']} games in {info['seconds']}s (batch {B})", flush=True)
+                print(f"  {label}: {info['games']} games in {info['seconds']}s (batch {B})", flush=True)
             del g
             torch.cuda.empty_cache()
         out = {"games": len(self.results), "seconds": round(time.time() - t0, 1), "groups": self.groups, "branch": self.stats}

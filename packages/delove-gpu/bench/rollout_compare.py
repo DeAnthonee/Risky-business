@@ -5,8 +5,10 @@ the decider's seat only), and how many options per decision.
 seeds and seats; only the branch seat's id differs, e.g. delove-branch@1:teacher / :net / :netself / :net:o4), so the
 comparison is paired game by game.
 
-- 4-10 players: one branch seat (moving round the table) among Jacob Sensei and the ranker network, as a cycle's
-  tables seat it, on league settings; compared on the branch seat's leaderboard points (placement + kills).
+- 4-10 players: one branch seat (moving round the table) among `--fillers` (default Jacob Sensei in every other seat:
+  the strongest opponent, and teacher seats play inside one kernel, so a table costs a lockstep step only per branch
+  decision; network fillers cost a step per move too), on league settings; compared on the branch seat's leaderboard
+  points (placement + kills).
 - 2 players: two variants head to head, both seat orders (mirrored), compared on win share.
 
 `report` reads the games' results (generate --results, or the results.jsonl files of a cloud run) and prints, per table
@@ -24,10 +26,11 @@ import argparse
 import glob
 import json
 import math
+import sys
 from collections import defaultdict
 
 BRANCH = "delove-branch@1"
-J, N = "jacob-sensei@1", "delove@5"
+J = "jacob-sensei@1"
 
 # league settings (docs/game-settings.md), as cycle 8's tables use them
 LEAGUE = [
@@ -50,7 +53,7 @@ DUEL = [("c2", "classic"), ("w2", "world")]
 
 
 def fillers(n: int, branch_seat: int, filler: list[str]) -> list[str]:
-    """Jacob Sensei and the network alternating round the table (Jacob first), the branch seat at `branch_seat`."""
+    """The filler players in turn round the table, the branch seat at `branch_seat`."""
     seats, k = [], 0
     for s in range(n):
         if s == branch_seat:
@@ -68,14 +71,16 @@ def seat_id(variant: str) -> str:
 def jobs(args) -> list[str]:
     variants = args.variants.split(",")
     sizes = {int(x) for x in args.sizes.split(",")}
-    out = [f"# rollout_compare.py jobs --variants {args.variants} --games {args.games} --duel-games {args.duel_games} --sizes {args.sizes}"]
+    out = [f"# rollout_compare.py jobs --variants {args.variants} --games {args.games} --duel-games {args.duel_games} --sizes {args.sizes}"
+           f" --fillers {args.fillers}"]
+    filler = args.fillers.split(",")
     half = args.games // 2
     for name, mp, n, bseats in MULTI:
         if n not in sizes:
             continue
         for h, bs in enumerate(bseats):
             opts = {"map": mp, **LEAGUE[(h + n) % len(LEAGUE)]}
-            base = fillers(n, bs, [J, N])
+            base = fillers(n, bs, filler)
             for v in variants:
                 seats = [seat_id(v) if a == BRANCH else a for a in base]
                 out.append(f"{name}{'ab'[h]}-{v.replace(':', '_')} {half} {','.join(seats)} {json.dumps(opts, separators=(',', ':'))}")
@@ -165,11 +170,13 @@ def main():
     j.add_argument("--games", type=int, default=500, help="games per multiplayer configuration and variant (two halves)")
     j.add_argument("--duel-games", type=int, default=1000, help="2-player games per pairing and map (both seat orders)")
     j.add_argument("--sizes", default="2,4,6,10")
+    j.add_argument("--fillers", default=J, help="the other seats, in turn round the table (e.g. jacob-sensei@1,delove@5 as cycle 8)")
     j.add_argument("--out", required=True)
     r = sub.add_parser("report")
     r.add_argument("results", nargs="+", help="results JSONL files or globs")
     r.add_argument("--baseline", default="teacher")
     args = ap.parse_args()
+    sys.stdout.reconfigure(encoding="utf-8")  # the ± in the tables, on a Windows console too
     if args.cmd == "jobs":
         lines = jobs(args)
         with open(args.out, "w", encoding="utf8", newline="\n") as f:

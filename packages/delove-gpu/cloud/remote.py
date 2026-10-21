@@ -56,13 +56,13 @@ IMAGE = "runpod/pytorch:1.4.1-cu1281-torch291-ubuntu2204"  # the worker installs
 SETUP_MIN = 10.0  # pod start, npm, pip and upload, before the first game (minutes; measure and adjust)
 COMPILE_S = 60.0  # one NVRTC compile per configuration when its kernel is not in the uploaded cache
 WAVE_EXP = 0.3  # a configuration's time grows ~games^0.3 (a lockstep step costs far less than in proportion to its games)
-TIMING = re.compile(r"^\s{2}(\S+/\d+p(?: \{.*\})?): (\d+) games in ([\d.]+)s \(batch (\d+)\)\s*$")
+TIMING = re.compile(r"^\s{2}(\S+/\d+p(?: \{.*\})?(?: \[[^\]]*\])?): (\d+) games in ([\d.]+)s \(batch (\d+)\)\s*$")
 
 
 # ---- the plan -------------------------------------------------------------------------------------------------------
 @dataclass
 class Unit:
-    """One configuration of one step: generate plays its tables in one engine."""
+    """One configuration of one step (generate.engine_group): generate plays its tables in one engine."""
     step: str
     label: str
     tables: list
@@ -112,7 +112,7 @@ def estimate(label: str, games: int, timings: dict, cached: bool) -> tuple[float
 
 
 def make_units(steps: list[tuple[str, str]], only: set[str] | None, timings: dict, cached: bool) -> list[Unit]:
-    from delove_gpu.generate import read_jobs
+    from delove_gpu.generate import engine_group, read_jobs
 
     units = []
     for step, jobs in steps:
@@ -120,7 +120,7 @@ def make_units(steps: list[tuple[str, str]], only: set[str] | None, timings: dic
         for t in read_jobs(jobs):
             if only and t.name not in only:
                 continue
-            groups.setdefault(t.config.label(), []).append(t)
+            groups.setdefault(engine_group(t), []).append(t)
         for label, tables in groups.items():
             games = sum(t.games for t in tables)
             mins, measured = estimate(label, games, timings, cached)

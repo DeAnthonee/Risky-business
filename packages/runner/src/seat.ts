@@ -41,6 +41,8 @@ export class SeatRunner {
   private pending = new Set<Promise<void>>();
   private random: () => number;
   private lastPlanned = -1;
+  private ownTurnCount = 0;
+  private lastChatOwnTurn = -999;
   private chatSeen: ChatMsg[] = [];
   private stall = new StallTracker();
   private wake: () => void = () => {};
@@ -161,6 +163,7 @@ export class SeatRunner {
       if (view.phase === 'capitals' && (view.legal?.capitalChoices.length ?? 0) > 0) await c.chooseCapital(view);
       else if ((view.phase === 'reinforce' && view.turnNumber !== this.lastPlanned) || force) {
         this.lastPlanned = view.turnNumber;
+        this.ownTurnCount++;
         await c.planFor(view);
         const pingToSend = c.popPing();
         if (pingToSend) {
@@ -204,6 +207,15 @@ export class SeatRunner {
       }
     }
 
+    // Safety check: a player can NEVER ask a target to attack themselves!
+    if (ping.type === 'attack' && ping.target) {
+      if (ping.to && ping.to.toLowerCase() === ping.target.toLowerCase()) {
+        toPlayerId = undefined;
+        broadcastText = formatPing({ type: 'attack', target: ping.target });
+      }
+    }
+
+    this.lastChatOwnTurn = this.ownTurnCount;
     this.fire(
       (async () => {
         await this.o.api.sendChat(this.o.gameId, this.o.token, broadcastText, toPlayerId);
@@ -299,6 +311,13 @@ export class SeatRunner {
         if (!out || this.stopped) return;
         const message = cleanChat(out.message);
         if (!message) return;
+        // Limit all chat messages to once per 4 turns unless responding to a deal
+        const isDealResponse = /\[(?:accept|agree|decline|reject)\b/i.test(message);
+        if (this.ownTurnCount - this.lastChatOwnTurn < 4 && !isDealResponse) {
+          this.o.log(`${this.o.name}: chat skipped (4-turn cooldown)`);
+          return;
+        }
+        this.lastChatOwnTurn = this.ownTurnCount;
         await this.o.api.sendChat(this.o.gameId, this.o.token, message, out.to);
         const context = this.o.diplomat?.contextFor(out);
         this.o.log(`${this.o.name}${out.to ? ` -> ${out.to}` : ''}${context ? ` [round ${context.round}, turn ${context.turn}]` : ''}: ${message}`);

@@ -238,7 +238,7 @@ export function parsePlanReply(raw: string, view: GameView, me: PlayerId): Comma
       if (rawPing.to !== undefined && rawPing.to !== null) {
         const resTo = resolve(rawPing.to, players);
         const toPlayer = view.players.find((p) => p.id === resTo);
-        // CRITICAL RULE: NEVER send pings to model players!
+        // CRITICAL RULE: NEVER send whispers to model players!
         if (toPlayer && !isModelName(toPlayer.name)) {
           pingTo = toPlayer.name;
         } else {
@@ -248,7 +248,26 @@ export function parsePlanReply(raw: string, view: GameView, me: PlayerId): Comma
         pingTo = null; // all-chat
       }
 
-      if (rawPing.to === undefined || rawPing.to === null || pingTo) {
+      // Safety check: a player can NEVER ask a target to attack themselves!
+      if (matchedType === 'attack') {
+        if (!pingTarget && pingTo) {
+          pingTarget = pingTo;
+          pingTo = null; // Broadcast war declaration to all-chat
+        } else if (pingTarget && pingTo && pingTarget.toLowerCase() === pingTo.toLowerCase()) {
+          pingTo = null; // Broadcast war declaration to all-chat
+        }
+      }
+
+      // Emotes (taunt, camaraderie, anger) or attack calls targeting a model convert to all-chat
+      if (pingTo === undefined) {
+        if (matchedType === 'attack' && pingTarget) {
+          pingTo = null;
+        } else if (matchedType === 'taunt' || matchedType === 'camaraderie' || matchedType === 'anger') {
+          pingTo = null;
+        }
+      }
+
+      if (rawPing.to === undefined || rawPing.to === null || pingTo !== undefined) {
         ping = {
           type: matchedType,
           target: pingTarget,
@@ -297,7 +316,7 @@ const SCHEMA = `{"winPath": "diplomacy"|"bonuses"|"cards"|"capitals"|"kills"|"ho
 
 /** Optional knobs the commander may add to its JSON; each line says what it does and the default. */
 const KNOBS = [
-  '- ping (object, e.g. {"type":"attack","target":"Shaco","to":"Jinx"} or {"type":"alliance","to":"Ahri"} or {"type":"agree","to":"Jinx"} or {"type":"decline","to":"Jinx"} or {"type":"camaraderie","to":"Ahri"} or {"type":"anger","to":"Shaco"} or {"type":"taunt","to":null}): DIPLOMATIC PINGS. Send ONE fast ping every 1-2 turns to communicate with the table and spectators! Types: "agree", "decline", "attack" (target required), "alliance", "camaraderie", "anger", "taunt". "to" is the recipient LLM player name, or null for all-chat. Pings shape your persistent relationships across matches.',
+  '- ping (object or null, e.g. {"type":"alliance","to":"Ahri"} or {"type":"agree","to":"Jinx"} or {"type":"decline","to":"Jinx"} or {"type":"attack","target":"Ronny@4","to":null}): fast diplomatic ping. RULES: (1) Maximum ONCE every 4 turns, UNLESS replying directly to an incoming alliance/attack proposal on your next turn. (2) NEVER decline or reply to taunts, camaraderie, or anger emotes — ignore them! (3) "Silence is a rejection": if an opponent does not reply to your alliance proposal on their immediate next turn, the offer is dead; wait 4+ turns before pinging them again. (4) Set ping to null if cooldown has not elapsed, no reply needed, or silence is sufficient.',
   '- placeOn (territory id or array of territory ids, e.g. ["brazil"] or ["brazil", "egypt"]): explicitly choose which of your territories receive your reinforcement troops this turn. Deploying a single spearhead is ideal for breaking fortified borders, but multi-pronged drafting across 2-3 territories is recommended when an elimination target has spread holdings requiring simultaneous attacks in 2-3 directions. Leave out to let the tactical chooser fund your campaign/front automatically.',
   '- route (ordered array of territory ids, e.g. ["peru", "venezuela", "central_america"]): explicitly specify your attack/expansion path in order so your stack advances along that chain without splitting into dead-end pockets.',
   '- fortifyTo (territory id, e.g. "peru"): explicitly choose which of your territories to pull your stack back to during the end-of-turn fortify phase (for example, expanding out with your capital stack and then fortifying back onto your capital or choke point).',
@@ -335,6 +354,12 @@ export class Commander {
   private timeoutMs: number;
   private lastView: GameView | null = null;
   readonly ledger: DealLedger;
+
+  // Diplomatic ping and chat rate limiting
+  private ownTurns = 0;
+  private lastPingOwnTurn = -999;
+  private lastPingToRecipient = new Map<string, number>();
+  private pendingProposals = new Map<string, { from: string; type: PingType; turnReceived: number }>();
 
   constructor(o: CommanderOptions) {
     this.o = o;
@@ -479,6 +504,23 @@ export class Commander {
       if (this.seen.has(m.id)) continue;
       this.seen.add(m.id);
       this.chat.push(m);
+
+      // Track incoming proposals directed to us from other players
+      if (!m.spectator && m.name && m.name.toLowerCase() !== this.o.seatName.toLowerCase() && !isModelName(m.name)) {
+        const parsed = parsePing(m.message, m.name, m.to !== undefined);
+        if (parsed) {
+          const isForMe = m.to === undefined || m.to === this.o.playerId || (m.toName && m.toName.toLowerCase() === this.o.seatName.toLowerCase());
+          // Only genuine proposals (alliance or targeted joint attack) can be replied to!
+          // NEVER treat taunts, camaraderie, anger, agree, or decline as proposals!
+          if (isForMe && (parsed.type === 'alliance' || (parsed.type === 'attack' && parsed.target && parsed.target.toLowerCase() !== this.o.seatName.toLowerCase()))) {
+            this.pendingProposals.set(m.name.toLowerCase(), {
+              from: m.name,
+              type: parsed.type,
+              turnReceived: this.ownTurns,
+            });
+          }
+        }
+      }
     }
     if (this.chat.length > CHAT_KEPT) this.chat.splice(0, this.chat.length - CHAT_KEPT);
     if (this.seen.size > 500) this.seen = new Set(this.chat.map((m) => m.id));
@@ -490,6 +532,16 @@ export class Commander {
     this.ledger.sync(view);
     if (this.planTurn === view.turnNumber) return this.currentPlan();
     this.planTurn = view.turnNumber;
+    this.ownTurns++;
+
+    // "Silence is a rejection": expire any proposals received before our previous turn.
+    // A player only has until their immediate next turn to reply.
+    for (const [senderKey, prop] of this.pendingProposals.entries()) {
+      if (this.ownTurns - prop.turnReceived > 1) {
+        this.pendingProposals.delete(senderKey);
+      }
+    }
+
     const parsed = await this.ask(view, 'turn');
     if (parsed) this.accept(parsed, view);
     return this.currentPlan();
@@ -500,6 +552,14 @@ export class Commander {
     if (!this.plan?.ping) return null;
     const p = this.plan.ping;
     this.plan.ping = null;
+
+    // Record that we sent a ping this turn
+    this.lastPingOwnTurn = this.ownTurns;
+    if (p.to) {
+      const recipientKey = p.to.toLowerCase();
+      this.lastPingToRecipient.set(recipientKey, this.ownTurns);
+      this.pendingProposals.delete(recipientKey);
+    }
     return p;
   }
 
@@ -537,63 +597,130 @@ export class Commander {
       if (d) p.note = `${p.note ? `${p.note} ` : ''}Broke ${d.id} (${this.ledger.describe(d)}).`.trim();
     }
 
-    // Autonomous diplomatic ping fallback if the model did not emit an explicit ping:
+    // Diplomatic ping validation and strict 4-turn rate limiting:
+    if (p.ping) {
+      const pingType = p.ping.type;
+      const targetName = p.ping.target?.trim() || null;
+      let toName = p.ping.to?.trim() || null;
+
+      // 1. Safety check: never ask a target to attack themselves!
+      if (pingType === 'attack') {
+        if (!targetName && toName) {
+          p.ping.target = toName;
+          p.ping.to = null;
+        } else if (targetName && toName && targetName.toLowerCase() === toName.toLowerCase()) {
+          p.ping.to = null;
+        }
+      }
+
+      // 2. Never whisper to model players
+      if (p.ping.to && isModelName(p.ping.to)) {
+        if (pingType === 'attack') {
+          if (!p.ping.target) p.ping.target = p.ping.to;
+          p.ping.to = null;
+        } else if (pingType === 'taunt' || pingType === 'camaraderie' || pingType === 'anger') {
+          p.ping.to = null;
+        } else {
+          p.ping = null;
+        }
+      }
+
+      // 3. Validate agree / decline:
+      // A player can ONLY agree or decline if there is an active proposal from that player!
+      // This strictly prevents declining a taunt, declining an emote, or declining out of nowhere.
+      if (p.ping && (p.ping.type === 'agree' || p.ping.type === 'decline')) {
+        const recipientKey = p.ping.to?.toLowerCase();
+        let validRecipient: string | null = null;
+        if (recipientKey && this.pendingProposals.has(recipientKey)) {
+          validRecipient = this.pendingProposals.get(recipientKey)!.from;
+        } else if (!recipientKey && this.pendingProposals.size === 1) {
+          validRecipient = Array.from(this.pendingProposals.values())[0].from;
+        }
+
+        if (!validRecipient) {
+          // No active proposal exists to agree or decline!
+          p.ping = null;
+        } else {
+          p.ping.to = validRecipient;
+        }
+      }
+
+      // 4. Rate limiting: strictly enforce once per 4 turns unless replying to an active proposal on next turn
+      if (p.ping) {
+        const isReply = (p.ping.type === 'agree' || p.ping.type === 'decline') &&
+                        p.ping.to &&
+                        this.pendingProposals.has(p.ping.to.toLowerCase());
+
+        if (!isReply) {
+          // Unsolicited ping (alliance, attack, taunt, camaraderie, anger)
+          // Global cooldown: maximum once every 4 of our own turns
+          if (this.ownTurns - this.lastPingOwnTurn < 4) {
+            p.ping = null;
+          } else if (p.ping.to) {
+            // Per-recipient cooldown: silence is a rejection, wait at least 4 turns before pinging that player again
+            const lastToTurn = this.lastPingToRecipient.get(p.ping.to.toLowerCase()) ?? -999;
+            if (this.ownTurns - lastToTurn < 4) {
+              p.ping = null;
+            }
+          }
+        }
+      }
+    }
+
+    // Autonomous diplomatic ping fallback if the model did not emit a valid ping:
     if (!p.ping) {
       const otherLLMs = view.players.filter((x) => x.alive && !x.isNeutral && x.id !== this.o.playerId && !isModelName(x.name));
       if (otherLLMs.length > 0) {
-        // Did another LLM ping us with an alliance proposal recently?
-        const lastPing = [...this.chat].reverse().find((m) => {
-          const parsed = parsePing(m.message, m.name, m.to !== undefined);
-          return parsed && parsed.type === 'alliance' && (m.to === this.o.playerId || m.toName === this.o.seatName);
-        });
-        if (lastPing) {
-          const senderLLM = otherLLMs.find((x) => x.name.toLowerCase() === lastPing.name.toLowerCase());
+        // Priority 1: If there is an unhandled proposal from an LLM and we want an alliance (avoiding them), reply agree.
+        // Silence is a rejection: we NEVER autonomously send 'decline' — if we don't want an alliance, we remain silent.
+        for (const [senderKey, prop] of this.pendingProposals.entries()) {
+          const senderLLM = otherLLMs.find((x) => x.name.toLowerCase() === senderKey);
           if (senderLLM) {
             const isAvoiding = p.avoid.some((a) => a.toLowerCase() === senderLLM.id.toLowerCase() || a.toLowerCase() === senderLLM.name.toLowerCase());
-            p.ping = {
-              type: isAvoiding ? 'agree' : 'decline',
-              to: senderLLM.name,
-            };
+            if (isAvoiding) {
+              p.ping = {
+                type: 'agree',
+                to: senderLLM.name,
+              };
+              break;
+            }
           }
-        } else if (p.avoid.length > 0) {
-          const avoidLLM = otherLLMs.find((x) => p.avoid.some((a) => a.toLowerCase() === x.id.toLowerCase() || a.toLowerCase() === x.name.toLowerCase()));
-          if (avoidLLM && Math.random() < 0.7) {
-            p.ping = {
-              type: 'alliance',
-              to: avoidLLM.name,
-            };
-          }
-        } else if (p.target) {
-          const targetPlayer = view.players.find((x) => x.name.toLowerCase() === p.target!.toLowerCase() || x.id === p.target);
-          if (targetPlayer && Math.random() < 0.6) {
-            const ally = otherLLMs.find((x) => x.id !== p.target && x.name.toLowerCase() !== p.target!.toLowerCase());
-            p.ping = {
-              type: 'attack',
-              target: targetPlayer.name,
-              to: ally ? ally.name : null,
-            };
-          }
-        } else if (view.round >= 2 && Math.random() < 0.35) {
-          p.ping = {
-            type: Math.random() < 0.5 ? 'camaraderie' : 'taunt',
-            to: null,
-          };
         }
-      } else {
-        if (p.target && Math.random() < 0.5) {
-          const targetPlayer = view.players.find((x) => x.name.toLowerCase() === p.target!.toLowerCase() || x.id === p.target);
-          if (targetPlayer) {
+
+        // Priority 2: If no reply is pending, check if the 4-turn cooldown has elapsed before initiating an unsolicited ping
+        if (!p.ping && this.ownTurns - this.lastPingOwnTurn >= 4) {
+          if (p.avoid.length > 0) {
+            const avoidLLM = otherLLMs.find((x) => {
+              const matchesAvoid = p.avoid.some((a) => a.toLowerCase() === x.id.toLowerCase() || a.toLowerCase() === x.name.toLowerCase());
+              const lastTo = this.lastPingToRecipient.get(x.name.toLowerCase()) ?? -999;
+              return matchesAvoid && this.ownTurns - lastTo >= 4;
+            });
+            if (avoidLLM && Math.random() < 0.5) {
+              p.ping = {
+                type: 'alliance',
+                to: avoidLLM.name,
+              };
+            }
+          } else if (p.target) {
+            const targetPlayer = view.players.find((x) => x.name.toLowerCase() === p.target!.toLowerCase() || x.id === p.target);
+            if (targetPlayer && Math.random() < 0.4) {
+              const ally = otherLLMs.find((x) => {
+                const isNotTarget = x.id !== p.target && x.name.toLowerCase() !== p.target!.toLowerCase();
+                const lastTo = this.lastPingToRecipient.get(x.name.toLowerCase()) ?? -999;
+                return isNotTarget && this.ownTurns - lastTo >= 4;
+              });
+              p.ping = {
+                type: 'attack',
+                target: targetPlayer.name,
+                to: ally ? ally.name : null,
+              };
+            }
+          } else if (view.round >= 2 && Math.random() < 0.2) {
             p.ping = {
-              type: 'attack',
-              target: targetPlayer.name,
+              type: Math.random() < 0.5 ? 'camaraderie' : 'taunt',
               to: null,
             };
           }
-        } else if (view.round >= 2 && Math.random() < 0.3) {
-          p.ping = {
-            type: 'taunt',
-            to: null,
-          };
         }
       }
     }
@@ -738,6 +865,7 @@ export class Commander {
         ? [
             'Recent diplomatic pings from other LLMs (unverified, silence is a no):',
             ...recentPings.slice(-6),
+            'PING PROTOCOL: (1) Maximum ONCE every 4 turns. (2) Only reply with "agree" or "decline" if an LLM proposed an alliance to you on their last turn. (3) NEVER decline or reply to taunts, camaraderie, or anger emotes — ignore them! (4) Silence is a rejection: if an opponent ignored your alliance proposal, do not re-send for 4+ turns. (5) Use "ping": null if cooldown has not elapsed or no reply needed.',
             '',
           ]
         : []),

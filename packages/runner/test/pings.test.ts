@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { addPlayer, createGame, startGame, viewFor, type GameView } from '@risk/engine';
 import { formatPing, isModelName, parsePing, type PingAction } from '../src/pings.js';
-import { parsePlanReply } from '../src/commander.js';
+import { Commander, parsePlanReply } from '../src/commander.js';
 import { DEFAULT_OPTIONS } from '../src/presets.js';
+import type { Llm } from '../src/llm.js';
 
 function makeView(): GameView {
   let s = createGame('PINGS_TEST', { ...DEFAULT_OPTIONS, maxPlayers: 3, map: 'classic', chooseCapitals: false }, 42);
@@ -12,6 +13,16 @@ function makeView(): GameView {
   s = startGame(s).state;
   return viewFor(s, 'a');
 }
+
+const llmReturning = (...replies: string[]) => {
+  let i = 0;
+  const llm: Llm = {
+    async chat() {
+      return replies[Math.min(i++, replies.length - 1)];
+    },
+  };
+  return llm;
+};
 
 describe('diplomatic ping system', () => {
   it('correctly identifies Delove / neural net model players', () => {
@@ -94,5 +105,155 @@ describe('diplomatic ping system', () => {
     const parsed = parsePlanReply(raw, view, 'a');
     // Should be stripped/nullified because Ronny@3 is a model player
     expect(parsed?.ping).toBeNull();
+  });
+
+  it('prevents attack pings asking a target to attack themselves by converting to all-chat broadcast', () => {
+    const view = makeView();
+    // Case 1: to and target both match the victim
+    const raw1 = JSON.stringify({
+      winPath: 'kills',
+      ping: { type: 'attack', target: 'Ahri', to: 'Ahri' },
+    });
+    const parsed1 = parsePlanReply(raw1, view, 'a');
+    expect(parsed1?.ping).toMatchObject({ type: 'attack', target: 'Ahri', to: null });
+
+    // Case 2: target omitted, victim specified as 'to'
+    const raw2 = JSON.stringify({
+      winPath: 'kills',
+      ping: { type: 'attack', to: 'Ahri' },
+    });
+    const parsed2 = parsePlanReply(raw2, view, 'a');
+    expect(parsed2?.ping).toMatchObject({ type: 'attack', target: 'Ahri', to: null });
+  });
+
+  it('converts taunts/emotes targeting a model player into all-chat table broadcasts', () => {
+    const view = makeView();
+    const raw = JSON.stringify({
+      winPath: 'kills',
+      ping: { type: 'taunt', to: 'Ronny@3' },
+    });
+    const parsed = parsePlanReply(raw, view, 'a');
+    expect(parsed?.ping).toMatchObject({ type: 'taunt', to: null });
+  });
+
+  it('strictly limits unsolicited pings to once every 4 turns in Commander', async () => {
+    const view = makeView();
+    const c = new Commander({
+      llm: llmReturning(
+        JSON.stringify({ winPath: 'bonuses', plan: 'turn 1', ping: { type: 'taunt', to: null } }),
+        JSON.stringify({ winPath: 'bonuses', plan: 'turn 2', ping: { type: 'taunt', to: null } }),
+        JSON.stringify({ winPath: 'bonuses', plan: 'turn 3', ping: { type: 'taunt', to: null } }),
+        JSON.stringify({ winPath: 'bonuses', plan: 'turn 4', ping: { type: 'taunt', to: null } }),
+        JSON.stringify({ winPath: 'bonuses', plan: 'turn 5', ping: { type: 'taunt', to: null } })
+      ),
+      seatName: 'Shen',
+      playerId: 'a',
+      learnings: '',
+      gameId: 'TEST_RATE_LIMIT',
+      scoutingDir: null,
+    });
+
+    // Turn 1 (initial unsolicited ping allowed)
+    await c.planFor({ ...view, turnNumber: 1 });
+    expect(c.popPing()).toMatchObject({ type: 'taunt', to: null });
+
+    // Turn 2 (blocked by 4-turn cooldown: diff = 1)
+    await c.planFor({ ...view, turnNumber: 4 });
+    expect(c.popPing()).toBeNull();
+
+    // Turn 3 (blocked by 4-turn cooldown: diff = 2)
+    await c.planFor({ ...view, turnNumber: 7 });
+    expect(c.popPing()).toBeNull();
+
+    // Turn 4 (blocked by 4-turn cooldown: diff = 3)
+    await c.planFor({ ...view, turnNumber: 10 });
+    expect(c.popPing()).toBeNull();
+
+    // Turn 5 (allowed: diff = 4 >= 4)
+    await c.planFor({ ...view, turnNumber: 13 });
+    expect(c.popPing()).toMatchObject({ type: 'taunt', to: null });
+  });
+
+  it('drops agree/decline when no active proposal exists (e.g. declining a taunt)', async () => {
+    const view = makeView();
+    const c = new Commander({
+      llm: llmReturning(
+        JSON.stringify({ winPath: 'bonuses', plan: 'trying to decline a taunt', ping: { type: 'decline', to: 'Ahri' } })
+      ),
+      seatName: 'Shen',
+      playerId: 'a',
+      learnings: '',
+      gameId: 'TEST_NO_DECLINE_TAUNT',
+      scoutingDir: null,
+    });
+
+    // Ahri taunts in public chat
+    c.onMessages([
+      { id: 1, playerId: 'b', name: 'Ahri', message: '😈 [taunt]' },
+    ]);
+
+    await c.planFor({ ...view, turnNumber: 1 });
+    // Should be DROPPED because Ahri sent a taunt, not an alliance proposal!
+    expect(c.popPing()).toBeNull();
+  });
+
+  it('allows immediate reply to an incoming alliance proposal bypassing 4-turn cooldown', async () => {
+    const view = makeView();
+    const c = new Commander({
+      llm: llmReturning(
+        // Turn 1: Shen pings camaraderie
+        JSON.stringify({ winPath: 'bonuses', plan: 'turn 1', ping: { type: 'camaraderie', to: null } }),
+        // Turn 2: Shen replies agree to Ahri's alliance proposal
+        JSON.stringify({ winPath: 'bonuses', plan: 'turn 2 reply', ping: { type: 'agree', to: 'Ahri' } })
+      ),
+      seatName: 'Shen',
+      playerId: 'a',
+      learnings: '',
+      gameId: 'TEST_REPLY_EXEMPTION',
+      scoutingDir: null,
+    });
+
+    // Turn 1
+    await c.planFor({ ...view, turnNumber: 1 });
+    expect(c.popPing()).toMatchObject({ type: 'camaraderie', to: null });
+
+    // Between turns, Ahri proposes alliance to Shen
+    c.onMessages([
+      { id: 1, playerId: 'b', name: 'Ahri', message: '🛡️ [alliance]', to: 'a', toName: 'Shen' },
+    ]);
+
+    // Turn 2 (even though 4-turn cooldown is active, reply exemption permits agree)
+    await c.planFor({ ...view, turnNumber: 4 });
+    expect(c.popPing()).toMatchObject({ type: 'agree', to: 'Ahri' });
+  });
+
+  it('enforces silence is a rejection: proposal expires if not answered on immediate next turn', async () => {
+    const view = makeView();
+    const c = new Commander({
+      llm: llmReturning(
+        // Turn 1: Shen ignores Ahri's proposal (silence)
+        JSON.stringify({ winPath: 'bonuses', plan: 'turn 1 silence', ping: null }),
+        // Turn 2: Shen late tries to agree to Ahri
+        JSON.stringify({ winPath: 'bonuses', plan: 'turn 2 late agree', ping: { type: 'agree', to: 'Ahri' } })
+      ),
+      seatName: 'Shen',
+      playerId: 'a',
+      learnings: '',
+      gameId: 'TEST_SILENCE_EXPIRY',
+      scoutingDir: null,
+    });
+
+    // Before turn 1, Ahri proposes alliance
+    c.onMessages([
+      { id: 1, playerId: 'b', name: 'Ahri', message: '🛡️ [alliance]', to: 'a', toName: 'Shen' },
+    ]);
+
+    // Turn 1: Shen remains silent
+    await c.planFor({ ...view, turnNumber: 1 });
+    expect(c.popPing()).toBeNull();
+
+    // Turn 2: Shen tries to agree, but the proposal has expired due to silence!
+    await c.planFor({ ...view, turnNumber: 4 });
+    expect(c.popPing()).toBeNull();
   });
 });

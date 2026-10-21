@@ -184,10 +184,18 @@ at a table (`delove-teacher@N`, `jacob-sensei@N`, any mix) plays its own version
   comes from the seat's own mulberry32 stream, candidates are visited in actions.ts order (fortify destinations in the
   engine's connected-search order), and the blitz odds are `odds.ts`'s numbers bit for bit (`odds.py` fills the tables
   with allIn()'s exact arithmetic; fit()'s scaling for huge stacks is reproduced in the kernel).
+  **Lane groups** (`Grp`, `teacher_pick_g<G>`): G lanes of one warp can make a pick together. Every lane runs the same
+  code on the same board, and only the candidate loops (attacks, placements) are split, candidate c on lane c % G.
+  The jitter draws keep their order, because mulberry32 adds 0x6D2B79F5 to its state per draw: the k-th draw of a loop
+  comes from st0 + k x 0x6D2B79F5, and a lane learns k from how many earlier candidates draw (two ballots). The best
+  candidate is then reduced over the group with the loop's own rule (the higher score; on a tie the earlier
+  candidate), and every lane leaves with the same pick and the same stream. Only lane 0 changes the board, between
+  two `__syncwarp()`s. The rollouts use G = 16 (`SIM_LANES`), the main games' teacher seats G = 8
+  (`k_teacher_run`, `RUN_LANES`), and every other kernel G = 1, the one-thread loop as before.
 - **Branch and score** (`branch.py`) follows `branchAgent`: the teacher's move first, then the ranker's favourites
   (logits descending, ties in candidate order); fortify options completed by the teacher and the rollout seeds drawn
   from the seat's stream in the same order; options x rollouts board copies (common random numbers: rngState = seed,
-  deck reshuffled with mulberry32(seed ^ 0x5bd1e995)), each played `horizon` rounds by the teacher in one CUDA thread;
+  deck reshuffled with mulberry32(seed ^ 0x5bd1e995)), each played `horizon` rounds by the teacher in a lane group;
   `positionScore` in double precision, averaged seed by seed with true division (a CUDA tensor divided by a Python
   number is multiplied by the reciprocal, which differs from JavaScript in the last bit), and the `margin` rule.
   `--score points` (branch.ts `pointsScore`, `DELOVE_BRANCH_SCORE=points`) scores the copies by leaderboard points
@@ -330,6 +338,64 @@ What decides these numbers:
 - **cycle.sh runs the GPU steps alongside the CPU pool**, so a cycle's generation takes as long as the slower of the
   two: give the GPU the steps it is best at (Classic 2-player, big maps with many games) and let the pool keep the
   small ones, or put every step on the GPU (`gpu_steps=(all)`) and free the CPU for the gates.
+
+### Big tables: lane groups
+
+On a big table the step waits for its rollouts. Before this change, a 10-player branch decision on Greater Europe
+played 18 rollouts of a whole round each in one CUDA thread. Profiled during cycle 6 (`jacob-sensei@1` rollouts, ranker
+`delove@3`, horizon 1, 3 options x 6 rollouts), a lockstep step of 256 Greater Europe 10-player games spent 88% of its
+time in `k_branch_sim`: about 900 rollout copies (7 blocks for the GPU's 24 SMs), and inside each thread 88% of the
+cycles in the teacher's attack loop, a few hundred double-precision expected values per pick at 1/64 of the fp32
+rate, with no other warps to hide their latency. The networks, the encoder and the main games' teacher seats took
+the remaining 12%.
+
+Lane groups (see the teacher bullet above) give each rollout copy 16 lanes (CUDA threads of one warp; not
+`cycle.sh`'s `GPU_LANES`, which are whole GPU processes), which score its candidate attacks and placements in parallel. Nothing else changes: the arithmetic of every score, the order of the random draws and the
+moves are the same.
+
+Before and after (RTX 4060 with nothing else on the GPU, warm kernels; the jobs files are `bench/speed-*.jobs`, cycle 6's
+tables at 256 games each; the first 400 lockstep steps, from the first deal; "before" is the deploy branch at #114):
+
+| table (cycle 6) | before | after | speedup | games finished by then |
+| --- | --- | --- | --- | --- |
+| Classic 4-player (`c4a`) | 45.6 s | 17.8 s | **2.6x** | 211 of 256 |
+| World 6-player (`w6a`) | 91.3 s | 30.3 s | **3.0x** | 23 |
+| World 10-player (`w10a`) | 203.9 s | 48.4 s | **4.2x** | 137 |
+| Grand World 10-player (`wl10a`) | 382.3 s | 74.4 s | **5.1x** | 47 |
+| Greater Europe 6-player (`ge6a`) | 239.5 s | 56.2 s | **4.3x** | 0 |
+| Greater Europe 10-player (`ge10a`) | 296.5 s | 81.0 s | **3.7x** | 0 |
+| Fantasy 10-player (`fa10a`) | 273.9 s | 67.8 s | **4.0x** | 106 |
+
+Whole runs, to the last game: Classic 4-player 62.4 s → 25.1 s (2.5x), World 10-player 339.0 s → 86.6 s (3.9x).
+Every run played the same games before and after: the same decisions, branched decisions, simulated moves and
+changes, the same final state of every game and stream (hashed), and the same results.
+
+After the change, a Greater Europe 10-player step of 256 games takes about 150 ms: the rollouts 94 ms, the networks
+24 ms (`delove@3` twice, as the ranker and as a seat, and `delove@2`), the main games' teacher seats 14 ms
+(`k_teacher_run`, 8 lanes), the encoder 9 ms, the rest about 9 ms. The rollouts are still the largest part, so the next gains are there (below, What is left).
+
+Lanes per rollout copy, the rollout kernel alone on five launches captured from that Greater Europe table (about 900
+copies each; measured while cycle 6 shared the GPU, so only the ratios count): one thread per copy (before) 4,113 ms,
+4 lanes 1,170 ms, 8 lanes 1,355 ms (a different run, 4.2x its own baseline), **16 lanes 468 ms (8.8x)**, 32 lanes
+595 ms. With 16 lanes two copies share a warp, so the parts every lane repeats (the legal moves, the board summary,
+the move itself) diverge less than with 32 copies per warp. Below 16 lanes, the attack loop stays long; at 32 lanes,
+the 255-register kernel fits fewer copies on the GPU at once.
+
+**Cheaper settings are not worth it on the GPU.** `bench/branch_agreement.py` plays a table with the full settings and,
+at every decision of the branch player, also runs each variant from the same position and streams. On the
+Greater Europe 10-player table (256 games, 10 minutes, 81,919 decisions, 50,262 branched by the full search, which
+moved away from the teacher's move on 10,294 of them):
+
+| variant (an option of `generate.py`) | rollout time vs full | decisions with another move | per full-search branched decision |
+| --- | --- | --- | --- |
+| `--rollouts 4` | 80% | 5,233 (6.4%) | 10.4% |
+| `--rollouts 3` | 72% | 7,124 (8.7%) | 14.2% |
+| `--options 2` | 79% | 5,624 (6.9%) | 11.2% |
+| `--skip occupy,place` (no branching on placements) | 84% | 2,053 (2.5%) | 4.1% |
+
+The rollouts are latency-bound, so fewer copies save little time (16-28%). Yet each variant moves away from the full
+search on 4-14% of its branched decisions, against the 20% where the full search moves away from the teacher. The
+defaults stay as they are. The variants are options for a run that needs speed over labels.
 
 ## Ladder gates on the GPU
 
@@ -638,9 +704,11 @@ Done (above): the rules, the tuned teacher, branch and score, the outcome and th
 on every map, table size and setting but fog of war, each verified against the TypeScript, and wired into `cycle.sh`
 (`gpu_steps`). In rough order of what would help next:
 
-1. **Big-table speed:** a 10-player branch decision on Greater Europe plays 18 rollouts of a whole round each in one
-   CUDA thread; splitting a rollout over several threads (or batching rollouts by seat) would cut the latency that
-   dominates those steps.
+1. **Big-table speed, continued:** lane groups (above) made big-table steps 2.6-5.1x faster, but the rollouts are
+   still 2/3 of a Greater Europe 10-player step. The parts every lane repeats come next: the legal moves, the board
+   summary (`board_init`), `best_fortify` and the move itself. Splitting those needs the board in shared memory per
+   group, not in each lane's local memory. Running two configurations at once (on two CUDA streams) would fill the GPU
+   while one waits on its tail.
 2. **A faster teacher kernel:** less divergence between threads in different phases, a smaller per-thread board,
    fewer recomputations between a move's two fortify steps.
 3. **Other players in the pool:** `risky@1` (`packages/engine/src/bot.ts`, short) and sampling (`-explore`) network

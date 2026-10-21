@@ -211,6 +211,10 @@ exporter. None of them is imported by the server or the character code.
   | **Greater Europe 10-player, 2,048 games at once** | 2,048 | 0.066 games/s | **1.06 games/s** | **16x** |
 
   Teacher-only games run 12-1,600x faster; random play 384x.
+- **Big tables since the lane groups** (#117, `packages/delove-gpu` README, "Big tables: lane groups"): a rollout copy is
+  played by 16 GPU lanes that score its candidate moves in parallel, with the same moves bit for bit. Cycle 6's tables
+  run 2.6x (Classic 4-player) to 5.1x (Grand World 10-player) faster. Fewer rollouts or options save only 16-28% of
+  the rollout time but change 4-14% of the branched moves, so the defaults stay.
 - **How to get the speed:**
   - **Run many games at once.** The GPU steps all games in lockstep, and a step costs far less than in proportion
     to its games, so thousands of games in flight beat hundreds. Make GPU steps large, or run several steps' worth
@@ -272,7 +276,8 @@ Fog of war off (enforced by `delove-seat`); one seat per agent. For full environ
 | cycle 5: all maps 2-10p on the GPU, points target; gate table with points; live dashboard (`scripts/dashboard.mjs`); `train.py --amp` and `#F` fractions | coordinator | done, not promoted (section 3); PR #105 |
 | Jacob Sensei on the GPU mirror (teacher kernel, per-seat teacher versions, verified by replay) | session "Port Jacob Sensei to the GPU mirror" | done, **PR #110**: 0 mismatches (verify.py on the pre-Bohemia engine, fingerprint at `da9ec34`; matrix `jacob` suite 118/118) |
 | cycle 6: Jacob Sensei as teacher, league settings, branch-tag weighted training (`branch_tag.npy`, `--branch-weights`), cycle 5 big tables as value-only data, `GPU_LANES=N` | coordinator | done: **`delove@4`** (section 3); this PR |
-| faster big-table branch search on the GPU (rollouts split over threads; 8.8x on the rollout kernel in early tests, bit-identical) | session "Faster big-table branch search on the GPU" | in progress, for cycle 7 |
+| faster big-table branch search on the GPU (lane groups: each rollout copy on 16 lanes, the main games' teacher seats on 8) | session "Faster big-table branch search on the GPU" | done, **PR #117**: cycle 6's tables 2.6-5.1x faster, same games bit for bit (matrix branch and jacob suites replayed identical) |
+| a full `verify.py --models` run that covers #117's `teacher.py` / `branch.py` (the fingerprint hashes only the TS rule files, so it does not flag mirror changes) | coordinator, next idle GPU window | open: until it runs, #117 rests on the matrix replays and the before/after runs |
 | cloud GPU workers (RunPod; cycle steps split by cost over N rented GPUs, merged back) | sessions "Cloud GPU workers", "Guided RunPod setup" | done: #115, fixes #118 #121 #125 #126; first test bit-identical; cycle 8 played its huge boards on 8 RTX 4090s (7,500 games, 33 min, $5.45). 4 processes on one 4090 give only 1.4x: scale with more single-process pods (10 is the sweet spot, about $7 a cycle) |
 | points-aware branch score (kills and placement in the rollout score, opt-in), mirrored and verified on the GPU | session "Points-aware branch score" | done in #112, opt-in (`DELOVE_BRANCH_SCORE=points\|kills`): points loses at 4p (-0.51 ± 0.39 points/game, World), kills no different (Classic 4p), 2p no different; cycle 7 keeps share |
 | cycle 8: `delove@4` ranker, Bohemia and Nine Realms, part A at home (4 GPU lanes) and part B on the cloud; `cycle.sh GENERATE_ONLY` | coordinator | done: **`delove@5`** (section 3); PR #127 |

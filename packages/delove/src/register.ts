@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { registerAgent } from '@risk/selfplay';
 import { branchAgent, branchStats, DEFAULT_BRANCH, writeBranchStats, type BranchOptions } from './branch.js';
 import { discoverNetAgents, modelsDir, NetScorer } from './net-agent.js';
-import { DEFAULT_JACOB_PARAMS, jacob, JACOB_SENSEI_1_PARAMS, jacobPickWith, makeJacob, type JacobParams } from './jacob.js';
+import { DEFAULT_JACOB_PARAMS, jacob, jacob2, JACOB_SENSEI_1_PARAMS, JACOB_SENSEI_2_DUEL_PARAMS, JACOB_SENSEI_2_PARAMS, jacobPickWith, makeJacob, type JacobParams } from './jacob.js';
 import { DEFAULT_TEACHER_PARAMS, makeTeacher, teacher, teacherPickWith, type TeacherParams } from './teacher.js';
 
 /**
@@ -15,11 +15,16 @@ import { DEFAULT_TEACHER_PARAMS, makeTeacher, teacher, teacherPickWith, type Tea
  */
 registerAgent(teacher);
 registerAgent(jacob);
+registerAgent(jacob2);
 
 // Tuned teachers: models/delove/delove-teacher@N.json holds that version's judgement numbers (src/tune.ts).
 const dir = modelsDir();
 const tuned = new Map<string, TeacherParams>();
-const jacobTuned = new Map<string, JacobParams>([[jacob.id, JACOB_SENSEI_1_PARAMS]]);
+// Jacob versions' numbers, and a staged version's duel numbers (jacobPickWith(params, duel)).
+const jacobTuned = new Map<string, { params: JacobParams; duel?: JacobParams }>([
+  [jacob.id, { params: JACOB_SENSEI_1_PARAMS }],
+  [jacob2.id, { params: JACOB_SENSEI_2_PARAMS, duel: JACOB_SENSEI_2_DUEL_PARAMS }],
+]);
 if (existsSync(dir)) {
   const version = (f: string) => Number(/@(\d+)/.exec(f)![1]);
   const files = readdirSync(dir).filter((f) => /^delove-teacher@\d+\.json$/.test(f));
@@ -29,13 +34,16 @@ if (existsSync(dir)) {
     tuned.set(id, params);
     registerAgent(makeTeacher(id, params));
   }
-  // Later Jacob Sensei versions (src/jacob.ts): models/delove/jacob-sensei@N.json, N >= 2 (@1 is fixed in the code).
-  const jacobFiles = readdirSync(dir).filter((f) => /^jacob-sensei@\d+\.json$/.test(f) && f !== 'jacob-sensei@1.json');
+  // Later Jacob Sensei versions (src/jacob.ts): models/delove/jacob-sensei@N.json, N >= 3 (@1 and @2 are fixed in the code).
+  const jacobFiles = readdirSync(dir).filter((f) => /^jacob-sensei@\d+\.json$/.test(f) && !/^jacob-sensei@[12]\.json$/.test(f));
   for (const f of jacobFiles.sort((a, b) => version(a) - version(b))) {
     const id = f.replace(/\.json$/, '');
-    const params: JacobParams = { ...DEFAULT_JACOB_PARAMS, ...JSON.parse(readFileSync(join(dir, f), 'utf8')) };
-    jacobTuned.set(id, params);
-    registerAgent(makeJacob(id, params));
+    // An optional "duel" object makes it staged: those numbers once one rival is left.
+    const { duel: duelJson, ...json } = JSON.parse(readFileSync(join(dir, f), 'utf8'));
+    const params: JacobParams = { ...DEFAULT_JACOB_PARAMS, ...json };
+    const duel: JacobParams | undefined = duelJson ? { ...DEFAULT_JACOB_PARAMS, ...duelJson } : undefined;
+    jacobTuned.set(id, { params, duel });
+    registerAgent(makeJacob(id, params, duel));
   }
 }
 
@@ -59,7 +67,7 @@ function branchScore(v: string | undefined): BranchOptions['score'] {
 {
   const teacherId = process.env.DELOVE_BRANCH_TEACHER ?? [...tuned.keys()].pop() ?? 'delove-teacher@1';
   const jacobParams = jacobTuned.get(teacherId);
-  const rolloutPick = jacobParams ? jacobPickWith(jacobParams) : teacherPickWith(tuned.get(teacherId) ?? DEFAULT_TEACHER_PARAMS);
+  const rolloutPick = jacobParams ? jacobPickWith(jacobParams.params, jacobParams.duel) : teacherPickWith(tuned.get(teacherId) ?? DEFAULT_TEACHER_PARAMS);
   const rankerPath = join(dir, `${process.env.DELOVE_BRANCH_RANKER ?? 'delove@2'}.onnx`);
   const ranker = existsSync(rankerPath) ? new NetScorer(rankerPath) : null;
   // DELOVE_BRANCH_VALUE > 0 blends the ranker's win chance into branch scores (needs its .value.onnx).

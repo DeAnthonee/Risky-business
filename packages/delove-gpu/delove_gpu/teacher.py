@@ -1,5 +1,6 @@
 """The hand-coded teachers in the fused CUDA kernel: Sensei (packages/delove/src/teacher.ts, teacherPickWith(params):
-delove-teacher@N) and Jacob Sensei (packages/delove/src/jacob.ts, jacobPickWith(params): jacob-sensei@N).
+delove-teacher@N) and Jacob Sensei (packages/delove/src/jacob.ts, jacobPickWith(params): jacob-sensei@N, with @2's
+terms from RISK_LEARNINGS.md sections 7-21: each is off at 0, as in jacob-sensei@1's row).
 
 TRAINING ONLY, like the rules mirror: teacher.ts is the authority and the replay tests (tests/replay.py --teacher,
 tests/teacher_replay.py) check that this picks the logged candidate at every step of logged teacher games. It must be
@@ -12,9 +13,12 @@ or adjacency order with adjacent fortify).
 Covered: everything the rules kernel covers (every map and table size; capitals and chosen capitals, card values,
 adjacent fortify, balanced blitz, blizzards, the claiming phase, neutrals). One thread per game, like the rules.
 
-A teacher version is one row of numbers (PARAM_KEYS, JACOB_KEYS, then the Jacob flag): Sensei's rows have the Jacob
-terms at 0 and the flag off, and the kernel takes Jacob's code paths (the table-wide player stats, the leader, the
-hunt, the card urge, the stack ramp, the late win floor, the front pull) only where the flag is on. An engine holds
+A teacher version is one row of numbers: a main half (PARAM_KEYS, JACOB_KEYS, the Jacob flag, the staged flag) and a
+duel half laid out the same way (NP = 2 x NP0). Sensei's rows have the Jacob terms at 0 and the flag off, and the
+kernel takes Jacob's code paths (the table-wide player stats, the leader, the hunt, the card urge, the stack ramp, the
+late win floor, the front pull, @2's terms) only where the flag is on. A staged version (jacob.ts jacobPickWith(params,
+duel), jacob-sensei@2) has the staged flag on: once one rival is left the kernel reads the duel half instead; other
+versions repeat their numbers in the duel half, which is never read. An engine holds
 one or more rows; `tver[b, seat]` says which row plays a seat in k_teacher / k_teacher_run (row 0, the rollout
 teacher, by default; branch rollouts always play row 0). Math.log1p (the stack ramp) is V8's fdlibm log1p, ported
 below, so the last bit matches.
@@ -47,9 +51,13 @@ PARAM_KEYS = [
 JACOB_KEYS = [
     "powerIncome", "powerCards", "leaderLoss", "leaderCapture", "huntRatio", "huntValue", "cardUrge", "stackRamp", "stackFree",
     "lateWin", "minWinFloor", "frontPull",
+    # jacob-sensei@2's terms (0 in @1's row)
+    "killWin", "killPath", "killCarry", "leaderPunch", "borderDelta", "dormantWake", "holdEv", "cardTight", "duelDeny",
+    "duelEv", "capitalPad",
 ]
-ALL_KEYS = PARAM_KEYS + JACOB_KEYS + ["jacob"]
-NP = len(ALL_KEYS)
+ALL_KEYS = PARAM_KEYS + JACOB_KEYS + ["jacob", "staged"]
+NP0 = len(ALL_KEYS)  # one half of a row
+NP = 2 * NP0  # main half, then the duel half
 
 
 def _numbers(path: Path, name: str) -> dict[str, float]:
@@ -70,7 +78,7 @@ def default_params() -> dict[str, float]:
     """DEFAULT_TEACHER_PARAMS (delove-teacher@1), read from teacher.ts itself so the two cannot drift."""
     out = _numbers(TEACHER_TS, "DEFAULT_TEACHER_PARAMS")
     _check_keys(out, PARAM_KEYS, "teacher.ts params")
-    return {**out, **{k: 0.0 for k in JACOB_KEYS}, "jacob": 0.0}
+    return {**out, **{k: 0.0 for k in JACOB_KEYS}, "jacob": 0.0, "staged": 0.0}
 
 
 def jacob_default_params() -> dict[str, float]:
@@ -79,14 +87,27 @@ def jacob_default_params() -> dict[str, float]:
         raise RuntimeError(f"DEFAULT_JACOB_PARAMS in {JACOB_TS} no longer starts from DEFAULT_TEACHER_PARAMS")
     out = {**{k: v for k, v in default_params().items() if k in PARAM_KEYS}, **_numbers(JACOB_TS, "DEFAULT_JACOB_PARAMS")}
     _check_keys(out, PARAM_KEYS + JACOB_KEYS, "jacob.ts DEFAULT_JACOB_PARAMS")
-    return {**out, "jacob": 1.0}
+    return {**out, "jacob": 1.0, "staged": 0.0}
 
 
 def jacob_sensei_1_params() -> dict[str, float]:
     """JACOB_SENSEI_1_PARAMS: jacob-sensei@1's numbers, fixed in jacob.ts (register.ts ignores jacob-sensei@1.json)."""
     out = _numbers(JACOB_TS, "JACOB_SENSEI_1_PARAMS")
     _check_keys(out, PARAM_KEYS + JACOB_KEYS, "jacob.ts JACOB_SENSEI_1_PARAMS")
-    return {**out, "jacob": 1.0}
+    return {**out, "jacob": 1.0, "staged": 0.0}
+
+
+def jacob_sensei_2_params() -> dict:
+    """jacob-sensei@2, staged: JACOB_SENSEI_2_PARAMS while two or more rivals are alive, JACOB_SENSEI_2_DUEL_PARAMS
+    once one is left; fixed in jacob.ts (register.ts ignores jacob-sensei@2.json)."""
+    out = _numbers(JACOB_TS, "JACOB_SENSEI_2_PARAMS")
+    _check_keys(out, PARAM_KEYS + JACOB_KEYS, "jacob.ts JACOB_SENSEI_2_PARAMS")
+    duel = _numbers(JACOB_TS, "JACOB_SENSEI_2_DUEL_PARAMS")
+    _check_keys(duel, PARAM_KEYS + JACOB_KEYS, "jacob.ts JACOB_SENSEI_2_DUEL_PARAMS")
+    return {**out, "jacob": 1.0, "staged": 1.0, "duel": {**duel, "jacob": 1.0, "staged": 0.0}}
+
+
+FIXED_JACOBS = {JACOB_PREFIX + "1": jacob_sensei_1_params, JACOB_PREFIX + "2": jacob_sensei_2_params}
 
 
 def is_jacob(agent: str) -> bool:
@@ -100,11 +121,20 @@ def is_teacher(agent: str) -> bool:
 
 def load_params(path: str | Path | None, jacob: bool = False) -> dict[str, float]:
     """A tuned teacher's JSON (models/delove/delove-teacher@N.json; with jacob, jacob-sensei@N.json) over the defaults
-    (DEFAULT_TEACHER_PARAMS; with jacob, DEFAULT_JACOB_PARAMS), as register.ts does."""
+    (DEFAULT_TEACHER_PARAMS; with jacob, DEFAULT_JACOB_PARAMS), as register.ts does. A Jacob JSON may hold a "duel"
+    object: the numbers (over DEFAULT_JACOB_PARAMS) of a staged version once one rival is left."""
     p = jacob_default_params() if jacob else default_params()
     if path:
         for k, v in json.loads(Path(path).read_text(encoding="utf8")).items():
-            if k not in p or k == "jacob" or (not jacob and k in JACOB_KEYS):
+            if jacob and k == "duel":
+                d = jacob_default_params()
+                for dk, dv in v.items():
+                    if dk not in d or dk in ("jacob", "staged"):
+                        raise ValueError(f"{path}: unknown teacher parameter duel.{dk}")
+                    d[dk] = float(dv)
+                p["duel"], p["staged"] = d, 1.0
+                continue
+            if k not in p or k in ("jacob", "staged") or (not jacob and k in JACOB_KEYS):
                 raise ValueError(f"{path}: unknown teacher parameter {k}")
             p[k] = float(v)
     return p
@@ -112,10 +142,10 @@ def load_params(path: str | Path | None, jacob: bool = False) -> dict[str, float
 
 def agent_params(agent: str, models: str | Path | None = None, path: str | Path | None = None) -> dict[str, float]:
     """The numbers register.ts plays `agent` with: delove-teacher@1 the defaults, delove-teacher@N models/<agent>.json,
-    jacob-sensei@1 JACOB_SENSEI_1_PARAMS (any JSON ignored, as register.ts does), jacob-sensei@N (N >= 2)
-    DEFAULT_JACOB_PARAMS + models/<agent>.json. `path` names the JSON file instead of `models`."""
-    if agent == JACOB_PREFIX + "1":
-        return jacob_sensei_1_params()
+    jacob-sensei@1 / @2 JACOB_SENSEI_1_PARAMS / JACOB_SENSEI_2_PARAMS (any JSON ignored, as register.ts does),
+    jacob-sensei@N (N >= 3) DEFAULT_JACOB_PARAMS + models/<agent>.json. `path` names the JSON file instead of `models`."""
+    if agent in FIXED_JACOBS:
+        return FIXED_JACOBS[agent]()
     if not path and models is not None and agent != "delove-teacher@1":
         path = Path(models) / f"{agent}.json"
         if not path.exists():
@@ -123,10 +153,16 @@ def agent_params(agent: str, models: str | Path | None = None, path: str | Path 
     return load_params(path or None, jacob=is_jacob(agent))
 
 
-def params_tensor(params: dict[str, float] | list[dict[str, float]], device) -> torch.Tensor:
+def param_row(p: dict) -> list[float]:
+    """A version's row: its numbers, then its duel numbers (its own again when it is not staged)."""
+    duel = p["duel"] if p.get("staged") else p
+    return [float(p[k]) for k in ALL_KEYS] + [float(duel[k]) if k != "staged" else 0.0 for k in ALL_KEYS]
+
+
+def params_tensor(params: dict | list[dict], device) -> torch.Tensor:
     """One teacher version's row [NP], or several versions' rows [V, NP] (row v plays the seats with tver == v)."""
     rows = params if isinstance(params, list) else [params]
-    t = torch.tensor([[float(p[k]) for k in ALL_KEYS] for p in rows], dtype=torch.float64, device=device)
+    t = torch.tensor([param_row(p) for p in rows], dtype=torch.float64, device=device)
     return t if isinstance(params, list) else t[0]
 
 
@@ -137,6 +173,7 @@ def _consts(e) -> str:
 #define DINF __longlong_as_double(0x7ff0000000000000LL)
 #define ODDS_DMAX {odds_mod.DMAX}
 #define NP {NP}
+#define NP0 {NP0}
 {defs}
 """
 
@@ -394,10 +431,50 @@ __device__ double hunt(const Board& b, int o, int stack) {
   return (b.p[P_HUNT_VALUE] * elim_value(b, o)) / (double)b.tcount[o];
 }
 
+// ---- jacob-sensei@2's helpers (jacob.ts) ----
+// heldCapital(t): a capital (any player's) that I hold.
+__device__ __forceinline__ bool held_capital(const Board& b, int t) { return OPT_CAPITALS && b.own[t] == b.me && is_capital(*b.s, t); }
+
+// killable(o): a rival on one territory, or on 3 or fewer with 3+ cards.
+__device__ __forceinline__ bool killable(const Board& b, int o) {
+  if (!is_rival(b, o) || o >= NS) return false;
+  int n = b.tcount[o];
+  return n == 1 || (n > 1 && n <= 3 && b.s->hand_n[o] >= 3);
+}
+
+// killPath(u, stack): the best share of a killable rival's elimination that taking u (not theirs) opens.
+__device__ double kill_path(const Board& b, S& s, int u, int stack) {
+  if (b.p[P_KILL_PATH] <= 0) return 0.0;
+  int owner = b.own[u];
+  double best = 0.0;
+  for (int k = 0; k < DEG[u]; k++) {
+    int n = NBR[u][k];
+    if (s.bliz[n]) continue;
+    int v = b.own[n];
+    if (v == owner || !killable(b, v)) continue;
+    if ((double)stack < b.p[P_HUNT_RATIO] * (double)b.sarm[v] + (double)b.arm[u]) continue;
+    best = dmax(best, (b.p[P_KILL_PATH] * elim_value(b, v)) / (double)b.tcount[v]);
+  }
+  return best;
+}
+
+// strategic(u): taking u completes or breaks a continent, lands in the target one, kills, or takes a capital.
+__device__ bool strategic(const Board& b, S& s, int u) {
+  int owner = b.own[u], c = CONT_OF[u];
+  bool others = true;
+  for (int i = 0; i < CSIZE[c]; i++) { int t = CMEM[c][i]; if (s.bliz[t]) continue; if (t != u && b.own[t] != b.me) { others = false; break; } }
+  if (others) return true;
+  if (b.target == c) return true;
+  if (is_rival(b, owner) && b.holder[c] == owner) return true;
+  if (is_rival(b, owner) && b.tcount[owner] == 1) return true;
+  return OPT_CAPITALS && owner >= 0 && owner < NS && s.capital[owner] == u;
+}
+
 __device__ double defense_need(const Board& b, int t) {
   int th = b.thr[t];
   if (th <= 0) return 0.0;
   double gap = (double)(th - b.arm[t]) + b.p[P_DEFENSE_GAP_PAD];
+  if (b.p[P_CAPITAL_PAD] > 0 && held_capital(b, t)) gap = gap + b.p[P_CAPITAL_PAD];  // jacob.ts heldCapital
   if (gap <= 0) return 0.0;
   int c = CONT_OF[t];
   double stake = b.holder[c] == b.me ? (double)CBONUS[c] : 0.0;
@@ -418,6 +495,39 @@ __device__ double capture_value(const Board& b, S& s, int u, bool card) {
   if (is_rival(b, owner) && b.tcount[owner] == 1) v += p[P_ELIM_BASE] + (double)s.hand_n[owner] * b.cv;
   if (b.jac) v += lead(b, owner) * p[P_LEADER_CAPTURE];
   if (OPT_CAPITALS && owner >= 0 && owner < NS && s.capital[owner] == u) v += p[P_CAPITAL_VALUE];
+  if (p[P_LEADER_PUNCH] > 0 && is_rival(b, owner) && b.arm[u] <= 2) {  // punch through 1s to the leader
+    double ld = lead(b, owner);
+    if (ld > 0) {
+      int bonus = 0;
+      for (int k = -1; k < DEG[u]; k++) {  // u, then its neighbours
+        int t = k < 0 ? u : NBR[u][k];
+        if (s.bliz[t]) continue;
+        int ct = CONT_OF[t];
+        if (b.holder[ct] == owner && CBONUS[ct] > bonus) bonus = CBONUS[ct];
+      }
+      if (bonus > 0) v += p[P_LEADER_PUNCH] * ld * (double)bonus;
+    }
+  }
+  if (p[P_BORDER_DELTA] != 0) {  // border territories the capture adds minus the ones it closes
+    int delta = b.nen[u] > 0 ? 1 : 0;
+    for (int k = 0; k < DEG[u]; k++) { int n = NBR[u][k]; if (!s.bliz[n] && b.own[n] == b.me && b.nen[n] == 1) delta--; }
+    v -= p[P_BORDER_DELTA] * (double)delta;
+  }
+  if (p[P_DORMANT_WAKE] > 0 && b.rivals >= 2 && !(is_rival(b, owner) && b.tcount[owner] == 1)) {  // caged stacks it wakes
+    int wake = 0;
+    for (int k = 0; k < DEG[u]; k++) {
+      int n = NBR[u][k];
+      if (s.bliz[n] || !is_rival(b, b.own[n]) || b.arm[n] < 5) continue;
+      bool touch = false;
+      for (int j = 0; j < DEG[n]; j++) { int x = NBR[n][j]; if (!s.bliz[x] && b.own[x] == b.me) { touch = true; break; } }
+      if (!touch) wake += b.arm[n] - 1;
+    }
+    v -= p[P_DORMANT_WAKE] * (double)wake;
+  }
+  if (p[P_DUEL_DENY] > 0 && b.rivals <= 1 && is_rival(b, owner)) {  // scorched earth in the duel
+    int n = b.tcount[owner];
+    v += p[P_DUEL_DENY] * (n >= 12 && n % 3 == 0 ? 1.0 : 0.25);
+  }
   return v;
 }
 
@@ -444,6 +554,7 @@ __device__ double placement_score(Board& b, S& s, int t, int placing) {
     if (o < 0 || o == b.me) continue;
     double value = capture_card(b, s, u);
     if (b.jac) value = value + hunt(b, o, stack);
+    if (b.p[P_KILL_PATH] > 0) value = value + kill_path(b, s, u, stack);
     int gap = b.arm[u] - b.arm[t];
     offense = dmax(offense, value - (double)(gap > 0 ? gap : 0) * b.p[P_PLACE_OFFENSE_ARMY]);
   }
@@ -527,6 +638,11 @@ template <int G> __device__ int teacher_pick_g(S& s, const TP& tp, i64* rng, con
   if (cnt == 0) return -1;
   int me = cur(s), ph = (int)*s.phase;
   const double* p = tp.p;
+  if (p[P_STAGED] != 0) {  // jacobPickWith(params, duel): the duel half once one rival is left
+    int rv = 0;
+    for (int q = 0; q < NS; q++) if (q != me && s.alive[q]) rv++;
+    if (rv <= 1) p = p + NP0;
+  }
   Board b;
   board_init(b, s, me, p);
 
@@ -565,7 +681,11 @@ template <int G> __device__ int teacher_pick_g(S& s, const TP& tp, i64* rng, con
     bool to_front = false;
     for (int k = 0; k < DEG[to]; k++) { int n = NBR[to][k], o = b.own[n]; if (n != from && o >= 0 && o != me) { to_front = true; break; } }
     int want;
-    if (!from_exposed) want = mx;
+    bool carry = false;  // jacob.ts: carry the spearhead next to a rival on killCarry territories or fewer
+    if (p[P_KILL_CARRY] > 0)
+      for (int k = 0; k < DEG[to]; k++) { int o = b.own[NBR[to][k]]; if (is_rival(b, o) && (double)b.tcount[o] <= p[P_KILL_CARRY]) { carry = true; break; } }
+    if (carry) want = mx;
+    else if (!from_exposed) want = mx;
     else if (!to_front) want = lo;
     else if (b.thr[from] == 0) want = mx;
     else want = middle;
@@ -647,6 +767,9 @@ template <int G> __device__ int teacher_pick_g(S& s, const TP& tp, i64* rng, con
     double late = dmax(0.0, (double)*s.round - p[P_LATE_ROUND]) * p[P_LATE_RAMP];
     double min_ev = b.jac ? p[P_MIN_EV] - late - (card ? p[P_CARD_URGE] : 0.0) : p[P_MIN_EV] - late;
     double min_win = b.jac ? dmax(dmin(p[P_MIN_WIN], p[P_MIN_WIN_FLOOR]), p[P_MIN_WIN] - late * p[P_LATE_WIN]) : p[P_MIN_WIN];
+    if (p[P_DUEL_EV] > 0 && b.rivals <= 1) min_ev = min_ev - p[P_DUEL_EV];
+    bool hold = p[P_HOLD_EV] > 0 && !card && b.rivals >= 2;  // take and hold, once the card is earned
+    bool tight = p[P_CARD_TIGHT] > 0 && s.hand_n[me] >= 4;
     double own_loss = p[P_OWN_LOSS] / (1.0 + late);
     int income = b.myinc > 3 ? b.myinc : 3;  // jacob.ts: Math.max(3, my income)
     int best = -1;
@@ -662,7 +785,7 @@ template <int G> __device__ int teacher_pick_g(S& s, const TP& tp, i64* rng, con
       if (go) {
         o = odds(tp, fa, b.arm[to], OPT_CAPITALS && is_capital(s, to) ? 3 : 2);
         pw = BALANCED ? o.bwin : o.win;
-        go = !(pw < min_win);
+        go = !(pw < min_win) || (p[P_KILL_WIN] > 0 && pw >= p[P_KILL_WIN] && killable(b, b.own[to]));  // the 2v1 kill
       }
       int total, k = drawn + draws_before<G>(g, go ? 1 : 0, &total);  // the attacks weighed draw, in edge order
       drawn += total;
@@ -670,17 +793,22 @@ template <int G> __device__ int teacher_pick_g(S& s, const TP& tp, i64* rng, con
       int owner = b.own[to];
       double value = capture_value(b, s, to, card);
       double exposure = (1.0 - pw) * (p[P_EXPOSURE_BASE] + (double)b.thr[from] * p[P_EXPOSURE_THREAT] + defense_need(b, from) * p[P_EXPOSURE_NEED]);
+      if (tight) exposure = exposure * (1.0 + p[P_CARD_TIGHT]);
       double dw = is_rival(b, owner) ? rival_loss : p[P_NEUTRAL_LOSS];
-      double ol = own_loss;
+      double ol = own_loss, surplus = 0.0, hv = 0.0, kp = 0.0;
       if (b.jac) {
-        value = value + hunt(b, owner, fa - 1);
+        hv = hunt(b, owner, fa - 1);
+        value = value + hv;
+        if (p[P_KILL_PATH] > 0) { kp = kill_path(b, s, to, fa - 1); value = value + kp; }
         if (is_rival(b, owner)) dw = rival_loss + lead(b, owner) * p[P_LEADER_LOSS];
         // armies beyond what the border needs, in turns of income: losing them costs less
-        double surplus = dmax(0.0, (double)(fa - b.thr[from]) / (double)income - p[P_STACK_FREE]);
+        surplus = dmax(0.0, (double)(fa - b.thr[from]) / (double)income - p[P_STACK_FREE]);
         ol = p[P_OWN_LOSS] / (1.0 + late) / (1.0 + p[P_STACK_RAMP] * log1p_fd(surplus));
       }
       double ev = pw * value + o.ld * dw - o.la * ol - exposure + rnd_at(st0, k) * 1e-3;
-      if (ev > min_ev && (best < 0 || ev > best_ev)) { best = a; best_ev = ev; }
+      // take and hold: a non-strategic attack from a stack without surplus needs holdEv more
+      double bar = hold && surplus <= 0 && hv <= 0 && kp <= 0 && !strategic(b, s, to) ? min_ev + p[P_HOLD_EV] : min_ev;
+      if (ev > bar && (best < 0 || ev > best_ev)) { best = a; best_ev = ev; }
     }
     rnd_skip(rng, drawn);
     best_of<G>(g, &best, &best_ev);

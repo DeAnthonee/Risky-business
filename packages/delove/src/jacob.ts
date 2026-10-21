@@ -35,9 +35,33 @@ import { DEFAULT_TEACHER_PARAMS, type TeacherParams } from './teacher.js';
  *
  * Like Sensei it picks only from the self-play candidates and is deterministic given the context (ctx.random breaks
  * ties). Skipped from the notes: anything needing chat, diplomacy, fog or memory of earlier turns.
+ *
+ * jacob-sensei@2 ("Jacob Sensei 2") adds the later learnings (RISK_LEARNINGS.md sections 7-21, by impL0), each a
+ * tunable number that is 0 (off) in jacob-sensei@1's numbers, so @1 plays exactly as before:
+ * - take the 2v1 kill: an attack on a rival the capture eliminates, or one down to 3 territories with 3+ cards, needs
+ *   only killWin to win (sections 15, 21);
+ * - plan the kill run through buffers: a capture next to a killable rival the stack outweighs carries killPath x a
+ *   share of the elimination (21, "punch through third-party buffers");
+ * - carry the spearhead: occupy with everything when the new territory borders a rival on killCarry territories or
+ *   fewer (21);
+ * - punch through 1s to the leader: taking a 1-2 army territory of a rival above the mean, on or next to a continent
+ *   it holds, is worth leaderPunch x lead x that bonus (19, 17, 18);
+ * - consolidate the border: a capture is worth borderDelta less per border territory it adds, more per one it
+ *   closes (20, 10, 13);
+ * - don't wake a caged stack: a capture next to a rival stack of 5+ that touches nothing of mine costs dormantWake x
+ *   its armies, unless the capture kills or only one rival is left (12);
+ * - take and hold: once the turn's card is earned at a table of 3+, an attack that completes, breaks, kills, takes a
+ *   capital or lands in the target continent, hunts, or comes from a surplus stack needs the usual bar; any other
+ *   needs holdEv more (7, 9, 10, 13);
+ * - tighten with 4+ cards: a failed attack's exposure counts 1 + cardTight times (16);
+ * - scorched earth in the duel: with one rival left, a capture is worth duelDeny (a quarter of it unless it drops
+ *   their base income) and the attack bar is duelEv lower (7);
+ * - garrison capitals: a threatened capital I hold needs capitalPad more armies (11).
  */
 export const JACOB_ID = 'jacob-sensei@1';
 export const JACOB_NAME = 'Jacob Sensei';
+export const JACOB_2_ID = 'jacob-sensei@2';
+export const JACOB_2_NAME = 'Jacob Sensei 2';
 
 export interface JacobParams extends TeacherParams {
   /** Power of a player = armies + powerIncome x income per turn + powerCards x cards held x card value. */
@@ -59,6 +83,28 @@ export interface JacobParams extends TeacherParams {
   minWinFloor: number;
   /** Fortify: weight of moving an interior stack to the front when no border needs it more. */
   frontPull: number;
+  // jacob-sensei@2's terms (0 = off, as in jacob-sensei@1).
+  /** Least win chance for an attack on a killable rival (1 territory, or 3 or fewer with 3+ cards). */
+  killWin: number;
+  /** A capture next to a killable rival the stack outweighs (huntRatio) earns killPath x elimination worth / their territories. */
+  killPath: number;
+  /** Occupy with everything when the conquered territory borders a rival on this many territories or fewer. */
+  killCarry: number;
+  /** Taking a 1-2 army territory of a rival above the mean, on or next to a continent it holds: leaderPunch x lead x bonus. */
+  leaderPunch: number;
+  /** Worth lost per border territory a capture adds to mine (gained per one it closes). */
+  borderDelta: number;
+  /** Cost per army of a rival 5+ stack a capture newly puts next to me (not when it kills, not in a duel). */
+  dormantWake: number;
+  /** Card earned, 3+ players: a non-strategic attack from a stack without surplus needs this much more. */
+  holdEv: number;
+  /** With 4+ cards in hand, a failed attack's exposure counts 1 + cardTight times. */
+  cardTight: number;
+  /** One rival left: a capture is worth duelDeny (x 0.25 unless it drops their base income), the attack bar duelEv lower. */
+  duelDeny: number;
+  duelEv: number;
+  /** Extra armies a threatened capital I hold should have. */
+  capitalPad: number;
 }
 
 /** Jacob Sensei's untuned starting numbers: Sensei 2's 28, plus first guesses for the new terms (where tuning starts). */
@@ -97,6 +143,17 @@ export const DEFAULT_JACOB_PARAMS: JacobParams = {
   lateWin: 0.01,
   minWinFloor: 0.3,
   frontPull: 0.5,
+  killWin: 0.3,
+  killPath: 0.5,
+  killCarry: 3,
+  leaderPunch: 0.3,
+  borderDelta: 0.3,
+  dormantWake: 0.05,
+  holdEv: 0.5,
+  cardTight: 0.5,
+  duelDeny: 0.5,
+  duelEv: 0.3,
+  capitalPad: 2,
 };
 
 interface MapInfo {
@@ -287,7 +344,8 @@ class Board {
     const c = this.info.continentOf.get(t);
     const threat = this.threat(t);
     if (threat <= 0) return 0;
-    const gap = threat - this.armies(t) + this.p.defenseGapPad;
+    let gap = threat - this.armies(t) + this.p.defenseGapPad;
+    if (this.p.capitalPad > 0 && this.heldCapital(t)) gap = gap + this.p.capitalPad;
     if (gap <= 0) return 0;
     const atStake = c && this.holds(c) ? c.bonus : 0;
     return gap * (this.p.defenseBase + atStake / this.p.defenseStakeDiv);
@@ -320,6 +378,50 @@ class Board {
     return (this.p.huntValue * this.elimValue(owner)) / s.territories;
   }
 
+  /** A capital (any player's) that I hold, in a capitals game. */
+  heldCapital(t: TerritoryId): boolean {
+    return this.state.options.capitals && this.owner(t) === this.me && Object.values(this.state.capitals).includes(t);
+  }
+
+  cards(p: PlayerId): number {
+    return this.state.players.find((x) => x.id === p)!.cards.length;
+  }
+
+  /** A rival this turn could finish: one territory left, or 3 or fewer with 3+ cards to take. */
+  killable(p: PlayerId | null): p is PlayerId {
+    if (!this.isRival(p)) return false;
+    const n = this.territoryCount(p);
+    return n === 1 || (n > 1 && n <= 3 && this.cards(p) >= 3);
+  }
+
+  /** The best share of a killable rival's elimination that taking `u` (not theirs) opens, when the stack outweighs them and u. */
+  killPath(u: TerritoryId, stack: number): number {
+    if (this.p.killPath <= 0) return 0;
+    const owner = this.owner(u);
+    let best = 0;
+    for (const n of this.adj[u]) {
+      if (isBlizzard(this.state, n)) continue;
+      const v = this.owner(n);
+      if (v === owner || !this.killable(v)) continue;
+      if (stack < this.p.huntRatio * this.stats(v)!.armies + this.armies(u)) continue;
+      best = Math.max(best, (this.p.killPath * this.elimValue(v)) / this.territoryCount(v));
+    }
+    return best;
+  }
+
+  /** Does taking u complete or break a continent, land in the target one, kill, or take a capital (take-and-hold exemptions)? */
+  strategic(u: TerritoryId): boolean {
+    const owner = this.owner(u);
+    const c = this.info.continentOf.get(u);
+    if (c) {
+      if (this.continentTerritories(c).every((t) => t === u || this.owner(t) === this.me)) return true;
+      if (this.target()?.id === c.id) return true;
+      if (this.isRival(owner) && this.holds(c, owner)) return true;
+    }
+    if (this.isRival(owner) && this.territoryCount(owner) === 1) return true;
+    return this.state.options.capitals && owner !== null && this.state.capitals[owner] === u;
+  }
+
   captureValue(u: TerritoryId, cardStillToEarn: boolean): number {
     const key = cardStillToEarn ? `1${u}` : `0${u}`;
     let v = this.captureCache.get(key);
@@ -342,6 +444,38 @@ class Board {
     if (this.isRival(owner) && this.territoryCount(owner) === 1) v += this.elimValue(owner);
     v += this.lead(owner) * this.p.leaderCapture;
     if (this.state.options.capitals && owner !== null && this.state.capitals[owner] === u) v += this.p.capitalValue;
+    if (this.p.leaderPunch > 0 && this.isRival(owner) && this.armies(u) <= 2) {
+      // Punch through 1s: on or next to a continent the leader holds.
+      const lead = this.lead(owner);
+      if (lead > 0) {
+        let bonus = 0;
+        for (const t of [u, ...this.adj[u]]) {
+          if (isBlizzard(this.state, t)) continue;
+          const ct = this.info.continentOf.get(t);
+          if (ct && this.holds(ct, owner)) bonus = Math.max(bonus, ct.bonus);
+        }
+        if (bonus > 0) v += this.p.leaderPunch * lead * bonus;
+      }
+    }
+    if (this.p.borderDelta !== 0) {
+      // Border territories the capture adds (u itself) minus the ones it closes (mine whose only enemy neighbour is u).
+      let delta = this.enemyNeighbours(u).length > 0 ? 1 : 0;
+      for (const n of this.adj[u]) if (!isBlizzard(this.state, n) && this.owner(n) === this.me && this.enemyNeighbours(n).length === 1) delta--;
+      v -= this.p.borderDelta * delta;
+    }
+    if (this.p.dormantWake > 0 && this.rivalsAlive() >= 2 && !(this.isRival(owner) && this.territoryCount(owner) === 1)) {
+      // Rival stacks of 5+ next to u that touch nothing of mine yet: taking u wakes them.
+      let wake = 0;
+      for (const n of this.adj[u]) {
+        if (isBlizzard(this.state, n) || !this.isRival(this.owner(n)) || this.armies(n) < 5) continue;
+        if (!this.adj[n].some((x) => !isBlizzard(this.state, x) && this.owner(x) === this.me)) wake += this.armies(n) - 1;
+      }
+      v -= this.p.dormantWake * wake;
+    }
+    if (this.p.duelDeny > 0 && this.rivalsAlive() <= 1 && this.isRival(owner)) {
+      const n = this.territoryCount(owner);
+      v += this.p.duelDeny * (n >= 12 && n % 3 === 0 ? 1 : 0.25);
+    }
     return v;
   }
 
@@ -386,7 +520,8 @@ function placementScore(b: Board, t: TerritoryId, placing = 0): number {
   let offense = 0;
   const stack = b.armies(t) + placing - 1;
   for (const u of enemies) {
-    const value = b.captureValue(u, true) + b.hunt(b.owner(u), stack);
+    let value = b.captureValue(u, true) + b.hunt(b.owner(u), stack);
+    if (b.p.killPath > 0) value = value + b.killPath(u, stack);
     offense = Math.max(offense, value - Math.max(0, b.armies(u) - b.armies(t)) * b.p.placeOffenseArmy);
   }
   return Math.max(defense * b.p.placeDefenseMult, offense);
@@ -413,7 +548,10 @@ function bestAttack(b: Board, cands: Candidate[], random: () => number): number 
   const P = b.p;
   const rivalLossWorth = b.rivalsAlive() <= 1 ? P.rivalLoss2 : P.rivalLossMulti;
   const late = b.late();
-  const minEv = P.minEv - late - (cardStillToEarn ? P.cardUrge : 0);
+  let minEv = P.minEv - late - (cardStillToEarn ? P.cardUrge : 0);
+  if (P.duelEv > 0 && b.rivalsAlive() <= 1) minEv = minEv - P.duelEv;
+  const hold = P.holdEv > 0 && !cardStillToEarn && b.rivalsAlive() >= 2;
+  const tight = P.cardTight > 0 && me.cards.length >= 4;
   const minWin = Math.max(Math.min(P.minWin, P.minWinFloor), P.minWin - late * P.lateWin);
   const income = Math.max(3, b.stats(b.me)?.income ?? 3);
   let best = -1;
@@ -427,16 +565,23 @@ function bestAttack(b: Board, cands: Candidate[], random: () => number): number 
     if (a < 2) continue;
     const o = odds(a, b.armies(to), defenseDiceLimit(b.state, to));
     const p = balanced ? o.balancedWin : o.win;
-    if (p < minWin) continue;
     const owner = b.owner(to);
-    const value = b.captureValue(to, cardStillToEarn) + b.hunt(owner, a - 1);
-    const exposure = (1 - p) * (P.exposureBase + b.threat(from) * P.exposureThreat + b.defenseNeed(from) * P.exposureNeed);
+    // The 2v1 kill: a killable rival needs only killWin.
+    if (p < minWin && !(P.killWin > 0 && p >= P.killWin && b.killable(owner))) continue;
+    const hunt = b.hunt(owner, a - 1);
+    const path = P.killPath > 0 ? b.killPath(to, a - 1) : 0;
+    let value = b.captureValue(to, cardStillToEarn) + hunt;
+    if (P.killPath > 0) value = value + path;
+    let exposure = (1 - p) * (P.exposureBase + b.threat(from) * P.exposureThreat + b.defenseNeed(from) * P.exposureNeed);
+    if (tight) exposure = exposure * (1 + P.cardTight);
     const defenderWorth = b.isRival(owner) ? rivalLossWorth + b.lead(owner) * P.leaderLoss : P.neutralLoss;
     // Armies beyond what the border needs, in turns of income: idle capital, so losing them costs less.
     const surplus = Math.max(0, (a - b.threat(from)) / income - P.stackFree);
     const ownLoss = P.ownLoss / (1 + late) / (1 + P.stackRamp * Math.log1p(surplus));
     const ev = p * value + o.expectedDefenderLosses * defenderWorth - o.expectedAttackerLosses * ownLoss - exposure + random() * 1e-3;
-    if (ev > minEv && ev > bestEv) (bestEv = ev), (best = i);
+    // Take and hold: with the card earned, an attack with no strategic point from a stack without surplus needs holdEv more.
+    const bar = hold && surplus <= 0 && hunt <= 0 && path <= 0 && !b.strategic(to) ? minEv + P.holdEv : minEv;
+    if (ev > bar && ev > bestEv) (bestEv = ev), (best = i);
   }
   return best;
 }
@@ -449,8 +594,11 @@ function pickOccupy(b: Board, cands: Candidate[]): number {
   const middle = amounts.find((n) => n !== max && n !== min) ?? max;
   const fromExposed = b.threat(pc.from) > 0 || b.enemyNeighbours(pc.from).some((n) => n !== pc.to);
   const toFront = b.adj[pc.to].some((n) => n !== pc.from && b.owner(n) !== null && b.owner(n) !== b.me && !isBlizzard(b.state, n));
+  // Carry the spearhead: the new territory borders a rival down to killCarry territories or fewer.
+  const carry = b.p.killCarry > 0 && b.adj[pc.to].some((n) => b.isRival(b.owner(n)) && b.territoryCount(b.owner(n)!) <= b.p.killCarry);
   let want: number;
-  if (!fromExposed) want = max;
+  if (carry) want = max;
+  else if (!fromExposed) want = max;
   else if (!toFront) want = min;
   else if (b.threat(pc.from) === 0) want = max;
   else want = middle;
@@ -489,8 +637,20 @@ function bestFortify(b: Board, legal: StepContext['legal']): FortifyPlan | null 
   return best;
 }
 
-export function jacobPickWith(params: JacobParams): Pick {
-  return (ctx) => pickWith(ctx, params);
+/**
+ * Jacob Sensei with `params`; with `duel`, a staged version: `duel`'s numbers play whenever one rival is left (a
+ * 2-player game from the start, or the endgame duel of a bigger table), `params` while two or more are.
+ */
+export function jacobPickWith(params: JacobParams, duel?: JacobParams): Pick {
+  if (!duel) return (ctx) => pickWith(ctx, params);
+  return (ctx) => pickWith(ctx, inDuel(ctx.state, ctx.me) ? duel : params);
+}
+
+/** One rival left (the Neutral not counted). */
+export function inDuel(state: GameState, me: PlayerId): boolean {
+  let rivals = 0;
+  for (const p of state.players) if (p.alive && !p.isNeutral && p.id !== me) rivals++;
+  return rivals <= 1;
 }
 
 function pickWith(ctx: StepContext, params: JacobParams): number {
@@ -536,9 +696,12 @@ function pickWith(ctx: StepContext, params: JacobParams): number {
   return end >= 0 ? end : 0;
 }
 
-/** A Jacob Sensei version with its own numbers (missing keys fall back to DEFAULT_JACOB_PARAMS). */
-export function makeJacob(id: string, params: Partial<JacobParams> = {}) {
-  return stepAgent(id, jacobPickWith({ ...DEFAULT_JACOB_PARAMS, ...params }));
+/**
+ * A Jacob Sensei version with its own numbers (missing keys fall back to DEFAULT_JACOB_PARAMS); with `duel`, staged
+ * (jacobPickWith): those numbers play once one rival is left.
+ */
+export function makeJacob(id: string, params: Partial<JacobParams> = {}, duel?: Partial<JacobParams>) {
+  return stepAgent(id, jacobPickWith({ ...DEFAULT_JACOB_PARAMS, ...params }, duel ? { ...DEFAULT_JACOB_PARAMS, ...duel } : undefined));
 }
 
 /**
@@ -588,6 +751,139 @@ export const JACOB_SENSEI_1_PARAMS: JacobParams = {
   lateWin: 0.012,
   minWinFloor: 0.285,
   frontPull: 0.5,
+  killWin: 0,
+  killPath: 0,
+  killCarry: 0,
+  leaderPunch: 0,
+  borderDelta: 0,
+  dormantWake: 0,
+  holdEv: 0,
+  cardTight: 0,
+  duelDeny: 0,
+  duelEv: 0,
+  capitalPad: 0,
 };
 
 export const jacob = makeJacob(JACOB_ID, JACOB_SENSEI_1_PARAMS);
+
+/**
+ * jacob-sensei@2's numbers: jacob-sensei@1's plus the section 7-21 terms (see the top of this file), tuned by
+ * src/tune.ts --teacher jacob from JACOB_SENSEI_1_PARAMS with the new terms at DEFAULT_JACOB_PARAMS' guesses.
+ */
+export const JACOB_SENSEI_2_PARAMS: JacobParams = {
+  targetShare: 1.632,
+  targetBonusPerBorder: 1.719,
+  targetEnemyRatio: 0.83,
+  targetMissing: 0.145,
+  defenseGapPad: 2.246,
+  defenseBase: 0.632,
+  defenseStakeDiv: 3,
+  cardFloor: 1.798,
+  cardDiv: 1.757,
+  captureBase: 1.094,
+  completeBonus: 2.103,
+  targetCapture: 1.107,
+  breakBonus: 2.231,
+  elimBase: 5.565,
+  capitalValue: 8.446,
+  placeOffenseArmy: 0.163,
+  placeDefenseMult: 2.375,
+  rivalLoss2: 0.705,
+  rivalLossMulti: 0.464,
+  neutralLoss: 0.108,
+  ownLoss: 0.538,
+  minWin: 0.45,
+  minEv: 0.243,
+  exposureBase: 0.344,
+  exposureThreat: 0.097,
+  exposureNeed: 0.722,
+  fortifyThreat: 0.066,
+  interiorBonus: 1.2,
+  lateRound: 12.383,
+  lateRamp: 0.048,
+  powerIncome: 2.533,
+  powerCards: 0.653,
+  leaderLoss: 0.226,
+  leaderCapture: 1.047,
+  huntRatio: 1.5,
+  huntValue: 1.58,
+  cardUrge: 1.044,
+  stackRamp: 0.24,
+  stackFree: 2.564,
+  lateWin: 0.013,
+  minWinFloor: 0.382,
+  frontPull: 0.5,
+  killWin: 0.3,
+  killPath: 0.5,
+  killCarry: 4.519,
+  leaderPunch: 0.3,
+  borderDelta: 0.441,
+  dormantWake: 0.048,
+  holdEv: 0.5,
+  cardTight: 0.5,
+  duelDeny: 0.364,
+  duelEv: 0.347,
+  capitalPad: 2.862,
+};
+
+/**
+ * jacob-sensei@2's duel numbers (once one rival is left): jacob-sensei@1's, with the duel terms, tuned by src/tune.ts
+ * --teacher jacob on 2-player tables only.
+ */
+export const JACOB_SENSEI_2_DUEL_PARAMS: JacobParams = {
+  targetShare: 3.144,
+  targetBonusPerBorder: 1.719,
+  targetEnemyRatio: 0.83,
+  targetMissing: 0.188,
+  defenseGapPad: 3.726,
+  defenseBase: 0.5,
+  defenseStakeDiv: 3,
+  cardFloor: 1.791,
+  cardDiv: 2.032,
+  captureBase: 0.362,
+  completeBonus: 2.103,
+  targetCapture: 0.906,
+  breakBonus: 2.398,
+  elimBase: 5.511,
+  capitalValue: 8.446,
+  placeOffenseArmy: 0.137,
+  placeDefenseMult: 2.375,
+  rivalLoss2: 0.697,
+  rivalLossMulti: 0.429,
+  neutralLoss: 0.109,
+  ownLoss: 0.375,
+  minWin: 0.399,
+  minEv: 0.246,
+  exposureBase: 0.707,
+  exposureThreat: 0.097,
+  exposureNeed: 0.411,
+  fortifyThreat: 0.076,
+  interiorBonus: 1.2,
+  lateRound: 21.072,
+  lateRamp: 0.048,
+  powerIncome: 3.583,
+  powerCards: 0.653,
+  leaderLoss: 0.215,
+  leaderCapture: 1,
+  huntRatio: 1.5,
+  huntValue: 1.088,
+  cardUrge: 0.5,
+  stackRamp: 0.297,
+  stackFree: 3,
+  lateWin: 0.013,
+  minWinFloor: 0.285,
+  frontPull: 0.5,
+  killWin: 0.428,
+  killPath: 0,
+  killCarry: 3,
+  leaderPunch: 0,
+  borderDelta: 0.223,
+  dormantWake: 0,
+  holdEv: 0,
+  cardTight: 0.5,
+  duelDeny: 0.5,
+  duelEv: 0.341,
+  capitalPad: 2,
+};
+
+export const jacob2 = makeJacob(JACOB_2_ID, JACOB_SENSEI_2_PARAMS, JACOB_SENSEI_2_DUEL_PARAMS);

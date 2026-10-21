@@ -13,7 +13,8 @@ or a StaleMirror error) says the engine changed:
    identical at every step; checks the GPU encoder against the export, and the GPU network against the logged
    network moves with --model;
    with --models (a folder with delove-teacher@N.json and the ranker's .pt and .onnx), also the GPU teachers
-   (tests/teacher_replay.py: the logged pick at every step of the newest Sensei and of Jacob Sensei, jacob-sensei@1),
+   (tests/teacher_replay.py: the logged pick at every step of the newest Sensei and of Jacob Sensei, jacob-sensei@1;
+   the matrix jacob2 suite for jacob-sensei@2 on every map, table size and setting, and as the rollout teacher),
    branch and score at branch.ts's defaults and at the cycle settings, with Sensei and with Jacob as the rollout
    teacher, and with the points and kills scores at four seats (tests/branch_replay.py against the CPU's
    DELOVE_BRANCH_TRACE: options, exact mean scores, picks), the training-array writer (tests/export_check.py: bit for
@@ -298,7 +299,7 @@ def main() -> int:
             print("\nMISMATCH: the GPU odds tables differ from odds.ts. engine-fingerprint.json is unchanged.")
             return 1
     if args.matrix_scale > 0 and "fused.py" in engines:
-        suites = ["rules", "settings"] + (["branch", "jacob"] if args.models else [])
+        suites = ["rules", "settings"] + (["branch", "jacob", "jacob2"] if args.models else [])
         for suite in suites:
             print(f"  every map, table size and setting: tests/matrix.py --suite {suite} --scale {args.matrix_scale}")
             cmd = [py, "-u", str(HERE / "tests" / "matrix.py"), "--suite", suite, "--scale", str(args.matrix_scale), "--seed", str(seed),
@@ -315,7 +316,7 @@ def main() -> int:
                 return 1
             steps = sum(int(x) for x in re.findall(r"games identical, (\d+) steps", text))
             total_steps += steps
-            results.append({"engine": {"branch": "branch", "jacob": "teacher"}.get(suite, "fused.py"), "check": f"matrix {suite}", "cases": int(m.group(2)),
+            results.append({"engine": {"branch": "branch", "jacob": "teacher", "jacob2": "teacher"}.get(suite, "fused.py"), "check": f"matrix {suite}", "cases": int(m.group(2)),
                             "steps": steps, "logs": [rel(out / f"matrix-{suite}")]})
 
     if "fused.py" in engines:

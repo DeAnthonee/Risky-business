@@ -1,13 +1,15 @@
 # Cycle 12, run with (from the repo root; RUNPOD_API_KEY in the environment):
 #   DELOVE_BRANCH_RANKER=delove@8 DELOVE_BRANCH_TEACHER=<jacob-sensei@2, or @1 if #144 is not merged> DELOVE_BRANCH_HORIZON=1
 #   DELOVE_BRANCH_MARGIN=0.01 DELOVE_BRANCH_OPTIONS=5 REMOTE_GPUS=10 REMOTE_MAX_GPU_HOURS=9
-#   REMOTE_TIMINGS="<runs>/c11/a1/gpu.log ... <runs>/c11/b/gpu.log"
+#   REMOTE_TIMINGS="<runs>/c11/a1/gpu.log ... <runs>/c11/b/gpu.log <runs>/c10s/sm/gpu.log <runs>/c10s/sc/gpu.log"
 #   DELOVE_MODELS=<models> DATA=<data> OUT=<runs>/c12 PYTHON=<venv python>
 #   bash packages/delove/scripts/cycle.sh packages/delove/scripts/cycles/c12.cycle
 # Cycle 11's recipe one step on (delove@8 ranks the search's 5 options and fills the network seats with delove@7), and
 # the research plan's training comparison on the same games: this config trains the hard-label control; c12-soft5.cycle
 # and c12-soft5s.cycle train --soft-targets 5 and --soft-targets 5 --soft-scale 0.05 (#145) from the same data, each
 # gated against delove@8. Only cycles 11-12 carry branch_q.npy; cycle 10's rows train on hard labels in every variant.
+# Steps sm / sc (#137's stage games) and rm / rc (#146's ratio scenarios), delove@8 seats, are for the range
+# specialists (c12-specialists.sh, with the winning label flags); the base candidates do not train on them.
 name=c12
 seed=312
 steps=(
@@ -16,6 +18,10 @@ steps=(
   "a3 packages/delove/scripts/cycles/c12-a3.jobs Cycle 12, step a3: Europe 8p, USA 10p, Asia 8p"
   "a4 packages/delove/scripts/cycles/c12-a4.jobs Cycle 12, step a4: Bohemia, Nine Realms, World 6p"
   "b packages/delove/scripts/cycles/c12-b.jobs Cycle 12, step b: the huge boards"
+  "sm packages/delove/scripts/cycles/c12-sm.jobs Cycle 12, stage games: 3 alive"
+  "sc packages/delove/scripts/cycles/c12-sc.jobs Cycle 12, stage games: 2 alive"
+  "rm packages/delove/scripts/cycles/c12-rm.jobs Cycle 12, ratio scenarios: 3 alive"
+  "rc packages/delove/scripts/cycles/c12-rc.jobs Cycle 12, ratio scenarios: 2 alive"
 )
 gpu_steps=(all)
 export_agents=delove-branch@1

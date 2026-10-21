@@ -8,6 +8,7 @@ Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. **Append a l
 this area (README hard rule 12).
 
 - 2026-10-21 #162 cycles 12-13: `delove@9` (Jacob Sensei 2 rollouts; hard labels beat `--soft-targets`), `delove@10` (range-scored branch seats at 6-10p); cycle 12 specialists with stage and ratio games (Close Range and trio beat `delove@9`, even with `delove@10`); `cycle.sh` passes `export_agents` to GPU steps (per-job `:range` seats were not exported); `c12*.cycle`, `c12x.cycle`, `c12-specialists.sh`, `c13.cycle`
+- 2026-10-21 #161 `train.py --grow-rounds N`: grow a network to more message-passing rounds from `--init`, new rounds start as exact pass-throughs (`delove_model.grow_rounds`, `test_grow.py`); cycle 14's second base candidate
 - 2026-10-21 #160 gates: paired statistics and an SPRT on the promotion rule (`scripts/sprt.mjs`; `cycle.sh` `GATE_SPRT=1` adds chunks until decided, `PANEL=1` adds the fixed reference panel; the summary always shows the paired table)
 - 2026-10-21 #158 delove-status section 3: "Progress, measured directly": each promotion's pooled gain (@4-@10) and a direct head-to-head of bare delove@10 vs delove@6 / delove@3 (+1.1 to +1.6 points per seat at 6-10p, every interval above 0)
 - 2026-10-21 #157 yardstick made neutral: the LLM seat brief and room name no longer say which seat is the trained model (Delove sits as `<Tier> Garen`); turn order is shuffled by the engine (Delove doesn't always move last; the doc said so); 2 games per tier (Haiku, Sonnet, Opus) per model

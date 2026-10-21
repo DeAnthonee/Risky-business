@@ -21,7 +21,7 @@ or a StaleMirror error) says the engine changed:
    bit against export) and the kernel's Math.log1p (tests/log1p_check.py);
    with a CUDA device, generate.py's fast path too: k_teacher_run (8 lanes per game), where teacher seats whose decisions
    are not recorded play their moves, which no replay reaches; three small tables (Classic 2p, Skirmish 4p, Greater
-   Europe 10p, Jacob and the tuned Sensei in the fast seats) generated on the GPU must give the same training arrays,
+   Europe 10p, Jacob Sensei 1 and 2 and the tuned Sensei in the fast seats) generated on the GPU must give the same training arrays,
    game for game, as CPU play + export with the same seeds (tests/dataset_compare.py);
 4. only if everything matches, writes engine-fingerprint.json (hashes of the engine files the mirror copies, and
    what was replayed). Commit it with the mirror changes.
@@ -49,6 +49,7 @@ from delove_gpu import fingerprint  # noqa: E402
 
 REPO = fingerprint.REPO
 JACOB = "jacob-sensei@1"
+JACOB2 = "jacob-sensei@2"
 
 
 def run(cmd: list[str], **kw) -> subprocess.CompletedProcess:
@@ -71,7 +72,8 @@ def teacher_run_check(out: Path, seed: int, g: int, models: str | None, teacher_
     --models) are the fast seats, several in a row at the bigger tables. None on a mismatch."""
     T1 = "delove-teacher@1"
     tt = teacher_id or JACOB
-    seats = lambda n: ",".join([T1] + [(JACOB, tt)[i % 2] for i in range(n - 1)])  # noqa: E731
+    # jacob-sensei@2 first: alone at 2 seats (its duel numbers), then with @1 and the tuned Sensei (its main numbers)
+    seats = lambda n: ",".join([T1] + [(JACOB2, JACOB, tt)[i % 3] for i in range(n - 1)])  # noqa: E731
     tables = [  # name, games, agents, options (one map each: generate.py and export write one folder per map)
         ("run-classic-2p", max(20, g // 2), seats(2), {"map": "classic"}),
         ("run-skirmish-4p", max(10, g // 5), seats(4), {"map": "skirmish", "capitals": True, "cardValues": "exponential"}),

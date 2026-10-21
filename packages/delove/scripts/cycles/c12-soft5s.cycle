@@ -1,0 +1,41 @@
+# Cycle 12, variant soft5s: c12.cycle's games and data, trained with --soft-targets 5 --soft-scale 0.05 (soft targets, #145) instead of hard
+# labels, and gated the same way. Run after c12.cycle's games are in, with OUT=<runs>/c12-soft5s holding copies of
+# <runs>/c12/<step> folders (their gpu.json marks the steps played) and no REMOTE_GPUS:
+#   for s in a1 a2 a3 a4 b; do cp -r <runs>/c12/$s <runs>/c12-soft5s/; done
+#   DELOVE_MODELS=<models> DATA=<data> OUT=<runs>/c12-soft5s PYTHON=<venv python>
+#   bash packages/delove/scripts/cycle.sh packages/delove/scripts/cycles/c12-soft5s.cycle
+name=c12
+seed=312
+steps=(
+  "a1 packages/delove/scripts/cycles/c12-a1.jobs Cycle 12, step a1: Classic 4-player"
+  "a2 packages/delove/scripts/cycles/c12-a2.jobs Cycle 12, step a2: Classic 2p, Four Crowns 1v1, Classic 6p"
+  "a3 packages/delove/scripts/cycles/c12-a3.jobs Cycle 12, step a3: Europe 8p, USA 10p, Asia 8p"
+  "a4 packages/delove/scripts/cycles/c12-a4.jobs Cycle 12, step a4: Bohemia, Nine Realms, World 6p"
+  "b packages/delove/scripts/cycles/c12-b.jobs Cycle 12, step b: the huge boards"
+)
+gpu_steps=(all)
+export_agents=delove-branch@1
+train_data=(a1/classic a2/classic a2/skirmish a3/europe a3/usa a3/asia a4/bohemia a4/nine_realms a4/world
+  b/world b/world_large b/greater_europe b/fantasy b/europe_classic
+  "c11-a1/classic#0.4" "c11-a2/classic#0.4" "c11-a2/skirmish#0.4" "c11-a3/europe#0.4" "c11-a3/usa#0.4" "c11-a3/asia#0.4"
+  "c11-a4/bohemia#0.4" "c11-a4/nine_realms#0.4" "c11-a4/world#0.4" "c11-b/world#0.4" "c11-b/world_large#0.4"
+  "c11-b/greater_europe#0.4" "c11-b/fantasy#0.4" "c11-b/europe_classic#0.4"
+  "c10-a1/classic#0.2" "c10-a2/classic#0.2" "c10-a3/europe#0.2" "c10-a4/bohemia#0.2" "c10-b/world#0.2" "c10-b/greater_europe#0.2")
+train_init=delove@8
+candidate=c12-soft5s
+train_args="--epochs 1.5 --batch 512 --lr 2e-4 --hidden 192 --rounds 6 --value-target points --amp --branch-weights 0.5,1,2 --soft-targets 5 --soft-scale 0.05"
+gates=(
+  "delove@8 2 800"
+  "delove@8 4 200"
+  "delove@8 6 200"
+  "delove@8 6 200 {\"map\":\"world\"}"
+  "delove@8 10 200 {\"map\":\"world\"}"
+  "delove@8 6 200 {\"autoSetup\":true,\"balancedBlitz\":true,\"chooseCapitals\":true,\"cardValues\":\"progressive\",\"capitals\":true,\"blizzards\":8}"
+  "delove@8 6 200 {\"map\":\"world\",\"autoSetup\":true,\"balancedBlitz\":true,\"chooseCapitals\":true,\"cardValues\":\"fixed\",\"capitals\":true}"
+  "delove@8 4 200 {\"autoSetup\":true,\"balancedBlitz\":true,\"chooseCapitals\":true,\"cardValues\":\"exponential\",\"blizzards\":8}"
+  "delove@8 2 400 {\"autoSetup\":true,\"balancedBlitz\":true,\"chooseCapitals\":true,\"cardValues\":\"exponential\",\"blizzards\":8}"
+  "delove@8 6 200 {\"map\":\"bohemia\",\"autoSetup\":true,\"balancedBlitz\":true,\"chooseCapitals\":true,\"cardValues\":\"progressive\"}"
+  "delove@8 8 200 {\"map\":\"nine_realms\",\"autoSetup\":true,\"balancedBlitz\":true,\"chooseCapitals\":true,\"cardValues\":\"fixed\",\"capitals\":true}"
+  "jacob-sensei@1 6 200 {\"map\":\"world\"}"
+  "delove-teacher@2 2 400"
+)

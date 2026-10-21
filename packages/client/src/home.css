@@ -597,6 +597,121 @@
   max-width: 60ch;
 }
 
+/* Match history: a paper ledger of finished games, the winner stamped in sun yellow */
+.p5 .history-board {
+  background: var(--paper);
+  border: 2px solid var(--ink);
+  padding: 18px 14px 14px;
+  box-shadow: 8px 8px 0 var(--ink);
+  transform: rotate(-0.5deg);
+}
+.p5 .history-board h2 {
+  background: var(--red);
+  box-shadow: 5px 5px 0 var(--ink);
+}
+.matches {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+.match {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  background: #fff;
+  border: 2px solid var(--ink);
+  box-shadow: 3px 3px 0 var(--ink);
+}
+.match-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+}
+.match-crown {
+  align-self: center;
+  display: inline-grid;
+  place-items: center;
+  width: 1.6em;
+  height: 1.6em;
+  background: var(--sun);
+  border: 2px solid var(--ink);
+  transform: rotate(-6deg);
+  font-size: 0.95em;
+  line-height: 1;
+}
+.match-winner {
+  min-width: 0;
+  font-weight: 800;
+  font-size: 1.12em;
+  overflow-wrap: anywhere;
+}
+.match-how {
+  color: var(--brown);
+  font-size: 0.9em;
+}
+.match-when {
+  margin-left: auto;
+  font-size: 0.82em;
+  font-weight: 700;
+  color: var(--brown);
+  white-space: nowrap;
+}
+.match-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  font-size: 0.86em;
+  color: var(--brown);
+}
+.match-meta strong {
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.match-seats {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.match-seats li {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.84em;
+  font-weight: 700;
+  padding: 1px 7px 1px 0;
+  background: var(--paper);
+  border: 1.5px solid var(--ink);
+}
+.match-seats li.won {
+  background: var(--sun);
+}
+.match-place {
+  align-self: stretch;
+  display: inline-grid;
+  place-items: center;
+  min-width: 1.5em;
+  padding: 0 4px;
+  background: var(--ink);
+  color: var(--cream);
+  font-family: var(--display);
+  font-size: 0.9em;
+}
+.match-seats li.won .match-place {
+  background: var(--red);
+  color: #fff;
+}
+.match-watch {
+  justify-self: start;
+  font-size: 0.88em;
+  padding: 4px 12px;
+}
+
 .tournaments-board {
   margin-top: 32px;
 }
@@ -651,6 +766,10 @@
     grid-template-columns: minmax(0, 1.55fr) minmax(320px, 1fr);
     gap: 36px;
   }
+  /* Open games take the tall left column; the leaderboard and match history stack on the right. */
+  .games-board {
+    grid-row: span 2;
+  }
 }
 
 /* ---------- Wide screens: header and actions side by side, settings in three columns ---------- */
@@ -682,8 +801,12 @@
   .options.with-tiles .options-group:last-child {
     grid-column: 2 / -1;
   }
+  /* Wide screens: open games, then the leaderboard with the match history right next to it. */
   .home-boards {
-    grid-template-columns: minmax(0, 2.2fr) minmax(380px, 1fr);
+    grid-template-columns: minmax(0, 1.9fr) minmax(340px, 1fr) minmax(340px, 1fr);
+  }
+  .games-board {
+    grid-row: auto;
   }
   .games-board .tickets,
   .tournaments-board .tickets {

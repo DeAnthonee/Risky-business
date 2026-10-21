@@ -321,6 +321,7 @@ Fog of war off (enforced by `delove-seat`); one seat per agent. For full environ
 | cycle 8: `delove@4` ranker, Bohemia and Nine Realms, part A at home (4 GPU lanes) and part B on the cloud; `cycle.sh GENERATE_ONLY` | coordinator | done: **`delove@5`** (section 3); PR #127 |
 | cycle 9: every game on 10 cloud GPUs (`REMOTE_GPUS=10`), training and gates at home | coordinator | done: **`delove@6`** (section 3); PR #131 |
 | range specialists (4+ alive / 3 alive / 1v1, routed by players alive) | coordinator | tooling in **#114**; stage yardstick (`npm run delove:stages`: fixed start positions per stage, specialist vs base, the routed trio in full games, 95% intervals) and the library names in this PR; **cycle 7** trained Delove Long / Mid / Close Range from `delove@4` on cycles 5-6 split by players alive: the routed trio is even with `delove@4` (2p 0.501, 4-10p even, +0.53 points at league Classic 6p only), not promoted. Next try needs different lessons per phase (more 3-player endgames, a duel-focused search), not a split of the same ones; **cycle 7**trained Delove Long / Mid / Close Range from `delove@4` on cycles 5-6 split by players alive: the routed trio is even with `delove@4` (2p 0.501, 4-10p even, +0.53 points at league Classic 6p only), not promoted. Next try needs different lessons per phase (more 3-player endgames, a duel-focused search), not a split of the same ones |
+| range objectives: each specialist its own value target and credit from the same pool (`train.py --range long\|mid\|close`, `python/targets.py`; `placement.npy` / `kills.npy` from `delove_gpu.generate`) | session "Range objectives" | built (this PR), smoke-trained only: ~600 steps from `delove@5` on cycle 8 Classic, the target alone (same batches) changes 3.0 / 3.0 / 3.7% of top moves on each range's own positions vs a cycle-7-style control (Mid's seed-to-seed noise: 4.3%), so the policy effect is unproven until a full train and gates; the estimated top 2 for exports without `placement.npy` matched the exact one on 97.6-98.7% of 3-alive decisions (Classic 6p, World 5p) |
 | Jacob Sensei, a teacher that doesn't stall (section 9 item 1) | session "Jacob Sensei" | done, **PR #98** merged; GPU port (`delove_gpu/teacher.py`) done in **#110** (closes #99) |
 | all-map strength data | coordinator | 147 of 296 chunks (about 5k games, 5 maps), stopped to free the machine; finish on the GPU |
 | #39 tournament Earth map | other work | on hold (owner) |
@@ -341,6 +342,11 @@ tables with LLM characters, with fog of war on. In order:
    learn from lessons aimed at their stage, not a slice of the old ones (cycle 7's lesson). Test each specialist on
    its own stage, then the routed trio in full games against the single best model, on points
    (`npm run delove:stages`, section 3).
+   **Each specialist now has its own objective** (`train.py --range`, packages/delove/README.md "Range specialists"):
+   Long Range learns leaderboard points, Mid Range finishing top 2 plus a threat credit (the strongest rival's armies
+   facing the third player, not us), Close Range the sole win; each copies most the moves that went better than its
+   own value expected for *its* target (range credit), so the same games teach three different lessons. Cycle 7's
+   specialists all learned points with plain copying.
 3. **Fog of war, started early, in parallel** (`docs/delove-fog.md`): fog dropout first (train on normal games with the
    unseen territories blanked out, so Delove stops leaning on information a fogged player lacks), then the seat-view
    encoder, a determinized branch teacher and fog gates.

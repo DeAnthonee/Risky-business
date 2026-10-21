@@ -140,7 +140,8 @@ class Recorder:
         self.ncand = 0
         self.uids: list[np.ndarray] = []  # game uid of each row, for z at the end
         self.game_index: dict[int, int] = {}
-        self.out_of: dict[tuple[int, int], tuple[float, float, float]] = {}  # (z, points, points01) per (game, seat)
+        # (z, points, points01, placement, kills) per (game, seat)
+        self.out_of: dict[tuple[int, int], tuple[float, float, float, int, int]] = {}
         self.m = m
         self.keys: list = []
 
@@ -182,18 +183,24 @@ class Recorder:
         self.uids.append(np.stack([u, seat[games].cpu().numpy()], 1))
 
     def finish_game(self, uid: int, out: dict):
-        """out: outcome.outcome() of the finished game (z, points, points01 per seat)."""
+        """out: outcome.outcome() of the finished game (z, points, points01, placement, kills per seat)."""
         for s, z in enumerate(out["z"]):
-            self.out_of[(uid, s)] = (z, out["points"][s], out["points01"][s])
+            self.out_of[(uid, s)] = (z, out["points"][s], out["points01"][s], out["placement"][s], out["kills"][s])
 
     def close(self, sources: list[str]) -> dict:
         for w in (self.territory, self.glob, self.cand, self.cand_from, self.cand_to, self.offset, self.choice, self.game, self.seat, self.tag):
             w.close()
         us = np.concatenate(self.uids) if self.uids else np.zeros((0, 2), dtype=np.int64)
-        vals = np.array([self.out_of[(int(u), int(s))] for u, s in us], dtype=np.float64).reshape(-1, 3)
+        vals = np.array([self.out_of[(int(u), int(s))] for u, s in us], dtype=np.float64).reshape(-1, 5)
         for k, name in enumerate(["z", "points", "points01"]):  # doubles rounded to float32 once, as export.ts stores them
             w = NpyWriter(self.dir / f"{name}.npy", "<f4", [])
             w.append(vals[:, k].astype(np.float32))
+            w.close()
+        # The decider's final place and kills (outcome.py, the engine's finalPlacements; not in export.ts's arrays):
+        # the range specialists' targets (train.py --value-target top2 / --range mid) read placement.npy.
+        for k, name in [(3, "placement"), (4, "kills")]:
+            w = NpyWriter(self.dir / f"{name}.npy", "<i4", [])
+            w.append(vals[:, k].astype(np.int32))
             w.close()
         m = self.m
         result = {"map": m.id, "decisions": int(self.choice.rows), "candidates": self.ncand, "games": len(self.game_index),

@@ -17,11 +17,11 @@ below is the record.
 | | |
 | --- | --- |
 | server | https://risky.deanthoneeking.com (live) |
-| table | 6 seats: Delove + five LLM seats named `<Tier> <Character>`: Shen, Jinx, Thresh, Leona, Teemo (`league/*` profiles). Since #PR Delove sits as `<Tier> Garen`, a name like the others; before, it sat as `delove@6` / "Delove Search" |
+| table | 6 seats: Delove + five LLM seats named `<Tier> <Character>`: Shen, Jinx, Thresh, Leona, Teemo (`league/*` profiles). Since #157 Delove sits as `<Tier> Garen`, a name like the others; before, it sat as `delove@6` / "Delove Search" |
 | map | Classic |
 | settings | fog **off** (the Delove seat refused fog games then; since #155 it seats fog-trained models, `fogInputs`), territories and armies dealt at random (`autoSetup`, `randomDeal`), **capitals on** (each picks one), **8 blizzards**, progressive cards, balanced blitz, first-round bonus, connected fortify |
 | seat order | the five LLM seats join in character order and Delove joins last, but the **turn order is shuffled by the engine at the start** (`startGame`, "highest roll goes first"), so Delove doesn't always move last |
-| LLM seat brief | [`packages/delove/scripts/yardstick/seat-prompt.md`](../packages/delove/scripts/yardstick/seat-prompt.md). **Neutral since #PR**: it doesn't say which seat is the trained model, and the room name doesn't either. Games 1-12 used a brief naming "one trained bot", and the LLM seats focused that seat in rounds 1-2, so those rows aren't comparable with neutral rows |
+| LLM seat brief | [`packages/delove/scripts/yardstick/seat-prompt.md`](../packages/delove/scripts/yardstick/seat-prompt.md). **Neutral since #157**: it doesn't say which seat is the trained model, and the room name doesn't either. Games 1-12 used a brief naming "one trained bot", and the LLM seats focused that seat in rounds 1-2, so those rows aren't comparable with neutral rows |
 | games per model | **2 games per tier** (Haiku, Sonnet, Opus) for each model or preset measured, 6 games in all; report each model's mean points and place per tier |
 | stop rule | the game ends when Delove is knocked out (or finishes); the monitor records it and closes the room |
 | score | leaderboard points: placement (6 seats: +3, +2, +1, -1, -2, -3) plus +1 per kill ([character-league.md](character-league.md)) |

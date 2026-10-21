@@ -1,7 +1,7 @@
 <!-- The brief each LLM seat got in the live yardstick (docs/delove-yardstick.md). Fill {CHARACTER}, {TIER}, {GAME},
 {TOKEN} and {character_id} (e.g. league/shen) from setup.mjs's output, and {MCP} with the tool prefix of the
 Risky Business MCP connector in the agent's client. One agent per seat, started on the tier's model.
-The brief is neutral since #PR: it never says which seat is the trained model (Delove sits as "<Tier> Garen", a
+The brief is neutral since #157: it never says which seat is the trained model (Delove sits as "<Tier> Garen", a
 name like the others). Games 1-12 used a brief that named "one trained bot (seat delove@6)", and the LLM seats
 focused that seat in the first rounds; those rows are not comparable with neutral-brief rows. -->
 

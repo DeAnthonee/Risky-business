@@ -54,7 +54,7 @@ games: mean -2.5 points, mean place 5.5, out in round 3 both times. Delove made 
 - In games 2-6 the LLM seats went after Delove's capital and stacks in the first rounds (the seats' own reports: in
   game 5, Opus Shen took Delove's capital Venezuela and all of South America in round 1). Delove sits last in seat
   order and starts with the least ground under the first-round bonus.
-- **Games 1-6 ran with a seat bug** (fixed in #PR): the Delove seat rebuilt the board with every opponent holding
+- **Games 1-6 ran with a seat bug** (fixed in #143): the Delove seat rebuilt the board with every opponent holding
   0 cards, so delove@6 read every LLM seat's card count as 0 (its encoder and the seat's moves use opponents' hand
   sizes; training saw the real counts). delove@6's baseline here is understated; re-measure it after the fix before
   comparing a new model against these rows.

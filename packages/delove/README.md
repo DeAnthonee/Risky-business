@@ -41,7 +41,7 @@ and their seats are named "Sensei 1" and "Sensei 2" unless `--names` says otherw
 sits as "Jacob Sensei".
 
 The seat rebuilds the board from its view (`stateFromView`): each opponent's hand gets its real size (`cardCount`),
-the deck and discard theirs, dealt at random from the cards the seat can't see. Before #PR the rebuilt board gave
+the deck and discard theirs, dealt at random from the cards the seat can't see. Before #143 the rebuilt board gave
 every opponent an empty hand, so the network and Jacob Sensei read every opponent's card count as 0 in live games
 (training saw the real counts).
 

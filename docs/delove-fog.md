@@ -35,6 +35,27 @@ already has.
   fog games out. Branch and score never searches under fog: there it plays its ranker's top move (`fogSafe`,
   `branch-env.ts`). The ladder and `play` take `{"fogOfWar": true}` games, fair for every seat; a cycle's fog gates stay
   on the CPU (`cycle.sh`).
+- **Measured (2026-10-21, home RTX 4060 + CPU ladders):** `delove@8` fine-tuned on cycle 9's arrays (14 maps, 15% of
+  each per epoch, 1 epoch, lr 2e-4, points target, branch weights) with `--fog-dropout 0.25`, against the same
+  fine-tune with `--fog-dropout 0` (a control: fog inputs, never fogged), each laddered against `delove@8` on the same
+  seeds (mirrored pairs; points per seat, candidate minus `delove@8`, 95% interval over 20-game chunks). The fog gates
+  use `configs/gen5-randomfog.json`, so `delove@8` plays fog on its seat view (the same inputs without the fog columns).
+
+  | gate | dropout 0.25 | control, no dropout |
+  | --- | --- | --- |
+  | fog, World 6p (200 games) | **+0.32** (+0.09 to +0.55), score 0.525 | +0.01 (-0.42 to +0.44) |
+  | fog, Classic 4p (200) | **+0.41** (+0.11 to +0.71), 0.552 | -0.16 (-0.46 to +0.15) |
+  | fog, Classic 2p (400) | +0.01 (-0.15 to +0.17), 0.500 | |
+  | fog, World 6p vs Jacob Sensei (200; both on their seat view) | +0.14 (-0.26 to +0.53), 0.620 | |
+  | no fog, Classic 2p (400) | -0.20 (-0.50 to +0.09) | -0.11 (-0.36 to +0.14) |
+  | no fog, Classic 6p league settings (200) | -0.23 (-0.41 to -0.05) | -0.28 (-0.48 to -0.08) |
+
+  Validation on the same held-out decisions (top-1 / policy loss): `delove@8` 0.685 / 1.074 on full boards and
+  0.648 / 1.273 fogged; with dropout 0.700 / 0.997 and 0.683 / 1.097; the control 0.699 / 0.994 and 0.664 / 1.226.
+  **Reading:** fog dropout is what makes the fog gains at 4-6 players (the control has none); on full boards it costs
+  nothing measurable next to the same fine-tune without it. The no-fog loss at 6p is the fine-tune itself (older
+  data, a short run on 15% of it), not dropout, and a cycle's training on its own fresh data does not have it. At 2
+  players fog changes little (almost everything is next to something of yours). Cycle 15: `--fog-dropout 0.25`.
 - **Not built yet (next):** the seat's memory (section 2.2: last-seen owners and armies, income bounds), which needs
   logged fog games or a tracker in self-play; the determinized branch teacher (section 4); fog in the GPU mirror
   (section 5). Fog dropout teaches "act on what you see"; the memory and a fair fog teacher come next.

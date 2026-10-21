@@ -122,7 +122,7 @@ export class SeatRunner {
       view = w.state;
       since = view.version;
       this.seen(view, w.events);
-      this.fetchChat(view);
+      await this.fetchChat(view);
       if (view.phase === 'finished') break;
       if (w.yourTurn) {
         const before = view.version;
@@ -164,6 +164,7 @@ export class SeatRunner {
       else if ((view.phase === 'reinforce' && view.turnNumber !== this.lastPlanned) || force) {
         this.lastPlanned = view.turnNumber;
         this.ownTurnCount++;
+        await this.fetchChat(view);
         await c.planFor(view);
         const pingToSend = c.popPing();
         if (pingToSend) {
@@ -285,23 +286,25 @@ export class SeatRunner {
     return view;
   }
 
-  /** Read what this seat may see (its own token) and hand it to the diplomat without blocking play. */
-  private fetchChat(view: GameView) {
+  /** Read what this seat may see (its own token) and hand it to the commander and diplomat. */
+  private async fetchChat(view: GameView): Promise<void> {
     const d = this.o.diplomat;
     const c = this.o.commander;
     if (!d && !c) return;
-    this.fire(
-      (async () => {
-        const { messages } = await this.o.api.chat(this.o.gameId, this.chatSince, this.o.token);
-        if (messages.length === 0) return;
-        this.chatSince = Math.max(this.chatSince, ...messages.map((m) => m.id));
-        this.chatSeen.push(...messages);
-        if (this.chatSeen.length > 600) this.chatSeen.splice(0, this.chatSeen.length - 600);
-        this.memory.onMessages(messages, this.latestView ?? view);
-        c?.onMessages(messages);
-        return d ? d.onMessages(messages, this.latestView ?? view) : null;
-      })(),
-    );
+    try {
+      const { messages } = await this.o.api.chat(this.o.gameId, this.chatSince, this.o.token);
+      if (messages.length === 0) return;
+      this.chatSince = Math.max(this.chatSince, ...messages.map((m) => m.id));
+      this.chatSeen.push(...messages);
+      if (this.chatSeen.length > 600) this.chatSeen.splice(0, this.chatSeen.length - 600);
+      this.memory.onMessages(messages, this.latestView ?? view);
+      c?.onMessages(messages);
+      if (d) {
+        this.fire(Promise.resolve(d.onMessages(messages, this.latestView ?? view)));
+      }
+    } catch {
+      // transient chat error
+    }
   }
 
   /** Run a diplomat call in the background: failures are logged, results posted, the move loop never waits. */

@@ -692,20 +692,34 @@ export class Commander {
           // Only genuine proposals (good_neighbor, alliance, or targeted joint attack) can be replied to!
           // NEVER treat taunts, camaraderie, anger, agree, or decline as proposals!
           if (isForMe && (parsed.type === 'good_neighbor' || parsed.type === 'alliance' || (parsed.type === 'attack' && parsed.target && parsed.target.toLowerCase() !== this.o.seatName.toLowerCase()))) {
-            this.pendingProposals.set(m.name.toLowerCase(), {
-              from: m.name,
-              type: parsed.type,
-              target: parsed.target,
-              turnReceived: this.ownTurns,
-            });
+            // Check if WE recently sent them the exact same proposal!
+            // E.g., if we recently proposed good_neighbor to them, and they also propose good_neighbor to us:
+            // This is an automatic bilateral mutual handshake!
+            const lastSentTo = this.lastPingToRecipient.get(m.name.toLowerCase());
+            const lastType = this.lastPingTypeSentTo.get(m.name.toLowerCase());
+            if (lastSentTo !== undefined && this.ownTurns - lastSentTo <= 2 && lastType === parsed.type) {
+              if (parsed.type === 'good_neighbor') {
+                this.activeGoodNeighbors.add(m.name.toLowerCase());
+                this.pendingProposals.delete(m.name.toLowerCase());
+              }
+            } else {
+              this.pendingProposals.set(m.name.toLowerCase(), {
+                from: m.name,
+                type: parsed.type,
+                target: parsed.target,
+                turnReceived: this.ownTurns,
+              });
+            }
           } else if (parsed.type === 'agree') {
             // If they agreed to our recent proposal, establish active Good Neighbor pact
             const lastSentTo = this.lastPingToRecipient.get(m.name.toLowerCase());
             const lastType = this.lastPingTypeSentTo.get(m.name.toLowerCase());
             if (lastSentTo !== undefined && this.ownTurns - lastSentTo <= 2) {
-              if (lastType === 'good_neighbor') {
+              if (lastType === 'good_neighbor' || parsed.target === 'good neighbor') {
                 this.activeGoodNeighbors.add(m.name.toLowerCase());
               }
+            } else if (parsed.target === 'good neighbor') {
+              this.activeGoodNeighbors.add(m.name.toLowerCase());
             }
           }
         }
@@ -856,16 +870,19 @@ export class Commander {
                 // Incoming good_neighbor is an unviable trap: silence is a rejection
                 p.ping = null;
               } else {
+                p.ping.target = 'good neighbor';
                 this.activeGoodNeighbors.add(validRecipient.toLowerCase());
                 if (!p.avoid.includes(validId)) p.avoid.push(validId);
               }
             } else if (proposal?.type === 'attack') {
+              p.ping.target = proposal.target ? `attack ${proposal.target}` : 'attack';
               if (proposal.target) {
                 const targetPlayer = view.players.find((x) => x.name.toLowerCase() === proposal.target!.toLowerCase() || x.id === proposal.target);
                 if (targetPlayer && !p.target) p.target = targetPlayer.id;
               }
               if (validId && !p.avoid.includes(validId)) p.avoid.push(validId);
             } else {
+              p.ping.target = 'alliance';
               if (validId && !p.avoid.includes(validId)) p.avoid.push(validId);
             }
           }
@@ -919,6 +936,7 @@ export class Commander {
               p.ping = {
                 type: 'agree',
                 to: senderLLM.name,
+                target: prop.type === 'good_neighbor' ? 'good neighbor' : prop.type === 'attack' ? (prop.target ? `attack ${prop.target}` : 'attack') : 'alliance',
               };
               if (prop.type === 'good_neighbor') {
                 this.activeGoodNeighbors.add(senderKey);

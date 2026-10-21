@@ -34,9 +34,9 @@ export function isModelName(name: string): boolean {
 export function formatPing(ping: PingAction): string {
   switch (ping.type) {
     case 'agree':
-      return '🤝 [agree]';
+      return ping.target ? `🤝 [agree: ${ping.target}]` : '🤝 [agree]';
     case 'decline':
-      return '✋ [decline]';
+      return ping.target ? `✋ [decline: ${ping.target}]` : '✋ [decline]';
     case 'attack':
       return ping.target ? `⚔️ [attack: ${ping.target}]` : '⚔️ [attack]';
     case 'alliance':
@@ -69,14 +69,18 @@ export function parsePing(raw: string, from: string, isWhisper: boolean): Parsed
     if (target) return { type: 'attack', target, from, isWhisper, raw: text };
   }
 
-  // Affirmation: [agree] or [yes]
-  if (/\[(agree|yes)\]/i.test(text)) {
-    return { type: 'agree', from, isWhisper, raw: text };
+  // Affirmation: [agree], [agree: detail], or [yes]
+  const agreeMatch = /\[(?:agree|yes)(?::\s*([^\]]+))?\]/i.exec(text);
+  if (agreeMatch) {
+    const target = agreeMatch[1]?.trim();
+    return { type: 'agree', target, from, isWhisper, raw: text };
   }
 
-  // Rejection: [decline] or [no]
-  if (/\[(decline|no)\]/i.test(text)) {
-    return { type: 'decline', from, isWhisper, raw: text };
+  // Rejection: [decline], [decline: detail], or [no]
+  const declineMatch = /\[(?:decline|no)(?::\s*([^\]]+))?\]/i.exec(text);
+  if (declineMatch) {
+    const target = declineMatch[1]?.trim();
+    return { type: 'decline', target, from, isWhisper, raw: text };
   }
 
   // Alliance: [alliance]

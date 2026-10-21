@@ -53,7 +53,9 @@ describe('diplomatic ping system', () => {
 
   it('formats ping actions with spectator-friendly emojis and bracketed syntax', () => {
     expect(formatPing({ type: 'agree' })).toBe('🤝 [agree]');
+    expect(formatPing({ type: 'agree', target: 'good neighbor' })).toBe('🤝 [agree: good neighbor]');
     expect(formatPing({ type: 'decline' })).toBe('✋ [decline]');
+    expect(formatPing({ type: 'decline', target: 'alliance' })).toBe('✋ [decline: alliance]');
     expect(formatPing({ type: 'alliance' })).toBe('🛡️ [alliance]');
     expect(formatPing({ type: 'good_neighbor' })).toBe('🏡 [good neighbor]');
     expect(formatPing({ type: 'camaraderie' })).toBe('👊 [camaraderie]');
@@ -65,9 +67,11 @@ describe('diplomatic ping system', () => {
 
   it('parses incoming pings across canonical syntax and common aliases', () => {
     expect(parsePing('🤝 [agree]', 'Ahri', false)).toMatchObject({ type: 'agree', from: 'Ahri', isWhisper: false });
+    expect(parsePing('🤝 [agree: good neighbor]', 'Ahri', true)).toMatchObject({ type: 'agree', target: 'good neighbor', from: 'Ahri', isWhisper: true });
     expect(parsePing('[yes]', 'Ahri', true)).toMatchObject({ type: 'agree', from: 'Ahri', isWhisper: true });
 
     expect(parsePing('✋ [decline]', 'Ahri', false)).toMatchObject({ type: 'decline', from: 'Ahri' });
+    expect(parsePing('✋ [decline: alliance]', 'Ahri', false)).toMatchObject({ type: 'decline', target: 'alliance', from: 'Ahri' });
     expect(parsePing('[no]', 'Ahri', true)).toMatchObject({ type: 'decline', from: 'Ahri' });
 
     expect(parsePing('🛡️ [alliance]', 'Ahri', true)).toMatchObject({ type: 'alliance', from: 'Ahri', isWhisper: true });
@@ -345,5 +349,35 @@ describe('diplomatic ping system', () => {
     // Ahri is avoided as a partner, Ronny@3 is targeted!
     expect(plan?.avoid).toContain('b');
     expect(plan?.target).toBe('c');
+  });
+
+  it('recognizes mutual good neighbor proposals as an automatic bilateral handshake agreement', async () => {
+    const view = makeView4(); // 4 players
+    const c = new Commander({
+      llm: llmReturning(
+        // Turn 1: Shen proposes good neighbor to Ahri
+        JSON.stringify({ winPath: 'bonuses', plan: 'turn 1', ping: { type: 'good_neighbor', to: 'Ahri' } }),
+        // Turn 2: Shen plays normally
+        JSON.stringify({ winPath: 'bonuses', plan: 'turn 2', ping: null })
+      ),
+      seatName: 'Shen',
+      playerId: 'a',
+      learnings: '',
+      gameId: 'TEST_MUTUAL_HANDSHAKE',
+      scoutingDir: null,
+    });
+
+    // Turn 1: Shen sends good neighbor to Ahri
+    await c.planFor({ ...view, turnNumber: 1 });
+    expect(c.popPing()).toMatchObject({ type: 'good_neighbor', to: 'Ahri' });
+
+    // Between turns, Ahri ALSO sends good neighbor to Shen (cross-proposal)
+    c.onMessages([
+      { id: 1, playerId: 'b', name: 'Ahri', message: '🏡 [good neighbor]', to: 'a', toName: 'Shen' },
+    ]);
+
+    // On Turn 2, the mutual handshake should automatically seal the pact, putting Ahri in avoid!
+    const plan2 = await c.planFor({ ...view, turnNumber: 5 });
+    expect(plan2?.avoid).toContain('b');
   });
 });

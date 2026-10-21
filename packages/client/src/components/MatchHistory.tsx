@@ -89,6 +89,7 @@ export function MatchHistory({ openRooms, onWatch }: { openRooms: Set<string>; o
                   <span>{duration(g.endedAt - g.startedAt)}</span>
                   {g.fog && <span>Fog</span>}
                   {g.tournamentId && <span>Tournament</span>}
+                  {g.board === 'training' && <span title="A yardstick game: ranked on the training board, not the public leaderboard">Training</span>}
                   {g.scenario && <span>Scenario</span>}
                 </div>
                 <ol className="match-seats" aria-label="Final places">

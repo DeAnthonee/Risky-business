@@ -14,7 +14,7 @@ export function mapInfo(m: MapDef) {
   };
 }
 import { CHARACTER_DATA_NOTICE, RiskHttpError } from '@risk/mcp';
-import type { GameRoom, Store } from './store.js';
+import type { GameRoom, RankingBoard, Store } from './store.js';
 import type { CharacterStore } from './characters.js';
 import type { CreateTournamentSpec } from './tournaments.js';
 
@@ -138,16 +138,20 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
     api.get('/model-info', (_req, res) => res.json(characters.modelInfo()));
   }
 
-  const rankedProfile = (key: string, name: string, season?: string) => {
+  const rankedProfile = (key: string, name: string, season?: string, board?: RankingBoard) => {
     let profile: string | null = null;
     if (/^[a-z0-9][a-z0-9_-]*\/[a-z0-9][a-z0-9_-]*$/.test(key) && characters) {
       try { profile = characters.get(key).markdown; } catch { /* historical character may have been removed */ }
     }
-    return { stats: store.rankings.profile(key, name, season), profile };
+    return { stats: store.board(board).profile(key, name, season), profile };
   };
   // ?season=<id> reads an archived season (ids from /rankings/seasons); without it, the current one.
   const seasonOf = (req: Request) => (req.query.season === undefined ? undefined : String(req.query.season).slice(0, 20));
+  // ?board=training reads the training leaderboard (yardstick games; no seasons); ?board=public or none, the public one.
+  const boardOf = (req: Request): RankingBoard | undefined => parseBoard(req.query.board, true);
   api.get('/rankings', (req, res) => {
+    const board = boardOf(req);
+    if (board) return res.json({ board, season: String(store.training.season), current: true, rankings: store.training.rows() });
     const season = seasonOf(req);
     const rankings = store.rankings.seasonRows(season);
     if (!rankings) return res.status(404).json({ error: `No leaderboard season ${season}` });
@@ -156,13 +160,17 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
   api.get('/rankings/seasons', (_req, res) => res.json({ current: store.rankings.season, seasons: store.rankings.seasons() }));
   // Match history for the home page: finished games from the archive index, newest first. Only the public outcome
   // (seats, places, winner, turns), never a board, so fog games are safe to list. Empty when records are off.
+  // Training games carry board "training"; ?board=training lists only those, ?board=public only the others.
   api.get(
     '/history',
     wrap((req, res) => {
       const limit = Math.max(1, Math.min(Number(req.query.limit) || 20, 100));
+      const filter = req.query.board === undefined ? null : String(req.query.board);
+      if (filter !== null && filter !== 'public') parseBoard(filter, true);
       const games = store.archive
         .list(Infinity)
         .filter((g) => g.finished && g.winner)
+        .filter((g) => filter === null || (filter === 'training') === (g.board === 'training'))
         .slice(0, limit)
         .map((g) => ({
           id: g.id,
@@ -171,6 +179,7 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
           map: g.map,
           fog: g.fog,
           ...(g.tournamentId ? { tournamentId: g.tournamentId } : {}),
+          ...(g.board ? { board: g.board } : {}),
           scenario: !!g.scenarioOf,
           startedAt: g.startedAt,
           endedAt: g.endedAt,
@@ -185,15 +194,17 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
   api.get('/rankings/profile', (req, res) => {
     const key = String(req.query.key ?? '').slice(0, 200);
     if (!key) return res.status(400).json({ error: 'Profile key is required' });
-    const season = seasonOf(req);
+    const board = boardOf(req);
+    const season = board ? undefined : seasonOf(req);
     if (!store.rankings.seasonRows(season)) return res.status(404).json({ error: `No leaderboard season ${season}` });
-    res.json(rankedProfile(key, key.split('/').pop()!, season));
+    res.json({ ...rankedProfile(key, key.split('/').pop()!, season, board), ...(board ? { board } : {}) });
   });
   api.get('/games/:id/players/:player/profile', loadRoom, (req: Req, res) => {
     const player = req.room!.state.players.find(p => p.id === req.params.player && !p.isNeutral);
     if (!player) return res.status(404).json({ error: 'Player not found' });
     const key = req.room!.characterIds[player.id] ?? `${player.isBot ? 'bot' : 'player'}:${player.name.trim().toLowerCase()}`;
-    res.json(rankedProfile(key, player.name));
+    // A training game shows its seats' training standing.
+    res.json(rankedProfile(key, player.name, undefined, req.room!.board));
   });
   api.post('/games/:id/character', loadRoom, requirePlayer, (req: Req, res) => {
     const id = String(req.body?.characterId ?? '');
@@ -215,7 +226,19 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
       const body = req.body ?? {};
       const playerName = String(body.playerName ?? body.name ?? 'Player');
       const options = sanitizeOptions(body.options);
-      const { room, playerId, token } = store.create(String(body.gameName ?? body.name ?? ''), options, playerName, Boolean(body.asBot));
+      // board "training": a yardstick game for the training leaderboard. Not a game setting (it changes no rule), and it
+      // takes the characters write key, so nobody can hide a public game's result or fill the training board.
+      const board = parseBoard(body.board);
+      if (board) {
+        const key = req.headers['x-characters-key'];
+        try {
+          if (!characters) throw new Error('no characters');
+          characters.checkWrite(typeof key === 'string' ? key : undefined);
+        } catch {
+          return res.status(403).json({ error: 'A training-board game needs the characters write key in the x-characters-key header' });
+        }
+      }
+      const { room, playerId, token } = store.create(String(body.gameName ?? body.name ?? ''), options, playerName, Boolean(body.asBot), board);
       res.status(201).json({ gameId: room.id, playerId, token, state: room.view(playerId), host: room.hostId });
     }),
   );
@@ -302,6 +325,23 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
     '/admin/sweep',
     requireAdmin,
     wrap((_req, res) => res.json({ removed: store.sweep() })),
+  );
+  // Move a game to the training board: for yardstick games created before they could be flagged. Its result leaves the
+  // public leaderboard (current season) for the training one, its open room is flagged and its records are marked.
+  api.post(
+    '/admin/games/:id/board',
+    requireAdmin,
+    wrap((req, res) => {
+      if (req.body?.board !== 'training') return res.status(400).json({ error: 'board must be "training"' });
+      let moved;
+      try {
+        moved = store.moveToTraining(String(req.params.id));
+      } catch (e) {
+        return res.status(500).json({ error: (e as Error).message });
+      }
+      if (!moved) return res.status(404).json({ error: 'No game, ranked result or record with that id' });
+      res.json({ ok: true, board: 'training', ...moved });
+    }),
   );
   // Archive the leaderboard now (kept as rankings.season-<N>.json, still readable) and start season N+1 empty.
   api.post(
@@ -620,6 +660,16 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
   });
 
   return api;
+}
+
+/**
+ * A board name from an untrusted body or query: undefined for none (or "public" where `allowPublic`), "training", or a
+ * 400 for anything else.
+ */
+export function parseBoard(raw: unknown, allowPublic = false): RankingBoard | undefined {
+  if (raw === undefined || raw === null || (allowPublic && raw === 'public')) return undefined;
+  if (raw === 'training') return 'training';
+  throw new RiskHttpError(`board must be "training"${allowPublic ? ' or "public"' : ''}`, 400);
 }
 
 /** Options from an untrusted body: unknown keys and wrong types are a 400 with a message listing them. */

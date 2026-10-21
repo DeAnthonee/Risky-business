@@ -188,6 +188,33 @@ export class Rankings {
     return (this.seasonRows(season) ?? []).find(r => r.key === key) ?? { key, name, rank: 0, points: 0, games: 0, wins: 0, losses: 0, winRate: 0, avgPlacement: 0, kills: 0, victims: {} };
   }
 
+  /** The ranked result of a game on the current board, or null. */
+  result(gameId: string): RankedGame | null { return this.games.find((g) => g.gameId === gameId) ?? null; }
+
+  /**
+   * Admin: take a game's result off the current board (it is moving to the training board). Its id stays known, so
+   * the same game is never recorded here again. Returns the result, or null when it is not on the current board.
+   */
+  remove(gameId: string): RankedGame | null {
+    const i = this.games.findIndex((g) => g.gameId === gameId);
+    if (i < 0) return null;
+    const [game] = this.games.splice(i, 1);
+    if (!this.save()) {
+      this.games.splice(i, 0, game);
+      throw new Error('Could not save the leaderboard; see the server log');
+    }
+    return game;
+  }
+
+  /** Admin: add a result taken off another board (see `remove`). False when this game is already here. */
+  add(game: RankedGame): boolean {
+    if (this.ids.has(game.gameId)) return false;
+    this.games.push(game);
+    this.ids.add(game.gameId);
+    this.save();
+    return true;
+  }
+
   record(state: GameState, identities: Record<string, string>, eliminated: string[]) {
     if (state.phase !== 'finished' || !state.winner || this.ids.has(state.id)) return;
     const standings = finalPlacements(state, eliminated);

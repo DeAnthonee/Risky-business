@@ -41,10 +41,10 @@ time" below explains it). The newest base network in the models folder (`delove@
 
 | preset | rollouts | options | score | horizon | margin | evidence |
 | --- | --- | --- | --- | --- | --- | --- |
-| `js2-range` (default since #PR) | Jacob Sensei 2 | 5 | range (each stage's goal by players alive) | 2 | 0.02 | preset ladder (#PR, below): **+2.33 points per seat at World 6p, +1.17 at Classic 4p, +0.12 at Classic 2p** against the bare delove@8; **+1.01 against `measured` head to head at World 6p** |
+| `js2-range` (default since #164) | Jacob Sensei 2 | 5 | range (each stage's goal by players alive) | 2 | 0.02 | preset ladder (#164, below): **+2.33 points per seat at World 6p, +1.17 at Classic 4p, +0.12 at Classic 2p** against the bare delove@8; **+1.01 against `measured` head to head at World 6p** |
 | `measured` | Jacob Sensei 1 | 5 | share | 1 | 0.01 | #142's CPU ladder: +2.07 / +1.43 / even; in the preset ladder +1.91 / +0.76 / -0.24 against the bare delove@8, about 4x faster per decision |
 
-**The preset ladder** (#PR; 2026-10-21, CPU, mirrored seeds, ranker delove@8 for all; 400 games at Classic 2p, 200 at
+**The preset ladder** (#164; 2026-10-21, CPU, mirrored seeds, ranker delove@8 for all; 400 games at Classic 2p, 200 at
 4p and World 6p; points difference per seat with 95% interval; C = `js2-range` with horizon 1 and margin 0.01):
 
 | preset | vs bare delove@8, World 6p | Classic 4p | Classic 2p | ms per decision (busy CPU) |

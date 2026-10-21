@@ -113,7 +113,7 @@ Same lineup, settings and stop rule, so the new rows compare with the ones above
    `capitals: false, chooseCapitals: false, blizzards: 0` instead (a copy of the script with those three values).
    With `RISK_CHARACTERS_KEY` in the environment the room goes on the training board (#138); without it the room is
    public, and it is still never ranked because it is closed when Delove is out.
-2. Seat Delove (it waits for the start). Since #154 the seat searches by default; since #PR the default preset is
+2. Seat Delove (it waits for the start). Since #154 the seat searches by default; since #164 the default preset is
    `js2-range`, baseline 2's settings (`--preset measured` for #142's). Pin the ranker so a promotion mid-run doesn't change
    the model, and use `--agents delove@N` for the bare network:
 

@@ -221,6 +221,18 @@ Library names (the private models repo, next to `delove@N`) are `delove-long-ran
   `sm` folders hold decisions at 3 and at 2 players alive; `sc` folders only at 2. Every row is an ordinary training row,
   so the folders mix into the pool like any step's (`train.py --alive` / `--range` pick the specialist's rows; for base
   Delove, weight them with `#F` so the endgame does not crowd out the opening).
+- **Ratio scenarios (closer stages).** After a Jacob lead-in one player has usually run away (median stage 7 turns
+  at 3 alive, 4 at 2), so `scripts/stage/split-close.jobs` (2 alive: 50/50, 60/40, 40/60, 70/30, 30/70) and
+  `split-mid.jobs` (3 alive: 34/33/33 and each turn order of 50/25/25, 40/40/20, 60/20/20) start from synthetic boards
+  split as the ratio says, about 10,000 games a ratio over the 6-10 seat tables of cycle 8, the branch player against
+  `delove@6` (`split:SHARES>...` agents; packages/selfplay README, "Stage games"). They are drawn from each game's
+  seed, so they run on rented GPUs as well as at home: two more cycle steps, e.g. `"xc
+  packages/delove/scripts/stage/split-close.jobs Ratio scenarios: 2 alive"` and `"xm .../split-mid.jobs Ratio
+  scenarios: 3 alive"` (about $2-3 for both on rented GPUs; the measured balance per ratio is in the `packages/delove-gpu`
+  README, "Stage games"). Mix them with the real stage games and the normal pool, never alone (`#F` weights in
+  `train_data`, e.g. `xc/classic#0.5`; 70/30 is mostly settled on the first turn). `node
+  scripts/stage/split-jobs.mjs [GAMES] [OPPONENT]` rewrites both files (e.g. `10000 delove@7` for the newer base); `scripts/stage/measure-stages.mjs` re-measures the
+  stage statistics the boards are drawn from.
 - **Gate:** each specialist against the base on its own stage, then the routed trio against the base in full games,
   with the yardstick below; the promotion rule is in `docs/delove-status.md` ("Range specialists: how they are
   compared").

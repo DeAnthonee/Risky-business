@@ -366,6 +366,14 @@ tables with LLM characters, with fog of war on. In order:
    both even with `delove@7` on their own stage (CYCLES.md); cycle 11 repeats them from `delove@7`. Watch the stage length: after a Jacob Sensei lead-in the 3-alive part lasts 7 turns
    (median; 2-alive: 4), as one player has usually run away by then; if the specialists need closer positions,
    filter positions by balance (as the yardstick's capture does) or add lead-ins by stronger, more even seats.
+   **Ratio scenarios** (#146) are the closer positions: synthetic boards where 2 survivors hold the board 50/50,
+   60/40, 40/60, 70/30 or 30/70, or 3 hold it 34/33/33 or a turn order of 50/25/25, 40/40/20, 60/20/20, as contiguous
+   regions with armies, turn, trades and hands drawn from real stage starts (`scripts/stage/split-close.jobs` and
+   `split-mid.jobs`, about 10,000 games a ratio on the 6-10 seat tables, branch player vs `delove@6`). Drawn from the
+   game seed, they run on the cloud pods (both files, 90,000 games: about $2-3 of rented GPU time; home 4060: 35k-117k
+   games an hour). With Jacob Sensei on every seat the side to move wins 63% of 50/50 duels, the bigger side 92% at
+   60/40 and 98% at 70/30 (settled in about 2 turns: weight it lightly); a 34/33/33 three-way lasts 16 turns
+   (packages/delove-gpu README, "Stage games"). Train on them mixed with the real stage games, not instead of them.
 3. **Fog of war, started early, in parallel** (`docs/delove-fog.md`): fog dropout first (train on normal games with the
    unseen territories blanked out, so Delove stops leaning on information a fogged player lacks), then the seat-view
    encoder, a determinized branch teacher and fog gates.

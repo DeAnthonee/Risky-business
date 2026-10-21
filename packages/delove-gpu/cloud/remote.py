@@ -333,7 +333,7 @@ def build_upload(work: Path, pod_index: int, lanes: list[Lane], gen_args: list[s
         shutil.copyfile(m, stage / "models" / m.name)
     if cache and cache.is_dir():
         (stage / "cache").mkdir()
-        for c in list(cache.glob("*.cubin")) + list(cache.glob("*.npz")):
+        for c in cache.glob("*.cubin"):  # the odds tables (240 MB) are built on the pod, once, in about two minutes
             shutil.copyfile(c, stage / "cache" / c.name)
     (stage / "worker.sh").write_bytes((HERE / "worker.sh").read_bytes().replace(b"\r\n", b"\n"))  # a CRLF checkout
     (stage / "job.json").write_text(json.dumps({"torch": torch_version, "verify": verify}), encoding="utf8")
@@ -378,7 +378,7 @@ def run(args, gen_args: list[str]):
     if not steps:
         print("every step already has its gpu.json")
         return 0
-    cache = Path(args.cache) if args.cache else PKG / "_cache"
+    cache = Path(args.cache) if args.cache else PKG / "delove_gpu" / "_cache"
     timings = read_timings(args.timings)
     units = make_units(steps, set(args.only.split(",")) if args.only else None, timings, cached=cache.is_dir() and any(cache.glob("*.cubin")))
     lanes = assign(units, args.pods, args.gpus, args.procs, args.share)
@@ -515,6 +515,7 @@ def merge_all(args, steps, lanes: list[Lane], work: Path, pods: list[Pod], secon
         extra = {"lanes": [lane.index for lane, _ in logs], "pods": len(pods), "gpuType": args.gpu_type, "gpus": env,
                  "wallSeconds": round(seconds, 1), "costPerHour": [p.cost for p in pods]}
         merged = merge_step(parts, data / f"{args.name}-{step}", extra)
+        (out / step).mkdir(parents=True, exist_ok=True)  # cycle.sh makes it; a run by hand may not have
         with open(out / step / "gpu.log", "w", encoding="utf8", newline="\n") as f:
             for lane, log in logs:
                 f.write(f"==== lane {lane.index} (pod {lane.pod}, GPU {lane.gpu}) ====\n")
@@ -565,9 +566,9 @@ def main(argv=None) -> int:
         p.add_argument("--procs", type=int, default=1, help="generate processes per GPU (lanes sharing a GPU)")
         p.add_argument("--share", type=float, default=1.6, help="how much slower each of --procs lanes on one GPU runs (estimate only)")
         p.add_argument("--speed", type=float, default=1.0, help="GPU speed vs the training PC's RTX 4060 (estimate only)")
-        p.add_argument("--price", type=float, default=0.69, help="$ per GPU-hour for the estimate (the pods report their real price)")
+        p.add_argument("--price", type=float, default=0.89, help="$ per GPU-hour for the estimate (a Secure Cloud RTX 4090, October 2026; the pods report their real price)")
         p.add_argument("--max-gpu-hours", type=float, default=4.0, help="hard cap: refuse a bigger estimate, terminate everything at it")
-        p.add_argument("--cache", help="NVRTC kernels and odds tables to upload (default: packages/delove-gpu/_cache)")
+        p.add_argument("--cache", help="NVRTC kernels to upload (default: packages/delove-gpu/delove_gpu/_cache, where fused.py keeps them)")
         if name == "run":
             p.add_argument("--models", required=True)
             p.add_argument("--data", default="data/delove")
@@ -587,7 +588,7 @@ def main(argv=None) -> int:
     t.add_argument("--all", action="store_true", help="every delove-* pod of the account")
     args = ap.parse_args(argv)
     if args.cmd == "plan":
-        cache = Path(args.cache) if args.cache else PKG / "_cache"
+        cache = Path(args.cache) if args.cache else PKG / "delove_gpu" / "_cache"
         units = make_units(args.step, set(args.only.split(",")) if args.only else None, read_timings(args.timings),
                            cached=cache.is_dir() and any(cache.glob("*.cubin")))
         lanes = [lane for lane in assign(units, args.pods, args.gpus, args.procs, args.share) if lane.units]

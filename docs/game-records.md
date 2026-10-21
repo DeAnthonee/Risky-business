@@ -80,6 +80,12 @@ own: what the player could see (`seen`), what was really there (`board`), what t
 and `board` is what fog hid; comparing what the player saw with what the next turns revealed is how a model learns
 what to expect behind the fog.
 
+`outcome.placings` lists the real seats only, winner first, then the survivors by territories held, then the
+eliminated players from last out to first out. The neutral army is never placed, including one that came into the game
+mid-way when a player surrendered (its territories go to a neutral). `outcome.eliminations` still lists that neutral
+when it is wiped out. Records filed before #124 can carry an extra `"neutral"` id in `placings` after a surrender;
+read places by seat (the archive index's `players[].place`) or by finishing order rather than by position.
+
 ## Replaying and scenarios
 
 The engine has the start state, the dice seed and every action, so a record replays exactly:

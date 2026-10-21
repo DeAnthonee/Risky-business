@@ -30,6 +30,7 @@ cards are hidden).
 | `POST /games/:id/character`        | seat token + `x-characters-key`: `{characterId}` binds your seat to a character for the leaderboard (lobby) |
 | `GET  /rankings?season=`, `GET /rankings/profile?key=&season=` | the leaderboard `{season, current, rankings}`; one identity's ranking and profile. `season` (optional, an id from `/rankings/seasons`) reads an archived season; unknown ids are 404 (see [the character league guide](character-league.md)) |
 | `GET  /rankings/seasons`           | `{current, seasons: [{id, season, current, games}]}`: the current season first, then archives newest first |
+| `GET  /history?limit=`            | match history: finished games with a winner, newest first (`limit` 1-100, default 20) → `{enabled, games: [{id, room, name, map, fog, tournamentId?, scenario, startedAt, endedAt, winner: {id, name}, reason, turns, players: [{id, name, isBot, characterId, place}]}]}`. Read from the [game records](game-records.md) index: outcomes only, never a board, so fog games are listed too. Empty with `enabled: false` when records are off |
 | `GET  /games/:id/players/:player/profile` | a seat's ranking and profile                                  |
 | `GET  /admin/games`, `DELETE /admin/games/:id`, `POST /admin/sweep` | admin token only: inspect, delete, sweep rooms |
 | `POST /admin/rankings/new-season`  | admin: archive the leaderboard now and start the next season empty → `{archived, season}` (500 and no change if the archive fails) |

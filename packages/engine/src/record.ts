@@ -249,6 +249,8 @@ export function assembleRecord(header: RecordHeader, entries: RecordEntry[], fin
     .filter((p) => !p.isNeutral && !out.has(p.id))
     .sort((a, b) => Number(b.id === final.winner) - Number(a.id === final.winner) || territoriesOf(final, b.id).length - territoriesOf(final, a.id).length)
     .map((p) => p.id);
+  // Placings hold real seats only: a neutral can join mid-game (a surrender) and be eliminated too.
+  const seats = new Set(final.players.filter((p) => !p.isNeutral).map((p) => p.id));
   const finished = final.phase === 'finished';
   return {
     ...header,
@@ -261,7 +263,7 @@ export function assembleRecord(header: RecordHeader, entries: RecordEntry[], fin
       winner: final.winner,
       reason: over?.reason ?? (final.winner ? 'domination' : null),
       eliminations,
-      placings: [...survivors, ...eliminations.map((e) => e.player).reverse().filter((id) => id !== header.players.find((p) => p.isNeutral)?.id)],
+      placings: [...survivors, ...eliminations.map((e) => e.player).reverse().filter((id) => seats.has(id))],
       board: boardOf(final, header),
     },
   };

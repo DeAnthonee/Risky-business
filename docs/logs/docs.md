@@ -4,7 +4,7 @@ Covers README.md (the AI guide), CLAUDE.md and the agent pointer files, CONTRIBU
 docs under `docs/` that have no area of their own. A doc change that belongs to an area (for example a new HTTP route
 in `docs/http-api.md`) goes in that area's log instead.
 
-Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. **Append a line in the same PR** as any change to
+Newest first, one line per change: `- YYYY-MM-DD #155 what changed`. **Append a line in the same PR** as any change to
 this area (README hard rule 12).
 
 - 2026-10-20 #137 game-records.md: starting positions for training (`npm run selfplay -- positions`)

@@ -6,7 +6,7 @@ player refuses them (`packages/delove/src/seat.ts`), and the GPU mirror leaves f
 changing that. Current state and the main roadmap: [delove-status.md](delove-status.md); plan of record:
 [delove.md](delove.md).
 
-## Status: what is built (#PR)
+## Status: what is built (#155)
 
 The first fog capability, simpler than sections 2-3 below in one way: **no seat memory yet**. A fog seat sees the
 current view only (what is visible now), which is exactly what fog dropout can produce from the arrays every cycle

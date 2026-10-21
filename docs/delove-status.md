@@ -32,7 +32,7 @@ What "good" means, decided by the owner:
    day.
 
 **Fog of war is a required milestone** (owner, 2026-10-20): tournaments run with fog on. The first capability is
-built (#PR): seat-view inputs, fog dropout in training and fair fog games in self-play; the seat player seats only
+built (#155): seat-view inputs, fog dropout in training and fair fog games in self-play; the seat player seats only
 fog-trained models at fog tables. The plan and what is left: `docs/delove-fog.md` (section 9).
 
 **The finished product** (owner, 2026-10-20): three separate specialist networks plus a "housing" that picks which one
@@ -326,7 +326,7 @@ Fog of war only for fog-trained models (`fogInputs`, enforced by `delove-seat`);
 
 | what | who | state |
 | --- | --- | --- |
-| fog of war, first capability: seat-view inputs, fog dropout, fair fog games and gates, `delove-seat` at fog tables | session "Fog of war" | built in **#PR** (no GPU mirror change, fingerprint untouched); measurement: a fog-dropout fine-tune of `delove@8` on the fog ladder (see the PR); next: a cycle candidate with `--fog-dropout`, then seat memory and the determinized teacher (`docs/delove-fog.md`) |
+| fog of war, first capability: seat-view inputs, fog dropout, fair fog games and gates, `delove-seat` at fog tables | session "Fog of war" | built in **#155** (no GPU mirror change, fingerprint untouched); measurement: a fog-dropout fine-tune of `delove@8` on the fog ladder (see the PR); next: a cycle candidate with `--fog-dropout`, then seat memory and the determinized teacher (`docs/delove-fog.md`) |
 | GPU rules, teacher and branch-and-score for every map, 2-10 seats and every setting; points arrays from the GPU; `cycle.sh` GPU steps for any step | session "GPU engine for every map and 2-10 players" | done, **PR #82** merged |
 | cycle 5: all maps 2-10p on the GPU, points target; gate table with points; live dashboard (`scripts/dashboard.mjs`); `train.py --amp` and `#F` fractions | coordinator | done, not promoted (section 3); PR #105 |
 | Jacob Sensei on the GPU mirror (teacher kernel, per-seat teacher versions, verified by replay) | session "Port Jacob Sensei to the GPU mirror" | done, **PR #110**: 0 mismatches (verify.py on the pre-Bohemia engine, fingerprint at `da9ec34`; matrix `jacob` suite 118/118) |
@@ -397,7 +397,7 @@ tables with LLM characters, with fog of war on. In order:
    (packages/delove-gpu README, "Stage games"). Train on them mixed with the real stage games, not instead of them.
 3. **Fog of war, started early, in parallel** (`docs/delove-fog.md`): fog dropout first (train on normal games with the
    unseen territories blanked out, so Delove stops leaning on information a fogged player lacks), then the seat-view
-   encoder, a determinized branch teacher and fog gates. **Built (#PR):** the seat view as network inputs, fog dropout
+   encoder, a determinized branch teacher and fog gates. **Built (#155):** the seat view as network inputs, fog dropout
    (`train.py --fog-dropout P` on any full-board data), fair fog games for every seat in self-play and the ladder, fog
    gates on the CPU, and `delove-seat` playing fog with a fog-trained model. Next: train fog dropout into a cycle's
    candidate (p 0.2-0.3) with a fog gate beside the usual ones, then the seat's memory and the determinized teacher.

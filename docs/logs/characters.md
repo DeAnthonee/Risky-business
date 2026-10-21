@@ -3,7 +3,7 @@
 Covers `AI/` (profiles, general player, model docs), character saves on the server (`packages/server/src/characters.ts`)
 and `packages/llm-player`. Guides: [AI/README.md](../../AI/README.md), [docs/characters.md](../characters.md).
 
-Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. Changes from before pull requests carry the
+Newest first, one line per change: `- YYYY-MM-DD #155 what changed`. Changes from before pull requests carry the
 commit hash instead. **Append a line in the same PR** as any change to this area (README hard rule 12).
 
 - 2026-10-19 #75 `AI/general-player/README.md` note from the runner's mechanics-training work

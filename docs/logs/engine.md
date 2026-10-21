@@ -3,7 +3,7 @@
 Covers `packages/engine/src` and its tests: rules, turn flow, settings (`options.ts`), views and fog, the built-in
 bot, ranking and the game-record format. Map data has its own log ([maps.md](maps.md)).
 
-Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. Changes from before pull requests carry the
+Newest first, one line per change: `- YYYY-MM-DD #155 what changed`. Changes from before pull requests carry the
 commit hash instead. **Append a line in the same PR** as any change to this area (README hard rule 12).
 
 - 2026-10-20 #138 game records: optional `room.board: "training"` on `RecordHeader` for training-leaderboard games (optional field, no `RECORD_VERSION` bump)

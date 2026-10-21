@@ -622,7 +622,7 @@ playing the branch rollouts instead of the hand-coded teacher, and more options 
   (ties to the first candidate, as `delove@N` plays; deterministic). `<model>:self`: the network plays only the
   **decider's** seat, and the rollout teacher (`DELOVE_BRANCH_TEACHER`) the others. Branch.ts `rolloutNet`; the GPU
   mirror's `--rollout` (`cycle.sh` passes the variable to GPU steps), proved against TypeScript traces
-  (`packages/delove-gpu/README.md`: 90,803 of 90,804 rollout copies identical, the other a reported network near-tie).
+  (`packages/delove-gpu/README.md`: 109,522 of 109,524 rollout copies identical, the other 2 reported network near-ties).
 - `DELOVE_BRANCH_OPTIONS=4` or `5`: more options (the teacher's move plus 3 or 4 of the ranker's favourites).
 
 **Every seat or the decider's?** Both were built and measured, because the argument cuts both ways: the network models

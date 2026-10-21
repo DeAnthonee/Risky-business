@@ -209,7 +209,9 @@ at a table (`delove-teacher@N`, `jacob-sensei@N`, any mix) plays its own version
   and versions read from the built self-play package. The encoder computes in float64 and rounds to float32 once, as
   encode.ts stores doubles into a Float32Array, so the arrays are bit-identical to `export`'s. One extra array, not in
   export's: `branch_tag.npy` (int8 per decision: 0 the teacher's move without comparing options, 1 compared and kept,
-  2 changed), which `train.py --branch-weights` reads.
+  2 changed), which `train.py --branch-weights` reads; and `placement.npy` / `kills.npy` (int32: the decider's final
+  place and kills, from `outcome.py`), which the Mid Range target reads (`train.py --range mid`, `--value-target top2`).
+  A cloud merge needs every part written by the same version (`merge.py` refuses folders with different arrays).
 
 - **Outcomes** (`outcome.py`): z, and log v3's leaderboard placements, kills and points (`points.npy`, `points01.npy`):
   the kernel records who eliminated whom and in which order, `finalPlacements`' ordering is mirrored, and the points

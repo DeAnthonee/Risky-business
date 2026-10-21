@@ -135,6 +135,28 @@ many players are still alive. Each is fine-tuned from the best general model on 
   `slot<i>_alive` features of each dataset), e.g. `--alive 4-10 --init <best>.pt --out .../delove-long@1`, then
   `3-3` (mid) and `2-2` (close). In cycle 5's data, Classic 4p has 92k / 203k / 355k decisions for close / mid / long,
   World's big tables 90k / 320k / 709k, Classic 2p 1.5M close.
+- **Each its own objective** (`train.py --range long|mid|close`, `python/targets.py`): cycle 7 split the same lessons
+  by players alive and came out even, so each specialist now learns its own target from the same pool of games:
+
+  | `--range` | `--alive` | value target | policy |
+  | --- | --- | --- | --- |
+  | `long` | 4-10 | `points`: leaderboard points (placement + kills) scaled 0..1, the owner's "reach the last 3 with as many kills as possible" | range credit on points |
+  | `mid` | 3-3 | `top2`: finished 1st or 2nd, mixed 70/30 with the **threat credit** (`--threat-credit 0.3`) | range credit on top2 + threat |
+  | `close` | 2-2 | `win`: a sole win (a turn-limit share is no win) | range credit on win |
+
+  *Range credit* (`--credit-beta 0.5`): each copied move is weighted by `exp((target - V) / beta)`, V the network's own
+  value of the position (no gradient), so a specialist copies most the moves that went better than expected *for its
+  objective*; the first `--credit-warmup` (500) steps copy evenly while the value head learns the new target. The
+  same branch-and-score labels then teach three different lessons. *Threat credit* (Mid Range): at a 3-alive decision,
+  the share of the strongest rival's border armies (largest army + territory share) that face the third player
+  rather than us, measured at the seat's next decision (1 if a rival fell meanwhile, the final top 2 at the seat's
+  last decision), read from the encoded positions. Every preset value can be overridden (`--value-target`,
+  `--threat-credit`, `--credit-beta 0` for no credit). A turn-limit game is last place / no top 2 / no win.
+  `top2` reads `placement.npy` (written by `delove_gpu.generate` since this change, with `kills.npy`; `export.ts`
+  does not write it yet, as that file is in the GPU fingerprint). Older exports estimate a loser's place as the
+  players alive at its seat's last recorded decision (see `targets.py`; `train.py` prints which datasets estimate).
+  Example: `train.py --range mid --data <pool...> --init <best>.pt --out .../cN-mid --epochs 1.5 --batch 512 --lr 2e-4
+  --amp --branch-weights 0.5,1,2`. Checks: `python packages/delove/python/test_targets.py`.
 - **Playing them as one player:** `models/delove/delove-range@N.json` holds the routes,
   `{"close": "delove-close@1", "mid": "delove-mid@1", "long": "delove-long@1"}`. The loader then registers
   `delove-range@N`, which plays each decision with the network for the players still alive (`rangeOf`), each network's

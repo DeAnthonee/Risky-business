@@ -186,6 +186,21 @@ Library names (the private models repo, next to `delove@N`) are `delove-long-ran
   positions captured from game records (`npm run selfplay -- positions`). They run like any jobs file: on the GPU
   (`packages/delove-gpu` README, "Stage games"), as a `cycle.sh` step, or on the CPU with `scripts/generate.sh`; train
   with `--alive 3-3` / `--alive 2-2` as above.
+  **In a cycle** they are two more steps of the cycle config, on rented GPUs like the rest (`REMOTE_GPUS=N`; lead-in
+  tables ship to the pods as they are, `pos:` tables play at home only):
+
+  ```bash
+  steps=(... "sm packages/delove/scripts/stage/mid.jobs Stage games: 3 alive"
+             "sc packages/delove/scripts/stage/close.jobs Stage games: 2 alive")
+  train_data=(... sm/classic sm/world sm/europe ... "sc/classic#0.5" ...)   # one folder per map, as any step
+  ```
+
+  `remote.py plan --step sm=packages/delove/scripts/stage/mid.jobs --step sc=packages/delove/scripts/stage/close.jobs --pods 10`
+  prices both at about 48 minutes and $7 with its full-game guesses; measured stage games cost a third or less of
+  that (home 4060: about 25k 3-alive and 39k 2-alive games an hour). A 3-alive game goes on to its 2-alive end, so
+  `sm` folders hold decisions at 3 and at 2 players alive; `sc` folders only at 2. Every row is an ordinary training row,
+  so the folders mix into the pool like any step's (`train.py --alive` / `--range` pick the specialist's rows; for base
+  Delove, weight them with `#F` so the endgame does not crowd out the opening).
 - **Gate:** each specialist against the base on its own stage, then the routed trio against the base in full games,
   with the yardstick below; the promotion rule is in `docs/delove-status.md` ("Range specialists: how they are
   compared").

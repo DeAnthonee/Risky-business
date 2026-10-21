@@ -642,6 +642,16 @@ promotions are judged mainly on the points difference at 4-10 players (`docs/del
   bounds fixed for the same reason). Min-max stays the default, so the two can be compared.
   Smoke run (150 Classic 2p branch games with Jacob rollouts, CPU, from `delove@3`, 1 epoch, `--range close
   --branch-weights 0.5,1,2`): trains; whether it beats hard labels is cycle 12's A/B.
+- `--aux-rollout W`: adds a rollout head that learns each branched decision's 1-round result, the played option's
+  mean branch score from `branch_q.npy` (0..1), with weight W on a squared-error loss (KataGo-style auxiliary target:
+  a one-round outcome is far less noisy than the final points). Starting from a network without the head adds a fresh
+  one; the policy, the value head and the ONNX export are unchanged (`forward(..., aux=True)` returns the head;
+  checks `python packages/delove/python/test_aux.py`). Measured (#150; 1,200 CPU steps from `delove@8` on cycle 11's
+  Classic, World, Fantasy and Nine Realms, held-out games): the head predicts the 1-round score with **R² 0.89**
+  (0.81 at 4 players to 0.93 at 10; the value head only correlates 0.75 with it), while top-1 (0.627 vs 0.626) and the
+  value's R² on final points (0.372 both) don't move in a short fine-tune. So it is a sharp, cheap position signal
+  for later uses (a low-noise baseline for credit, or an after-move evaluator to cut rollouts) rather than a gain on
+  its own; it reads the board before the move, so it can't rank one decision's options yet.
 - `--device cpu|cuda`: where to train (default cuda when available).
 - `--alive LO-HI` (range specialists): only decisions with LO..HI players alive.
 - Keep a batch within the card: on big maps (Greater Europe, Fantasy) batch 1024 spilled past the RTX 4060's 8 GB into

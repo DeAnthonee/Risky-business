@@ -7,6 +7,10 @@ the map's adjacency is an input, not a weight.
     cand [M, F_c]   cand_from [M]   cand_to [M]   (-1 = none)   cand_batch [M] (which decision of the batch)
 
 Outputs: logits [M] (softmax within each decision's candidates) and value [B] (win probability, 0..1).
+
+With aux_rollout=True the network also has a rollout head: the decision's 1-round branch-and-score result (0..1),
+learned from branch_q.npy (train.py --aux-rollout). forward(..., aux=True) returns it as a third output; the default
+forward (and so the ONNX export) is unchanged.
 """
 import torch
 from torch import nn
@@ -31,9 +35,11 @@ class Block(nn.Module):
 
 
 class DeloveNet(nn.Module):
-    def __init__(self, f_territory, f_global, f_cand, hidden=128, rounds=4):
+    def __init__(self, f_territory, f_global, f_cand, hidden=128, rounds=4, aux_rollout=False):
         super().__init__()
         self.config = dict(f_territory=f_territory, f_global=f_global, f_cand=f_cand, hidden=hidden, rounds=rounds)
+        if aux_rollout:
+            self.config["aux_rollout"] = True
         h = hidden
         self.t_in = mlp(f_territory, h, h)
         self.g_in = mlp(f_global, h, h)
@@ -42,8 +48,9 @@ class DeloveNet(nn.Module):
         self.c_in = mlp(f_cand, h, h)
         self.policy = mlp(5 * h, 2 * h, 1)
         self.value = mlp(3 * h, h, 1)
+        self.rollout = mlp(3 * h, h, 1) if aux_rollout else None
 
-    def forward(self, territory, glob, adj, cand, cand_from, cand_to, cand_batch):
+    def forward(self, territory, glob, adj, cand, cand_from, cand_to, cand_batch, aux=False):
         B, T, _ = territory.shape
         deg = adj.sum(-1, keepdim=True).clamp(min=1.0)
         adj_norm = (adj / deg).unsqueeze(0)  # [1, T, T]
@@ -67,6 +74,8 @@ class DeloveNet(nn.Module):
         c = self.c_in(cand)
         feats = torch.cat([c, flat[f_idx], flat[t_idx], pooled_mean[cand_batch], g[cand_batch]], dim=-1)
         logits = self.policy(feats).squeeze(-1)
+        if aux:
+            return logits, value, torch.sigmoid(self.rollout(ctx)).squeeze(-1)
         return logits, value
 
 

@@ -7,6 +7,7 @@ numbers go in [packages/delove/CYCLES.md](../../packages/delove/CYCLES.md) and t
 Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. **Append a line in the same PR** as any change to
 this area (README hard rule 12).
 
+- 2026-10-21 #150 S5: `train.py --aux-rollout W` (rollout head on `branch_q.npy`, the played option's 1-round branch score; `delove_model.py` `aux_rollout`, `test_aux.py`); measured R² 0.89 on held-out decisions, no change to top-1 or the value in a short fine-tune
 - 2026-10-21 #144 `jacob-sensei@2` (Jacob Sensei 2): RISK_LEARNINGS.md sections 7-21 as 11 tunable terms in `src/jacob.ts` (0 in `jacob-sensei@1`, which plays bit-identically), staged duel numbers (`jacobPickWith(params, duel)`, `"duel"` in jacob-sensei@N.json), `tune.ts --fitness points`, `tables.ts --options` and a points-difference interval; vs @1 0.53-0.57 at 2p and +0.42 to +1.33 points per seat at 4-10p; README section, delove-status sections 3, 8, 9
 - 2026-10-21 #149 cycle 11: `delove@8` (5 search options, base only, +0.36 points per seat at 4-10p over `delove@7`); `c11.cycle`
 - 2026-10-21 #146 ratio-scenario jobs `scripts/stage/split-close.jobs` / `split-mid.jobs` (about 10,000 games per ratio, 6-10 seat tables, branch vs `delove@6`) written by `split-jobs.mjs`, `measure-stages.mjs` for the stage statistics, `generate.sh` reads a START column

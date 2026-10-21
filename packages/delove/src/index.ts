@@ -5,3 +5,4 @@ export * from './branch.js';
 export * from './jacob.js';
 export * from './seat.js';
 export * from './stage-eval.js';
+export * from './branch-env.js';

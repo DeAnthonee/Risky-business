@@ -609,9 +609,28 @@ the first folder be among the second's:
 python tests/dataset_compare.py --subset <data>/<name>-big/world <training PC data>/c6-big/world
 ```
 
-or run `verify.py --models` on it (`--verify`). First test (pending the owner's go-ahead): one RTX 4090, cycle 6's
-`w10b`, `ge6b` and `c4b` with cycle 6's seed, settings and commit, for games/s against the 4060's `gpu.log` and this
-comparison; its results go here.
+or run `verify.py --models` on it (`--verify`).
+
+**First test (2026-10-20):** one Secure Cloud RTX 4090 ($0.89/GPU-hour, driver CUDA 13.2, 32 cores), cycle 6's `ge6b`,
+`w10b` and `c4b` at cycle 6's commit, seed 306 and `--gpu-gb 6`. Every one of the 2,000 games is identical to cycle 6's
+(`dataset_compare.py --subset`: 500/500, 750/750, 750/750), so a 4090's arrays can go straight into a cycle.
+
+| table | games | RTX 4060 at home (cycle 6) | RTX 4090 pod | faster |
+| --- | --- | --- | --- | --- |
+| `ge6b` Greater Europe 6p | 500 | 1,122 s | 950 s | 1.18x |
+| `w10b` World 10p | 750 | 654.5 s | 373 s | 1.75x |
+| `c4b` Classic 4p | 750 | 241.4 s | 53 s | 4.5x |
+
+The home times were taken while cycle 6's CPU pool (`PARALLEL=21`) shared the training PC's processor, and a step is
+latency bound on one CPU thread (load average 1.0 on the pod), so part of the gap is the idle pod CPU, not the GPU. The
+pod was up 33 minutes (about 5 minutes of setup with no kernel cache uploaded) and cost $0.49.
+
+**Several processes on one GPU (`--procs 4`, 2026-10-20):** one RTX 4090 played `us10a`, `us10b`, `eu8b` and `as8b` at
+once, one `generate` process each: 369, 295, 312 and 374 s, so 2,000 games in 374 s of wall time (1,996 identical to
+cycle 6's). The same four one after another take 756 s on the home 4060, about 430-640 s on one 4090 process at the
+1.18-1.75x measured above: four processes give about 1.4x one process's throughput, not 4x; each runs 2-3x slower
+than alone (step 100 in 47-93 s against 45 s). The GPU, not the 32-core CPU, is what they share, so more pods with one
+process each scale far better; `--procs 2` may still fill a lane's straggler tail. $0.22.
 
 ## What is left
 

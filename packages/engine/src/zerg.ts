@@ -30,8 +30,8 @@ export interface ZergParams {
   /** Reinforcement staging: score per step closer to the target (the stack size counts 1 per army). */
   stagingDistance: number;
   /**
-   * 1: a walled-in Zerg (not the strongest) surrenders to feed the swarm; 0: never. Off in zerg@1: the owner's rule is
-   * no surrenders, and the live Zerg seat plays with 0. Kept so it can still be tested.
+   * 1: a walled-in Zerg (not the strongest) surrenders to feed the swarm, so the front Zerg eats its land; 0: never.
+   * On in zerg@1 (the owner's decision, 2026-10-22; it was off from #169 to #176), and live seats play ZERG_1_PARAMS.
    */
   sacrifice: number;
   // Later behaviours, each 0 = off (as in zerg@1), so zerg@1 plays exactly as before:
@@ -65,7 +65,7 @@ export const ZERG_1_PARAMS: ZergParams = {
   exposureWeight: 0.5,
   occupyShare: 0.7,
   stagingDistance: 10,
-  sacrifice: 0,
+  sacrifice: 1,
   strikeRatio: 0,
   cardHoard: 0,
   hoardFinish: 3,
@@ -81,8 +81,9 @@ export const ZERG_1_PARAMS: ZergParams = {
  * `horde` is the set of Zerg player ids (including `me`), given by the caller: the self-play harness, or later the
  * server from a seat's faction. It is never read from chat or names here. Pure and seedable like `chooseBotAction`.
  *
- * The alliance lasts only while there is prey: once every non-Zerg is out, each Zerg plays for itself and the Zergs
- * fight each other until one wins (the owner's rule, docs/zergs.md).
+ * The alliance lasts only while there is prey: once every non-Zerg is out, the strongest Zerg (`strongestZergOf`) keeps
+ * the table and the others surrender at once (the owner's rule, docs/zergs.md). Before that, the only surrender is a
+ * walled-in Zerg feeding the swarm (`sacrifice`, on in zerg@1).
  */
 export function chooseZergAction(
   state: GameState,
@@ -94,9 +95,12 @@ export function chooseZergAction(
   const lm = legalMoves(state, me);
   if (!lm.yourTurn) return null;
 
-  // No prey left: the alliance is over. Every other Zerg is now prey, and I play for myself.
-  if (preyOf(state, horde).length === 0) horde = new Set([me]);
   const prey = preyOf(state, horde);
+  // No prey left: the strongest Zerg keeps the table and every other Zerg surrenders at once (the owner's rule: Zerg
+  // has its own agenda, and it ends the game quickly). The strongest keeps playing as an ally until it stands alone.
+  if (prey.length === 0 && state.phase !== 'setup' && state.phase !== 'capitals' && strongestZergOf(state, horde) !== me) {
+    return { type: 'surrender' };
+  }
 
   // Setup, claiming and capital picks: the built-in bot's choices are fine.
   if (state.phase === 'setup' || lm.capitalChoices.length > 0) return chooseBotAction(state, me, random);
@@ -141,6 +145,23 @@ export function chooseZergAction(
     return { type: 'end_turn' };
   }
   return null;
+}
+
+/**
+ * The Zerg that keeps the table once the prey is gone: most territories, then most armies, then the lowest seat index
+ * (the order the players were seated in). Deterministic, so every Zerg agrees on it.
+ */
+export function strongestZergOf(state: GameState, horde: ReadonlySet<PlayerId>): PlayerId | null {
+  let best: { id: PlayerId; territories: number; armies: number } | null = null;
+  for (const p of state.players) {
+    if (!horde.has(p.id) || !p.alive || p.isNeutral) continue;
+    const owned = territoriesOf(state, p.id);
+    const armies = owned.reduce((n, t) => n + state.territories[t].armies, 0);
+    if (!best || owned.length > best.territories || (owned.length === best.territories && armies > best.armies)) {
+      best = { id: p.id, territories: owned.length, armies };
+    }
+  }
+  return best?.id ?? null;
 }
 
 /** Card timing: the target is down to `hoardFinish` territories or fewer and I border it, so cards now can finish it. */

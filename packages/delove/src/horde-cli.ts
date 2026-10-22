@@ -1,21 +1,18 @@
 #!/usr/bin/env node
 import { availableParallelism } from 'node:os';
 import { parseArgs } from 'node:util';
-import { isMainThread, parentPort, Worker, workerData } from 'node:worker_threads';
 import type { GameOptions } from '@risk/engine';
-import { resolveAgent } from '@risk/selfplay';
 import {
   compareHorde,
   DEFAULT_HORDE_TABLES,
   HORDE_METRICS,
   hordeSchedule,
   parseHordeTables,
-  playHordeGame,
   summarizeHorde,
   type HordeGame,
   type HordeMetric,
-  type HordeTable,
 } from './horde.js';
+import { runHordeParallel as runParallel } from './horde-run.js';
 
 /**
  * The Zerg-horde gate (docs/zergs.md, section 5): a candidate seat against 2-3 coordinated Zergs, optionally compared
@@ -27,42 +24,6 @@ import {
  * place, rounds, kills and leaderboard points with 95% intervals; with --base the paired differences (the verdict on
  * --metric, default hold). Seeds are fixed by --seed (default 1), so successive Delove versions meet the same games.
  */
-
-interface Job {
-  agent: string;
-  filler: string;
-  zerg: string;
-  games: { table: HordeTable; seed: number; shift: number }[];
-  options: Partial<GameOptions>;
-  maxTurns: number;
-}
-
-function runJob(job: Job): HordeGame[] {
-  const agent = resolveAgent(job.agent);
-  const filler = resolveAgent(job.filler);
-  const zerg = resolveAgent(job.zerg);
-  return job.games.map((g) => playHordeGame(agent, filler, g.table, g.seed, g.shift, job.options, job.maxTurns, zerg));
-}
-
-async function runParallel(job: Job, procs: number): Promise<HordeGame[]> {
-  if (procs <= 1) return runJob(job);
-  const chunks: Job[] = Array.from({ length: procs }, () => ({ ...job, games: [] }));
-  job.games.forEach((g, i) => chunks[i % procs].games.push(g));
-  const results = await Promise.all(
-    chunks.map(
-      (chunk) =>
-        new Promise<HordeGame[]>((resolve, reject) => {
-          const w = new Worker(new URL(import.meta.url), { workerData: chunk });
-          w.once('message', resolve);
-          w.once('error', reject);
-        }),
-    ),
-  );
-  // Back to schedule order so candidate and base games pair up.
-  const out: HordeGame[] = new Array(job.games.length);
-  results.forEach((r, c) => r.forEach((g, k) => (out[k * procs + c] = g)));
-  return out;
-}
 
 async function main() {
   const { values } = parseArgs({
@@ -117,11 +78,7 @@ async function main() {
   }
 }
 
-if (!isMainThread) {
-  parentPort!.postMessage(runJob(workerData as Job));
-} else {
-  main().catch((err) => {
-    console.error(err instanceof Error ? err.message : err);
-    process.exit(1);
-  });
-}
+main().catch((err) => {
+  console.error(err instanceof Error ? err.message : err);
+  process.exit(1);
+});

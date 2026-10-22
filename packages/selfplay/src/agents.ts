@@ -1,4 +1,4 @@
-import { chooseBotAction, chooseZergAction, getMap, type Action, type GameState, type LegalMoves, type PlayerId, type RandomSource } from '@risk/engine';
+import { chooseBotAction, chooseZergAction, getMap, ZERG_1_PARAMS, type ZergParams, type Action, type GameState, type LegalMoves, type PlayerId, type RandomSource } from '@risk/engine';
 import { candidates, candidateToAction, type Candidate } from './actions.js';
 import type { Traits } from './traits.js';
 
@@ -42,14 +42,19 @@ export const riskyBot: Agent = {
  */
 /** A Zerg agent's id starts with "zerg" (zerg@1, zerg-branch@1, ...): self-play seats named so are one horde. */
 export const isZergName = (name: string) => name.startsWith('zerg');
-export const zergBot: Agent = {
-  id: 'zerg@1',
-  choose: (ctx) => {
-    const horde = new Set(ctx.state.players.filter((p) => isZergName(p.name)).map((p) => p.id));
-    horde.add(ctx.me);
-    return chooseZergAction(ctx.state, ctx.me, horde, ctx.random);
-  },
-};
+/** A Zerg agent with its own judgement numbers (zerg@1 is ZERG_1_PARAMS; tuned versions come from zerg-tune). */
+export function makeZergAgent(id: string, params: ZergParams): Agent {
+  if (!isZergName(id)) throw new Error(`a Zerg agent's id must start with "zerg" (got ${id})`);
+  return {
+    id,
+    choose: (ctx) => {
+      const horde = new Set(ctx.state.players.filter((p) => isZergName(p.name)).map((p) => p.id));
+      horde.add(ctx.me);
+      return chooseZergAction(ctx.state, ctx.me, horde, ctx.random, params);
+    },
+  };
+}
+export const zergBot: Agent = makeZergAgent('zerg@1', ZERG_1_PARAMS);
 
 /** One step of a decision: `candidates` are this step's choices; a fortify_to step carries its source. */
 export interface StepContext extends DecisionContext {

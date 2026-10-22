@@ -10,6 +10,7 @@ import {
   startGame,
   territoriesOf,
   zergTarget,
+  ZERG_1_PARAMS,
   type GameEvent,
   type GameState,
 } from '../src/index.js';
@@ -77,5 +78,44 @@ describe('Zerg horde bot', () => {
     expect(zergTarget(s, horde)).toBe('b');
     // The target never depends on which Zerg asks, and never names a Zerg.
     expect(zergTarget(s, new Set(['z2', 'z1']))).toBe('b');
+  });
+});
+
+describe('Zerg judgement numbers', () => {
+  it('zerg@1 is ZERG_1_PARAMS: passing them changes nothing', () => {
+    let s = createGame('p', { map: 'classic', maxPlayers: 4 }, 21);
+    for (const id of ['a', 'z1', 'z2', 'z3']) s = addPlayer(s, id, id, true);
+    s = startGame(s).state;
+    const horde = new Set(['z1', 'z2', 'z3']);
+    const r1 = seeded(4);
+    const r2 = seeded(4);
+    for (let i = 0; i < 300 && s.phase !== 'finished'; i++) {
+      const me = s.currentPlayer!;
+      const a = horde.has(me) ? chooseZergAction(s, me, horde, r1)! : chooseBotAction(s, me, r1)!;
+      const b = horde.has(me) ? chooseZergAction(s, me, horde, r2, ZERG_1_PARAMS)! : chooseBotAction(s, me, r2)!;
+      expect(b).toEqual(a);
+      s = applyAction(s, me, a).state;
+    }
+  });
+
+  it('a timid horde (attacks the target only at near-certain odds) attacks less', () => {
+    const timid = { ...ZERG_1_PARAMS, targetOdds: 0.99, killOdds: 0.99, cardOdds: 0.99, extraOdds: 0.99 };
+    let s = createGame('q', { map: 'classic', maxPlayers: 3 }, 8);
+    for (const id of ['a', 'z1', 'z2']) s = addPlayer(s, id, id, true);
+    s = startGame(s).state;
+    const horde = new Set(['z1', 'z2']);
+    const count = (params: typeof ZERG_1_PARAMS) => {
+      let st = s;
+      const random = seeded(9);
+      let attacks = 0;
+      for (let i = 0; i < 400 && st.phase !== 'finished'; i++) {
+        const me = st.currentPlayer!;
+        const a = horde.has(me) ? chooseZergAction(st, me, horde, random, params)! : chooseBotAction(st, me, random)!;
+        if (a.type === 'attack' && horde.has(me)) attacks++;
+        st = applyAction(st, me, a).state;
+      }
+      return attacks;
+    };
+    expect(count(timid)).toBeLessThan(count(ZERG_1_PARAMS));
   });
 });

@@ -109,6 +109,12 @@ Order, by the owner's direction (the Zerg model and training come first; game-mo
   mirrored file changes.
 - **PR 2:** the trained Zerg line: a Delove-style network from delove@10 with a kill-heavy objective (range scorer,
   high `DELOVE_BRANCH_KILL_WEIGHT`) and a team reward, gated with large mirrored matches (`scripts/sprt.mjs`).
+  Status (in PR 1 so far):
+  - `zerg-branch@1` (branch and score for the horde) is no stronger than `zerg@1` yet.
+  - `npm run delove:zerg-tune` hill-climbs `zerg@1`'s numbers (`ZERG_1_PARAMS`) towards a `zerg@2`.
+  - The network needs ally inputs, which Delove's encoder lacks. The plan is a separate, unmirrored Zerg encoder:
+    Delove's encoding plus one ally flag per seat, with zero-initialised weights, warm-started from delove@10. That
+    avoids an `ENCODER_VERSION` bump.
 - **PR 3:** open mode in the game: engine option, faction, ally rule, endings, placements (the one mirrored-file PR,
   one re-verification) + server, MCP, tests, docs.
 - **PR 4:** client (badges, banner, lobby setting) + the demo game (2 Zergs vs 2 bots on the training board).

@@ -5,6 +5,50 @@ import { blitzOdds } from './odds.js';
 import type { Action, GameState, PlayerId, TerritoryId } from './types.js';
 
 /**
+ * A Zerg's judgement numbers. ZERG_1_PARAMS is zerg@1 (the fixed reference horde); tuned sets make later versions.
+ * Every Zerg of one horde must share the same numbers, since the target rule (`zergTarget`) reads them.
+ */
+export interface ZergParams {
+  /** Smallest blitz odds to attack the horde's target. */
+  targetOdds: number;
+  /** ... a player's last territory (a knock-out). */
+  killOdds: number;
+  /** ... another player's territory when I have no conquest (card) yet this turn. */
+  cardOdds: number;
+  /** ... another player's territory after my first conquest. */
+  extraOdds: number;
+  /** ... a neutral territory on the road to the target, and one off it. */
+  neutralRoadOdds: number;
+  neutralOdds: number;
+  /** Score bonus for a knock-out attack (attack scores are about 1-4 otherwise). */
+  killBonus: number;
+  /** Target rule weights: armies + territoryWeight × territories − exposureWeight × horde armies on its borders. */
+  territoryWeight: number;
+  exposureWeight: number;
+  /** Share of the movable armies sent into a conquered territory when both sides still face prey. */
+  occupyShare: number;
+  /** Reinforcement staging: score per step closer to the target (the stack size counts 1 per army). */
+  stagingDistance: number;
+  /** 1: a walled-in Zerg (not the strongest) surrenders to feed the swarm; 0: never. */
+  sacrifice: number;
+}
+
+export const ZERG_1_PARAMS: ZergParams = {
+  targetOdds: 0.45,
+  killOdds: 0.5,
+  cardOdds: 0.7,
+  extraOdds: 0.8,
+  neutralRoadOdds: 0.7,
+  neutralOdds: 0.8,
+  killBonus: 5,
+  territoryWeight: 2,
+  exposureWeight: 0.5,
+  occupyShare: 0.7,
+  stagingDistance: 10,
+  sacrifice: 1,
+};
+
+/**
  * A Zerg: a hand-coded house bot that plays as one of a horde (docs/zergs.md). It rushes, never attacks a fellow
  * Zerg, and hunts eliminations. The horde coordinates without talking: every Zerg runs the same target rule
  * (`zergTarget`) on the same board, so they all pick the same victim.
@@ -12,7 +56,13 @@ import type { Action, GameState, PlayerId, TerritoryId } from './types.js';
  * `horde` is the set of Zerg player ids (including `me`), given by the caller: the self-play harness, or later the
  * server from a seat's faction. It is never read from chat or names here. Pure and seedable like `chooseBotAction`.
  */
-export function chooseZergAction(state: GameState, me: PlayerId, horde: ReadonlySet<PlayerId>, random: RandomSource = Math.random): Action | null {
+export function chooseZergAction(
+  state: GameState,
+  me: PlayerId,
+  horde: ReadonlySet<PlayerId>,
+  random: RandomSource = Math.random,
+  params: ZergParams = ZERG_1_PARAMS,
+): Action | null {
   const lm = legalMoves(state, me);
   if (!lm.yourTurn) return null;
 
@@ -26,13 +76,13 @@ export function chooseZergAction(state: GameState, me: PlayerId, horde: Readonly
   // Setup, claiming and capital picks: the built-in bot's choices are fine.
   if (state.phase === 'setup' || lm.capitalChoices.length > 0) return chooseBotAction(state, me, random);
 
-  const target = zergTarget(state, horde);
+  const target = zergTarget(state, horde, params);
   const dist = target ? distanceTo(state, me, horde, target) : null;
   const d = (t: TerritoryId) => dist?.get(t) ?? Infinity;
 
   // Walled in by fellow Zergs, with no road to any prey: unless I am the strongest Zerg, I feed the swarm. My land turns
   // neutral and the Zergs at the front eat it for cards and continents (otherwise my armies would idle forever).
-  if (state.phase === 'reinforce' && !lm.pendingConquest && prey.length > 0 && walledIn(state, me, horde, prey) && !strongestZerg(state, me, horde)) {
+  if (state.phase === 'reinforce' && !lm.pendingConquest && prey.length > 0 && params.sacrifice > 0 && walledIn(state, me, horde, prey) && !strongestZerg(state, me, horde)) {
     return { type: 'surrender' };
   }
 
@@ -42,7 +92,7 @@ export function chooseZergAction(state: GameState, me: PlayerId, horde: Readonly
     const fromFront = hostileNeighbours(state, me, horde, pc.from).length > 0;
     let n = pc.minArmies;
     if (toFront && !fromFront) n = pc.maxArmies;
-    else if (toFront) n = Math.ceil(pc.maxArmies * 0.7);
+    else if (toFront) n = Math.ceil(pc.maxArmies * params.occupyShare);
     else if (!fromFront) n = pc.maxArmies;
     return { type: 'occupy', armies: Math.max(pc.minArmies, Math.min(pc.maxArmies, n)) };
   }
@@ -50,11 +100,11 @@ export function chooseZergAction(state: GameState, me: PlayerId, horde: Readonly
   if (lm.tradeableSets.length > 0) return { type: 'trade', cardIds: lm.tradeableSets[0] };
 
   if (lm.canPlaceOn.length > 0 && lm.placeLimit > 0) {
-    return { type: 'place', placements: { [stagingTerritory(state, me, horde, lm.canPlaceOn, d, random)]: lm.placeLimit } };
+    return { type: 'place', placements: { [stagingTerritory(state, me, horde, lm.canPlaceOn, d, random, params)]: lm.placeLimit } };
   }
 
   if (state.phase === 'attack') {
-    const attack = bestAttack(state, me, horde, target, lm.attacks, d, random);
+    const attack = bestAttack(state, me, horde, target, lm.attacks, d, random, params);
     if (attack) return { type: 'attack', from: attack.from, to: attack.to, blitz: true };
   }
 
@@ -76,7 +126,7 @@ function preyOf(state: GameState, horde: ReadonlySet<PlayerId>): PlayerId[] {
  * exposure is the horde's armies on territories bordering it. The weakest, most exposed player goes first; ties break
  * by turn order. It depends only on the board and the horde, never on which Zerg asks, so every Zerg agrees.
  */
-export function zergTarget(state: GameState, horde: ReadonlySet<PlayerId>): PlayerId | null {
+export function zergTarget(state: GameState, horde: ReadonlySet<PlayerId>, params: ZergParams = ZERG_1_PARAMS): PlayerId | null {
   const adjacency = getMap(state.options.map).adjacency;
   let best: PlayerId | null = null;
   let bestScore = Infinity;
@@ -88,7 +138,7 @@ export function zergTarget(state: GameState, horde: ReadonlySet<PlayerId>): Play
     const borders = new Set<TerritoryId>();
     for (const t of owned) for (const n of adjacency[t]) if (horde.has(state.territories[n].owner ?? '') && !isBlizzard(state, n)) borders.add(n);
     const exposure = [...borders].reduce((n, t) => n + state.territories[t].armies, 0);
-    const score = armies + 2 * owned.length - exposure / 2;
+    const score = armies + params.territoryWeight * owned.length - params.exposureWeight * exposure;
     if (score < bestScore) {
       bestScore = score;
       best = p;
@@ -149,14 +199,22 @@ function distanceTo(state: GameState, me: PlayerId, horde: ReadonlySet<PlayerId>
 }
 
 /** Where to pile reinforcements: the front closest to the target, the bigger the stack the better. */
-function stagingTerritory(state: GameState, me: PlayerId, horde: ReadonlySet<PlayerId>, options: TerritoryId[], d: (t: TerritoryId) => number, random: RandomSource): TerritoryId {
+function stagingTerritory(
+  state: GameState,
+  me: PlayerId,
+  horde: ReadonlySet<PlayerId>,
+  options: TerritoryId[],
+  d: (t: TerritoryId) => number,
+  random: RandomSource,
+  params: ZergParams,
+): TerritoryId {
   let best = options.reduce((a, b) => (state.territories[b].armies > state.territories[a].armies ? b : a));
   let bestScore = -Infinity;
   for (const t of options) {
     const enemies = hostileNeighbours(state, me, horde, t);
     if (enemies.length === 0) continue;
     const dt = d(t);
-    const score = (Number.isFinite(dt) ? -10 * dt : -1000) + state.territories[t].armies + random();
+    const score = (Number.isFinite(dt) ? -params.stagingDistance * dt : -1000) + state.territories[t].armies + random();
     if (score > bestScore) {
       bestScore = score;
       best = t;
@@ -173,6 +231,7 @@ function bestAttack(
   attacks: { from: TerritoryId; to: TerritoryId }[],
   d: (t: TerritoryId) => number,
   random: RandomSource,
+  params: ZergParams,
 ) {
   const conquered = state.players.find((p) => p.id === me)!.conqueredThisTurn;
   let best: { from: TerritoryId; to: TerritoryId } | null = null;
@@ -188,18 +247,18 @@ function bestAttack(
     const lastTerritory = !victim.isNeutral && territoriesOf(state, defender).length === 1;
     let score: number;
     if (defender === target) {
-      if (p < 0.45) continue;
+      if (p < params.targetOdds) continue;
       score = 3 + p;
     } else if (victim.isNeutral) {
       // To clear the road to the target, or for a card and land when the odds are good.
       const onRoad = d(a.to) < d(a.from);
-      if (p < (onRoad ? 0.7 : 0.8)) continue;
+      if (p < (onRoad ? params.neutralRoadOdds : params.neutralOdds)) continue;
       score = (onRoad ? 1 : 0.6) + p;
     } else {
-      if (p < (lastTerritory ? 0.5 : conquered ? 0.8 : 0.7)) continue;
+      if (p < (lastTerritory ? params.killOdds : conquered ? params.extraOdds : params.cardOdds)) continue;
       score = 1.5 + p;
     }
-    if (lastTerritory) score += 5;
+    if (lastTerritory) score += params.killBonus;
     if (!conquered) score += 0.5;
     score += random() * 0.1;
     if (score > bestScore) {

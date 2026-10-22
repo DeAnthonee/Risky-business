@@ -29,6 +29,7 @@
     "llm-player": "node packages/llm-player/dist/cli.js",
     "delove": "node --import ./packages/delove/dist/register.js packages/selfplay/dist/cli.js",
     "delove-seat": "node packages/delove/dist/seat-cli.js",
+    "delove:zerg-tune": "node --import ./packages/delove/dist/register.js packages/delove/dist/zerg-tune.js",
     "delove:horde": "node --import ./packages/delove/dist/register.js packages/delove/dist/horde-cli.js",
     "delove:stages": "node --import ./packages/delove/dist/register.js packages/delove/dist/stages.js"
   },

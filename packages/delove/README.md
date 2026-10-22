@@ -393,7 +393,11 @@ npm run delove:horde -- --candidate delove@10 --tables classic:4:3,classic:6:3 -
 - For scenarios or training data, the agents play in any self-play command:
   `npm run delove -- play --agents delove@10,zerg@1,zerg@1,zerg@1`. `scripts/cycles/horde.jobs` is a ready job file
   for `generate.sh` (about 4,000 games, the branch seat against 2-3 Zergs with Jacob fillers, league settings), not
-  part of any cycle until the captain adds it.
+  part of any cycle until the captain adds it. Its seat is `delove-branch@1:range-horde`: `delove-branch@1:range`
+  whose rollouts play the Zerg seats with the horde bot (src/horde-branch.ts; a Zerg move off the candidate list falls
+  back to the teacher's pick, never an attack on a fellow Zerg), so the search sees the gang-up coming. The plain
+  branch seat imagines the Zergs as its teacher. CPU time: about 22 CPU-minutes per 1,000 games with the cycle-13
+  branch settings (0.7 s a game at 4p vs 3 Zergs, 2.4 s with a Jacob filler, 1.2 s at 6p).
 
 ### The searching Zerg (`zerg-branch@1`)
 
@@ -409,6 +413,23 @@ First result (2026-10-21, delove@10 as the candidate, `--base-zerg zerg@1`, same
 +0.035). Kill weight 3, 12 rollouts, horizon 3 on classic:4:2, 6:3 and 6:2: +0.006 (-0.051 to +0.062). Both are even
 with the hand-coded Zerg, so the search is not yet a better teacher. Next: tune `zerg@1`'s numbers (a `zerg@2`) and
 give the search a network's alternatives.
+
+### Tuning the Zerg (`npm run delove:zerg-tune`)
+
+`zerg@1`'s judgement numbers are `ZERG_1_PARAMS` in packages/engine/src/zerg.ts (attack odds per kind of target, the
+knock-out bonus, the target rule's weights, occupation share, staging pull, the sacrifice switch). The tuner hill-climbs
+from them: each generation perturbs two numbers and plays the candidate horde and the current best on the same fresh
+games against each `--prey` (default delove@10 and jacob-sensei@2, on the default horde tables). A candidate that lowers
+the prey's `hold` by more than 0.01 is confirmed on a second set of fresh games and accepted when the pooled 95%
+interval is below 0.
+
+```bash
+npm run delove:zerg-tune -- --out models/delove/zerg-tune-run1.json --generations 30 --games 40
+```
+
+The file holds the numbers and every generation's result; it stays on the training PC. Once the result passes a gate
+(`npm run delove:horde -- --candidate delove@10 --zerg zerg@2 --base-zerg zerg@1`), copy it to `models/delove/zerg@2.json`:
+register.ts loads `zerg@N.json` (N >= 2) as agent `zerg@N`. `zerg@1` stays fixed as the reference horde.
 
 ## Jacob Sensei (`jacob-sensei@1`): a teacher that doesn't stall
 

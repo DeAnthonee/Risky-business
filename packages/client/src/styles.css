@@ -1188,38 +1188,99 @@ label.check input {
 .badge.blizzard .blizzard-icon line { stroke: #2f5577; stroke-width: 2.5; stroke-linecap: round; }
 .badge.blizzard { pointer-events: none; }
 
-/* ---------- Capture sweep ---------- */
+/* ---------- Capture pour (liquid) ---------- */
+/* Phase 1 (--pour): drops cross the border and a rippling front fills the territory, pushing the old colour out.
+   Phase 2 (after --pour): the pour is removed and a rim flash, a small pop and a ripple lock the new colour in. */
 .sweep {
   pointer-events: none;
-  animation: sweep-fade 1.5s ease-in forwards;
 }
-.sweep-fill {
-  fill-opacity: 0.95;
-  filter: brightness(1.35) url(#glow);
+.pour {
+  animation: pour-done 0s linear var(--pour) forwards;
 }
-.sweep-edge {
+.pour-front {
+  animation: pour-fill var(--pour) cubic-bezier(0.45, 0.05, 0.35, 1) forwards;
+}
+.pour-wave {
+  animation: pour-roll 0.9s linear infinite;
+}
+.pour-wave.back {
+  animation-duration: 1.3s;
+  animation-direction: reverse;
+}
+.pour-drop {
+  opacity: 0;
+  animation: pour-drop calc(var(--pour) * 0.75) cubic-bezier(0.5, 0, 0.6, 1) forwards;
+}
+.lock-in {
+  opacity: 0;
+  animation: pour-show 0s linear var(--pour) forwards;
+}
+.lock-fill {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: lock-pop 0.45s cubic-bezier(0.3, 1.6, 0.5, 1) var(--pour) both;
+}
+.lock-rim {
   fill: none;
-  stroke-width: 3;
-  stroke-opacity: 0.9;
-  animation: sweep-edge 1.2s ease-out forwards;
+  stroke-linejoin: round;
+  animation: lock-rim 0.7s ease-out var(--pour) both;
 }
-@keyframes sweep-fade {
-  0%,
-  55% {
+.lock-ripple {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 1.5;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: lock-ripple 0.8s ease-out var(--pour) both;
+}
+@keyframes pour-fill {
+  from { transform: translateX(0); }
+  to { transform: translateX(var(--dist)); }
+}
+@keyframes pour-roll {
+  from { transform: translateY(0); }
+  to { transform: translateY(-40px); }
+}
+@keyframes pour-drop {
+  0% { transform: translate(var(--x0), var(--y0)) scale(0.6); opacity: 0; }
+  15%, 85% { opacity: 1; }
+  100% { transform: translate(var(--x1), var(--y1)) scale(1.1); opacity: 0; }
+}
+@keyframes pour-done {
+  to { visibility: hidden; }
+}
+@keyframes pour-show {
+  to { opacity: 1; }
+}
+@keyframes lock-pop {
+  0% { transform: scale(1); opacity: 1; }
+  40% { transform: scale(1.06); opacity: 1; }
+  100% { transform: scale(1); opacity: 0; }
+}
+@keyframes lock-rim {
+  0% { stroke: #fff; stroke-opacity: 1; stroke-width: 4; }
+  100% { stroke-opacity: 0; stroke-width: 1; }
+}
+@keyframes lock-ripple {
+  0% { transform: scale(0.08); stroke-opacity: 0.9; }
+  100% { transform: scale(1); stroke-opacity: 0; }
+}
+/* Reduced motion: no pour or drops, just the lock-in flash fading out. */
+@media (prefers-reduced-motion: reduce) {
+  .pour,
+  .pour-drops {
+    display: none;
+  }
+  .lock-in {
+    animation: none;
     opacity: 1;
   }
-  100% {
-    opacity: 0;
+  .lock-fill,
+  .lock-ripple {
+    display: none;
   }
-}
-@keyframes sweep-edge {
-  0% {
-    stroke-width: 6;
-    stroke-opacity: 1;
-  }
-  100% {
-    stroke-width: 1;
-    stroke-opacity: 0;
+  .lock-rim {
+    animation-delay: 0s;
   }
 }
 
@@ -2049,34 +2110,7 @@ label.check input {
   animation: pulse-opacity 1.5s infinite;
 }
 
-/* ---------- Whose turn: the current player's land is lifted and rocks gently ---------- */
-.turn-lift-layer {
-  filter: drop-shadow(0 3px 2.5px rgba(0, 0, 0, 0.55));
-}
-.turn-lift {
-  transform-box: fill-box;
-  transform-origin: center;
-  animation: turn-rock 3.2s ease-in-out infinite;
-}
-.turn-lift .territory:not([class*="hl-"]) {
-  stroke: rgba(255, 255, 255, 0.55);
-  stroke-width: 1.4;
-}
-.turn-lift .territory.hovered {
-  filter: brightness(1.2);
-}
-@keyframes turn-rock {
-  0%,
-  100% {
-    transform: translateY(-1.5px) scale(1.035) rotate(-1.2deg);
-  }
-  50% {
-    transform: translateY(-2.5px) scale(1.045) rotate(1.2deg);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .turn-lift {
-    animation: none;
-    transform: translateY(-2px) scale(1.04);
-  }
+/* ---------- Whose turn: a still, glassy sheen over the current player's land ---------- */
+.turn-sheen {
+  pointer-events: none;
 }

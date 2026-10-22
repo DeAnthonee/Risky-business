@@ -24,7 +24,7 @@ function ago(at: number, now: number): string {
  * refreshes whenever the tournament changes (the /wait long-poll), and stops once registration closes. `hostToken`:
  * this browser's host token; without it (open mode) the server answers anyone.
  */
-export function HostEntrants({ id, hostToken }: { id: string; hostToken?: string }) {
+export function HostEntrants({ id, hostToken, onView }: { id: string; hostToken?: string; onView?: (v: HostEntrantsView) => void }) {
   const [view, setView] = useState<HostEntrantsView | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now());
@@ -38,6 +38,7 @@ export function HostEntrants({ id, hostToken }: { id: string; hostToken?: string
           const v = await api.hostEntrants(id, hostToken);
           if (!alive) return;
           setView(v);
+          onView?.(v);
           setErr(null);
           if (v.status !== 'registering') return;
           // Wait for the next change (a join, a leave, the start), then fetch again.

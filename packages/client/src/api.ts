@@ -136,6 +136,8 @@ export interface TournamentView {
   name: string;
   /** The server is in open mode (testing, no hosting codes): anyone may start it, so the host controls show for all. */
   openMode?: boolean;
+  /** The host's seat counts at create (Zergs, Delove asked for, open spots), when it was made with them. */
+  requested?: { zergs: number; delove: number; open: number };
   status: TournamentSummary['status'];
   map: string;
   groupSize: number;

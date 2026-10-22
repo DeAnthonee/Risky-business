@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { MAPS } from '@risk/engine';
-import { api, ApiError, type TournamentView } from '../api';
+import { api, ApiError, type HostEntrantsView, type TournamentView } from '../api';
 import { getEntrantToken, getHostToken, saveEntrantToken, type Session } from '../session';
 import { HostEntrants } from './HostEntrants';
 import { NestedTournament } from './NestedTournament';
 import { ShareButton } from './Share';
+import { StartButton } from './StartButton';
 
 const STATUS_LABEL: Record<TournamentView['status'], string> = {
   registering: 'Registration open',
@@ -35,6 +36,8 @@ export function Tournament({
   // The host's start: this browser's host token (from the create form), or a hosting code from anywhere.
   const hostToken = getHostToken(id);
   const [code, setCode] = useState('');
+  // The host bar's live entrants (HostEntrants shares what it fetches), for the seat count beside Start now.
+  const [hostView, setHostView] = useState<HostEntrantsView | null>(null);
   const start = async () => {
     setBusy(true);
     try {
@@ -142,13 +145,16 @@ export function Tournament({
             {hostToken ? 'You created this tournament.' : 'Testing mode: anyone can start this tournament.'} Start it when everyone is in; empty open
             spots are planned around at the start.
           </p>
-          <div className="row">
-            <button className="primary" disabled={busy} onClick={start}>
-              Start now
-            </button>
-          </div>
+          <StartButton
+            joined={hostView?.entrants.length ?? t.entrants.length}
+            max={hostView?.maxEntrants ?? t.maxEntrants}
+            deloveAsked={t.requested?.delove ?? 0}
+            deloveJoined={hostView?.counts.delove ?? 0}
+            busy={busy}
+            onStart={() => void start()}
+          />
           {err && <p className="error">{err}</p>}
-          <HostEntrants id={id} hostToken={hostToken ?? undefined} />
+          <HostEntrants id={id} hostToken={hostToken ?? undefined} onView={setHostView} />
         </section>
       )}
 

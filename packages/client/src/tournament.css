@@ -202,3 +202,14 @@
   gap: 0.5rem;
   margin-top: 1rem;
 }
+
+/* Start now with the live seat count, and the "start with seats empty?" confirm (StartButton). */
+.start-row {
+  align-items: center;
+  gap: 0.75rem;
+}
+.start-confirm {
+  border: 2px solid currentColor;
+  padding: 0.75rem;
+  margin: 0.5rem 0;
+}

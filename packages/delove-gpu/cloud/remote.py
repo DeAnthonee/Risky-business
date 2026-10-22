@@ -591,8 +591,11 @@ def run(args, gen_args: list[str]):
         # the matrix suites' own (tests/matrix.py NETP)
         va = shlex.split(args.verify)
         netp = re.search(r'NETP = "[^"]*", "([^"]+)"', (PKG / "tests" / "matrix.py").read_text(encoding="utf8")).group(1)
-        for vr in dict.fromkeys([va[va.index("--ranker") + 1] if "--ranker" in va else "delove@2", netp]):
+        # and verify.py --model's network (give it as /root/job/models/<id>.pt): its .pt, .onnx and .json (fog inputs)
+        vm = [Path(va[va.index("--model") + 1]).stem] if "--model" in va else []
+        for vr in dict.fromkeys([va[va.index("--ranker") + 1] if "--ranker" in va else "delove@2", netp, *vm]):
             model_files += [Path(args.models) / f"{vr}{ext}" for ext in (".onnx", ".pt") if Path(args.models, f"{vr}{ext}") not in model_files]
+        model_files += [p for p in (Path(args.models) / f"{m}.json" for m in vm) if p.exists() and p not in model_files]
     vol = volume_info(args.volume) if args.volume else None
     home = "small" if vol and not args.home_copy else "full"
     vtar = (lambda p, suffix="": f"incoming/{args.name}/{p.name}{suffix}.tar.gz") if vol else (lambda p, suffix="": None)

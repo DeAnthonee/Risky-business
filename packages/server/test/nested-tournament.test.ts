@@ -12,6 +12,8 @@ vi.hoisted(() => {
 const { Store } = await import('../src/store.js');
 const { createRiskServer } = await import('../src/app.js');
 type TournamentClock = import('../src/tournaments.js').TournamentClock;
+const { ROUND_MIN_TURNS, seatNestedRound } = await import('../src/tournaments.js');
+const { createRng, nestSeed } = await import('@risk/engine');
 
 /** A clock the test moves by hand: round deadlines fire only when it is advanced past them. */
 class FakeClock implements TournamentClock {
@@ -110,7 +112,7 @@ describe('nested tournaments', () => {
     }
   });
 
-  it('plays 40 seats: round 1 at once, 51% of tables end the round, the rest are decided on standing, then the final', async () => {
+  it('plays 40 seats: round 1 at once, the bot tables play out, the people\'s tables are decided on standing at the deadline, then the final', async () => {
     const clock = new FakeClock();
     const store = new Store(join(dir, 'games.json'), {}, { clock });
     const { risk, base, call } = await serve(store);
@@ -174,14 +176,19 @@ describe('nested tournaments', () => {
       expect(waited.text).toMatch(/YOUR TABLE: game [A-Z0-9]+ \(round 1\)\. Seat token: \S+/);
       const claudeGame = /YOUR TABLE: game ([A-Z0-9]+)/.exec(waited.text)![1];
 
-      // Nobody human moves, so their three tables wait; the seven bot tables play out. The 6th finish (51% of 10)
-      // ends the round: the tables still playing are decided on standing, and the final is seated at once.
-      await until(() => t.rounds.length === 2, 120_000);
+      // Nobody human moves, so their three tables wait; the seven bot tables play out. Bot tables do not count toward
+      // the 51% rule (they would close the round while people are still setting up), so the round waits for its
+      // deadline: then the people's tables are decided on standing, and the final is seated at once.
+      const botTables = r1.matches.filter((m: any) => !humanTables.includes(m)).map((m: any) => m.gameId);
+      await until(() => t.rounds[0].matches.filter((m) => botTables.includes(m.gameId) && m.status === 'finished').length === 7, 120_000);
+      expect(t.rounds).toHaveLength(1);
+      clock.advance(20 * 60_000);
+      expect(t.rounds).toHaveLength(2);
       const ended = t.rounds[0];
       const finished = ended.matches.filter((m) => m.status === 'finished');
       const decided = ended.matches.filter((m) => m.status === 'decided');
-      expect(finished.length).toBe(6);
-      expect(decided.length).toBe(4);
+      expect(finished.length).toBe(7);
+      expect(decided.length).toBe(3);
       expect(ended.endedAt).toBe(clock.now());
       for (const m of decided) {
         expect([...m.standing!.order].sort()).toEqual([...m.entrants].sort());
@@ -385,7 +392,7 @@ describe('nested tournaments', () => {
     store.stopTimers();
   }, 180_000);
 
-  it('spreads the planner\'s filler Zergs over the round-1 tables for every count that needs them', () => {
+  it('spreads the planner\'s filler Zergs evenly over the round-1 tables for every count that needs them', () => {
     for (const n of [2, 4, 5, 11, 13, 15, 17]) {
       const store = new Store(null, {}, { clock: new FakeClock() });
       const t = store.tournaments.create({ format: 'nested', botDelayMs: 2000, options: { turnTimer: 'off' } });
@@ -393,9 +400,12 @@ describe('nested tournaments', () => {
       store.tournaments.start(t.id);
       const zergs = new Set(t.entrants.filter((e) => e.kind === 'zerg').map((e) => e.id));
       expect(zergs.size, `${n}`).toBe(t.nested!.plan!.zergs);
-      const perTable = t.rounds[0].matches.map((m) => m.entrants.filter((e) => zergs.has(e)).length);
-      expect(perTable, `${n}`).toEqual(t.nested!.plan!.rounds[0].map((x) => x.zergs));
-      expect(Math.max(...perTable) - Math.min(...perTable), `${n}`).toBeLessThanOrEqual(1);
+      // Every seat is taken, and the Zergs fill the seats people leave free: never two more at one table than another
+      // of the same size.
+      expect(t.rounds[0].matches.map((m) => m.entrants.length), `${n}`).toEqual(t.nested!.plan!.rounds[0].map((x) => x.seats));
+      const bySize = new Map<number, number[]>();
+      for (const m of t.rounds[0].matches) bySize.set(m.entrants.length, [...(bySize.get(m.entrants.length) ?? []), m.entrants.filter((e) => zergs.has(e)).length]);
+      for (const counts of bySize.values()) expect(Math.max(...counts) - Math.min(...counts), `${n}`).toBeLessThanOrEqual(1);
       // Every table keeps at least one person while there are people enough.
       if (n >= t.rounds[0].matches.length) for (const m of t.rounds[0].matches) expect(m.entrants.some((e) => !zergs.has(e)), `${n}`).toBe(true);
       store.stopTimers();
@@ -412,13 +422,94 @@ describe('nested tournaments', () => {
     const fillers = t.entrants.filter((e) => e.isBot);
     expect(fillers.every((e) => e.kind === 'zerg')).toBe(true);
     expect(new Set(fillers.map((e) => e.name)).size).toBe(7);
-    // Spread as the plan shares them out (owner): every table gets its share, never two more than another table.
+    // Spread evenly (owner): never two more at one table than another.
     const perTable = t.rounds[0].matches.map((m) => m.entrants.filter((e) => fillers.some((f) => f.id === e)).length);
-    expect(perTable).toEqual(t.nested!.plan!.rounds[0].map((x) => x.zergs));
+    expect(perTable.reduce((a, b) => a + b, 0)).toBe(7);
     expect(Math.max(...perTable) - Math.min(...perTable)).toBeLessThanOrEqual(1);
     // People are spread first: every table has a person, so none is all bots.
     for (const m of t.rounds[0].matches) expect(m.entrants.some((e) => !t.entrants.find((x) => x.id === e)!.isBot)).toBe(true);
     store.stopTimers();
     for (const room of store.rooms.values()) room.stopBot();
+  });
+
+  it('spreads 50 Zergs and 10 bots over a 100-seat round with 40 people: no table is all server bots (owner)', () => {
+    const store = new Store(null, {}, { clock: new FakeClock() });
+    const t = store.tournaments.create({ format: 'nested', maxEntrants: 100, botDelayMs: 2000, options: { turnTimer: 'off', autoSetup: true } });
+    for (let i = 1; i <= 40; i++) store.tournaments.join(t.id, `Agent ${i}`);
+    store.tournaments.addBots(t.id, 'zerg', 50);
+    store.tournaments.addBots(t.id, 'bot', 10);
+    store.tournaments.start(t.id);
+    const entrant = (eid: string) => t.entrants.find((e) => e.id === eid)!;
+    const tables = t.rounds[0].matches;
+    expect(tables.reduce((n, m) => n + m.entrants.length, 0)).toBe(t.entrants.length);
+    // Every table has a person or agent; none is a Zerg-only (or server-bot-only) table.
+    for (const m of tables) expect(m.entrants.some((eid) => !entrant(eid).isBot)).toBe(true);
+    // People and Zergs each spread within one of even over tables of the same size.
+    const spread = (pick: (eid: string) => boolean) => {
+      const bySize = new Map<number, number[]>();
+      for (const m of tables) bySize.set(m.entrants.length, [...(bySize.get(m.entrants.length) ?? []), m.entrants.filter(pick).length]);
+      return Math.max(...[...bySize.values()].map((c) => Math.max(...c) - Math.min(...c)));
+    };
+    expect(spread((eid) => !entrant(eid).isBot)).toBeLessThanOrEqual(1);
+    expect(spread((eid) => entrant(eid).kind === 'zerg')).toBeLessThanOrEqual(1);
+    // The same seed seats the same way.
+    expect(seatNestedRound(t.nested!.plan!.rounds[0], t.entrants, createRng(nestSeed(t.nested!.seed!, 'seats')))).toEqual(tables.map((m) => m.entrants));
+    store.stopTimers();
+    for (const room of store.rooms.values()) room.stopBot();
+  });
+
+  it('bot-only tables do not count toward the 51% rule, and a round never closes early before the people\'s tables have played ROUND_MIN_TURNS rounds', () => {
+    // 2 people + 16 Zergs: six tables of 3, so four tables are Zergs only (unavoidable) and end right after the deal.
+    const clock = new FakeClock();
+    const store = new Store(null, {}, { clock });
+    const t = store.tournaments.create({ format: 'nested', roundMinutes: 20, botDelayMs: 2000, options: { turnTimer: 'off', autoSetup: true } });
+    store.tournaments.join(t.id, 'Ada');
+    store.tournaments.join(t.id, 'Grace');
+    store.tournaments.addBots(t.id, 'zerg', 16);
+    store.tournaments.start(t.id);
+    const isPerson = (eid: string) => t.entrants.find((e) => e.id === eid)!.isBot === false;
+    const r1 = t.rounds[0];
+    const zergTables = r1.matches.filter((m) => !m.entrants.some(isPerson));
+    expect(zergTables).toHaveLength(4);
+    expect(zergTables.every((m) => m.status === 'finished')).toBe(true);
+    // Four of six tables are over (old rule: round over), but neither people's table is: the round goes on.
+    expect(r1.endedAt).toBeUndefined();
+    expect(t.rounds).toHaveLength(1);
+    // ... until its deadline, which still ends it.
+    clock.advance(20 * 60_000);
+    expect(r1.endedAt).toBe(clock.now());
+    expect(r1.matches.filter((m) => m.entrants.some(isPerson)).every((m) => m.status === 'decided')).toBe(true);
+    expect(t.rounds).toHaveLength(2);
+    store.stopTimers();
+    for (const room of store.rooms.values()) room.stopBot();
+
+    // 8 people + 10 Zergs: every table has a person. When 51% of them are over, the others must still have played
+    // ROUND_MIN_TURNS full rounds before the round can close early.
+    const clock2 = new FakeClock();
+    const store2 = new Store(null, {}, { clock: clock2 });
+    const t2 = store2.tournaments.create({ format: 'nested', roundMinutes: 20, botDelayMs: 2000, options: { turnTimer: 'off', autoSetup: true } });
+    for (let i = 1; i <= 8; i++) store2.tournaments.join(t2.id, `P${i}`);
+    store2.tournaments.addBots(t2.id, 'zerg', 10);
+    store2.tournaments.start(t2.id);
+    const m2 = t2.rounds[0].matches;
+    expect(m2).toHaveLength(6);
+    const share = Math.ceil(t2.nested!.finishShare * m2.length);
+    // The first `share` tables end (as if played out); the rest are still in their first rounds.
+    for (const m of m2.slice(0, share)) {
+      m.status = 'finished';
+      m.winner = m.entrants[0];
+    }
+    const check = () => (store2.tournaments as any).checkRound(t2) as boolean;
+    expect(check()).toBe(false);
+    expect(t2.rounds).toHaveLength(1);
+    const rest = m2.slice(share).map((m) => store2.get(m.gameId!)!);
+    rest[0].state = { ...rest[0].state, round: ROUND_MIN_TURNS };
+    expect(check()).toBe(false);
+    for (const room of rest) room.state = { ...room.state, round: ROUND_MIN_TURNS };
+    expect(check()).toBe(true);
+    expect(t2.rounds[0].endedAt).toBe(clock2.now());
+    expect(t2.rounds).toHaveLength(2);
+    store2.stopTimers();
+    for (const room of store2.rooms.values()) room.stopBot();
   });
 });

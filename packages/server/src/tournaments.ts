@@ -21,6 +21,7 @@ import {
   type GameOptions,
   type NestNode,
   type NestPlan,
+  type Rng,
 } from '@risk/engine';
 import type { GameRoom, Store } from './store.js';
 import type { CommitInfo } from './archive.js';
@@ -801,8 +802,16 @@ export class TournamentManager extends EventEmitter {
   }
 
   private watch(t: TournamentSnapshot, m: TournamentMatch, room: GameRoom) {
+    let roundsSeen = room.state.round;
     const settle = () => {
       if (m.status !== 'playing') return;
+      if (t.format === 'nested' && room.state.phase !== 'finished' && !room.closed) {
+        // A nested round waiting on the turn rule (checkRound) may be able to end once this table has played on.
+        if (room.state.round === roundsSeen) return;
+        roundsSeen = room.state.round;
+        if (this.tournaments.get(t.id) === t && this.checkRound(t)) this.changed(t);
+        return;
+      }
       if (room.state.phase === 'finished') {
         const winner = Object.entries(m.seats).find(([, s]) => s.playerId === room.state.winner)?.[0] ?? null;
         m.winner = winner;
@@ -896,11 +905,9 @@ export class TournamentManager extends EventEmitter {
     const n = t.nested!;
     const plan = planNest(t.entrants.length, { maxFinal: n.finalMap ? this.maxFinal(n.finalMap) : NESTED_FINAL.max });
     // The bots the plan needs are Zerg entrants (docs/zergs.md), with reptile names unique in the tournament.
-    const fillers: string[] = [];
     for (let i = 1; i <= plan.zergs; i++) {
       const entrant: Entrant = { id: `e_${newId(6)}`, name: freeZergName(t.entrants.map((e) => e.name)), isBot: true, kind: 'zerg', joinedAt: Date.now() };
       t.entrants.push(entrant);
-      fillers.push(entrant.id);
     }
     n.seed = n.fixedSeed ?? randomBytes(4).readUInt32LE(0);
     n.plan = plan;
@@ -909,25 +916,8 @@ export class TournamentManager extends EventEmitter {
     n.portals = boards.map((round) => round.map((node) => node.portals));
     n.nodes = nodes;
     n.nodeOf = index;
-    // Seating, from the tournament seed. The planner's filler Zergs first, spread as the plan shares them out (at most
-    // one more at any table than at another; owner's rule), then people and agents, spread over the free seats, then
-    // the host's own bots fill the rest, so a table is all bots only when there are more tables than people.
-    const rng = createRng(nestSeed(n.seed, 'seats'));
-    const filler = new Set(fillers);
-    const people = seededShuffle(rng, t.entrants.filter((e) => !e.isBot).map((e) => e.id));
-    const bots = seededShuffle(rng, t.entrants.filter((e) => e.isBot && !filler.has(e.id)).map((e) => e.id));
-    const tables = plan.rounds[0].map(() => [] as string[]);
-    const spread = seededShuffle(rng, fillers);
-    plan.rounds[0].forEach((table, j) => tables[j].push(...spread.splice(0, table.zergs)));
-    for (const eid of [...people, ...bots]) {
-      let best = -1;
-      for (let j = 0; j < tables.length; j++) {
-        const free = plan.rounds[0][j].seats - tables[j].length;
-        if (free > 0 && (best < 0 || free > plan.rounds[0][best].seats - tables[best].length)) best = j;
-      }
-      tables[best].push(eid);
-    }
     t.status = 'running';
+    const tables = seatNestedRound(plan.rounds[0], t.entrants, createRng(nestSeed(n.seed, 'seats')));
     this.buildNestedRound(t, 0, tables.map((g) => g.map((entrant) => ({ entrant, portal: null }))));
     this.changed(t);
     return t;
@@ -986,13 +976,34 @@ export class TournamentManager extends EventEmitter {
     }
   }
 
-  /** End the current round once enough tables have finished (or none is left playing). */
-  private checkRound(t: TournamentSnapshot) {
+  /**
+   * End the current round early once enough tables have finished (or none is left playing); its deadline ends it
+   * otherwise. Only tables with a person or agent count (a table of server bots finishes in seconds and would close the
+   * round while the people's tables are still setting up), and a round never closes early before every such table
+   * still playing has played ROUND_MIN_TURNS full rounds of turns. Returns true when it ended the round.
+   */
+  private checkRound(t: TournamentSnapshot): boolean {
     const round = this.currentRound(t);
-    if (t.status !== 'running' || !round || round.endedAt) return;
-    const playing = round.matches.filter((m) => m.status === 'playing').length;
-    const finished = round.matches.filter((m) => m.status === 'finished' || m.status === 'bye').length;
-    if (playing === 0 || finished >= Math.ceil(t.nested!.finishShare * round.matches.length)) this.endRound(t);
+    if (t.status !== 'running' || !round || round.endedAt) return false;
+    const playing = round.matches.filter((m) => m.status === 'playing');
+    if (playing.length === 0) {
+      this.endRound(t);
+      return true;
+    }
+    const counted = round.matches.filter((m) => m.entrants.some((eid) => this.entrant(t, eid)?.isBot === false));
+    // Only server bots this round (unavoidable once people are out): every table counts.
+    const tables = counted.length ? counted : round.matches;
+    const finished = tables.filter((m) => m.status === 'finished' || m.status === 'bye').length;
+    if (finished < Math.ceil(t.nested!.finishShare * tables.length)) return false;
+    // The turn rule is for people's tables; a round of server bots alone closes on the share as before.
+    const settled = !counted.length || tables.every((m) => {
+      if (m.status !== 'playing') return true;
+      const room = m.gameId ? this.store.get(m.gameId) : undefined;
+      return !room || room.closed || room.state.round >= ROUND_MIN_TURNS;
+    });
+    if (!settled) return false;
+    this.endRound(t);
+    return true;
   }
 
   /** Decide every table still playing on standing, then seat the next round or crown the champion. */
@@ -1066,4 +1077,52 @@ export class TournamentManager extends EventEmitter {
   stopTimers() {
     for (const id of [...this.roundTimers.keys()]) this.clearRoundTimer(id);
   }
+}
+
+/**
+ * A nested round closes early (finishShare) only once every person's or agent's table still playing has played this
+ * many full rounds of turns (GameState.round), so a table is never decided on standing during its setup.
+ */
+export const ROUND_MIN_TURNS = 3;
+
+/**
+ * Seat nested round 1 (owner, 2026-10-22: "Zergs spread out between all rooms approximately evenly; no Zerg-only
+ * lobbies"). People and agents first, one per table in turn (the table with the fewest people, then the parent group
+ * with the fewest, so they spread over the whole bracket), then the server bots: Zergs first, each to the table with
+ * the fewest server bots (then the most free seats), then the built-in bots the same way. A table is all server bots
+ * only when there are fewer people than tables. Seeded: the same tournament seats the same way.
+ */
+export function seatNestedRound(
+  tables: readonly { seats: number; parent?: number | null }[],
+  entrants: readonly { id: string; isBot: boolean; kind?: BotKind }[],
+  rng: Rng,
+): string[][] {
+  const seated = tables.map(() => [] as string[]);
+  const people = new Array(tables.length).fill(0);
+  const bots = new Array(tables.length).fill(0);
+  const groupPeople = new Map<number | null | undefined, number>();
+  const free = (j: number) => tables[j].seats - seated[j].length;
+  const place = (eid: string, better: (a: number, b: number) => boolean) => {
+    let best = -1;
+    for (let j = 0; j < tables.length; j++) if (free(j) > 0 && (best < 0 || better(j, best))) best = j;
+    if (best < 0) throw new RuleError('More entrants than seats in the plan');
+    seated[best].push(eid);
+    return best;
+  };
+  for (const eid of seededShuffle(rng, entrants.filter((e) => !e.isBot).map((e) => e.id))) {
+    const j = place(eid, (a, b) => {
+      if (people[a] !== people[b]) return people[a] < people[b];
+      const ga = groupPeople.get(tables[a].parent) ?? 0;
+      const gb = groupPeople.get(tables[b].parent) ?? 0;
+      if (ga !== gb) return ga < gb;
+      return free(a) > free(b);
+    });
+    people[j]++;
+    groupPeople.set(tables[j].parent, (groupPeople.get(tables[j].parent) ?? 0) + 1);
+  }
+  const fewestBots = (a: number, b: number) => (bots[a] !== bots[b] ? bots[a] < bots[b] : free(a) > free(b));
+  for (const zerg of [true, false]) {
+    for (const eid of seededShuffle(rng, entrants.filter((e) => e.isBot && (e.kind === 'zerg') === zerg).map((e) => e.id))) bots[place(eid, fewestBots)]++;
+  }
+  return seated;
 }

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * A whole nested ("Inception") tournament without the website: plan, boards, every table played by server bots, the
- * 51% round ends, tables decided on standing, winners on their portals, the champion. Reads the built server and engine
+ * 51% round ends (people's tables only, after 3 full rounds; all-bot rounds count every table), tables decided on standing, winners on their portals, the champion. Reads the built server and engine
  * (run `npm run build` first); never selfplay or Delove. Nothing is written to the repo.
  *
  * Headless (default): one process, no network, a fake clock that jumps to a round's deadline when no table can move,

@@ -6,7 +6,7 @@ next. The plan of record is `docs/delove.md`; the per-cycle tables are in `packa
 things is in `packages/delove/README.md` and `packages/delove-gpu/README.md`. Keep this file current: update it in
 the same PR as any change to the plan, the best model or the way training runs.
 
-Last updated: 2026-10-21 (current best: `delove@8`, cycle 11; cycle 10's range specialists even, not promoted; `jacob-sensei@2`, the candidate teacher for cycle 12, added).
+Last updated: 2026-10-21 (current best: `delove@10`, cycle 13; cycle 12's Close Range and trio beat `delove@9` but not `delove@10`, not promoted).
 
 ---
 
@@ -31,8 +31,9 @@ What "good" means, decided by the owner:
 4. **Fast iteration.** Training should run as much as possible on the training PC's GPU so we can try more ideas per
    day.
 
-**Fog of war is a required milestone** (owner, 2026-10-20): tournaments run with fog on. Today the board encoder sees
-the whole board, so the seat player refuses fog games; the plan is `docs/delove-fog.md` (section 9).
+**Fog of war is a required milestone** (owner, 2026-10-20): tournaments run with fog on. The first capability is
+built (#155): seat-view inputs, fog dropout in training and fair fog games in self-play; the seat player seats only
+fog-trained models at fog tables. The plan and what is left: `docs/delove-fog.md` (section 9).
 
 **The finished product** (owner, 2026-10-20): three separate specialist networks plus a "housing" that picks which one
 plays each decision by the players still alive: **Long Range** (4+ alive: reach the last 3 with the most kills, the
@@ -75,12 +76,12 @@ written here because the repo is public).
 
 ## 3. Where we are
 
-**Current best: `delove@8`** (cycle 11, promoted 2026-10-21; published in the private models repo). It's a graph
+**Current best: `delove@10`** (cycle 13, promoted 2026-10-21; published in the private models repo). It's a graph
 network over the map, hidden size 192, 6 message-passing rounds, about 2.4M parameters. The map's adjacency and the
 game settings are inputs, so one model plays every map and mode. It scores every legal candidate (policy) and predicts
 the leaderboard outcome (value). Lineage: `delove@3` (cycle 4's fresh network) → `delove@4` (cycle 6: Jacob Sensei as
 teacher, league settings) → `delove@5` (cycle 8: half the big boards on cloud GPUs) → `delove@6` (cycle 9: every game
-on 10 cloud GPUs) → `delove@7` (cycle 10: the search compares 4 options) → `delove@8` (cycle 11: 5 options).
+on 10 cloud GPUs) → `delove@7` (cycle 10: the search compares 4 options) → `delove@8` (cycle 11: 5 options) → `delove@9` (cycle 12: Jacob Sensei 2 rollouts) → `delove@10` (cycle 13: range-scored labels at 6-10p).
 
 | model | how it was made | key results |
 | --- | --- | --- |
@@ -91,7 +92,10 @@ on 10 cloud GPUs) → `delove@7` (cycle 10: the search compares 4 options) → `
 | **`delove@3`** | fresh larger net on branch-and-score decisions (cycle 4) | vs `delove@2`: **0.541** (2p, 800 games, 95% 0.513-0.569), **0.600** (4p), **0.610** (6p); 0.560 vs Sensei 2 |
 | `jacob-sensei@1` ("Jacob Sensei", #98) | Sensei 2's numbers plus tunable terms from `AI/general-player/risk-learnings.md` (hunt weak players, late-game ramp, leader pressure), tuned with a self-play length penalty | 0 of 960 self-play games hit the turn limit (Sensei 2: up to 100% on big boards); vs Sensei 2: 0.521 Classic 2p, 0.504 World 2p (1,000 games each), 0.64-0.83 at 4-10p. **vs `delove@3`:** 0.440 Classic 2p, 0.575 Classic 4p, 0.735 World 6p, 0.76 Fantasy 6p, 0.82 World 10p (+0.5 to +1.2 points per seat at 4-10p). Cycle 6's teacher; on the GPU mirror since #110 (verified by replay). Published in the private models repo |
 | `jacob-sensei@2` ("Jacob Sensei 2", this PR) | Jacob Sensei plus impL0's later learnings (`RISK_LEARNINGS.md` sections 7-21: the 2v1 kill, kill paths through buffers, carrying the spearhead, punching through 1s to the leader, border consolidation, caged stacks, take and hold, card tightening, duel scorched earth, capital garrisons), one tunable number each, tuned on leaderboard points at 4-10p; staged: its own duel numbers, tuned on 2p tables, once one rival is left | **vs `jacob-sensei@1`: 0.53-0.57 at 2p (2,000 games each on Classic, World, Fantasy, Asia, all intervals above 0.5); +0.42 to +1.33 points per seat at every 4-10p table (14 tables, all intervals above 0), +0.12 at Classic 3p (not significant); league settings the same, 2p even.** vs `delove@6` on the same seeds as `jacob-sensei@1`: 0.413 / 0.376 at Classic / World 2p (@1: 0.403 / 0.354), +0.35 to +2.04 points per seat at Classic 4p to World 10p (@1: -0.18 to +1.08). As the branch rollout teacher (5 options, ranker `delove@6`, paired): **+0.30 points per game pooled at 4-10p (95% +0.02..+0.57)** over `jacob-sensei@1` rollouts, every table the same direction. 0 of 960 self-play games at the turn limit. On the GPU mirror, verified by replay. Candidate teacher for cycle 12 (`packages/delove/README.md`) |
-| **`delove@8`** | `delove@7` fine-tuned on cycle 11 (40,000 games on 10 rented GPUs, `delove@7` ranking, 5 search options) | vs `delove@7`: **about +0.36 points per seat pooled over 9 multiplayer tables (95% +0.22 to +0.50)**, World 10p +1.01, World 6p +0.60, Classic 6p +0.44; even at 2p (0.505); 0.690 vs Sensei 2; 0.445 vs Jacob Sensei (World 6p) |
+| **`delove@10`** | `delove@9` fine-tuned on cycle 13 (40,000 games on 7 rented GPUs; the branch seat scores by the range objectives at 6-10p, #148) | vs `delove@9`: **about +0.19 points per seat pooled over 9 multiplayer tables** (+0.16, 95% +0.04 to +0.27 on the gate alone), World 6p +0.55, World 10p +0.66; even at 2p; 0.630 vs Jacob Sensei 1, **even with Jacob Sensei 2** at World 6p, 0.588 vs Jacob Sensei 2 at 2p |
+| `delove@9` | `delove@8` fine-tuned on cycle 12 (Jacob Sensei 2 rollouts, hard labels; soft targets came second) | vs `delove@8`: **+0.30 points per seat pooled (95% +0.18 to +0.43)**, World 6p +0.63; even at 2p; **0.590 vs Jacob Sensei 1** (first to beat its teacher) |
+| `c12` range specialists (not promoted) | Long / Mid / Close Range from `delove@9`, `--range`, plus #137 stage and #146 ratio games for Mid / Close | vs `delove@9`: Close Range better (win +0.038), trio better (+0.33 points), Long / Mid even; vs `delove@10`: all even |
+| `delove@8` | `delove@7` fine-tuned on cycle 11 (40,000 games on 10 rented GPUs, `delove@7` ranking, 5 search options) | vs `delove@7`: **about +0.36 points per seat pooled over 9 multiplayer tables (95% +0.22 to +0.50)**, World 10p +1.01, World 6p +0.60, Classic 6p +0.44; even at 2p (0.505); 0.690 vs Sensei 2; 0.445 vs Jacob Sensei (World 6p) |
 | `delove@7` | `delove@6` fine-tuned on cycle 10 (40,000 games on 10 rented GPUs, `delove@6` ranking, 4 search options) | vs `delove@6`: **about +0.23 points per seat pooled over 9 multiplayer tables (95% +0.11 to +0.36)**, World 10p +0.61, league Classic 6p +0.43, league Classic 4p +0.45; even at 2p (0.500); 0.650 vs Sensei 2; 0.393 vs Jacob Sensei (World 6p) |
 | `c10` range specialists (not promoted) | first Long / Mid / Close Range with their own objectives (`--range`, from `delove@6`), Mid and Close also on #137's stage games | each even with `delove@7` on its own stage (Long -0.06 points, Mid +0.002 top 2, Close +0.004 win); routed trio even in full games (-0.07 points) |
 | `delove@6` | `delove@5` fine-tuned on cycle 9 (40,000 games on 10 rented GPUs, `delove@5` ranking) | vs `delove@5`: **0.529** at 2p (95% 0.501-0.558), **about +0.16 points per seat pooled over 9 multiplayer tables (+0.05 to +0.27)**, World 6p +0.63; 0.613 vs Sensei 2; 0.355 vs Jacob Sensei (World 6p) |
@@ -102,6 +106,40 @@ on 10 cloud GPUs) → `delove@7` (cycle 10: the search compares 4 options) → `
 
 Chained, roughly: `delove@3` is about +95 Elo over `delove@1` at 2 players, +110 at 4 and +150 at 6. That's
 about +600 Elo over the built-in bot at 2 players. The gains are largest in multiplayer, which used to be the weak spot.
+
+### Progress, measured directly (how much better is the newest Delove?)
+
+Every promotion is gated against the version just before it, so each step is small and the total is easy to lose.
+These two tables are the proof of progress: each promotion's own gate, and a **direct head-to-head** of the newest
+model against older ones on the same seeds. Update them at every promotion (add a row to the first; rerun the second
+against `delove@6` and `delove@3` every few promotions).
+
+**Each promotion's gain over the previous version** (mean leaderboard points per seat, pooled over the 4-10 player gate
+tables, 95% interval; 2p win share):
+
+| version | cycle | what changed | pooled 4-10p points | 2p |
+| --- | --- | --- | --- | --- |
+| `delove@4` | 6 | Jacob Sensei teacher, league settings | +0.4 to +1.2 at league tables | 0.532 |
+| `delove@5` | 8 | `delove@4` ranks the search; Bohemia, Nine Realms | +0.27 (+0.15 to +0.39) | 0.507 |
+| `delove@6` | 9 | every game on 10 cloud GPUs | +0.16 (+0.05 to +0.27) | 0.529 |
+| `delove@7` | 10 | 4 search options | +0.23 (+0.11 to +0.36) | 0.500 |
+| `delove@8` | 11 | 5 search options | +0.36 (+0.22 to +0.50) | 0.505 |
+| `delove@9` | 12 | Jacob Sensei 2 rollouts | +0.30 (+0.18 to +0.43) | 0.497 |
+| `delove@10` | 13 | range scorer at the 6-10p tables | about +0.19 (gate +0.16, +0.04 to +0.27; 3 tables rechecked) | 0.513 |
+
+**Direct head-to-head, bare networks** (2026-10-21, CPU ladder, mirrored seeds; 400 games at 2p, 200 at 4-10p; points
+difference per seat with 95% interval):
+
+| `delove@10` vs | Classic 2p | Classic 4p | World 6p | World 10p |
+| --- | --- | --- | --- | --- |
+| `delove@6` (cycle 9) | 0.565, **+0.39** (+0.10 to +0.68) | 0.555, **+0.35** (+0.04 to +0.67) | 0.700, **+1.14** (+0.78 to +1.50) | 0.725, **+1.47** (+1.09 to +1.86) |
+| `delove@3` (cycle 4) | 0.621, **+0.73** (+0.46 to +0.99) | 0.642, **+0.89** (+0.71 to +1.08) | 0.785, **+1.59** (+1.29 to +1.90) | 0.870, **+1.63** (+1.28 to +1.98) |
+
+In words: four cycles took Delove from `delove@6` to `delove@10`, worth about **+1.1 to +1.5 leaderboard points per
+seat per game at 6-10 players** and a clear edge at 2 players, every interval above 0. Against its teachers: `delove@6`
+scored 0.355 against Jacob Sensei at World 6p; cycle 13's candidate scored 0.630, and is even with Jacob Sensei 2,
+its current teacher. On top of the network, **search at play time** (the live seat's default since #154) adds
++1.4 to +2.1 points per seat at 4-6 players over the bare network (#142).
 
 Scores are win shares in mirrored ladder matches (0.5 = even). With 4 or 6 players it's the share of games won by
 either of the candidate's seats. Since cycle 5 the gate table also reports mean leaderboard points per seat for each
@@ -211,6 +249,8 @@ Full tables: `packages/delove/CYCLES.md`. Summary, oldest first:
 | cycle 4 | fresh, larger network | 7.8k | **`delove@3`** | **network size was the 2-player bottleneck** |
 | strength meter (#79) | fit share weights to final points (4.7k games, 5 maps) | | hand weights order players best (58% vs 56%) | share-based meters top out around 65%; richer signals needed |
 | network rollouts (#141) | `delove@5` playing the branch rollouts (every seat, or the decider's only), and 4-5 options, vs Jacob rollouts; same games, paired | 21k on rented 4090s | network in every seat **-0.52**, decider's seat only **-0.43** points/game pooled at 4-10p, even at 2p; **4 / 5 options +0.23 / +0.28** at about the same GPU cost; network rollouts cost 10-30x per decision | **the rollout player should be the best multiplayer player we have** (Jacob): the network's weaker play misleads the search. More options is the cheap gain |
+| cycle 13 | `delove@9` ranking, Jacob Sensei 2, **range-scored branch seats at 6-10p** (#148) | 40k | **`delove@10`**: about +0.19 points per seat pooled at 4-10p (World 6p / 10p significant); even with Jacob Sensei 2 | the range scorer's kill credit pays on the big boards; rechecks put the capitals and small-map dips at noise |
+| cycle 12 | **Jacob Sensei 2** rollouts (#144); hard vs soft labels (#145); stage (#137) and ratio (#146) games for the specialists | 40k + 98.6k | **`delove@9`**: +0.30 points per seat; soft targets +0.22 / +0.04; Close Range and the trio beat `delove@9` but not `delove@10` | **a stronger teacher is still the lever** (0.590 vs Jacob Sensei 1); hard labels beat soft targets; RunPod capacity can cut a whole run (#152, fixed in #153) |
 | cycle 11 | `delove@7` ranking, **5 search options**, base only | 40k | **`delove@8`**: +0.36 points per seat pooled at 4-10p, even at 2p; 0.445 vs Jacob Sensei | more options keep paying: the student closes on the teacher (0.355 → 0.393 → 0.445 over cycles 9-11) |
 | cycle 10 | `delove@6` ranking, **4 search options** (#141), every game on 10 cloud GPUs; first range specialists with their own objectives (#132) and stage games (#137) | 40k + 8.6k stage | **`delove@7`**: +0.23 points per seat pooled at 4-10p, even at 2p; specialists all even with `delove@7` | more options per decision is the cheap strength lever; specialists trained from the old base only catch up to the new base: train them from the newest best |
 | cycle 9 | cycle 8's recipe one step on (`delove@5` ranking), every game on 10 cloud GPUs, the faster big-table search | 40k, 46 turn-limit | **`delove@6`**: 2p 0.529, +0.16 points per seat pooled at 4-10p | **steady compounding**: each new model ranking the next cycle's search adds a little; 1 h 33 min a cycle with the cloud |
@@ -299,7 +339,7 @@ to `runs/delove/<name>/cycle.md`.
 ```bash
 npm run delove-seat -- --server https://risky.deanthoneeking.com --join <CODE> --agents delove@3,delove-teacher@2 --names "Delove@3,Sensei@2"
 ```
-Fog of war off (enforced by `delove-seat`); one seat per agent. For full environment parity options (random fog 50/50, blizzards, capitals, progressive/fixed/exponential cards), see **[docs/game-settings.md](game-settings.md)**.
+Fog of war only for fog-trained models (`fogInputs`, enforced by `delove-seat`); one seat per agent. For full environment parity options (random fog 50/50, blizzards, capitals, progressive/fixed/exponential cards), see **[docs/game-settings.md](game-settings.md)**.
 
 ## 7. Decisions made by the owner
 
@@ -325,6 +365,7 @@ Fog of war off (enforced by `delove-seat`); one seat per agent. For full environ
 
 | what | who | state |
 | --- | --- | --- |
+| fog of war, first capability: seat-view inputs, fog dropout, fair fog games and gates, `delove-seat` at fog tables | session "Fog of war" | done, **#155**; measured (`docs/delove-fog.md` status): a `--fog-dropout 0.25` fine-tune of `delove@8` gains **+0.32 / +0.41 points per seat** in fog games at World 6p / Classic 4p (a no-dropout control: +0.01 / -0.16), even at 2p, and costs nothing on full boards next to that control. Cycle 15 trains with `--fog-dropout 0.25` and fog gates; next: seat memory and the determinized teacher |
 | GPU rules, teacher and branch-and-score for every map, 2-10 seats and every setting; points arrays from the GPU; `cycle.sh` GPU steps for any step | session "GPU engine for every map and 2-10 players" | done, **PR #82** merged |
 | cycle 5: all maps 2-10p on the GPU, points target; gate table with points; live dashboard (`scripts/dashboard.mjs`); `train.py --amp` and `#F` fractions | coordinator | done, not promoted (section 3); PR #105 |
 | Jacob Sensei on the GPU mirror (teacher kernel, per-seat teacher versions, verified by replay) | session "Port Jacob Sensei to the GPU mirror" | done, **PR #110**: 0 mismatches (verify.py on the pre-Bohemia engine, fingerprint at `da9ec34`; matrix `jacob` suite 118/118) |
@@ -336,7 +377,8 @@ Fog of war off (enforced by `delove-seat`); one seat per agent. For full environ
 | cycle 8: `delove@4` ranker, Bohemia and Nine Realms, part A at home (4 GPU lanes) and part B on the cloud; `cycle.sh GENERATE_ONLY` | coordinator | done: **`delove@5`** (section 3); PR #127 |
 | cycle 9: every game on 10 cloud GPUs (`REMOTE_GPUS=10`), training and gates at home | coordinator | done: **`delove@6`** (section 3); PR #131 |
 | cycle 10: 4 search options, first range specialists with `--range` and #137's stage games | coordinator | done: **`delove@7`** (section 3); specialists even, not promoted; PR #147 |
-| cycle 11: 5 search options, base only (Jacob Sensei 1; #144 not merged at launch) | coordinator | done: **`delove@8`** (section 3); this PR. Cycle 12 next: hard vs soft labels (#145), stage and ratio games (#137, #146) for the specialists |
+| cycle 11: 5 search options, base only (Jacob Sensei 1; #144 not merged at launch) | coordinator | done: **`delove@8`** (section 3); PR #149 |
+| cycles 12-13: Jacob Sensei 2, hard vs soft labels, stage and ratio games, specialists; range-scored labels at 6-10p | coordinator | done: **`delove@9`**, **`delove@10`** (section 3); specialists not promoted; this PR. `cycle.sh` passes `export_agents` to GPU steps. Cycles 14-15 next (research plan) |
 | range specialists (4+ alive / 3 alive / 1v1, routed by players alive) | coordinator | tooling in **#114**; stage yardstick (`npm run delove:stages`: fixed start positions per stage, specialist vs base, the routed trio in full games, 95% intervals) and the library names in this PR; **cycle 7** trained Delove Long / Mid / Close Range from `delove@4` on cycles 5-6 split by players alive: the routed trio is even with `delove@4` (2p 0.501, 4-10p even, +0.53 points at league Classic 6p only), not promoted. Next try needs different lessons per phase (more 3-player endgames, a duel-focused search), not a split of the same ones; **cycle 7**trained Delove Long / Mid / Close Range from `delove@4` on cycles 5-6 split by players alive: the routed trio is even with `delove@4` (2p 0.501, 4-10p even, +0.53 points at league Classic 6p only), not promoted. Next try needs different lessons per phase (more 3-player endgames, a duel-focused search), not a split of the same ones |
 | range objectives: each specialist its own value target and credit from the same pool (`train.py --range long\|mid\|close`, `python/targets.py`; `placement.npy` / `kills.npy` from `delove_gpu.generate`) | session "Range objectives" | built (this PR), smoke-trained only: ~600 steps from `delove@5` on cycle 8 Classic, the target alone (same batches) changes 3.0 / 3.0 / 3.7% of top moves on each range's own positions vs a cycle-7-style control (Mid's seed-to-seed noise: 4.3%), so the policy effect is unproven until a full train and gates; the estimated top 2 for exports without `placement.npy` matched the exact one on 97.6-98.7% of 3-alive decisions (Classic 6p, World 5p) |
 | range-specific teacher labels: the branch player scores its rollouts by each range's objective (`long`: share + 2 × kill credit; `mid`: P(top 2) + threat deflection; `close`: deeper duel search; `range` picks per decision by players alive), mirrored on the GPU and verified; per job via `delove-branch@1:<score>` seats | session "Range-aware branch scoring" | built (**#148**), verified on the GPU with #141 and #144 in one integration tree (5,323,769 steps identical; fingerprint re-recorded). Head to head with today's share scorer (2,228 games, packages/delove/README.md): 3 players top 2 +0.043 ± 0.051 (Classic +0.109 ± 0.072), 6 players +0.46 ± 0.58 points (World +0.99 ± 0.83; kills 1.81 vs 1.53 per game), duels even (0.507 vs 0.491). Next: cycle 12's stage jobs with `delove-branch@1:range` seats, then the specialists' stage gates |
@@ -395,12 +437,19 @@ tables with LLM characters, with fog of war on. In order:
    (packages/delove-gpu README, "Stage games"). Train on them mixed with the real stage games, not instead of them.
 3. **Fog of war, started early, in parallel** (`docs/delove-fog.md`): fog dropout first (train on normal games with the
    unseen territories blanked out, so Delove stops leaning on information a fogged player lacks), then the seat-view
-   encoder, a determinized branch teacher and fog gates.
+   encoder, a determinized branch teacher and fog gates. **Built (#155):** the seat view as network inputs, fog dropout
+   (`train.py --fog-dropout P` on any full-board data), fair fog games for every seat in self-play and the ladder, fog
+   gates on the CPU, and `delove-seat` playing fog with a fog-trained model. Next: train fog dropout into a cycle's
+   candidate (p 0.2-0.3) with a fog gate beside the usual ones, then the seat's memory and the determinized teacher.
 4. **The real yardstick.** Seat Delove at live tables with the Claude and ChatGPT characters (fog on once item 3
    lands), and track its leaderboard points per game. Started 2026-10-21 with Claude subagent seats
    ([delove-yardstick.md](delove-yardstick.md)): with capitals and blizzards on, `delove@6` averaged -1.0 points against
    Sonnet (3 games) and -2.5 against Opus (2 games), knocked out by round 3-9 with no kills; 2nd against Haiku in a
-   pilot without capitals or blizzards. Rerun the same lineup for every new model.
+   pilot without capitals or blizzards. Rerun on 2026-10-21 with the live search seat (delove@8 + search, #154's `js2-range` preset, real card counts): 1st with 4
+   kills against Haiku, last in all 3 Sonnet games (ganged up on from round 1), 4th and a capital win against Opus
+   (mean +3.0). Baseline 3 (2026-10-22, delove@10 + search, neutral brief, capitals and blizzards for every tier, 2 games
+   per tier): Haiku mean +3.0 (a capital win), Sonnet +2.5 (2nd with 4 kills), Opus -3.0 (two early exits); 2-3 seats
+   still attacked Delove in rounds 1-2 in every game. Rerun the same lineup for every new model.
 5. **Faster cycles** (no strength change): the faster big-table search (#117, 2.5-5x, merged), 10 cloud pods for a
    whole cycle's generation (about 47 minutes, about $7), and a training pod fed directly by the generation pods
    through a RunPod network volume (`REMOTE_TRAIN=1`, built, not yet run for pay: about 10 minutes and $0.40-0.50 a

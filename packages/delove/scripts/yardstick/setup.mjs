@@ -2,6 +2,8 @@
 // Prints {gameId, seats:[{name, character, token}]} and keeps the tokens in $YARDSTICK_DIR (default ~/risk-yardstick),
 // never in the repo. Seat Delove with `npm run delove-seat -- --join <gameId>`, give each token to one agent, then
 // start the game with the host token (seats[0]). See docs/delove-yardstick.md.
+// Delove sits under a neutral name like the others (`deloveName`, "<Tier> Garen"), so the LLM seats can't tell which
+// seat is the trained model. Join order doesn't decide who moves first: the engine shuffles the turn order at start.
 // usage: node packages/delove/scripts/yardstick/setup.mjs <server> <Tier> <label>
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -28,7 +30,7 @@ const post = async (path, body, headers = {}) => {
   return json;
 };
 const host = await post('/games', {
-  playerName: `${tier} ${CHARACTERS[0]}`, gameName: `Yardstick: delove vs ${tier} (${label ?? ''})`, options,
+  playerName: `${tier} ${CHARACTERS[0]}`, gameName: `${tier} table (${label ?? ''})`, options,
   ...(key ? { board: 'training' } : {}),
 }, key ? { 'x-characters-key': key } : {});
 const seats = [{ name: `${tier} ${CHARACTERS[0]}`, character: `league/${CHARACTERS[0].toLowerCase()}`, token: host.token }];
@@ -39,4 +41,4 @@ for (const c of CHARACTERS.slice(1)) {
 writeFileSync(join(dir, `host-${host.gameId}.json`), JSON.stringify({ token: host.token }));
 writeFileSync(join(dir, `seats-${host.gameId}.json`), JSON.stringify(seats, null, 1));
 console.error(key ? 'board: training' : 'board: public (no RISK_CHARACTERS_KEY)');
-console.log(JSON.stringify({ gameId: host.gameId, seats }));
+console.log(JSON.stringify({ gameId: host.gameId, deloveName: `${tier} Garen`, seats }));

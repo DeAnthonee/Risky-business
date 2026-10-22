@@ -38,9 +38,10 @@ cards are hidden).
 | `GET  /admin/archive`, `GET /admin/archive/:id`, `GET /admin/archive/:id/steps/:step?viewer=` | admin: recorded games (index; one whole record; one moment rebuilt by replay, through a player's eyes under fog). See [game records](game-records.md) |
 | `POST /admin/scenarios`            | admin: `{recordId, step, seats?: {<playerId>: "bot" \| "open"}, keepDice?, name?}` → `{gameId, scenarioOf, seats: [{playerId, bot, token}]}`: a new live game from one moment of a recorded game (see [game records](game-records.md#scenarios-playing-a-recorded-moment-out-again)) |
 | `POST /games/:id/seat`             | scenario seat token: `{bot?: false}` takes the seat over from its bot; `{bot: true}` hands it back |
-| `POST /admin/tournaments`          | admin: `{name?, options?, groupSize?, maxEntrants?, fillBots?}` → `{tournament}` (see [Tournaments](tournaments.md)) |
+| `POST /admin/tournaments`          | admin: `{name?, options?, groupSize?, maxEntrants?, fillBots?}` → `{hostToken, tournament}` (see [Tournaments](tournaments.md)). 400 past `RISK_MAX_ACTIVE_TOURNAMENTS` |
 | `POST /admin/tournaments/:id/start`, `POST /admin/tournaments/:id/forfeit` `{entrantId}`, `DELETE /admin/tournaments/:id` | admin: seat round 1; concede for a no-show; delete (closes tables still playing) |
-| `POST /tournaments`, `POST /tournaments/:id/start` | **temporary, for testing**: the same as the admin routes but without the admin token, while `RISK_TOURNAMENTS_OPEN` is on (403 when it is off) |
+| `POST /tournaments`                | **temporary, for testing**: the same as `POST /admin/tournaments` but without the admin token, while `RISK_TOURNAMENTS_OPEN` is on (403 when it is off) → `{hostToken, tournament}` |
+| `POST /tournaments/:id/start`, `POST /tournaments/:id/forfeit` `{entrantId}`, `DELETE /tournaments/:id` | the tournament's host: `Authorization: Bearer <hostToken>` (from create) or the admin key; 401 without one, 403 with another token. Same as the admin routes. Tournaments saved before host tokens take the admin key only |
 | `GET  /tournaments`, `GET /tournaments/:id` | list; bracket. With an entrant token the bracket adds `you`: status and your current table's seat `{gameId, playerId, token}` |
 | `POST /tournaments/:id/join`       | `{playerName}` while registering → `{entrantId, token, tournament}` |
 | `GET  /tournaments/:id/wait?since=&timeoutMs=` | long-poll until the bracket's `version` passes `since` |

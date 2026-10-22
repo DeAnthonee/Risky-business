@@ -3,8 +3,63 @@
 **Goal set by the owner:** a Delove good enough to play fog-of-war games. Today it can't: the board encoder
 (`packages/selfplay/src/encode.ts`, `ENCODER_VERSION` 2) reads the whole board, `export` skips fog games, the seat
 player refuses them (`packages/delove/src/seat.ts`), and the GPU mirror leaves fog out. This file is the plan for
-changing that. It is a design plan only: nothing here is built yet. Current state and the main roadmap:
-[delove-status.md](delove-status.md); plan of record: [delove.md](delove.md).
+changing that. Current state and the main roadmap: [delove-status.md](delove-status.md); plan of record:
+[delove.md](delove.md).
+
+## Status: what is built (#155)
+
+The first fog capability, simpler than sections 2-3 below in one way: **no seat memory yet**. A fog seat sees the
+current view only (what is visible now), which is exactly what fog dropout can produce from the arrays every cycle
+already has.
+
+- **Seat-view inputs** (`packages/selfplay/src/fog.ts`, `FOG_INPUT_VERSION` 1): a pure function of a decision's
+  full-board features (`encode.ts` is unchanged, so `ENCODER_VERSION` stays 2 and every old log and array keeps loading
+  as is). Hidden territories (not the seat's, not next to one of its, not a blizzard; the engine's
+  `visibleTerritories`) lose owner, armies and capital marks; continent holders, borders, neighbour army sums and each
+  seat slot's territory and army shares are recomputed from what is visible; public numbers (alive, cards, income,
+  the hand, card values) stay. Two columns are appended, territory `hidden` and global `hidden_share`, both 0 on a full
+  board. A model trained with them has `"fogInputs": 1` in its `.json`.
+- **No seat sees through the fog:** in a fog game every self-play agent (Delove, Sensei, Jacob) decides on its seat's
+  view, rebuilt exactly as the live seat player does it (`stateFromView(viewFor(state, me))`, now in
+  `packages/selfplay/src/seat-view.ts`, with the view's own legal moves; `foggedAgent`, applied by `runBatch` to every
+  seat). A test plays fog games on four configurations and checks that the seat view's inputs built from the true board
+  and from the rebuilt view are identical, so the transform reads nothing hidden. Opponents' income totals, public at
+  the table, come from the view (`seatInput`).
+- **Fog dropout:** `train.py --fog-dropout P` shows each training decision as its seat would see it under fog with
+  probability P (`packages/delove/python/fog.py`, bit-identical to `fog.ts`: `test_fog.py` on 510 decisions over 4
+  maps). Any full-board dataset serves, past cycles' too: no new games and no GPU mirror change (the GPU still writes
+  full-board arrays; the fingerprint is untouched). `--init` from a model without fog inputs widens it with zero weights
+  for the two columns, so it starts as exactly the same player. Validation reports the same decisions all fogged too.
+- **Playing fog games:** every network plays a fog game on its seat view (a model without fog inputs gets the seat view
+  without the two columns); `delove-seat` sits a model at a fog table only when it has fog inputs, others still sit
+  fog games out. Branch and score never searches under fog: there it plays its ranker's top move (`fogSafe`,
+  `branch-env.ts`). The ladder and `play` take `{"fogOfWar": true}` games, fair for every seat; a cycle's fog gates stay
+  on the CPU (`cycle.sh`).
+- **Measured (2026-10-21, home RTX 4060 + CPU ladders):** `delove@8` fine-tuned on cycle 9's arrays (14 maps, 15% of
+  each per epoch, 1 epoch, lr 2e-4, points target, branch weights) with `--fog-dropout 0.25`, against the same
+  fine-tune with `--fog-dropout 0` (a control: fog inputs, never fogged), each laddered against `delove@8` on the same
+  seeds (mirrored pairs; points per seat, candidate minus `delove@8`, 95% interval over 20-game chunks). The fog gates
+  use `configs/gen5-randomfog.json`, so `delove@8` plays fog on its seat view (the same inputs without the fog columns).
+
+  | gate | dropout 0.25 | control, no dropout |
+  | --- | --- | --- |
+  | fog, World 6p (200 games) | **+0.32** (+0.09 to +0.55), score 0.525 | +0.01 (-0.42 to +0.44) |
+  | fog, Classic 4p (200) | **+0.41** (+0.11 to +0.71), 0.552 | -0.16 (-0.46 to +0.15) |
+  | fog, Classic 2p (400) | +0.01 (-0.15 to +0.17), 0.500 | |
+  | fog, World 6p vs Jacob Sensei (200; both on their seat view) | +0.14 (-0.26 to +0.53), 0.620 | |
+  | no fog, Classic 2p (400) | -0.20 (-0.50 to +0.09) | -0.11 (-0.36 to +0.14) |
+  | no fog, Classic 6p league settings (200) | -0.23 (-0.41 to -0.05) | -0.28 (-0.48 to -0.08) |
+
+  Validation on the same held-out decisions (top-1 / policy loss): `delove@8` 0.685 / 1.074 on full boards and
+  0.648 / 1.273 fogged; with dropout 0.700 / 0.997 and 0.683 / 1.097; the control 0.699 / 0.994 and 0.664 / 1.226.
+  **Reading:** fog dropout is what makes the fog gains at 4-6 players (the control has none); on full boards it costs
+  nothing measurable next to the same fine-tune without it. The no-fog loss at 6p is the fine-tune itself (older
+  data, a short run on 15% of it), not dropout, and a cycle's training on its own fresh data does not have it. At 2
+  players fog changes little (almost everything is next to something of yours). Cycle 15: `--fog-dropout 0.25`.
+- **Not built yet (next):** the seat's memory (section 2.2: last-seen owners and armies, income bounds), which needs
+  logged fog games or a tracker in self-play; the determinized branch teacher (section 4); fog in the GPU mirror
+  (section 5). Fog dropout teaches "act on what you see"; the memory and a fair fog teacher come next.
+
 
 **Does the current path help or hinder?** It helps, if fog is planned for early. Everything Delove learns about
 battle odds, cards, continents and borders carries over; what doesn't carry over is any habit that leans on numbers

@@ -27,14 +27,47 @@ uses). It doesn't chat and has no character: it waits for its turn, rebuilds the
 move like in self-play and sends it.
 
 ```bash
-# join a game someone created (the host starts it); one seat per version
-npm run delove-seat -- --server https://risky.deanthoneeking.com --join ABC123 --agents delove@3,delove-teacher@2
+# join a game someone created (the host starts it): Delove with search at play time, the default
+npm run delove-seat -- --server https://risky.deanthoneeking.com --join ABC123
+# one seat per version: the bare network (no search) and a teacher
+npm run delove-seat -- --server https://risky.deanthoneeking.com --join ABC123 --agents delove@8,delove-teacher@2
 # or create one: Delove hosts, adds 2 built-in bots and starts; watch it at <server>/?game=<code>
-npm run delove-seat -- --server http://localhost:8080 --create --agents delove@1,delove-teacher@1 --bots 2
+npm run delove-seat -- --server http://localhost:8080 --create --bots 2
 ```
 
+**The default seat searches at play time** (`--agents delove-branch`, seat name "Delove Search"; "Search at play
+time" below explains it). The newest base network in the models folder (`delove@N.onnx`, highest N) ranks the moves and
+`--preset` picks the rest (`LIVE_BRANCH_PRESETS` in `src/branch-env.ts`):
+
+| preset | rollouts | options | score | horizon | margin | evidence |
+| --- | --- | --- | --- | --- | --- | --- |
+| `js2-range` (default since #164) | Jacob Sensei 2 | 5 | range (each stage's goal by players alive) | 2 | 0.02 | preset ladder (#164, below): **+2.33 points per seat at World 6p, +1.17 at Classic 4p, +0.12 at Classic 2p** against the bare delove@8; **+1.01 against `measured` head to head at World 6p** |
+| `measured` | Jacob Sensei 1 | 5 | share | 1 | 0.01 | #142's CPU ladder: +2.07 / +1.43 / even; in the preset ladder +1.91 / +0.76 / -0.24 against the bare delove@8, about 4x faster per decision |
+
+**The preset ladder** (#164; 2026-10-21, CPU, mirrored seeds, ranker delove@8 for all; 400 games at Classic 2p, 200 at
+4p and World 6p; points difference per seat with 95% interval; C = `js2-range` with horizon 1 and margin 0.01):
+
+| preset | vs bare delove@8, World 6p | Classic 4p | Classic 2p | ms per decision (busy CPU) |
+| --- | --- | --- | --- | --- |
+| `js2-range` | +2.33 (+1.97 to +2.69) | +1.17 (+0.89 to +1.44) | +0.12 (-0.07 to +0.31) | 184 |
+| C | +2.11 (+1.84 to +2.38) | +1.09 (+0.77 to +1.41) | -0.07 (-0.34 to +0.19) | 100 |
+| `measured` | +1.91 (+1.54 to +2.27) | +0.76 (+0.42 to +1.10) | -0.24 (-0.54 to +0.06) | 47 |
+
+Head to head, `js2-range` vs `measured`: World 6p +1.01 (+0.76 to +1.25), Classic 4p +0.41 (-0.01 to +0.83), Classic
+2p +0.18 (-0.17 to +0.53). Most of the gain is Jacob Sensei 2 and the range score (C); horizon 2 adds a little more
+at about twice the time, which the live tables can afford.
+
+It prints its settings when it sits down. Any `DELOVE_BRANCH_*` variable overrides one setting
+(`DELOVE_BRANCH_RANKER=delove@8` pins a network so a promotion doesn't change it mid-run); self-play and cycle runs keep
+`branchFromEnv`'s own defaults. The bare network is its own id (`--agents delove@8`). Time per decision with delove@8
+and the `js2-range` preset, measured on the training PC's CPU (2026-10-21, capitals and 8 blizzards, the other seats
+Jacob Sensei 2): Classic 6 players 0.17 s mean, 0.35 s at the 90th percentile, 1.0 s at most, a whole turn 3.8 s mean,
+16 s at most; World 10 players 0.56 s mean, 1.2 s p90, 1.7 s at most, a turn 9.9 s mean, 47 s at most (horizon 1 in
+`measured` rolls out less). The server has no turn timer, so this only sets the pace spectators see.
+
 `--pace 400` (ms between moves, so spectators can follow), `--names "A,B"`, `--options '{"capitals":true}'`,
-`--no-start`. Fog of war games are refused for now: Delove was trained on the full board.
+`--no-start`. Fog of war: only a network trained for it (fog inputs, `"fogInputs"` in its `.json`, from
+`train.py --fog-dropout`; "Fog of war" below) takes a fog seat; other versions sit fog games out.
 `--agents` takes `delove-teacher@1`, every tuned teacher in the models folder (`delove-teacher@N.json`, e.g.
 `delove-teacher@2`), and every `delove@N.onnx`. `sensei` / `sensei@1` and `sensei@2` are aliases for the two teachers,
 and their seats are named "Sensei 1" and "Sensei 2" unless `--names` says otherwise (#88). `jacob-sensei@1` (alias `jacob`)
@@ -48,12 +81,12 @@ every opponent an empty hand, so the network and Jacob Sensei read every opponen
 **Search at play time** (`--agents delove-branch`, seat name "Delove Search"): the seat plays branch and score
 (`src/branch.ts`, the same player that makes the training data) instead of the bare network: at each important
 decision it tries the network's favourites on copies of the board and keeps the best. It is configured by the same
-`DELOVE_BRANCH_*` variables as self-play (`src/branch-env.ts`); for live tables use the cycle settings with more
-options (#141 measured 4-5 options at +0.23 / +0.28 points per game over 3):
+`DELOVE_BRANCH_*` variables as self-play (`src/branch-env.ts`). The default is `js2-range` (the preset ladder above);
+`measured`, #142's setup (the cycle settings with more options, #141), is about 4x faster:
 
 ```bash
-DELOVE_BRANCH_RANKER=delove@6 DELOVE_BRANCH_TEACHER=jacob-sensei@1 DELOVE_BRANCH_OPTIONS=5 DELOVE_BRANCH_HORIZON=1 \
-  DELOVE_BRANCH_MARGIN=0.01 npm run delove-seat -- --server https://risky.deanthoneeking.com --join ABC123 --agents delove-branch
+npm run delove-seat -- --server https://risky.deanthoneeking.com --join ABC123                       # js2-range
+npm run delove-seat -- --server https://risky.deanthoneeking.com --join ABC123 --preset measured     # faster
 ```
 
 Every strong game AI searches when it plays (AlphaGo, Pluribus, Cicero); in Delove's own cycles the branch player
@@ -71,6 +104,31 @@ To evaluate Delove models on the exact game options used in Generation 5 live le
 - `packages/delove/configs/gen5-nofog.json` (baseline Gen 5 options with `fogOfWar: false`)
 - `packages/delove/configs/gen5-randomfog.json` (standard league options with `fogOfWar: true`)
 - `packages/delove/configs/gen5-fixedcards.json` (options with fixed card trade values)
+
+### Fog of war (first capability: the seat view and fog dropout)
+
+The plan and what is built: [docs/delove-fog.md](../../docs/delove-fog.md). In short:
+
+```bash
+# fine-tune the best model for fog: 30% of the decisions shown as their seat would see them under fog (any full-board data)
+.venv/Scripts/python packages/delove/python/train.py --init <models>/delove@8.pt --fog-dropout 0.3 --out <models>/c15-fog   --data <data>/c9-a1/classic --data "<data>/c9-a4/world#0.5" ... --value-target points --amp
+.venv/Scripts/python packages/delove/python/export_onnx.py <models>/c15-fog
+# the fog gate: league fog settings, every seat on its own view (CPU ladder)
+npm run delove -- ladder --candidate c15-fog --best delove@8 --players 6 --games 200 --options "$(cat packages/delove/configs/gen5-randomfog.json)"
+```
+
+- `--fog-dropout P` adds the fog inputs (`fog.py`, the same as `packages/selfplay/src/fog.ts`) and fogs each decision
+  with probability P. A model from before fog is widened with zero weights and starts as the same player. The `.json`
+  records `fogInputs: 1`, which the network player reads; validation prints a `fog` line (the same decisions, all fogged).
+- In a fog game every seat decides on its view (self-play's `foggedAgent`, the live seat's `stateFromView`), so
+  gates are fair: a fogged Jacob Sensei, a fogged `delove@N` (the seat view without the two fog columns).
+- In a cycle config, a fog gate is a gate line with the fog settings, e.g.
+  `"delove@8 6 200 {\"fogOfWar\":true,\"autoSetup\":true,...}"`; it plays on the CPU even with `gpu_gates`.
+  `train_args` takes `--fog-dropout` like any other option.
+- `train.py --soft-targets` with a pre-fog prior widens the prior the same way.
+- The search seat (`delove-branch`) never searches under fog (no determinized teacher yet): in a fog game it plays its
+  ranker's top move on the seat view, and `delove-seat` gives it a fog seat only when the ranker has fog inputs
+  (`DELOVE_BRANCH_RANKER=<fog-trained model>`).
 
 ## Train a version (Stage 1: learn from the teacher)
 
@@ -110,7 +168,7 @@ answer synchronously.
 | `delove@1` | network distilled from the teacher (Stage 1), loaded from `models/delove/` (ignored by git) | done |
 | `delove@2` | distilled from the tuned teacher delove-teacher@2 (round 5) | done |
 | `delove@3` | fresh hidden-192 / 6-round network on branch-and-score decisions (cycle 4, `CYCLES.md`): 0.541 / 0.600 / 0.610 against delove@2 at 2 / 4 / 6 players | done |
-| `delove@4` … `delove@8` | the same network fine-tuned each cycle (cycles 6, 8, 9, 10, 11; `docs/delove-status.md` section 3); `delove@8`: about +0.36 leaderboard points per seat over `delove@7` at 4-10 players | `delove@8` current best (private models repo) |
+| `delove@4` … `delove@10` | the same network fine-tuned each cycle (cycles 6, 8-13; `docs/delove-status.md` section 3); `delove@10`: about +0.19 leaderboard points per seat over `delove@9` at 4-10 players, even with Jacob Sensei 2 at World 6p | `delove@10` current best (private models repo) |
 | `jacob-sensei@1` | Jacob Sensei: hand-coded teacher for big tables (`src/jacob.ts`, below); never stalls in self-play, even with Sensei 2 at 2 players, far ahead at 4-10 | rollout teacher since cycle 6 |
 | `jacob-sensei@2` | Jacob Sensei 2 (`src/jacob.ts`, below): Jacob plus RISK_LEARNINGS.md sections 7-21, with its own duel numbers; vs `jacob-sensei@1` 0.53-0.57 at 2p and +0.4 to +1.3 points per seat at 4-10p | candidate rollout teacher (cycle 12) |
 
@@ -282,7 +340,7 @@ that file is in the GPU mirror's fingerprint, and it is tested to play the same 
 
   The balance floor keeps the set from being mostly decided games; a capture that skips the stage (two players out
   in one turn), fails the floor or hits the turn limit moves on to the next seed. `--tables`, `--positions` and
-  `--options` (a JSON string or file such as `configs/gen5-nofog.json`; fog is refused) change the set; keep them the
+  `--options` (a JSON string or file such as `configs/gen5-nofog.json`; fog is refused: positions are captured on the full board) change the set; keep them the
   same across comparisons. `--save-positions FILE` writes the set (a few MB, local only, not for git) and
   `--load-positions FILE` replays exactly that set.
 - **Mirrored pairs:** every position is played twice, the candidate on alternate alive seats and then on the others,
@@ -305,6 +363,100 @@ Smoke run, `delove@4` (candidate, in every stage) against `delove@5` (base), 48 
 
 - Not on the GPU mirror yet: `delove_gpu.generate` / `ladder` would need a per-decision model choice by players alive in
   their network seats.
+
+## The Zerg-horde gate (`npm run delove:horde`)
+
+Can a seat survive being ganged up on? One candidate against 2-3 coordinated Zergs (`zerg@1`, the engine's
+hand-coded horde bot, [docs/zergs.md](../../docs/zergs.md)), the other seats filled by `--filler` (default
+`jacob-sensei@2`). With `--base`, both play the same games (same seed, table and seat layout) and the paired
+difference decides:
+
+```bash
+npm run delove:horde -- --candidate delove@10 --base jacob-sensei@2 --games 100
+npm run delove:horde -- --candidate delove@10 --tables classic:4:3,classic:6:3 --options '{"fogOfWar":true}'
+```
+
+- Tables are `map:players:zergs`; the default is `classic:3:2,classic:4:3,classic:4:2,classic:6:3,classic:6:2`. At a
+  solo table (no fillers) the Zergs hunt only the candidate. Once it is out the alliance ends and the Zergs fight each
+  other to a winner (docs/zergs.md), so the gate measures the candidate's survival as the last round it made a decision
+  in. `game` reports the whole games' length.
+- `hold` (the default `--metric`): at a solo table, 1 for a win, else rounds survived / 30 (capped at 0.99); with
+  fillers, the candidate's place among the non-Zerg seats (1 = best, 0 = first out). Also reported: `win`, `place`,
+  `rounds`, `kills` and `points` (leaderboard points, Zerg seats ranked like any seat for now). With `--base` every
+  metric gets a paired 95% interval; the verdict is on `--metric`. Seeds are fixed by `--seed` (default 1), so keep
+  the default to compare successive Delove versions on the same games.
+- `--zerg` picks the horde (default `zerg@1`, the fixed reference opponent; `zerg-branch@1` is the searching Zerg).
+  `--base-zerg` plays the same candidate against a second horde on the same games: a negative difference means the
+  `--zerg` horde is the stronger one.
+- Worker threads (`--procs`, default all cores but one): 1000 games in about 17 s for delove@10.
+- First result (2026-10-21, 100 games per table): delove@10 vs jacob-sensei@2, pooled hold 0.477 vs 0.361, diff
+  +0.115 (95% +0.081 to +0.150), better.
+  - Re-run with the falling-out (#169): 0.459 vs 0.342, diff +0.118 (+0.083 to +0.152); win, place and kills are
+    identical.
+  - Solo-table hold reads lower (4p vs 3 Zergs: 0.186, was 0.233) because survival is now the candidate's last round,
+    not the game's length. Compare only results from #169 on.
+  - The games run on after the candidate falls: 13.7 rounds against its 7.4, and the gate takes about 3x longer. Neither survives a solo rush often: delove@10 wins about 1% of solo tables
+  (Jacob 0%) and 7-20% of the tables with fillers.
+- For scenarios or training data, the agents play in any self-play command:
+  `npm run delove -- play --agents delove@10,zerg@1,zerg@1,zerg@1`. `scripts/cycles/horde.jobs` is a ready job file
+  for `generate.sh` (about 4,000 games, the branch seat against 2-3 Zergs with Jacob fillers, league settings), not
+  part of any cycle until the captain adds it. Its seat is `delove-branch@1:range-horde`: `delove-branch@1:range`
+  whose rollouts play the Zerg seats with the horde bot (src/horde-branch.ts; a Zerg move off the candidate list falls
+  back to the teacher's pick, never an attack on a fellow Zerg), so the search sees the gang-up coming. The plain
+  branch seat imagines the Zergs as its teacher. CPU time: about 22 CPU-minutes per 1,000 games with the cycle-13
+  branch settings (0.7 s a game at 4p vs 3 Zergs, 2.4 s with a Jacob filler, 1.2 s at 6p).
+
+### The searching Zerg (`zerg-branch@1`)
+
+Branch and score for the horde (src/zerg-branch.ts): the Zerg's own move and up to 3 alternatives (never an attack on a
+fellow Zerg) are each played on 8 copies of the board with common dice, 2 rounds forward, Zergs playing `zerg@1` and the
+prey modelled by Jacob Sensei 2, and scored for the horde: prey knocked out × kill weight + the horde's share of the
+alive players' armies and income. It is the teacher for a trained Zerg network (docs/zergs.md). Its numbers come from
+`ZERG_BRANCH_OPTIONS`, `_ROLLOUTS`, `_HORIZON`, `_KILL_WEIGHT` and `_MARGIN`. A Zerg agent's id must start with `zerg`:
+self-play seats named so are one horde.
+
+First result (2026-10-21, delove@10 as the candidate, `--base-zerg zerg@1`, same games): **no gain yet**. Defaults
+(4 options, 8 rollouts, horizon 2, kill weight 1) over the 5 default tables: Delove's hold diff +0.003 (95% -0.028 to
++0.035). Kill weight 3, 12 rollouts, horizon 3 on classic:4:2, 6:3 and 6:2: +0.006 (-0.051 to +0.062). Both are even
+with the hand-coded Zerg, so the search is not yet a better teacher. Next: tune `zerg@1`'s numbers (a `zerg@2`) and
+give the search a network's alternatives.
+
+### Tuning the Zerg (`npm run delove:zerg-tune`)
+
+`zerg@1`'s judgement numbers are `ZERG_1_PARAMS` in packages/engine/src/zerg.ts (attack odds per kind of target, the
+knock-out bonus, the target rule's weights, occupation share, staging pull, the sacrifice switch, 0 in `zerg@1` since #169: no surrenders). Four later
+behaviours are terms that are 0 (off) in `ZERG_1_PARAMS`, so `zerg@1` plays exactly as recorded (a golden test guards it):
+
+- `strikeRatio`: synchronised strike. The horde holds its attacks on the target until its border armies reach that
+  multiple of the target's armies, then all Zergs hit it.
+- `cardHoard` / `hoardFinish`: trade only when forced until the target is down to `hoardFinish` territories next to me,
+  then cash in to finish it.
+- `capitalBonus`: snipe prey capitals under Capital Conquest.
+- `wallWeight`: don't stage reinforcements against big stacks.
+
+The tuner can switch them on. The tuner climbs from
+them with joint moves. Each generation makes `--children` candidates (default 8), each moving `--knobs` numbers at once
+(default 3), and plays every child and the current best on the same fresh games against each `--prey` (default
+delove@10) on the default horde tables. The best child goes to confirmation on `--confirm-games` fresh games per table
+(default 80), and replaces the best when that 95% interval clears 0. Confirmation uses fresh games only, since the first
+set picked the winner.
+
+- Fitness `--fitness rush` (the default) is the horde's own goal per game: 1 if the prey was knocked out, up to +0.5
+  for doing it fast (by 40 rounds), -1 at the turn limit. The gate reports it as `rush` too.
+- `--fitness hold` (the prey's survival) saturates: a first run of 15 single-pair generations on it found nothing
+  beyond ±0.02.
+- `--knob-set new` moves only the later behaviours' knobs.
+- Run 2 (2026-10-21, rush fitness, the 12 original numbers): 6 generations of 8 joint children, nothing confirmed. On
+  fresh games every best child landed within ±0.04 of `zerg@1`, so re-tuning the existing numbers is at a ceiling and
+  new behaviour is the lever (as Jacob Sensei 2's new terms were for Jacob).
+
+```bash
+npm run delove:zerg-tune -- --out models/delove/zerg-tune-run2.json --generations 15
+```
+
+The file holds the numbers and every generation's result; it stays on the training PC. Once the result passes a gate
+(`npm run delove:horde -- --candidate delove@10 --zerg zerg@2 --base-zerg zerg@1`), copy it to `models/delove/zerg@2.json`:
+register.ts loads `zerg@N.json` (N >= 2) as agent `zerg@N`. `zerg@1` stays fixed as the reference horde.
 
 ## Jacob Sensei (`jacob-sensei@1`): a teacher that doesn't stall
 
@@ -638,6 +790,29 @@ mean points per seat for the candidate and the opponent, their difference with a
 gate's chunks), the candidate's mean place and kills per seat, and the games that hit the turn limit. Since cycle 5
 promotions are judged mainly on the points difference at 4-10 players (`docs/delove-status.md` section 3).
 
+**Gates: paired statistics and SPRT** (`scripts/sprt.mjs`, #160). Every ladder match is played in mirrored pairs (same
+seed, seats swapped), and each result now lists every pair's points difference per seat (`pairPointsDiff`, from
+`runMatch` and `delove_gpu.ladder` alike). The summary's second table uses them:
+- Each gate's paired 95% interval: one unit per pair rather than per 20-game chunk. Gate files from before #160 fall
+  back to chunks, marked "(chunks)".
+- A sequential probability ratio test on the owner's promotion rule, the way Stockfish's fishtest decides patches.
+  The statistic is the pooled points difference at 4-10 players against the first gate's opponent, each table weighted
+  equally. It is tested as H0 "no better than 0" against H1 "at least `GATE_SPRT_H1` better" (default 0.15 points per
+  seat), at 5% error each way. 2-player tables are checked for "not significantly worse".
+
+With `GATE_SPRT=1`, `cycle.sh` keeps adding 2 chunks to each pooled table (and to any 2-player table still in doubt)
+until the test decides, up to `GATE_SPRT_MAX` games per table (default 800). Clear results stop at the planned games;
+close calls get more games automatically instead of a recheck by hand. On cycle 13's gate files (chunk fallback) it
+reproduces the gate table and accepts H1 (pooled +0.16, LLR 3.52 against a bound of 2.94), the call the cycle made after
+its manual recheck.
+
+`PANEL=1` adds the **fixed reference panel** to the gates, so every cycle plays the same opponents and progress reads
+off one table: `delove@6` (World 6p, 2p), `delove@3` (World 6p), `jacob-sensei@1` and `@2` (World 6p; `@2` also 2p) and
+Sensei 2 (2p). Panel gates are reported, never pooled into the SPRT. Copy each cycle's panel row into
+`docs/delove-status.md`, "Progress, measured directly".
+
+    node packages/delove/scripts/sprt.mjs runs/delove/<cycle>/gates [--h1 0.15] [--alpha 0.05] [--beta 0.05] [--base delove@N] [--json]
+
 **Training options** (`python/train.py`, through `train_args` and `train_data`):
 - `--amp`: the network in bfloat16 mixed precision (losses, optimizer and weights stay float32). On the RTX 4060 it
   gives the same validation loss as float32 (0.9455 vs 0.9449 on cycle 5 data) at 1.9x the speed, and less memory.
@@ -674,6 +849,13 @@ promotions are judged mainly on the points difference at 4-10 players (`docs/del
   value's R² on final points (0.372 both) don't move in a short fine-tune. So it is a sharp, cheap position signal
   for later uses (a low-noise baseline for credit, or an after-move evaluator to cut rollouts) rather than a gain on
   its own; it reads the board before the move, so it can't rank one decision's options yet.
+- `--grow-rounds N` (with `--init`): network surgery. The network grows to N message-passing rounds; the new rounds
+  are added after the old ones with their last layer at zero, so each passes its input through and the grown network
+  starts as exactly the same player (outputs bit-identical, `python packages/delove/python/test_grow.py`), then
+  learns. OpenAI Five changed its architecture about 20 times in ten months this way without restarting. Adding rounds
+  is exact; widening `--hidden` is not (LayerNorm's statistics change with the width). 6 to 8 rounds adds about 25%
+  parameters and training time; checkpoints, ONNX export and the GPU mirror's network read the round count from the
+  config, so nothing else changes. Cycle 14 trains it as a second candidate next to the plain fine-tune (#161).
 - `--device cpu|cuda`: where to train (default cuda when available).
 - `--alive LO-HI` (range specialists): only decisions with LO..HI players alive.
 - Keep a batch within the card: on big maps (Greater Europe, Fantasy) batch 1024 spilled past the RTX 4060's 8 GB into

@@ -1,7 +1,8 @@
 // Live yardstick, step 2: watch one game. When the Delove seat is knocked out (or the game finishes) it appends one
 // line to $YARDSTICK_DIR/results.jsonl: Delove's place, leaderboard points (placement table + 1 per kill, as in
 // packages/engine/src/ranking.ts), kills, the round, minutes, who knocked it out. If the game is still running it then
-// closes the room with the host token (a closed room is never ranked), so the remaining seats stop.
+// closes the room with the host token (a closed room is never ranked), so the remaining seats stop. It also lists the
+// seats that attacked Delove in rounds 1-2 (attackersRounds1to2).
 // usage: node packages/delove/scripts/yardstick/monitor.mjs <server> <gameId> <deloveSeatName> <label>
 import { appendFileSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -49,11 +50,21 @@ for (;;) {
       place = 2 + alive.findIndex((p) => p.id === delove.id);
     }
     const kills = elims.filter((x) => x.by === delove.id).map((x) => name[x.player]);
+    // Who attacked Delove in rounds 1-2: a turn starts when another seat acts, so the first 2n turns (n seats).
+    let turn = -1, last = null;
+    const early = new Set();
+    for (const e of entries) {
+      if (!e.playerId || e.action?.type === 'system') continue;
+      if (e.playerId !== last) { turn++; last = e.playerId; }
+      if (turn >= 2 * state.players.filter((p) => !p.isNeutral).length) break;
+      for (const ev of e.events ?? []) if (ev.type === 'battle' && ev.defender === delove.id) early.add(name[ev.attacker]);
+    }
     const result = {
       label, gameId, date: new Date().toISOString(), map: state.options.map, options: state.options, players: n,
       delove: deloveName, place, placementPoints: TABLE[n][place - 1], points: TABLE[n][place - 1] + kills.length, kills,
       round: state.round, turn: state.turnNumber, minutes: Math.round((Date.now() - state.startedAt) / 60000),
       eliminatedBy: out >= 0 ? name[elims[out].by] : null, winner: state.winner ? name[state.winner] : null, finished,
+      attackersRounds1to2: [...early],
       eliminations: elims.map((x) => ({ player: name[x.player], by: name[x.by] })),
       opponents: state.players.filter((p) => p.id !== delove.id).map((p) => p.name),
     };

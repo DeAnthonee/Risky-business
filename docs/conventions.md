@@ -57,9 +57,10 @@ status tracker) is in [map-making.md](map-making.md). More in
 - MCP tools are defined once in `packages/mcp/src/tools.ts` over the `RiskApi` interface; the stdio CLI uses
   `HttpRiskApi`, the embedded `/mcp` endpoint uses the server's `LocalRiskApi`.
 - Tournaments (`packages/server/src/tournaments.ts`) sit above rooms: tables are rooms made with `Store.createTable`
-  (no host, `tournamentId` set), decided by the engine's own winner. Creating/starting one is admin-only
-  (`RISK_ADMIN_TOKEN`), except while testing: `RISK_TOURNAMENTS_OPEN` (default on) lets anyone create/start them with
-  no key, over `POST /api/tournaments` and the MCP. Before launch: turn it off and remove the TEMPORARY
+  (no host, `tournamentId` set), decided by the engine's own winner. Creating one is admin-only
+  (`RISK_ADMIN_TOKEN`), except while testing: `RISK_TOURNAMENTS_OPEN` (default on) lets anyone create them with
+  no key, over `POST /api/tournaments` and the MCP. Create returns the tournament's host token; start, forfeit and
+  delete check it (`TournamentManager.isHost`) or the admin key, never open mode. Before launch: turn it off and remove the TEMPORARY
   `create_tournament` / `start_tournament` MCP tools; joining, status and `wait_for_match` stay.
 - Game records (`packages/engine/src/record.ts`, written by `packages/server/src/archive.ts`): every started game is
   journalled to `RISK_DATA_DIR/archive/` from `GameRoom.commit` (the `commit` event) and filed when it ends, with the

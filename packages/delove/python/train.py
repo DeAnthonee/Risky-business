@@ -29,6 +29,11 @@ branch_q.npy (delove_gpu.generate, or branch_q.py for a CPU export). The prior i
 default the --init weights; "uniform" for none). Other decisions, and datasets without branch_q.npy, keep the played
 move as the target; --branch-weights, range credit and :modes weight soft and hard decisions alike.
 
+Growing the network (--grow-rounds N, with --init): the network gets N message-passing rounds instead of its own
+count; the new rounds are added after the old ones with their last layer at zero, so each passes its input through
+and training starts from exactly the same player (network surgery, as OpenAI Five changed its architecture over ten
+months without restarting). Adding rounds is exact; widening the hidden size is not (LayerNorm's statistics change).
+
 Rollout head (--aux-rollout W): an extra head learns each branched decision's 1-round result, the played option's mean
 rollout score from branch_q.npy (0..1, from the decider's side), with weight W on a squared-error loss. A one-round
 outcome is far less noisy than the game's final points, so it gives the shared trunk a sharper position signal (the
@@ -41,6 +46,14 @@ the decisions with that many players alive, a value target of their own (long: l
 credit: every copied move is weighted by exp((target - V) / credit_beta), V the model's own value of the position, so
 each specialist copies most the moves that went well *for its objective*. The first --credit-warmup steps copy every
 move evenly while the value head learns the new target.
+
+Fog dropout (--fog-dropout P, fog.py; docs/delove-fog.md section 3): the network gets fog inputs (two more columns,
+territory `hidden` and global `hidden_share`), and each training decision is shown as its seat would see it under fog
+of war with probability P, else as the full board (fog columns 0). Any full-board dataset serves, no new games. A
+checkpoint from before fog (--init) is widened with zero weights for the new columns, so it starts as exactly the same
+player. Validation also reports the same decisions all fogged (`fog`). The model's .json gets `fogInputs`, which the
+seat player and self-play read (net-agent.ts) to give the model fog inputs; in a fog game every model plays on its
+seat view. --fog-dropout 0 with a fog-input --init keeps the inputs and trains on full boards only.
 """
 import contextlib
 import argparse
@@ -52,7 +65,8 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from delove_model import DeloveNet, segment_log_softmax
+from delove_model import DeloveNet, grow_rounds, segment_log_softmax
+from fog import FOG_INPUT_VERSION, FogMap, fog_inputs, widen_state
 from soft import policy_losses, soft_targets
 from targets import RANGES, TARGETS, alive_counts, range_target
 
@@ -94,6 +108,9 @@ class Data:
         # (targets.py): "points" leaderboard points scaled 0..1 (log v3; v2 decisions keep z), "top2" finishing 1st or
         # 2nd (Mid Range; `threat` mixes in the credit for deflecting the strongest rival), "win" a sole win (Close Range).
         self.z, self.target, self.target_note = range_target(self, target, threat)
+        self.fog = None  # FogMap when the network takes fog inputs (set in main)
+        self.fog_p = 0.0
+        self.fog_rng = None
 
     def __len__(self):
         return len(self.choice)
@@ -115,9 +132,13 @@ class Data:
         first = np.concatenate([[0], np.cumsum(counts)[:-1]])
         target = first + self.choice[ks]
         t = lambda a, dt=torch.float32: torch.as_tensor(np.ascontiguousarray(a), dtype=dt, device=device)
+        territory, glob = self.territory[ks], self.glob[ks]
+        if self.fog is not None:  # fog inputs: these decisions' seat view with probability fog_p (fog_p 1: all of them)
+            fogged = np.ones(len(ks), dtype=bool) if self.fog_p >= 1 else self.fog_rng.random(len(ks)) < self.fog_p
+            territory, glob = fog_inputs(territory, glob, fogged, self.fog)
         return dict(
-            territory=t(self.territory[ks]),
-            glob=t(self.glob[ks]),
+            territory=t(territory),
+            glob=t(glob),
             cand=t(self.cand[rows]),
             cand_from=t(self.cand_from[rows], torch.int64),
             cand_to=t(self.cand_to[rows], torch.int64),
@@ -202,8 +223,12 @@ def step_loss(model, b, adj, value_weight, beta=0.3, amp=False, credit_beta=None
 
 
 @torch.no_grad()
-def evaluate(model, data, idx, device, batch_size, value_weight, beta=0.3, amp=False, credit_beta=None, soft=None, aux_rollout=0.0):
+def evaluate(model, data, idx, device, batch_size, value_weight, beta=0.3, amp=False, credit_beta=None, soft=None, aux_rollout=0.0, fog_p=None):
+    """fog_p (fog inputs only): show these decisions fogged with this probability (0: full board, 1: all fogged)."""
     adj = torch.as_tensor(data.adj, device=device)
+    if fog_p is not None:
+        saved = data.fog_p, data.fog_rng
+        data.fog_p, data.fog_rng = fog_p, np.random.default_rng(0)
     model.eval()
     tot = np.zeros(4)
     n = 0
@@ -213,6 +238,8 @@ def evaluate(model, data, idx, device, batch_size, value_weight, beta=0.3, amp=F
         tot += np.array([x.item() for x in losses]) * b["n"]
         n += b["n"]
     model.train()
+    if fog_p is not None:
+        data.fog_p, data.fog_rng = saved
     loss, pl, vl, acc = tot / max(1, n)
     return dict(loss=loss, policy_loss=pl, value_loss=vl, top1=acc)
 
@@ -254,9 +281,14 @@ def main():
     ap.add_argument("--soft-scale", type=float, metavar="S",
                     help="--soft-targets: scale scores by an absolute gap S, clip((q - lowest compared) / S, 0, 1), instead of"
                          " min-max within each decision (e.g. 0.05: a 0.01 gap is worth C/5 logits)")
+    ap.add_argument("--grow-rounds", type=int, metavar="N",
+                    help="with --init: grow the network to N message-passing rounds; the new rounds start as exact pass-throughs, "
+                         "so training starts from the same player (network surgery)")
     ap.add_argument("--aux-rollout", type=float, default=0.0, metavar="W",
                     help="weight of the rollout head's loss: each branched decision's 1-round branch score from branch_q.npy (0 = off)")
     ap.add_argument("--soft-prior", help="frozen prior network for --soft-targets (<path>.pt; default the --init weights, 'uniform' for none)")
+    ap.add_argument("--fog-dropout", type=float, default=None, metavar="P",
+                    help="fog inputs, and show each training decision as its seat would see it under fog with probability P (fog.py)")
     args = ap.parse_args()
     preset = RANGES.get(args.range, {})
     for k in ("alive", "value_target", "threat_credit", "credit_beta"):
@@ -304,18 +336,42 @@ def main():
     # Decisions per epoch: a dataset with a fraction contributes that share of its training decisions.
     n_train = int(sum(len(tr) * d.fraction for d, (tr, _) in zip(datasets, splits)))
     f_t, f_g, f_c = first.territory.shape[-1], first.glob.shape[-1], first.cand.shape[-1]
+    init_ck = torch.load(args.init, map_location=device) if args.init else None
+    # Fog inputs: asked for (--fog-dropout), or the --init network already has them (its input is one column wider).
+    fog = args.fog_dropout is not None or (init_ck is not None and init_ck["config"]["f_territory"] == f_t + 1)
+    if args.fog_dropout is not None and not 0 <= args.fog_dropout <= 1:
+        raise SystemExit("--fog-dropout must be between 0 and 1")
+    fog_p = args.fog_dropout or 0.0
+    if fog:
+        for di, d in enumerate(datasets):
+            d.fog, d.fog_p, d.fog_rng = FogMap(d.info), fog_p, np.random.default_rng(args.seed * 1000 + di)
+        f_t, f_g = f_t + 1, f_g + 1
 
     if args.aux_rollout < 0:
         raise SystemExit("--aux-rollout must be >= 0")
     if args.init:
-        ck = torch.load(args.init, map_location=device)
+        ck = init_ck
         cfg = dict(ck["config"])
         if args.aux_rollout:
             cfg["aux_rollout"] = True
+        state = ck["state"]
+        old_rounds = cfg["rounds"]
+        if args.grow_rounds:
+            if args.grow_rounds <= old_rounds:
+                raise SystemExit(f"--grow-rounds {args.grow_rounds}: {args.init} already has {old_rounds} rounds")
+            cfg["rounds"] = args.grow_rounds
+        if fog and cfg["f_territory"] < f_t:  # a network from before fog: zero weights for the fog columns
+            cfg["f_territory"], cfg["f_global"] = f_t, f_g
+            state = widen_state(state, f_t, f_g)
+            print(json.dumps(dict(widened=args.init, f_territory=f_t, f_global=f_g)), flush=True)
         model = DeloveNet(**cfg).to(device)
-        missing, unexpected = model.load_state_dict(ck["state"], strict=False)
-        if unexpected or any(not k.startswith("rollout.") for k in missing):
+        missing, unexpected = model.load_state_dict(state, strict=False)
+        new_block = lambda k: k.startswith("blocks.") and int(k.split(".")[1]) >= old_rounds
+        if unexpected or any(not (k.startswith("rollout.") or (args.grow_rounds and new_block(k))) for k in missing):
             raise SystemExit(f"{args.init}: weights don't fit the network (missing {missing}, unexpected {unexpected})")
+        if args.grow_rounds:
+            grow_rounds(model, old_rounds)
+            print(json.dumps(dict(grown=args.init, rounds=f"{old_rounds} -> {args.grow_rounds}")), flush=True)
     else:
         model = DeloveNet(f_t, f_g, f_c, hidden=args.hidden, rounds=args.rounds, aux_rollout=args.aux_rollout > 0).to(device)
     if args.aux_rollout:
@@ -326,8 +382,12 @@ def main():
         prior = None
         if prior_path and prior_path != "uniform":
             pk = torch.load(prior_path, map_location=device)
-            prior = DeloveNet(**pk["config"]).to(device)
-            prior.load_state_dict(pk["state"])
+            pcfg, pstate = dict(pk["config"]), pk["state"]
+            if fog and pcfg["f_territory"] < f_t:  # a prior from before fog reads the fog inputs with zero weights
+                pcfg["f_territory"], pcfg["f_global"] = f_t, f_g
+                pstate = widen_state(pstate, f_t, f_g)
+            prior = DeloveNet(**pcfg).to(device)
+            prior.load_state_dict(pstate)
             prior.eval()
             for p_ in prior.parameters():
                 p_.requires_grad_(False)
@@ -340,7 +400,7 @@ def main():
     steps_total = int(args.epochs * n_train / args.batch)
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
     sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=args.lr, total_steps=max(1, steps_total), pct_start=0.05)
-    print(json.dumps(dict(device=device, range=args.range, credit_beta=args.credit_beta, threat_credit=args.threat_credit,
+    print(json.dumps(dict(device=device, range=args.range, fog_dropout=fog_p if fog else None, credit_beta=args.credit_beta, threat_credit=args.threat_credit,
                           datasets={d.name: dict(mode=d.mode, target=d.target, note=d.target_note, decisions=len(d), fraction=d.fraction,
                                                  tagged=d.tag_weight is not None) for d in datasets},
                           train=n_train, params=params, steps=steps_total, amp=amp)))
@@ -374,12 +434,22 @@ def main():
         per = {}
         tot, n = np.zeros(4), 0
         for d, (_, va) in zip(datasets, splits):
-            m = evaluate(model, d, va, device, args.batch, args.value_weight, args.beta, amp, args.credit_beta, soft, args.aux_rollout)
+            m = evaluate(model, d, va, device, args.batch, args.value_weight, args.beta, amp, args.credit_beta, soft, args.aux_rollout,
+                         fog_p=0.0 if fog else None)
             per[label(d)] = m
             tot += np.array([m["loss"], m["policy_loss"], m["value_loss"], m["top1"]]) * len(va)
             n += len(va)
         loss, pl, vl, acc = tot / max(1, n)
-        return dict(loss=loss, policy_loss=pl, value_loss=vl, top1=acc, per_dataset=per)
+        out = dict(loss=loss, policy_loss=pl, value_loss=vl, top1=acc, per_dataset=per)
+        if fog:  # the same decisions, all as their seat would see them under fog
+            ft, fn = np.zeros(4), 0
+            for d, (_, va) in zip(datasets, splits):
+                m = evaluate(model, d, va, device, args.batch, args.value_weight, args.beta, amp, args.credit_beta, soft, args.aux_rollout, fog_p=1.0)
+                ft += np.array([m["loss"], m["policy_loss"], m["value_loss"], m["top1"]]) * len(va)
+                fn += len(va)
+            fl, fpl, fvl, facc = ft / max(1, fn)
+            out["fog"] = dict(loss=fl, policy_loss=fpl, value_loss=fvl, top1=facc)
+        return out
 
     while step < steps_total:
         for di, ks in batches():
@@ -400,7 +470,9 @@ def main():
                 m = validate()
                 m["step"] = step
                 history.append(m)
-                summary = {k: round(float(v), 4) for k, v in m.items() if k != "per_dataset"}
+                summary = {k: round(float(v), 4) for k, v in m.items() if k not in ("per_dataset", "fog")}
+                if "fog" in m:
+                    summary["fog"] = {k: round(float(v), 4) for k, v in m["fog"].items()}
                 summary["top1_by_dataset"] = {k: round(float(v["top1"]), 4) for k, v in m["per_dataset"].items()}
                 print("val", json.dumps(summary), flush=True)
                 torch.save(dict(config=model.config, state=model.state_dict()), args.out + ".pt")
@@ -408,7 +480,8 @@ def main():
     torch.save(dict(config=model.config, state=model.state_dict()), args.out + ".pt")
     with open(args.out + ".json", "w") as f:
         json.dump(dict(args=vars(args), params=params, targets={d.name: dict(target=d.target, note=d.target_note) for d in datasets}, decisions={d.name: len(d) for d in datasets}, minutes=(time.time() - t0) / 60,
-                       history=history, map=first.info["map"], encoderVersion=first.info["encoderVersion"]), f, indent=2, default=float)
+                       history=history, map=first.info["map"], encoderVersion=first.info["encoderVersion"],
+                       **({"fogInputs": FOG_INPUT_VERSION} if fog else {})), f, indent=2, default=float)
     print("saved", args.out + ".pt")
 
 

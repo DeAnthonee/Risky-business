@@ -1541,16 +1541,107 @@ describe('tournaments', () => {
     }
   });
 
-  it('is open to create and start while testing: no admin key over HTTP or MCP', async () => {
+  it('is open to create while testing; only the host token starts it', async () => {
     const created = await api('/tournaments', post({ name: 'Open Cup', groupSize: 2 }));
     expect(created.status).toBe(201);
+    const { hostToken } = created.body;
+    expect(hostToken).toEqual(expect.any(String));
     const id = created.body.tournament.id;
-    await api(`/tournaments/${id}/join`, post({ playerName: 'A' }));
+    // The token is handed out once: it is not in the bracket or the list.
+    expect(JSON.stringify((await api(`/tournaments/${id}`)).body)).not.toContain(hostToken);
+    expect(JSON.stringify((await api('/tournaments')).body)).not.toContain(hostToken);
+    const a = (await api(`/tournaments/${id}/join`, post({ playerName: 'A' }))).body;
     await api(`/tournaments/${id}/join`, post({ playerName: 'B' }));
-    const started = await api(`/tournaments/${id}/start`, post());
+    expect((await api(`/tournaments/${id}/start`, post())).status).toBe(401);
+    expect((await api(`/tournaments/${id}/start`, post(), a.token)).status).toBe(403); // an entrant is not the host
+    const other = (await api('/tournaments', post({ name: 'Other Cup' }))).body;
+    expect((await api(`/tournaments/${id}/start`, post(), other.hostToken)).status).toBe(403); // another tournament's host
+    const started = await api(`/tournaments/${id}/start`, post(), hostToken);
     expect(started.status).toBe(200);
     expect(started.body.tournament.status).toBe('running');
-    expect((await api('/tournaments/NOPE1/start', post())).status).toBe(404);
+    expect((await api('/tournaments/NOPE1/start', post(), hostToken)).status).toBe(404);
+    // The host forfeits a no-show and deletes; nobody else can.
+    expect((await api(`/tournaments/${id}/forfeit`, post({ entrantId: a.entrantId }), other.hostToken)).status).toBe(403);
+    const done = await api(`/tournaments/${id}/forfeit`, post({ entrantId: a.entrantId }), hostToken);
+    expect(done.status).toBe(200);
+    expect(done.body.tournament.status).toBe('finished');
+    expect((await api(`/tournaments/${other.tournament.id}`, { method: 'DELETE' })).status).toBe(401);
+    expect((await api(`/tournaments/${other.tournament.id}`, { method: 'DELETE' }, hostToken)).status).toBe(403);
+    expect((await api(`/tournaments/${other.tournament.id}`, { method: 'DELETE' }, other.hostToken)).status).toBe(200);
+    expect((await api(`/tournaments/${other.tournament.id}`)).status).toBe(404);
+  });
+
+  it('the admin key also runs a tournament through the host routes', async () => {
+    const own = await adminServer(null);
+    const { call } = own;
+    try {
+      const created = await call('/admin/tournaments', post({ name: 'Admin Cup', groupSize: 2 }), ADMIN);
+      expect(created.body.hostToken).toEqual(expect.any(String)); // the host can hand it to someone to run the cup
+      const id = created.body.tournament.id;
+      await call(`/tournaments/${id}/join`, post({ playerName: 'A' }));
+      expect((await call(`/tournaments/${id}/start`, post(), 'wrong')).status).toBe(403);
+      expect((await call(`/tournaments/${id}/start`, post(), ADMIN)).status).toBe(200);
+      expect((await call(`/tournaments/${id}`, { method: 'DELETE' }, ADMIN)).status).toBe(200);
+    } finally {
+      await own.risk.shutdown('test');
+    }
+  });
+
+  it('a tournament saved before host tokens is admin-only', async () => {
+    const tdir = mkdtempSync(join(tmpdir(), 'risk-tourney-old-'));
+    const file = join(tdir, 'games.json');
+    const now = Date.now();
+    const old = { id: 'TOLD22', name: 'Old Cup', status: 'registering', options: { map: 'skirmish' }, groupSize: 2, maxEntrants: 64, fillBots: true, entrants: [], rounds: [], champion: null, createdAt: now, updatedAt: now, version: 1 };
+    writeFileSync(join(tdir, 'tournaments.json'), JSON.stringify([old]));
+    try {
+      const own = await adminServer(file);
+      try {
+        const { call } = own;
+        expect((await call('/tournaments/TOLD22')).body.tournament).toMatchObject({ name: 'Old Cup', status: 'registering' });
+        await call('/tournaments/TOLD22/join', post({ playerName: 'A' }));
+        expect((await call('/tournaments/TOLD22/start', post())).status).toBe(401);
+        expect((await call('/tournaments/TOLD22/start', post(), 'undefined')).status).toBe(403);
+        expect((await call('/tournaments/TOLD22/start', post(), ADMIN)).status).toBe(200);
+      } finally {
+        await own.risk.shutdown('test');
+      }
+    } finally {
+      rmSync(tdir, { recursive: true, force: true });
+    }
+  });
+
+  it('caps open tournaments and prunes the oldest finished ones', async () => {
+    const own = await adminServer(null);
+    const { call } = own;
+    const manager = own.risk.store.tournaments;
+    manager.limits = { maxActive: 2, keepFinished: 2 };
+    try {
+      const make = async (name: string) => call('/admin/tournaments', post({ name, groupSize: 2, fillBots: true }), ADMIN);
+      const finish = async (name: string) => {
+        const id = (await make(name)).body.tournament.id;
+        const p = (await call(`/tournaments/${id}/join`, post({ playerName: 'P' }))).body;
+        await call(`/admin/tournaments/${id}/start`, post(), ADMIN);
+        expect((await call(`/admin/tournaments/${id}/forfeit`, post({ entrantId: p.entrantId }), ADMIN)).body.tournament.status).toBe('finished');
+        return id;
+      };
+      const first = await finish('One');
+      const second = await finish('Two');
+      const open1 = (await make('Open 1')).body.tournament.id;
+      expect((await make('Open 2')).status).toBe(201);
+      const full = await make('Open 3');
+      expect(full.status).toBe(400);
+      expect(full.body.error).toMatch(/Too many tournaments/);
+      // Finished ones do not count: deleting an open one makes room again.
+      expect((await call(`/admin/tournaments/${open1}`, { method: 'DELETE' }, ADMIN)).status).toBe(200);
+      const third = await finish('Three');
+      // Only the 2 newest finished tournaments are kept.
+      const ids = (await call('/tournaments')).body.tournaments.map((t: any) => t.id);
+      expect(ids).not.toContain(first);
+      expect(ids).toEqual(expect.arrayContaining([second, third]));
+      expect((await call(`/tournaments/${first}`)).status).toBe(404);
+    } finally {
+      await own.risk.shutdown('test');
+    }
   });
 
   it('is host-only when tournaments are closed (the launch setting)', async () => {
@@ -1571,7 +1662,25 @@ describe('tournaments', () => {
       expect(res.status).toBe(403);
       expect((await tool('create_tournament', { name: 'x' })).text).toMatch(/needs the admin key/);
       expect((await tool('create_tournament', { name: 'x', adminKey: 'wrong' })).text).toMatch(/Invalid admin key/);
-      expect((await tool('create_tournament', { name: 'x', adminKey: ADMIN })).isError).toBe(false);
+      const created = await tool('create_tournament', { name: 'x', adminKey: ADMIN, groupSize: 2 });
+      expect(created.isError).toBe(false);
+      const id = created.text.match(/Created tournament (\w+)/)![1];
+      const hostToken = created.text.match(/HOST TOKEN: (\S+)/)![1];
+      await tool('join_tournament', { tournamentId: id, playerName: 'A' });
+      // Another connection does not have the host token: it cannot start the tournament without it.
+      const other = new Client({ name: 'closed-2', version: '0' });
+      await other.connect(new StreamableHTTPClientTransport(new URL(`${base2}/mcp`)));
+      try {
+        const start = async (args: Record<string, unknown>) => {
+          const res = (await other.callTool({ name: 'start_tournament', arguments: { tournamentId: id, ...args } })) as { content: { text: string }[]; isError?: boolean };
+          return res.content.map((c) => c.text).join('\n');
+        };
+        expect(await start({})).toMatch(/needs its host token/);
+        expect(await start({ hostToken: 'wrong' })).toMatch(/Only this tournament's host/);
+        expect(await start({ hostToken })).toMatch(/^Tournament started/);
+      } finally {
+        await other.close();
+      }
     } finally {
       await client.close();
       await r.shutdown('test');

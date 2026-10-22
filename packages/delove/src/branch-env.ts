@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { Agent } from '@risk/selfplay';
+import { stepAgent, type Agent, type StepContext } from '@risk/selfplay';
 import { BRANCH_SCORES, branchAgent, DEFAULT_BRANCH, type BranchOptions, type BranchScore, type RolloutNet } from './branch.js';
 import { modelsDir, NetScorer } from './net-agent.js';
 import {
@@ -83,19 +83,26 @@ function rolloutNet(v: string | undefined, models: string, ranker: NetScorer | n
  * DELOVE_BRANCH_ROLLOUT=<model> has that network (e.g. delove@5) play the rollouts in every seat instead of the teacher,
  * <model>:self in the decider's seat only (unset: the teacher).
  */
-export function branchFromEnv(dir = modelsDir(), env: NodeJS.ProcessEnv = process.env, score?: BranchScore): Agent {
+export function branchFromEnv(
+  dir = modelsDir(),
+  env: NodeJS.ProcessEnv = process.env,
+  score?: BranchScore,
+  /** Wraps the rollout teacher's pick (e.g. horde-branch.ts: Zerg seats play the horde bot) for a seat with its own id. */
+  variant?: { id: string; rolloutPick: (pick: (ctx: StepContext) => number) => (ctx: StepContext) => number },
+): Agent {
   const tuned = tunedParams(dir);
   const teacherId = env.DELOVE_BRANCH_TEACHER ?? [...tuned.sensei.keys()].pop() ?? 'delove-teacher@1';
   const jacobParams = tuned.jacob.get(teacherId);
-  const rolloutPick = jacobParams ? jacobPickWith(jacobParams.params, jacobParams.duel) : teacherPickWith(tuned.sensei.get(teacherId) ?? DEFAULT_TEACHER_PARAMS);
+  const teacherPick = jacobParams ? jacobPickWith(jacobParams.params, jacobParams.duel) : teacherPickWith(tuned.sensei.get(teacherId) ?? DEFAULT_TEACHER_PARAMS);
+  const rolloutPick = variant ? variant.rolloutPick(teacherPick) : teacherPick;
   const rankerPath = join(dir, `${env.DELOVE_BRANCH_RANKER ?? 'delove@2'}.onnx`);
   const ranker = existsSync(rankerPath) ? new NetScorer(rankerPath) : null;
   // DELOVE_BRANCH_VALUE > 0 blends the ranker's win chance into branch scores (needs its .value.onnx).
   const valuePath = rankerPath.slice(0, -'.onnx'.length) + '.value.onnx';
   const valuer = existsSync(rankerPath) && existsSync(valuePath) ? new NetScorer(rankerPath, valuePath) : null;
   const num = (k: string, d: number) => (env[k] === undefined ? d : Number(env[k]));
-  return branchAgent(
-    score === undefined ? 'delove-branch@1' : `delove-branch@1:${score}`,
+  const search = branchAgent(
+    variant?.id ?? (score === undefined ? 'delove-branch@1' : `delove-branch@1:${score}`),
     rolloutPick,
     ranker,
     {
@@ -119,6 +126,28 @@ export function branchFromEnv(dir = modelsDir(), env: NodeJS.ProcessEnv = proces
     valuer,
     rolloutNet(env.DELOVE_BRANCH_ROLLOUT, dir, ranker),
   );
+  return fogSafe(search, ranker, rolloutPick);
+}
+
+/**
+ * Branch and score never searches under fog of war (no determinized teacher yet, docs/delove-fog.md section 4): its
+ * rollouts would play out a rebuilt board whose hidden territories are blank. In a fog game it plays its ranker's top
+ * move on the seat view instead (the rollout teacher's pick without a ranker), and it takes fog seats only when the
+ * ranker was trained for fog (its `fogInputs`).
+ */
+export function fogSafe(search: Agent, ranker: NetScorer | null, teacherPick: (ctx: StepContext) => number): Agent {
+  const bare = stepAgent(search.id, (ctx) => {
+    if (ctx.candidates.length === 1 || !ranker) return teacherPick(ctx);
+    const { logits } = ranker.score(ctx);
+    let best = 0;
+    for (let i = 1; i < logits.length; i++) if (logits[i] > logits[best]) best = i;
+    return best;
+  });
+  return {
+    ...search,
+    choose: (ctx) => (ctx.state.options.fogOfWar ? bare.choose(ctx) : search.choose(ctx)),
+    ...(ranker?.fogInputs ? { fogInputs: ranker.fogInputs } : {}),
+  };
 }
 
 /**
@@ -128,4 +157,49 @@ export function branchFromEnv(dir = modelsDir(), env: NodeJS.ProcessEnv = proces
  */
 export function branchSeatsFromEnv(dir = modelsDir(), env: NodeJS.ProcessEnv = process.env): Agent[] {
   return [branchFromEnv(dir, env), ...BRANCH_SCORES.map((score) => branchFromEnv(dir, env, score))];
+}
+
+/** The newest base network in the models folder (delove@N.onnx with the highest N), or null when there is none. */
+export function newestBaseModel(dir = modelsDir()): string | null {
+  if (!existsSync(dir)) return null;
+  const versions = readdirSync(dir).map((f) => /^delove@(\d+)\.onnx$/.exec(f)).filter((m) => m !== null).map((m) => Number(m![1]));
+  return versions.length ? `delove@${Math.max(...versions)}` : null;
+}
+
+/** One live search setting: the rollout teacher, options per decision, rollout score, horizon and margin. */
+export interface LiveBranchPreset { teacher: string; options: number; score: BranchScore; horizon: number; margin: number }
+
+/**
+ * The live seat's search presets. `measured` is the default: #142's measured setup (Jacob Sensei 1 rollouts, 5 options,
+ * share score, horizon 1, margin 0.01; +2.07 points per seat at World 6p and +1.43 at Classic 4p against the bare
+ * network). `js2-range` is opt-in (`delove-seat --preset js2-range`): Jacob Sensei 2 rollouts and the range score (each
+ * stage's goal by players alive) with horizon 2 and margin 0.02, the setting live yardstick baseline 2 ran; it has no
+ * mirrored live-strength ladder yet.
+ */
+export const LIVE_BRANCH_PRESETS = {
+  measured: { teacher: 'jacob-sensei@1', options: 5, score: 'share', horizon: 1, margin: 0.01 },
+  'js2-range': { teacher: 'jacob-sensei@2', options: 5, score: 'range', horizon: 2, margin: 0.02 },
+} as const satisfies Record<string, LiveBranchPreset>;
+export type LiveBranchPresetName = keyof typeof LIVE_BRANCH_PRESETS;
+export const LIVE_BRANCH_DEFAULT_PRESET: LiveBranchPresetName = 'js2-range';
+
+/**
+ * The environment for the live seat's search (seat-cli.ts): DELOVE_BRANCH_RANKER defaults to the newest base network
+ * (newestBaseModel); DELOVE_BRANCH_TEACHER, _OPTIONS, _SCORE, _HORIZON and _MARGIN come from the preset (default
+ * `js2-range`, the winner of #164's mirrored ladder). A variable already set wins. Self-play (register.ts) keeps branchFromEnv's own defaults, so training runs
+ * don't change.
+ */
+export function liveBranchEnv(dir = modelsDir(), env: NodeJS.ProcessEnv = process.env, preset: LiveBranchPresetName = LIVE_BRANCH_DEFAULT_PRESET): NodeJS.ProcessEnv {
+  const p: LiveBranchPreset = LIVE_BRANCH_PRESETS[preset];
+  if (!p) throw new Error(`unknown live search preset ${preset} (known: ${Object.keys(LIVE_BRANCH_PRESETS).join(', ')})`);
+  const ranker = env.DELOVE_BRANCH_RANKER ?? newestBaseModel(dir) ?? undefined;
+  return {
+    ...env,
+    ...(ranker ? { DELOVE_BRANCH_RANKER: ranker } : {}),
+    DELOVE_BRANCH_TEACHER: env.DELOVE_BRANCH_TEACHER ?? p.teacher,
+    DELOVE_BRANCH_OPTIONS: env.DELOVE_BRANCH_OPTIONS ?? String(p.options),
+    DELOVE_BRANCH_SCORE: env.DELOVE_BRANCH_SCORE ?? p.score,
+    DELOVE_BRANCH_HORIZON: env.DELOVE_BRANCH_HORIZON ?? String(p.horizon),
+    DELOVE_BRANCH_MARGIN: env.DELOVE_BRANCH_MARGIN ?? String(p.margin),
+  };
 }

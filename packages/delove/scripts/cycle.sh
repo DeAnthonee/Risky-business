@@ -23,14 +23,20 @@
 #   train_init=<model id, or empty for a fresh network>  candidate=<cN-candidate>  train_args="--epochs 1.5 --lr 3e-4"
 #   gates=("<opponent> <players> <games> [options JSON]" ...)   ladder matches of the candidate
 #   gpu_gates=(<gate index> ... | all)   optional: gates played on the GPU (delove_gpu.ladder: the same games and the
-#                              same gates/g<i>-<k>.json as on the CPU); the others stay on the CPU. GPU_GATES
+#                              same gates/g<i>-<k>.json as on the CPU); the others stay on the CPU, and so does every
+#                              fog gate ("fogOfWar":true: the GPU mirror has no fog). GPU_GATES
 #                              (space-separated indices or all; 1 = all, 0 = none) overrides it.
 # Environment: CYCLE_NAME (overrides name, e.g. for a trial run), DELOVE_MODELS (models folder, default models/delove), OUT (default runs/delove/<name>), DATA (default
 # data/delove), PYTHON (default .venv/Scripts/python), PARALLEL, CHUNKS (chunks per process and step, default 4; or
 # CHUNK = fixed games per chunk), GATE_CHUNK (games per gate chunk, default 20), GPU_BATCH (games in flight on the
 # GPU per configuration; default: sized to GPU_GB of game state, default 3), GPU_LANES (N GPU processes at once, the
 # config's GPU steps dealt to them in turn; split a long step into several so the lanes stay busy). Re-running resumes: finished chunks, exports, GPU steps, the trained model and finished gate
-# chunks are kept. GPU gates refuse a stale GPU mirror (fingerprint.py check) unless GPU_GATES_ALLOW_UNVERIFIED=1;
+# chunks are kept. GATE_SPRT=1 keeps adding gate chunks to the pooled 4-10p tables (and to 2-player tables still in
+# doubt) until the sequential test of scripts/sprt.mjs decides, up to GATE_SPRT_MAX games per table (default 800):
+# GATE_SPRT_H1 (default 0.15 points per seat) is the gain worth detecting, GATE_SPRT_ALPHA / _BETA (default 0.05) the
+# error rates; the summary always adds the paired statistics. PANEL=1 adds the fixed reference panel (panel_gates
+# below: older Deloves and the teachers) to the gates, so every cycle measures the same opponents.
+# GPU gates refuse a stale GPU mirror (fingerprint.py check) unless GPU_GATES_ALLOW_UNVERIFIED=1;
 # GPU_GATE_PROCS (default 1) GPU processes share the gate configurations, each sizing its batch to GPU_GATE_GB (default 1).
 # REMOTE_GPUS=N plays the GPU steps on N rented cloud GPUs instead (RunPod; RUNPOD_API_KEY in the environment; see
 # packages/delove-gpu/README.md "Cloud workers"): REMOTE_MAX_GPU_HOURS (default 4) caps the spend, REMOTE_TIMINGS
@@ -135,6 +141,8 @@ gen_args() {
   [[ -n ${DELOVE_BRANCH_K:-} ]] && args+=(--gumbel-k "$DELOVE_BRANCH_K")
   [[ -n ${DELOVE_BRANCH_COPIES:-} ]] && args+=(--copies "$DELOVE_BRANCH_COPIES")
   [[ -n ${DELOVE_BRANCH_ROLLOUT:-} ]] && args+=(--rollout "$DELOVE_BRANCH_ROLLOUT")
+  # The config's export_agents, so GPU steps also export per-job seats such as delove-branch@1:range (#148).
+  args+=(--export-agents "$export_agents")
   if [[ -n ${DELOVE_BRANCH_VALUE:-} && ${DELOVE_BRANCH_VALUE} != 0 ]]; then
     echo "GPU steps: DELOVE_BRANCH_VALUE is not mirrored on the GPU"; return 1
   fi
@@ -354,6 +362,12 @@ fi
 
 # ---- 4. ladder gates, all at once -------------------------------------------------------------------------------
 gate_chunk=${GATE_CHUNK:-20}
+# The fixed reference panel (PANEL=1): the same opponents every cycle, so progress reads off one table across cycles.
+panel_gates=(
+  'delove@6 6 200 {"map":"world"}' 'delove@6 2 400 {}' 'delove@3 6 200 {"map":"world"}'
+  'jacob-sensei@1 6 200 {"map":"world"}' 'jacob-sensei@2 6 200 {"map":"world"}' 'jacob-sensei@2 2 400 {}' 'delove-teacher@2 2 400 {}'
+)
+[[ ${PANEL:-0} == 1 ]] && gates+=("${panel_gates[@]}")
 mkdir -p "$out/gates"
 gpool="$out/gates/pool.txt"
 : > "$gpool"
@@ -378,7 +392,8 @@ cpu_gpool="$out/gates/cpu.txt"
 : > "$cpu_gpool"
 while read -r i k opp players games options; do
   [[ -f "$out/gates/g$i-$k.json" ]] && continue
-  if gate_on_gpu "$i"; then
+  # Fog gates always play on the CPU: the GPU mirror has no fog (each seat plays on its view there, foggedAgent).
+  if gate_on_gpu "$i" && [[ $options != *'"fogOfWar":true'* && $options != *'"fogOfWar": true'* ]]; then
     echo "$i $k $opp $players $games $(( seed * 1000 + 100 * i + k )) $options" >> "$gpu_gpool"
   else
     echo "$i $k $opp $players $games $options" >> "$cpu_gpool"
@@ -414,6 +429,16 @@ if [[ -n $gpu_gate_runner ]]; then
   wait "$gpu_gate_runner" || { echo "FAILED GPU gates (see $out/gates/gpu.log)"; gates_failed=1; }
 fi
 (( gates_failed )) && exit 1
+# GATE_SPRT=1: more chunks for the tables whose call is still open, until the sequential test decides.
+if [[ ${GATE_SPRT:-0} == 1 ]]; then
+  sprt_args=(--h1 "${GATE_SPRT_H1:-0.15}" --alpha "${GATE_SPRT_ALPHA:-0.05}" --beta "${GATE_SPRT_BETA:-0.05}" --max-games "${GATE_SPRT_MAX:-800}")
+  for ((round = 1; round <= 20; round++)); do
+    more=$(node packages/delove/scripts/sprt.mjs "$out/gates" "${sprt_args[@]}" --next 2)
+    [[ -z $more ]] && break
+    echo "SPRT round $round: $(wc -l <<< "$more") more gate chunks"
+    printf '%s\n' "$more" | tr '\n' '\0' | xargs -0 -P "$parallel" -I{} bash -c 'run_gate "$1"' _ {} || { echo "FAILED SPRT gate chunks"; exit 1; }
+  done
+fi
 stamp "gates done"
 stamp "summary"
 
@@ -453,6 +478,10 @@ gates.forEach((g, i) => {
     `${f2(w("points"))} | ${f2(w("bestPoints"))} | ${f2(d)} (${f2(d - 1.96 * dse)} to ${f2(d + 1.96 * dse)}) | ${w("meanPlacement").toFixed(2)} | ${w("killsPerGame").toFixed(2)} | ${tl} |`);
 });
 ' "$out/gates" "${gates[@]}"
+  echo
+  echo "### $name: paired statistics (mirrored pairs) and SPRT"
+  echo
+  node packages/delove/scripts/sprt.mjs "$out/gates" --h1 "${GATE_SPRT_H1:-0.15}" --alpha "${GATE_SPRT_ALPHA:-0.05}" --beta "${GATE_SPRT_BETA:-0.05}" --max-games "${GATE_SPRT_MAX:-800}"
   echo
   echo "### $name: time per phase (minutes from the start)"
   echo

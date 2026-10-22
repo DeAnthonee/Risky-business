@@ -22,7 +22,7 @@ export interface AppOptions {
   /** AI character profiles; defaults to the repo's AI/ folder with saves kept in memory. */
   characters?: CharacterStore;
   /**
-   * TEMPORARY (testing): anyone may create and start tournaments, without the admin key (default true).
+   * TEMPORARY (testing): anyone may create tournaments, without the admin key (default true); each creator gets a host token.
    * Turn off before launch (RISK_TOURNAMENTS_OPEN=0) so only the host can.
    */
   openTournaments?: boolean;

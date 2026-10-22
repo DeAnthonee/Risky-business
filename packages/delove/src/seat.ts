@@ -1,8 +1,8 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { buildDeck, createRng, getMap, legalMoves, shuffle, type Action, type Card, type GameState, type GameView, type PlayerId } from '@risk/engine';
+import { legalMoves, type Action, type GameView, type PlayerId } from '@risk/engine';
 import { RiskHttpError, type RiskApi } from '@risk/mcp';
-import { candidates, makeTraits, type Agent } from '@risk/selfplay';
+import { candidates, makeTraits, stateFromView, type Agent } from '@risk/selfplay';
 import { modelsDir, seatOrder } from './net-agent.js';
 import { DEFAULT_TEACHER_PARAMS, makeTeacher, teacher, type TeacherParams } from './teacher.js';
 
@@ -12,38 +12,14 @@ import { DEFAULT_TEACHER_PARAMS, makeTeacher, teacher, type TeacherParams } from
  * No chat, no character: Delove only plays.
  */
 
-/**
- * The engine state behind one player's view. The RNG is left empty (legal moves and Delove's encoder never read it).
- * What the view hides about the cards is filled in so every count is right: each opponent gets a hand of its real
- * size (`cardCount`), and the deck and discard their real sizes, dealt from the cards this seat can't see. Which cards
- * an opponent holds is a guess (one random deal, from `random`); the counts are exact. Delove's encoder and Jacob
- * Sensei read only the counts (opponents' card threat, the worth of eliminating them); branch and score's rollouts
- * also play the guessed cards. Without `random` the deal is in deck order.
- */
-export function stateFromView(view: GameView, random?: () => number): GameState {
-  const { players, deckSize, discardSize, you: _y, legal: _l, continentOwners: _c, ...rest } = view;
-  const known = new Set(players.flatMap((p) => (p.cards ?? []).map((c) => c.id)));
-  let unseen = buildDeck(getMap(view.options.map)).filter((c) => !known.has(c.id));
-  if (random) unseen = shuffle(createRng(Math.floor(random() * 0x100000000) >>> 0), unseen);
-  const deal = (n: number): Card[] => unseen.splice(0, Math.max(0, Math.min(n, unseen.length)));
-  const hands = players.map((p) => p.cards ?? deal(p.cardCount));
-  return {
-    ...rest,
-    players: players.map(({ cardCount: _cc, territoryCount: _tc, armyCount: _ac, continents: _co, income: _i, cards: _h, ...p }, i) => ({
-      ...p,
-      cards: hands[i],
-    })),
-    deck: deal(deckSize),
-    discard: deal(discardSize),
-    seed: 0,
-    rngState: 0,
-  };
-}
+// stateFromView moved to @risk/selfplay (seat-view.ts), so self-play's fog games use the same view; re-exported here.
+export { stateFromView };
 
 /** Delove's move for this view, or null when it is not this seat's turn. */
 export function chooseFromView(agent: Agent, view: GameView, me: PlayerId, random: () => number): Action | null {
   const state = stateFromView(view, random);
-  const legal = legalMoves(state, me);
+  // The view's own legal moves: under fog the rebuilt state's hidden territories have no owner (unclaimed, to legalMoves).
+  const legal = view.legal ?? legalMoves(state, me);
   if (!legal.yourTurn) return null;
   const cands = candidates(state, me, legal);
   if (cands.length === 0) return null;
@@ -121,8 +97,8 @@ export async function playSeat(o: SeatOptions): Promise<GameView | null> {
       o.log(`${o.name}: eliminated`);
       return view;
     }
-    if (view.options.fogOfWar) {
-      if (!warnedFog) o.log(`${o.name}: fog of war is on; Delove was trained on the full board and sits this game out`);
+    if (view.options.fogOfWar && !o.agent.fogInputs) {
+      if (!warnedFog) o.log(`${o.name}: fog of war is on; ${o.agent.id} was trained on the full board and sits this game out`);
       warnedFog = true;
       if (view.phase !== 'lobby') {
         await o.api.act(o.gameId, o.token, { type: 'surrender' }).catch(() => {});

@@ -1,14 +1,39 @@
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { getMap } from '@risk/engine';
-import { decisionInput, encodeDecision, playGame, riskyBot, stepAgent, type StepContext } from '@risk/selfplay';
-import { adjacencyMatrix, discoverNetAgents, NetScorer, netAgent, searchAgent, seatOrder } from '../src/index.js';
+import { decisionInput, encodeDecision, playGame, riskyBot, runBatch, stepAgent, type StepContext } from '@risk/selfplay';
+import { adjacencyMatrix, branchFromEnv, discoverNetAgents, NetScorer, netAgent, searchAgent, seatOrder } from '../src/index.js';
 
 // Random weights (hidden 8): it plays badly, but exercises encoder -> ONNX -> worker -> move exactly like a trained model.
 const TINY = fileURLToPath(new URL('./fixtures/tiny.onnx', import.meta.url));
+// The same with fog inputs (two more columns; tiny-fog.json says fogInputs 1), as train.py --fog-dropout makes them.
+const TINY_FOG = fileURLToPath(new URL('./fixtures/tiny-fog.onnx', import.meta.url));
 const FIXTURES = fileURLToPath(new URL('./fixtures', import.meta.url));
 
 describe('Delove network player', () => {
+  it('fog: a model with fog inputs reads them in every game; any model plays a fog game on its seat view', async () => {
+    const fogModel = netAgent('fogtiny@1', TINY_FOG);
+    const plain = netAgent('tiny@1', TINY);
+    expect(fogModel.fogInputs).toBe(1);
+    expect(plain.fogInputs).toBeUndefined();
+    for (const options of [{ map: 'world', fogOfWar: true, autoSetup: true }, { map: 'world' }]) {
+      const r = await runBatch({ games: 1, seed: 6, seats: () => [{ agent: fogModel }, { agent: plain }, { agent: riskyBot }], options, maxTurns: 25 });
+      expect(r[0].turns).toBeGreaterThan(0);
+    }
+  });
+
+  it('fog: the search seat (delove-branch) never searches under fog; it takes fog seats only with a fog-trained ranker', async () => {
+    const fogSearch = branchFromEnv(FIXTURES, { DELOVE_BRANCH_RANKER: 'tiny-fog', DELOVE_BRANCH_TEACHER: 'jacob-sensei@1' });
+    const plainSearch = branchFromEnv(FIXTURES, { DELOVE_BRANCH_RANKER: 'tiny', DELOVE_BRANCH_TEACHER: 'jacob-sensei@1' });
+    expect(fogSearch.fogInputs).toBe(1);
+    expect(plainSearch.fogInputs).toBeUndefined();
+    // a fog game with three search seats: fast because no rollout runs (a search would take far longer than this)
+    const t0 = Date.now();
+    const r = await runBatch({ games: 1, seed: 2, seats: () => [{ agent: fogSearch }, { agent: plainSearch }, { agent: fogSearch }], options: { fogOfWar: true, autoSetup: true }, maxTurns: 20 });
+    expect(r[0].turns).toBeGreaterThan(0);
+    expect(Date.now() - t0).toBeLessThan(20_000);
+  });
+
   it('sees seats in the same order as the self-play harness', () => {
     const spy = stepAgent('spy@1', (ctx) => {
       expect(seatOrder(ctx.state)[ctx.seat]).toBe(ctx.me);

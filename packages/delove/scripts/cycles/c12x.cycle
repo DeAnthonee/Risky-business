@@ -1,0 +1,21 @@
+# Cycle 12's games for the range specialists, on the home GPU (generate only) while c12.cycle's main games play on the
+# pods: #137's stage games (sm / sc) and #146's ratio scenarios (rm / rc), delove@8 seats, the same branch settings:
+#   GENERATE_ONLY=1 DELOVE_BRANCH_RANKER=delove@8 DELOVE_BRANCH_TEACHER=jacob-sensei@2 DELOVE_BRANCH_HORIZON=1
+#   DELOVE_BRANCH_MARGIN=0.01 DELOVE_BRANCH_OPTIONS=5 DELOVE_MODELS=<models> DATA=<data> OUT=<runs>/c12x PYTHON=<venv python>
+#   bash packages/delove/scripts/cycle.sh packages/delove/scripts/cycles/c12x.cycle
+# Data goes to DATA/c12-sm, c12-sc, c12-rm and c12-rc, read by c12-specialists.sh.
+name=c12
+seed=3121
+steps=(
+  "sm packages/delove/scripts/cycles/c12-sm.jobs Cycle 12, stage games: 3 alive"
+  "sc packages/delove/scripts/cycles/c12-sc.jobs Cycle 12, stage games: 2 alive"
+  "rm packages/delove/scripts/cycles/c12-rm.jobs Cycle 12, ratio scenarios: 3 alive"
+  "rc packages/delove/scripts/cycles/c12-rc.jobs Cycle 12, ratio scenarios: 2 alive"
+)
+gpu_steps=(all)
+export_agents=delove-branch@1
+train_data=()
+train_init=delove@8
+candidate=c12x-unused
+train_args=""
+gates=()

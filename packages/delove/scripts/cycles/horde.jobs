@@ -1,6 +1,6 @@
 # Zerg-horde scenarios (docs/zergs.md, section 5): the branch seat against 2-3 coordinated Zergs (zerg@2, the live
 # seats' version of the hand-coded horde bot: no mid-game surrender, walled-in Zergs mass toward the prey; zerg@1 until
-# #PR; CPU only, zerg.ts is not on the GPU mirror), Jacob Sensei filling the other seats at 4p and 6p. The seat is
+# #201; CPU only, zerg.ts is not on the GPU mirror), Jacob Sensei filling the other seats at 4p and 6p. The seat is
 # delove-branch@1:range-horde: the range-score branch seat whose rollouts play the Zerg seats with the horde bot
 # (src/horde-branch.ts), so its search foresees the gang-up; it reads the same DELOVE_BRANCH_* settings as the cycles. League
 # settings (docs/game-settings.md) in two card/capitals variants; the branch seat moves round the table. About 4,000

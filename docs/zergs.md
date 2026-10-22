@@ -119,7 +119,7 @@ Order, by the owner's direction (the Zerg model and training come first; game-mo
   - `zerg-branch@1` (branch and score for the horde) is no stronger than `zerg@1` yet.
   - `npm run delove:zerg-tune` hill-climbs `zerg@1`'s numbers (`ZERG_1_PARAMS`); a tuned set would be `zerg@3` or later
     (`zerg@2` is the live seats' version, #198).
-  - Training moved to `zerg@2` in #PR: `horde.jobs` seats `zerg@2`, and the horde-aware rollouts play each Zerg seat's own
+  - Training moved to `zerg@2` in #201: `horde.jobs` seats `zerg@2`, and the horde-aware rollouts play each Zerg seat's own
     version. The horde gate keeps `zerg@1` as its default for comparability; `--zerg zerg@2` picks the live version.
   - The network needs ally inputs, which Delove's encoder lacks. The plan is a separate, unmirrored Zerg encoder:
     Delove's encoding plus one ally flag per seat, with zero-initialised weights, warm-started from delove@10. That

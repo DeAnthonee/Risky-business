@@ -1,7 +1,7 @@
 import type { AddressInfo } from 'node:net';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
-import { chooseBotAction } from '@risk/engine';
+import { chooseBotAction, getMap } from '@risk/engine';
 import type { GameRoom } from '../src/store.js';
 import { Store } from '../src/store.js';
 import { createRiskServer, type RiskServer } from '../src/app.js';
@@ -69,21 +69,32 @@ describe('tournament feed over WebSocket', () => {
     const { id, t } = await knockout();
     const s = await socket();
     try {
-      s.ws.send(JSON.stringify({ type: 'subscribe_tournament', tournamentId: id.toLowerCase(), reqId: 'f' }));
-      expect(await s.until(() => s.got.some((m) => m.type === 'tournament_feed'))).toBe(true);
+      // `id` works as well as `tournamentId`, in any case.
+      s.ws.send(JSON.stringify({ type: 'subscribe_tournament', id: id.toLowerCase(), reqId: 'f' }));
+      expect(await s.until(() => s.got.some((m) => m.type === 'tournament_tables'))).toBe(true);
       expect(s.got.find((m) => m.reqId === 'f')).toMatchObject({ type: 'ack', ok: true });
-      const feed = s.got.find((m) => m.type === 'tournament_feed');
-      expect(feed.tournament).toMatchObject({ id, status: 'running' });
+      expect(s.got.find((m) => m.type === 'tournament').tournament).toMatchObject({ id, status: 'running' });
+      const feed = s.got.find((m) => m.type === 'tournament_tables');
+      expect(feed).toMatchObject({ tournamentId: id, full: true, round: { n: 1, deadline: null, finished: 0, needed: 2 } });
       expect(feed.tables).toHaveLength(2);
       for (const table of feed.tables) {
         expect(t.rounds[0].matches.map((m: any) => m.gameId)).toContain(table.gameId);
-        expect(table).toMatchObject({ round: 1, status: 'playing', final: false });
+        // A knockout has no nested nodes.
+        expect(table).toMatchObject({ node: null, round: 1, final: false });
+        expect(['waiting', 'playing']).toContain(table.status);
         expect(table.excitement.score).toBeGreaterThanOrEqual(0);
         expect(table.excitement.score).toBeLessThanOrEqual(100);
         expect(table.players).toHaveLength(2);
+        expect(Object.keys(table.players[0]).sort()).toEqual(['alive', 'color', 'name']);
+        expect(table.owners).toHaveLength(getMap('skirmish').territoryIds.length);
+        expect(table.owners.every((o: any) => o === null || o === 0 || o === 1)).toBe(true);
+        expect([0, 1]).toContain(table.leader);
         // Public summaries only: no seat tokens, no cards, no player-type labels.
         expect(JSON.stringify(table)).not.toMatch(/token|cards|agent/);
       }
+      // One table to follow, the same for every watcher, with a caption.
+      expect(feed.follow).toMatchObject({ node: null, caption: expect.stringMatching(/^Following: /) });
+      expect(feed.tables.map((x: any) => x.gameId)).toContain(feed.follow.gameId);
     } finally {
       s.ws.close();
     }
@@ -96,7 +107,7 @@ describe('tournament feed over WebSocket', () => {
       s.ws.send(JSON.stringify({ type: 'subscribe_tournament', tournamentId: id, token: Object.values(tokens)[0], reqId: 'x' }));
       expect(await s.until(() => s.got.some((m) => m.reqId === 'x'))).toBe(true);
       expect(s.got.find((m) => m.reqId === 'x')).toMatchObject({ ok: false, error: expect.stringMatching(/spectators/) });
-      expect(s.got.some((m) => m.type === 'tournament_feed')).toBe(false);
+      expect(s.got.some((m) => m.type === 'tournament_tables')).toBe(false);
       s.ws.send(JSON.stringify({ type: 'subscribe_tournament', tournamentId: 'TNOPE1', reqId: 'y' }));
       expect(await s.until(() => s.got.some((m) => m.reqId === 'y'))).toBe(true);
       expect(s.got.find((m) => m.reqId === 'y')).toMatchObject({ ok: false, error: 'Tournament not found' });
@@ -110,13 +121,13 @@ describe('tournament feed over WebSocket', () => {
     const s = await socket();
     try {
       s.ws.send(JSON.stringify({ type: 'subscribe_tournament', tournamentId: id, reqId: 'f' }));
-      await s.until(() => s.got.some((m) => m.type === 'tournament_feed'));
+      await s.until(() => s.got.some((m) => m.type === 'tournament_tables'));
       const gameId = t.rounds[0].matches[0].gameId;
       const room = risk.store.get(gameId)!;
       // A burst of five moves on one table.
       for (let i = 0; i < 5; i++) move(room);
       const last = room.state.version;
-      const tableMsgs = () => s.got.filter((m) => m.type === 'tournament_table' && m.table.gameId === gameId);
+      const tableMsgs = () => s.got.filter((m) => m.type === 'tournament_tables' && !m.full && m.tables.some((x: any) => x.gameId === gameId));
       expect(await s.until(() => tableMsgs().length >= 1, 1_000)).toBe(true);
       // Within the throttle window only the first one went out.
       await new Promise((r) => setTimeout(r, FEED_TABLE_MS / 2));
@@ -125,7 +136,10 @@ describe('tournament feed over WebSocket', () => {
       await new Promise((r) => setTimeout(r, FEED_TABLE_MS + 200));
       const msgs = tableMsgs();
       expect(msgs).toHaveLength(2);
-      expect(msgs[1].table.version).toBe(last);
+      // Only the table that changed, and the latest of the burst.
+      expect(msgs[1].tables).toHaveLength(1);
+      expect(msgs[1].tables[0].version).toBe(last);
+      expect(msgs[1].version).toBeGreaterThan(msgs[0].version);
     } finally {
       s.ws.close();
     }
@@ -136,16 +150,20 @@ describe('tournament feed over WebSocket', () => {
     const s = await socket();
     try {
       s.ws.send(JSON.stringify({ type: 'subscribe_tournament', tournamentId: id, reqId: 'f' }));
-      await s.until(() => s.got.some((m) => m.type === 'tournament_feed'));
+      await s.until(() => s.got.some((m) => m.type === 'tournament_tables'));
       for (const m of t.rounds[0].matches) await call(`/admin/tournaments/${id}/forfeit`, post({ entrantId: m.players[0].entrantId }), ADMIN);
       expect(await s.until(() => s.got.some((m) => m.type === 'tournament' && m.tournament.rounds.length === 2))).toBe(true);
       const final = (await call(`/tournaments/${id}`)).body.tournament.rounds[1].matches[0];
       const room = risk.store.get(final.gameId)!;
       move(room);
-      expect(await s.until(() => s.got.some((m) => m.type === 'tournament_table' && m.table.gameId === final.gameId))).toBe(true);
-      const msg = s.got.find((m) => m.type === 'tournament_table' && m.table.gameId === final.gameId);
-      expect(msg.table).toMatchObject({ round: 2, final: true });
-      expect(msg.table.excitement.signals.map((x: any) => x.kind)).toContain('final');
+      const finalMsg = () => s.got.find((m) => m.type === 'tournament_tables' && !m.full && m.tables.some((x: any) => x.gameId === final.gameId));
+      expect(await s.until(() => !!finalMsg())).toBe(true);
+      const table = finalMsg().tables[0];
+      expect(table).toMatchObject({ round: 2, final: true });
+      expect(table.excitement.signals.map((x: any) => x.kind)).toContain('final');
+      expect(finalMsg().round).toMatchObject({ n: 2, needed: 1 });
+      // The finished round's tables are gone; the follow moved to the final.
+      expect(finalMsg().follow.gameId).toBe(final.gameId);
     } finally {
       s.ws.close();
     }
@@ -155,9 +173,22 @@ describe('tournament feed over WebSocket', () => {
     const { id } = await knockout();
     const s = await socket();
     s.ws.send(JSON.stringify({ type: 'subscribe_tournament', tournamentId: id, reqId: 'f' }));
-    await s.until(() => s.got.some((m) => m.type === 'tournament_feed'));
+    await s.until(() => s.got.some((m) => m.type === 'tournament_tables'));
     s.ws.send(JSON.stringify({ type: 'unsubscribe_tournament', reqId: 'u' }));
     expect(await s.until(() => s.got.some((m) => m.reqId === 'u'))).toBe(true);
     s.ws.close();
+  });
+});
+
+describe('nested node numbering', () => {
+  it('matches the engine planToNest: each table points at its board in resolveNest order', async () => {
+    const { planNest, planToNest, resolveNest } = await import('@risk/engine');
+    const { nodeIndex } = await import('../src/tournament-feed.js');
+    const plan = planNest(18);
+    const { spec, boards } = planToNest(plan, { seed: 7 });
+    const nodes = resolveNest(spec);
+    const index = nodeIndex({ nested: { finalMap: null, territoriesPerSeat: 6, roundMinutes: 30, finishShare: 0.51, plan } });
+    for (const [r, round] of plan.rounds.entries()) for (const table of round) expect(nodes[index.get(`${r}:${table.index}`)!]).toEqual(boards[r][table.index]);
+    expect(index.get(`${plan.rounds.length - 1}:0`)).toBe(0); // the final is the outermost node
   });
 });

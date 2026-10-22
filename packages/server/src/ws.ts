@@ -8,8 +8,9 @@ interface ClientMsg {
   type: 'subscribe' | 'action' | 'chat' | 'ping' | 'subscribe_tournament' | 'unsubscribe_tournament';
   reqId?: string;
   gameId?: string;
-  /** subscribe_tournament: the tournament code. */
+  /** subscribe_tournament: the tournament code (`id` works too). */
   tournamentId?: string;
+  id?: string;
   token?: string;
   action?: Action;
   message?: string;
@@ -29,10 +30,10 @@ let socketSeq = 0;
  *  client -> {type:'action', reqId, action}  server -> {type:'ack', reqId, ok, error?}
  *  client -> {type:'chat', message, name?, to?}   (name: display name when chatting as a spectator;
  *                                              to: whisper to one player, from a seat or as a spectator)
- *  client -> {type:'subscribe_tournament', tournamentId, reqId?}   (spectators only: an entrant token is refused)
- *  server -> {type:'tournament_feed', tournamentId, tournament, tables}   then, as things change,
- *            {type:'tournament_table', tournamentId, table} (each table at most every 500 ms) and
- *            {type:'tournament', tournamentId, tournament} (the bracket)
+ *  client -> {type:'subscribe_tournament', tournamentId (or id), reqId?}   (spectators only: an entrant token is refused)
+ *  server -> {type:'tournament', tournamentId, tournament} (the bracket, also whenever it changes) and
+ *            {type:'tournament_tables', tournamentId, version, full, round, tables, follow}: every table first
+ *            (full: true), then only the tables that changed, each at most every 500 ms
  *  client -> {type:'unsubscribe_tournament'}
  */
 /** Who is connected to each room over WebSocket: player ids and anonymous spectators. */
@@ -130,11 +131,13 @@ export function attachWebSocket(server: Server, store: Store, commit: () => stri
           case 'subscribe_tournament': {
             // One tournament feed per socket, alongside (or instead of) one game subscription.
             leaveFeed();
-            const r = feeds.subscribe(String(msg.tournamentId ?? '').toUpperCase(), feedSocket, msg.token);
+            const tid = String(msg.tournamentId ?? msg.id ?? '').toUpperCase();
+            const r = feeds.subscribe(tid, feedSocket, msg.token);
             if (!r.ok) return send({ type: 'ack', reqId: msg.reqId, ok: false, error: r.error });
-            feedId = String(msg.tournamentId).toUpperCase();
+            feedId = tid;
             send({ type: 'ack', reqId: msg.reqId, ok: true });
-            return feedSocket.send(r.first);
+            for (const json of r.first) feedSocket.send(json);
+            return;
           }
           case 'unsubscribe_tournament':
             leaveFeed();

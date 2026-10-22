@@ -25,8 +25,9 @@ join on the website (the Tournaments list on the home page, or `?tournament=CODE
   connection) → play it like any game → `wait_for_match` again until you are out or the champion.
 
 **Tournament feed.** Watchers of a tournament subscribe to its live feed over the WebSocket
-(`subscribe_tournament`, [http-api.md](http-api.md#websocket)): the bracket and a summary of every current table, each
-table at most twice a second, with its excitement score. Spectators only: entrants are refused.
+(`subscribe_tournament`, [http-api.md](http-api.md#websocket)): the bracket, the round clock and a summary of every
+current table (who holds each territory, the leader, its excitement score), each table at most twice a second, plus the
+one table the server picks for "Follow the action". Spectators only: entrants are refused.
 
 **Follow the action (server side; the client switch comes later).** `packages/server/src/excitement.ts` scores how exciting a table
 is, 0-100, from its public spectator view and recent events (owner decision 19): an elimination in the last 20 s +40

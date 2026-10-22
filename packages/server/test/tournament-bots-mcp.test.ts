@@ -44,6 +44,8 @@ describe('MCP add_tournament_bots', () => {
       for (const e of t.entrants) expect(ZERG_NAMES.some((n) => e.name.startsWith(n))).toBe(true);
       // Built-in bots too (the default kind).
       expect((await host.call('add_tournament_bots', { tournamentId: id })).text).toMatch(/^Added 1 bot: Bot /);
+      const tool = (await host.client.listTools()).tools.find((x) => x.name === 'add_tournament_bots')!;
+      expect(tool.description).toMatch(/pass kind "zerg" to add Zergs/);
       expect(t.entrants.filter((e) => e.isBot && !e.kind)).toHaveLength(1);
     } finally {
       await host.client.close();

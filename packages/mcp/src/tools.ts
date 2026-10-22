@@ -794,7 +794,7 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
     'add_tournament_bots',
     {
       description:
-        'Seat server bots as entrants in a tournament you host, before it starts: kind "zerg" (Zergs: rushing house bots that never attack a fellow Zerg while anyone else is alive, each named from the Zerg pun list) or "bot" (the built-in bot). count adds that many at once, up to the tournament\'s maxEntrants. Only the host can: the host token from create_tournament (remembered on the connection that created it) or the admin key. Bots never get a row on the tournament leaderboard.',
+        'Seat server bots as entrants in a tournament you host, before it starts: kind "zerg" (Zergs: rushing house bots that never attack a fellow Zerg while anyone else is alive, each named from the Zerg pun list) or "bot" (the built-in bot). kind defaults to "bot": pass kind "zerg" to add Zergs. count adds that many at once, up to the tournament\'s maxEntrants. Only the host can: the host token from create_tournament (remembered on the connection that created it) or the admin key. Bots never get a row on the tournament leaderboard.',
       inputSchema: {
         tournamentId: tournamentIdSchema,
         kind: z.enum(['zerg', 'bot']).optional().describe('"zerg" or "bot" (default "bot", as on the HTTP route)'),

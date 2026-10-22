@@ -197,6 +197,55 @@ export function formatTournament(t: TournamentInfo): string {
   return lines.join('\n');
 }
 
+/** A time as UTC, and in `tz` when given and valid ("Thu 13:00 in America/New_York"). */
+function whenText(ms: number, tz?: string): string {
+  const utc = `${new Date(ms).toISOString().slice(0, 16).replace('T', ' ')} UTC`;
+  if (!tz) return utc;
+  try {
+    const local = new Intl.DateTimeFormat('en-GB', { timeZone: tz, weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(ms));
+    return `${utc} (${local} in ${tz})`;
+  } catch {
+    return `${utc} (unknown time zone "${tz}": use an IANA name such as America/New_York)`;
+  }
+}
+
+/**
+ * The reconnect plan for an entrant of a tournament (reconnect_prompt): when to come back (the start and, for a
+ * scheduled tournament, its check-in window), the entrant code, the exact calls, and a line asking the agent to have its
+ * user schedule the reconnect when its client can. Text only: it never schedules anything itself.
+ */
+export function reconnectPrompt(t: TournamentInfo, token: string | undefined, opts: { tz?: string; server: string }): string {
+  const lines = [`RECONNECT PLAN for tournament ${t.id} "${t.name}" on ${opts.server}.`];
+  const s = t.scheduled;
+  if (t.status !== 'registering') {
+    lines.push(t.status === 'running' ? 'It is being played NOW: call wait_for_match right away.' : 'It is over; there is nothing to come back for.');
+    if (t.status === 'finished') return lines.join('\n');
+  } else if (s && !s.cancelled) {
+    const window = s.checkinMinutes ?? 10;
+    lines.push(`Starts: ${whenText(s.startsAt, opts.tz)}, by itself.`);
+    lines.push(`Check-in: from ${whenText(s.startsAt - window * 60_000, opts.tz)}, the last ${window} minutes. Anyone not checked in at the start loses the seat to a Zerg.`);
+  } else if (s?.cancelled) {
+    lines.push(`It was called off (${s.cancelled}); there is nothing to come back for.`);
+    return lines.join('\n');
+  } else {
+    lines.push('It has no set start: the host starts it. Keep calling wait_for_match: it answers when your table is ready.');
+  }
+  lines.push(
+    token
+      ? `Your entrant code (it IS your seat: keep it private, pass it as "token"): ${token}`
+      : 'You have no entrant code for it here: join_tournament first (it returns the code), then ask for this plan again.',
+  );
+  const tokenArg = token ? `, "token": "${token}"` : '';
+  lines.push(
+    'At check-in time (or now, if it is being played), make these calls:',
+    `1. Connect to this MCP server again (${opts.server}).`,
+    `2. wait_for_match {"tournamentId": "${t.id}"${tokenArg}}: this checks you in and waits until your table is ready.`,
+    '3. When it gives your table: play it with wait_for_turn / get_state / act (the table\'s seat token comes with it), then wait_for_match again, until you are out or the champion.',
+    'ASK YOUR USER: if your client can run scheduled tasks, ask your user to schedule one at the check-in time that reconnects and runs step 2 (with the code above). If it cannot (a chat that only answers when spoken to), ask your user to come back and talk to you at that time.',
+  );
+  return lines.join('\n');
+}
+
 function text(s: string) {
   return { content: [{ type: 'text' as const, text: s }] };
 }
@@ -807,6 +856,29 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
     if (m) identities.set({ gameId: m.gameId, playerId: m.playerId, token: m.token, name: t.you!.name });
   };
   const entrantTokenSchema = z.string().optional().describe('Your entrant token for this tournament (returned by join_tournament). Pass it to see your status and your table.');
+
+  server.registerTool(
+    'reconnect_prompt',
+    {
+      description:
+        'For a tournament you joined that starts later (a scheduled one): a plan to come back in time. Gives the start and the check-in window in UTC (and in your user\'s time zone with tz), your entrant code, the exact calls to make, and asks you to have your user schedule the reconnect if your client supports scheduled tasks. Text only.',
+      inputSchema: {
+        tournamentId: tournamentIdSchema,
+        token: entrantTokenSchema,
+        tz: z.string().max(64).optional().describe('Your user\'s IANA time zone, e.g. "America/New_York", to show the times there too'),
+      },
+    },
+    async ({ tournamentId, token, tz }) => {
+      try {
+        const id = tournamentId.toUpperCase();
+        const code = entrantToken(id, token);
+        const { tournament } = await api.getTournament(id, code);
+        return text(reconnectPrompt(tournament, code, { tz, server: label }));
+      } catch (e) {
+        return errorText(e);
+      }
+    },
+  );
 
   server.registerTool(
     'next_tournament',

@@ -14,6 +14,7 @@ import {
   strongestZergOf,
   ZERG_1_PARAMS,
   ZERG_2_PARAMS,
+  ZERG_2_PARAMS,
   MAPS,
   type GameEvent,
   type GameState,
@@ -81,6 +82,34 @@ describe('Zerg horde bot', () => {
     expect(surrendered).toBeGreaterThan(0);
   });
 
+  it('never surrenders with its own conquest unoccupied: it occupies the last prey territory first (zerg@1 and zerg@2)', () => {
+    // Before the fix the "no prey left" surrender ran ahead of the occupy: the Zerg that took the last prey territory
+    // surrendered with it left at 0 armies (27 of 60 such games under zerg@1, 30 under zerg@2).
+    for (const params of [ZERG_1_PARAMS, ZERG_2_PARAMS]) {
+      let pendingSurrenders = 0;
+      let endgames = 0;
+      for (let seed = 1; seed <= 20; seed++) {
+        let s = createGame('p', { map: 'classic', maxPlayers: 4 }, seed);
+        for (const id of ['a', 'z1', 'z2', 'z3']) s = addPlayer(s, id, id, true);
+        s = startGame(s).state;
+        const horde = new Set(['z1', 'z2', 'z3']);
+        const random = seeded(seed);
+        for (let i = 0; i < 5000 && s.phase !== 'finished'; i++) {
+          const me = s.currentPlayer!;
+          const a = horde.has(me) ? chooseZergAction(s, me, horde, random, params)! : chooseBotAction(s, me, random)!;
+          if (a.type === 'surrender' && horde.has(me) && !s.players.find((p) => p.id === 'a')!.alive) endgames++;
+          if (a.type === 'surrender' && s.pendingConquest) pendingSurrenders++;
+          s = applyAction(s, me, a).state;
+        }
+        expect(s.phase).toBe('finished');
+        // No territory is left empty at the end.
+        expect(Object.values(s.territories).every((t) => t.armies > 0)).toBe(true);
+      }
+      expect(endgames).toBeGreaterThan(0);
+      expect(pendingSurrenders).toBe(0);
+    }
+  });
+
   it('strongest Zerg: most territories, then most armies, then the lowest seat index', () => {
     let s = createGame('k', { map: 'skirmish', maxPlayers: 3 }, 2);
     for (const id of ['z1', 'z2', 'z3']) s = addPlayer(s, id, id, true);
@@ -128,7 +157,9 @@ describe('Zerg judgement numbers', () => {
     // also rules out a walled-in Zerg surrendering mid-game), which changes the alliance phase too (520 moves).
     // Updated a third time on purpose: the owner replaced the fight with "the strongest Zerg keeps the table, the
     // others surrender at once", and turned the walled-in sacrifice back on. With the sacrifice on, the alliance phase
-    // is back to the original recording (543 moves, b4ce79d26322fdb7); whole games run 554 moves.
+    // is back to the original recording (543 moves, b4ce79d26322fdb7); whole games run 554 moves. Updated a fourth time
+    // on purpose (2026-10-22): a Zerg that takes the last prey territory occupies it before surrendering, so its
+    // conquest is never left empty. The alliance phase is unchanged; whole games run 555 moves (one occupy more).
     const out: unknown[] = [];
     const alliance: unknown[] = [];
     for (const seed of [1, 2, 3]) {
@@ -149,8 +180,8 @@ describe('Zerg judgement numbers', () => {
     const hash = (x: unknown) => createHash('sha256').update(JSON.stringify(x)).digest('hex').slice(0, 16);
     expect(alliance.length).toBe(543);
     expect(hash(alliance)).toBe('b4ce79d26322fdb7');
-    expect(out.length).toBe(554);
-    expect(hash(out)).toBe('3ff075efe976d8b3');
+    expect(out.length).toBe(555);
+    expect(hash(out)).toBe('4279bbd42f5bd700');
   });
 
   it('walled-in Zergs feed the swarm by default (sacrifice: 1); with sacrifice: 0 no Zerg surrenders while prey is left', () => {

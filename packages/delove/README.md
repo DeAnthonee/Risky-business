@@ -73,6 +73,32 @@ Jacob Sensei 2): Classic 6 players 0.17 s mean, 0.35 s at the 90th percentile, 1
 and their seats are named "Sensei 1" and "Sensei 2" unless `--names` says otherwise (#88). `jacob-sensei@1` (alias `jacob`)
 sits as "Jacob Sensei", `jacob-sensei@2` (alias `jacob2`) as "Jacob Sensei 2".
 
+**Decision notes** (`src/notes.ts`; the server side is #206): every move a seat sends carries a short private
+note on what Delove saw in it. It is kept on the game record's step and never shown during the game; the admin reads
+it after the game ([docs/game-records.md](../../docs/game-records.md)). `--no-notes` turns them off. A note reports
+only what the move already computed (no extra inference), stays under 2 KB (3 decimals, candidates cut first), and a
+note that can't be built never stops the move. A search seat's option scores come from branch and score's own trace
+(`DELOVE_BRANCH_TRACE`, which `delove-seat` points at a per-process temp file), so `branch.ts` is unchanged. A
+process decides for its seats one at a time with no wait in between, so each note reads its own move's line (matched to
+the game and seat too); the file is emptied after every move and deleted when the process exits.
+
+```jsonc
+// a search seat that compared options
+{"agent":"delove@11 + search","model":"delove@11","preset":"js2-range","phase":"attack","alive":4,"fog":false,
+ "top":[{"m":"att ontario>quebec","s":0.412,"r":6},{"m":"end","s":0.398,"r":6}],"chosen":0,"margin":0.02,"value":0.31}
+// a network seat
+{"agent":"delove@11","model":"delove@11","preset":null,"phase":"reinforce","alive":3,"fog":false,
+ "top":[{"m":"pl ontario 3","p":0.62},{"m":"pl quebec 3","p":0.21},{"m":"pl alaska 3","p":0.05}],"value":0.44}
+```
+
+`top`: for a search seat, the options it tried (the teacher's move first) with their branch score `s` (the share of
+the table it expects one round on, or its range score) and rollouts `r`, `chosen` the one played (it changes only by
+more than `margin`); `br: 0` when it played its teacher's move without comparing (setup, or nothing worth comparing);
+`fb: 1` under fog, where it plays its ranker's move (`top` then lists the ranker's favourites). For a network seat:
+its 3 favourite moves with their probability `p`. `value`: the network's win chance for this seat. Teachers (Jacob
+Sensei) send the header only. Moves read: `pl T n` place, `att A>B` attack, `occ n` move in, `ff A` / `ft B n`
+fortify from / to, `cap T` capital, `trade`, `end`.
+
 **Tournaments** (many Delove entrants, e.g. 20 Delove among 80 Zergs): `--tournament CODE --entrants N`.
 
 ```bash
@@ -192,7 +218,7 @@ answer synchronously.
 | `delove@1` | network distilled from the teacher (Stage 1), loaded from `models/delove/` (ignored by git) | done |
 | `delove@2` | distilled from the tuned teacher delove-teacher@2 (round 5) | done |
 | `delove@3` | fresh hidden-192 / 6-round network on branch-and-score decisions (cycle 4, `CYCLES.md`): 0.541 / 0.600 / 0.610 against delove@2 at 2 / 4 / 6 players | done |
-| `delove@4` … `delove@11` | the same network fine-tuned each cycle (cycles 6, 8-14; `docs/delove-status.md` section 3); `delove@11`: +0.11 leaderboard points per seat over `delove@10` at 4-10 players (SPRT) | `delove@11` current best (private models repo) |
+| `delove@4` … `delove@12` | the same network fine-tuned each cycle (cycles 6, 8-15; `docs/delove-status.md` section 3); `delove@12`, trained with fog dropout: +1.98 leaderboard points per seat over `delove@11` with fog on at 4-8 players | `delove@12` current best (private models repo) |
 | `jacob-sensei@1` | Jacob Sensei: hand-coded teacher for big tables (`src/jacob.ts`, below); never stalls in self-play, even with Sensei 2 at 2 players, far ahead at 4-10 | rollout teacher since cycle 6 |
 | `jacob-sensei@2` | Jacob Sensei 2 (`src/jacob.ts`, below): Jacob plus RISK_LEARNINGS.md sections 7-21, with its own duel numbers; vs `jacob-sensei@1` 0.53-0.57 at 2p and +0.4 to +1.3 points per seat at 4-10p | candidate rollout teacher (cycle 12) |
 
@@ -1023,6 +1049,57 @@ for second places, which is its objective (the Mid Range stage decides on top 2,
 to 0.2%. These are teacher-vs-teacher numbers; whether a specialist trained on these labels beats `delove@6` on its
 stage is the next cycle's gate (`npm run delove:stages`). The per-game results stay on the training PC.
 Pod spend for the verification and both runs: about $3.60.
+
+### Gumbel root (`DELOVE_BRANCH_ROOT=gumbel`): more candidates for the same copies
+
+#141 showed that more options pay (+0.23 points at 4, +0.28 at 5), but every option costs `rollouts` copies. The Gumbel
+root (Danihelka et al. 2022, "Policy improvement by planning with Gumbel"; `branch.ts` `gumbelRoot`) searches more
+candidates within the same budget, and explores moves the ranker under-rates:
+
+1. **Candidates:** the teacher's move, plus the `DELOVE_BRANCH_K - 1` (default 7) candidates with the highest
+   g + logit. Here g is a Gumbel(0, 1) draw per candidate, `-Math.log(-Math.log(u))` with u from the seat's stream
+   (one draw per candidate in candidate order, after the teacher's pick, before the fortify completions and the
+   seeds), and the logit is the ranker's. That is sampling without replacement from softmax(logits); self-play stays
+   deterministic from the seed.
+2. **Copies:** `DELOVE_BRANCH_COPIES`, default 0 = options × the decision's rollouts (the `top` root's budget: 5 × 6 =
+   30 at cycle settings), spent by **sequential halving** (`gumbelSchedule`): each round every candidate still in gets
+   max(1, ⌊budget / (rounds × candidates)⌋) more copies, then the others are halved (rounded up) by
+   g + logit + σ(q), with σ(q) = (50 + the most copies any candidate has) × q, q the candidate's mean score so far.
+   With 8 candidates and 30 copies that's 8 × 1, 5 × 1, 3 × 2, 2 × 3: 25 copies, and the teacher's move and the
+   finalist 7 each. Copy j of every candidate plays seed j (common random numbers), and later rounds add copies on
+   top of the earlier ones (the sums carry over).
+3. **Pick:** the higher g + logit + σ(q) of the teacher's move and the finalist. The teacher's move is never halved
+   away, so the margin rule still compares the pick with it on the same copies.
+
+`DELOVE_BRANCH_ROOT=top` (the default) is the old search, unchanged. Every branch score works with either root; the
+value blend (`DELOVE_BRANCH_VALUE`) does not work with gumbel. GPU: `delove_gpu.generate --root gumbel --gumbel-k 8
+--copies 0`, or seats `delove-branch@1:gumbel` (with `:k<N>`, `:o<N>` and score tokens, e.g.
+`delove-branch@1:range:gumbel`). The trace lists every searched candidate with its mean and copies, and
+`branch_q.npy` keeps every searched candidate's mean.
+
+**Measured** (2026-10-21; RunPod RTX 4090, 0.96 pod-hours, $0.85): head to head at the same tables, a
+`delove-branch@1:range:gumbel` seat (8 candidates) against a `delove-branch@1:range:o5` seat (the teacher's move
+plus the ranker's top 4). Both use 30 copies per decision (Gumbel: 25 in its 8-candidate plan), the range score,
+ranker `delove@10`, Jacob Sensei 2 rollouts, horizon 1, margin 0.01, seed 16 (`scripts/score_compare.py h2h-jobs
+--variants range:o5,range:gumbel --net delove@10 --other jacob-sensei@2`, run with `--options 5`). The field is
+`delove@10` plus one Jacob Sensei 2; both seats rotate through every seat. Leaderboard points per game, Gumbel minus
+5 options, 95% intervals, paired by game; 1,892 games:
+
+| table | games | Gumbel − 5 options | wins Gumbel / 5 options | kills per game |
+| --- | --- | --- | --- | --- |
+| Classic 2p | 400 | **+0.33 ± 0.29** | 0.555 / 0.445 | 0.56 / 0.45 |
+| Classic 4p | 296 | +0.03 ± 0.52 | 0.341 / 0.318 | 1.06 / 1.02 |
+| World 4p | 296 | **+0.64 ± 0.53** | 0.429 / 0.291 | 1.23 / 0.94 |
+| Classic 6p | 300 | −0.20 ± 0.72 | 0.293 / 0.280 | 1.41 / 1.47 |
+| World 6p | 300 | −0.41 ± 0.80 | 0.333 / 0.343 | 1.65 / 1.79 |
+| World 10p | 300 | +0.38 ± 1.19 | 0.317 / 0.260 | 2.60 / 2.28 |
+| **4-10p pooled** | 1,492 | +0.09 ± 0.36 | | +0.09 ± 0.18 kills |
+
+The Gumbel root wins clearly in the duel and at World 4p, and is even pooled over 4-10p, where 6p leans the other
+way. So it is at least as good as 5 options for the same copies, and better at 2 players, which is where Close
+Range lives. The first cycle to try it is 16 (`DELOVE_BRANCH_ROOT=gumbel`, or `:gumbel` seats on Close Range's
+stage jobs). One failed launch before this run cost $0.12 (a branch_q column bug, fixed and covered by
+`tests/gumbel_check.py`).
 
 ### Rollouts played by Delove (`DELOVE_BRANCH_ROLLOUT`): tried, not better; more options are
 

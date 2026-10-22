@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// First: sets this process's search trace file for decision notes before branch.ts loads (notes-trace.ts).
+import './notes-trace.js';
 import { fork } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -7,7 +9,8 @@ import type { GameOptions } from '@risk/engine';
 import { HttpRiskApi } from '@risk/mcp';
 import { seededRandom, type Agent } from '@risk/selfplay';
 import { branchFromEnv, LIVE_BRANCH_DEFAULT_PRESET, LIVE_BRANCH_PRESETS, liveBranchEnv, type LiveBranchPresetName } from './branch-env.js';
-import { discoverNetAgents } from './net-agent.js';
+import { discoverNetAgents, scorerOf } from './net-agent.js';
+import { Noter, type SeatInfo } from './notes.js';
 import { defaultName, discoverTunedTeachers, playSeat } from './seat.js';
 import { jacob, jacob2 } from './jacob.js';
 import { teacher } from './teacher.js';
@@ -38,6 +41,8 @@ const USAGE = `delove-seat: seat Delove players in a real game over the HTTP API
   --join CODE      join a game someone created; the host starts it
   --create         create a game (the first seat hosts), add --bots built-in bots, start it (unless --no-start)
   --pace MS        pause after each move so spectators can follow (default 400)
+  --no-notes       send moves without decision notes (default: each move carries a short private note on what
+                   Delove saw in it, kept on the game record; packages/delove/README.md "Decision notes")
 
 Tournaments (docs/tournaments.md; join while it is registering, the host starts it):
   --tournament CODE  join it with --entrants N entrants ("Delove 1" ... "Delove N", or --names), the agents of
@@ -67,6 +72,7 @@ async function main() {
       bots: { type: 'string' },
       options: { type: 'string' },
       'no-start': { type: 'boolean' },
+      'no-notes': { type: 'boolean' },
       pace: { type: 'string' },
       tournament: { type: 'string' },
       entrants: { type: 'string' },
@@ -123,7 +129,8 @@ async function main() {
     log('waiting for the host to start the game');
   }
 
-  const finals = await Promise.all(seats.map((s) => playSeat({ api, ...s, paceMs: pace, log })));
+  const notes = values['no-notes'] ? null : new Noter(infos);
+  const finals = await Promise.all(seats.map((s) => playSeat({ api, ...s, paceMs: pace, log, notes })));
   const last = finals.find((v) => v?.phase === 'finished') ?? finals[0];
   if (last?.phase === 'finished') {
     const winner = last.players.find((p) => p.id === last.winner);
@@ -142,6 +149,8 @@ function paceOf(v: string | undefined): number {
 
 /** Spectator labels (the `agent` tag on join): the network that plays, e.g. "delove@10 + search"; default the agent id. */
 const labels = new Map<Agent, string>();
+/** What a seat's decision notes say it is (notes.ts): its label, network and search preset. */
+const infos = new Map<Agent, SeatInfo>();
 
 /** The players for these ids (the teachers, every network in the models folder, and delove-branch with its preset). */
 function buildAgents(ids: string[], presetName: string | undefined): Agent[] {
@@ -167,6 +176,7 @@ function buildAgents(ids: string[], presetName: string | undefined): Agent[] {
     console.log(`${id} (${preset}): ranker ${env.DELOVE_BRANCH_RANKER ?? 'none'}, rollouts by ${env.DELOVE_BRANCH_TEACHER}, ${env.DELOVE_BRANCH_OPTIONS} options, ${env.DELOVE_BRANCH_SCORE} score, horizon ${env.DELOVE_BRANCH_HORIZON}, margin ${env.DELOVE_BRANCH_MARGIN}`);
     known.set(id, branch);
     labels.set(branch, `${env.DELOVE_BRANCH_RANKER ?? 'delove'} + search`);
+    infos.set(branch, { label: labels.get(branch)!, model: env.DELOVE_BRANCH_RANKER ?? null, preset });
     return branch;
   };
   if (ids.some((id) => id === 'delove-branch' || id === 'delove-branch@1')) known.set('delove-branch@1', search('delove-branch', undefined));
@@ -175,7 +185,9 @@ function buildAgents(ids: string[], presetName: string | undefined): Agent[] {
     if (!known.has(model)) fail(`${id}: no network ${model} in the models folder`);
     search(id, model);
   }
-  return ids.map((id) => known.get(id) ?? fail(`unknown Delove version "${id}" (known: ${[...known.keys()].join(', ')})`));
+  const agents = ids.map((id) => known.get(id) ?? fail(`unknown Delove version "${id}" (known: ${[...known.keys()].join(', ')})`));
+  for (const a of agents) if (!infos.has(a)) infos.set(a, { label: a.id, model: scorerOf(a) ? a.id : null, preset: null });
+  return agents;
 }
 
 interface Entrant {
@@ -191,6 +203,8 @@ interface ChildJob {
   entrants: Entrant[];
   preset?: string;
   pace: number;
+  /** Decision notes on (no --no-notes). */
+  notes: boolean;
 }
 
 interface ChildReport {
@@ -236,14 +250,14 @@ async function tournament(values: Record<string, string | boolean | undefined>):
     groups.map(
       (group) =>
         new Promise<ChildReport | null>((resolve) => {
-          const child = fork(self, ['--child'], { stdio: 'inherit' });
+          const child = fork(self, ['--child', ...(values['no-notes'] ? ['--no-notes'] : [])], { stdio: 'inherit' });
           let report: ChildReport | null = null;
           child.on('message', (m) => (report = m as ChildReport));
           child.on('exit', (code) => {
             if (code) log(`process ${child.pid} exited with ${code}`);
             resolve(report);
           });
-          const job: ChildJob = { server, tournamentId: id, entrants: group, preset: values.preset as string | undefined, pace };
+          const job: ChildJob = { server, tournamentId: id, entrants: group, preset: values.preset as string | undefined, pace, notes: !values['no-notes'] };
           child.send(job);
         }),
     ),
@@ -266,6 +280,7 @@ async function child(): Promise<void> {
   const api = new HttpRiskApi(job.server);
   const ids = [...new Set(job.entrants.map((e) => e.agentId))];
   const agents = new Map(buildAgents(ids, job.preset).map((a, i) => [ids[i], a]));
+  const notes = job.notes ? new Noter(infos) : null;
   const decisionsMs: number[] = [];
   const t0 = performance.now();
   const cpu0 = process.cpuUsage();
@@ -280,7 +295,7 @@ async function child(): Promise<void> {
   const results = await Promise.all(
     job.entrants.map((e, i) =>
       playEntrant({ api, tournamentId: job.tournamentId, entrantToken: e.token, name: e.name, agent: agents.get(e.agentId)!, paceMs: job.pace, log,
-        random: seededRandom((Date.now() + i * 7919) >>> 0), onDecision: (ms) => decisionsMs.push(ms) }),
+        random: seededRandom((Date.now() + i * 7919) >>> 0), onDecision: (ms) => decisionsMs.push(ms), notes }),
     ),
   );
   clearInterval(timer);

@@ -4,6 +4,8 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync, renameSync } from '
 import { dirname, join } from 'node:path';
 import {
   RuleError,
+  endByStanding,
+  onlySideLeft,
   addPlayer,
   applyAction,
   createGame,
@@ -24,7 +26,8 @@ import {
   type ScenarioRef,
   type ScenarioSeat,
 } from '@risk/engine';
-import { chooseSeatAction, seatIdPrefix, zergName, type BotKind } from './bot.js';
+import { timeoutSteps, timerOf } from '@risk/engine';
+import { chooseSeatAction, isZergSeat, seatIdPrefix, zergName, type BotKind } from './bot.js';
 import { DEFAULT_TOURNAMENT_LIMITS, TournamentManager } from './tournaments.js';
 import { TournamentRankings } from './tournament-scoring.js';
 import { Rankings } from './rankings.js';
@@ -54,6 +57,38 @@ export interface HistoryEntry {
   playerId: PlayerId | null;
   action: Action | { type: 'start' } | { type: 'system'; note: string };
   events: GameEvent[];
+  /** The turn timer ran out and the server made this move for the player. */
+  timeout?: true;
+  /**
+   * The acting seat's private decision note for this move (`act` with `note`): kept for after the game, never shown
+   * to other players or spectators while it is played (eventsSince strips it).
+   */
+  decisionNote?: DecisionNote;
+}
+
+/** The turn timer as a game's state shows it (null when the game has none). */
+export interface TurnTimerInfo {
+  mode: 'move' | 'turn';
+  seconds: number;
+  /** Whose clock is running, or null between turns, in the lobby, for bots and once the game is over. */
+  player: PlayerId | null;
+  /** When the running clock runs out (epoch ms), or null. */
+  deadline: number | null;
+  /** Whole seconds left on the running clock, or null. */
+  secondsLeft: number | null;
+}
+
+/** A seat's note on one move: a string or any JSON value, at most MAX_NOTE_BYTES once serialized. */
+export type DecisionNote = string | number | boolean | Record<string, unknown> | unknown[];
+export const MAX_NOTE_BYTES = 2048;
+
+/** A decision note from an untrusted request: undefined when absent, else the value, or a RuleError when too big. */
+export function parseDecisionNote(raw: unknown): DecisionNote | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  const json = JSON.stringify(raw);
+  if (json === undefined) throw new RuleError('note must be a string or JSON');
+  if (Buffer.byteLength(json, 'utf8') > MAX_NOTE_BYTES) throw new RuleError(`note is too long: at most ${MAX_NOTE_BYTES} bytes once serialized as JSON`);
+  return raw as DecisionNote;
 }
 
 export interface RoomSnapshot {
@@ -142,6 +177,11 @@ export interface ChangeMessage {
 }
 
 const BOT_DELAY_MS = Number(process.env.RISK_BOT_DELAY_MS ?? 700);
+/**
+ * A game seated with Zergs only ends right after the deal, decided by standing (owner, 2026-10-22); false would let it
+ * play out. Games with any non-Zerg seat always end once only Zergs are left.
+ */
+const ALL_ZERG_TABLES_END_AT_ONCE = true;
 const MAX_HISTORY = 2000;
 /** Most bots one add-bots call seats (MCP add_bot count, create_game zergs, POST /games/:id/bots count). */
 export const MAX_BOTS_PER_CALL = 9;
@@ -204,6 +244,11 @@ export class GameRoom extends EventEmitter {
   /** "training": ranked on the training leaderboard. Absent = public. */
   board?: RankingBoard;
   private botTimer: NodeJS.Timeout | null = null;
+  /** The turn timer (turnTimer option): when the current human or agent decision runs out. In memory only. */
+  private turnTimer: NodeJS.Timeout | null = null;
+  turnDeadline: number | null = null;
+  /** What the running clock is for: per move the state version, per turn the player and turn. */
+  private turnTimerKey: string | null = null;
   private waiters = new Set<() => void>();
 
   constructor(snapshot: RoomSnapshot) {
@@ -335,21 +380,35 @@ export class GameRoom extends EventEmitter {
     return id;
   }
 
-  /** The game as a seat (or, with null, an anonymous spectator) sees it. Never carries player-type labels. */
-  view(playerId: PlayerId | null): GameView {
-    return viewFor(this.state, playerId);
+  /** The game as a seat (or, with null, an anonymous spectator) sees it, with the turn timer. Never carries player-type labels. */
+  view(playerId: PlayerId | null): GameView & { timer: TurnTimerInfo | null } {
+    return { ...viewFor(this.state, playerId), timer: this.timerInfo() };
   }
 
   /**
-   * The spectator view plus each seat's player-type label (`agent`). Only for watchers on the web (HTTP or WebSocket
-   * with no seat token); a seated player's view, the MCP and chat never get labels.
+   * The spectator view plus each seat's player-type label (`agent`), with the turn timer. Only for watchers on the web
+   * (HTTP or WebSocket with no seat token); a seated player's view, the MCP and chat never get labels.
    */
-  spectatorView(): GameView {
+  spectatorView(): GameView & { timer: TurnTimerInfo | null } {
     const v = viewFor(this.state, null);
-    return { ...v, players: v.players.map((p) => (this.agents[p.id] ? { ...p, agent: this.agents[p.id] } : p)) };
+    return { ...v, players: v.players.map((p) => (this.agents[p.id] ? { ...p, agent: this.agents[p.id] } : p)), timer: this.timerInfo() };
   }
 
-  private commit(next: GameState, events: GameEvent[], playerId: PlayerId | null, action: HistoryEntry['action']) {
+  timerInfo(now = Date.now()): TurnTimerInfo | null {
+    const t = timerOf(this.state.options);
+    if (!t) return null;
+    const running = this.turnDeadline !== null;
+    return {
+      mode: t.mode,
+      seconds: t.seconds,
+      player: running ? this.state.currentPlayer : null,
+      deadline: this.turnDeadline,
+      secondsLeft: running ? Math.max(0, Math.ceil((this.turnDeadline! - now) / 1000)) : null,
+    };
+  }
+
+  private commit(next: GameState, events: GameEvent[], playerId: PlayerId | null, action: HistoryEntry['action'], opts: { timeout?: boolean; note?: DecisionNote } = {}) {
+    const { timeout = false, note } = opts;
     for (const player of this.state.players) {
       if (!player.isNeutral && player.alive && next.players.some(p => p.id === player.id && !p.alive) && !this.eliminationOrder.includes(player.id)) this.eliminationOrder.push(player.id);
     }
@@ -357,14 +416,43 @@ export class GameRoom extends EventEmitter {
     this.state = next;
     this.updatedAt = Date.now();
     if (next.phase === 'finished' && this.finishedAt === null) this.finishedAt = this.updatedAt;
-    this.history.push({ version: next.version, at: this.updatedAt, playerId, action, events });
+    this.history.push({ version: next.version, at: this.updatedAt, playerId, action, events, ...(timeout ? { timeout: true as const } : {}), ...(note !== undefined ? { decisionNote: note } : {}) });
     if (this.history.length > MAX_HISTORY) this.history.splice(0, this.history.length - MAX_HISTORY);
     // The game archive listens here: every move, in full, before anything else reacts to it.
-    const info: CommitInfo = { before, next, events, playerId, action, at: this.updatedAt };
+    const info: CommitInfo = { before, next, events, playerId, action, at: this.updatedAt, ...(timeout ? { timeout: true as const } : {}), ...(note !== undefined ? { note } : {}) };
     this.emit('commit', info);
+    // The clock is set before anyone hears of the change, so the state they read carries the new deadline.
+    this.armTurnTimer();
     const msg: ChangeMessage = { state: next, events, version: next.version, playerId };
     this.emit('change', msg);
     this.scheduleBot();
+    this.endIfOnlySwarm();
+  }
+
+  /**
+   * Owner's rule A (docs/zergs.md): when every living seat is a Zerg, the game ends at once, as it stands. The
+   * strongest Zerg wins (the engine's endByStanding), nobody surrenders and no land turns neutral. It goes through
+   * commit like any move, so records, replays, rankings and tournaments see an ordinary finished game.
+   */
+  private endIfOnlySwarm() {
+    const s = this.state;
+    // The server only says which seats are Zergs (a seating concept); whether that side is all that is left, and not
+    // mid-conquest, is the engine's call (onlySideLeft): the game ends on the occupy, never with a 0-army territory.
+    const zergs = new Set(s.players.filter((p) => isZergSeat(p.id)).map((p) => p.id));
+    // The last non-Zerg just fell to an attack and the armies have not moved in. The Zerg's own rule (no prey left and
+    // not the strongest: surrender) would come before its occupy, so the server moves the minimum in for it, as an
+    // ordinary move through commit; that commit then ends the game on a legal board.
+    const pc = s.pendingConquest;
+    if (pc && s.currentPlayer && zergs.has(s.currentPlayer) && onlySideLeft({ ...s, pendingConquest: null }, zergs)) {
+      this.act(s.currentPlayer, { type: 'occupy', armies: pc.minArmies });
+      return;
+    }
+    if (!onlySideLeft(s, zergs)) return;
+    // A table seated with Zergs only (e.g. a tournament table) ends right after the deal too, unless switched off.
+    if (!ALL_ZERG_TABLES_END_AT_ONCE && s.players.every((p) => p.isNeutral || isZergSeat(p.id))) return;
+    const { state, events } = endByStanding(s, new Set(s.players.filter((p) => p.alive && zergs.has(p.id)).map((p) => p.id)));
+    this.addChat(null, 'Game', 'Only Zergs are left: the swarm has won, and the game ends as it stands.');
+    this.commit(state, events, null, { type: 'system', note: 'only Zergs are left: the swarm has won, the game ends by standing' });
   }
 
   bindCharacter(playerId: string, characterId: string) {
@@ -465,10 +553,11 @@ export class GameRoom extends EventEmitter {
 
   // ---- play ----
 
-  act(playerId: PlayerId, action: Action): { state: GameState; events: GameEvent[] } {
+  /** Make a move. `note` is the seat's private decision note (see HistoryEntry.decisionNote); check it first. */
+  act(playerId: PlayerId, action: Action, note?: DecisionNote): { state: GameState; events: GameEvent[] } {
     const { state, events } = applyAction(this.state, playerId, action);
     if (!this.state.players.find((p) => p.id === playerId)?.isBot) this.touch();
-    this.commit(state, events, playerId, action);
+    this.commit(state, events, playerId, action, { note });
     return { state, events };
   }
 
@@ -559,8 +648,9 @@ export class GameRoom extends EventEmitter {
     return this.chat.filter((m) => m.id > since && this.canReadChat(m, viewer));
   }
 
+  /** History since `version`, as anyone may read it: decision notes are taken out. */
   eventsSince(version: number): HistoryEntry[] {
-    return this.history.filter((h) => h.version > version);
+    return this.history.filter((h) => h.version > version).map(({ decisionNote: _private, ...h }) => h);
   }
 
   /**
@@ -621,10 +711,60 @@ export class GameRoom extends EventEmitter {
     for (const w of [...this.waiters]) w();
   }
 
+  /** Stop the bot and the turn timer (close, shutdown). */
   stopBot() {
     if (this.botTimer) {
       clearTimeout(this.botTimer);
       this.botTimer = null;
+    }
+    this.clearTurnTimer();
+  }
+
+  // ---- turn timer ----
+
+  private clearTurnTimer() {
+    if (this.turnTimer) clearTimeout(this.turnTimer);
+    this.turnTimer = null;
+    this.turnDeadline = null;
+    this.turnTimerKey = null;
+  }
+
+  /**
+   * Start, keep or stop the turn timer after a change. It runs only for a living human or agent seat whose decision
+   * it is. Per move every change restarts it; per turn it restarts when the player or the turn changes (each setup
+   * placement and capital pick counts as a turn). The clock lives here, never in the engine.
+   */
+  armTurnTimer() {
+    const t = timerOf(this.state.options);
+    const s = this.state;
+    const cur = s.currentPlayer;
+    const p = cur ? s.players.find((x) => x.id === cur) : undefined;
+    if (!t || this.closed || !p || p.isBot || !p.alive || s.phase === 'lobby' || s.phase === 'finished') return this.clearTurnTimer();
+    const key = t.mode === 'move' || s.phase === 'setup' || s.phase === 'capitals' ? `v${s.version}` : `${cur}:${s.turnNumber}`;
+    if (key === this.turnTimerKey && this.turnTimer) return;
+    this.clearTurnTimer();
+    this.turnTimerKey = key;
+    this.turnDeadline = Date.now() + t.seconds * 1000;
+    this.turnTimer = setTimeout(() => {
+      this.turnTimer = null;
+      this.expireTurn();
+    }, t.seconds * 1000);
+    this.turnTimer.unref?.();
+  }
+
+  /**
+   * The current player ran out of time: make the moves timeoutSteps picks for them (engine rules), each one
+   * committed like any other move and flagged `timeout` in the history and the game record.
+   */
+  expireTurn() {
+    const t = timerOf(this.state.options);
+    const cur = this.state.currentPlayer;
+    this.clearTurnTimer();
+    if (!t || !cur || this.closed) return;
+    try {
+      for (const step of timeoutSteps(this.state, cur, t.mode)) this.commit(step.state, step.events, cur, step.action, { timeout: true });
+    } catch (err) {
+      console.error(`[timer ${this.id}] skipping ${cur} failed:`, err);
     }
   }
 
@@ -719,6 +859,9 @@ export class Store {
           if (snap.state.options.firstRoundBonus === undefined) snap.state.options.firstRoundBonus = false;
           // Balanced blitz arrived later; off by default.
           if (snap.state.options.balancedBlitz === undefined) snap.state.options.balancedBlitz = false;
+          // The turn timer arrived later: off for games already saved.
+          if (snap.state.options.turnTimer === undefined) snap.state.options.turnTimer = 'off';
+          if (snap.state.options.turnTimerSeconds === undefined) snap.state.options.turnTimerSeconds = 15;
           const room = new GameRoom(snap);
           this.attach(room);
         }
@@ -742,7 +885,11 @@ export class Store {
     for (const t of this.tournaments.tournaments.values()) {
       if (t.status === 'finished' && t.rounds.some((r) => r.matches.some((m) => m.order))) this.tournamentBoard.record(t, t.updatedAt);
     }
-    for (const room of this.rooms.values()) room.scheduleBot();
+    // A restored game's clock starts again in full (deadlines are not saved).
+    for (const room of this.rooms.values()) {
+      room.scheduleBot();
+      room.armTurnTimer();
+    }
   }
 
   private attach(room: GameRoom) {
@@ -870,6 +1017,7 @@ export class Store {
     this.attach(room);
     this.archive.begin(room, state, [], at);
     room.scheduleBot();
+    room.armTurnTimer();
     this.scheduleSave();
     return { room, seats };
   }

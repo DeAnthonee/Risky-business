@@ -33,9 +33,18 @@ continent. Hoarlands +6, Cloudvale +4, Fordlands +5, Rustcrag Isles +2 (a raider
 Goldfells +3, Throneland +3, Galewatch +3, Verdance +5, Sunmarches +3. Water cuts every border between two regions
 except one narrow pass per pair of neighbouring regions (the frozen north's only land way out is Bogneck-Twinford),
 so every region is held at a few chokepoints; offshore isles are reached by sea lanes. It does not wrap.
+Hex Earth ("hexworld"): the real world on a globe tiled by hexagons, 80 territories in 14 regions (2-10 players);
+each territory is a cluster of hexes (one for small islands and countries). North America +6, Central America +2,
+South America +4, Europe +7, Russia +5, Middle East +5, Central Asia +4, South Asia +2, East Asia +6, Southeast Asia
++4, Oceania +3 (Australia, New Zealand and Hawaii), North Africa +5, East Africa +5, Southern Africa +4. Land borders
+are touching hexes; 25 sea links cross the oceans (Beringia-Far East over the Bering Strait, Greenland-Iceland-
+Britain, the Caribbean, Brazilian Highlands-West Africa, Sicily-Tunisia, Madagascar, Japan, the islands down to
+Australia, and a Pacific route from the Great Basin through Hawaii to New Zealand). Territories carry general
+real-world area names (Great Plains, Andes, Sahel, Gobi ...). Being a globe, it wraps everywhere; the flat view joins
+Beringia and the Far East.
 Use the "map" tool for the exact territories, regions and adjacency of the map a game is using. On the classic,
-World and Grand World maps Alaska and Kamchatka are adjacent (the map wraps); on every map some adjacencies
-cross water.
+World and Grand World maps Alaska and Kamchatka are adjacent, as are Beringia and the Far East on Hex Earth (the map
+wraps); on every map some adjacencies cross water.
 
 PLAYERS & STARTING ARMIES
 Classic: 2 players: 40 each (plus a 40-army Neutral that never attacks). 3: 35. 4: 30. 5: 25. 6: 20.
@@ -51,6 +60,7 @@ share of the 6-player total (120 armies per 42 territories). Never fewer than 1.
   Four Crowns: 2: 23, 3: 20, 4: 17.
   Bohemia: 2: 40, 3: 35, 4: 30, 5: 25, 6: 20.
   The Nine Realms: 2: 55, 3: 48, 4: 41, 5: 35, 6: 28, 7: 24, 8: 21.
+  Hex Earth: 2: 76, 3: 67, 4: 57, 5: 48, 6: 38, 7: 33, 8: 29, 9: 25, 10: 23.
 
 SETUP
 Territories are dealt randomly (default) and get 1 army each. Then, in turn order, each player places armies on their
@@ -129,6 +139,15 @@ With "chooseCapitals" on, there is a short capitals phase after setup (whatever 
 each player in turn order picks one of their own territories with {"type":"choose_capital","territory":"<id>"}.
 The chosen capital gets 3 extra armies on the spot (1 army becomes 4). Picks are public, except under fog of war,
 where you only learn of capitals you can see. Then turn 1 begins.
+
+OPTION: TURN TIMER
+"turnTimer" ("off" by default, "move" or "turn") with "turnTimerSeconds" (5-600, default 15): human and agent seats
+(never bots) get that many seconds for each decision ("move": every placement, attack, occupy or fortify) or for
+the whole turn ("turn"). The game state shows the deadline and the seconds left (timer.secondsLeft); act quickly.
+On a timeout you are skipped: pending armies are placed for you over your border territories (weakest first), a
+pending conquest is occupied with the minimum, and your turn ends (no more attacks, no fortify). Per move, running
+out while placing only places your armies and the turn goes on with a fresh clock. Setup placements and capital
+picks are made for you the same way. The log shows "skipped (timeout)".
 
 SWARM GAMES (Zergs)
 Zergs are house bots that rush and never attack a fellow Zerg while anyone else is alive. To play against the swarm:

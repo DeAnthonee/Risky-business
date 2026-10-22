@@ -341,6 +341,16 @@ footer {
   display: inline-flex;
   align-items: center;
 }
+.turn-timer {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+.turn-timer.urgent {
+  color: #e63946;
+}
 .map-wrap {
   position: relative;
   flex: 1;
@@ -1188,38 +1198,99 @@ label.check input {
 .badge.blizzard .blizzard-icon line { stroke: #2f5577; stroke-width: 2.5; stroke-linecap: round; }
 .badge.blizzard { pointer-events: none; }
 
-/* ---------- Capture sweep ---------- */
+/* ---------- Capture pour (liquid) ---------- */
+/* Phase 1 (--pour): drops cross the border and a rippling front fills the territory, pushing the old colour out.
+   Phase 2 (after --pour): the pour is removed and a rim flash, a small pop and a ripple lock the new colour in. */
 .sweep {
   pointer-events: none;
-  animation: sweep-fade 1.5s ease-in forwards;
 }
-.sweep-fill {
-  fill-opacity: 0.95;
-  filter: brightness(1.35) url(#glow);
+.pour {
+  animation: pour-done 0s linear var(--pour) forwards;
 }
-.sweep-edge {
+.pour-front {
+  animation: pour-fill var(--pour) cubic-bezier(0.45, 0.05, 0.35, 1) forwards;
+}
+.pour-wave {
+  animation: pour-roll 0.9s linear infinite;
+}
+.pour-wave.back {
+  animation-duration: 1.3s;
+  animation-direction: reverse;
+}
+.pour-drop {
+  opacity: 0;
+  animation: pour-drop calc(var(--pour) * 0.75) cubic-bezier(0.5, 0, 0.6, 1) forwards;
+}
+.lock-in {
+  opacity: 0;
+  animation: pour-show 0s linear var(--pour) forwards;
+}
+.lock-fill {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: lock-pop 0.45s cubic-bezier(0.3, 1.6, 0.5, 1) var(--pour) both;
+}
+.lock-rim {
   fill: none;
-  stroke-width: 3;
-  stroke-opacity: 0.9;
-  animation: sweep-edge 1.2s ease-out forwards;
+  stroke-linejoin: round;
+  animation: lock-rim 0.7s ease-out var(--pour) both;
 }
-@keyframes sweep-fade {
-  0%,
-  55% {
+.lock-ripple {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 1.5;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: lock-ripple 0.8s ease-out var(--pour) both;
+}
+@keyframes pour-fill {
+  from { transform: translateX(0); }
+  to { transform: translateX(var(--dist)); }
+}
+@keyframes pour-roll {
+  from { transform: translateY(0); }
+  to { transform: translateY(-40px); }
+}
+@keyframes pour-drop {
+  0% { transform: translate(var(--x0), var(--y0)) scale(0.6); opacity: 0; }
+  15%, 85% { opacity: 1; }
+  100% { transform: translate(var(--x1), var(--y1)) scale(1.1); opacity: 0; }
+}
+@keyframes pour-done {
+  to { visibility: hidden; }
+}
+@keyframes pour-show {
+  to { opacity: 1; }
+}
+@keyframes lock-pop {
+  0% { transform: scale(1); opacity: 1; }
+  40% { transform: scale(1.06); opacity: 1; }
+  100% { transform: scale(1); opacity: 0; }
+}
+@keyframes lock-rim {
+  0% { stroke: #fff; stroke-opacity: 1; stroke-width: 4; }
+  100% { stroke-opacity: 0; stroke-width: 1; }
+}
+@keyframes lock-ripple {
+  0% { transform: scale(0.08); stroke-opacity: 0.9; }
+  100% { transform: scale(1); stroke-opacity: 0; }
+}
+/* Reduced motion: no pour or drops, just the lock-in flash fading out. */
+@media (prefers-reduced-motion: reduce) {
+  .pour,
+  .pour-drops {
+    display: none;
+  }
+  .lock-in {
+    animation: none;
     opacity: 1;
   }
-  100% {
-    opacity: 0;
+  .lock-fill,
+  .lock-ripple {
+    display: none;
   }
-}
-@keyframes sweep-edge {
-  0% {
-    stroke-width: 6;
-    stroke-opacity: 1;
-  }
-  100% {
-    stroke-width: 1;
-    stroke-opacity: 0;
+  .lock-rim {
+    animation-delay: 0s;
   }
 }
 
@@ -2049,34 +2120,52 @@ label.check input {
   animation: pulse-opacity 1.5s infinite;
 }
 
-/* ---------- Whose turn: the current player's land is lifted and rocks gently ---------- */
-.turn-lift-layer {
-  filter: drop-shadow(0 3px 2.5px rgba(0, 0, 0, 0.55));
+/* ---------- Whose turn: a still, glassy sheen over the current player's land ---------- */
+.turn-sheen {
+  pointer-events: none;
 }
-.turn-lift {
-  transform-box: fill-box;
-  transform-origin: center;
-  animation: turn-rock 3.2s ease-in-out infinite;
+
+/* ---------- Globe (hex-globe boards, GlobeMap.tsx) ----------
+   The three.js canvas fills the board; badges, region labels, floats and move tokens are HTML laid over it and
+   positioned every frame (transform), hidden on the far side of the globe. */
+.globe-wrap { background: radial-gradient(ellipse at 50% 45%, #10233a 0%, #070e18 70%); }
+.globe-canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; cursor: grab; outline: none; }
+.globe-canvas:active { cursor: grabbing; }
+.globe-overlay { position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 1; isolation: isolate; }
+.globe-overlay > * { position: absolute; left: 0; top: 0; will-change: transform, opacity; opacity: 0; }
+.globe-badge { pointer-events: auto; cursor: pointer; display: flex; flex-direction: column; align-items: center; }
+.globe-badge-body {
+  min-width: 22px; height: 22px; padding: 0 4px; border-radius: 11px; display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 800; color: #fff; border: 2px solid rgba(255, 255, 255, 0.85);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.6); text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7); box-sizing: border-box;
 }
-.turn-lift .territory:not([class*="hl-"]) {
-  stroke: rgba(255, 255, 255, 0.55);
-  stroke-width: 1.4;
-}
-.turn-lift .territory.hovered {
-  filter: brightness(1.2);
-}
-@keyframes turn-rock {
-  0%,
-  100% {
-    transform: translateY(-1.5px) scale(1.035) rotate(-1.2deg);
-  }
-  50% {
-    transform: translateY(-2.5px) scale(1.045) rotate(1.2deg);
-  }
-}
+.globe-badge.fog .globe-badge-body { border-color: rgba(255, 255, 255, 0.35); }
+.globe-badge.blizzard .globe-badge-body { color: #4a6380; text-shadow: none; }
+.globe-badge.dim { filter: brightness(0.45); }
+.globe-badge.hl-place .globe-badge-body,
+.globe-badge.hl-source .globe-badge-body,
+.globe-badge.hl-hover-source .globe-badge-body { border-style: dashed; border-color: #fff; }
+.globe-badge.hl-selected .globe-badge-body { border-color: #fff; animation: globe-pulse 1s ease-in-out infinite; }
+.globe-badge.hl-target .globe-badge-body,
+.globe-badge.hl-hover-target .globe-badge-body { border-color: #ff5a5a; border-width: 3px; animation: globe-pulse 1s ease-in-out infinite; }
+.globe-badge.hl-pending-target .globe-badge-body { border-color: #ffd166; border-width: 3px; }
+.globe-capital { position: absolute; top: -15px; font-size: 13px; text-shadow: 0 0 3px #000; }
+.globe-pending { position: absolute; top: -10px; right: -16px; font-size: 11px; font-weight: 800; color: #ffd166; text-shadow: 0 0 3px #000; }
+.globe-name, .globe-hover-name { font-size: 11px; font-weight: 700; color: #fff; white-space: nowrap; text-shadow: 0 1px 3px #000, 0 0 2px #000; }
+.globe-name { position: absolute; top: 24px; }
+.globe-hover-name { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); padding: 3px 10px; border-radius: 6px; background: rgba(20, 28, 44, 0.85); pointer-events: none; z-index: 4; }
+.globe-region { display: flex; flex-direction: column; align-items: center; text-shadow: 0 1px 3px #000, 0 0 6px #000; white-space: nowrap; }
+.globe-region b { font-size: 24px; font-weight: 900; }
+.globe-region span { font-size: 11px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; }
+.globe-float { display: block; font-size: 16px; font-weight: 800; text-shadow: 0 0 3px #000, 0 0 2px #000; animation: globe-float-up 1.2s ease-out forwards; }
+.globe-float.burst { font-size: 20px; }
+.globe-move { width: 20px; height: 20px; border-radius: 50%; border: 2px solid #fff; color: #fff; font-size: 10px; font-weight: 800; display: flex; align-items: center; justify-content: center; box-sizing: border-box; }
+.globe-message { margin: auto; color: var(--muted); text-align: center; }
+.map-controls .globe-flat, .map-controls .globe-toggle { width: auto; padding: 0 10px; font-size: 13px; }
+.map-controls .globe-follow.active { background: var(--accent, #3b82f6); color: #fff; }
+@keyframes globe-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.12); } }
+@keyframes globe-float-up { 0% { opacity: 1; transform: translateY(0); } 100% { opacity: 0; transform: translateY(-28px); } }
 @media (prefers-reduced-motion: reduce) {
-  .turn-lift {
-    animation: none;
-    transform: translateY(-2px) scale(1.04);
-  }
+  .globe-badge .globe-badge-body { animation: none !important; }
+  .globe-float { animation-name: fadeout; }
 }

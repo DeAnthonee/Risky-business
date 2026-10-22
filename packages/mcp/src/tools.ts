@@ -24,6 +24,12 @@ const tokenSchema = z
   .describe('Your player token for this game (returned by create_game/join_game). Always pass it: it identifies your seat even after a reconnect or when this connection holds several seats.');
 const asSchema = z.string().optional().describe('Alternative to token: the player name of the seat to act as, when this connection holds several seats in the game');
 
+/** A board: one of MAP_IDS, or a generated board's id (gen1-s<seed>-p<seats>-t<territories>, see procgen.ts). */
+function mapIdSchema() {
+  return z.union([z.enum(MAP_IDS as [string, ...string[]]), z.string().regex(GEN_ID_PATTERN, 'a generated board id such as gen1-s42-p4-t20')]);
+}
+const GEN_ID_PATTERN = /^gen\d+-s\d+-p\d+-t\d+(-r\d+)?(-c\d+)?$/;
+
 /** Zod schema for game settings, generated from the engine's OPTION_SPECS so it can never drift. */
 function buildOptionsSchema() {
   const shape: Record<string, z.ZodTypeAny> = {};
@@ -33,7 +39,7 @@ function buildOptionsSchema() {
     let field: z.ZodTypeAny;
     let desc = spec.description;
     if (spec.kind === 'enum') {
-      field = z.enum(spec.values as [string, ...string[]]);
+      field = key === 'map' ? mapIdSchema() : z.enum(spec.values as [string, ...string[]]);
       desc += ' Values: ' + spec.values.map((v) => `"${v}" = ${spec.valueLabels[v]}`).join('; ') + '.';
     } else if (spec.kind === 'boolean') {
       field = z.boolean();
@@ -98,6 +104,9 @@ export function formatMemory(m: CharacterMemory): string {
   return lines.join('\n');
 }
 
+/** Told to every agent on the tools it plays with: a game may have a turn timer. */
+const TIMER_NOTE =
+  'TURN TIMER: a game may have one (the turnTimer setting: per move or per turn, a few seconds). When it is on, the state shows a TURN TIMER line with your seconds left: act quickly and do not think for long. If the clock runs out you are skipped (your armies are placed for you, no attacks, no fortify, your turn ends).';
 const tournamentIdSchema = z.string().min(4).max(12).describe('Tournament code, e.g. "TAB12C"');
 
 /** A bracket as text: entrants, every round's tables and, with an entrant token, where you stand. */
@@ -206,7 +215,7 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
     'map',
     {
       description: 'Return a static map: territories, continents with bonuses, and adjacency (which territories border which). Pass the map a game uses (get_state shows options.map).',
-      inputSchema: { map: z.enum(MAP_IDS as [string, ...string[]]).optional().describe(`Default classic. One of: ${MAP_IDS.join(', ')} (fantasy = Realms of Halvaren, an original fantasy world; skirmish = Four Crowns, a small fast 4-player board; bohemia = Bohemia, a 42-territory inland kingdom whose regions meet only at river fords; nine_realms = The Nine Realms, a 58-territory north-south continent whose regions meet only at narrow passes, up to 8)`) },
+      inputSchema: { map: mapIdSchema().optional().describe(`Default classic. One of: ${MAP_IDS.join(', ')} (fantasy = Realms of Halvaren, an original fantasy world; skirmish = Four Crowns, a small fast 4-player board; bohemia = Bohemia, a 42-territory inland kingdom whose regions meet only at river fords; nine_realms = The Nine Realms, a 58-territory north-south continent whose regions meet only at narrow passes, up to 8; hexworld = Hex Earth, the real world on a hexagon globe, 80 territories, up to 10), or a generated board's id such as gen1-s42-p4-t20 (a hex board built from seed 42 for up to 4 players, 20 territories; tournament tables use these)`) },
     },
     async ({ map }) => {
     try {
@@ -230,7 +239,7 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
     'create_game',
     {
       description:
-        'Create a new game and take a seat as its host. Pass any game settings in "options" (map, seats, setup, cards, fog of war, Capital Conquest, neutrals, blizzards...); call game_options to see them all with defaults and limits. Returns the game code to share and your player token. ' +
+        'Create a new game and take a seat as its host. Pass any game settings in "options" (map, seats, setup, cards, fog of war, Capital Conquest, neutrals, blizzards, turn timer...); call game_options to see them all with defaults and limits. Returns the game code to share and your player token. ' +
         'Pass zergs: N to seat N Zergs (rushing house bots that never attack each other while anyone else is alive) right away. For a swarm game use the swarm settings: zergs 3-5 and options {"capitals": true, "blizzards": 4, "autoSetup": true}, then start_game.',
       inputSchema: {
         playerName: z.string().max(24).optional().describe(`Your display name (default "${DEFAULT_NAME}")`),
@@ -429,7 +438,7 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
   server.registerTool(
     'get_state',
     {
-      description: 'Get the current game state from your point of view, including your cards and the list of legal moves if it is your turn.',
+      description: `Get the current game state from your point of view, including your cards and the list of legal moves if it is your turn. ${TIMER_NOTE}`,
       inputSchema: { gameId: gameIdSchema, format: z.enum(['text', 'json']).optional().describe('text (default, compact and readable) or json (raw state view)'), token: tokenSchema, as: asSchema },
     },
     async ({ gameId, format, token, as }) => {
@@ -447,7 +456,7 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
     'wait_for_turn',
     {
       description:
-        'Block until it is your turn (or the game ends), up to timeoutSeconds. Returns what happened since you last looked plus the new state. Call again if it returns "timeout". Spectators (no token) can pass sinceVersion to be woken by any change.',
+        `Block until it is your turn (or the game ends), up to timeoutSeconds. Returns what happened since you last looked plus the new state. Call again if it returns "timeout". Spectators (no token) can pass sinceVersion to be woken by any change. ${TIMER_NOTE}`,
       inputSchema: {
         gameId: gameIdSchema,
         timeoutSeconds: z.number().min(1).max(110).optional().describe('Default 60'),
@@ -483,19 +492,24 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
         'Perform one game action on your turn. Returns the resulting events (dice rolls, conquests...), only the territories your action changed (with their neighbours), your armies, cards and continents, and your next legal moves. Other players do not act during your turn (the only exception: someone may surrender, handing their territories to the Neutral), so you rarely need to reread the board between actions. When your turn ends the full board comes back. Pass full:true for the whole board anyway. ' +
         'Attack with blitz:true (one call resolves the whole battle). To keep a garrison, add stopAt:N instead of rolling one die at a time: the blitz stops once the stack is down to N. Legal moves show the chance an all-in blitz takes each target. ' +
         'Under fog of war, omit "occupy" on attacks: the result lists what the conquest revealed (capitals are tagged CAPITAL) and you then occupy with the number that fits. ' +
-        'Examples: {"type":"place","placements":{"alaska":3}} · {"type":"attack","from":"alaska","to":"kamchatka","blitz":true,"occupy":"max"} · {"type":"end_attack"} · {"type":"fortify","from":"peru","to":"brazil","armies":2} · {"type":"end_turn"}',
+        'Examples: {"type":"place","placements":{"alaska":3}} · {"type":"attack","from":"alaska","to":"kamchatka","blitz":true,"occupy":"max"} · {"type":"end_attack"} · {"type":"fortify","from":"peru","to":"brazil","armies":2} · {"type":"end_turn"} ' +
+        TIMER_NOTE,
       inputSchema: {
         gameId: gameIdSchema,
         action: actionSchema,
         token: tokenSchema,
         as: asSchema,
         full: z.boolean().optional().describe('true: return the whole board instead of just what your action changed'),
+        note: z
+          .union([z.string().max(2000), z.record(z.string(), z.unknown())])
+          .optional()
+          .describe('Optional private note on why you made this move (a string or a JSON object, at most 2 KB). It is saved with the move in the game record for review after the game and is never shown to other players or spectators during it.'),
       },
     },
-    async ({ gameId, action, token, as, full }) => {
+    async ({ gameId, action, token, as, full, note }) => {
       try {
         const id = gameId.toUpperCase();
-        const r = await api.act(id, requireToken(id, token, as), action as Action);
+        const r = await api.act(id, requireToken(id, token, as), action as Action, note);
         if (full) {
           const ev = formatEvents(r.events, r.state);
           return text(`OK.${ev ? `\nEvents:\n${ev}` : ''}\n\n${formatState(r.state)}`);

@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { stepAgent, type Agent, type StepContext } from '@risk/selfplay';
 import { BRANCH_SCORES, branchAgent, DEFAULT_BRANCH, type BranchOptions, type BranchScore, type FogSearch, type RolloutNet } from './branch.js';
 import { FogTracker, sampleBoard } from './fog-sampler.js';
-import { modelsDir, NetScorer } from './net-agent.js';
+import { modelsDir, NetScorer, setScorer } from './net-agent.js';
 import {
   DEFAULT_JACOB_PARAMS,
   jacob,
@@ -51,6 +51,12 @@ function branchScore(v: string | undefined): BranchOptions['score'] {
   return v as BranchScore;
 }
 
+function branchRoot(v: string | undefined): BranchOptions['root'] {
+  if (v === undefined || v === '') return DEFAULT_BRANCH.root;
+  if (v !== 'top' && v !== 'gumbel') throw new Error(`DELOVE_BRANCH_ROOT must be top or gumbel, not ${v}`);
+  return v;
+}
+
 /** DELOVE_BRANCH_ROLLOUT: '<model>' or '<model>:all' (every seat), '<model>:self' (the decider's seat); unset: none. */
 function rolloutNet(v: string | undefined, models: string, ranker: NetScorer | null): RolloutNet | null {
   if (v === undefined || v === '') return null;
@@ -83,6 +89,8 @@ function branchFog(v: string | undefined): BranchFogMode {
  * decision kinds, e.g. occupy,trade) the kinds it plays without branching, DELOVE_STRENGTH=<file> the strength meter's
  * fitted share weights (python/fit_strength.py). `score` replaces DELOVE_BRANCH_SCORE, for the seats
  * delove-branch@1:<score> (branchSeatsFromEnv).
+ * DELOVE_BRANCH_ROOT=gumbel searches a Gumbel root instead of the top options (branch.ts gumbelRoot): DELOVE_BRANCH_K
+ * candidates (default 8) within DELOVE_BRANCH_COPIES rollout copies (default 0: options x rollouts).
  * DELOVE_BRANCH_ROLLOUT=<model> has that network (e.g. delove@5) play the rollouts in every seat instead of the teacher,
  * <model>:self in the decider's seat only (unset: the teacher).
  * DELOVE_BRANCH_FOG=determinize searches fog games too, on boards sampled from the seat's view and memory
@@ -118,39 +126,53 @@ export function branchFromEnv(
           samples: num('DELOVE_BRANCH_FOG_SAMPLES', 8),
         }
       : null;
+  const opts: BranchOptions = {
+    ...DEFAULT_BRANCH,
+    options: num('DELOVE_BRANCH_OPTIONS', DEFAULT_BRANCH.options),
+    rollouts: num('DELOVE_BRANCH_ROLLOUTS', DEFAULT_BRANCH.rollouts),
+    horizon: num('DELOVE_BRANCH_HORIZON', DEFAULT_BRANCH.horizon),
+    margin: num('DELOVE_BRANCH_MARGIN', DEFAULT_BRANCH.margin),
+    skip: env.DELOVE_BRANCH_SKIP === undefined ? DEFAULT_BRANCH.skip : env.DELOVE_BRANCH_SKIP.split(',').filter(Boolean),
+    valueWeight: num('DELOVE_BRANCH_VALUE', DEFAULT_BRANCH.valueWeight),
+    score: score ?? branchScore(env.DELOVE_BRANCH_SCORE),
+    killWeight: num('DELOVE_BRANCH_KILL_WEIGHT', DEFAULT_BRANCH.killWeight),
+    threat: num('DELOVE_BRANCH_THREAT', DEFAULT_BRANCH.threat),
+    closeRollouts: num('DELOVE_BRANCH_CLOSE_ROLLOUTS', DEFAULT_BRANCH.closeRollouts),
+    closeHorizon: num('DELOVE_BRANCH_CLOSE_HORIZON', DEFAULT_BRANCH.closeHorizon),
+    root: branchRoot(env.DELOVE_BRANCH_ROOT),
+    gumbelK: num('DELOVE_BRANCH_K', DEFAULT_BRANCH.gumbelK),
+    copies: num('DELOVE_BRANCH_COPIES', DEFAULT_BRANCH.copies),
+    weights: env.DELOVE_STRENGTH ? JSON.parse(readFileSync(env.DELOVE_STRENGTH, 'utf8')).weights : DEFAULT_BRANCH.weights,
+  };
   const search = branchAgent(
     variant?.id ?? (score === undefined ? 'delove-branch@1' : `delove-branch@1:${score}`),
     rolloutPick,
     ranker,
-    {
-      ...DEFAULT_BRANCH,
-      options: num('DELOVE_BRANCH_OPTIONS', DEFAULT_BRANCH.options),
-      rollouts: num('DELOVE_BRANCH_ROLLOUTS', DEFAULT_BRANCH.rollouts),
-      horizon: num('DELOVE_BRANCH_HORIZON', DEFAULT_BRANCH.horizon),
-      margin: num('DELOVE_BRANCH_MARGIN', DEFAULT_BRANCH.margin),
-      skip: env.DELOVE_BRANCH_SKIP === undefined ? DEFAULT_BRANCH.skip : env.DELOVE_BRANCH_SKIP.split(',').filter(Boolean),
-      valueWeight: num('DELOVE_BRANCH_VALUE', DEFAULT_BRANCH.valueWeight),
-      score: score ?? branchScore(env.DELOVE_BRANCH_SCORE),
-      killWeight: num('DELOVE_BRANCH_KILL_WEIGHT', DEFAULT_BRANCH.killWeight),
-      threat: num('DELOVE_BRANCH_THREAT', DEFAULT_BRANCH.threat),
-      closeRollouts: num('DELOVE_BRANCH_CLOSE_ROLLOUTS', DEFAULT_BRANCH.closeRollouts),
-      closeHorizon: num('DELOVE_BRANCH_CLOSE_HORIZON', DEFAULT_BRANCH.closeHorizon),
-      weights: env.DELOVE_STRENGTH ? JSON.parse(readFileSync(env.DELOVE_STRENGTH, 'utf8')).weights : DEFAULT_BRANCH.weights,
-    },
+    opts,
     valuer,
     rolloutNet(env.DELOVE_BRANCH_ROLLOUT, dir, ranker),
     fogSearch,
   );
-  if (!fogSearch) return fogSafe(search, ranker, rolloutPick);
   // Fog search: remember what each fog decision shows (the sampler reads it), then search.
-  return {
-    ...search,
-    choose: (ctx) => {
-      if (ctx.state.options.fogOfWar) tracker.observe(ctx.state, ctx.me);
-      return search.choose(ctx);
-    },
-    ...(ranker?.fogInputs ? { fogInputs: ranker.fogInputs } : {}),
-  };
+  const agent: Agent = !fogSearch
+    ? fogSafe(search, ranker, rolloutPick)
+    : {
+        ...search,
+        choose: (ctx) => {
+          if (ctx.state.options.fogOfWar) tracker.observe(ctx.state, ctx.me);
+          return search.choose(ctx);
+        },
+        ...(ranker?.fogInputs ? { fogInputs: ranker.fogInputs } : {}),
+      };
+  if (ranker) setScorer(agent, ranker);
+  searches.set(agent, opts);
+  return agent;
+}
+
+/** A search seat's settings, for its decision notes (notes.ts): options, margin, rollouts (decisionScore). */
+const searches = new WeakMap<Agent, BranchOptions>();
+export function searchOf(agent: Agent): BranchOptions | undefined {
+  return searches.get(agent);
 }
 
 /** The ranker's top move (ties: the first candidate), or the teacher's pick without a ranker or with one candidate. */
@@ -181,11 +203,21 @@ export function fogSafe(search: Agent, ranker: NetScorer | null, teacherPick: (c
 
 /**
  * delove-branch@1 and the same player with each branch score of its own, delove-branch@1:<score> (any of
- * BRANCH_SCORES), so one table (a jobs line) can seat a score of its own, or several side by side; delove_gpu.generate
- * takes the same ids.
+ * BRANCH_SCORES), so one table (a jobs line) can seat a score of its own, or several side by side; and each of those
+ * with the Gumbel root, delove-branch@1:gumbel and delove-branch@1:<score>:gumbel. delove_gpu.generate takes the same
+ * ids.
  */
 export function branchSeatsFromEnv(dir = modelsDir(), env: NodeJS.ProcessEnv = process.env): Agent[] {
-  return [branchFromEnv(dir, env), ...BRANCH_SCORES.map((score) => branchFromEnv(dir, env, score))];
+  // ...:gumbel: the same seat with the Gumbel root (branch.ts gumbelRoot), e.g. on a cycle's 2p and stage tables only;
+  // the value blend is off for them (the Gumbel root does not support it)
+  const g = { ...env, DELOVE_BRANCH_ROOT: 'gumbel', DELOVE_BRANCH_VALUE: '0' };
+  const same = (pick: (ctx: StepContext) => number) => pick;
+  return [
+    branchFromEnv(dir, env),
+    ...BRANCH_SCORES.map((score) => branchFromEnv(dir, env, score)),
+    branchFromEnv(dir, g, undefined, { id: 'delove-branch@1:gumbel', rolloutPick: same }),
+    ...BRANCH_SCORES.map((score) => branchFromEnv(dir, g, score, { id: `delove-branch@1:${score}:gumbel`, rolloutPick: same })),
+  ];
 }
 
 /** The newest base network in the models folder (delove@N.onnx with the highest N), or null when there is none. */

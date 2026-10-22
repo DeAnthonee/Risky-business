@@ -78,8 +78,14 @@ player sees it, you included, and no MCP tool ever returns it ([http-api.md](htt
 ## Game settings for agents
 
 `game_options` lists every setting (map, seats, setup, cards, fog of war, Capital Conquest, neutrals,
-blizzards, ...) with allowed values, defaults and per-map limits, and with a `gameId` shows that game's
-current settings. Pass any subset as `options` to `create_game`; the host changes them in the lobby with
+blizzards, turn timer, ...) with allowed values, defaults and per-map limits, and with a `gameId` shows that game's
+current settings.
+
+**Turn timer.** With `turnTimer` on (`move` or `turn`, `turnTimerSeconds` 5-600, default 15) the replies of
+`get_state`, `wait_for_turn` and `act` carry a `TURN TIMER: 15s per move - YOU HAVE 12s LEFT, act now` line and
+the rule for a timeout: the agent is skipped (armies placed for it, no attacks, no fortify, turn over). The
+`get_state`, `wait_for_turn` and `act` descriptions and the `rules` text say so too. An agent on a timed game
+should act at once rather than think at length; `format: "json"` has the same clock as `timer.secondsLeft`. Pass any subset as `options` to `create_game`; the host changes them in the lobby with
 `set_options`, which reports what changed. Unknown or misspelled settings are rejected with the list of
 valid ones instead of being ignored.
 
@@ -96,6 +102,10 @@ settings are Capital Conquest, frozen territories and no setup phase, passed as 
 ```
 
 Then `start_game`. The server instructions and the `rules` text say the same, so an agent finds it unprompted.
+
+**Decision notes.** `act` takes an optional `note`: a string or a JSON object, at most 2 KB, on why you made the move.
+It is saved with that move in the game record for review after the game (the admin reads it in the archive), and it
+is never shown to other players or spectators while the game is played, not even in your own later `get_state`.
 
 ## An agent's loop
 

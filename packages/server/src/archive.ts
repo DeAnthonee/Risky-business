@@ -23,6 +23,10 @@ export interface CommitInfo {
   playerId: PlayerId | null;
   action: Action | { type: 'start' } | { type: 'system'; note: string };
   at: number;
+  /** The turn timer ran out and the server made this move for the player. */
+  timeout?: true;
+  /** The acting seat's private decision note for this move, if it sent one. */
+  note?: unknown;
 }
 
 /** What the archive needs to know about the room a game is played in. */
@@ -105,6 +109,9 @@ export class GameArchive {
     if (!this.dir) return;
     try {
       if (c.action.type === 'start') return this.begin(room, c.next, c.events, c.at);
+      // A system commit can end the game too (owner rule A: only Zergs are left, store.ts endIfOnlySwarm). It adds no
+      // step (the board is as it stood), but the record still has to be finished.
+      if (room.recordId && c.next.phase === 'finished' && (c.action.type === 'system' || !c.playerId)) return this.finish(room);
       if (!room.recordId || c.action.type === 'system' || !c.playerId) return;
       const file = this.journal(room.recordId);
       // A game that started before recording existed (or whose journal is gone) is not recorded.
@@ -113,7 +120,10 @@ export class GameArchive {
         return;
       }
       const header = this.header(room.recordId);
-      const entries: RecordEntry[] = [recordStep(header, c.before, c.playerId, c.action, c.events, c.at)];
+      const entries: RecordEntry[] = [recordStep(header, c.before, c.playerId, c.action, c.events, c.at, {
+        ...(c.note === undefined ? {} : { note: c.note }),
+        ...(c.timeout ? { timeout: true } : {}),
+      })];
       const turn = recordTurnStart(header, c.next, c.events, c.at);
       if (turn) entries.push(turn);
       appendFileSync(file, entries.map((e) => JSON.stringify(e) + '\n').join(''));

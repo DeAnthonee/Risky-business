@@ -53,7 +53,7 @@ Every documentation file in the repo, what it covers and when to read it.
 | --- | --- | --- |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | commands, branching, the standard path for a feature (engine → server/API → MCP → client → docs → `npm test`), maps workflow, style, `[OPS]` issues | before your first change; whenever you add a feature |
 | [docs/conventions.md](docs/conventions.md) | per-area conventions: packages, settings (`OPTION_SPECS`), maps, MCP tools, tournaments, records, self-play, characters, runner | before changing that area |
-| [docs/hardening.md](docs/hardening.md) | known gaps left open on purpose (open tournaments, fog totals, leaderboard identities, watcher memory, scenarios, seeded leaderboard) and trade-offs | before touching any feature it lists |
+| [docs/hardening.md](docs/hardening.md) | known gaps left open on purpose (open tournaments, fog totals, leaderboard identities, watcher memory, scenarios, seeded leaderboard, tournament characters, the season-archive lockout) and trade-offs | before touching any feature it lists |
 | [docs/logs/pending/README.md](docs/logs/pending/README.md) | where a PR writes its running-log lines (one fragment file per PR), the line format, how `npm run logs:fold` folds them in | before adding your log line (every PR) |
 | [docs/roadmap.md](docs/roadmap.md) | old wish list of polish ideas | when looking for something to build |
 | [.github/pull_request_template.md](.github/pull_request_template.md) | what a PR must say and check | when opening a PR |
@@ -64,8 +64,8 @@ Every documentation file in the repo, what it covers and when to read it.
 | file | what it covers | read it when |
 | --- | --- | --- |
 | [docs/playing.md](docs/playing.md) | the web client for players and spectators (spectating, auto-spectate, whispers, animations, commit slider, views), the rules implemented and every game setting | changing the client, the rules text or a setting |
-| [docs/map-making.md](docs/map-making.md) | making a new board: design rules (original names, chokepoints, bonuses), tracing a picture, chokepoint techniques, `scripts/preview-map.mjs`, the registration checklist, owner approval, review and GPU verification, the map status tracker (`npm run maps:status`) | making or reworking a board; checking which maps GPU training covers |
-| [docs/maps.md](docs/maps.md) | the twelve boards, starting armies, legacy maps, how map data is generated | changing or adding a map |
+| [docs/map-making.md](docs/map-making.md) | making a new board: design rules (original names, chokepoints, bonuses), tracing a picture, chokepoint techniques, `scripts/preview-map.mjs`, the registration checklist, owner approval, review and GPU verification, the map status tracker (`npm run maps:status`), procedural boards (`procgen.ts`, `gen1-...` ids), hex-globe boards | making or reworking a board; checking which maps GPU training covers; changing the board generator |
+| [docs/maps.md](docs/maps.md) | the thirteen boards, starting armies, legacy maps, how map data is generated | changing or adding a map |
 | [docs/http-api.md](docs/http-api.md) | every `/api` route, the WebSocket protocol, the action JSON | changing or calling the API |
 | [docs/mcp.md](docs/mcp.md) | the MCP tools, remote `/mcp` connector, the stdio CLI and its env vars, an agent's loop | changing MCP tools or connecting an agent |
 | [docs/tournaments.md](docs/tournaments.md) | knockout tournaments: tables, moving on, no-shows, watching, agents | changing tournaments |
@@ -169,7 +169,10 @@ These keep the deploy, the game and the training pipeline from breaking. Everyth
    (`packages/delove-gpu/engine-fingerprint.json`) after changing a mirrored rule file.
 9. **Define things once.** Game settings only in `OPTION_SPECS` (`packages/engine/src/options.ts`; server parsing is
    strict, unknown keys are errors). MCP tools only in `packages/mcp/src/tools.ts` over `RiskApi`. Map data only in
-   `scripts/maps/*.mjs`: run `npm run build:map` and commit the output, never edit the generated JSON.
+   `scripts/maps/*.mjs`: run `npm run build:map` and commit the output, never edit the generated JSON. The one
+   exception is procedural boards: they come only from the seeded engine generator `packages/engine/src/procgen.ts`
+   (seed and size in the map id, `gen1-s<seed>-p<seats>-t<territories>`), are never written to `generated/`, and a
+   released generator version never changes its output (a change is a new version, `gen2`).
 10. **Keep the boundaries.** Self-play stays deterministic from the seed (no `Math.random`, no clocks in decisions).
     `packages/selfplay`, `llm-player`, `runner`, `delove` and `delove-gpu` are never imported by the server; Delove is
     never imported by the character code. The web client moves a spectator to another game only in opt-in

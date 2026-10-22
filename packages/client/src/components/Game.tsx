@@ -14,7 +14,7 @@ import { Chat } from './Chat';
 import { DicePanel, type BattleEvent } from './Dice';
 import { Log } from './Log';
 import { BlitzPlanner } from './BlitzPlanner';
-import { GameMap, territoryName, type FloatAnim, type Highlight, type MoveAnim, type SweepAnim } from './Map';
+import { GameMap, POUR_MS, territoryName, type FloatAnim, type Highlight, type MoveAnim, type SweepAnim } from './Map';
 
 type Mode = 'idle' | 'capital' | 'place' | 'attack' | 'fortify';
 
@@ -481,6 +481,7 @@ export function Game({
                 {myTurn ? 'Your turn' : `${current.name}'s turn`} · round {view.round}
               </span>
             )}
+            <TurnCountdown view={view} myTurn={myTurn} />
           </div>
         </div>
 
@@ -818,6 +819,36 @@ export function Game({
 
 const CARD_ICON: Record<Card['kind'], string> = { infantry: '🪖', cavalry: '🐎', artillery: '💣', wild: '🃏' };
 
+/** The server's turn timer as the state carries it (absent or null when the game has none). */
+type TimerView = { mode: 'move' | 'turn'; seconds: number; player: string | null; deadline: number | null; secondsLeft: number | null };
+
+/**
+ * Countdown for the turn timer. It counts from `secondsLeft` as received, on this browser's own clock, so a
+ * server clock that differs from the viewer's does not matter.
+ */
+function TurnCountdown({ view, myTurn }: { view: GameView; myTurn: boolean }) {
+  const timer = (view as GameView & { timer?: TimerView | null }).timer ?? null;
+  const [left, setLeft] = useState<number | null>(null);
+  useEffect(() => {
+    if (!timer || timer.secondsLeft === null) {
+      setLeft(null);
+      return;
+    }
+    const end = Date.now() + timer.secondsLeft * 1000;
+    const tick = () => setLeft(Math.max(0, Math.ceil((end - Date.now()) / 1000)));
+    tick();
+    const id = setInterval(tick, 250);
+    return () => clearInterval(id);
+  }, [timer?.deadline, timer?.secondsLeft, view.version]);
+  if (!timer || left === null || view.phase === 'finished' || view.phase === 'lobby') return null;
+  const urgent = left <= 5;
+  return (
+    <span className={`turn-timer ${urgent ? 'urgent' : ''}`} title={`Turn timer: ${timer.seconds}s per ${timer.mode}. Out of time: the player is skipped (armies placed for them, no attacks, no fortify).`}>
+      <span aria-hidden="true">⏱</span> {myTurn ? `${left}s left` : `${left}s`}
+    </span>
+  );
+}
+
 function HandSummary({ cards, shortName }: { cards: Card[]; shortName: (id: string) => string }) {
   return (
     <div className="hand-summary" onClick={(e) => e.stopPropagation()}>
@@ -1022,7 +1053,7 @@ function useAnimations(
           case 'conquered':
             lastQueued.current = null;
             flashes[e.to] = Date.now();
-            sweeps.push({ id: ++ids.current, territory: e.to, from: e.from, color: colorOf(e.player) });
+            sweeps.push({ id: ++ids.current, territory: e.to, from: e.from, color: colorOf(e.player), prevColor: colorOf(e.previousOwner) });
             break;
           case 'moved':
             moves.push({ id: ++ids.current, from: e.from, to: e.to, armies: e.armies, color: colorOf(e.player) });
@@ -1068,7 +1099,7 @@ function useAnimations(
           floats: s.floats.filter((f) => !floats.includes(f)),
           sweeps: s.sweeps.filter((f) => !sweeps.includes(f)),
         }));
-      }, Math.max(1600, floatMs + 200));
+      }, Math.max(1600, POUR_MS + 900, floatMs + 200));
     }
     if (newBattles) pumpBattles();
     if (newCards.length) {

@@ -51,8 +51,8 @@ export interface GameOptions {
   autoSetup: boolean;
   /** Maximum players allowed in this game (2 up to the map's limit). */
   maxPlayers: number;
-  /** Which board to play on (see MAP_IDS in maps.ts and OPTION_SPECS.map): 'classic' (42 territories, 2-6 players), 'world' (74, 2-10), 'world_large' (104, 2-10), 'europe' (44, 2-8), 'greater_europe' (Greater Europe, 116, 2-10), 'europe_classic' (Europe Advanced, 84, 2-6), 'usa' (45, 2-10), 'asia' (49, 2-8), 'fantasy' (Realms of Halvaren, 87, 2-10), 'skirmish' (Four Crowns, 24, 2-4), 'bohemia' (Bohemia, 42, 2-6), 'nine_realms' (The Nine Realms, 58, 2-8). 'europe_advanced' (Europe (legacy, 99), 2-6) is a legacy board: saved games on it still load, new games cannot pick it. */
-  map: 'classic' | 'world' | 'world_large' | 'europe' | 'europe_advanced' | 'greater_europe' | 'europe_classic' | 'usa' | 'asia' | 'fantasy' | 'skirmish' | 'bohemia' | 'nine_realms';
+  /** Which board to play on (see MAP_IDS in maps.ts and OPTION_SPECS.map): 'classic' (42 territories, 2-6 players), 'world' (74, 2-10), 'world_large' (104, 2-10), 'europe' (44, 2-8), 'greater_europe' (Greater Europe, 116, 2-10), 'europe_classic' (Europe Advanced, 84, 2-6), 'usa' (45, 2-10), 'asia' (49, 2-8), 'fantasy' (Realms of Halvaren, 87, 2-10), 'skirmish' (Four Crowns, 24, 2-4), 'bohemia' (Bohemia, 42, 2-6), 'nine_realms' (The Nine Realms, 58, 2-8), 'hexworld' (Hex Earth, 80, 2-10). 'europe_advanced' (Europe (legacy, 99), 2-6) is a legacy board: saved games on it still load, new games cannot pick it. A generated board's id ('gen1-s<seed>-p<seats>-t<territories>', see procgen.ts) is also accepted: the board is built from the seed in the id. */
+  map: 'classic' | 'world' | 'world_large' | 'europe' | 'europe_advanced' | 'greater_europe' | 'europe_classic' | 'usa' | 'asia' | 'fantasy' | 'skirmish' | 'bohemia' | 'nine_realms' | 'hexworld' | `gen${number}-${string}`;
   /** Card sets: progressive lobby-wide, fixed by set type, or exponential per player. */
   cardValues: 'progressive' | 'fixed' | 'exponential';
   /** Fog of war: players only see their own territories and the ones adjacent to them. Spectators see everything. */
@@ -73,6 +73,13 @@ export interface GameOptions {
   neutralArmies: number;
   /** Blizzards: this many random territories are impassable for the whole game (0 = off). Nobody owns, attacks or crosses them. */
   blizzards: number;
+  /**
+   * Turn timer for human and agent seats (never bots), kept by the server: 'move' = each decision, 'turn' = the whole
+   * turn, 'off' = none. On a timeout the player is skipped (timeoutSteps in timeout.ts). The engine never reads a clock.
+   */
+  turnTimer: 'off' | 'move' | 'turn';
+  /** Seconds on the turn timer (ignored when turnTimer is 'off'). */
+  turnTimerSeconds: number;
 }
 
 /** Reinforcements per capital held when the capitals option is on. */
@@ -106,6 +113,8 @@ export const DEFAULT_OPTIONS: GameOptions = {
   neutrals: 0,
   neutralArmies: 2,
   blizzards: 0,
+  turnTimer: 'off',
+  turnTimerSeconds: 15,
 };
 
 export interface PendingConquest {
@@ -277,6 +286,8 @@ export type GameEvent =
   /** A fogged-out event the viewer is not allowed to see in detail. */
   | { type: 'fogged'; kind: GameEvent['type'] }
   | { type: 'turn_ended'; player: PlayerId }
+  /** The turn timer ran out: the moves in this step and the ones after it were made for the player (see timeout.ts). */
+  | { type: 'timeout'; player: PlayerId; scope: 'move' | 'turn' }
   /** reason: 'domination' = last player standing; 'capitals' = held every capital (Capital Conquest). Older logs omit it. */
   | { type: 'game_over'; winner: PlayerId; reason?: 'domination' | 'capitals' };
 

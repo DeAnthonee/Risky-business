@@ -31,6 +31,20 @@ curl -X POST -H "Authorization: Bearer $RISK_ADMIN_TOKEN" https://risky.deanthon
 
 It is safe while games are running: a game finishing at the same moment lands wholly in the old season or the new one.
 
+## Archive from the site: the "Archive season" button
+
+When the host sets `RISK_SEASON_KEY` (to a value of your choice; see [hosting.md](hosting.md)), the leaderboard
+shows an **Archive season** button beside the season picker (the public board only). It asks for that password and
+a confirmation ("Archive season N and start season N+1? Old seasons stay viewable"), then archives exactly as the
+admin call above does (`Rankings.archiveTo`) and shows the new season.
+
+- The password is checked on the server only (constant-time), never stored in the page. The admin token works too.
+- Wrong tries are limited: 5 wrong tries from one IP lock it out for 15 minutes, and 20 wrong tries from anyone within
+  15 minutes lock everyone out for the rest of that window (`429` with `Retry-After`). Failures are logged without the
+  value tried.
+- Without `RISK_SEASON_KEY` the button is hidden and the route answers `403`.
+- Only the public board's season changes; the training and tournament boards are untouched.
+
 ## Archive on a deploy: bump `RANKINGS_SEASON`
 
 When you have no admin token, or want the wipe tied to a release: in a PR, raise `RANKINGS_SEASON` in

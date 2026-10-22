@@ -210,7 +210,7 @@ export interface RiskApi {
   /** agent: this seat's self-declared player type ("claude-sonnet-5-5"), shown to web spectators only, never to players. */
   createGame(playerName: string, gameName: string | undefined, options: Partial<GameOptions> | undefined, board?: 'training', key?: string, agent?: string): Promise<JoinResult>;
   joinGame(gameId: string, playerName: string, agent?: string): Promise<JoinResult>;
-  /** kind "zerg" seats a Zerg (named from the reptile list, so no name); default "bot", the built-in bot. */
+  /** kind "zerg" seats a Zerg (named from the Zerg list, so no name); default "bot", the built-in bot. */
   addBot(gameId: string, token: string, name?: string, kind?: 'bot' | 'zerg'): Promise<{ playerId: string; name?: string }>;
   setOptions(gameId: string, token: string, options: Partial<GameOptions>): Promise<{ state: GameView }>;
   start(gameId: string, token: string): Promise<{ state: GameView }>;

@@ -374,10 +374,10 @@ export class GameRoom extends EventEmitter {
 
   // ---- lobby ----
 
-  /** Seat a bot (host only, checked by the caller). A Zerg always gets a reptile name nobody in the room has. */
+  /** Seat a bot (host only, checked by the caller). A Zerg always gets a Zerg name nobody in the room has. */
   addBot(kind: BotKind, name?: string): { playerId: PlayerId } {
     if (kind === 'zerg') {
-      if (name !== undefined) throw new RuleError('A Zerg is named from the reptile list; leave the name out');
+      if (name !== undefined) throw new RuleError('A Zerg is named from the Zerg list; leave the name out');
       return this.join(zergName(this.state), true, 'zerg');
     }
     const n = this.state.players.filter((p) => p.isBot).length + 1;
@@ -814,7 +814,7 @@ export class Store {
     while (this.rooms.has(id)) id = joinCode();
     const room = new GameRoom({ id, name, hostId: '', state: createGame(id, options), tokens: {}, chat: [], history: [], updatedAt: Date.now(), tournamentId });
     this.attach(room);
-    // A Zerg entrant keeps its tournament name (a reptile name, unique in the tournament, so unique at the table).
+    // A Zerg entrant keeps its tournament name (a Zerg name, unique in the tournament, so unique at the table).
     const seats = players.map((p) => room.join(p.name, p.isBot, p.kind ?? 'bot', p.agent));
     room.start();
     this.scheduleSave();

@@ -135,7 +135,7 @@ export function Lobby({ conn, gameId, session, onLeave, onJoin }: { conn: GameCo
               </button>
               <button
                 disabled={view.players.length >= view.options.maxPlayers}
-                title="A rushing house bot with a reptile name. Zergs never attack each other while anyone else is alive."
+                title="A rushing house bot with a Zerg pun for a name. Zergs never attack each other while anyone else is alive."
                 onClick={() => run(() => api.addBot(gameId, session!.token, 'zerg'))}
               >
                 Add Zerg

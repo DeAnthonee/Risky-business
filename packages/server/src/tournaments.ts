@@ -297,8 +297,9 @@ export class TournamentManager extends EventEmitter {
   // ---- players ----
 
   /**
-   * The host adds server bots while registering: built-in bots ("Bot 3") or Zergs, named from the reptile list
-   * (unique in the tournament: "Komodo", then "Komodo 2" once every name is used). They are entrants like anyone else.
+   * The host adds server bots while registering: built-in bots ("Bot 3") or Zergs, named from the Zerg list (puns like
+   * "Mark Zergburg"; unique in the tournament: "Elon Zerg", then "Elon Zerg 2" once every name is used). They are
+   * entrants like anyone else.
    */
   addBots(id: string, kind: BotKind, count: number): { entrantId: string; name: string }[] {
     const t = this.require(id);

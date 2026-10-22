@@ -837,8 +837,9 @@ export class Store {
     return true;
   }
 
-  describePersistence(): string {
-    return this.file ?? 'disabled';
+  /** For the public /healthz: "disk" or "disabled", never the path (it can name a folder on the host). */
+  describePersistence(): 'disk' | 'disabled' {
+    return this.file ? 'disk' : 'disabled';
   }
 
   releaseWaiters() {

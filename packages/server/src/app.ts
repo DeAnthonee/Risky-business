@@ -58,7 +58,8 @@ export interface HealthReport {
   games: number;
   connections: number;
   mcpSessions: number;
-  persistence: string;
+  /** "disk" when games are saved under RISK_DATA_DIR, "disabled" otherwise; never the path. */
+  persistence: 'disk' | 'disabled';
   shuttingDown: boolean;
 }
 

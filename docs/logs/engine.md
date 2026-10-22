@@ -6,6 +6,7 @@ bot, ranking and the game-record format. Map data has its own log ([maps.md](map
 Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. Changes from before pull requests carry the
 commit hash instead. **Append a line in the same PR** as any change to this area (README hard rule 12).
 
+- 2026-10-21 #PR new unmirrored `nest.ts` exported from the engine: the nested-tournament planner and nested board specs, with engine tests (worked examples, every field 2-400 players, trees of existing and generated boards)
 - 2026-10-21 #178 `GameOptions.map` and `parseOptions` accept generated board ids (`gen1-...`, procgen.ts); `getMap`/`isMapId` resolve them (64-board cache); `describeOptions` names a generated board; engine tests for the generator (determinism, golden hashes, quality over 3-10 seats, full bot games, fog)
 - 2026-10-21 #174 turn timer settings `turnTimer` (off/move/turn, default off) and `turnTimerSeconds` (5-600, default 15) in OPTION_SPECS + `GameOptions`/`DEFAULT_OPTIONS`; new `timeout` GameEvent; new unmirrored `timeout.ts` (`timeoutSteps`: the skip as ordinary actions, `timerOf`); rules text section; `parseOptions` also rejects ints above their largest value; record steps may carry `timeout: true` (optional, no `RECORD_VERSION` bump). Mirrored `types.ts` changed (behaviour-neutral when off): the GPU fingerprint needs a re-verify
 - 2026-10-21 #169 `zerg.ts`: `sacrifice` is 0 in `ZERG_1_PARAMS` (no surrenders at all, as the live Zerg seat plays); the parameter stays for tests; golden test updated on purpose

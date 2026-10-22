@@ -10,7 +10,11 @@ import { seatOrder, type NetScorer } from './net-agent.js';
  * **horde**, not the seat:
  *
  *   killWeight × prey knocked out since the decision + the horde's share of the alive players' armies and income
- *   (a finished game: killWeight × prey out + 1 if the horde won, else + 0).
+ *   + selfWeight × my own standing (my share of the horde's strength; a finished game: 1 if I won)
+ *   (a finished game: killWeight × prey out + 1 if the horde won, else + 0, plus the self term).
+ *
+ * The self term is the owner's rule that the alliance ends with the prey: the Zergs then fight each other to a single
+ * winner, so each Zerg must come out of the hunt well placed and not spend itself for the horde.
  *
  * Alternatives never attack a fellow Zerg. They come from `ranker` (a Delove network's favourite candidates, ally
  * attacks removed) or, without one, from the best-odds attacks on prey plus ending the attack. Only attack-phase
@@ -24,9 +28,11 @@ export interface ZergBranchOptions {
   killWeight: number;
   /** The Zerg's own move is kept unless another beats it by this much. */
   margin: number;
+  /** Weight of my own standing (the falling-out after the prey is gone). */
+  selfWeight: number;
 }
 
-export const DEFAULT_ZERG_BRANCH: ZergBranchOptions = { options: 4, rollouts: 8, horizon: 2, killWeight: 1, margin: 0.02 };
+export const DEFAULT_ZERG_BRANCH: ZergBranchOptions = { options: 4, rollouts: 8, horizon: 2, killWeight: 1, margin: 0.02, selfWeight: 0.5 };
 
 const MAX_ROLLOUT_STEPS = 4000;
 
@@ -38,13 +44,13 @@ export function hordeOf(state: GameState, me: PlayerId): Set<PlayerId> {
 }
 
 /** The horde's score of a position (see the top of this file). `preyAtStart`: prey alive when the decision was made. */
-export function hordeScore(s: GameState, horde: ReadonlySet<PlayerId>, preyAtStart: number, killWeight: number): number {
+export function hordeScore(s: GameState, horde: ReadonlySet<PlayerId>, preyAtStart: number, killWeight: number, me?: PlayerId, selfWeight = 0): number {
   const prey = s.players.filter((p) => p.alive && !p.isNeutral && !horde.has(p.id));
   const kills = killWeight * Math.max(0, preyAtStart - prey.length);
-  if (s.phase === 'finished') return kills + (s.winner !== null && horde.has(s.winner) ? 1 : 0);
-  if (prey.length === 0) return kills + 1;
+  if (s.phase === 'finished') return kills + (s.winner !== null && horde.has(s.winner) ? 1 : 0) + (me !== undefined && s.winner === me ? selfWeight : 0);
   const map = getMap(s.options.map);
   let hordeStrength = 0;
+  let mine = 0;
   let total = 0;
   for (const p of s.players) {
     if (!p.alive || p.isNeutral) continue;
@@ -53,8 +59,10 @@ export function hordeScore(s: GameState, horde: ReadonlySet<PlayerId>, preyAtSta
     const strength = armies + 3 * reinforcementsFor(s, p.id).total;
     total += strength;
     if (horde.has(p.id)) hordeStrength += strength;
+    if (p.id === me) mine = strength;
   }
-  return kills + (total > 0 ? hordeStrength / total : 0);
+  const team = prey.length === 0 ? 1 : total > 0 ? hordeStrength / total : 0;
+  return kills + team + (me !== undefined && hordeStrength > 0 ? (selfWeight * mine) / hordeStrength : 0);
 }
 
 function attacksAlly(state: GameState, horde: ReadonlySet<PlayerId>, a: Action): boolean {
@@ -110,7 +118,9 @@ export function zergBranchAgent(id: string, opponent: Agent, ranker: NetScorer |
   return {
     id,
     choose(ctx) {
-      const horde = hordeOf(ctx.state, ctx.me);
+      let horde = hordeOf(ctx.state, ctx.me);
+      // No prey left: the alliance is over, every other Zerg is fair game.
+      if (!ctx.state.players.some((p) => p.alive && !p.isNeutral && !horde.has(p.id))) horde = new Set([ctx.me]);
       const own = chooseZergAction(ctx.state, ctx.me, horde, ctx.random);
       const phase = ctx.state.phase;
       if (!own || ctx.legal.pendingConquest || (phase !== 'attack' && phase !== 'reinforce') || own.type === 'surrender' || own.type === 'trade') return own;
@@ -137,7 +147,7 @@ export function zergBranchAgent(id: string, opponent: Agent, ranker: NetScorer |
           } catch {
             return -Infinity;
           }
-          sum += hordeScore(rollout(after, opts.horizon, horde, opponent, seededRandom(seed)), horde, preyAtStart, opts.killWeight);
+          sum += hordeScore(rollout(after, opts.horizon, horde, opponent, seededRandom(seed)), horde, preyAtStart, opts.killWeight, ctx.me, opts.selfWeight);
         }
         return sum / seeds.length;
       });

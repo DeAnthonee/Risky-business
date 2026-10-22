@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { getMap, type GameView } from '@risk/engine';
 import type { GameRoom, Store } from './store.js';
+import { tableLabel } from './tournaments.js';
 
 /**
  * Link previews (Open Graph / Twitter cards) for shared links: the tags the server puts in index.html for
@@ -42,8 +43,11 @@ export function ogTags(store: Store, query: Record<string, unknown>, origin: str
   const tournament = !room && tournamentId ? store.tournaments.get(tournamentId) : undefined;
   if (room && !room.closed) {
     const map = getMap(room.state.options.map);
-    title = `${room.name} · ${SITE}`;
-    description = `${map.name.replace(/ \(\d+\)$/, '')}, ${room.state.options.maxPlayers} seats${room.state.options.fogOfWar ? ', fog of war' : ''}. ${gameStatus(room)}.`;
+    // A tournament table says so first: "🏆 Cup · Round 2, table 3".
+    const table = room.tournamentId ? store.tournaments.tableOf(room.tournamentId, room.id) : null;
+    const badge = table ? `🏆 ${table.name} · ${tableLabel(table)}` : null;
+    title = badge ? `${badge} · ${SITE}` : `${room.name} · ${SITE}`;
+    description = `${badge ? `${badge}. ` : ''}${map.name.replace(/ \(\d+\)$/, '')}, ${room.state.options.maxPlayers} seats${room.state.options.fogOfWar ? ', fog of war' : ''}. ${gameStatus(room)}.`;
     url = `${origin}/?game=${encodeURIComponent(room.id)}`;
     image = `${origin}/og/game/${encodeURIComponent(room.id)}.png?v=${room.state.version}`;
   } else if (tournament) {

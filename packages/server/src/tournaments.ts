@@ -282,6 +282,26 @@ export interface TournamentView {
   };
 }
 
+/**
+ * Which tournament table a game is: the tournament, its round, the table's place in that round (1-based, as on the
+ * bracket page) and whether it is the final. The games list, the game socket and link previews carry it, so a
+ * tournament table is marked everywhere ("🏆 Cup · Round 2, table 3").
+ */
+export interface TournamentTableRef {
+  id: string;
+  name: string;
+  round: number;
+  table: number;
+  tables: number;
+  final: boolean;
+}
+
+/** "Round 2, table 3", or "the final". */
+export function tableLabel(ref: Pick<TournamentTableRef, 'round' | 'table' | 'tables' | 'final'>): string {
+  if (ref.final) return 'the final';
+  return ref.tables > 1 ? `Round ${ref.round}, table ${ref.table}` : `Round ${ref.round}`;
+}
+
 export interface TournamentSummary {
   id: string;
   name: string;
@@ -613,6 +633,21 @@ export class TournamentManager extends EventEmitter {
     t.entrants.push(entrant);
     this.changed(t);
     return { entrantId: entrant.id, token: entrant.token! };
+  }
+
+  /** The table a game is in `tournamentId`, or null (not one of its tables, or the tournament is gone). */
+  tableOf(tournamentId: string, gameId: string): TournamentTableRef | null {
+    const t = this.get(tournamentId);
+    if (!t) return null;
+    for (const r of t.rounds) {
+      const i = r.matches.findIndex((m) => m.gameId === gameId);
+      if (i < 0) continue;
+      // Knockout: a later round with one table left is the final. Nested: the plan's last round.
+      const planned = t.nested?.plan?.rounds.length;
+      const final = planned ? r.round === planned : r.matches.length === 1 && r.round > 1;
+      return { id: t.id, name: t.name, round: r.round, table: i + 1, tables: r.matches.length, final };
+    }
+    return null;
   }
 
   get(id: string): TournamentSnapshot | undefined {

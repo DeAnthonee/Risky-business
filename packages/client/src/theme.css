@@ -188,6 +188,39 @@
   box-shadow: 4px 4px 0 var(--red);
 }
 
+/* A tournament table's badge ("🏆 Cup · Round 2, table 3"): on game tickets and the game's top bar, it opens the
+   bracket. A yellow tag, upright and plain, not a cut-paper button. */
+.p5 .tourney-badge,
+.p5 button.tourney-badge:not(:where(.map-wrap *)) {
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 2px 10px;
+  background: var(--sun);
+  color: var(--ink);
+  border: 2px solid var(--ink);
+  border-radius: 0;
+  box-shadow: 2px 2px 0 var(--ink);
+  transform: none;
+  font-family: var(--body);
+  font-weight: 800;
+  font-style: normal;
+  font-size: 0.85em;
+  letter-spacing: 0;
+  text-transform: none;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.p5 .tourney-badge:hover,
+.p5 button.tourney-badge:not(:where(.map-wrap *)):hover:not(:disabled) {
+  background: #fff;
+  transform: none;
+  box-shadow: 3px 3px 0 var(--ink);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .p5 button {
     transition: none;

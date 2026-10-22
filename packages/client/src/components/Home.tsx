@@ -1,11 +1,11 @@
-import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { Leaderboard } from './Profiles';
 import { MatchHistory } from './MatchHistory';
 import { HouseBotsWidget } from './HouseBots';
 import { NextTournamentCard } from './NextTournament';
 import { MapPreview, MapThumb } from './MapPreview';
 import { MAPS, MAP_IDS, getMap, isMapId, maxBlizzards, type GameOptions } from '@risk/engine';
-import { api, type GameSummary, type TournamentSummary } from '../api';
+import { api, tableBadge, type GameSummary, type TournamentSummary } from '../api';
 import type { Session } from '../session';
 import { pickLiveGame } from './AutoAdvance';
 import { QuickPlay } from './QuickPlay';
@@ -38,7 +38,21 @@ function RansomTitle() {
 /** Rooms you can sit down in come first, then games being played, then finished ones. */
 const phaseOrder = (g: GameSummary) => (g.joinable ? 0 : g.phase === 'finished' ? 2 : 1);
 
-function GameTicket({ g, canJoin, busy, onJoin, onWatch }: { g: GameSummary; canJoin: boolean; busy: boolean; onJoin: () => void; onWatch: () => void }) {
+function GameTicket({
+  g,
+  canJoin,
+  busy,
+  onJoin,
+  onWatch,
+  onOpenTournament,
+}: {
+  g: GameSummary;
+  canJoin: boolean;
+  busy: boolean;
+  onJoin: () => void;
+  onWatch: () => void;
+  onOpenTournament: (id: string) => void;
+}) {
   const kind = g.phase === 'lobby' ? 'lobby' : g.phase === 'finished' ? 'finished' : 'live';
   const status = kind === 'lobby' ? 'Waiting' : kind === 'finished' ? 'Finished' : `Turn ${g.turnNumber}`;
   const open = Math.max(0, g.maxPlayers - g.players.length);
@@ -51,6 +65,11 @@ function GameTicket({ g, canJoin, busy, onJoin, onWatch }: { g: GameSummary; can
           <strong>{g.name}</strong>
           <code title="Join code">{g.id}</code>
         </div>
+        {g.tournament && (
+          <button className="tourney-badge" onClick={() => onOpenTournament(g.tournament!.id)} title="Open this tournament's bracket">
+            {tableBadge(g.tournament)}
+          </button>
+        )}
         <div className="ticket-meta">
           <span>{isMapId(g.options.map) ? getMap(g.options.map).name : g.options.map}</span>
           <span>
@@ -110,6 +129,8 @@ export function Home({
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [showFinished, setShowFinished] = useState(false);
+  const tournamentsTitle = useRef<HTMLHeadingElement>(null);
   const [gameName, setGameName] = useState('');
   const [options, setOptions] = useState<Partial<GameOptions>>({ map: 'classic', maxPlayers: 6, setupBatch: 1, fortifyMode: 'connected', randomDeal: true, autoSetup: false });
 
@@ -161,6 +182,14 @@ export function Home({
     });
 
   const hasName = !!name.trim();
+  const openTournaments = tournaments
+    .filter((t) => t.status !== 'finished')
+    .sort((a, b) => (a.status === b.status ? (a.startsAt ?? Infinity) - (b.startsAt ?? Infinity) || b.updatedAt - a.updatedAt : a.status === 'registering' ? -1 : 1));
+  const finishedTournaments = tournaments.filter((t) => t.status === 'finished');
+  const findTournament = () => {
+    tournamentsTitle.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    tournamentsTitle.current?.focus({ preventScroll: true });
+  };
   const sorted = [...games].sort((a, b) => phaseOrder(a) - phaseOrder(b) || b.updatedAt - a.updatedAt);
   const live = games.filter((g) => g.phase !== 'lobby' && g.phase !== 'finished').length;
   const waiting = games.filter((g) => g.joinable).length;
@@ -229,42 +258,62 @@ export function Home({
         </div>
       </section>
 
-      {/* Tournaments first, owner's request: the next scheduled one, The House, then every tournament. */}
+      {/* Tournaments first (owner's request): host or find one, the next scheduled one, The House, then the list. */}
       <div className="home-headline">
+        <div className="tourney-entry" role="group" aria-label="Tournaments">
+          <button className="primary" onClick={() => window.location.assign('?host=1')} title="Set up a tournament: seats, Zergs, boards, and a preview of the rounds">
+            🏆 Host a tournament
+          </button>
+          <button onClick={findTournament} title="Tournaments open for sign-up or being played">
+            Find a tournament{openTournaments.length ? ` (${openTournaments.length})` : ''}
+          </button>
+        </div>
         <NextTournamentCard onOpen={onOpenTournament} />
         <HouseBotsWidget />
-        {tournaments.length > 0 && (
-          <section className="board tournaments-board" aria-labelledby="tournaments-title">
-            <div className="board-head">
-              <h2 id="tournaments-title">Tournaments</h2>
+        <section className="board tournaments-board" aria-labelledby="tournaments-title">
+          <div className="board-head">
+            <h2 id="tournaments-title" ref={tournamentsTitle} tabIndex={-1}>
+              Tournaments
+            </h2>
+            {finishedTournaments.length > 0 && (
+              <button className="small" aria-expanded={showFinished} onClick={() => setShowFinished((v) => !v)}>
+                {showFinished ? 'Hide finished' : `Show finished (${finishedTournaments.length})`}
+              </button>
+            )}
+          </div>
+          {openTournaments.length === 0 && !showFinished ? (
+            <div className="board-empty">
+              <p>No tournament is open right now. Host one, or come back for the next one.</p>
             </div>
+          ) : (
             <ul className="tickets">
-              {tournaments.map((t) => (
+              {[...openTournaments, ...(showFinished ? finishedTournaments : [])].map((t) => (
                 <li key={t.id} className={`ticket ticket-${t.status === 'registering' ? 'lobby' : t.status === 'running' ? 'live' : 'finished'}`}>
-                  <span className="ticket-stamp">{t.status === 'registering' ? 'Sign-ups' : t.status === 'running' ? `Round ${t.round}` : 'Finished'}</span>
+                  <span className="ticket-stamp">{t.status === 'registering' ? 'Sign-ups' : t.status === 'running' ? `Round ${t.round}` : t.cancelled ? 'Called off' : 'Finished'}</span>
                   <div className="ticket-main">
                     <div className="ticket-title">
                       <strong>{t.name}</strong>
                       <code>{t.id}</code>
                     </div>
                     <div className="ticket-meta">
-                      <span>{MAPS[t.map as keyof typeof MAPS]?.name ?? t.map}</span>
+                      <span>{t.map === 'nested' ? 'Boards inside boards' : (MAPS[t.map as keyof typeof MAPS]?.name ?? t.map)}</span>
                       <span>
                         {t.entrants} of {t.maxEntrants} entrants
                       </span>
+                      {t.status === 'registering' && t.startsAt && <span>Starts {new Date(t.startsAt).toLocaleString(undefined, { weekday: 'short', hour: '2-digit', minute: '2-digit' })}</span>}
                       {t.champion && <span>Champion {t.champion}</span>}
                     </div>
                   </div>
                   <div className="ticket-actions">
-                    <button className={t.status === 'registering' ? 'primary' : ''} onClick={() => onOpenTournament(t.id)}>
-                      {t.status === 'registering' ? 'Join or view' : 'View bracket'}
+                    <button className={t.status === 'registering' ? 'primary' : t.status === 'running' ? 'watch' : ''} onClick={() => onOpenTournament(t.id)}>
+                      {t.status === 'registering' ? 'Join or view' : t.status === 'running' ? 'Watch' : 'View bracket'}
                     </button>
                   </div>
                 </li>
               ))}
             </ul>
-          </section>
-        )}
+          )}
+        </section>
       </div>
 
       <div className="home-boards">
@@ -291,7 +340,7 @@ export function Home({
           ) : (
             <ul className="tickets">
               {sorted.map((g) => (
-                <GameTicket key={g.id} g={g} canJoin={hasName} busy={busy} onJoin={() => join(g.id)} onWatch={() => onSpectate(g.id)} />
+                <GameTicket key={g.id} g={g} canJoin={hasName} busy={busy} onJoin={() => join(g.id)} onWatch={() => onSpectate(g.id)} onOpenTournament={onOpenTournament} />
               ))}
             </ul>
           )}

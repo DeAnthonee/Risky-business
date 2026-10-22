@@ -12,8 +12,11 @@ and different GPUs round differently), so two logits within --near-tie of each o
 another move. Such a game is reported, with the logits and the margin, and does not fail when all of these hold: it ends
 the same way (winner, turns, stage, points), its rows are identical up to the first one that differs, only the choice
 differs there, and the smallest gap between the ranker's top logits at that position (the branch's options and the next
-one, recomputed here from the row) is below --near-tie. Anything else fails. (Seen once on an RTX 4090 on 2026-10-22:
-1 game of 36 in lead-classic-4p-2, a result the 4060 at home did not reproduce.)
+one, recomputed here from the row) is below --near-tie. Anything else fails. So that systematic drift cannot pass as
+near-ties, at most --max-flips-case games per case (1) and --max-flips-share of all the run's games (2%) may be
+tolerated: past either cap the check fails even when every flip qualifies. The last line counts them ("ranker near-tie
+flips N"), and verify.py's summary reports it. (Seen once on an RTX 4090 on 2026-10-22: result unchanged; one late pick
+flipped on a ranker near-tie, 1 game of 36 in lead-classic-4p-2, which the 4060 at home did not reproduce.)
 
 Cases cover a lead-in by teachers (the fast kernel's stop at N players alive), a lead-in with network seats (the
 step-by-step path), settings (capitals, exponential cards, blizzards), and positions from game records
@@ -142,6 +145,39 @@ class NearTie:
         return gap < self.near, what
 
 
+def compare_datasets(cpu_dir: Path, gpu_dir: Path, maps: list[str], near: NearTie, max_case: int, bad: list[str]) -> tuple[int, list[str], int]:
+    """One case's datasets, map by map: (games with recorded decisions, notes, games tolerated as near-tie flips).
+    Failures go to `bad`, which already holds the games that did not end the same way (no near-tie then)."""
+    rows, notes, case_flips = 0, [], 0
+    for m in maps:
+        da, db = (Dataset(side / m) if (side / m).is_dir() else None for side in (cpu_dir, gpu_dir))
+        ha, hb = (x.hashes() if x else {} for x in (da, db))
+        rows += len(ha)
+        if Counter(ha.values()) == Counter(hb.values()):
+            continue
+        same = sum((Counter(ha.values()) & Counter(hb.values())).values())
+        head = f"{m}: datasets differ ({same} of {len(ha)} cpu / {len(hb)} gpu games identical)"
+        if bad or da is None or db is None:
+            bad.append(head)
+            continue
+        found = [near.check(da, ga, db, gb, m) for ga, gb in pair_differing(da, db)]  # the games end the same way (bad is empty)
+        if all(t for t, _ in found):
+            case_flips += len(found)
+            notes += [f"{head}: ranker near-tie, not a failure: {w}" for _, w in found]
+        else:
+            bad += [head] + [w for _, w in found]
+    if case_flips > max_case:
+        bad.append(f"{case_flips} games differ by ranker near-ties, more than --max-flips-case {max_case}: too many to be chance")
+    return rows, notes, case_flips
+
+
+def over_share(flips: int, total: int, share: float) -> str | None:
+    """Why the run's near-tie games are too many (more than `share` of its games), or None."""
+    if total and flips > share * total:
+        return f"{flips} of {total} games differ by ranker near-ties, more than --max-flips-share {share:g}: too many to be chance"
+    return None
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--models", required=True, help="models folder: jacob-sensei@1.json, delove-teacher@2.json, the ranker's .pt and .onnx")
@@ -151,6 +187,8 @@ def main() -> int:
     ap.add_argument("--scale", type=float, default=1.0)
     ap.add_argument("--only", default=None)
     ap.add_argument("--near-tie", type=float, default=1e-4, help="a ranker logit gap below this is a near-tie (see above)")
+    ap.add_argument("--max-flips-case", type=int, default=1, help="near-tie games tolerated per case; more fails the case")
+    ap.add_argument("--max-flips-share", type=float, default=0.02, help="near-tie games tolerated in the whole run, as a share of its games")
     args = ap.parse_args()
     branch = ["--ranker", args.ranker, "--teacher", J, "--horizon", "1", "--margin", "0.01"]
     branch_env = {"DELOVE_BRANCH_RANKER": args.ranker, "DELOVE_BRANCH_TEACHER": J, "DELOVE_BRANCH_HORIZON": "1", "DELOVE_BRANCH_MARGIN": "0.01"}
@@ -180,31 +218,19 @@ def main() -> int:
         gpu = {r["index"]: r for r in map(json.loads, (d / "gpu-results.jsonl").read_text(encoding="utf8").splitlines())}
         bad = [f"game {i}: {why}" for i in sorted(cpu) if (why := same_end(cpu[i], gpu[i])) is not None] if cpu.keys() == gpu.keys() else ["game sets differ"]
         maps = sorted({p.name for p in (d / "cpu").iterdir() if p.is_dir()} | {p.name for p in (d / "gpu").iterdir() if p.is_dir()})
-        rows, notes = 0, []
-        for m in maps:
-            da, db = (Dataset(d / side / m) if (d / side / m).is_dir() else None for side in ("cpu", "gpu"))
-            ha, hb = (x.hashes() if x else {} for x in (da, db))
-            rows += len(ha)
-            if Counter(ha.values()) == Counter(hb.values()):
-                continue
-            same = sum((Counter(ha.values()) & Counter(hb.values())).values())
-            head = f"{m}: datasets differ ({same} of {len(ha)} cpu / {len(hb)} gpu games identical)"
-            if bad or da is None or db is None:
-                bad.append(head)
-                continue
-            found = [near.check(da, ga, db, gb, m) for ga, gb in pair_differing(da, db)]  # the games end the same way (bad is empty)
-            if all(t for t, _ in found):
-                flips += len(found)
-                notes += [f"{head}: ranker near-tie, not a failure: {w}" for _, w in found]
-            else:
-                bad += [head] + [w for _, w in found]
+        rows, notes, case_flips = compare_datasets(d / "cpu", d / "gpu", maps, near, args.max_flips_case, bad)
+        flips += case_flips
         reached = sum(1 for r in cpu.values() if r.get("stage"))
         print(f"{'ok ' if not bad else 'BAD'} {name}: {len(cpu)} games, {reached} reached the stage, {rows} games with recorded decisions"
               f" on {maps}" + ("".join(f"\n    {b}" for b in bad[:5])) + ("".join(f"\n    note: {n}" for n in notes)), flush=True)
         ok = ok and not bad
         total += len(cpu)
+    if why := over_share(flips, total, args.max_flips_share):
+        print(why)
+        ok = False
     flipped = f" ({flips} of them differing only by a ranker near-tie, see the notes above)" if flips else ""
-    print(f"{total} stage games identical{flipped} in {time.time() - t0:.0f}s" if ok else "MISMATCH")
+    print(f"{total} stage games identical{flipped} in {time.time() - t0:.0f}s; ranker near-tie flips {flips}" if ok else
+          f"MISMATCH (ranker near-tie flips {flips})")
     return 0 if ok else 1
 
 

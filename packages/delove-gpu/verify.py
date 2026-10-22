@@ -249,6 +249,7 @@ def main() -> int:
     replay = str(HERE / "tests" / "replay.py")
     total_steps = 0
     results = []
+    near_tie_flips = None
     for engine in engines:
         fused = ["--fused"] if engine == "fused.py" else []
         jobs = [
@@ -299,6 +300,8 @@ def main() -> int:
                      r"(\d+) decisions, .*differs from the log at 0 steps; IDENTICAL", 1))
         # stage games (a lead-in to N players alive, positions from game records): the GPU generator's games and
         # arrays against the CPU's play + export of the same tables
+        # the stage check's near-tie rule and its caps, on made-up datasets (CPU)
+        jobs.append(("branch", [str(tests / "stage_near_tie_check.py")], r"stage near-tie rule: (\d+) of \1 cases as expected", 1))
         jobs.append(("branch", [str(tests / "stage_check.py"), "--models", str(models), "--ranker", args.ranker, "--seed", str(seed),
                                 "--out", str(out / "stage")], r"(\d+) stage games identical", 1))
         for engine, cmd, pattern, group in jobs:
@@ -312,6 +315,8 @@ def main() -> int:
                 return 1
             results.append({"engine": engine, "check": Path(cmd[0]).name, "logs": [rel(c) for c in cmd[1:2] if Path(c).is_dir()],
                             "decisions": int(m.group(group))})
+            if f := re.search(r"ranker near-tie flips (\d+)", text):  # stage_check: games tolerated as near-ties (capped there)
+                results[-1]["nearTieFlips"] = near_tie_flips = int(f.group(1))
         engines += ["teacher", "branch"]
 
     if "fused.py" in engines:
@@ -361,7 +366,8 @@ def main() -> int:
         "steps": total_steps,
         "replays": results,
     })
-    print(f"\n4. verified: {total_steps:,} steps identical on {', '.join(engines)}. Wrote {rel(fingerprint.FINGERPRINT)}; commit it.")
+    flips = f" Stage check: {near_tie_flips} game(s) tolerated as ranker near-tie flips (see its notes)." if near_tie_flips is not None else ""
+    print(f"\n4. verified: {total_steps:,} steps identical on {', '.join(engines)}.{flips} Wrote {rel(fingerprint.FINGERPRINT)}; commit it.")
     return 0
 
 

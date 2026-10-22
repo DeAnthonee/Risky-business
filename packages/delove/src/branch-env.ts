@@ -152,11 +152,21 @@ export function fogSafe(search: Agent, ranker: NetScorer | null, teacherPick: (c
 
 /**
  * delove-branch@1 and the same player with each branch score of its own, delove-branch@1:<score> (any of
- * BRANCH_SCORES), so one table (a jobs line) can seat a score of its own, or several side by side; delove_gpu.generate
- * takes the same ids.
+ * BRANCH_SCORES), so one table (a jobs line) can seat a score of its own, or several side by side; and each of those
+ * with the Gumbel root, delove-branch@1:gumbel and delove-branch@1:<score>:gumbel. delove_gpu.generate takes the same
+ * ids.
  */
 export function branchSeatsFromEnv(dir = modelsDir(), env: NodeJS.ProcessEnv = process.env): Agent[] {
-  return [branchFromEnv(dir, env), ...BRANCH_SCORES.map((score) => branchFromEnv(dir, env, score))];
+  // ...:gumbel: the same seat with the Gumbel root (branch.ts gumbelRoot), e.g. on a cycle's 2p and stage tables only;
+  // the value blend is off for them (the Gumbel root does not support it)
+  const g = { ...env, DELOVE_BRANCH_ROOT: 'gumbel', DELOVE_BRANCH_VALUE: '0' };
+  const same = (pick: (ctx: StepContext) => number) => pick;
+  return [
+    branchFromEnv(dir, env),
+    ...BRANCH_SCORES.map((score) => branchFromEnv(dir, env, score)),
+    branchFromEnv(dir, g, undefined, { id: 'delove-branch@1:gumbel', rolloutPick: same }),
+    ...BRANCH_SCORES.map((score) => branchFromEnv(dir, g, score, { id: `delove-branch@1:${score}:gumbel`, rolloutPick: same })),
+  ];
 }
 
 /** The newest base network in the models folder (delove@N.onnx with the highest N), or null when there is none. */

@@ -100,6 +100,22 @@ clients get 404 on their next poll and must join again (games already started ar
 **Fix (to do):** save waiting buckets next to `games.json` and restart their windows on load, if restarts during
 busy hours make this matter.
 
+## 10. Anyone can trip the hosting-code lockout
+
+**Where:** `packages/server/src/tournament-access.ts` (`TournamentAccess.checkCode`), `POST /api/tournaments`,
+`POST /api/tournaments/:id/start` and the MCP `create_tournament` / `start_tournament` tools.
+
+**What is wrong:** after 50 wrong hosting codes from anyone within an hour, every code check is refused (429) until
+the hour passes, the **right** code included, because the lock is checked first. So any visitor can stop every code
+holder from creating or starting tournaments for an hour by sending wrong codes from several addresses. The per-IP
+limit (5 per 15 minutes, then 1 h) trusts the client IP behind the proxy (`trust proxy`), as item 7 does, so it can be
+dodged and the global cap is the real limit. The admin key (`POST /api/admin/tournaments`, the host token routes)
+is never locked, so the owner can always create and start.
+
+**Fix (to do):** if it is ever abused, key the per-IP count on the proxy's real client address only, and keep the
+global cap for wrong tries without refusing a right code (or let a right code through while only wrong tries are
+counted). The codes are a testing gate that player keys or sign-in replace later (owner, 2026-10-22).
+
 ## Fixed
 
 - **Anyone could create tournaments while testing (was item 1).** Creating now needs a hosting code once the owner

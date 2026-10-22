@@ -30,8 +30,8 @@ export interface ZergParams {
   /** Reinforcement staging: score per step closer to the target (the stack size counts 1 per army). */
   stagingDistance: number;
   /**
-   * 1: a walled-in Zerg (not the strongest) surrenders to feed the swarm; 0: never. Off in zerg@1: the owner's rule is
-   * no surrenders, and the live Zerg seat plays with 0. Kept so it can still be tested.
+   * 1: a walled-in Zerg (not the strongest) surrenders to feed the swarm, so the front Zerg eats its land; 0: never.
+   * On in zerg@1 (the owner's decision, 2026-10-22; it was off from #169 to #176), and live seats play ZERG_1_PARAMS.
    */
   sacrifice: number;
   // Later behaviours, each 0 = off (as in zerg@1), so zerg@1 plays exactly as before:
@@ -65,7 +65,7 @@ export const ZERG_1_PARAMS: ZergParams = {
   exposureWeight: 0.5,
   occupyShare: 0.7,
   stagingDistance: 10,
-  sacrifice: 0,
+  sacrifice: 1,
   strikeRatio: 0,
   cardHoard: 0,
   hoardFinish: 3,
@@ -82,8 +82,8 @@ export const ZERG_1_PARAMS: ZergParams = {
  * server from a seat's faction. It is never read from chat or names here. Pure and seedable like `chooseBotAction`.
  *
  * The alliance lasts only while there is prey: once every non-Zerg is out, the strongest Zerg (`strongestZergOf`) keeps
- * the table and the others surrender at once (the owner's rule, docs/zergs.md). No Zerg surrenders before that
- * (`sacrifice` is 0 in zerg@1).
+ * the table and the others surrender at once (the owner's rule, docs/zergs.md). Before that, the only surrender is a
+ * walled-in Zerg feeding the swarm (`sacrifice`, on in zerg@1).
  */
 export function chooseZergAction(
   state: GameState,

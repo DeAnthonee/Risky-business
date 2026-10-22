@@ -56,12 +56,12 @@ All Zergs run the same deterministic **target rule** on the same public board, s
   holds back; the engine has no ally rule).
 - **Occupy** with everything when the new territory faces the target; **fortify** toward the target's front.
 - **Cards**: trade as soon as possible.
-- **Feed the swarm: off.** With `sacrifice: 1`, a Zerg walled in by its allies (no road to any prey) that is not
-  the horde's strongest surrenders, and its land turns neutral for the front Zerg to eat. It is **0 in `zerg@1`**
-  (#169): the owner's "no surrenders" rules it out, and the live Zerg seat plays with 0. The parameter stays for tests.
-  - The cost: the walled-in Zergs idle while one front Zerg fights alone, so a turtling prey can stall the horde. At
-    4p against 3 Zergs, 9 of 100 games against delove@10 reach the 500-turn limit (3 with the sacrifice).
-  - Zergs still take neutral land at good odds.
+- **Feed the swarm: on.** A Zerg walled in by its allies (no road to any prey) that is not the horde's strongest
+  surrenders, and its land turns neutral for the front Zerg to eat for cards and continents. It is `sacrifice: 1` in
+  `zerg@1` (the owner's decision, 2026-10-22, in #176). It was off from #169 to #176.
+  - Without it the walled-in Zergs idle and a turtling prey can stall the horde. At 4p against 3 Zergs, games against
+    delove@10 reaching the turn limit were 9 of 100 with it off and 3 of 100 with it on.
+  - Zergs take neutral land at good odds.
 - **Ending: the strongest keeps the table.** When only Zergs are left, every Zerg but the strongest (`strongestZergOf`:
   most territories, then most armies, then the lowest seat index) surrenders on its turn, and the strongest wins. It
   keeps playing as an ally until it stands alone, so no Zerg attacks another.

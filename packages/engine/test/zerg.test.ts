@@ -126,7 +126,8 @@ describe('Zerg judgement numbers', () => {
     // b4ce79d26322fdb7). Updated again on purpose the same day: sacrifice is now 0 in zerg@1 (the owner's "no surrenders"
     // also rules out a walled-in Zerg surrendering mid-game), which changes the alliance phase too (520 moves).
     // Updated a third time on purpose: the owner replaced the fight with "the strongest Zerg keeps the table, the
-    // others surrender at once" (736 -> 534 moves); the alliance phase is unchanged.
+    // others surrender at once", and turned the walled-in sacrifice back on. With the sacrifice on, the alliance phase
+    // is back to the original recording (543 moves, b4ce79d26322fdb7); whole games run 554 moves.
     const out: unknown[] = [];
     const alliance: unknown[] = [];
     for (const seed of [1, 2, 3]) {
@@ -145,13 +146,13 @@ describe('Zerg judgement numbers', () => {
       }
     }
     const hash = (x: unknown) => createHash('sha256').update(JSON.stringify(x)).digest('hex').slice(0, 16);
-    expect(alliance.length).toBe(520);
-    expect(hash(alliance)).toBe('2d3786e3308f3a1b');
-    expect(out.length).toBe(534);
-    expect(hash(out)).toBe('49ad34a0e5c7504e');
+    expect(alliance.length).toBe(543);
+    expect(hash(alliance)).toBe('b4ce79d26322fdb7');
+    expect(out.length).toBe(554);
+    expect(hash(out)).toBe('3ff075efe976d8b3');
   });
 
-  it('no Zerg surrenders while prey is left by default; sacrifice: 1 (kept for tests) makes walled-in Zergs surrender mid-game', () => {
+  it('walled-in Zergs feed the swarm by default (sacrifice: 1); with sacrifice: 0 no Zerg surrenders while prey is left', () => {
     const surrenders = (params: typeof ZERG_1_PARAMS) => {
       let n = 0;
       for (const seed of [1, 2, 3]) {
@@ -170,8 +171,9 @@ describe('Zerg judgement numbers', () => {
       }
       return n;
     };
-    expect(surrenders(ZERG_1_PARAMS)).toBe(0);
-    expect(surrenders({ ...ZERG_1_PARAMS, sacrifice: 1 })).toBeGreaterThan(0);
+    expect(ZERG_1_PARAMS.sacrifice).toBe(1);
+    expect(surrenders(ZERG_1_PARAMS)).toBeGreaterThan(0);
+    expect(surrenders({ ...ZERG_1_PARAMS, sacrifice: 0 })).toBe(0);
   });
 
   it('each later behaviour changes play when switched on', () => {

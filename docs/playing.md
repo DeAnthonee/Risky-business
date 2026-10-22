@@ -95,6 +95,19 @@ those three parts; hover a bar for the numbers. Each row also shows the player's
 possible; orange at 4+). Card counts are public, so under fog of war a seated player still gets the card-count list.
 In a progressive-cards game the top bar shows what the **next set** is worth (hover for the next three values).
 
+## Next tournament
+
+When the server runs [scheduled tournaments](tournaments.md#scheduled-tournaments), the home page shows a **Next
+tournament** card under the name box:
+- the next one's name;
+- a countdown to its start, or to sign-up while sign-up is still closed;
+- how many have signed up, and how many it needs to run;
+- **Join** and **Watch**, both opening its page, where you join with your name;
+- once it is under way, **Playing now** with a Watch button;
+- a line when the last one was called off ("not enough entrants").
+
+It refreshes every 15 seconds, and it's hidden when the server has no schedule.
+
 ## The House
 
 The home page shows **The House**: the server's own bots over every finished tournament, "The Swarm" (Zergs) against

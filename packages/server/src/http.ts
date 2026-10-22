@@ -599,6 +599,8 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
   );
 
   api.get('/tournaments', (_req, res) => res.json({ tournaments: store.tournaments.list() }));
+  // The next scheduled tournament (the home page's card, the MCP next_tournament tool); all null with no schedule.
+  api.get('/tournaments/next', (_req, res) => res.json({ scheduled: !!store.schedule, ...(store.schedule?.next() ?? { next: null, running: null, cancelled: null }) }));
   api.get(
     '/tournaments/:id',
     wrap((req, res) => {

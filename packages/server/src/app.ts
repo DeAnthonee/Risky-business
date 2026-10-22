@@ -13,6 +13,7 @@ import { buildInfo } from './build-info.js';
 import { createMcpRouter } from './mcp.js';
 import { CharacterStore } from './characters.js';
 import type { SeasonKeyGuard } from './season-key.js';
+import { TournamentScheduler, type ScheduleEntry } from './tournament-schedule.js';
 
 export interface AppOptions {
   /** Directory holding the built web client (served if it exists). */
@@ -36,6 +37,10 @@ export interface AppOptions {
   seasonLockFile?: string | null;
   /** Tests: the season-key guard (limits and clock). */
   seasonGuard?: SeasonKeyGuard;
+  /** Scheduled nested tournaments (parsed RISK_TOURNAMENT_SCHEDULE); unset or empty = no schedule. */
+  tournamentSchedule?: ScheduleEntry[] | null;
+  /** Where the schedule's state is saved (under RISK_DATA_DIR), so a restart neither repeats nor skips a slot. */
+  scheduleFile?: string | null;
   /** Sweep interval for idle rooms; 0 disables the automatic sweeper (tests). */
   sweepIntervalMs?: number;
 }
@@ -95,6 +100,7 @@ export function createRiskServer(store: Store, opts: AppOptions = {}): RiskServe
   const characters = opts.characters ?? new CharacterStore(DEFAULT_AI_DIR, null);
   app.use('/api', createApi(store, { adminToken: opts.adminToken, recordsKey: opts.recordsKey, openTournaments: opts.openTournaments ?? true, characters, seasonKey: opts.seasonKey, seasonGuard: opts.seasonGuard, seasonLockFile: opts.seasonLockFile }));
   if (opts.sweepIntervalMs !== 0) store.startSweeper(opts.sweepIntervalMs ?? 30_000);
+  if (opts.tournamentSchedule?.length) store.schedule = new TournamentScheduler(store.tournaments, opts.tournamentSchedule, opts.scheduleFile ?? null);
 
   // Remote MCP endpoint for AI agents (claude.ai connectors, any Streamable HTTP MCP client).
   const mcp = createMcpRouter(store, characters, opts.mcpLabel ?? 'Risky Business', opts.adminToken ?? null, opts.openTournaments ?? true);

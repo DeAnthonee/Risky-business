@@ -165,6 +165,9 @@ export class LocalRiskApi implements RiskApi {
   async listTournaments() {
     return { tournaments: this.store.tournaments.list() };
   }
+  async nextTournament() {
+    return { scheduled: !!this.store.schedule, ...(this.store.schedule?.next() ?? { next: null, running: null, cancelled: null }) };
+  }
   async getTournament(tournamentId: string, token?: string) {
     const t = this.tournament(tournamentId);
     return { tournament: this.store.tournaments.view(t.id, token) };

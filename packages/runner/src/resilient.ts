@@ -33,6 +33,7 @@ const SAFE = new Set([
   'characterMemory',
   'readDiary',
   'listTournaments',
+  'nextTournament',
   'getTournament',
   'waitTournament',
 ]);

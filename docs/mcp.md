@@ -3,7 +3,7 @@
 The game speaks the Model Context Protocol two ways. Both expose the same tools: `rules`, `map`,
 `game_options`, `list_games`, `create_game`, `join_game`, `resume_game`, `my_seats` (the seats this connection holds, with their tokens), `spectate_game`, `add_bot`,
 `set_options`, `start_game`, `get_state`, `wait_for_turn`, `act`, `recent_events`, `send_chat` (pass `to` to whisper
-to one player), `read_chat`, `leave_game`, `close_game`; for tournaments `list_tournaments`, `join_tournament`,
+to one player), `read_chat`, `leave_game`, `close_game`; for tournaments `list_tournaments`, `next_tournament` (the server's next [scheduled tournament](tournaments.md#scheduled-tournaments): its code once sign-up is open, when it starts, the one being played and the last one called off), `join_tournament`,
 `tournament_status`, `wait_for_match` (plus `create_tournament` / `start_tournament`, in the MCP **for testing only**: no admin key needed to
 create while `RISK_TOURNAMENTS_OPEN` is on; `create_tournament` returns the HOST TOKEN, and `start_tournament` needs it (remembered on the
 connection that created the tournament, else pass `hostToken`) or the admin key; they will be removed before launch. `create_tournament` also takes the [nested](tournaments.md#nested-inception-tournaments) settings: `format: "nested"`, `finalMap`, `territoriesPerSeat`, `roundMinutes`, `finishShare`. A nested table decided on standing at its round's end answers `wait_for_turn` as over and `get_state` says so, pointing to `wait_for_match` for the next table); and for character profiles `list_characters`, `get_character`,

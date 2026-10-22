@@ -116,6 +116,7 @@ export function formatTournament(t: TournamentInfo): string {
       ? `TOURNAMENT ${t.id} "${t.name}" - ${t.status.toUpperCase()} - nested: tables of 3-6 on their own boards, a final of 6-10${t.nested.finalMap ? ` on ${t.nested.finalMap}` : ''}; a round ends when ${Math.round(t.nested.finishShare * 100)}% of its tables finish or after ${t.nested.roundMinutes} min, and the rest are decided on standing (territories, armies, dice)${t.nested.plan ? `. Plan: ${t.nested.plan.map((r) => r.join('+')).join(' > ')} seats per table${t.nested.zergs ? `, ${t.nested.zergs} bots added` : ''}` : ''}`
       : `TOURNAMENT ${t.id} "${t.name}" - ${t.status.toUpperCase()} - map ${t.map}, tables of up to ${t.groupSize}${t.fillBots ? ', round 1 filled with bots' : ''}`,
   ];
+  if (t.scheduled) lines.push(t.scheduled.cancelled ? `SCHEDULED for ${new Date(t.scheduled.startsAt).toISOString()}: CALLED OFF (${t.scheduled.cancelled})` : `SCHEDULED: starts at ${new Date(t.scheduled.startsAt).toISOString()} by itself; empty seats are filled with Zergs`);
   lines.push(`Entrants (${t.entrants.length}/${t.maxEntrants}): ${t.entrants.map((e) => `${e.name}${e.isBot ? ' [bot]' : ''} (${e.status})`).join(', ') || 'none yet'}`);
   for (const r of t.rounds) {
     lines.push(`Round ${r.round}:${r.deadline && !r.endedAt ? ` (ends by ${new Date(r.deadline).toISOString()})` : ''}`);
@@ -649,7 +650,36 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
   };
   const entrantTokenSchema = z.string().optional().describe('Your entrant token for this tournament (returned by join_tournament). Pass it to see your status and your table.');
 
-  server.registerTool('list_tournaments', { description: 'List tournaments on the server: code, name, status (registering / running / finished), map, entrants and champion.', inputSchema: {} }, async () => {
+  server.registerTool(
+    'next_tournament',
+    {
+      description:
+        "The server's next scheduled nested tournament: its code once sign-up is open (pass it to join_tournament, then wait_for_match: it starts by itself at the time shown, and empty seats are filled with Zergs), or when sign-up opens; also the scheduled one being played now and the last one called off.",
+      inputSchema: {},
+    },
+    async () => {
+      try {
+        const r = await api.nextTournament();
+        if (!r.scheduled) return text('This server has no tournament schedule. list_tournaments shows any tournament a host made.');
+        const iso = (ms: number) => new Date(ms).toISOString();
+        const lines: string[] = [];
+        if (r.next) {
+          lines.push(
+            r.next.id
+              ? `NEXT: ${r.next.id} "${r.next.name}" - sign-up OPEN, starts ${iso(r.next.startsAt)}; ${r.next.entrants}/${r.next.maxEntrants} entrants (needs ${r.next.minEntrants} people or agents, or it is called off). join_tournament with tournamentId "${r.next.id}".`
+              : `NEXT: "${r.next.name}" starts ${iso(r.next.startsAt)}; sign-up opens ${iso(r.next.opensAt)}.`,
+          );
+        } else lines.push('NEXT: none scheduled.');
+        if (r.running) lines.push(`PLAYING NOW: ${r.running.id} "${r.running.name}" (round ${r.running.round}); tournament_status to watch.`);
+        if (r.cancelled) lines.push(`CALLED OFF: ${r.cancelled.id} "${r.cancelled.name}" at ${iso(r.cancelled.startsAt)} (${r.cancelled.reason}).`);
+        return text(lines.join('\n'));
+      } catch (e) {
+        return errorText(e);
+      }
+    },
+  );
+
+  server.registerTool('list_tournaments', { description: 'List tournaments on the server: code, name, status (registering / running / finished), map, entrants, champion, and for scheduled ones their start (startsAt, ms) and any reason they were called off.', inputSchema: {} }, async () => {
     try {
       return text(JSON.stringify(await api.listTournaments(), null, 1));
     } catch (e) {

@@ -135,6 +135,9 @@ export function createRiskServer(store: Store, opts: AppOptions = {}): RiskServe
   // Delove seats on request: the pool claims seats; unfilled ones become Zergs at the start; the preview shows the pool.
   const seatRequests = new SeatRequests(store.tournaments, tourneyAccess.config, opts.seatPoolKey ?? null, opts.seatRequestsFile ?? null, opts.seatPoolLockFile ?? null);
   store.tournaments.beforeStart = (t) => seatRequests.onStart(t);
+  // Disconnected seats: the pool may take a dropped seat over from the house bot ("<name>-Delove").
+  seatRequests.rooms = (id) => store.get(id);
+  store.tournaments.onSeatDropped = (d) => seatRequests.openTakeover(d.tournamentId, d.gameId, d.playerId, d.name, d.fog);
   // House AI (nested seating and round close): the seats the Delove seat pool joined.
   store.tournaments.houseAiEntrants = (id) => seatRequests.boundEntrants(id);
   store.tournaments.delovePool = seatRequests.enabled ? () => seatRequests.pool() : null;

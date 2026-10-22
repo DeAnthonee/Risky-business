@@ -161,8 +161,14 @@ a model that is only thinking, and drops it so the table plays on. The code is `
   run one by default).
 - **The takeover.** The seat's token stops working at that table: it answers **410** "You were dropped from this table
   (disconnected)…", over HTTP and MCP. The **house bot** plays the seat at once, renamed **"<name>-bot"** (honest
-  labels: a later step lets the Delove seat pool take it over as "<name>-Delove"). The table's chat and the game's
-  history and record note it.
+  labels). The table's chat and the game's history and record note it.
+- **Delove takes over** when a seat pool is set up ([Delove seats on request](#delove-seats-on-request)). The drop opens
+  a **takeover request** (`mode: "takeover"`, `n: 1`, `takeover: {gameId, playerId, name}`), listed only to a pool
+  that asks for takeovers (`GET /api/seat-requests?modes=takeover`), so an older pool never sees one. Its claim answers
+  `{mode: "takeover", gameId, playerId, token, search, options}`: the seat is renamed **"<name>-Delove"**, stops being a
+  bot, and the pool plays it with that token through the ordinary game API (as `resume_game` does). A failed claim
+  hands the seat back to the house bot, as does a Delove stand-in that disconnects in turn; neither opens a second
+  request. Takeovers count toward the Delove seats at once, and close when the table ends.
 - **Out of the tournament.** The entrant shows as `dropped` in the bracket (`dropped: {reason, standIn}`; 🔌 on the
   site). The stand-in plays only to finish that table. It can win the game, but **it never moves on**: the best other
   seat by standing does, as a table decided on standing (+1). That is the winner's next in line, players already out

@@ -437,6 +437,8 @@ export class TournamentManager extends EventEmitter {
   onFinished: ((t: TournamentSnapshot) => void) | null = null;
   /** Called first thing when a tournament starts, still registering (seat-requests.ts: unfilled Delove seats become Zergs). */
   beforeStart: ((t: TournamentSnapshot) => void) | null = null;
+  /** A seat was dropped as disconnected (its entrant is now dropped): the app asks the Delove seat pool to take it over. */
+  onSeatDropped: ((d: { tournamentId: string; gameId: string; playerId: string; name: string; fog: boolean }) => void) | null = null;
   /** The Delove seat pool's free capacity, for the preview (seat-requests.ts); null = no pool configured. */
   delovePool: (() => { online: boolean; free: number; freeSearch: number }) | null = null;
 
@@ -1145,7 +1147,9 @@ export class TournamentManager extends EventEmitter {
       const e = this.entrant(t, Object.entries(m.seats).find(([, s]) => s.playerId === playerId)?.[0] ?? '');
       if (!e || e.dropped) return;
       e.dropped = { reason, at: this.clock.now(), standIn };
-      if (this.tournaments.get(t.id) === t) this.changed(t);
+      if (this.tournaments.get(t.id) !== t) return;
+      this.changed(t);
+      this.onSeatDropped?.({ tournamentId: t.id, gameId: room.id, playerId, name: e.name, fog: !!room.state.options.fogOfWar });
     };
     room.on('seat_dropped', onDrop);
     const settle = () => {

@@ -1,0 +1,1 @@
+delove: - 2026-10-22 #PR zergs.md and the delove README: training plays zerg@2 since #201 (no longer "stays on zerg@1"); zerg-branch rollouts play each Zerg seat's own version; bot.ts comment to match

@@ -54,7 +54,8 @@ export function freeZergName(names: readonly string[]): string {
 
 /**
  * A bot seat's move: a Zerg plays zerg@2 (`ZERG_2_PARAMS`: zerg@1 without the mid-game surrender, the owner's call in
- * #198) with every Zerg seat in the room as its horde; any other bot is the built-in bot. Training stays on zerg@1.
+ * #198) with every Zerg seat in the room as its horde; any other bot is the built-in bot. Training plays zerg@2 too
+ * since #201.
  */
 export function chooseSeatAction(state: GameState, me: PlayerId): Action | null {
   if (!isZergSeat(me)) return chooseBotAction(state, me);

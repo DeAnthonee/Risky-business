@@ -29,7 +29,8 @@ const USAGE = `delove-seat: seat Delove players in a real game over the HTTP API
                    search at play time (branch and score): the newest delove@N ranks the moves, set
                    by --preset (below); any DELOVE_BRANCH_* variable overrides one setting, e.g.
                    DELOVE_BRANCH_RANKER=delove@6 (packages/delove/README.md).
-                   The bare network (no search) is its own id: --agents delove@8
+                   The bare network (no search) is its own id: --agents delove@8; <model>+search
+                   (e.g. delove@10+search) searches with that network ranking the moves
   --preset NAME    live search preset for delove-branch: js2-range (default: Jacob Sensei 2 rollouts,
                    5 options, range score, horizon 2, margin 0.02) or measured (Jacob Sensei 1,
                    share score, horizon 1, margin 0.01; about 4x faster)
@@ -156,15 +157,23 @@ function buildAgents(ids: string[], presetName: string | undefined): Agent[] {
       return entries;
     }),
   );
-  // Branch and score loads its ranker network, so it is only built when a seat asks for it.
-  if (ids.some((id) => id === 'delove-branch' || id === 'delove-branch@1')) {
-    const preset = (presetName ?? LIVE_BRANCH_DEFAULT_PRESET) as LiveBranchPresetName;
+  // Branch and score loads its ranker network, so it is only built when a seat asks for it: delove-branch ranks with
+  // the newest base network (or DELOVE_BRANCH_RANKER), <model>+search (e.g. delove@10+search) with that model.
+  const preset = (presetName ?? LIVE_BRANCH_DEFAULT_PRESET) as LiveBranchPresetName;
+  const search = (id: string, ranker: string | undefined) => {
     if (!(preset in LIVE_BRANCH_PRESETS)) fail(`--preset must be one of ${Object.keys(LIVE_BRANCH_PRESETS).join(', ')}`);
-    const env = liveBranchEnv(undefined, process.env, preset);
+    const env = liveBranchEnv(undefined, ranker ? { ...process.env, DELOVE_BRANCH_RANKER: ranker } : process.env, preset);
     const branch = branchFromEnv(undefined, env);
-    console.log(`delove-branch (${preset}): ranker ${env.DELOVE_BRANCH_RANKER ?? 'none'}, rollouts by ${env.DELOVE_BRANCH_TEACHER}, ${env.DELOVE_BRANCH_OPTIONS} options, ${env.DELOVE_BRANCH_SCORE} score, horizon ${env.DELOVE_BRANCH_HORIZON}, margin ${env.DELOVE_BRANCH_MARGIN}`);
-    known.set(branch.id, branch).set('delove-branch', branch);
+    console.log(`${id} (${preset}): ranker ${env.DELOVE_BRANCH_RANKER ?? 'none'}, rollouts by ${env.DELOVE_BRANCH_TEACHER}, ${env.DELOVE_BRANCH_OPTIONS} options, ${env.DELOVE_BRANCH_SCORE} score, horizon ${env.DELOVE_BRANCH_HORIZON}, margin ${env.DELOVE_BRANCH_MARGIN}`);
+    known.set(id, branch);
     labels.set(branch, `${env.DELOVE_BRANCH_RANKER ?? 'delove'} + search`);
+    return branch;
+  };
+  if (ids.some((id) => id === 'delove-branch' || id === 'delove-branch@1')) known.set('delove-branch@1', search('delove-branch', undefined));
+  for (const id of new Set(ids.filter((id) => id.endsWith('+search')))) {
+    const model = id.slice(0, -'+search'.length);
+    if (!known.has(model)) fail(`${id}: no network ${model} in the models folder`);
+    search(id, model);
   }
   return ids.map((id) => known.get(id) ?? fail(`unknown Delove version "${id}" (known: ${[...known.keys()].join(', ')})`));
 }

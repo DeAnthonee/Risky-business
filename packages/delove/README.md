@@ -80,7 +80,8 @@ npm run delove-seat -- --server https://risky.deanthoneeking.com --tournament AB
 ```
 
 - The runner joins N entrants while the tournament registers ("Delove 1" ... "Delove N", or `--names`; the agents of
-  `--agents` in turn, each tagged for spectators as in a single game, e.g. "delove@10 + search"), then every entrant plays like an agent over MCP (`src/tournament-seat.ts`, `playEntrant`):
+  `--agents` in turn, each tagged for spectators as in a single game, e.g. "delove@10 + search"; give one id per
+  entrant to choose each one's player, and `<model>+search`, e.g. `delove@10+search`, for search ranked by that model), then every entrant plays like an agent over MCP (`src/tournament-seat.ts`, `playEntrant`):
   wait for its table (the tournament long poll with its entrant token), play it with the seat player, wait for the
   next, until it is out or the tournament is over. The host starts the tournament as usual.
 - **Processes:** a Node process makes one decision at a time (a search blocks it), so the entrants are spread over

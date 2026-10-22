@@ -91,15 +91,19 @@ function RoundClock({ t }: { t: TournamentView }) {
   if (!round) return null;
   if (t.status === 'finished') return <p className="round-clock">Finished{t.champion ? `: ${t.champion.name} is the champion` : ''}.</p>;
   const tables = round.matches.length;
-  const done = round.matches.filter((m) => m.status === 'finished').length;
-  const share = t.nested?.finishShare ?? 0.51;
-  const needed = tables === 1 ? 1 : Math.ceil(share * tables);
+  const done = round.matches.filter((m) => m.status === 'finished' || m.status === 'bye').length;
   const left = round.deadline ? Math.max(0, round.deadline - now) : null;
   const mmss = left === null ? null : `${Math.floor(left / 60_000)}:${String(Math.floor((left % 60_000) / 1000)).padStart(2, '0')}`;
+  const lastLap = round.lastLapAt !== undefined;
   return (
     <p className="round-clock">
-      <strong>{tables === 1 ? 'The final' : `Round ${round.round}`}</strong> · {done} of {needed} tables needed{mmss !== null && ` · ${mmss} left`}
-      <span className="muted small"> (then the tables still playing are decided on standing)</span>
+      <strong>{tables === 1 ? 'The final' : `Round ${round.round}`}</strong> · {done} of {tables} tables finished
+      {lastLap ? ' · last lap' : mmss !== null && ` · ${mmss} left`}
+      <span className="muted small">
+        {lastLap
+          ? ' (the tables still playing finish this go-around of turns, so everyone has had as many, then are decided on standing)'
+          : ' (then the tables still playing finish their go-around of turns and are decided on standing)'}
+      </span>
     </p>
   );
 }

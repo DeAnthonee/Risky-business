@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from '
 import { dirname } from 'node:path';
 import { RuleError } from '@risk/engine';
 import { parseTournamentSpec } from './http.js';
-import { DEFAULT_CHECKIN_MINUTES, type CreateTournamentSpec, type TournamentManager } from './tournaments.js';
+import { DEFAULT_CHECKIN_MINUTES, NESTED_ROUND_MINUTES, type CreateTournamentSpec, type TournamentManager } from './tournaments.js';
 
 /** One schedule entry as the owner writes it. */
 export interface ScheduleEntryInput {
@@ -240,7 +240,7 @@ export class TournamentScheduler {
     // Only people who checked in count; the rest are no-shows, swapped for Zergs at the start.
     const people = t.entrants.filter((x) => !x.isBot && x.checkedInAt).length;
     // Late by more than a round (the server was down at the start): call it off rather than start at a surprise time.
-    const grace = (e.spec.roundMinutes ?? 30) * 60_000;
+    const grace = (e.spec.roundMinutes ?? NESTED_ROUND_MINUTES) * 60_000;
     if (now > slot.startsAt + grace) this.tournaments.cancel(t.id, CANCEL_MISSED);
     else if (people < e.minEntrants) this.tournaments.cancel(t.id, CANCEL_NOT_ENOUGH);
     else this.tournaments.startScheduled(t.id);

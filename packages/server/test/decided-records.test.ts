@@ -43,12 +43,15 @@ describe('a nested table decided on standing is archived like a finished game', 
     const base = `http://127.0.0.1:${(risk.server.address() as AddressInfo).port}`;
     try {
       // 2 people (who never move) + 16 Zergs: six tables of 3. The four Zerg-only tables end at once; the round's
-      // deadline then decides the two people's tables on standing.
+      // deadline starts their last lap, and with nobody moving its backstop (a round's time on) decides the two
+      // people's tables on standing.
       const t = store.tournaments.create({ format: 'nested', roundMinutes: 20, botDelayMs: 2000, options: { turnTimer: 'off', autoSetup: true } });
       store.tournaments.join(t.id, 'Ada');
       store.tournaments.join(t.id, 'Grace');
       store.tournaments.addBots(t.id, 'zerg', 16);
       store.tournaments.start(t.id);
+      clock.advance(20 * 60_000);
+      expect(t.rounds[0].lastLapAt).toBe(clock.now());
       clock.advance(20 * 60_000);
       const decided = t.rounds[0].matches.filter((m) => m.status === 'decided');
       expect(decided).toHaveLength(2);

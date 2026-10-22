@@ -14,7 +14,8 @@
     "./register": "./dist/register.js"
   },
   "bin": {
-    "delove-seat": "dist/seat-cli.js"
+    "delove-seat": "dist/seat-cli.js",
+    "delove-pool": "dist/pool-cli.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

@@ -149,6 +149,44 @@ delove@6, **+2.07 points per seat at World 6p** (95% +1.77 to +2.38; score 0.858
 +1.91; 0.740), even at Classic 2p (0.490, -0.06 points); against Jacob Sensei at World 6p +1.81 (+1.53 to +2.09; 0.830),
 where the bare network scores -0.75. About 65 s per World 6-player game for the whole table.
 
+### Seat pool: Delove seats on request (`npm run delove-pool`)
+
+A tournament host can ask for Delove seats when creating a tournament (`delove: N`; docs/tournaments.md "Delove seats
+on request"). The **seat pool** is the daemon that fills them, on the machine that hosts Delove (`src/pool.ts`,
+`src/pool-cli.ts`; never loaded by the server):
+
+```bash
+RISK_SEAT_POOL_KEY=<from the server owner> DELOVE_MODELS=~/delove-models   npm run delove-pool -- --server http://localhost:8080 [--max-seats 40] [--max-search 20] [--procs 6]
+```
+
+- **Its loop**, every 30 s (`--poll-ms`):
+  - it reports its free capacity to the server: `GET /api/seat-requests?kind=delove&free=F&freeSearch=S`, where
+    `free` is `--max-seats` (`MAX_SEATS`, default 40) minus the seats in play, and `freeSearch` is `--max-search`
+    (`MAX_SEARCH`, default 20) minus the search seats in play. The server shows "Delove: K seats available" to
+    hosts, and "pool offline" after 2 minutes without a poll;
+  - it claims what fits (`POST /api/seat-requests/:id/claim`);
+  - it joins each seat with the request id ("Delove 1", "Delove 2", ... with the label `delove@N`);
+  - it reports `done`, or `failed` with the seats it could not join, which go back to the request;
+  - it plays the seats on child processes, as `delove-seat --tournament` does.
+- **Which network:**
+  - every seat is the newest `delove@N` in `DELOVE_MODELS` (or `--model`), bare;
+  - where a claim allows search (fog off, within the server's cap of search seats at once) and `--max-search` has
+    room, those seats play `delove@N + search` (the live preset, `--preset`);
+  - **fog:** a fog request is always bare, and only a fog-trained network (its `.json` has `fogInputs`) takes one. A
+    pool on a fog-blind network leaves fog requests alone, and never seats an older model in a fog game.
+- **The key** (`RISK_SEAT_POOL_KEY`, the same value as the server's) is read from the environment only and sent in
+  the `x-seat-pool-key` header. It is never printed or saved. A server without it answers 404 (the pool logs that
+  seat requests are off); a wrong key gets 403, and repeated wrong keys get the server's one-hour lockout.
+- **Robustness:**
+  - seats in play are kept in a state file (`--state`, default `~/.delove-pool/state.json`, mode 600: it holds entrant
+    tokens), so a restarted pool plays them on;
+  - a child process that dies is replaced, and its seats are handed to the new one;
+  - each seat re-reads its tournament after a server restart, as `delove-seat` does;
+  - SIGTERM or Ctrl-C stops claiming and stops the children, and the seats stay in the state file for the next run.
+- **Running it as a service on the owner's Mac mini:** the runbook in the notes folder
+  (`mac-mini-delove-seats.md`, "Seat pool as a service"): a launchd agent that restarts it, with the key in the
+  agent's environment.
+
 ### Generation 5 Testing & Environment Parity
 
 To evaluate Delove models on the exact game options used in Generation 5 live league play, see [`docs/game-settings.md`](../../docs/game-settings.md) and pre-built configs in `packages/delove/configs/`:

@@ -54,6 +54,24 @@ export interface HistoryEntry {
   playerId: PlayerId | null;
   action: Action | { type: 'start' } | { type: 'system'; note: string };
   events: GameEvent[];
+  /**
+   * The acting seat's private decision note for this move (`act` with `note`): kept for after the game, never shown
+   * to other players or spectators while it is played (eventsSince strips it).
+   */
+  decisionNote?: DecisionNote;
+}
+
+/** A seat's note on one move: a string or any JSON value, at most MAX_NOTE_BYTES once serialized. */
+export type DecisionNote = string | number | boolean | Record<string, unknown> | unknown[];
+export const MAX_NOTE_BYTES = 2048;
+
+/** A decision note from an untrusted request: undefined when absent, else the value, or a RuleError when too big. */
+export function parseDecisionNote(raw: unknown): DecisionNote | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  const json = JSON.stringify(raw);
+  if (json === undefined) throw new RuleError('note must be a string or JSON');
+  if (Buffer.byteLength(json, 'utf8') > MAX_NOTE_BYTES) throw new RuleError(`note is too long: at most ${MAX_NOTE_BYTES} bytes once serialized as JSON`);
+  return raw as DecisionNote;
 }
 
 export interface RoomSnapshot {
@@ -347,7 +365,7 @@ export class GameRoom extends EventEmitter {
     return { ...v, players: v.players.map((p) => (this.agents[p.id] ? { ...p, agent: this.agents[p.id] } : p)) };
   }
 
-  private commit(next: GameState, events: GameEvent[], playerId: PlayerId | null, action: HistoryEntry['action']) {
+  private commit(next: GameState, events: GameEvent[], playerId: PlayerId | null, action: HistoryEntry['action'], note?: DecisionNote) {
     for (const player of this.state.players) {
       if (!player.isNeutral && player.alive && next.players.some(p => p.id === player.id && !p.alive) && !this.eliminationOrder.includes(player.id)) this.eliminationOrder.push(player.id);
     }
@@ -355,10 +373,10 @@ export class GameRoom extends EventEmitter {
     this.state = next;
     this.updatedAt = Date.now();
     if (next.phase === 'finished' && this.finishedAt === null) this.finishedAt = this.updatedAt;
-    this.history.push({ version: next.version, at: this.updatedAt, playerId, action, events });
+    this.history.push({ version: next.version, at: this.updatedAt, playerId, action, events, ...(note !== undefined ? { decisionNote: note } : {}) });
     if (this.history.length > MAX_HISTORY) this.history.splice(0, this.history.length - MAX_HISTORY);
     // The game archive listens here: every move, in full, before anything else reacts to it.
-    const info: CommitInfo = { before, next, events, playerId, action, at: this.updatedAt };
+    const info: CommitInfo = { before, next, events, playerId, action, at: this.updatedAt, ...(note !== undefined ? { note } : {}) };
     this.emit('commit', info);
     const msg: ChangeMessage = { state: next, events, version: next.version, playerId };
     this.emit('change', msg);
@@ -451,10 +469,11 @@ export class GameRoom extends EventEmitter {
 
   // ---- play ----
 
-  act(playerId: PlayerId, action: Action): { state: GameState; events: GameEvent[] } {
+  /** Make a move. `note` is the seat's private decision note (see HistoryEntry.decisionNote); check it first. */
+  act(playerId: PlayerId, action: Action, note?: DecisionNote): { state: GameState; events: GameEvent[] } {
     const { state, events } = applyAction(this.state, playerId, action);
     if (!this.state.players.find((p) => p.id === playerId)?.isBot) this.touch();
-    this.commit(state, events, playerId, action);
+    this.commit(state, events, playerId, action, note);
     return { state, events };
   }
 
@@ -545,8 +564,9 @@ export class GameRoom extends EventEmitter {
     return this.chat.filter((m) => m.id > since && this.canReadChat(m, viewer));
   }
 
+  /** History since `version`, as anyone may read it: decision notes are taken out. */
   eventsSince(version: number): HistoryEntry[] {
-    return this.history.filter((h) => h.version > version);
+    return this.history.filter((h) => h.version > version).map(({ decisionNote: _private, ...h }) => h);
   }
 
   /**

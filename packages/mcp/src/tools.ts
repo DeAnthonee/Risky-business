@@ -479,12 +479,16 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
         token: tokenSchema,
         as: asSchema,
         full: z.boolean().optional().describe('true: return the whole board instead of just what your action changed'),
+        note: z
+          .union([z.string().max(2000), z.record(z.string(), z.unknown())])
+          .optional()
+          .describe('Optional private note on why you made this move (a string or a JSON object, at most 2 KB). It is saved with the move in the game record for review after the game and is never shown to other players or spectators during it.'),
       },
     },
-    async ({ gameId, action, token, as, full }) => {
+    async ({ gameId, action, token, as, full, note }) => {
       try {
         const id = gameId.toUpperCase();
-        const r = await api.act(id, requireToken(id, token, as), action as Action);
+        const r = await api.act(id, requireToken(id, token, as), action as Action, note);
         if (full) {
           const ev = formatEvents(r.events, r.state);
           return text(`OK.${ev ? `\nEvents:\n${ev}` : ''}\n\n${formatState(r.state)}`);

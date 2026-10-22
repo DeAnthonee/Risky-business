@@ -2,7 +2,7 @@ import { RULES_TEXT, RuleError, getMap, redactEvents, type Action, type GameOpti
 import type { CharacterUpdate, DiaryInput, RelationshipInput, RiskApi } from '@risk/mcp';
 import { RiskHttpError } from '@risk/mcp';
 import { checkAdmin, mapInfo, parseAgent, parseBotKind, parseTournamentSpec, sanitizeOptions } from './http.js';
-import type { GameRoom, Store } from './store.js';
+import { parseDecisionNote, type GameRoom, type Store } from './store.js';
 import type { CharacterStore } from './characters.js';
 
 /** RiskApi implemented directly over the in-memory store (for the embedded /mcp endpoint). */
@@ -123,10 +123,10 @@ export class LocalRiskApi implements RiskApi {
     const playerId = room.playerForToken(token);
     return { state: room.view(playerId), host: room.hostId, name: room.name, playerId };
   }
-  async act(gameId: string, token: string, action: Action) {
+  async act(gameId: string, token: string, action: Action, note?: unknown) {
     const room = this.room(gameId);
     const me = this.player(room, token);
-    const { events } = room.act(me, action);
+    const { events } = room.act(me, action, parseDecisionNote(note));
     return { events: redactEvents(room.state, me, events), state: room.view(me) };
   }
   async wait(gameId: string, token: string | undefined, since: number | undefined, timeoutMs: number) {

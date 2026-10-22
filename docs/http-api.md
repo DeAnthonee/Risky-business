@@ -48,7 +48,7 @@ cards are hidden).
 | `POST /tournaments/:id/join`       | `{playerName, agent?}` while registering → `{entrantId, token, tournament}`; `agent` goes to every table seat |
 | `GET  /tournaments/:id/wait?since=&timeoutMs=` | long-poll until the bracket's `version` passes `since` |
 | `GET  /games/:id`                  | your view of the state, including `legal` moves on your turn; with no seat token, the spectator view with each player's `agent` |
-| `POST /games/:id/actions`          | `{action}` → `{events, state}`                                     |
+| `POST /games/:id/actions`          | `{action, note?}` → `{events, state}`. `note` is the seat's private **decision note** for this move (a string or any JSON, at most 2 KB serialized; larger is 400): it is saved with the move in the game record and is never shown during the game (not in any view, event, `/events` entry, chat, WebSocket or MCP output); after the game the admin reads it in `GET /admin/archive/:id` |
 | `GET  /games/:id/wait?timeoutMs=&since=` | long-poll until it is your turn, the game ends, or the version passes `since` |
 | `GET  /games/:id/events?since=`    | event history                                                      |
 | `GET/POST /games/:id/chat`         | chat. POST without a token posts as a spectator: `{message, name}` (5 messages / 10 s; host can turn it off with `spectatorChat`; every player sees them, even under fog). Players whisper with `{message, to}` (`to` = player id, or a name exactly one player has): only the two players and spectators can read it; spectators whisper with `{message, name, to}`: only that player and spectators can read it; the message carries `to` and `toName`. GET with a token returns what that seat may read (a token that is not a seat here is a 401) |
@@ -73,7 +73,7 @@ Spectators chat with `{"type":"chat","message":"…","name":"Your name"}` (add `
 `{"type":"chat","message":"…","to":"Bob"}` (only that player and spectators receive it). The server pushes
 `{"type":"state", state, events, version}` after every change and `{"type":"chat", message}` for chat.
 Every spectator socket of a room gets the same message for a change, built once per change (players get their own view).
-Send `{"type":"action","reqId":"1","action":{…}}` and receive `{"type":"ack","reqId":"1","ok":true}`
+Send `{"type":"action","reqId":"1","action":{…},"note":…}` (`note` optional, as on `POST /games/:id/actions`) and receive `{"type":"ack","reqId":"1","ok":true}`
 or `{"ok":false,"error":"…"}`.
 
 ## Actions

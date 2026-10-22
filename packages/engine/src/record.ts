@@ -130,8 +130,11 @@ export interface RecordOutcome {
   /** Set when the game was closed before anyone won (abandoned, swept, closed by its host), or decided on standing. */
   endedBecause?: string;
   winner: PlayerId | null;
-  /** 'standing': decided on standing (`decided`), not won on the board. */
-  reason: 'domination' | 'capitals' | 'standing' | null;
+  /**
+   * 'standing': decided on standing (`decided`), not won on the board. 'stalemate': the engine ended a stalled game
+   * (stallEnd) and decided it on standing itself; the winner is from its `stalemate` event.
+   */
+  reason: 'domination' | 'capitals' | 'standing' | 'stalemate' | null;
   /** Set when the game was stopped and decided on standing: the order used. `winner` is its first, `placings` the order. */
   decided?: RecordDecision;
   eliminations: RecordElimination[];

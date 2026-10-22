@@ -191,7 +191,11 @@ round; the boards nest inside each other's territories (the map side: [maps.md](
   and `NESTED_BLIZZARD_SHARE` in `tournaments.ts` (the tournament view shows `nested.blizzardShare`, `null` with an
   explicit count); scheduled tournaments are nested, so they get them too. Fog tables also get the **stall
   breaker** (`stallFogLift: 3`, owner, 2026-10-22): after 3 full rounds with no territory captured, the fog lifts for
-  the rest of that table ([playing.md](playing.md)).
+  the rest of that table ([playing.md](playing.md)). Every table, fog or not, also gets the **storm** (`stallStorm: 5`:
+  from 5 stalled rounds, idle stacks of more than 10 armies lose a fifth every round start) and the **stalemate end**
+  (`stallEnd: 5`: 5 more stalled rounds after the last breaker came on, so 10 with no capture, the engine ends the game
+  on standing; owner: "we'll just end the game after ... 5 full turns after all stall relievers are on"). A table ended
+  by stalemate counts as finished by a win (`game_over` reason `stalemate`): its winner moves on with +2 table points.
 - **Start.** The engine's `planNest` plans the rounds for the entrants: tables of 3-6, uneven by at most one in a
   round, and a final of 6-10. Zerg entrants are added only when the count fits no plan (11-17 entrants fill to 18; under 6 fill
   the final to 6). A random seed, saved with the tournament, fixes every board (`planToNest`, generated gen1 boards

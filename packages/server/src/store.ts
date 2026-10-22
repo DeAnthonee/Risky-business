@@ -999,6 +999,8 @@ export class Store {
           if (snap.state.options.turnTimerSeconds === undefined) snap.state.options.turnTimerSeconds = 15;
           // The stall breaker arrived later: off for games already saved.
           if (snap.state.options.stallFogLift === undefined) snap.state.options.stallFogLift = 0;
+          if (snap.state.options.stallStorm === undefined) snap.state.options.stallStorm = 0;
+          if (snap.state.options.stallEnd === undefined) snap.state.options.stallEnd = 0;
           const room = new GameRoom(snap);
           this.attach(room);
         }

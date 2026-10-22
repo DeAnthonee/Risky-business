@@ -238,6 +238,14 @@ export function formatEvents(events: GameEvent[], view: GameView): string {
       case 'fog_lifted':
         out.push(`The fog lifts: no territory captured for ${e.rounds} rounds, so everyone sees the whole board for the rest of the game`);
         break;
+      case 'storm': {
+        const hit = Object.entries(e.losses);
+        out.push(`Storm: no territory captured for ${e.rounds} rounds, so idle stacks of more than 10 armies (no attack, fortify or move since the last capture) lose a fifth: ${hit.length ? hit.map(([x, n]) => `${t(x)} -${n}`).join(', ') : 'none hit'}. It repeats every round until someone captures`);
+        break;
+      }
+      case 'stalemate':
+        out.push(`Stalemate: no territory captured for ${e.rounds} rounds after every stall breaker came on, so the game ends decided on standing (territories, armies, dice): ${e.standing.map((p, i) => `${i + 1}. ${name(p)}`).join(', ')}`);
+        break;
       case 'capital_chosen':
         out.push(e.auto ? `${name(e.player)}'s capital is ${t(e.territory)} (+${e.armies} armies there)` : `${name(e.player)} chose ${t(e.territory)} as their capital (+${e.armies} armies there)`);
         break;

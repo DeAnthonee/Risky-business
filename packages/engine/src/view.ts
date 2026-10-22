@@ -97,6 +97,8 @@ export function redactEvents(state: GameState, viewer: PlayerId | null, events: 
         },
       };
     }
+    // A storm under fog (stallStorm below stallFogLift): only the losses on territories this player can see.
+    if (e.type === 'storm') return { ...e, losses: Object.fromEntries(Object.entries(e.losses).filter(([t]) => visible.has(t))) };
         if (e.type === 'capitals_assigned') return { type: 'capitals_assigned', capitals: Object.fromEntries(Object.entries(e.capitals).filter(([, t]) => visible.has(t))) };
     if (eventPlayers(e).includes(viewer)) return e;
     // Another player's card activity says something about them (they conquered, they traded): hide it.

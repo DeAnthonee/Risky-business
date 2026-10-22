@@ -1097,6 +1097,16 @@ function useAnimations(
             fogJustLifted = true;
             setBanner({ text: `🌫 Fog lifted: no battles for ${e.rounds} rounds`, color: '#8fa3b8' });
             break;
+          case 'storm':
+            // Only when it hit something: an empty storm is in the log.
+            if (Object.keys(e.losses).length) {
+              fogJustLifted = true;
+              setBanner({ text: `⛈ Storm: idle stacks lose a fifth (no captures for ${e.rounds} rounds)`, color: '#7a8fa6' });
+            }
+            break;
+          case 'stalemate':
+            setBanner({ text: `⚖ Stalemate: decided on standing after ${e.rounds} rounds with no capture`, color: '#b8a36a' });
+            break;
           case 'turn_started':
             lastQueued.current = null;
             // The fog-lifted banner comes just before this turn's start: keep it up for this turn.

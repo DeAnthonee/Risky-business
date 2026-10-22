@@ -30,6 +30,12 @@ export function describe(e: GameEvent, view: GameView): string | null {
       return `❄ Blizzards: ${e.territories.map(shortName).join(', ')} are impassable`;
     case 'fog_lifted':
       return `🌫 The fog lifts: no battles for ${e.rounds} round${e.rounds === 1 ? '' : 's'}. Everyone sees the whole board now.`;
+    case 'storm': {
+      const hit = Object.entries(e.losses);
+      return `⛈ Storm (no captures for ${e.rounds} rounds): ${hit.length ? hit.map(([t, n]) => `${shortName(t)} −${n}`).join(', ') : 'no idle stack big enough to hit'}`;
+    }
+    case 'stalemate':
+      return `⚖ Stalemate: no captures for ${e.rounds} rounds. The game is decided on standing: ${e.standing.map((p, i) => `${i + 1}. ${name(p)}`).join(', ')}`;
     case 'capital_chosen':
       return e.auto ? `★ ${name(e.player)}'s capital is ${shortName(e.territory)} (+${e.armies})` : `★ ${name(e.player)} chose ${shortName(e.territory)} as their capital (+${e.armies})`;
     case 'capitals_assigned':
@@ -57,6 +63,7 @@ export function describe(e: GameEvent, view: GameView): string | null {
     case 'phase':
       return null;
     case 'game_over':
+      if (e.reason === 'stalemate') return `🏆 ${name(e.winner)} wins the stalled game on standing!`;
       return e.reason === 'capitals' ? `🏆 ${name(e.winner)} holds every capital and wins the game!` : `🏆 ${name(e.winner)} wins the game!`;
   }
 }

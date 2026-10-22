@@ -181,6 +181,12 @@ export function narrate(record: GameRecord, opts: NarrateOptions = {}): PlayByPl
         return `Game over: ${who(e.winner)} wins${e.reason ? ` by ${e.reason}` : ''}`;
       case 'fog_lifted':
         return `  🌫 The fog lifts: no battles for ${e.rounds} rounds`;
+      case 'storm': {
+        const hit = Object.entries(e.losses);
+        return `  ⛈ Storm after ${e.rounds} rounds with no capture${hit.length ? `: ${hit.map(([t, n]) => `${where(t)} −${n}`).join(', ')}` : ''}`;
+      }
+      case 'stalemate':
+        return `  ⚖ Stalemate after ${e.rounds} rounds with no capture: decided on standing, ${e.standing.map((p, i) => `${i + 1}. ${who(p)}`).join(', ')}`;
       default:
         return '';
     }

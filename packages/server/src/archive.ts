@@ -69,7 +69,8 @@ export interface ArchiveIndexEntry {
   /** Stopped and decided on standing (a nested tournament table at its round's end): `winner` is the decided winner. */
   decided?: true;
   winner: { id: string; name: string } | null;
-  reason: 'domination' | 'capitals' | 'standing' | null;
+  /** 'stalemate': the engine ended a stalled game (stallEnd), decided on standing. */
+  reason: 'domination' | 'capitals' | 'standing' | 'stalemate' | null;
   turns: number;
   steps: number;
   players: { id: string; name: string; isBot: boolean; characterId: string | null; place: number | null; agent?: string }[];

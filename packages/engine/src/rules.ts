@@ -132,6 +132,13 @@ total reinforcement income stay public (not its breakdown). Spectators always se
 "stallFogLift" (a number, 0 = off; tournaments use 3): the stall breaker for fog games. After that many full rounds in a
 row in which nobody captures a territory, the fog lifts for the rest of the game (a "fog_lifted" event): everyone
 sees the whole board from then on. Attacking keeps the fog; a long standoff lifts it.
+"stallStorm" (a number, 0 = off; tournaments use 5): any game. After that many full rounds in a row with no capture, a
+storm hits at the start of every round (a "storm" event) until someone captures: each territory with more than 10
+armies that has not attacked, fortified (from or to) or been occupied since the last capture loses a fifth of its
+armies (placing reinforcements does not count). Attack, or move your big stacks, to keep them.
+"stallEnd" (a number, 0 = off; tournaments use 5): that many more stalled rounds after the last stall breaker came on
+(fog lift in a fog game, storm), the game ends ("stalemate" event, then game over by "stalemate"): the winner is
+decided on standing, by territories, then armies, then dice.
 "capitals" (Capital Conquest): after setup each player's most garrisoned territory becomes their capital (shown with a
 star) and 3 extra armies are placed on it. At the start of your turn you get +2 armies for every capital you hold. A capital defends with up to 3 dice
 instead of 2 (all three pairs are compared). A captured capital becomes

@@ -373,7 +373,11 @@ const DEFAULT_MAX_NESTED_ENTRANTS = 128;
 export const NESTED_TURN_TIMER_SECONDS = 90;
 /** A nested (and so scheduled) round's deadline when the host sets none, in minutes (owner, 2026-10-22). */
 export const NESTED_ROUND_MINUTES = 15;
-export const NESTED_DEFAULT_OPTIONS: Partial<GameOptions> = { autoSetup: true, capitals: true, stallFogLift: 3 };
+/**
+ * The stall breakers (owner, 2026-10-22): the fog lifts after 3 stalled rounds, a storm wears down idle stacks from 5,
+ * and 5 stalled rounds after that (10 with no capture) the table ends on standing.
+ */
+export const NESTED_DEFAULT_OPTIONS: Partial<GameOptions> = { autoSetup: true, capitals: true, stallFogLift: 3, stallStorm: 5, stallEnd: 5 };
 /** Unless the host sets a blizzard count, each nested table freezes this share of its own board's territories. */
 export const NESTED_BLIZZARD_SHARE = 0.1;
 

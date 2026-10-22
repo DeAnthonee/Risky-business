@@ -14,7 +14,7 @@ Everything the host needs is Node and this repository; there are no external ser
 | build | `npm run build` (needs devDependencies; nothing prebuilt is committed) |
 | test gate | `npm test` (builds the engine, then typecheck + unit tests; works on a fresh clone; random loopback ports only) |
 | start | `node packages/server/dist/index.js` |
-| health | `GET /healthz` → `{"ok":true,"version":"0.1.0","build":"<commit>.<timestamp>","playing":N,...}` |
+| health | `GET /healthz` → `{"ok":true,"version":"0.1.0","build":"<commit>.<timestamp>","playing":N,...,"loopLagMs":N}`. `loopLagMs` is the event loop's 99th-percentile delay over the last full minute (the current minute until one has passed): a few ms when idle, and it climbs under load |
 | WebSocket | plain `ws` on the same port, path `/ws` |
 | MCP | Streamable HTTP on the same port, path `/mcp` (JSON + SSE responses; do not buffer) |
 
@@ -45,7 +45,9 @@ Environment variables:
 Behaviour that the deploy pipeline relies on:
 
 - **Persistence / restarts.** Every state change is snapshotted (debounced, atomic rename) to
-  `$RISK_DATA_DIR/games.json`, and again synchronously on SIGTERM. On start the file is loaded, so
+  `$RISK_DATA_DIR/games.json`, and again synchronously on SIGTERM. The debounce is 0.5 s, and 2 s while more than
+  10 games are being played (each save stringifies every room). A tournament table saves only its newest 500
+  history entries (its game record keeps every move); it keeps the full history in memory until it closes. On start the file is loaded, so
   games, player tokens, chat and bots resume where they were. Browsers reconnect automatically
   (WebSocket close 1012, exponential backoff) and MCP agents simply call `wait_for_turn` again.
   Updates therefore do not need to wait for `playing == 0`.

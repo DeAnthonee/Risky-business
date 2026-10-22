@@ -3,6 +3,19 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { RuleError, redactEvents, type Action } from '@risk/engine';
 import type { ChangeMessage, ChatMessage, GameRoom, Store } from './store.js';
 
+/**
+ * Every spectator socket of a room gets the same state message for a commit, so it is built and stringified once
+ * per (room, commit) and the same string is written to each of them. Player sockets keep their own view (fog, cards).
+ */
+const spectatorFrames = new WeakMap<GameRoom, { change: ChangeMessage; json: string }>();
+export function spectatorFrame(room: GameRoom, m: ChangeMessage, commit: string): string {
+  const cached = spectatorFrames.get(room);
+  if (cached && cached.change === m) return cached.json;
+  const json = JSON.stringify({ type: 'state', state: room.view(null), events: redactEvents(m.state, null, m.events), version: m.version, host: room.hostId, name: room.name, you: null, commit });
+  spectatorFrames.set(room, { change: m, json });
+  return json;
+}
+
 interface ClientMsg {
   type: 'subscribe' | 'action' | 'chat' | 'ping';
   reqId?: string;
@@ -82,6 +95,9 @@ export function attachWebSocket(server: Server, store: Store, commit: () => stri
     const send = (obj: unknown) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
     };
+    const sendRaw = (json: string) => {
+      if (ws.readyState === WebSocket.OPEN) ws.send(json);
+    };
 
     const unsubscribe = () => {
       if (room && onChange) room.off('change', onChange);
@@ -115,7 +131,10 @@ export function attachWebSocket(server: Server, store: Store, commit: () => stri
             if (!r || r.closed) return send({ type: 'closed', reason: 'gone', reqId: msg.reqId });
             room = r;
             playerId = r.playerForToken(msg.token);
-            onChange = (m) => send({ type: 'state', state: r.view(playerId), events: redactEvents(m.state, playerId, m.events), version: m.version, host: r.hostId, name: r.name, you: playerId, commit: commit() });
+            onChange = (m) =>
+              playerId
+                ? send({ type: 'state', state: r.view(playerId), events: redactEvents(m.state, playerId, m.events), version: m.version, host: r.hostId, name: r.name, you: playerId, commit: commit() })
+                : sendRaw(spectatorFrame(r, m, commit()));
             onChat = (m) => {
               if (r.canReadChat(m, playerId)) send({ type: 'chat', message: m });
             };

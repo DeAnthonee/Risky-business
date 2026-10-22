@@ -140,6 +140,13 @@ export interface ChangeMessage {
 
 const BOT_DELAY_MS = Number(process.env.RISK_BOT_DELAY_MS ?? 700);
 const MAX_HISTORY = 2000;
+/** A tournament table saves only its newest history entries: the game record already journals the whole game. */
+export const TABLE_SAVED_HISTORY = 500;
+/** Snapshot debounce, and the longer one while many games are being played (each save stringifies every room). */
+export const SAVE_DEBOUNCE_MS = 500;
+export const BUSY_SAVE_DEBOUNCE_MS = 2000;
+/** More rooms than this playing at once counts as busy. */
+export const BUSY_PLAYING_ROOMS = 10;
 const MAX_CHAT = 500;
 
 function fmt(ms: number): string {
@@ -224,7 +231,8 @@ export class GameRoom extends EventEmitter {
       state: this.state,
       tokens: Object.fromEntries(this.tokens),
       chat: this.chat,
-      history: this.history,
+      // Tournament tables keep their full history in memory but save only the tail (the record has every move).
+      history: this.tournamentId && this.history.length > TABLE_SAVED_HISTORY ? this.history.slice(-TABLE_SAVED_HISTORY) : this.history,
       updatedAt: this.updatedAt,
       lastActivity: this.lastActivity,
       ...(this.tournamentId ? { tournamentId: this.tournamentId } : {}),
@@ -915,7 +923,14 @@ export class Store {
     this.saveTimer = setTimeout(() => {
       this.saveTimer = null;
       this.save();
-    }, 500);
+    }, this.saveDelay());
+  }
+
+  /** How long changes wait before a snapshot: longer while more than BUSY_PLAYING_ROOMS games are being played. */
+  saveDelay(): number {
+    let playing = 0;
+    for (const r of this.rooms.values()) if (r.state.phase !== 'lobby' && r.state.phase !== 'finished' && ++playing > BUSY_PLAYING_ROOMS) return BUSY_SAVE_DEBOUNCE_MS;
+    return SAVE_DEBOUNCE_MS;
   }
 
   /** Atomic snapshot: write to a temp file then rename, so a crash mid-write never corrupts the store. */

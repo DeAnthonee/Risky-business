@@ -194,24 +194,30 @@ export function zergReport(steps: readonly ReportStep[], players: readonly Repor
   return t.report();
 }
 
-/** Sum several games' reports into one (lists and seats are left out; the alarms keep their counts). */
-export function sumReports(reports: readonly ZergReport[]): Omit<ZergReport, 'seats' | 'zergOnZergWhilePreyAlive' | 'surrenders'> & {
+/** Several games' reports summed (lists and seats left out; the alarms keep their counts). */
+export type SwarmTotal = Omit<ZergReport, 'seats' | 'zergOnZergWhilePreyAlive' | 'surrenders'> & {
   games: number;
   surrenders: { midGame: number; endgame: number; landLeft: number };
-} {
-  const out = {
-    games: reports.length,
+};
+
+/** A running sum of reports: `add` one game at a time; `total()` reads it. Holds numbers only, never the reports. */
+export class SwarmSum {
+  private t: SwarmTotal = {
+    games: 0,
     zergs: 0,
     attacks: { onPrey: 0, onZergs: 0, onNeutral: 0 },
     destroyed: { prey: 0, zergs: 0, neutral: 0 },
     lost: 0,
-    tradeRatio: null as number | null,
+    tradeRatio: null,
     conquests: { fromPrey: 0, fromZergs: 0, fromNeutral: 0 },
     knockouts: { bySwarm: 0, ofSwarm: 0 },
     surrenders: { midGame: 0, endgame: 0, landLeft: 0 },
     alarms: { zergOnZerg: 0, midGameSurrenders: 0 },
   };
-  for (const r of reports) {
+
+  add(r: ZergReport): this {
+    const out = this.t;
+    out.games++;
     out.zergs += r.zergs;
     for (const k of ['onPrey', 'onZergs', 'onNeutral'] as const) out.attacks[k] += r.attacks[k];
     for (const k of ['prey', 'zergs', 'neutral'] as const) out.destroyed[k] += r.destroyed[k];
@@ -221,11 +227,32 @@ export function sumReports(reports: readonly ZergReport[]): Omit<ZergReport, 'se
     out.knockouts.ofSwarm += r.knockouts.ofSwarm;
     out.surrenders.midGame += r.surrenders.midGame;
     out.surrenders.endgame += r.surrenders.endgame;
-    out.surrenders.landLeft += r.surrenders.list.reduce((n, s) => n + s.landLeft, 0);
+    out.surrenders.landLeft += r.surrenders.list.reduce((n, x) => n + x.landLeft, 0);
     out.alarms.zergOnZerg += r.alarms.zergOnZerg;
     out.alarms.midGameSurrenders += r.alarms.midGameSurrenders;
+    return this;
   }
-  const destroyed = out.destroyed.prey + out.destroyed.zergs + out.destroyed.neutral;
-  out.tradeRatio = out.lost > 0 ? Math.round((destroyed / out.lost) * 100) / 100 : null;
-  return out;
+
+  /** A copy of the sum, with the trade ratio worked out. */
+  total(): SwarmTotal {
+    const out = structuredClone(this.t);
+    const destroyed = out.destroyed.prey + out.destroyed.zergs + out.destroyed.neutral;
+    out.tradeRatio = out.lost > 0 ? Math.round((destroyed / out.lost) * 100) / 100 : null;
+    return out;
+  }
+
+  /** This sum plus more reports, without changing this one. */
+  plus(reports: readonly ZergReport[]): SwarmTotal {
+    const s = new SwarmSum();
+    s.t = structuredClone(this.t);
+    for (const r of reports) s.add(r);
+    return s.total();
+  }
+}
+
+/** Sum several games' reports into one. */
+export function sumReports(reports: readonly ZergReport[]): SwarmTotal {
+  const s = new SwarmSum();
+  for (const r of reports) s.add(r);
+  return s.total();
 }

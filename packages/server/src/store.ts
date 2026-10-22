@@ -29,7 +29,7 @@ import { timeoutSteps, timerOf } from '@risk/engine';
 import { chooseSeatAction, isZergSeat, seatIdPrefix, zergName, type BotKind } from './bot.js';
 import { DEFAULT_TOURNAMENT_LIMITS, TournamentManager, type TournamentClock } from './tournaments.js';
 import { TournamentRankings } from './tournament-scoring.js';
-import { ZergTally, sumReports, zergReport, type ZergReport } from './zerg-report.js';
+import { SwarmSum, ZergTally, zergReport, type SwarmTotal, type ZergReport } from './zerg-report.js';
 import { Rankings } from './rankings.js';
 import { DEFAULT_KEEP, GameArchive, type CommitInfo } from './archive.js';
 
@@ -190,6 +190,21 @@ function joinCode(): string {
   let out = '';
   for (let i = 0; i < 6; i++) out += alphabet[buf[i] % alphabet.length];
   return out;
+}
+
+/** Archived Zerg reports kept in memory (GET /api/history/:id/report), most recently used first out. */
+const RECORD_REPORTS_KEPT = 200;
+
+/** A finished record's Zerg report: the same walk as a live room's tally. */
+function reportOfRecord(record: GameRecord): ZergReport {
+  // The game's start is not a record step, but its first turn is: put it back first, as the live walk sees it (the
+  // territories come from that turn's board), so a record and a live room give the same report.
+  const t0 = record.turns[0];
+  const owner = t0 ? record.players.find((p) => p.id === t0.player)?.index : undefined;
+  const start = t0
+    ? [{ player: null, action: { type: 'start' }, events: [{ type: 'turn_started', player: t0.player, turnNumber: t0.turn, round: t0.round, reinforcements: { territories: t0.board.filter(([o]) => o === owner).length } }] as unknown as GameEvent[] }]
+    : [];
+  return zergReport([...start, ...record.steps.map((s) => ({ player: s.player, action: s.action, events: s.events }))], record.players);
 }
 
 export class GameRoom extends EventEmitter {
@@ -889,57 +904,88 @@ export class Store {
   }
 
   /** Live Zerg reports, per room with Zerg seats, from its start (a room restored mid-game is not tallied). */
-  private zergTallies = new Map<string, { tally: ZergTally; room: GameRoom }>();
-  /** Reports of archived games, by record id (records never change). */
+  private zergTallies = new Map<string, { tally: ZergTally; recordId?: string }>();
+  /** Reports of archived games, by record id (records never change); the most recent RECORD_REPORTS_KEPT. */
   private recordReports = new Map<string, ZergReport>();
+  /**
+   * The swarm over finished games (THE HOUSE): filled from the archive once, on first use, then each game adds its own
+   * report as it ends. Never re-scanned per request. `ids` keeps a game from counting twice.
+   */
+  private swarmDone: { sum: SwarmSum; ids: Set<string> } | null = null;
+  /** Without an archive: finished games' reports, summed in memory (a restart forgets them). */
+  private swarmMemory = new SwarmSum();
 
   private tallyZergs(room: GameRoom, c: CommitInfo) {
     if (c.action.type === 'start') {
       if (!c.next.players.some((p) => isZergSeat(p.id))) return;
-      this.zergTallies.set(room.id, { tally: new ZergTally(c.next.players), room });
+      // The archive has just begun this game's record (its listener runs first): keep the id for when the game ends.
+      this.zergTallies.set(room.id, { tally: new ZergTally(c.next.players), recordId: room.recordId });
     }
-    this.zergTallies.get(room.id)?.tally.add({ player: c.playerId, action: c.action, events: c.events });
+    const t = this.zergTallies.get(room.id);
+    if (!t) return;
+    t.tally.add({ player: c.playerId, action: c.action, events: c.events });
+    if (c.next.phase === 'finished') this.endTally(room.id);
+  }
+
+  /** A game with Zergs ended (won, or its room dropped): its live report joins the finished total, once. */
+  private endTally(roomId: string) {
+    const t = this.zergTallies.get(roomId);
+    if (!t) return;
+    this.zergTallies.delete(roomId);
+    const report = t.tally.report();
+    if (!this.archive.enabled || !t.recordId) {
+      this.swarmMemory.add(report);
+      return;
+    }
+    if (this.swarmDone && !this.swarmDone.ids.has(t.recordId)) {
+      this.swarmDone.ids.add(t.recordId);
+      this.swarmDone.sum.add(report);
+    }
+  }
+
+  private cacheReport(id: string, report: ZergReport) {
+    this.recordReports.delete(id);
+    this.recordReports.set(id, report);
+    while (this.recordReports.size > RECORD_REPORTS_KEPT) this.recordReports.delete(this.recordReports.keys().next().value!);
   }
 
   /** The Zerg report of an archived game (GET /api/history/:id/report), or null for an unknown id. */
   recordReport(id: string): ZergReport | null {
     const cached = this.recordReports.get(id);
-    if (cached) return cached;
+    if (cached) {
+      this.cacheReport(id, cached);
+      return cached;
+    }
     const record = this.archive.get(id);
     if (!record) return null;
-    // The game's start is not a record step, but its first turn is: put it back first, as the live walk sees it (the
-    // territories come from that turn's board), so a record and a live room give the same report.
-    const t0 = record.turns[0];
-    const owner = t0 ? record.players.find((p) => p.id === t0.player)?.index : undefined;
-    const start = t0
-      ? [{ player: null, action: { type: 'start' }, events: [{ type: 'turn_started', player: t0.player, turnNumber: t0.turn, round: t0.round, reinforcements: { territories: t0.board.filter(([o]) => o === owner).length } }] as unknown as GameEvent[] }]
-      : [];
-    const report = zergReport([...start, ...record.steps.map((s) => ({ player: s.player, action: s.action, events: s.events }))], record.players);
-    this.recordReports.set(id, report);
+    const report = reportOfRecord(record);
+    this.cacheReport(id, report);
     return report;
   }
 
   /**
-   * The swarm over every game with Zergs (THE HOUSE): archived games from their records, plus games being played now
-   * (and, without an archive, finished ones still in memory).
+   * The swarm over every game with Zergs (THE HOUSE): finished games (from the archive, or in memory without one) plus
+   * the games being played now. Cheap per request: the finished total is kept, not recomputed.
    */
-  swarmReport() {
-    const reports: ZergReport[] = [];
-    if (this.archive.enabled) {
+  swarmReport(): SwarmTotal {
+    const live = [...this.zergTallies.values()].map((t) => t.tally.report());
+    if (!this.archive.enabled) return this.swarmMemory.plus(live);
+    if (!this.swarmDone) {
+      // Once: every archived game with Zergs, each record read once by its index entry.
+      const done = { sum: new SwarmSum(), ids: new Set<string>() };
       for (const e of this.archive.list(Infinity)) {
-        if (!e.players.some((p) => isZergSeat(p.id))) continue;
-        const r = this.recordReport(e.id);
-        if (r) reports.push(r);
+        if (!e.players.some((p) => isZergSeat(p.id)) || done.ids.has(e.id)) continue;
+        const record = this.archive.read(e);
+        if (!record) continue;
+        done.ids.add(e.id);
+        done.sum.add(reportOfRecord(record));
       }
+      this.swarmDone = done;
     }
-    for (const { tally, room } of this.zergTallies.values()) {
-      if (this.archive.enabled && room.state.phase === 'finished') continue;
-      if (room.closed && this.archive.enabled) continue;
-      reports.push(tally.report());
-    }
-    return sumReports(reports);
+    return this.swarmDone.sum.plus(live);
   }
 
+  /** The leaderboard for a board name: "training", or the public one when absent. */
   /** The leaderboard for a board name: "training", or the public one when absent. */
   board(board?: RankingBoard): Rankings {
     return board === 'training' ? this.training : this.rankings;
@@ -1074,6 +1120,8 @@ export class Store {
     room.close(reason);
     // A game closed before anyone won still keeps its record, marked unfinished.
     this.archive.finish(room, `room closed (${reason})`);
+    // Its Zerg tally (a game closed before the end) joins the finished total and is dropped: no leak.
+    this.endTally(room.id);
     room.removeAllListeners('change');
     room.removeAllListeners('commit');
     this.rooms.delete(room.id);

@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { GameEvent } from '@risk/engine';
-import { zergReport, type ReportStep } from '../src/zerg-report.js';
+import { sumReports, zergReport, type ReportStep } from '../src/zerg-report.js';
 
 // Bots move without the 700 ms pause, so the live game plays out in the test. Set before the store module loads.
 vi.hoisted(() => {
@@ -107,18 +107,31 @@ describe('Zerg reports over HTTP', () => {
     return { status: res.status, body: (await res.json()) as any };
   };
 
-  it('a finished game with Zergs: its report from the record matches the live tally, is stable, and feeds THE HOUSE', async () => {
+  /** A game of 2 Zergs + 1 built-in bot (the host surrenders at once). Resolves when it is finished. */
+  async function zergGame(finish = true) {
     const created = (await call('/games', { playerName: 'Host', options: { autoSetup: true } })).body;
     for (let i = 0; i < 2; i++) await call(`/games/${created.gameId}/bots`, { kind: 'zerg' }, created.token);
     await call(`/games/${created.gameId}/bots`, {}, created.token);
     const room = store.get(created.gameId)!;
     const finished = new Promise<void>((resolve) => room.on('change', () => room.state.phase === 'finished' && resolve()));
     await call(`/games/${created.gameId}/start`, {}, created.token);
+    if (!finish) {
+      room.stopBot();
+      return created.gameId as string;
+    }
     await call(`/games/${created.gameId}/actions`, { action: { type: 'surrender' } }, created.token);
     await finished;
+    return created.gameId as string;
+  }
+
+  it('a finished game with Zergs: its live tally (added to THE HOUSE as it ends) equals the report from its record', async () => {
+    // Fill the finished total first (empty), so this game's live tally is what gets added when it ends.
+    expect((await call('/house-bots')).body.swarm.games).toBe(0);
+    const gameId = await zergGame();
+    expect((store as any).zergTallies.has(gameId)).toBe(false);
 
     const [entry] = store.archive.list();
-    expect(entry.room).toBe(created.gameId);
+    expect(entry.room).toBe(gameId);
     const first = await call(`/history/${entry.id}/report`);
     expect(first.status).toBe(200);
     expect(first.body.zergs).toBe(2);
@@ -126,14 +139,46 @@ describe('Zerg reports over HTTP', () => {
     expect(first.body.attacks.onPrey).toBeGreaterThan(0);
     expect(first.body.seats).toHaveLength(4);
     expect((await call(`/history/${entry.id}/report`)).body).toEqual(first.body);
-    // The live walk (commit by commit) and the record's walk agree.
-    const live = (store as any).zergTallies.get(created.gameId).tally.report();
-    expect(live).toEqual(first.body);
 
-    const house = (await call('/house-bots')).body;
-    expect(house.swarm.games).toBe(1);
-    expect(house.swarm.alarms.zergOnZerg).toBe(0);
-    expect(house.swarm.attacks.onPrey).toBe(first.body.attacks.onPrey);
+    // THE HOUSE's total came from the live walk; it equals the record's walk, number for number.
+    const swarm = (await call('/house-bots')).body.swarm;
+    expect(swarm).toEqual(sumReports([first.body]));
     expect((await call('/history/NOPE00-xx/report')).status).toBe(404);
   }, 60_000);
+
+  it('a room dropped mid-game leaves no tally behind, and its game counts once', async () => {
+    const before = (await call('/house-bots')).body.swarm.games;
+    const gameId = await zergGame(false);
+    expect((store as any).zergTallies.has(gameId)).toBe(true);
+    expect((await call('/house-bots')).body.swarm.games).toBe(before + 1);
+    store.delete(gameId, 'admin');
+    expect((store as any).zergTallies.has(gameId)).toBe(false);
+    // Counted once: as a live game before, as a finished (closed) one after.
+    expect((await call('/house-bots')).body.swarm.games).toBe(before + 1);
+  }, 60_000);
+
+  it('GET /house-bots does not re-scan the archive per request', async () => {
+    const list = vi.spyOn(store.archive, 'list');
+    const read = vi.spyOn(store.archive, 'read');
+    await call('/house-bots');
+    await call('/house-bots');
+    expect(list).not.toHaveBeenCalled();
+    expect(read).not.toHaveBeenCalled();
+    list.mockRestore();
+    read.mockRestore();
+  });
+
+  it('a fresh server fills the finished total from the archive once, reading each record once', async () => {
+    const again = new Store(join(dir, 'games.json'));
+    const list = vi.spyOn(again.archive, 'list');
+    const read = vi.spyOn(again.archive, 'read');
+    const first = again.swarmReport();
+    expect(first.games).toBe(2);
+    expect(list).toHaveBeenCalledTimes(1);
+    expect(read).toHaveBeenCalledTimes(2);
+    again.swarmReport();
+    expect(list).toHaveBeenCalledTimes(1);
+    expect(read).toHaveBeenCalledTimes(2);
+    again.stopTimers();
+  });
 });

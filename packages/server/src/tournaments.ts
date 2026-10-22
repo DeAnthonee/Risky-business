@@ -6,6 +6,7 @@ import {
   RuleError,
   createGame,
   createRng,
+  finalPlacements,
   genMapId,
   getMap,
   isMapId,
@@ -91,6 +92,10 @@ export interface TournamentMatch {
   node?: number;
   /** Nested, a decided table: every entrant in standing order, and the dice rolled to break ties (by entrant). */
   standing?: { order: string[]; rolls: Record<string, number[]> };
+  /** Set when the table settles: its entrants best first (the game's final placings, or the standing), for the tournament board. */
+  order?: string[];
+  /** Set when the table settles: players each entrant eliminated there (surrenders credit nobody). */
+  kills?: Record<string, number>;
 }
 
 export interface TournamentRound {
@@ -288,6 +293,8 @@ export function tableSizes(n: number, size: number): number[] {
 
 export class TournamentManager extends EventEmitter {
   tournaments = new Map<string, TournamentSnapshot>();
+  /** Called once when a tournament finishes (the store records it on the tournament leaderboard). */
+  onFinished: ((t: TournamentSnapshot) => void) | null = null;
 
   limits: TournamentLimits;
 
@@ -735,6 +742,7 @@ export class TournamentManager extends EventEmitter {
       } else if (room.closed) {
         m.status = 'abandoned';
       } else return;
+      this.scoreTable(m, room);
       room.off('change', settle);
       room.off('closed', settle);
       if (this.tournaments.get(t.id) !== t) return; // tournament deleted
@@ -744,6 +752,14 @@ export class TournamentManager extends EventEmitter {
     room.on('change', settle);
     room.on('closed', settle);
     settle();
+  }
+
+  /** The table's final placings and kills, by entrant, for the tournament leaderboard. */
+  private scoreTable(m: TournamentMatch, room: GameRoom) {
+    const entrantOf = new Map(Object.entries(m.seats).map(([eid, s]) => [s.playerId, eid]));
+    const placings = finalPlacements(room.state, room.eliminationOrder).filter((p) => entrantOf.has(p.id));
+    m.order = placings.map((p) => entrantOf.get(p.id)!);
+    m.kills = Object.fromEntries(placings.map((p) => [entrantOf.get(p.id)!, p.killed.filter((v) => entrantOf.has(v)).length]));
   }
 
   /** When every table of the current round is decided: crown the champion or seat the next round. */
@@ -756,6 +772,7 @@ export class TournamentManager extends EventEmitter {
     if (winners.length <= 1) {
       t.champion = winners[0] ?? null;
       t.status = 'finished';
+      this.onFinished?.(t);
       return;
     }
     this.buildRound(t, winners);
@@ -880,6 +897,9 @@ export class TournamentManager extends EventEmitter {
       m.standing = { order, rolls: Object.fromEntries(Object.entries(standing.rolls).filter(([pid]) => byPlayer.has(pid)).map(([pid, r]) => [byPlayer.get(pid)!, r])) };
       m.winner = order[0] ?? null;
       m.status = m.winner ? 'decided' : 'abandoned';
+      // The tournament board: kills from the game so far, and the standing as the table's order.
+      this.scoreTable(m, room);
+      m.order = order;
       const names = order.map((eid, i) => `${i + 1}. ${this.entrant(t, eid)?.name ?? '?'}`).join(', ');
       room.decide(`Round ${round.round} is over: this table was decided on standing (territories, then armies, then dice): ${names}.`, now);
     }
@@ -889,6 +909,7 @@ export class TournamentManager extends EventEmitter {
     if (r === plan.rounds.length - 1) {
       t.champion = round.matches[0]?.winner ?? null;
       t.status = 'finished';
+      this.onFinished?.(t);
       return;
     }
     // Every table's winner takes its seat at the parent table, on the portal its table sits in.

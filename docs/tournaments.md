@@ -214,8 +214,9 @@ round; the boards nest inside each other's territories (the map side: [maps.md](
     then taken the same number of turns.
   - When every table still playing has finished its last lap (or finished outright), the round ends and those tables
     are decided on standing (below). The per-move turn timer (90 s by default) bounds each turn of the lap.
-  - A **backstop** ends the last lap anyway one more `roundMinutes` after the deadline, so a table with the turn timer
-    off, or a seat that keeps moving, cannot hold the tournament.
+  - A **backstop** ends the last lap anyway one more `roundMinutes` after the deadline. It only matters when the move
+    timer is off (`turnTimer: 'off'`): with the default 90 s per-move timer a stalled seat is skipped and the lap ends on
+    its own, while with no timer a seat that never moves could otherwise hold the tournament forever.
   - Tables that finished by a win still move on as usual. A restart keeps the clock: a deadline passed while the server
     was down starts the last lap on load, and a passed backstop ends the round on load.
 - **Decided on standing.** When a round ends, every table still playing is frozen (bots and the turn timer stop,

@@ -28,6 +28,7 @@ import {
   type ScenarioSeat,
 } from '@risk/engine';
 import { timeoutSteps, timerOf } from '@risk/engine';
+import { BigMoveTracker, ReactionPacer, bigMoveMessage } from './reactions.js';
 import { chooseSeatAction, isZergSeat, seatIdPrefix, zergName, type BotKind } from './bot.js';
 import { DEFAULT_TOURNAMENT_LIMITS, TournamentManager, type TournamentClock } from './tournaments.js';
 import { TournamentRankings } from './tournament-scoring.js';
@@ -272,6 +273,9 @@ export class GameRoom extends EventEmitter {
   /** Bot pace in this room (ms between moves); null = RISK_BOT_DELAY_MS. */
   botDelayMs: number | null = null;
   private botTimer: NodeJS.Timeout | null = null;
+  /** Big-move reactions (reactions.ts): the turn tally and the per-game pacing of pop-ups ('big_move' events). */
+  private bigMoves = new BigMoveTracker();
+  private reactionPacer = new ReactionPacer((m) => this.emit('big_move', m));
   /** The turn timer (turnTimer option): when the current human or agent decision runs out. In memory only. */
   private turnTimer: NodeJS.Timeout | null = null;
   turnDeadline: number | null = null;
@@ -397,6 +401,7 @@ export class GameRoom extends EventEmitter {
     if (this.closed) return;
     this.closed = true;
     this.stopBot();
+    this.reactionPacer.stop();
     this.emit('closed', reason);
     this.releaseWaiters();
   }
@@ -479,6 +484,8 @@ export class GameRoom extends EventEmitter {
     this.armTurnTimer();
     const msg: ChangeMessage = { state: next, events, version: next.version, playerId };
     this.emit('change', msg);
+    // A big move ends with its turn: the pop-up follows the change that showed it (presentation only, not state).
+    for (const m of this.bigMoves.observe(next, events)) this.reactionPacer.push(bigMoveMessage(this.id, next, this.characterIds, m));
     this.scheduleBot();
     this.endIfOnlySwarm();
   }

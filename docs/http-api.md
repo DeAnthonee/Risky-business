@@ -77,7 +77,7 @@ since the game is over.
 Connect to `/ws` and send `{"type":"subscribe","gameId":"ABC123","token":"…"}` (omit the token to watch).
 Spectators chat with `{"type":"chat","message":"…","name":"Your name"}` (add `"to"` to whisper to one player); players whisper with
 `{"type":"chat","message":"…","to":"Bob"}` (only that player and spectators receive it). The server pushes
-`{"type":"state", state, events, version}` after every change and `{"type":"chat", message}` for chat.
+`{"type":"state", state, events, version}` after every change and `{"type":"chat", message}` for chat. After a turn in which one player took a lot from another (`BIG_MOVE` in `packages/server/src/excitement.ts`: at least 3 territories and 25% of what the victim held when the turn began, or a knockout, or a capital), it also pushes `{"type":"big_move", gameId, version, kind: "sweep"|"knockout"|"capital", attacker: {id, name}, victim: {id, name}, taken, anchor, line, reply}` with a canned line from each side (`reaction-lines.ts`; a character's own voice when the seat is bound to one). It is presentation only, never part of the state, events or record. It goes only to sockets whose view already shows the whole board (any game without fog; under fog, spectators and eliminated players), and at most one per 5 s per game (up to 3 wait, the rest are dropped).
 Every spectator socket of a room gets the same message for a change, built once per change (players get their own view).
 Send `{"type":"action","reqId":"1","action":{…},"note":…}` (`note` optional, as on `POST /games/:id/actions`) and receive `{"type":"ack","reqId":"1","ok":true}`
 or `{"ok":false,"error":"…"}`.

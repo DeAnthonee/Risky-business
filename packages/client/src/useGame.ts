@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Action, GameEvent, GameView } from '@risk/engine';
 import { GameSocket, type ChatMessage, type PresenceMessage, type StateMessage } from './api';
+import type { BigMoveMessage } from './api';
+
+/** How long a big-move pop-up stays up. */
+const REACTION_MS = 4_500;
 
 export interface EventBatch {
   id: number;
@@ -24,6 +28,8 @@ export interface GameConnection {
   updateAvailable: boolean;
   /** Who is connected right now. */
   presence: PresenceMessage;
+  /** The latest big-move reaction (null when none is showing). */
+  reaction: BigMoveMessage | null;
   /** Set when the room was closed (by the host, an admin, or for being idle). */
   closedReason: string | null;
   /** Spectator fast-forward: show every update the moment it arrives, no replay pacing (and no animations). */
@@ -89,6 +95,9 @@ export function useGame(gameId: string | null, token: string | undefined): GameC
   const [error, setError] = useState<string | null>(null);
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [presence, setPresence] = useState<PresenceMessage>({ spectators: 0, online: [] });
+  // The latest big-move reaction, shown for a few seconds (the server already paces them: one per 5 s per game).
+  const [reaction, setReaction] = useState<BigMoveMessage | null>(null);
+  const reactionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [closedReason, setClosedReason] = useState<string | null>(null);
   const sockRef = useRef<GameSocket | null>(null);
   const seq = useRef(0);
@@ -164,6 +173,11 @@ export function useGame(gameId: string | null, token: string | undefined): GameC
       onChat: (m) => setChat((c) => [...c.slice(-200), m]),
       onChatHistory: (ms) => setChat(ms),
       onPresence: setPresence,
+      onBigMove: (m) => {
+        setReaction(m);
+        if (reactionTimer.current) clearTimeout(reactionTimer.current);
+        reactionTimer.current = setTimeout(() => setReaction(null), REACTION_MS);
+      },
       onClosed: setClosedReason,
       onStatus: setConnected,
     });
@@ -193,5 +207,5 @@ export function useGame(gameId: string | null, token: string | undefined): GameC
     await sockRef.current?.chat(msg, name, to);
   }, []);
 
-  return { view, host, name, you, connected, batches, chat, act, sendChat, error, clearError: () => setError(null), updateAvailable, presence, closedReason, fastForward, setFastForward };
+  return { view, host, name, you, connected, batches, chat, act, sendChat, error, clearError: () => setError(null), updateAvailable, presence, closedReason, fastForward, setFastForward, reaction };
 }

@@ -3,6 +3,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { RuleError, redactEvents, type Action } from '@risk/engine';
 import { parseDecisionNote, type ChangeMessage, type ChatMessage, type GameRoom, type Store } from './store.js';
 import { TournamentFeeds } from './tournament-feed.js';
+import { seesWholeBoard, type BigMoveMessage } from './reactions.js';
 
 /** A tournament-feed socket with more than this queued gets no more feed updates until it drains. */
 const FEED_BACKLOG_BYTES = 1_000_000;
@@ -105,6 +106,7 @@ export function attachWebSocket(server: Server, store: Store, commit: () => stri
     let onChange: ((m: ChangeMessage) => void) | null = null;
     let onChat: ((m: ChatMessage) => void) | null = null;
     let onPresence: ((m: { spectators: number; online: string[] }) => void) | null = null;
+    let onBigMove: ((m: BigMoveMessage) => void) | null = null;
     let onClosed: ((reason: string) => void) | null = null;
     let alive = true;
     const socketKey = `ws:${++socketSeq}`;
@@ -136,12 +138,14 @@ export function attachWebSocket(server: Server, store: Store, commit: () => stri
       if (room && onChange) room.off('change', onChange);
       if (room && onChat) room.off('chat', onChat);
       if (room && onPresence) room.off('presence', onPresence);
+      if (room && onBigMove) room.off('big_move', onBigMove);
       if (room && onClosed) room.off('closed', onClosed);
       if (room) exit(room, playerId);
       room = null;
       onChange = null;
       onChat = null;
       onPresence = null;
+      onBigMove = null;
       onClosed = null;
     };
 
@@ -189,6 +193,11 @@ export function attachWebSocket(server: Server, store: Store, commit: () => stri
             r.on('change', onChange);
             r.on('chat', onChat);
             r.on('presence', onPresence);
+            // Big-move pop-ups only to a socket whose view shows the whole board (fog: spectators and the eliminated).
+            onBigMove = (m) => {
+              if (seesWholeBoard(r.state, playerId)) send(m);
+            };
+            r.on('big_move', onBigMove);
             onClosed = (reason) => {
               send({ type: 'closed', reason });
               unsubscribe();

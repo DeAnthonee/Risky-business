@@ -14,6 +14,7 @@ import { Chat } from './Chat';
 import { DicePanel, type BattleEvent } from './Dice';
 import { Log } from './Log';
 import { ShareButton } from './Share';
+import { ReactionPopup, useReactionsToggle } from './Reactions';
 import { BlitzPlanner } from './BlitzPlanner';
 import { GameMap, POUR_MS, territoryName, type FloatAnim, type Highlight, type MoveAnim, type SweepAnim } from './Map';
 
@@ -149,6 +150,7 @@ export function Game({
   const [fogRevealed, setFogRevealed] = useState(false);
   // Bonuses view: regions colour-coded with their bonuses, no armies (toggle with B or the buttons).
   const [bonusView, setBonusView] = useState(false);
+  const [reactionsOn, toggleReactions] = useReactionsToggle();
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement | null;
@@ -492,6 +494,8 @@ export function Game({
           onToggleBonusView={() => setBonusView((v) => !v)}
         />
 
+        {reactionsOn && conn.reaction && <ReactionPopup reaction={conn.reaction} colorOf={colorOf} placeName={shortName} />}
+
         {anim.battle && (
           <DicePanel battle={anim.battle.ev} rolling={anim.battle.rolling} streak={anim.battle.streak} attackerColor={colorOf(anim.battle.ev.attacker)} defenderColor={colorOf(anim.battle.ev.defender)} names={names} mapId={view.options.map} />
         )}
@@ -566,6 +570,9 @@ export function Game({
                 {bonusView ? 'Back to board' : 'Bonuses'} <kbd>B</kbd>
               </button>
               <span className="spacer" />
+              <button className={`small ${reactionsOn ? 'primary' : ''}`} aria-pressed={reactionsOn} title="Show a short pop-up with a line from each side when someone takes a lot in one turn" onClick={toggleReactions}>
+                💬 Reactions
+              </button>
               <ShareButton url={spectateLink(gameId)} title={`${conn.name || 'A game'} · Risky Business`} />
               {view.phase === 'lobby' && onJoin && (
                 <button className="small primary" onClick={onJoin}>

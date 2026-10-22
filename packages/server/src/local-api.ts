@@ -4,6 +4,7 @@ import { RiskHttpError } from '@risk/mcp';
 import { checkAdmin, mapInfo, parseAgent, parseBotKind, parseTournamentSpec, sanitizeOptions } from './http.js';
 import { parseDecisionNote, type GameRoom, type Store } from './store.js';
 import { QuickPlayBusyError } from './quick-play.js';
+import { RateLimitedError } from './rate-limit.js';
 import type { CharacterStore } from './characters.js';
 
 /** RiskApi implemented directly over the in-memory store (for the embedded /mcp endpoint). */
@@ -181,6 +182,14 @@ export class LocalRiskApi implements RiskApi {
   async quickPlayLeave(ticket: string, token: string) {
     if (!this.store.quickPlay.leave(ticket, token)) throw new RiskHttpError('Ticket not found (or not yours)', 404);
     return { ok: true };
+  }
+  async previewTournament(spec: Record<string, unknown>) {
+    try {
+      return { preview: this.store.tournaments.preview(parseTournamentSpec({ ...spec, format: spec.format ?? 'nested' }), this.client ?? 'mcp') };
+    } catch (e) {
+      if (e instanceof RateLimitedError) throw new RiskHttpError(e.message, 429);
+      throw e;
+    }
   }
   async listTournaments() {
     return { tournaments: this.store.tournaments.list() };

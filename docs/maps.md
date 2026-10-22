@@ -1,7 +1,7 @@
 # Maps
 
-Twelve boards. Eight are drawn from real geography (Natural Earth countries or US Census states, cut into
-territories and projected to SVG); Realms of Halvaren, Four Crowns, Bohemia and The Nine Realms are original boards drawn by hand:
+Thirteen boards. Nine are drawn from real geography (Natural Earth countries or US Census states, cut into
+territories and projected to SVG, or Natural Earth land under a hexagon grid for Hex Earth); Realms of Halvaren, Four Crowns, Bohemia and The Nine Realms are original boards drawn by hand:
 
 | map | territories | regions | players | notes |
 | --- | --- | --- | --- | --- |
@@ -17,6 +17,7 @@ territories and projected to SVG); Realms of Halvaren, Four Crowns, Bohemia and 
 | **Four Crowns** (`skirmish`) | 24 | 6 | 2–4 | small, fast original board: four corner kingdoms (+2 each: one gate to the Heartland, two harbours) ring the Heartland (+4); four lone Waystone isles (+3) carry the sea lanes between neighbouring kingdoms; 17 armies each for 4 players |
 | **Bohemia** (`bohemia`) | 42 | 8 | 2–6 | an inland kingdom with no sea, drawn after a hand-drawn conquest map (real Czech place names). Every region is its own landmass: the Sázava river (in from the west, south to a confluence below Ledeč, then east past Rataje and south to the edge) and forest brooks separate them, so regions never share a land border and meet only at 14 fords and bridges (`seaLanes`, drawn dashed). Each region has two or three entry territories: Skalice Uplands (+3, 5), Northern Woods (+3, 5), Talmberk Marches (+4, 6), Mrchojedy Lands (+3, 4), Sázava Valley (+3, 5), Ledeč Heartland (+4, 6), Vraník Forests (+2, 4, the safe corner with two fords), Rataje Domain (+4, 7). The waterways are cut out of the kingdom in `scripts/maps/bohemia.mjs` (`channel()`); classic starting armies (42 territories): 40 each for 2 players, 20 for 6 |
 | **The Nine Realms** (`nine_realms`) | 58 | 9 | 2–8 | original tall board (760×990): one long north-south continent built around chokepoints: water cuts every border between two regions except one narrow pass per pair of neighbouring regions (`walls` in the map definition), so each region has 2–5 entry territories. The frozen Hoarlands (+6, 14 territories) leave the north only by the Neck (Bogneck–Twinford) and by sea; below them the Fordlands (+5, the crossroads) and the mountain Cloudvale (+4), the Goldfells (+3, two gates) in the west with the raider Rustcrag Isles (+2) offshore, the Throneland (+3) and Galewatch (+3) on the east shore, the broad Verdance (+5) and the desert Sunmarches (+3, two passes) in the south; lone isles reached by sea lanes; 55 armies each for 2 players, 28 for 6, 21 for 8 |
+| **Hex Earth** (`hexworld`) | 80 | 14 | 2–10 | the real world on a globe of 1442 hexagons that viewers can spin (a flat view too): each territory a cluster of hexes sized by hex count rather than by country, so Africa has 17 territories and Europe 9; North America +6, Central America +2, South America +4, Europe +7, Russia +5, Middle East +5, Central Asia +4, South Asia +2, East Asia +6, Southeast Asia +4, Oceania +3 (with Hawaii), North, East and Southern Africa +5/+5/+4; land borders are touching hexes, with Panama kept as land and the Red Sea, Black Sea and Caspian kept as water; 25 sea links cross the oceans, including a Pacific route Western US → Hawaii → New Zealand; Antarctica and the far Arctic are ice, not played; 76 armies each for 2 players, 38 for 6, 23 for 10 |
 
 Every map except Classic starts each player with the classic numbers scaled by map size (territories ÷ 42; above 6 players an equal share of the 6-player total)
 (`STARTING_ARMIES` in `packages/engine/src/maps.ts`; the exact table per player count is in the rules text).
@@ -35,10 +36,9 @@ as hand-sketched landmasses whose coasts are roughened deterministically, split 
 Voronoi partition of per-territory sites with wiggly shared borders (`scripts/authored-map.mjs`, `d3-delaunay`).
 Its land adjacency comes from shared borders, plus the `seaLanes` it lists. An authored map can also set `walls: {width, passWidth, passes}`: every land border between territories of different regions is then cut by a water channel, except the listed `passes`, which keep a narrow land bridge, so regions meet only at chokepoints (The Nine Realms uses this).
 
-A map with `kind: 'hexglobe'` tiles the whole sphere with hexagons over real land for the client's rotatable 3D globe
-(`scripts/hex-globe.mjs`; [map-making.md](map-making.md#9-hex-globe-maps)). Hex Earth (`hexworld`: 80 territories,
-14 regions, 25 sea links, 2–10 players) is generated but not registered yet: it waits for the owner's approval and
-is not offered for games.
+A map with `kind: 'hexglobe'` (Hex Earth) tiles the whole sphere with hexagons over real land for the client's
+rotatable 3D globe (`scripts/hex-globe.mjs`; [map-making.md](map-making.md#9-hex-globe-maps)). Besides the engine JSON
+(the flat view) it has a globe file, `packages/client/src/generated/<id>.globe.json`, that only the client loads.
 
 ## Generated boards
 

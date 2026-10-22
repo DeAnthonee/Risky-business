@@ -25,6 +25,7 @@ import {
   legalMoves,
   parseOptions,
   redactEvents,
+  reinforcementsFor,
   renamePlayer,
   setOptions,
   startGame,
@@ -702,11 +703,12 @@ describe('maps', () => {
     skirmish: { territories: 24, regions: 6, maxPlayers: 4 },
     bohemia: { territories: 42, regions: 8, maxPlayers: 6 },
     nine_realms: { territories: 58, regions: 9, maxPlayers: 8 },
+    hexworld: { territories: 80, regions: 14, maxPlayers: 10 },
   };
 
   it('every map is well formed', async () => {
     const { MAPS, MAP_IDS } = await import('../src/index.js');
-    expect(MAP_IDS).toEqual(['classic', 'world', 'world_large', 'europe', 'greater_europe', 'europe_classic', 'usa', 'asia', 'fantasy', 'skirmish', 'bohemia', 'nine_realms']);
+    expect(MAP_IDS).toEqual(['classic', 'world', 'world_large', 'europe', 'greater_europe', 'europe_classic', 'usa', 'asia', 'fantasy', 'skirmish', 'bohemia', 'nine_realms', 'hexworld']);
     // every registered board is either offered or legacy, never both
     expect([...MAP_IDS, ...LEGACY_MAP_IDS].sort()).toEqual(Object.keys(MAPS).sort());
     for (const id of [...MAP_IDS, ...LEGACY_MAP_IDS]) {
@@ -802,9 +804,10 @@ describe('maps', () => {
     expect(table('skirmish')).toEqual([23, 20, 17]);
     expect(table('bohemia')).toEqual([40, 35, 30, 25, 20]);
     expect(table('nine_realms')).toEqual([55, 48, 41, 35, 28, 24, 21]);
+    expect(table('hexworld')).toEqual([76, 67, 57, 48, 38, 33, 29, 25, 23]);
   });
 
-  for (const id of ['world_large', 'europe', 'europe_advanced', 'greater_europe', 'europe_classic', 'usa', 'asia', 'bohemia', 'nine_realms'] as const) {
+  for (const id of ['world_large', 'europe', 'europe_advanced', 'greater_europe', 'europe_classic', 'usa', 'asia', 'bohemia', 'nine_realms', 'hexworld'] as const) {
     it(`deals and plays the first turn of a full ${id} game`, async () => {
       const { MAPS } = await import('../src/index.js');
       const m = MAPS[id];
@@ -1366,6 +1369,98 @@ describe('nine_realms map (The Nine Realms)', () => {
   });
 });
 
+describe('hexworld map (Hex Earth)', () => {
+  const m = MAPS.hexworld;
+  const entries = (c: string) => m.continentById[c].territories.filter((t) => m.adjacency[t].some((n) => m.territoryById[n].continent !== c)).sort();
+
+  it('is an 80-territory board in 14 regions for up to 10 players', () => {
+    expect(MAP_IDS).toContain('hexworld');
+    expect(m.territories).toHaveLength(80);
+    expect(m.continents.map((c) => c.id)).toEqual(['north_america', 'central_america', 'south_america', 'europe', 'russia', 'middle_east', 'central_asia', 'south_asia', 'east_asia', 'southeast_asia', 'oceania', 'north_africa', 'east_africa', 'southern_africa']);
+    expect(m.continents.map((c) => c.bonus)).toEqual([6, 2, 4, 7, 5, 5, 4, 2, 6, 4, 3, 5, 5, 4]);
+    expect(m.maxPlayers).toBe(10);
+  });
+
+  it('holds its regions at chokepoints: the exact entry territories', () => {
+    expect(entries('central_america')).toEqual(['caribbean', 'central_america', 'mexico']);
+    expect(entries('south_america')).toEqual(['brazil', 'colombia', 'venezuela']);
+    expect(entries('south_asia')).toEqual(['bengal', 'india']);
+    expect(entries('oceania')).toEqual(['hawaii', 'queensland', 'western_australia']);
+    expect(entries('southern_africa')).toEqual(['congo', 'mozambique', 'zambia']);
+    expect(entries('europe')).toEqual(['balkans', 'eastern_europe', 'iberia', 'iceland', 'italy', 'scandinavia']);
+    expect(entries('middle_east')).toEqual(['arabia', 'caucasus', 'levant', 'persia', 'turkey']);
+    // Panama joins the Americas by land; the Red Sea, the Black Sea and the Caspian stay water.
+    expect(m.adjacency.central_america).toEqual(expect.arrayContaining(['mexico', 'colombia']));
+    expect(m.adjacency.caucasus).not.toContain('kazakhstan');
+    expect(m.adjacency.arabia).not.toContain('sudan');
+  });
+
+  it('reaches its islands by sea, and has symmetric, connected adjacency', () => {
+    const sea = new Set(m.seaLinks.map((l) => [l.a, l.b].sort().join('|')));
+    const bySea = (a: string, b: string) => sea.has([a, b].sort().join('|'));
+    expect(bySea('western_us', 'hawaii') && bySea('hawaii', 'new_zealand')).toBe(true);
+    expect(bySea('brazil', 'west_africa') && bySea('alaska', 'kamchatka') && bySea('kamchatka', 'japan')).toBe(true);
+    for (const isle of ['hawaii', 'new_zealand', 'japan', 'philippines', 'madagascar', 'caribbean']) expect(m.adjacency[isle].every((n) => bySea(isle, n))).toBe(true);
+    for (const t of m.territoryIds) for (const n of m.adjacency[t]) expect(m.adjacency[n]).toContain(t);
+    const seen = new Set<string>([m.territoryIds[0]]);
+    const stack = [m.territoryIds[0]];
+    while (stack.length) for (const n of m.adjacency[stack.pop()!]) if (!seen.has(n)) (seen.add(n), stack.push(n));
+    expect(seen.size).toBe(80);
+  });
+
+  it('pays every region bonus to the player who holds the whole region', () => {
+    for (const c of m.continents) {
+      let s = createGame('hb', { map: 'hexworld', maxPlayers: 2, autoSetup: true }, 5);
+      s = addPlayer(s, 'a', 'A');
+      s = addPlayer(s, 'b', 'B');
+      s = startGame(s).state;
+      const me = s.currentPlayer!;
+      const other = s.players.find((p) => p.id !== me)!.id;
+      // Give `me` exactly this region (and nothing else), the opponent everything else.
+      for (const t of m.territoryIds) s.territories[t] = { ...s.territories[t], owner: c.territories.includes(t) ? me : other };
+      const r = reinforcementsFor(s, me);
+      expect([c.id, r.continents]).toEqual([c.id, [{ id: c.id, bonus: c.bonus }]]);
+      expect(r.total).toBe(Math.max(3, Math.floor(c.territories.length / 3)) + c.bonus);
+    }
+  });
+
+  it('has every sea link in the adjacency, both ways', () => {
+    for (const l of m.seaLinks) {
+      expect(m.adjacency[l.a]).toContain(l.b);
+      expect(m.adjacency[l.b]).toContain(l.a);
+    }
+    expect(m.seaLinks).toHaveLength(25);
+  });
+
+  for (const seats of [2, 3, 4, 5, 6, 7, 8, 9, 10]) {
+    it(`plays a ${seats}-player bot game to the end`, () => {
+      let s = createGame('hg', { map: 'hexworld', maxPlayers: seats, autoSetup: true }, 100 + seats);
+      for (let i = 0; i < seats; i++) s = addPlayer(s, `p${i}`, `P${i}`, true);
+      s = startGame(s).state;
+      const rng = createRng(seats);
+      const random = () => nextFloat(rng);
+      let steps = 0;
+      while (s.phase !== 'finished' && steps < 200_000) {
+        const action = chooseBotAction(s, s.currentPlayer!, random)!;
+        s = applyAction(s, s.currentPlayer!, action).state;
+        steps++;
+      }
+      expect(s.phase).toBe('finished');
+      expect(s.winner).toBeTruthy();
+    }, 120_000);
+  }
+
+  it('deals and sets up a full 10-player game', () => {
+    let s = createGame('h', { map: 'hexworld', maxPlayers: 10 }, 9);
+    for (let i = 0; i < 10; i++) s = addPlayer(s, `p${i}`, `P${i}`);
+    expect(() => addPlayer(s, 'extra', 'X')).toThrow(/full/);
+    const state = finishSetup(startGame(s).state);
+    expect(state.phase).toBe('reinforce');
+    expect(Object.keys(state.territories)).toHaveLength(80);
+    for (const p of state.players) expect(territoriesOf(state, p.id).reduce((sum, t) => sum + state.territories[t].armies, 0)).toBe(23);
+  });
+});
+
 describe('game settings catalogue', () => {
   it('has a spec for every option and parses untrusted input strictly', async () => {
     const { OPTION_KEYS, OPTION_SPECS, DEFAULT_OPTIONS, parseOptions, describeOptions, optionCatalogue, optionLimits } = await import('../src/index.js');
@@ -1567,7 +1662,7 @@ describe('capital placement bonus and 8 blizzards', () => {
 describe('rules text', () => {
   it('lists the same starting armies as the engine for every scaled map', async () => {
     const { RULES_TEXT } = await import('../src/rules.js');
-    const labels: Record<string, string> = { world: 'World', world_large: 'Grand World', europe: 'Europe', greater_europe: 'Greater Europe', europe_classic: 'Europe Advanced', usa: 'USA', asia: 'Asia', fantasy: 'Realms of Halvaren', skirmish: 'Four Crowns', bohemia: 'Bohemia', nine_realms: 'The Nine Realms' };
+    const labels: Record<string, string> = { world: 'World', world_large: 'Grand World', europe: 'Europe', greater_europe: 'Greater Europe', europe_classic: 'Europe Advanced', usa: 'USA', asia: 'Asia', fantasy: 'Realms of Halvaren', skirmish: 'Four Crowns', bohemia: 'Bohemia', nine_realms: 'The Nine Realms', hexworld: 'Hex Earth' };
     // every offered board except classic (whose fixed table is listed separately) is covered
     expect(Object.keys(labels).sort()).toEqual(MAP_IDS.filter((id) => id !== 'classic').sort());
     const section = RULES_TEXT.slice(RULES_TEXT.indexOf('PLAYERS & STARTING ARMIES'), RULES_TEXT.indexOf('SETUP'));

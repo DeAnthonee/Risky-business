@@ -33,8 +33,15 @@ continent. Hoarlands +6, Cloudvale +4, Fordlands +5, Rustcrag Isles +2 (a raider
 Goldfells +3, Throneland +3, Galewatch +3, Verdance +5, Sunmarches +3. Water cuts every border between two regions
 except one narrow pass per pair of neighbouring regions (the frozen north's only land way out is Bogneck-Twinford),
 so every region is held at a few chokepoints; offshore isles are reached by sea lanes. It does not wrap.
+Hex Earth ("hexworld"): the real world on a globe tiled by hexagons, 80 territories in 14 regions (2-10 players);
+each territory is a cluster of hexes (one for small islands and countries). North America +6, Central America +2,
+South America +4, Europe +7, Russia +5, Middle East +5, Central Asia +4, South Asia +2, East Asia +6, Southeast Asia
++4, Oceania +3 (Australia, New Zealand and Hawaii), North Africa +5, East Africa +5, Southern Africa +4. Land borders
+are touching hexes; 25 sea links cross the oceans (Bering, Greenland-Iceland-Britain, the Caribbean, Brazil-West
+Africa, Sicily-Tunisia, Madagascar, Japan, the islands down to Australia, and a Pacific route from the Western US
+through Hawaii to New Zealand). Being a globe, it wraps everywhere; the flat view joins Alaska and Kamchatka.
 Use the "map" tool for the exact territories, regions and adjacency of the map a game is using. On the classic,
-World and Grand World maps Alaska and Kamchatka are adjacent (the map wraps); on every map some adjacencies
+World, Grand World and Hex Earth maps Alaska and Kamchatka are adjacent (the map wraps); on every map some adjacencies
 cross water.
 
 PLAYERS & STARTING ARMIES
@@ -51,6 +58,7 @@ share of the 6-player total (120 armies per 42 territories). Never fewer than 1.
   Four Crowns: 2: 23, 3: 20, 4: 17.
   Bohemia: 2: 40, 3: 35, 4: 30, 5: 25, 6: 20.
   The Nine Realms: 2: 55, 3: 48, 4: 41, 5: 35, 6: 28, 7: 24, 8: 21.
+  Hex Earth: 2: 76, 3: 67, 4: 57, 5: 48, 6: 38, 7: 33, 8: 29, 9: 25, 10: 23.
 
 SETUP
 Territories are dealt randomly (default) and get 1 army each. Then, in turn order, each player places armies on their

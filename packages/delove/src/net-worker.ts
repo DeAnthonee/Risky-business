@@ -8,6 +8,7 @@ import * as ort from 'onnxruntime-node';
  * Two kinds of job:
  * - 'decision': the policy model scores one decision's candidates (logits, then the value in the last slot).
  * - 'values': the batched value model (<model>.value.onnx) rates B positions at once (B values).
+ * - 'guess': a fog guesser (fog-guesser.ts) loaded as the main model: its whole `guess` output for one position.
  *
  * control[0]: 0 idle, 1 result ready, -1 error (the message goes to `errors`, read with receiveMessageOnPort).
  * control[1]: number of results written.
@@ -41,6 +42,14 @@ interface ValuesJob {
   adj: Float32Array;
 }
 
+interface GuessJob {
+  kind: 'guess';
+  T: number;
+  territory: Float32Array;
+  global: Float32Array;
+  adj: Float32Array;
+}
+
 const { modelPath, valuePath, control, output, errors } = workerData as Init;
 const ctl = new Int32Array(control);
 const out = new Float32Array(output);
@@ -61,7 +70,7 @@ Promise.all([policy, values]).then(
   },
 );
 
-parentPort!.on('message', async (job: DecisionJob | ValuesJob) => {
+parentPort!.on('message', async (job: DecisionJob | ValuesJob | GuessJob) => {
   try {
     if (job.kind === 'decision') {
       const { T, C } = job;
@@ -76,6 +85,16 @@ parentPort!.on('message', async (job: DecisionJob | ValuesJob) => {
       out.set(res.logits.data as Float32Array, 0);
       out[out.length - 1] = (res.value.data as Float32Array)[0];
       Atomics.store(ctl, 1, C);
+    } else if (job.kind === 'guess') {
+      const { T } = job;
+      const res = await (await policy).run({
+        territory: new ort.Tensor('float32', job.territory, [1, T, job.territory.length / T]),
+        global: new ort.Tensor('float32', job.global, [1, job.global.length]),
+        adj: new ort.Tensor('float32', job.adj, [T, T]),
+      });
+      const data = res.guess.data as Float32Array;
+      out.set(data, 0);
+      Atomics.store(ctl, 1, data.length);
     } else {
       if (!values) throw new Error('no value model loaded');
       const { T, B } = job;

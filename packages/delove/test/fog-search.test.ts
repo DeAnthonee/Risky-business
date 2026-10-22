@@ -1,8 +1,10 @@
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { buildDeck, getMap, legalMoves, reinforcementsFor, viewFor, type GameOptions, type GameState } from '@risk/engine';
 import { candidates, makeTraits, playGame, publicIncomes, seededRandom, stateFromView, type Agent, type DecisionContext } from '@risk/selfplay';
 import { branchAgent, branchStats, DEFAULT_BRANCH, type FogSearch } from '../src/branch.js';
 import { DEFAULT_FOG_SAMPLER, FogTracker, sampleBoard } from '../src/fog-sampler.js';
+import { FogGuesser, type FogGuess } from '../src/fog-guesser.js';
 import { teacher, teacherPickWith, DEFAULT_TEACHER_PARAMS } from '../src/index.js';
 
 /** The league's fog settings (packages/delove/configs/gen5-randomfog.json, without the blizzards). */
@@ -162,5 +164,41 @@ describe('determinized branch and score', () => {
     const b = branchAgent('fog-test', pick, null, opts).choose({ ...clear, random: seededRandom(5) });
     expect(a).toEqual(b);
     expect(sampled).toBe(0);
+  });
+});
+
+describe('learned fog guess', () => {
+  const { view, me } = fogMoment();
+  const map = getMap(view.options.map);
+  const hidden = map.territoryIds.filter((t) => view.territories[t].hidden);
+  const opponents = view.players.filter((p) => p.alive && p.id !== me).map((p) => p.id);
+
+  it('guesses every hidden territory, among the opponents still alive', () => {
+    // an untrained tiny guesser (python/test_fog_guess.py --fixture): the shapes and the slot mapping, not the quality
+    const guesser = new FogGuesser(fileURLToPath(new URL('./fixtures/tiny-guess.onnx', import.meta.url)));
+    const g = guesser.guess(view, me);
+    expect([...g.territories.keys()].sort()).toEqual([...hidden].sort());
+    for (const tg of g.territories.values()) {
+      expect(tg.owners.length).toBeGreaterThan(0);
+      for (const o of tg.owners) expect(opponents).toContain(o);
+      expect(tg.p.reduce((a, b) => a + b, 0)).toBeCloseTo(1, 5);
+      expect(tg.bins).toHaveLength(g.armyBins.length);
+      expect(tg.bins.reduce((a, b) => a + b, 0)).toBeCloseTo(1, 5);
+    }
+    expect(guesser.guess(view, me)).toEqual(g); // deterministic
+  });
+
+  it('draws hidden owners and armies from the guess, without the hand-written front armies', () => {
+    const opp = view.players.find((p) => p.alive && p.id !== me && !p.isNeutral)!.id;
+    const armyBins: [number, number][] = [[1, 1], [2, 2], [3, 4], [5, 8], [9, 16], [17, 1e9]];
+    const guess: FogGuess = { armyBins, territories: new Map(hidden.map((t) => [t, { owners: [opp], p: [1], bins: [0, 0, 0, 1, 0, 0] }])) };
+    const opts = { ...DEFAULT_FOG_SAMPLER, keep: 0, keepNeutral: 0, repairPasses: 0 };
+    const b = sampleBoard(view, me, seededRandom(4), undefined, opts, guess);
+    for (const t of hidden) {
+      expect(b.territories[t].owner).toBe(opp);
+      expect(b.territories[t].armies).toBeGreaterThanOrEqual(5);
+      expect(b.territories[t].armies).toBeLessThanOrEqual(8);
+    }
+    expect(sampleBoard(view, me, seededRandom(4), undefined, opts, guess)).toEqual(b);
   });
 });

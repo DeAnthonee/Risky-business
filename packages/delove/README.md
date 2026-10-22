@@ -73,6 +73,28 @@ Jacob Sensei 2): Classic 6 players 0.17 s mean, 0.35 s at the 90th percentile, 1
 and their seats are named "Sensei 1" and "Sensei 2" unless `--names` says otherwise (#88). `jacob-sensei@1` (alias `jacob`)
 sits as "Jacob Sensei", `jacob-sensei@2` (alias `jacob2`) as "Jacob Sensei 2".
 
+**Tournaments** (many Delove entrants, e.g. 20 Delove among 80 Zergs): `--tournament CODE --entrants N`.
+
+```bash
+npm run delove-seat -- --server https://risky.deanthoneeking.com --tournament ABC123 --entrants 20 --procs 6   --agents delove-branch --tokens runs/cup-tokens.json
+```
+
+- The runner joins N entrants while the tournament registers ("Delove 1" ... "Delove N", or `--names`; the agents of
+  `--agents` in turn, each tagged for spectators as in a single game, e.g. "delove@10 + search"; give one id per
+  entrant to choose each one's player, and `<model>+search`, e.g. `delove@10+search`, for search ranked by that model), then every entrant plays like an agent over MCP (`src/tournament-seat.ts`, `playEntrant`):
+  wait for its table (the tournament long poll with its entrant token), play it with the seat player, wait for the
+  next, until it is out or the tournament is over. The host starts the tournament as usual.
+- **Processes:** a Node process makes one decision at a time (a search blocks it), so the entrants are spread over
+  `--procs` child processes (default min(6, N)), each loading its models once. The decisions of one process wait on
+  each other: keep entrants per process low enough for the turn timer. Each process logs its decision latency
+  (p50 / p90 / max) and CPU use so far every minute (`DELOVE_SEAT_REPORT_MS`), and the end-of-run report sums them up.
+- **Restarts:** every wait re-reads the tournament with the entrant token after a break (a server restart, a dropped
+  connection), and each table re-attaches as the seat player does; a move refused because the state moved on (a turn
+  timer skip) is dropped and the seat acts on the fresh state. `--tokens FILE` keeps the entrant tokens, so a runner
+  restarted with the same FILE plays on instead of joining again.
+- **Fog tables:** as any seat: a fog-trained network (or `delove-branch` with a fog-trained ranker, which plays the
+  ranker's move without searching) plays them; other versions sit them out.
+
 The seat rebuilds the board from its view (`stateFromView`): each opponent's hand gets its real size (`cardCount`),
 the deck and discard theirs, dealt at random from the cards the seat can't see. Before #143 the rebuilt board gave
 every opponent an empty hand, so the network and Jacob Sensei read every opponent's card count as 0 in live games
@@ -385,7 +407,14 @@ npm run delove:horde -- --candidate delove@10 --tables classic:4:3,classic:6:3 -
   `rounds`, `kills` and `points` (leaderboard points, Zerg seats ranked like any seat for now). With `--base` every
   metric gets a paired 95% interval; the verdict is on `--metric`. Seeds are fixed by `--seed` (default 1), so keep
   the default to compare successive Delove versions on the same games.
-- `--zerg` picks the horde (default `zerg@1`, the fixed reference opponent; `zerg-branch@1` is the searching Zerg).
+- `--zerg` picks the horde. The default is `zerg@1`, the fixed reference opponent, so earlier gates stay comparable.
+  `zerg@2` is the live seats' version (no mid-game surrender, walled-in Zergs mass toward the prey; #198), which
+  training uses since #201. `zerg-branch@1` is the searching Zerg. A recheck against the live horde:
+  `npm run delove:horde -- --candidate <model> --zerg zerg@2 --games 100 --procs 14` (add `--base-zerg zerg@1` to
+  compare the two hordes on the same games). First comparison (2026-10-22, delove@10, 100 games per table): hold
+  even, +0.007 (-0.012 to +0.025), so the live horde is no harder to survive. Delove scores 0.48 fewer points a game
+  against it, because with no mid-game surrender more Zergs outlast it. Turn limits: 12 of 100 games at 4p vs 3
+  Zergs (3 under `zerg@1`).
   `--base-zerg` plays the same candidate against a second horde on the same games: a negative difference means the
   `--zerg` horde is the stronger one.
 - Worker threads (`--procs`, default all cores but one): 1000 games in about 17 s for delove@10.
@@ -402,9 +431,12 @@ npm run delove:horde -- --candidate delove@10 --tables classic:4:3,classic:6:3 -
   - Neither survives a solo rush often: delove@10 wins 0-1% of solo tables (Jacob 0%) and 5-18% of the tables with
     fillers.
 - For scenarios or training data, the agents play in any self-play command:
-  `npm run delove -- play --agents delove@10,zerg@1,zerg@1,zerg@1`. `scripts/cycles/horde.jobs` is a ready job file
-  for `generate.sh` (about 4,000 games, the branch seat against 2-3 Zergs with Jacob fillers, league settings), not
-  part of any cycle until the captain adds it. Its seat is `delove-branch@1:range-horde`: `delove-branch@1:range`
+  `npm run delove -- play --agents delove@10,zerg@2,zerg@2,zerg@2`. `scripts/cycles/horde.jobs` is a ready job file
+  for `generate.sh` (about 4,000 games, the branch seat against 2-3 `zerg@2` with Jacob fillers, league settings; it
+  seated `zerg@1` until #201); the captain adds it to a cycle. Under `zerg@2` (200-game sample, the cycle-13 branch
+  env): about 3.4 process-seconds a game at 8 processes, so about 29 min for the 4,000 games on 8 processes (16-20 on
+  14). 4 of the 200 games (2%) hit the 250-turn cap; a mean game is 32 turns. Rollouts play each Zerg seat with its own version
+  (`zergParamsFor`). Its seat is `delove-branch@1:range-horde`: `delove-branch@1:range`
   whose rollouts play the Zerg seats with the horde bot (src/horde-branch.ts; a Zerg move off the candidate list falls
   back to the teacher's pick, never an attack on a fellow Zerg), so the search sees the gang-up coming. The plain
   branch seat imagines the Zergs as its teacher.
@@ -432,7 +464,7 @@ self-play seats named so are one horde.
 First result (2026-10-21, delove@10 as the candidate, `--base-zerg zerg@1`, same games): **no gain yet**. Defaults
 (4 options, 8 rollouts, horizon 2, kill weight 1) over the 5 default tables: Delove's hold diff +0.003 (95% -0.028 to
 +0.035). Kill weight 3, 12 rollouts, horizon 3 on classic:4:2, 6:3 and 6:2: +0.006 (-0.051 to +0.062). Both are even
-with the hand-coded Zerg, so the search is not yet a better teacher. Next: tune `zerg@1`'s numbers (a `zerg@2`) and
+with the hand-coded Zerg, so the search is not yet a better teacher. Next: tune `zerg@1`'s numbers (a `zerg@3`) and
 give the search a network's alternatives.
 
 ### Tuning the Zerg (`npm run delove:zerg-tune`)
@@ -469,8 +501,9 @@ npm run delove:zerg-tune -- --out models/delove/zerg-tune-run2.json --generation
 ```
 
 The file holds the numbers and every generation's result; it stays on the training PC. Once the result passes a gate
-(`npm run delove:horde -- --candidate delove@10 --zerg zerg@2 --base-zerg zerg@1`), copy it to `models/delove/zerg@2.json`:
-register.ts loads `zerg@N.json` (N >= 2) as agent `zerg@N`. `zerg@1` stays fixed as the reference horde.
+(`npm run delove:horde -- --candidate delove@10 --zerg zerg@3 --base-zerg zerg@1`), copy it to `models/delove/zerg@3.json`:
+register.ts loads `zerg@N.json` (N >= 3) as agent `zerg@N`. `zerg@1` (the reference horde) and `zerg@2` (the live
+version) are fixed in the engine, and a file with their name is ignored.
 
 ## Jacob Sensei (`jacob-sensei@1`): a teacher that doesn't stall
 

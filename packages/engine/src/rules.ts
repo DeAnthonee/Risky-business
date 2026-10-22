@@ -138,4 +138,9 @@ On a timeout you are skipped: pending armies are placed for you over your border
 pending conquest is occupied with the minimum, and your turn ends (no more attacks, no fortify). Per move, running
 out while placing only places your armies and the turn goes on with a fresh clock. Setup placements and capital
 picks are made for you the same way. The log shows "skipped (timeout)".
+
+SWARM GAMES (Zergs)
+Zergs are house bots that rush and never attack a fellow Zerg while anyone else is alive. To play against the swarm:
+create_game with "zergs" (3-5) and the swarm settings {"capitals": true, "blizzards": 4, "autoSetup": true}, then
+start_game. add_bot with kind "zerg" and "count" adds more in one call (up to the free seats).
 `.trim();

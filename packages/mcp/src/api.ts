@@ -210,8 +210,9 @@ export interface RiskApi {
   /** agent: this seat's self-declared player type ("claude-sonnet-5-5"), shown to web spectators only, never to players. */
   createGame(playerName: string, gameName: string | undefined, options: Partial<GameOptions> | undefined, board?: 'training', key?: string, agent?: string): Promise<JoinResult>;
   joinGame(gameId: string, playerName: string, agent?: string): Promise<JoinResult>;
-  /** kind "zerg" seats a Zerg (named from the reptile list, so no name); default "bot", the built-in bot. */
-  addBot(gameId: string, token: string, name?: string, kind?: 'bot' | 'zerg'): Promise<{ playerId: string; name?: string }>;
+  /** kind "zerg" seats a Zerg (named from the Zerg list, so no name); default "bot", the built-in bot. */
+  /** `count` (1-9) adds several of the same kind at once; `added` lists them all. */
+  addBot(gameId: string, token: string, name?: string, kind?: 'bot' | 'zerg', count?: number): Promise<{ playerId: string; name?: string; added?: { playerId: string; name: string }[] }>;
   setOptions(gameId: string, token: string, options: Partial<GameOptions>): Promise<{ state: GameView }>;
   start(gameId: string, token: string): Promise<{ state: GameView }>;
   getGame(gameId: string, token?: string): Promise<GameInfo>;
@@ -401,8 +402,8 @@ export class HttpRiskApi implements RiskApi {
   joinGame(gameId: string, playerName: string, agent?: string) {
     return this.request<JoinResult>(`/games/${gameId}/join`, { method: 'POST', body: JSON.stringify({ playerName, ...(agent ? { agent } : {}) }) });
   }
-  addBot(gameId: string, token: string, name?: string, kind?: 'bot' | 'zerg') {
-    return this.request<{ playerId: string; name?: string }>(`/games/${gameId}/bots`, { method: 'POST', body: JSON.stringify({ name, ...(kind ? { kind } : {}) }) }, token);
+  addBot(gameId: string, token: string, name?: string, kind?: 'bot' | 'zerg', count?: number) {
+    return this.request<{ playerId: string; name?: string; added?: { playerId: string; name: string }[] }>(`/games/${gameId}/bots`, { method: 'POST', body: JSON.stringify({ name, ...(kind ? { kind } : {}), ...(count !== undefined ? { count } : {}) }) }, token);
   }
   setOptions(gameId: string, token: string, options: Partial<GameOptions>) {
     return this.request<{ state: GameView }>(`/games/${gameId}/options`, { method: 'POST', body: JSON.stringify({ options }) }, token);

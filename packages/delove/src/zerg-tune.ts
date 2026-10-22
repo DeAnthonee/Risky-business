@@ -43,6 +43,7 @@ const KNOBS: Knob[] = [
   { key: 'exposureWeight', min: 0, max: 2, step: 0.25 },
   { key: 'occupyShare', min: 0.3, max: 1, step: 0.15 },
   { key: 'stagingDistance', min: 0, max: 30, step: 5 },
+  { key: 'sacrifice', min: 0, max: 1, step: 1 },
   // later behaviours (0 = off in zerg@1)
   { key: 'strikeRatio', min: 0, max: 3, step: 0.5 },
   { key: 'cardHoard', min: 0, max: 1, step: 1 },

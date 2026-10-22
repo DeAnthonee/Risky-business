@@ -399,9 +399,6 @@ npm run delove:horde -- --candidate delove@10 --tables classic:4:3,classic:6:3 -
     (+0.083 to +0.152), unchanged.
     - Games are shorter: 9.8 rounds, against 15.7 under #169's fight; Delove's own is 7.4.
     - Turn limits: 4 in 500 (3 at 4p vs 3 Zergs), against 10 with the sacrifice off.
-  - With the walled-in surrender removed (#198, urgent: the owner called it a bug): 0.466 vs 0.339, diff +0.127
-    (+0.092 to +0.163), better. Turn limits: 12 in 500, all at 4p vs 3 Zergs, where a turtling Delove stalls the horde.
-    Games average 11.4 rounds.
   - Neither survives a solo rush often: delove@10 wins 0-1% of solo tables (Jacob 0%) and 5-18% of the tables with
     fillers.
 - For scenarios or training data, the agents play in any self-play command:
@@ -441,7 +438,7 @@ give the search a network's alternatives.
 ### Tuning the Zerg (`npm run delove:zerg-tune`)
 
 `zerg@1`'s judgement numbers are `ZERG_1_PARAMS` in packages/engine/src/zerg.ts (attack odds per kind of target, the
-knock-out bonus, the target rule's weights, occupation share, staging pull, and no surrender switch: the walled-in sacrifice was removed in #198). Four later
+knock-out bonus, the target rule's weights, occupation share, staging pull, the sacrifice switch, 1 in `zerg@1` since #176; it was 0 from #169 to #176). Four later
 behaviours are terms that are 0 (off) in `ZERG_1_PARAMS`, so `zerg@1` plays exactly as recorded (a golden test guards it):
 
 - `strikeRatio`: synchronised strike. The horde holds its attacks on the target until its border armies reach that

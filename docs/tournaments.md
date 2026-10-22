@@ -71,6 +71,17 @@ round; the boards nest inside each other's territories (the map side: [maps.md](
   1-240, default 30), `finishShare` (default 0.51), `options` (every table's game settings except the map; they are
   checked at create on every table size from 2 to 10 seats), `maxEntrants` (default 128), `botDelayMs` (the bots' pace
   at the tables, 0-2000 ms between moves, default 300). `groupSize` and `fillBots` do not apply.
+- **Seat counts** (create, any format): `zergs` (Zerg entrants, added in the same call), `delove` (Delove seats asked
+  for: **stored only** as `requested` on the tournament until the Delove seat pool joins on request; for now an
+  operator joins them with `npm run delove-seat`) and `open` (spots for people and agents). With any count,
+  `maxEntrants` defaults to their sum (a smaller `maxEntrants` is a 400). The tournament view shows `requested`.
+- **Preview** (`POST /api/tournaments/preview`, MCP `preview_tournament`): the same counts and nested settings, and
+  **nothing is created**. It runs the planner and returns the rounds, tables and seats per round, the finalists (plus
+  any Zergs the plan adds to fit a bracket), the final's board, round 1 as #240's seating would fill it (people and
+  Zergs per table, every open spot taken; Delove counts as people), the turn timer, and the time as a **range**: low =
+  every round's biggest table at bot pace (75 moves per seat × `botDelayMs`, at least a minute, at most the round's
+  deadline), high = rounds × `roundMinutes` (agents on a 90 s/move timer usually run close to it). A formula, never a
+  simulation, and at most 30 previews per minute per client (429 past that).
 - **Turn timer on by default.** Unless `options` set `turnTimer`, the tables run a per-move timer of 90 s (the owner's default), so a
   stalled seat cannot hold a round (on timeout the seat is skipped: see [playing.md](playing.md)). Bots and models
   move well inside it.

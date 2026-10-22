@@ -20,6 +20,7 @@ import { narrate, playByPlayText } from './playbyplay.js';
 import type { CharacterStore } from './characters.js';
 import type { CreateTournamentSpec } from './tournaments.js';
 import { SeasonKeyGuard } from './season-key.js';
+import { RateLimitedError } from './rate-limit.js';
 import { QuickPlayBusyError } from './quick-play.js';
 
 /** Constant-time check of an admin token. 'disabled' when the server has none configured. */
@@ -57,6 +58,9 @@ export function parseTournamentSpec(body: Record<string, unknown>, admin = false
     roundMinutes: int(body.roundMinutes, 'roundMinutes'),
     finishShare: body.finishShare as number | undefined,
     botDelayMs: int(body.botDelayMs, 'botDelayMs'),
+    zergs: int(body.zergs, 'zergs'),
+    delove: int(body.delove, 'delove'),
+    open: int(body.open, 'open'),
     ...(admin ? { seed: int(body.seed, 'seed') } : {}),
   };
 }
@@ -629,6 +633,13 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
   );
 
   api.get('/tournaments', (_req, res) => res.json({ tournaments: store.tournaments.list() }));
+  // What a nested tournament with these counts and settings would look like; creates nothing, open to anyone, rate-limited.
+  api.post(
+    '/tournaments/preview',
+    wrap((req, res) => {
+      res.json({ preview: store.tournaments.preview(parseTournamentSpec(req.body ?? {}), req.ip ?? 'unknown') });
+    }),
+  );
   // The next scheduled tournament (the home page's card, the MCP next_tournament tool); all null with no schedule.
   api.get('/tournaments/next', (_req, res) => res.json({ scheduled: !!store.schedule, ...(store.schedule?.next() ?? { next: null, running: null, cancelled: null }) }));
   api.get(
@@ -812,6 +823,7 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
   // ---- error handling ----
   api.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
     if (err instanceof RuleError) return res.status(400).json({ error: err.message });
+    if (err instanceof RateLimitedError) return res.status(429).json({ error: err.message });
     if (err instanceof QuickPlayBusyError) return res.status(err.status).json({ error: err.message });
     if (err instanceof RiskHttpError) return res.status(err.status).json({ error: err.message });
     if (err instanceof SyntaxError) return res.status(400).json({ error: 'Invalid JSON' });

@@ -27,6 +27,7 @@ import {
 import type { GameRoom, Store } from './store.js';
 import type { CommitInfo } from './archive.js';
 import { freeZergName, type BotKind } from './bot.js';
+import { RateLimitedError, RateLimiter } from './rate-limit.js';
 
 /**
  * Knockout tournaments. The host creates one and gets its host token; players and agents join while it is
@@ -182,6 +183,8 @@ export interface TournamentSnapshot {
   nested?: NestedSettings;
   /** Made by the server's schedule (RISK_TOURNAMENT_SCHEDULE): when it starts, and why it was called off, if it was. */
   scheduled?: TournamentScheduleInfo;
+  /** The seat counts the host created it with (absent when created without counts). */
+  requested?: TournamentCounts;
 }
 
 /** A scheduled tournament's start (ms) and, if it never ran, why ("not enough entrants"). */
@@ -222,6 +225,21 @@ export interface CreateTournamentSpec {
   seed?: number;
   /** Set by the server's schedule only (never parsed from a request): the planned start. */
   scheduled?: { startsAt: number };
+  /**
+   * The host's seat counts (create form, MCP create_tournament): `zergs` Zerg entrants added at once, `delove` Delove
+   * seats asked for (stored only, until the Delove seat pool joins on request), `open` spots for people and agents.
+   * With any count, maxEntrants defaults to their sum.
+   */
+  zergs?: number;
+  delove?: number;
+  open?: number;
+}
+
+/** A host's seat counts: Zergs added at create, Delove seats asked for (stored), open spots. */
+export interface TournamentCounts {
+  zergs: number;
+  delove: number;
+  open: number;
 }
 
 /** Public view; `you` is filled in when the caller passed their entrant token. */
@@ -402,7 +420,23 @@ export class TournamentManager extends EventEmitter {
   // ---- host ----
 
   /** Create a tournament. The snapshot carries its `hostToken`: hand it to the creator only. */
+  /**
+   * Create a tournament. With seat counts (`zergs`, `delove`, `open`), maxEntrants defaults to their sum, the Zergs
+   * are added at once, and the counts are kept (`requested`); the Delove seats are only stored for now.
+   */
   create(spec: CreateTournamentSpec): TournamentSnapshot {
+    const counts = tournamentCounts(spec);
+    if (!counts) return this.createUnfilled(spec);
+    const total = counts.zergs + counts.delove + counts.open;
+    if (spec.maxEntrants !== undefined && spec.maxEntrants < total) throw new RuleError(`maxEntrants (${spec.maxEntrants}) is less than the seats asked for (${total})`);
+    const t = this.createUnfilled({ ...spec, maxEntrants: spec.maxEntrants ?? total });
+    t.requested = counts;
+    if (counts.zergs) this.addBots(t.id, 'zerg', counts.zergs);
+    else this.changed(t);
+    return t;
+  }
+
+  private createUnfilled(spec: CreateTournamentSpec): TournamentSnapshot {
     const { maxActive } = this.limits;
     if (maxActive > 0 && [...this.tournaments.values()].filter((x) => x.status !== 'finished').length >= maxActive)
       throw new RuleError(`Too many tournaments are open right now (${maxActive}); try again when one has finished`);
@@ -441,6 +475,67 @@ export class TournamentManager extends EventEmitter {
     this.tournaments.set(id, t);
     this.changed(t);
     return t;
+  }
+
+  /**
+   * What a nested tournament with these counts and settings would look like, creating nothing: the plan (tables per
+   * round, finalists, Zergs the planner adds), the final's board, how round 1 would seat people and server bots
+   * (#240's seating, every open spot taken), and the time as a range (a formula, no simulation: the endpoint is
+   * public). Throws on bad settings, like create.
+   */
+  /** Previews per client (IP address) per minute: the preview is public and plans on every call. */
+  previewLimiter = new RateLimiter(PREVIEW_PER_MINUTE, 60_000);
+
+  /** `client`: the caller's address, for the per-client limit (null = not limited, e.g. tests and the schedule). */
+  preview(spec: CreateTournamentSpec, client: string | null = null): TournamentPreview {
+    if (client !== null && !this.previewLimiter.take(client)) throw new RateLimitedError(`Too many previews: at most ${PREVIEW_PER_MINUTE} a minute`);
+    if (spec.format !== undefined && spec.format !== 'nested') throw new RuleError('The preview is for nested tournaments (format "nested")');
+    const counts = tournamentCounts(spec) ?? { zergs: 0, delove: 0, open: 0 };
+    const total = counts.zergs + counts.delove + counts.open;
+    if (total < 2) throw new RuleError('A tournament needs at least 2 seats: count Zergs, Delove seats and open spots');
+    if (total > MAX_ENTRANTS) throw new RuleError(`At most ${MAX_ENTRANTS} seats in a tournament`);
+    this.createNested({ ...spec, format: 'nested', maxEntrants: spec.maxEntrants ?? Math.max(2, total) }, true);
+    const tps = spec.territoriesPerSeat ?? 5;
+    const roundMinutes = spec.roundMinutes ?? 30;
+    const botDelayMs = spec.botDelayMs ?? 300;
+    const finalMax = spec.finalMap ? this.maxFinal(spec.finalMap) : NESTED_FINAL.max;
+    const plan = planNest(total, { maxFinal: finalMax });
+    // Round 1 as #240 seats it: open spots and Delove seats are people (Delove joins over HTTP like any agent).
+    const entrants = [
+      ...Array.from({ length: counts.open + counts.delove }, (_, i) => ({ id: `p${i}`, isBot: false })),
+      ...Array.from({ length: counts.zergs + plan.zergs }, (_, i) => ({ id: `z${i}`, isBot: true, kind: 'zerg' as const })),
+    ];
+    const seated = seatNestedRound(plan.rounds[0], entrants, createRng(1));
+    const firstRound = seated.map((ids, j) => ({ seats: plan.rounds[0][j].seats, people: ids.filter((id) => id.startsWith('p')).length, zergs: ids.filter((id) => id.startsWith('z')).length }));
+    // Time: low = every table at bot pace (moves grow with seats), high = every round to its deadline.
+    const roundsLow = plan.rounds.map((r) => {
+      const biggest = Math.max(...r.map((x) => x.seats));
+      return Math.min(roundMinutes, Math.max(1, Math.ceil((biggest * PREVIEW_BOT_MOVES_PER_SEAT * botDelayMs) / 60_000)));
+    });
+    const options = { ...NESTED_DEFAULT_OPTIONS, ...(spec.options ?? {}) };
+    const timer = options.turnTimer === undefined ? { mode: 'move', seconds: 90 } : options.turnTimer === 'off' ? null : { mode: options.turnTimer, seconds: options.turnTimerSeconds ?? 15 };
+    const warnings: string[] = [];
+    if (counts.delove) warnings.push(`The ${counts.delove} Delove seats are stored with the tournament; until the Delove seat pool joins on request, an operator joins them (npm run delove-seat).`);
+    if (plan.zergs) warnings.push(`The plan adds ${plan.zergs} Zergs so the numbers fit a bracket.`);
+    const allBots = firstRound.filter((t) => t.people === 0).length;
+    if (allBots) warnings.push(`${allBots} round-1 tables would be server bots only (fewer people than tables).`);
+    if (counts.open) warnings.push('The breakdown assumes every open spot is taken; the plan is made again from the real entrants at the start.');
+    return {
+      counts,
+      seats: total,
+      plannerZergs: plan.zergs,
+      rounds: plan.rounds.length,
+      tablesPerRound: plan.rounds.map((r) => r.length),
+      seatsPerRound: plan.rounds.map((r) => r.map((x) => x.seats)),
+      finalists: plan.finalSeats,
+      finalBoard: spec.finalMap
+        ? { map: spec.finalMap, name: getMap(spec.finalMap).name, generated: false, territories: getMap(spec.finalMap).territoryIds.length }
+        : { map: null, name: 'a generated board', generated: true, territories: plan.finalSeats * tps },
+      firstRound,
+      timer,
+      minutes: { low: roundsLow.reduce((a, b) => a + b, 0), high: plan.rounds.length * roundMinutes, perRound: roundMinutes },
+      warnings,
+    };
   }
 
   /** Check a nested tournament's settings without creating it (the schedule, at startup). Throws on bad settings. */
@@ -682,6 +777,7 @@ export class TournamentManager extends EventEmitter {
           }
         : {}),
       ...(t.scheduled ? { scheduled: { ...t.scheduled } } : {}),
+      ...(t.requested ? { requested: { ...t.requested } } : {}),
       createdAt: t.createdAt,
       updatedAt: t.updatedAt,
       version: t.version,
@@ -1147,4 +1243,43 @@ export function seatNestedRound(
     for (const eid of seededShuffle(rng, entrants.filter((e) => e.isBot && (e.kind === 'zerg') === zerg).map((e) => e.id))) bots[place(eid, fewestBots)]++;
   }
   return seated;
+}
+
+/** A preview's bots-only time estimate: moves a table takes per seat at bot pace (nested:sim: ~45-90 at 4-10 seats). */
+const PREVIEW_BOT_MOVES_PER_SEAT = 75;
+/** Tournament previews per client per minute. */
+export const PREVIEW_PER_MINUTE = 30;
+
+/** What `preview` returns (POST /api/tournaments/preview, MCP preview_tournament). */
+export interface TournamentPreview {
+  counts: TournamentCounts;
+  /** Seats asked for (zergs + delove + open); the plan adds plannerZergs to fit a bracket. */
+  seats: number;
+  plannerZergs: number;
+  rounds: number;
+  tablesPerRound: number[];
+  seatsPerRound: number[][];
+  finalists: number;
+  finalBoard: { map: string | null; name: string; generated: boolean; territories: number };
+  /** Round 1 as it would be seated: seats, people (open + Delove) and Zergs per table. */
+  firstRound: { seats: number; people: number; zergs: number }[];
+  timer: { mode: string; seconds: number } | null;
+  /** About how long, in minutes: low at bot pace, high with every round running to its deadline. */
+  minutes: { low: number; high: number; perRound: number };
+  warnings: string[];
+}
+
+/** The seat counts in a create or preview request (null when none is given). Each is a whole number 0-256. */
+export function tournamentCounts(spec: Pick<CreateTournamentSpec, 'zergs' | 'delove' | 'open'>): TournamentCounts | null {
+  if (spec.zergs === undefined && spec.delove === undefined && spec.open === undefined) return null;
+  const n = (v: number | undefined, key: string) => {
+    if (v === undefined) return 0;
+    if (!Number.isInteger(v) || v < 0 || v > MAX_ENTRANTS) throw new RuleError(`${key} must be a whole number from 0 to ${MAX_ENTRANTS}`);
+    return v;
+  };
+  const counts = { zergs: n(spec.zergs, 'zergs'), delove: n(spec.delove, 'delove'), open: n(spec.open, 'open') };
+  const total = counts.zergs + counts.delove + counts.open;
+  if (total < 2) throw new RuleError('A tournament needs at least 2 seats: count Zergs, Delove seats and open spots');
+  if (total > MAX_ENTRANTS) throw new RuleError(`At most ${MAX_ENTRANTS} seats in a tournament`);
+  return counts;
 }

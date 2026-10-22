@@ -4,8 +4,8 @@
     "packages/engine/src/engine.ts": "cd274eb40941b04663f50fb90c00f6d566a57a28b4977b63b99cb205457cea76",
     "packages/engine/src/cards.ts": "763d4a921873636ce52fe366da4f5c823bb5d77eee42e64040dbf978d64f33b5",
     "packages/engine/src/rng.ts": "07836989954a8b135ae1b0d936b3458d158e6cfa6cc54c37e82a7be5d97edbd0",
-    "packages/engine/src/types.ts": "ee33ea36ab7ac010fc208f9619154aaf7d7540b31af13038a683be88e0c987e1",
-    "packages/engine/src/maps.ts": "f3e6d995a286963c7c86a831df77a6d2b0c3bb9bed99d07b1475b0678fa3ccc7",
+    "packages/engine/src/types.ts": "5484d69e7633ce1ddc4d2299208a6066cdd4c5fc0b61cd4913b24184f264b1ff",
+    "packages/engine/src/maps.ts": "93e9bc45d3545ff568cb0ae52f3f2fde611c5ee20c5bdc8045f832c285919500",
     "packages/engine/src/generated/classic.json": "694c7b09d7fe49d06e2afd0818bc8c28916887a91f3638e04ab6d06a89fa09a2",
     "packages/engine/src/generated/world.json": "626a59e28a78739f89403ffd6839ee9b6350d59a0d5c7b9dc2470cc71e4c674d",
     "packages/engine/src/generated/world_large.json": "7bf8f823fe8ef958b2ba4026734f1bca96324fc0d7bcc0067ba8dcb6c34fd1dd",
@@ -18,6 +18,7 @@
     "packages/engine/src/generated/skirmish.json": "c961593a0d36359318833c4ec3fbebaadffd7404d824ad053221a21f9bf12fdc",
     "packages/engine/src/generated/bohemia.json": "ef3485220c1bbf57f9972edcd81bfb044b36193fb9891fc8cce1eedc6788ec3f",
     "packages/engine/src/generated/nine_realms.json": "215028b858e66ddcff1267affff922fd482be4d18f04d6046f4d52687c12d69c",
+    "packages/engine/src/generated/hexworld.json": "10b3095ac390a3b6310898ec56a8ad3bba217a8ce7fc083b0bffd960655567ad",
     "packages/selfplay/src/actions.ts": "b39a9e6e9dc38681f3b1c241ee647e92dc35e2bb4f3c4962dc5bbdf4c58a2a0d",
     "packages/selfplay/src/encode.ts": "31cec45e71de65dd26d8b6e582bb06c008f8adb39728feeb00dd5c25a3303336",
     "packages/selfplay/src/log.ts": "ba9bab9a2831cfa3a5e04dbe09cef71233a5b8bdffa6e456dccade553861837b",
@@ -27,88 +28,104 @@
     "packages/delove/src/teacher.ts": "97dbb984601ff92db2d446b19706462c84dabe7742103fe0a0d74c961dea3ad0",
     "packages/delove/src/jacob.ts": "aeb50eb870adf2e131e46988f90c1ac49e25453d059ca0de95e7ae29e66a4eb3",
     "packages/engine/src/odds.ts": "609ae32e2906842830fb5f6e7beafeb609e76b731b58114ee40b55fc6038ca9e",
-    "packages/delove/src/branch.ts": "fe44fb963992e78022672280b6dafb86f65aeb56fbb0f130487b6c4e745fa0f8",
+    "packages/delove/src/branch.ts": "46ad89f94606a9fab23a00ae4285c767859a8c3f9045d27555197a23e1f667da",
     "packages/selfplay/src/export.ts": "7903c70a50e35ebce3c1743ee962703cd2eef978d77c2ac81276aa0301effa31",
     "packages/selfplay/src/npy.ts": "892fcb85ec7325a26087455b28584286cf3695554c316726344a41978d882291",
     "packages/engine/src/ranking.ts": "bd93170b8bcf68cf50f53f18b61868fd0c99ff2204c245e44b6d308cab844d07"
   },
   "verified": {
-    "at": "2026-10-21T16:58:37",
-    "commit": "6167950b6699667aa2b686c2f21db51ad8b29554",
-    "seed": 85276,
+    "at": "2026-10-22T09:26:18",
+    "commit": "11a78d363faa025fbce8db8e3c4eca74522a96c8",
+    "seed": 72363,
     "engines": [
       "engine.py",
       "fused.py",
       "teacher",
       "branch"
     ],
-    "steps": 5323769,
+    "steps": 5757635,
     "replays": [
       {
         "engine": "engine.py",
         "logs": [
-          "runs/gpu-verify/2026-10-21-85276/teacher",
-          "runs/gpu-verify/2026-10-21-85276/risky"
+          "runs/gpu-verify/2026-10-22-72363/teacher",
+          "runs/gpu-verify/2026-10-22-72363/risky"
         ],
         "games": 1000,
-        "steps": 272690
+        "steps": 285514
       },
       {
         "engine": "engine.py",
         "logs": [
-          "runs/gpu-verify/2026-10-21-85276/random"
+          "runs/gpu-verify/2026-10-22-72363/random"
         ],
         "games": 50,
-        "steps": 141844
+        "steps": 141564
       },
       {
         "engine": "engine.py",
         "logs": [
-          "runs/gpu-verify/2026-10-21-85276/encoder"
+          "runs/gpu-verify/2026-10-22-72363/encoder"
         ],
         "games": 50,
-        "steps": 14226
+        "steps": 14454
+      },
+      {
+        "engine": "engine.py",
+        "logs": [
+          "runs/gpu-verify/2026-10-22-72363/net"
+        ],
+        "games": 100,
+        "steps": 27011
       },
       {
         "engine": "fused.py",
         "logs": [
-          "runs/gpu-verify/2026-10-21-85276/teacher",
-          "runs/gpu-verify/2026-10-21-85276/risky"
+          "runs/gpu-verify/2026-10-22-72363/teacher",
+          "runs/gpu-verify/2026-10-22-72363/risky"
         ],
         "games": 1000,
-        "steps": 272690
+        "steps": 285514
       },
       {
         "engine": "fused.py",
         "logs": [
-          "runs/gpu-verify/2026-10-21-85276/random"
+          "runs/gpu-verify/2026-10-22-72363/random"
         ],
         "games": 50,
-        "steps": 141844
+        "steps": 141564
       },
       {
         "engine": "fused.py",
         "logs": [
-          "runs/gpu-verify/2026-10-21-85276/encoder"
+          "runs/gpu-verify/2026-10-22-72363/encoder"
         ],
         "games": 50,
-        "steps": 14226
+        "steps": 14454
+      },
+      {
+        "engine": "fused.py",
+        "logs": [
+          "runs/gpu-verify/2026-10-22-72363/net"
+        ],
+        "games": 100,
+        "steps": 27011
       },
       {
         "engine": "teacher",
         "check": "teacher_replay.py",
         "logs": [
-          "runs/gpu-verify/2026-10-21-85276/teacher-tuned"
+          "runs/gpu-verify/2026-10-22-72363/teacher-tuned"
         ],
-        "decisions": 139728
+        "decisions": 139651
       },
       {
         "engine": "teacher",
         "check": "teacher_replay.py",
         "logs": [
-          "runs/gpu-verify/2026-10-21-85276/teacher-jacob"
+          "runs/gpu-verify/2026-10-22-72363/teacher-jacob"
         ],
-        "decisions": 132266
+        "decisions": 130679
       },
       {
         "engine": "teacher",
@@ -120,123 +137,138 @@
         "engine": "branch",
         "check": "branch_replay.py",
         "logs": [
-          "runs/gpu-verify/2026-10-21-85276/branch-default"
+          "runs/gpu-verify/2026-10-22-72363/branch-default"
         ],
-        "decisions": 13160
+        "decisions": 13105
       },
       {
         "engine": "branch",
         "check": "branch_replay.py",
         "logs": [
-          "runs/gpu-verify/2026-10-21-85276/branch-cycle"
+          "runs/gpu-verify/2026-10-22-72363/branch-cycle"
         ],
-        "decisions": 11902
+        "decisions": 13069
       },
       {
         "engine": "branch",
         "check": "branch_replay.py",
         "logs": [
-          "runs/gpu-verify/2026-10-21-85276/branch-jacob"
+          "runs/gpu-verify/2026-10-22-72363/branch-jacob"
         ],
-        "decisions": 12312
+        "decisions": 12303
       },
       {
         "engine": "branch",
         "check": "branch_replay.py",
         "logs": [
-          "runs/gpu-verify/2026-10-21-85276/branch-points"
+          "runs/gpu-verify/2026-10-22-72363/branch-points"
         ],
-        "decisions": 31159
+        "decisions": 25514
       },
       {
         "engine": "branch",
         "check": "branch_replay.py",
         "logs": [
-          "runs/gpu-verify/2026-10-21-85276/branch-kills"
+          "runs/gpu-verify/2026-10-22-72363/branch-kills"
         ],
-        "decisions": 22776
+        "decisions": 27072
       },
       {
         "engine": "branch",
         "check": "branch_replay.py",
         "logs": [
-          "runs/gpu-verify/2026-10-21-85276/branch-range"
+          "runs/gpu-verify/2026-10-22-72363/branch-range"
         ],
-        "decisions": 17786
+        "decisions": 19326
       },
       {
         "engine": "branch",
         "check": "branch_replay.py",
         "logs": [
-          "runs/gpu-verify/2026-10-21-85276/branch-netroll"
+          "runs/gpu-verify/2026-10-22-72363/branch-netroll"
         ],
-        "decisions": 2946
+        "decisions": 3076
       },
       {
         "engine": "branch",
         "check": "branch_replay.py",
         "logs": [
-          "runs/gpu-verify/2026-10-21-85276/branch-netself"
+          "runs/gpu-verify/2026-10-22-72363/branch-netself"
         ],
-        "decisions": 4451
+        "decisions": 3953
+      },
+      {
+        "engine": "branch",
+        "check": "branch_replay.py",
+        "logs": [
+          "runs/gpu-verify/2026-10-22-72363/branch-gumbel"
+        ],
+        "decisions": 16551
       },
       {
         "engine": "branch",
         "check": "export_check.py",
         "logs": [
-          "runs/gpu-verify/2026-10-21-85276/branch-cycle"
+          "runs/gpu-verify/2026-10-22-72363/branch-cycle"
         ],
-        "decisions": 12473
+        "decisions": 13626
+      },
+      {
+        "engine": "branch",
+        "check": "stage_near_tie_check.py",
+        "logs": [],
+        "decisions": 10
       },
       {
         "engine": "branch",
         "check": "stage_check.py",
         "logs": [],
-        "decisions": 234
+        "decisions": 324,
+        "nearTieFlips": 0
       },
       {
         "engine": "fused.py",
         "check": "matrix rules",
-        "cases": 72,
-        "steps": 1518381,
+        "cases": 78,
+        "steps": 1687847,
         "logs": [
-          "runs/gpu-verify/2026-10-21-85276/matrix-rules"
+          "runs/gpu-verify/2026-10-22-72363/matrix-rules"
         ]
       },
       {
         "engine": "fused.py",
         "check": "matrix settings",
         "cases": 120,
-        "steps": 1401037,
+        "steps": 1479707,
         "logs": [
-          "runs/gpu-verify/2026-10-21-85276/matrix-settings"
+          "runs/gpu-verify/2026-10-22-72363/matrix-settings"
         ]
       },
       {
         "engine": "branch",
         "check": "matrix branch",
-        "cases": 27,
-        "steps": 138811,
+        "cases": 32,
+        "steps": 186791,
         "logs": [
-          "runs/gpu-verify/2026-10-21-85276/matrix-branch"
+          "runs/gpu-verify/2026-10-22-72363/matrix-branch"
         ]
       },
       {
         "engine": "teacher",
         "check": "matrix jacob",
-        "cases": 128,
-        "steps": 790208,
+        "cases": 133,
+        "steps": 829493,
         "logs": [
-          "runs/gpu-verify/2026-10-21-85276/matrix-jacob"
+          "runs/gpu-verify/2026-10-22-72363/matrix-jacob"
         ]
       },
       {
         "engine": "teacher",
         "check": "matrix jacob2",
-        "cases": 128,
-        "steps": 617812,
+        "cases": 133,
+        "steps": 636711,
         "logs": [
-          "runs/gpu-verify/2026-10-21-85276/matrix-jacob2"
+          "runs/gpu-verify/2026-10-22-72363/matrix-jacob2"
         ]
       },
       {
@@ -244,9 +276,9 @@
         "check": "dataset_compare.py (generate.py, k_teacher_run)",
         "games": 370,
         "logs": [
-          "runs/gpu-verify/2026-10-21-85276/run-classic-2p",
-          "runs/gpu-verify/2026-10-21-85276/run-skirmish-4p",
-          "runs/gpu-verify/2026-10-21-85276/run-greater_europe-10p"
+          "runs/gpu-verify/2026-10-22-72363/run-classic-2p",
+          "runs/gpu-verify/2026-10-22-72363/run-skirmish-4p",
+          "runs/gpu-verify/2026-10-22-72363/run-greater_europe-10p"
         ]
       }
     ]

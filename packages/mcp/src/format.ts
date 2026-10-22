@@ -1,4 +1,24 @@
-import { nextTradeValue, CAPITAL_DEFENSE_DICE, blitzOdds, describeOptions, fixedSetValue, getMap, visibleTerritories, type GameEvent, type GameView } from '@risk/engine';
+import { nextTradeValue, CAPITAL_DEFENSE_DICE, TIMEOUT_RULE, blitzOdds, describeOptions, fixedSetValue, getMap, timerOf, visibleTerritories, type GameEvent, type GameView } from '@risk/engine';
+
+/** The server's turn timer as the state carries it (`timer`; absent from older servers). */
+interface TimerView {
+  mode: 'move' | 'turn';
+  seconds: number;
+  player: string | null;
+  deadline: number | null;
+  secondsLeft: number | null;
+}
+
+/** The turn timer line for agents, or null when the game has no timer. */
+export function formatTimer(view: GameView): string | null {
+  const timer = (view as GameView & { timer?: TimerView | null }).timer;
+  const t = timer ?? (timerOf(view.options) ? { ...timerOf(view.options)!, player: null, deadline: null, secondsLeft: null } : null);
+  if (!t) return null;
+  const per = t.mode === 'move' ? 'per move' : 'per turn';
+  const mine = t.player !== null && t.player === view.you;
+  const left = mine && t.secondsLeft !== null ? ` - YOU HAVE ${t.secondsLeft}s LEFT, act now` : '';
+  return `TURN TIMER: ${t.seconds}s ${per}${left}. ${TIMEOUT_RULE}`;
+}
 
 /** The player whose capital this territory is (capitals the viewer can see), if any. */
 function capitalOwnerOf(view: GameView, t: string): string | undefined {
@@ -40,6 +60,8 @@ export function formatState(view: GameView, gameName?: string): string {
   }
   if (view.phase === 'finished') lines.push(`GAME OVER — winner: ${name(view.winner)}`);
   else lines.push(`Current player: ${name(view.currentPlayer)}${view.currentPlayer === view.you ? ' (YOU)' : ''}`);
+  const timer = view.phase === 'finished' ? null : formatTimer(view);
+  if (timer) lines.push(timer);
 
   lines.push('');
   lines.push('Players:');
@@ -220,6 +242,9 @@ export function formatEvents(events: GameEvent[], view: GameView): string {
       case 'turn_ended':
         out.push(`${name(e.player)} ended their turn`);
         break;
+      case 'timeout':
+        out.push(`${name(e.player)} was skipped (timeout): the moves below were made for them`);
+        break;
       case 'phase':
         break;
       case 'game_over':
@@ -281,6 +306,8 @@ export function formatActResult(events: GameEvent[], view: GameView): string {
   const me = view.players.find((p) => p.id === view.you);
   lines.push('');
   lines.push(`Phase: ${view.phase} · version ${view.version}${me ? ` · you hold ${me.territoryCount} territories, ${me.armyCount} armies, ${me.cardCount} cards, +${me.income?.total ?? 0}/turn` : ''}`);
+  const timer = formatTimer(view);
+  if (timer) lines.push(timer);
   if (me?.continents.length) lines.push(`Your continents: ${me.continents.join(', ')}`);
   // Cards change on conquests, trades and eliminations; the ids alone are not enough to pick a set.
   if (me?.cards?.length) lines.push(`Your cards: ${me.cards.map((c) => `#${c.id} ${c.kind}${c.territory ? ` (${c.territory})` : ''}`).join(', ')}`);

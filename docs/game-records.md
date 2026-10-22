@@ -70,6 +70,8 @@ A training game ([training leaderboard](character-league.md#training-leaderboard
       "seen": [[0, 3], null],                    // fog only: what the acting player saw when choosing it
       "hand": [{ "id": 4, "kind": "cavalry", "territory": "peru" }],
       "events": [{ "type": "battle", "attackerDice": [6, 5, 2], "defenderDice": [4, 3], "...": "..." }] }
+    // A move the server made because the turn timer ran out has "timeout": true, and the first of them
+    // starts its events with { "type": "timeout", "player": "p_ab12", "scope": "turn" }. It replays like any move.
   ],
   "outcome": { "finished": true, "winner": "p_ab12", "reason": "domination",
     "eliminations": [{ "player": "p_cd34", "by": "p_ab12", "turn": 31, "step": 402 }],

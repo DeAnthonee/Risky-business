@@ -17,6 +17,9 @@ export const DEFAULT_OPTIONS: Omit<GameOptions, 'map' | 'maxPlayers'> = {
   capitals: true,
   chooseCapitals: true,
   fortifyMode: 'connected',
+  // League seats think with local models: no turn timer unless --options turns it on.
+  turnTimer: 'off',
+  turnTimerSeconds: 15,
 };
 
 /** Most players a random lineup seats, and the fewest (when the roster and map allow). */

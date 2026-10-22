@@ -45,7 +45,7 @@ cards are hidden).
 | `GET  /tournaments`, `GET /tournaments/:id` | list; bracket. With an entrant token the bracket adds `you`: status and your current table's seat `{gameId, playerId, token}` |
 | `POST /tournaments/:id/join`       | `{playerName}` while registering → `{entrantId, token, tournament}` |
 | `GET  /tournaments/:id/wait?since=&timeoutMs=` | long-poll until the bracket's `version` passes `since` |
-| `GET  /games/:id`                  | your view of the state, including `legal` moves on your turn       |
+| `GET  /games/:id`                  | your view of the state, including `legal` moves on your turn. Every state (here, in `/wait`, `/actions` and over the WebSocket) has `timer`: `null` when the game has no turn timer, else `{mode: "move"\|"turn", seconds, player, deadline, secondsLeft}` (`player`/`deadline`/`secondsLeft` are `null` while no human or agent clock runs; `deadline` is epoch ms on the server's clock, so count down from `secondsLeft`). On a timeout the server makes the player's moves itself: they arrive as ordinary events, the first one `{type: "timeout", player, scope}`, and `/events` history entries carry `timeout: true` |
 | `POST /games/:id/actions`          | `{action}` → `{events, state}`                                     |
 | `GET  /games/:id/wait?timeoutMs=&since=` | long-poll until it is your turn, the game ends, or the version passes `since` |
 | `GET  /games/:id/events?since=`    | event history                                                      |

@@ -96,6 +96,9 @@ export function formatMemory(m: CharacterMemory): string {
   return lines.join('\n');
 }
 
+/** Told to every agent on the tools it plays with: a game may have a turn timer. */
+const TIMER_NOTE =
+  'TURN TIMER: a game may have one (the turnTimer setting: per move or per turn, a few seconds). When it is on, the state shows a TURN TIMER line with your seconds left: act quickly and do not think for long. If the clock runs out you are skipped (your armies are placed for you, no attacks, no fortify, your turn ends).';
 const tournamentIdSchema = z.string().min(4).max(12).describe('Tournament code, e.g. "TAB12C"');
 
 /** A bracket as text: entrants, every round's tables and, with an entrant token, where you stand. */
@@ -219,7 +222,7 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
     'create_game',
     {
       description:
-        'Create a new game and take a seat as its host. Pass any game settings in "options" (map, seats, setup, cards, fog of war, Capital Conquest, neutrals, blizzards...); call game_options to see them all with defaults and limits. Returns the game code to share and your player token.',
+        'Create a new game and take a seat as its host. Pass any game settings in "options" (map, seats, setup, cards, fog of war, Capital Conquest, neutrals, blizzards, turn timer...); call game_options to see them all with defaults and limits. Returns the game code to share and your player token.',
       inputSchema: {
         playerName: z.string().max(24).optional().describe(`Your display name (default "${DEFAULT_NAME}")`),
         gameName: z.string().max(40).optional(),
@@ -397,7 +400,7 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
   server.registerTool(
     'get_state',
     {
-      description: 'Get the current game state from your point of view, including your cards and the list of legal moves if it is your turn.',
+      description: `Get the current game state from your point of view, including your cards and the list of legal moves if it is your turn. ${TIMER_NOTE}`,
       inputSchema: { gameId: gameIdSchema, format: z.enum(['text', 'json']).optional().describe('text (default, compact and readable) or json (raw state view)'), token: tokenSchema, as: asSchema },
     },
     async ({ gameId, format, token, as }) => {
@@ -415,7 +418,7 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
     'wait_for_turn',
     {
       description:
-        'Block until it is your turn (or the game ends), up to timeoutSeconds. Returns what happened since you last looked plus the new state. Call again if it returns "timeout". Spectators (no token) can pass sinceVersion to be woken by any change.',
+        `Block until it is your turn (or the game ends), up to timeoutSeconds. Returns what happened since you last looked plus the new state. Call again if it returns "timeout". Spectators (no token) can pass sinceVersion to be woken by any change. ${TIMER_NOTE}`,
       inputSchema: {
         gameId: gameIdSchema,
         timeoutSeconds: z.number().min(1).max(110).optional().describe('Default 60'),
@@ -451,7 +454,8 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
         'Perform one game action on your turn. Returns the resulting events (dice rolls, conquests...), only the territories your action changed (with their neighbours), your armies, cards and continents, and your next legal moves. Other players do not act during your turn (the only exception: someone may surrender, handing their territories to the Neutral), so you rarely need to reread the board between actions. When your turn ends the full board comes back. Pass full:true for the whole board anyway. ' +
         'Attack with blitz:true (one call resolves the whole battle). To keep a garrison, add stopAt:N instead of rolling one die at a time: the blitz stops once the stack is down to N. Legal moves show the chance an all-in blitz takes each target. ' +
         'Under fog of war, omit "occupy" on attacks: the result lists what the conquest revealed (capitals are tagged CAPITAL) and you then occupy with the number that fits. ' +
-        'Examples: {"type":"place","placements":{"alaska":3}} · {"type":"attack","from":"alaska","to":"kamchatka","blitz":true,"occupy":"max"} · {"type":"end_attack"} · {"type":"fortify","from":"peru","to":"brazil","armies":2} · {"type":"end_turn"}',
+        'Examples: {"type":"place","placements":{"alaska":3}} · {"type":"attack","from":"alaska","to":"kamchatka","blitz":true,"occupy":"max"} · {"type":"end_attack"} · {"type":"fortify","from":"peru","to":"brazil","armies":2} · {"type":"end_turn"} ' +
+        TIMER_NOTE,
       inputSchema: {
         gameId: gameIdSchema,
         action: actionSchema,

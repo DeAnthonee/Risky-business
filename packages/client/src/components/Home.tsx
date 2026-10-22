@@ -420,6 +420,23 @@ export function OptionsForm({
           <input type="checkbox" disabled={disabled} checked={!!options.balancedBlitz} onChange={(e) => onChange({ balancedBlitz: e.target.checked })} /> Balanced blitz
           <span className="muted small">a blitz plays out the middle of 5 real blitzes, so it lands near the odds; single rolls stay random</span>
         </label>
+        <label>
+          Turn timer
+          <select disabled={disabled} value={options.turnTimer ?? 'off'} onChange={(e) => onChange({ turnTimer: e.target.value as GameOptions['turnTimer'] })}>
+            <option value="off">Off</option>
+            <option value="move">Per move</option>
+            <option value="turn">Per turn</option>
+          </select>
+        </label>
+        <label>
+          Seconds
+          <select disabled={disabled || (options.turnTimer ?? 'off') === 'off'} value={options.turnTimerSeconds ?? 15} onChange={(e) => onChange({ turnTimerSeconds: Number(e.target.value) })}>
+            {[...new Set([5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 300, 600, options.turnTimerSeconds ?? 15])].sort((a, b) => a - b).map((n) => (
+              <option key={n} value={n}>{n < 60 ? `${n} s` : `${n / 60} min`}</option>
+            ))}
+          </select>
+          <span className="muted small">humans and agents only; out of time = skipped (armies placed for you, no attacks)</span>
+        </label>
       </Group>
 
       <Group title="Board twists">

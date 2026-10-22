@@ -472,6 +472,41 @@ export class GameRoom extends EventEmitter {
     this.emit('seat_dropped', { playerId, name: base, standIn, reason });
   }
 
+  /**
+   * The Delove seat pool takes over a dropped seat (seat-requests.ts takeover): renamed "<name>-Delove", no longer a
+   * bot, with a fresh token for the pool to play it through the ordinary game API. Through commit; returns the token.
+   */
+  grantStandIn(playerId: PlayerId, agent: string): string {
+    const p = this.state.players.find((x) => x.id === playerId);
+    if (!p || !p.alive || this.closed || this.decidedAt !== null || this.state.phase === 'finished') throw new RuleError('That seat is no longer in play');
+    const standIn = standInName(standInBase(p.name), 'Delove');
+    const token = newId(24);
+    this.tokens.set(token, playerId);
+    this.agents[playerId] = agent;
+    this.zergStandIns.delete(playerId); // Delove plays it now, not the horde
+    this.seatTimeouts.delete(playerId);
+    this.seatSeen.set(playerId, Date.now());
+    const next = renameStandIn(setPlayerBot(this.state, playerId, false), playerId, standIn);
+    this.addChat(null, 'Game', `Delove takes over the seat as ${standIn}.`);
+    this.commit(next, [], playerId, { type: 'system', note: `${playerId} taken over by the Delove seat pool as ${standIn}` });
+    return token;
+  }
+
+  /** Back to the Zerg stand-in ("<name>-Zerg"): a pool takeover that failed. Its tokens stop working here. */
+  handBackToBot(playerId: PlayerId, reason: string) {
+    const p = this.state.players.find((x) => x.id === playerId);
+    if (!p || p.isBot || !p.alive || this.state.phase === 'finished') return;
+    for (const [token, id] of [...this.tokens]) {
+      if (id !== playerId) continue;
+      this.tokens.delete(token);
+      this.droppedTokens.set(token, reason);
+    }
+    this.agents[playerId] = 'zerg';
+    this.zergStandIns.add(playerId);
+    const standIn = standInName(standInBase(p.name), 'Zerg');
+    this.commit(renameStandIn(setPlayerBot(this.state, playerId, true), playerId, standIn), [], playerId, { type: 'system', note: `${playerId} back to a Zerg as ${standIn} (${reason})` });
+  }
+
   seatSocket(playerId: PlayerId, delta: 1 | -1) {
     const n = (this.seatSockets.get(playerId) ?? 0) + delta;
     if (n > 0) this.seatSockets.set(playerId, n);

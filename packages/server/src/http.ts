@@ -615,7 +615,7 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
     wrap((req, res) => {
       pool(req);
       if (req.query.free !== undefined || req.query.freeSearch !== undefined) seatReqs.report(num(req.query.free), num(req.query.freeSearch));
-      res.json({ requests: seatReqs.list(typeof req.query.kind === 'string' ? req.query.kind : undefined), pool: seatReqs.pool() });
+      res.json({ requests: seatReqs.list(typeof req.query.kind === 'string' ? req.query.kind : undefined, typeof req.query.modes === 'string' ? req.query.modes : undefined), pool: seatReqs.pool() });
     }),
   );
   api.post(

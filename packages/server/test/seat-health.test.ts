@@ -154,3 +154,80 @@ describe('dropping a disconnected seat at a tournament table', () => {
     ctx.store.stopTimers();
   });
 });
+
+describe('the Delove seat pool takes a dropped seat over (step B)', () => {
+  async function withPool() {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const ctx = table(['Ann', 'Bob']);
+    const risk = createRiskServer(ctx.store, { clientDir: null, sweepIntervalMs: 0, seatPoolKey: 'test-pool-key' });
+    await new Promise<void>((resolve) => risk.server.listen(0, '127.0.0.1', resolve));
+    const base = `http://127.0.0.1:${(risk.server.address() as AddressInfo).port}/api`;
+    const call = async (method: string, path: string, body?: unknown, token?: string) => {
+      const headers: Record<string, string> = { 'content-type': 'application/json', 'x-seat-pool-key': 'test-pool-key' };
+      if (token) headers.authorization = `Bearer ${token}`;
+      const res = await fetch(`${base}${path}`, { method, headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+      return { status: res.status, body: (await res.json()) as any };
+    };
+    vi.setSystemTime(Date.now() + 10 * 60_000);
+    timeOut(ctx, 'Ann');
+    timeOut(ctx, 'Ann');
+    const seat = () => ctx.room.state.players.find((p) => p.id === ctx.seat('Ann').playerId)!;
+    expect(seat()).toMatchObject({ name: 'Ann-Zerg', isBot: true });
+    return { ctx, risk, call, seat };
+  }
+
+  it('opens a takeover request (only for a pool that asks for takeovers); a claim hands it the seat as "<name>-Delove" with a token', async () => {
+    const { ctx, risk, call, seat } = await withPool();
+    try {
+      expect((await call('GET', '/seat-requests?kind=delove')).body.requests).toEqual([]); // an older pool never sees one
+      const reqs = (await call('GET', '/seat-requests?kind=delove&modes=takeover')).body.requests;
+      expect(reqs).toEqual([expect.objectContaining({ mode: 'takeover', n: 1, takeover: { gameId: ctx.room.id, playerId: seat().id, name: 'Ann' } })]);
+      const claim = await call('POST', `/seat-requests/${reqs[0].id}/claim`, {});
+      expect(claim.status).toBe(200);
+      expect(claim.body).toMatchObject({ mode: 'takeover', gameId: ctx.room.id, playerId: seat().id, n: 1, token: expect.any(String) });
+      expect(seat()).toMatchObject({ name: 'Ann-Delove', isBot: false });
+      expect(ctx.room.isZerg(seat().id)).toBe(false); // Delove plays it now, not the horde
+      expect(ctx.room.agents[seat().id]).toBe('delove');
+      // The pool plays the existing seat with that token, through the ordinary game API.
+      const game = await call('GET', `/games/${ctx.room.id}`, undefined, claim.body.token);
+      expect(game.body.playerId).toBe(seat().id);
+      expect((await call('POST', `/seat-requests/${reqs[0].id}/claim`, {})).status).toBe(409); // taken
+      // The old player's token still gets the 410; the entrant stays dropped (a stand-in never moves on).
+      expect((await call('POST', `/games/${ctx.room.id}/actions`, { action: { type: 'end_turn' } }, ctx.seat('Ann').token)).status).toBe(410);
+      expect(ctx.entrant('Ann').dropped).toBeDefined();
+    } finally {
+      await risk.shutdown('test');
+    }
+  });
+
+  it('a failed takeover goes back to the Zerg stand-in, with no second request', async () => {
+    const { ctx, risk, call, seat } = await withPool();
+    try {
+      const req = (await call('GET', '/seat-requests?modes=takeover')).body.requests[0];
+      const claim = await call('POST', `/seat-requests/${req.id}/claim`, {});
+      expect((await call('POST', `/seat-requests/${req.id}/failed`, { joined: 0, reason: 'no model loaded' })).body.request).toMatchObject({ status: 'failed' });
+      expect(seat()).toMatchObject({ name: 'Ann-Zerg', isBot: true });
+      expect(ctx.room.isZerg(seat().id)).toBe(true);
+      expect((await call('POST', `/games/${ctx.room.id}/actions`, { action: { type: 'end_turn' } }, claim.body.token)).status).toBe(410); // the pool's token no longer plays
+      expect((await call('GET', '/seat-requests?modes=takeover')).body.requests).toEqual([]);
+    } finally {
+      await risk.shutdown('test');
+    }
+  });
+
+  it('a Delove stand-in that goes silent is dropped like anyone: back to the Zerg stand-in, no second request', async () => {
+    const { ctx, risk, call, seat } = await withPool();
+    try {
+      const req = (await call('GET', '/seat-requests?modes=takeover')).body.requests[0];
+      await call('POST', `/seat-requests/${req.id}/claim`, {});
+      expect(seat()).toMatchObject({ name: 'Ann-Delove', isBot: false });
+      vi.setSystemTime(Date.now() + 10 * 60_000);
+      timeOut(ctx, 'Ann');
+      timeOut(ctx, 'Ann');
+      expect(seat()).toMatchObject({ name: 'Ann-Zerg', isBot: true });
+      expect((await call('GET', '/seat-requests?modes=takeover')).body.requests).toEqual([]);
+    } finally {
+      await risk.shutdown('test');
+    }
+  });
+});

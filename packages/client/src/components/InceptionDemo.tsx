@@ -53,6 +53,7 @@ function mockTables(nodes: NestNode[], seed: number): Record<number, TableSnapsh
 /** A built-in-bot game on one table's board, played in the browser and restarted when it ends. */
 function useLiveTable(node: NestNode | undefined, seed: number): TableSnapshot | undefined {
   const [state, setState] = useState<GameState | null>(null);
+  const [battle, setBattle] = useState<TableSnapshot['lastAttack']>(undefined);
   const [game, setGame] = useState(0);
   useEffect(() => {
     if (!node) return;
@@ -67,7 +68,10 @@ function useLiveTable(node: NestNode | undefined, seed: number): TableSnapshot |
     const timer = window.setInterval(() => {
       for (let n = 0; n < 2 && current.phase !== 'finished'; n++) {
         const me = current.currentPlayer!;
-        current = applyAction(current, me, chooseBotAction(current, me, random) ?? { type: 'surrender' }).state;
+        const res = applyAction(current, me, chooseBotAction(current, me, random) ?? { type: 'surrender' });
+        current = res.state;
+        const b = [...res.events].reverse().find((e) => e.type === 'battle');
+        if (b && b.type === 'battle') setBattle({ from: b.from, to: b.to, at: Date.now() });
       }
       setState(current);
       // A finished game stays up a few seconds, then a new one starts.
@@ -82,16 +86,22 @@ function useLiveTable(node: NestNode | undefined, seed: number): TableSnapshot |
     if (!state) return undefined;
     const ids = state.players.filter((p) => !p.isNeutral).map((p) => p.id);
     const owners: Record<string, number | null> = {};
-    for (const [t, v] of Object.entries(state.territories)) owners[t] = v.owner === null ? null : ids.indexOf(v.owner);
+    const armies: Record<string, number> = {};
+    for (const [t, v] of Object.entries(state.territories)) {
+      owners[t] = v.owner === null ? null : ids.indexOf(v.owner);
+      armies[t] = v.armies;
+    }
     const counts = ids.map((id) => Object.values(state.territories).filter((v) => v.owner === id).length);
     const leader = state.winner ? ids.indexOf(state.winner) : counts.indexOf(Math.max(...counts));
     return {
       players: state.players.filter((p) => !p.isNeutral).map((p) => ({ name: p.name, color: p.color, alive: p.alive })),
       owners,
+      armies,
+      ...(battle ? { lastAttack: battle } : {}),
       status: state.phase === 'finished' ? 'finished' : 'playing',
       leader,
     };
-  }, [state]);
+  }, [state, battle]);
 }
 
 /**
@@ -114,8 +124,12 @@ function advanceRounds(nodes: NestNode[], base: Record<number, TableSnapshot>, r
       out[i] = { ...t, owners, leader, status: 'finished', players: t.players.map((p, k) => ({ ...p, alive: k === leader })) };
     } else if (n.depth === playing) {
       const owners: Record<string, number> = {};
-      for (const id of getMap(n.map).territoryIds) owners[id] = Math.floor(nextFloat(rng) * n.seats);
-      out[i] = { ...t, owners, leader: 0, status: 'playing', gameId: 'DEMO00' };
+      const armies: Record<string, number> = {};
+      for (const id of getMap(n.map).territoryIds) {
+        owners[id] = Math.floor(nextFloat(rng) * n.seats);
+        armies[id] = 1 + Math.floor(nextFloat(rng) ** 3 * 30);
+      }
+      out[i] = { ...t, owners, armies, leader: 0, status: 'playing', gameId: 'DEMO00' };
     } else out[i] = { ...t, owners: undefined, status: 'waiting' };
   });
   return out;

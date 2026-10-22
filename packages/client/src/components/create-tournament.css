@@ -1,0 +1,38 @@
+/* ---------- Create tournament (?host=1): layout only. The look comes from the theme and the tournament page's
+   pieces (.tourney-top, .home-actions, .board, .tickets; tournament.css and home.css). ---------- */
+.create-tournament .ct-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: 24px;
+  align-items: start;
+}
+/* The home's action panel is two columns on wide screens; here it holds one form. */
+.create-tournament .home-actions {
+  grid-template-columns: 1fr;
+}
+@media (max-width: 760px) {
+  .create-tournament .ct-layout {
+    grid-template-columns: 1fr;
+  }
+}
+.create-tournament .ct-name,
+.create-tournament .ct-code,
+.create-tournament .ct-count {
+  display: grid;
+  gap: 4px;
+}
+.create-tournament .ct-count small {
+  font-size: 0.8em;
+}
+.create-tournament .ct-check {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  text-align: left;
+}
+.create-tournament .ct-check input {
+  width: auto;
+  margin: 0;
+}

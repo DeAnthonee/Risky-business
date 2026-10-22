@@ -18,7 +18,7 @@ groups), add a bot or a **Zerg** (a rushing house bot with a Zerg pun for a name
 page lists open games as tickets (joinable rooms first, then live and finished ones) next to the leaderboard (once a season has been archived, a season picker above it shows past seasons; the current one is the default; when the host has set a season password, an **Archive season** button there archives the season after a password and a confirm; the **Training** toggle beside it switches to the training leaderboard of model-vs-model yardstick games, and the **Tournament** toggle to the tournament leaderboard of finished tournaments; neither counts on the public one) and the **match history**: the most recent finished games, newest first, each with its winner (click the name for their profile), how they won, the room, map, turns, how long it took and every seat's final place. While a finished room is still on the server, **View final board** opens it to watch. Wide screens show the three boards side by side; narrower ones stack the leaderboard and match history beside the open games. Anyone can **watch** a game without playing:
 press "Watch" in the game list or open `?game=CODE&spectate=1`. When someone takes a lot in one turn (a sweep of 3+ territories and a quarter of a player's land, a knockout, or a capital), a short pop-up over the map shows it with a line from each side, in the character's voice when the seat plays a character; **💬 Reactions** turns these off (remembered in this browser). Under fog of war only spectators see them, so they never reveal a hidden conquest. The **🔗 Share** button on a game or tournament page
 copies its link (on a phone it opens the share sheet); pasted into a chat app, the link shows a preview with the
-name, map, seats, status and a picture of the board (owner colours only under fog of war). Spectators see the public board, the
+name, map, seats, status and a picture of the board (owner colours only under fog of war); a tournament table's preview leads with its badge ("🏆 Cup · Round 2, table 3"). Spectators see the public board, the
 log and chat, a live "watching" count, and which players are online. Next to each player's name a small badge shows
 what kind of player it is ("Claude Sonnet", "Delove delove@10", "Zerg", "Bot", "Human", or "?" when the seat did not
 say); the seat declares it itself, and only spectators see these badges, never the players. In fog-of-war games they can
@@ -102,7 +102,27 @@ those three parts; hover a bar for the numbers. Each row also shows the player's
 possible; orange at 4+). Card counts are public, so under fog of war a seated player still gets the card-count list.
 In a progressive-cards game the top bar shows what the **next set** is worth (hover for the next three values).
 
-## Next tournament
+## Tournaments on the home page
+
+Tournaments come first on the home page. Right under the masthead (the name box) sit, in this order:
+- **🏆 Host a tournament**, which opens the create form (`?host=1`);
+- **Find a tournament (N)**, which scrolls to the Tournaments list (N counts the open ones);
+- the **Next tournament** card;
+- **The House**;
+- the **Tournaments** list: open ones first (sign-ups, the soonest start first, then the ones being played, each
+  with Join or Watch). Finished and called-off ones are hidden behind **Show finished (N)**. With none open, the list
+  says so.
+
+The open games, the leaderboard and the match history come after them.
+
+**Tournament tables are marked.**
+- A tournament table in the open games list carries a yellow badge such as "🏆 Friday Knockout · Round 1, table 2"
+  ("the final" for the final). Clicking it opens the bracket.
+- In the game, the same badge sits in the top bar ("› Bracket"). It opens the bracket and keeps your seat: **Play
+  your table** brings you back.
+- A shared link to a table leads its preview with the badge.
+
+### Next tournament
 
 When the server runs [scheduled tournaments](tournaments.md#scheduled-tournaments), the home page shows a **Next
 tournament** card under the name box:
@@ -125,10 +145,17 @@ name. With a key on the browser the page shows who you play as, **Get a new key*
 and **Forget the key on this browser**. It also says how agents use a key: the header, `RISK_PLAYER_KEY` for the
 stdio MCP server, or `use_player_key` on claude.ai ([mcp.md](mcp.md#player-keys)).
 
-## The House
+## Hosting a tournament
 
-Tournaments come first on the home page: right under the masthead (the name box) sit the **Next tournament** card,
-**The House** and the **Tournaments** list, above the open games, the leaderboard and the match history.
+`?host=1` opens the **Create tournament** form: how many Zergs (added at once), Delove seats (stored for now; an
+operator joins them) and open spots for people and agents, the round deadline, the per-move turn timer, the final's
+board, Capital Conquest and fog, and the access code. A **breakdown** beside it follows every change: rounds, tables
+per round, seats per table, finalists and the final's board, how many round-1 tables have people and how many Zergs
+each, and the time as "about X–Y min" (from `POST /api/tournaments/preview`; nothing is created until you press
+**Create tournament**). Then share the code, press **Start now** when everyone is in (this browser keeps the host
+token), or open the bracket. See [tournaments.md](tournaments.md#nested-inception-tournaments).
+
+## The House
 
 The home page shows **The House**: the server's own bots over every finished tournament, "The Swarm" (Zergs) against
 "The Machines" (fill bots). Each side has its eliminations, tables, wins, rounds survived, finals, conquests and
@@ -145,12 +172,14 @@ decided on standing) and three tabs:
 - **Map:** the final's board with every table's board drawn inside its territory, boards inside boards. Click a board
   to zoom in, Esc, **Zoom out** or the breadcrumb to zoom out, and **Watch table** to open a table as a spectator.
   **Globe** / **Flat** switches the Map tab between this flat view and a spinning **globe of the round in play**: every
-  live table's board is a patch of the sphere in its holders' colours, updated from the live feed. Click a patch to
+  live table's board is a patch of the sphere in its holders' colours, updated from the live feed: land rises with its armies and each table's latest battle shows as a red arc for a few
+  seconds. Click a patch to
   focus that table (the camera turns to it, **Watch table** opens it). When a round ends, each table's patch shrinks into
   its portal (its winner's starting territory, shown in the winner's colour) on the next round's board while those boards
   fade in, and the camera turns to the focused table (or to the final); with reduced motion the new round just appears. When the
-  round in play is a final on Hex Earth (`finalMap: 'hexworld'`), the globe is Hex Earth itself with its portal
-  territories raised in gold (click one to zoom into the flat board inside). The choice is remembered like the game
+  round in play is a final on Hex Earth (`finalMap: 'hexworld'`), the last round's boards shrink into their winners'
+  starting territories on Hex Earth itself, which then shows the final live: hexes in their holders' colours, raised
+  with their armies, the latest battle as an arc (click a portal territory to zoom into the flat board inside). The choice is remembered like the game
   view's, and browsers without WebGL keep the flat view. Dev builds preview it at `/?dev=inception&players=100`
   (32 tables; **Next round** plays the demo forward) and `/?dev=inception&players=40&final=hexworld`.
 - **Bracket:** every round from the final down; a table decided on standing lists its order and the tie-break dice.

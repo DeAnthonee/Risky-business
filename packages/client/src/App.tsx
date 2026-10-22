@@ -5,16 +5,19 @@ import { Lobby } from './components/Lobby';
 import { Game } from './components/Game';
 import { AutoAdvance, isGenerationGame, useLiveGame, type AutoSpectate } from './components/AutoAdvance';
 import { Tournament } from './components/Tournament';
+import { CreateTournament } from './components/CreateTournament';
 import { PlayerKeyPage } from './components/PlayerKeyPage';
 import {
   clearSession,
   gameIdFromUrl,
   getName,
+  hostFormFromUrl,
   playerPageFromUrl,
   getSession,
   saveSession,
   setGameInUrl,
   setName as persistName,
+  setHostFormInUrl,
   setPlayerPageInUrl,
   setTournamentInUrl,
   spectateFromUrl,
@@ -34,6 +37,8 @@ export function App() {
   const [name, setNameState] = useState(getName());
   // The tournament being followed: leaving one of its games comes back to its bracket.
   const [tournamentId, setTournamentId] = useState<string | null>(() => tournamentIdFromUrl());
+  // ?host=1: the Create tournament form (links to it come from the home page).
+  const [hosting, setHosting] = useState(() => hostFormFromUrl());
   // ?player=1: the player key page (links to it come from the home page).
   const [playerPage, setPlayerPage] = useState(() => playerPageFromUrl());
 
@@ -45,6 +50,9 @@ export function App() {
   useEffect(() => {
     setTournamentInUrl(tournamentId);
   }, [tournamentId]);
+  useEffect(() => {
+    setHostFormInUrl(hosting);
+  }, [hosting]);
   useEffect(() => {
     setPlayerPageInUrl(playerPage);
   }, [playerPage]);
@@ -81,6 +89,14 @@ export function App() {
     setAutoSpectate(false);
   };
 
+  // A tournament table's banner: to its bracket. The seat's session is kept, so "Play your table" brings you back.
+  const openTournament = (id: string) => {
+    setTournamentId(id);
+    setGameId(null);
+    setSpectating(false);
+    setAutoSpectate(false);
+  };
+
   const startAutoSpectate = () => {
     setGameId(null);
     setSpectating(true);
@@ -92,6 +108,18 @@ export function App() {
 
   if (!gameId && !tournamentId && playerPage) {
     return <PlayerKeyPage onBack={() => setPlayerPage(false)} />;
+  }
+
+  if (!gameId && !tournamentId && hosting) {
+    return (
+      <CreateTournament
+        onOpen={(id) => {
+          setHosting(false);
+          setTournamentId(id);
+        }}
+        onBack={() => setHosting(false)}
+      />
+    );
   }
 
   if (!gameId && tournamentId) {
@@ -129,6 +157,7 @@ export function App() {
           setAutoSpectate(false);
         }}
         onWatch={watch}
+        onOpenTournament={openTournament}
         autoSpectate={autoSpectate ? auto : undefined}
       />
     );
@@ -147,7 +176,7 @@ export function App() {
     );
   }
 
-  return <Connected gameId={gameId} session={session} onLeave={leaveToHome} />;
+  return <Connected gameId={gameId} session={session} onLeave={leaveToHome} onOpenTournament={openTournament} />;
 }
 
 function Connected({
@@ -157,6 +186,7 @@ function Connected({
   onLeave,
   onJoin,
   onWatch,
+  onOpenTournament,
   autoSpectate,
 }: {
   gameId: string;
@@ -165,6 +195,7 @@ function Connected({
   onLeave: () => void;
   onJoin?: () => void;
   onWatch?: (id: string) => void;
+  onOpenTournament?: (id: string) => void;
   /** Auto-spectate viewers only: move on to another live game when this one ends or closes. */
   autoSpectate?: AutoSpectate;
 }) {
@@ -212,7 +243,7 @@ function Connected({
     );
   }
   if (conn.view.phase === 'lobby') return <Lobby conn={conn} gameId={gameId} session={spectating ? null : session} onLeave={onLeave} onJoin={onJoin} />;
-  return <Game conn={conn} gameId={gameId} session={spectating ? null : session} onLeave={onLeave} onJoin={onJoin} autoSpectate={auto} isGeneration={isGen} />;
+  return <Game conn={conn} gameId={gameId} session={spectating ? null : session} onLeave={onLeave} onJoin={onJoin} autoSpectate={auto} isGeneration={isGen} onOpenTournament={onOpenTournament} />;
 }
 
 function JoinPrompt({

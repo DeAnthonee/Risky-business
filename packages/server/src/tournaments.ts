@@ -302,6 +302,26 @@ export interface TournamentView {
   };
 }
 
+/**
+ * Which tournament table a game is: the tournament, its round, the table's place in that round (1-based, as on the
+ * bracket page) and whether it is the final. The games list, the game socket and link previews carry it, so a
+ * tournament table is marked everywhere ("🏆 Cup · Round 2, table 3").
+ */
+export interface TournamentTableRef {
+  id: string;
+  name: string;
+  round: number;
+  table: number;
+  tables: number;
+  final: boolean;
+}
+
+/** "Round 2, table 3", or "the final". */
+export function tableLabel(ref: Pick<TournamentTableRef, 'round' | 'table' | 'tables' | 'final'>): string {
+  if (ref.final) return 'the final';
+  return ref.tables > 1 ? `Round ${ref.round}, table ${ref.table}` : `Round ${ref.round}`;
+}
+
 export interface TournamentSummary {
   id: string;
   name: string;
@@ -321,6 +341,8 @@ const MAX_NAME = 24;
 const DEFAULT_MAX_ENTRANTS = 64;
 const DEFAULT_MAX_NESTED_ENTRANTS = 128;
 /** Nested (and so scheduled) tournaments' table settings when the host leaves them out (owner, 2026-10-22). */
+/** A nested table's per-move turn timer when the host sets none (the owner's default). */
+export const NESTED_TURN_TIMER_SECONDS = 90;
 export const NESTED_DEFAULT_OPTIONS: Partial<GameOptions> = { autoSetup: true, capitals: true };
 /** Unless the host sets a blizzard count, each nested table freezes this share of its own board's territories. */
 export const NESTED_BLIZZARD_SHARE = 0.1;
@@ -421,9 +443,8 @@ export class TournamentManager extends EventEmitter {
 
   // ---- host ----
 
-  /** Create a tournament. The snapshot carries its `hostToken`: hand it to the creator only. */
   /**
-   * Create a tournament. With seat counts (`zergs`, `delove`, `open`), maxEntrants defaults to their sum, the Zergs
+   * Create a tournament; the snapshot carries its `hostToken`: hand it to the creator only. With seat counts (`zergs`, `delove`, `open`), maxEntrants defaults to their sum, the Zergs
    * are added at once, and the counts are kept (`requested`); the Delove seats are only stored for now.
    */
   create(spec: CreateTournamentSpec): TournamentSnapshot {
@@ -479,23 +500,22 @@ export class TournamentManager extends EventEmitter {
     return t;
   }
 
+  /** Previews per client (IP address) per minute: the preview is public and plans on every call. */
+  previewLimiter = new RateLimiter(PREVIEW_PER_MINUTE, 60_000);
+
   /**
    * What a nested tournament with these counts and settings would look like, creating nothing: the plan (tables per
    * round, finalists, Zergs the planner adds), the final's board, how round 1 would seat people and server bots
    * (#240's seating, every open spot taken), and the time as a range (a formula, no simulation: the endpoint is
-   * public). Throws on bad settings, like create.
+   * public). Throws on bad settings, like create. `client`: the caller's address, for the per-client limit (null =
+   * not limited, e.g. tests and the schedule).
    */
-  /** Previews per client (IP address) per minute: the preview is public and plans on every call. */
-  previewLimiter = new RateLimiter(PREVIEW_PER_MINUTE, 60_000);
-
-  /** `client`: the caller's address, for the per-client limit (null = not limited, e.g. tests and the schedule). */
   preview(spec: CreateTournamentSpec, client: string | null = null): TournamentPreview {
     if (client !== null && !this.previewLimiter.take(client)) throw new RateLimitedError(`Too many previews: at most ${PREVIEW_PER_MINUTE} a minute`);
     if (spec.format !== undefined && spec.format !== 'nested') throw new RuleError('The preview is for nested tournaments (format "nested")');
-    const counts = tournamentCounts(spec) ?? { zergs: 0, delove: 0, open: 0 };
+    const counts = tournamentCounts(spec);
+    if (!counts) throw new RuleError('A tournament needs at least 2 seats: count Zergs, Delove seats and open spots');
     const total = counts.zergs + counts.delove + counts.open;
-    if (total < 2) throw new RuleError('A tournament needs at least 2 seats: count Zergs, Delove seats and open spots');
-    if (total > MAX_ENTRANTS) throw new RuleError(`At most ${MAX_ENTRANTS} seats in a tournament`);
     this.createNested({ ...spec, format: 'nested', maxEntrants: spec.maxEntrants ?? Math.max(2, total) }, true);
     const tps = spec.territoriesPerSeat ?? 5;
     const roundMinutes = spec.roundMinutes ?? 30;
@@ -515,7 +535,7 @@ export class TournamentManager extends EventEmitter {
       return Math.min(roundMinutes, Math.max(1, Math.ceil((biggest * PREVIEW_BOT_MOVES_PER_SEAT * botDelayMs) / 60_000)));
     });
     const options = { ...NESTED_DEFAULT_OPTIONS, ...(spec.options ?? {}) };
-    const timer = options.turnTimer === undefined ? { mode: 'move', seconds: 90 } : options.turnTimer === 'off' ? null : { mode: options.turnTimer, seconds: options.turnTimerSeconds ?? 15 };
+    const timer = options.turnTimer === undefined ? { mode: 'move', seconds: NESTED_TURN_TIMER_SECONDS } : options.turnTimer === 'off' ? null : { mode: options.turnTimer, seconds: options.turnTimerSeconds ?? 15 };
     const warnings: string[] = [];
     if (counts.delove) warnings.push(`The ${counts.delove} Delove seats are stored with the tournament; until the Delove seat pool joins on request, an operator joins them (npm run delove-seat).`);
     if (plan.zergs) warnings.push(`The plan adds ${plan.zergs} Zergs so the numbers fit a bracket.`);
@@ -564,7 +584,7 @@ export class TournamentManager extends EventEmitter {
     // Tables run on a per-move turn timer unless the host says otherwise, so a stalled seat cannot hold a round.
     if (options.turnTimer === undefined) {
       options.turnTimer = 'move';
-      if (options.turnTimerSeconds === undefined) options.turnTimerSeconds = 90;
+      if (options.turnTimerSeconds === undefined) options.turnTimerSeconds = NESTED_TURN_TIMER_SECONDS;
     }
     if (spec.seed !== undefined && (!Number.isInteger(spec.seed) || spec.seed < 0 || spec.seed > 0xffffffff)) throw new RuleError('seed must be a whole number from 0 to 4294967295');
     const maxEntrants = spec.maxEntrants ?? DEFAULT_MAX_NESTED_ENTRANTS;
@@ -712,6 +732,21 @@ export class TournamentManager extends EventEmitter {
     t.entrants.push(entrant);
     this.changed(t);
     return { entrantId: entrant.id, token: entrant.token! };
+  }
+
+  /** The table a game is in `tournamentId`, or null (not one of its tables, or the tournament is gone). */
+  tableOf(tournamentId: string, gameId: string): TournamentTableRef | null {
+    const t = this.get(tournamentId);
+    if (!t) return null;
+    for (const r of t.rounds) {
+      const i = r.matches.findIndex((m) => m.gameId === gameId);
+      if (i < 0) continue;
+      // Knockout: a later round with one table left is the final. Nested: the plan's last round.
+      const planned = t.nested?.plan?.rounds.length;
+      const final = planned ? r.round === planned : r.matches.length === 1 && r.round > 1;
+      return { id: t.id, name: t.name, round: r.round, table: i + 1, tables: r.matches.length, final };
+    }
+    return null;
   }
 
   get(id: string): TournamentSnapshot | undefined {

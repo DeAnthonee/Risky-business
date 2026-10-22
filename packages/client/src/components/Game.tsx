@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CAPITAL_DEFENSE_DICE, getMap, tradeBonus, nextTradeValue, visibleTerritories, type Card, type GameEvent, type GameView } from '@risk/engine';
-import { api } from '../api';
+import { api, tableBadge } from '../api';
 import { AutoAdvance, type AutoSpectate } from './AutoAdvance';
 import { CARD_FX_MS, CardFxPanel, type CardFx } from './CardFx';
 import { CharacterName, type Whisper } from './Profiles';
@@ -38,12 +38,15 @@ export function Game({
   onJoin,
   autoSpectate,
   isGeneration = false,
+  onOpenTournament,
 }: {
   conn: GameConnection;
   gameId: string;
   session: Session | null;
   onLeave: () => void;
   onJoin?: () => void;
+  /** A tournament table's banner opens its bracket. */
+  onOpenTournament?: (id: string) => void;
   /** Auto-spectate viewers only: move on to the next live game once this one ends. */
   autoSpectate?: AutoSpectate;
   /** Generation training matches: transitions straight to the next match's lobby. */
@@ -444,6 +447,20 @@ export function Game({
         <div className="topbar">
           <div className="topbar-left">
             <strong>{conn.name}</strong> <code className="code small">{gameId}</code>
+            {conn.tournament && (
+              <a
+                className="tourney-badge"
+                href={`?tournament=${encodeURIComponent(conn.tournament.id)}`}
+                title="Open this tournament's bracket"
+                onClick={(e) => {
+                  if (!onOpenTournament) return;
+                  e.preventDefault();
+                  onOpenTournament(conn.tournament!.id);
+                }}
+              >
+                {tableBadge(conn.tournament)} <span aria-hidden="true">›</span> Bracket
+              </a>
+            )}
             {spectator && <span className="spectator-badge">👁 Spectating</span>}
             {conn.presence.spectators > 0 && (
               <span className="muted small" title="people watching this game">

@@ -15,6 +15,10 @@ export interface FeedTable {
   players: { name: string; color: string; alive: boolean }[];
   /** Owner of each territory, in `getMap(node.map).territoryIds` order, as an index into `players` (null: nobody). */
   owners: (number | null)[] | null;
+  /** Armies on each territory, in the same order (null where hidden); servers before the globe's feed omit it. */
+  armies?: (number | null)[] | null;
+  /** The latest battle in the last 30 s, as indexes into territoryIds, with its server time. */
+  lastAttack?: { from: number; to: number; at: number } | null;
   /** The server sends null for "no leader yet" and "no reason". */
   leader?: number | null;
   excitement?: { score: number; why?: string | null };
@@ -171,10 +175,14 @@ function fromState(node: number, gameId: string, s: GameView): FeedTable {
 export function toSnapshot(table: FeedTable, mapId: string): TableSnapshot {
   const territories = getMap(mapId).territories;
   const owners = table.owners ? Object.fromEntries(territories.map((t, i) => [t.id, table.owners![i] ?? null])) : undefined;
+  const armies = table.armies ? Object.fromEntries(territories.map((t, i) => [t.id, table.armies![i] ?? null])) : undefined;
+  const attack = table.lastAttack && territories[table.lastAttack.from] && territories[table.lastAttack.to] ? { from: territories[table.lastAttack.from].id, to: territories[table.lastAttack.to].id, at: table.lastAttack.at } : undefined;
   return {
     players: table.players,
     status: table.status,
     ...(owners ? { owners } : {}),
+    ...(armies ? { armies } : {}),
+    ...(attack ? { lastAttack: attack } : {}),
     ...(table.gameId ? { gameId: table.gameId } : {}),
     ...(table.leader !== undefined && table.leader !== null ? { leader: table.leader } : {}),
   };

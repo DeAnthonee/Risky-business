@@ -1,3 +1,3 @@
-server: - 2026-10-22 #241 nested (and scheduled) tournaments default every table to autoSetup, capitals and 4 blizzards (`NESTED_DEFAULT_OPTIONS`, owner's request), still overridable at creation
+server: - 2026-10-22 #241 nested (and scheduled) tournaments default every table to autoSetup, capitals and blizzards at 10% of that table's territories (min 1, `NESTED_DEFAULT_OPTIONS`, `NESTED_BLIZZARD_SHARE`, `nested.blizzardShare` in the view; owner's request), all overridable at creation
 engine: - 2026-10-22 #241 `startOnSpots`: a spot thawed because its blizzard had nowhere to move no longer ends up cut off; the blizzards next to it thaw too until the open territories are one network (found by a new max-blizzards test over every generated nested board shape)
 docs: - 2026-10-22 #241 tournaments.md: tournament-mode defaults and the thaw rule

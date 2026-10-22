@@ -76,8 +76,11 @@ round; the boards nest inside each other's territories (the map side: [maps.md](
   move well inside it.
 - **Tournament mode on by default** (owner, 2026-10-22). Unless `options` say otherwise, every table, the final
   included, deals and places armies at random (`autoSetup: true`) and plays Capital Conquest (`capitals: true`) with
-  4 blizzards (`blizzards: 4`; the usual 8 would freeze too much of a 3-seat, 15-territory board). These are
-  `NESTED_DEFAULT_OPTIONS` in `tournaments.ts`; scheduled tournaments are nested, so they get them too.
+  blizzards **scaled to its own board**: 10% of its territories, at least 1, at most the map's limit (a 3-seat table
+  of 15 gets 2, a 6-seat table of 30 gets 3, a 50-territory final gets 5; a flat count would freeze too much of the
+  small boards). A `blizzards` count in `options` overrides it at every table. These are `NESTED_DEFAULT_OPTIONS`
+  and `NESTED_BLIZZARD_SHARE` in `tournaments.ts` (the tournament view shows `nested.blizzardShare`, `null` with an
+  explicit count); scheduled tournaments are nested, so they get them too.
 - **Start.** The engine's `planNest` plans the rounds for the entrants: tables of 3-6, uneven by at most one in a
   round, and a final of 6-10. Zerg entrants are added only when the count fits no plan (11-17 entrants fill to 18; under 6 fill
   the final to 6). A random seed, saved with the tournament, fixes every board (`planToNest`, generated gen1 boards

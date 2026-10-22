@@ -202,11 +202,12 @@ describe('blizzards on generated nested boards', () => {
 
   it('a parent table keeps its blizzard count and an even deal, and never throws (seed sweep, #264)', () => {
     // As the server builds a parent table: a gen1 board with a region per seat, the nested default of 10% blizzards (at
-    // least 1, tournaments.ts blizzardsFor), spots from pickStartSpots.
+    // least 1, tournaments.ts blizzardsFor), spots from pickStartSpots. Includes gen1-s22-p6-t30 (seed 22), where a
+    // player held only other players' spots and the trade threw.
     for (let n = 3; n <= 6; n++)
       for (let seed = 1; seed <= 400; seed++) {
         const seats = Array.from({ length: n }, (_, i) => `p${i}`);
-        const mapId = genMapId({ seed: seed * 104729 + n, seats: n, territoriesPerSeat: 5, regions: Math.max(defaultRegions(n * 5), n) });
+        const mapId = genMapId({ seed, seats: n, territoriesPerSeat: 5, regions: Math.max(defaultRegions(n * 5), n) });
         const map = getMap(mapId);
         const want = Math.min(maxBlizzards(map), Math.max(1, Math.round(0.1 * map.territoryIds.length)));
         const portals = pickStartSpots(map, n, seed);

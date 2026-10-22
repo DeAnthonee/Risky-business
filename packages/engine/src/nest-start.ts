@@ -33,6 +33,8 @@ export function startOnSpots(lobby: GameState, spots: Record<PlayerId, Territory
   const events: GameEvent[] = [...started.events];
   const pick = <T>(xs: T[]): T => xs[Math.floor(random() * xs.length)];
 
+  /** Spots already given to their players (in `wanted` order): never traded away again. */
+  const settled = new Set<TerritoryId>();
   for (const [player, spot] of wanted) {
     if (state.blizzards.includes(spot)) {
       // Move the blizzard to an open territory that is nobody's spot; that territory's holder takes the spot instead.
@@ -69,8 +71,12 @@ export function startOnSpots(lobby: GameState, spots: Record<PlayerId, Territory
       }
       for (const e of events) if (e.type === 'blizzards') e.territories = [...state.blizzards];
     }
+    settled.add(spot);
     if (state.territories[spot].owner === player) continue;
-    const mine = Object.keys(state.territories).filter((t) => state.territories[t].owner === player && !spotSet.has(t));
+    // Trade one of the player's other territories for the spot: a non-spot one if they hold any, else another
+    // player's spot not settled yet (that player takes it back by the same trade when their turn here comes).
+    const held = Object.keys(state.territories).filter((t) => state.territories[t].owner === player && !settled.has(t));
+    const mine = held.some((t) => !spotSet.has(t)) ? held.filter((t) => !spotSet.has(t)) : held;
     if (mine.length === 0) throw new RuleError(`${player} has no territory to trade for its start spot`);
     const other = pick(mine);
     const a = state.territories[spot];

@@ -169,7 +169,7 @@ round; the boards nest inside each other's territories (the map side: [maps.md](
 - **Moving up.** The next round is seated at once: each table's winner takes a seat at its parent table, which sits
   on the board whose territories hold the child tables ("portals", one per child, in different regions). The parent
   table starts with every winner **on the portal territory it came up through**: the engine's `startOnSpots` deals as
-  usual, then swaps each spot (owner and armies) with a territory its player was dealt, so everyone keeps the same
+  usual, then swaps each spot (owner and armies) with a territory its player was dealt (another player's spot not yet given out if that is all they hold), so everyone keeps the same
   share; a blizzard on a spot moves to a territory where the blizzard rule allows one (the open territories stay
   connected and every continent keeps two open), or, when no single territory will do (a spot whose only way out is another blizzard), the
   whole set is drawn again, as many as before, where the rule allows and never on a spot; each territory that freezes

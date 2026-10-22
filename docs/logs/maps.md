@@ -7,7 +7,6 @@ Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. Changes from
 hash instead. **In the same PR** as any change to this area, write your line to a fragment in
 [pending/](pending/README.md), not to this file (README hard rule 12; folded in by `npm run logs:fold`).
 
-- 2026-10-21 #178 Generated boards: a seeded hex-board generator (`packages/engine/src/procgen.ts`, ids `gen1-s<seed>-p<seats>-t<territories>`, 5 territories per seat by default) built on demand by `getMap`, frozen by golden hashes; `pickStartSpots`; `scripts/preview-map.mjs` previews gen ids and contact sheets (`--sheet`)
 - 2026-10-20 #102 The Nine Realms (`nine_realms`): 58 territories, 9 regions, 2-8 players, a tall original single-continent board; authored maps can set `walls` (water on every border between regions except the listed passes)
 - 2026-10-20 #100 Bohemia (`bohemia`): 42 territories, 8 regions, 2-6 players, an inland kingdom whose regions meet only at 14 river fords and bridges
 - 2026-10-17 #40 Four Crowns (`skirmish`): 24 territories for 2-4 players

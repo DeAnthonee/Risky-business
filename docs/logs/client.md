@@ -6,8 +6,6 @@ Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. Changes from
 hash instead. **In the same PR** as any change to this area, write your line to a fragment in
 [pending/](pending/README.md), not to this file (README hard rule 12; folded in by `npm run logs:fold`).
 
-- 2026-10-21 #178 the lobby and map previews look boards up with `getMap`, so a game on a generated board (`gen1-...`) shows its board and name
-- 2026-10-21 #174 turn timer: lobby settings (Turn timer off/per move/per turn, seconds), a ⏱ countdown next to whose turn it is, "⏱ X skipped (timeout)" in the log
 - 2026-10-22 #180 spectators see a player-type badge next to each name ("Claude Sonnet", "Delove delove@10", "Zerg", "Bot", "Human", "?"); seated players never get labels
 - 2026-10-22 #171 lobby: an **Add Zerg** button beside **Add bot** seats a Zerg (no badge; its reptile name tells it apart)
 - 2026-10-20 #138 leaderboard: a **Training** toggle beside the season picker shows the training leaderboard (profiles from it too); match history tags training games

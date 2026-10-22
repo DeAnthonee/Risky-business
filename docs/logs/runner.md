@@ -8,7 +8,6 @@ Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. Changes from
 hash instead. **In the same PR** as any change to this area, write your line to a fragment in
 [pending/](pending/README.md), not to this file (README hard rule 12; folded in by `npm run logs:fold`).
 
-- 2026-10-21 #174 `presets.ts` `DEFAULT_OPTIONS`: `turnTimer: 'off'` (league seats are not timed unless `--options` turns the turn timer on)
 - 2026-10-20 #101 test for the map status tracker (`scripts/map-status.mjs`), whose rotation column is `rotationMaps`
 - 2026-10-20 #95 name generation matches with generation and match index for spectator auto-refresh
 - 2026-10-20 #86 post-game leaderboard filters by generation, isolating active gen from legacy results

@@ -138,14 +138,30 @@ status running
 exec >> "$job/setup.log" 2>&1
 export PY=$py REPO=$repo JOB=$job
 pids=()
+t_lanes=$SECONDS
 for f in "$job"/lane-*.sh; do bash "$f" & pids+=($!); done
 failed=0
 for p in "${pids[@]}"; do wait "$p" || failed=1; done
+took=$(( SECONDS - t_lanes ))
 rm -rf "$job/models"  # the private models leave the pod as soon as the games are played
 
 # ---- pack for download (gzip -1: the arrays shrink 11-25x) ----------------------------------------------------------------
 # A failed lane still leaves the configurations that delivered their gpu.json: remote.py keeps those and replaces the rest.
-(( failed )) && { pack lanes setup.log env.json 2>/dev/null; fail "a lane failed (see lanes/*/*/*/gpu.log)"; }
+# Every lane failed within seconds and none delivered: the code, the models or the arguments, not the host. remote.py
+# rents no replacement for "failed: systematic: ..." (a replacement would fail the same way); the reason is the last line
+# of the first gpu.log that has one (an empty gpu.log says so).
+if (( failed )); then
+  pack lanes setup.log env.json 2>/dev/null
+  delivered=$(ls "$job"/lanes/*/*/*/gpu.json 2>/dev/null | wc -l)
+  if (( delivered == 0 && took < ${SYSTEMATIC_S:-180} )); then
+    why=""
+    for f in "$job"/lanes/*/*/*/gpu.log; do
+      [[ -s $f ]] && { why=$(grep -av '^[[:space:]]*$' "$f" | tail -n1 | tr -d '\r' | cut -c1-240); break; }
+    done
+    fail "systematic: every lane failed within ${took} s, nothing delivered: ${why:-every gpu.log is empty}"
+  fi
+  fail "a lane failed (see lanes/*/*/*/gpu.log)"
+fi
 status packing
 files=(lanes setup.log env.json)
 [[ -f $job/verify.log ]] && files+=(verify.log)

@@ -11,12 +11,13 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.20.0",
+    "@resvg/resvg-wasm": "2.6.2",
     "@risk/engine": "0.1.0",
+    "@risk/mcp": "0.1.0",
     "cors": "^2.8.5",
     "express": "^5.1.0",
-    "ws": "^8.18.3",
-    "@risk/mcp": "0.1.0",
-    "@modelcontextprotocol/sdk": "^1.20.0"
+    "ws": "^8.18.3"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",

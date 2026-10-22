@@ -49,7 +49,18 @@ export interface TournamentSummary {
   maxEntrants: number;
   round: number;
   champion: string | null;
+  /** Scheduled: when it starts (ms), and why it was called off, if it was. */
+  startsAt?: number;
+  cancelled?: string;
   updatedAt: number;
+}
+
+/** The server's next scheduled tournament (GET /api/tournaments/next); `scheduled` false = no schedule. */
+export interface NextTournament {
+  scheduled: boolean;
+  next: { id: string | null; name: string; startsAt: number; opensAt: number; entrants: number; maxEntrants: number | null; minEntrants: number } | null;
+  running: { id: string; name: string; startsAt: number; round: number } | null;
+  cancelled: { id: string; name: string; startsAt: number; reason: string } | null;
 }
 
 /** One finished game in the match history (GET /api/history): the outcome only, never a board. */
@@ -165,6 +176,7 @@ export const api = {
   start: (gameId: string, token: string) => request(`/games/${gameId}/start`, { method: 'POST', body: '{}' }, token),
   listHistory: (limit = 12) => request<{ enabled: boolean; games: MatchSummary[] }>(`/history?limit=${limit}`),
   listTournaments: () => request<{ tournaments: TournamentSummary[] }>('/tournaments'),
+  nextTournament: () => request<NextTournament>('/tournaments/next'),
   getTournament: (id: string, token?: string) => request<{ tournament: TournamentView }>(`/tournaments/${id}`, {}, token),
   joinTournament: (id: string, playerName: string) =>
     request<{ entrantId: string; token: string; tournament: TournamentView }>(`/tournaments/${id}/join`, { method: 'POST', body: JSON.stringify({ playerName }) }),

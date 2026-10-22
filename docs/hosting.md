@@ -47,6 +47,8 @@ Environment variables:
 | `RISK_QUICKPLAY_TIMER_S` | quick play: the per-move turn timer of a quick-play game (seconds, 5-600, default 60) |
 | `RISK_QUICKPLAY_MAX_ROOMS` | quick play: most quick-play rooms at once, running games plus tables waiting to start (default 20; `0` turns quick play off). Joining for a new table past the cap answers 503. A running quick-play room with a living Zerg is not closed by `RISK_ABANDONED_CLOSE_MIN`: its turn timer skips absent seats and the Zergs finish the game; a table of people alone is closed as usual (the other limits still apply) |
 | `RISK_MAX_ACTIVE_TOURNAMENTS` | most tournaments registering or running at once (default 20; `0` = no cap). Creating another answers 400 until one finishes or is deleted |
+| `RISK_TOURNAMENT_SCHEDULE` | scheduled nested tournaments, as JSON: one entry or a list, e.g. `[{"at":"20:00","name":"Nightly Nest","finalMap":"hexworld"}]` (`at` is `"HH:MM"` daily or `"Mon,Thu HH:MM"`, **UTC**; also `signupMinutes`, default 60, `minEntrants`, default 2, and any nested setting; see [tournaments.md](tournaments.md#scheduled-tournaments)). Unset = no schedule (the default). An invalid schedule is logged and stays off; the server still starts. The slots' state is saved in `tournament-schedule.json` under `RISK_DATA_DIR` |
+| `RISK_TOURNAMENT_SCHEDULE_FILE` | the same schedule from a JSON file (a path), easier to edit; read at startup, so restart after a change. `RISK_TOURNAMENT_SCHEDULE` wins when both are set |
 | `RISK_TOURNAMENTS_KEEP`    | how many finished tournaments to keep in `tournaments.json`, newest first (default 100, at least 1). Older ones are pruned when another finishes and on startup |
 
 Behaviour that the deploy pipeline relies on:
@@ -80,7 +82,14 @@ Behaviour that the deploy pipeline relies on:
 - **Graceful shutdown.** SIGTERM/SIGINT: save, close WebSocket clients, release long-polls, close the
   HTTP server, exit 0 — typically well under a second, hard limit `RISK_SHUTDOWN_TIMEOUT_MS`.
 - **Caching.** `index.html` and the SPA fallback are `Cache-Control: no-cache`; Vite's hashed
-  `/assets/*` are `public, max-age=31536000, immutable`; `/api/*` and `/healthz` are `no-store`.
+  `/assets/*` are `public, max-age=31536000, immutable`; `/api/*` and `/healthz` are `no-store`. The link-preview
+  picture is served outside `/api`, at `GET /og/game/:id.png`, as `public, max-age=60` so link crawlers can keep it
+  (its URL in the page carries the game version, so a new move is a new URL).
+- **Link previews.** The SPA fallback serves `index.html` with Open Graph and Twitter tags for `/?game=ID`,
+  `/?tournament=ID` and the home page (still `no-cache`); absolute URLs come from the request's protocol and host
+  (`trust proxy` is on, so `X-Forwarded-Proto` counts), never a hard-coded name. The board picture is rendered by
+  `@resvg/resvg-wasm` (WASM, no native binary; loaded on the first picture, so startup and memory stay lean) and kept
+  in memory per game version (the 100 most recent games), one render per move at most.
   The client also shows a "new version available — reload" prompt when the server's build commit
   differs from the page's.
 - **Proxying.** The server speaks plain HTTP/ws; TLS terminates at the edge. The client uses relative

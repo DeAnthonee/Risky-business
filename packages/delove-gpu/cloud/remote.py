@@ -490,6 +490,11 @@ def git_check(commit: str):
         print(f"WARNING: uncommitted changes the pods will not have (they run {commit}):\n{dirty}")
 
 
+# worker.sh's status when every lane failed within seconds and none delivered anything: the code, the models or the
+# arguments, not the host, so a replacement would fail the same way (2026-10-22: 14 replacements for nothing)
+SYSTEMATIC = "failed: systematic:"
+
+
 @dataclass
 class Slot:
     """One planned pod's share of the lanes. A pod that never becomes reachable, fails its upload or start, or ends
@@ -630,6 +635,8 @@ def run(args, gen_args: list[str]):
     def save():
         ledger.write_text(json.dumps([p.__dict__ for p in pods], indent=1), encoding="utf8")
 
+    systematic: list[str] = []  # a pod whose every lane failed at once (worker.sh): no more pods for this run
+
     def give_up(slot: Slot, why: str):
         slot.failed = why
         print(f"  slot {slot.k}: giving up ({why})", flush=True)
@@ -697,6 +704,9 @@ def run(args, gen_args: list[str]):
         if not left:
             slot.done = True
             return
+        if systematic:
+            give_up(slot, f"not rented: another pod failed systematically ({systematic[0]})")
+            return
         if slot.tries > args.replacements:
             give_up(slot, f"{slot.tries} pods tried")
             return
@@ -759,6 +769,9 @@ def run(args, gen_args: list[str]):
             save()
         else:
             drop(slot, state if state != "done" else "done, but some lanes delivered nothing")
+            if state.startswith(SYSTEMATIC):  # the same cause would sink every replacement: stop renting
+                systematic.append(state)
+                give_up(slot, f"no replacement: {state}")
 
     try:
         last = 0.0

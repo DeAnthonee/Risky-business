@@ -12,7 +12,7 @@ join on the website (the Tournaments list on the home page, or `?tournament=CODE
   tournaments are kept; older ones are pruned from `tournaments.json`.
 
 - **Server bots.** While registering, the host adds built-in bots or **Zergs** as entrants
-  (`POST /api/tournaments/:id/bots {kind: "bot" | "zerg", count}`, host token). A Zerg entrant has a Zerg pun name
+  (`POST /api/tournaments/:id/bots {kind: "bot" | "zerg", count}`, host token; over MCP, `add_tournament_bots`). A Zerg entrant has a Zerg pun name
   unique in the tournament and plays as a Zerg at every table it sits at: the Zergs at one table are one horde, in
   every round (docs/zergs.md). Bots and Zergs are entrants like anyone else and can win.
 - **Tables.** Each round seats the remaining entrants at tables of up to `groupSize` (default 4, on Four Crowns by
@@ -124,5 +124,59 @@ round; the boards nest inside each other's territories (the map side: [maps.md](
 - **Restarts.** The plan, boards, seed and each round's deadline are saved in `tournaments.json`; decided tables keep
   `decidedAt` in the games snapshot. On restart the round clock is re-armed for the time left, and a deadline that
   passed while the server was down ends the round at once, from the saved tables.
+
+## Scheduled tournaments
+
+The server can run nested tournaments on a timetable by itself (`packages/server/src/tournament-schedule.ts`). It is
+**off by default**: the owner turns it on with `RISK_TOURNAMENT_SCHEDULE` (JSON), or `RISK_TOURNAMENT_SCHEDULE_FILE`
+(a path to a JSON file, easier to edit); when both are set, the variable wins ([hosting.md](hosting.md)).
+
+```json
+[
+  { "at": "20:00", "name": "Nightly Nest", "signupMinutes": 60, "finalMap": "hexworld" },
+  { "at": "Sat 18:00", "name": "Weekend Inception", "minEntrants": 4, "roundMinutes": 20, "options": { "fog": true } }
+]
+```
+
+- **An entry** (one object, or a list):
+  - `at`: `"HH:MM"` every day, or `"Mon,Thu HH:MM"` on those days, always in **UTC**;
+  - `name`;
+  - `signupMinutes` (sign-up opens this long before the start, 1-1440, default 60);
+  - `minEntrants` (people or agents needed at the start, 2-256, default 2: a nested tournament needs two players);
+  - any [nested setting](#nested-inception-tournaments): `finalMap`, `maxEntrants`, `roundMinutes`,
+    `territoriesPerSeat`, `finishShare`, `botDelayMs`, `options`.
+
+  The game settings go through the same strict parser as a create, and the nested settings through the same checks,
+  at startup. An unknown key or a bad value turns the schedule **off** with an error in the log (the startup line
+  `schedule:` says so). It never stops the server.
+- **Sign-up.** At `start - signupMinutes` the server creates the nested tournament itself. Nobody holds its host
+  token: it never leaves the server, and the admin key can still delete the tournament. It is listed like any
+  other, with `scheduled.startsAt` in the bracket and `startsAt` in the list. People join on its page; agents use
+  `next_tournament` and `join_tournament` (MCP) or `POST /tournaments/:id/join`.
+- **Start.** At `startsAt` it starts on its own, and the nested start fills the empty seats with Zergs by the
+  planner's rule (above). If fewer than `minEntrants` people or agents joined, it is **called off**: finished, with no
+  rounds and no champion, and `scheduled.cancelled` is `"not enough entrants"`. A called-off tournament never reaches
+  the tournament board. Each entry then moves on to its next time.
+- **It counts toward `RISK_MAX_ACTIVE_TOURNAMENTS`** like any tournament. If the cap is full at sign-up time, it
+  tries again every 5 minutes until the start.
+- **Restarts.** Each entry's current slot (its start and its tournament) is saved in
+  `RISK_DATA_DIR/tournament-schedule.json`, so a restart never opens a slot twice:
+  - the open tournament keeps its entrants and starts on time;
+  - a slot whose sign-up time passed while the server was down opens at once, if its start is still ahead;
+  - a slot whose start passed while the server was down is skipped;
+  - a tournament that is still registering more than one round (`roundMinutes`) past its start is called off as
+    `"missed: the server was down at the start"`, rather than started at a time nobody expected.
+
+  Changing or removing an entry starts it afresh. If its tournament is still registering, that tournament is called
+  off on the next start-up as `"the schedule changed"`, so it never stays open forever.
+- **CPU.** One timer, set to the next sign-up or start; nothing polls.
+- **`GET /api/tournaments/next`** returns `{scheduled, next, running, cancelled}`:
+  - `next`: the soonest slot, with its `id` once sign-up is open (`null` before), `name`, `startsAt`, `opensAt`,
+    `entrants` (people and agents, the count `minEntrants` is checked against), `maxEntrants`, `minEntrants`;
+  - `running`: a scheduled tournament being played;
+  - `cancelled`: the latest one called off, until a later one starts.
+
+  With no schedule everything is `null`. The home page's **Next tournament** card and the MCP `next_tournament` tool
+  read it.
 
 HTTP routes: [http-api.md](http-api.md). Open items (anyone can create while testing): [hardening.md](hardening.md#1-anyone-can-create-tournaments-while-testing).

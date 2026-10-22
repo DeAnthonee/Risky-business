@@ -185,6 +185,9 @@ export class LocalRiskApi implements RiskApi {
   async listTournaments() {
     return { tournaments: this.store.tournaments.list() };
   }
+  async nextTournament() {
+    return { scheduled: !!this.store.schedule, ...(this.store.schedule?.next() ?? { next: null, running: null, cancelled: null }) };
+  }
   async getTournament(tournamentId: string, token?: string) {
     const t = this.tournament(tournamentId);
     return { tournament: this.store.tournaments.view(t.id, token) };
@@ -206,11 +209,22 @@ export class LocalRiskApi implements RiskApi {
   }
   /** `key`: the tournament's host token or the admin key (tournaments saved before host tokens: the admin key only). */
   async startTournament(key: string | undefined, tournamentId: string) {
-    const id = this.tournament(tournamentId).id;
-    if (!key) throw new RiskHttpError("Starting a tournament needs its host token (from create_tournament) or the admin key", 401);
-    if (!this.store.tournaments.isHost(id, key) && checkAdmin(this.adminToken, key) !== 'ok') throw new RiskHttpError("Only this tournament's host can start it", 403);
+    const id = this.tournamentHostOf(key, tournamentId, 'Starting a tournament', 'start it');
     const t = this.store.tournaments.start(id);
     return { tournament: this.store.tournaments.view(t.id) };
+  }
+  /** Same rules as POST /tournaments/:id/bots: the host only, while registering, within maxEntrants. */
+  async addTournamentBots(key: string | undefined, tournamentId: string, kind: 'bot' | 'zerg', count: number) {
+    const id = this.tournamentHostOf(key, tournamentId, 'Adding bots to a tournament', 'add bots');
+    const added = this.store.tournaments.addBots(id, parseBotKind(kind), count);
+    return { added, tournament: this.store.tournaments.view(id) };
+  }
+  /** The tournament's id when `key` is its host token or the admin key; 401 without a key, 403 with another. */
+  private tournamentHostOf(key: string | undefined, tournamentId: string, doing: string, verb: string): string {
+    const id = this.tournament(tournamentId).id;
+    if (!key) throw new RiskHttpError(`${doing} needs its host token (from create_tournament) or the admin key`, 401);
+    if (!this.store.tournaments.isHost(id, key) && checkAdmin(this.adminToken, key) !== 'ok') throw new RiskHttpError(`Only this tournament's host can ${verb}`, 403);
+    return id;
   }
   async leave(gameId: string, token: string) {
     const room = this.room(gameId);

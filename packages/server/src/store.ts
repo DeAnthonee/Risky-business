@@ -32,6 +32,7 @@ import { chooseSeatAction, isZergSeat, seatIdPrefix, zergName, type BotKind } fr
 import { DEFAULT_TOURNAMENT_LIMITS, TournamentManager, type TournamentClock } from './tournaments.js';
 import { QuickPlayQueue, quickPlayConfigFromEnv } from './quick-play.js';
 import { TournamentRankings } from './tournament-scoring.js';
+import type { TournamentScheduler } from './tournament-schedule.js';
 import { SwarmSum, ZergTally, zergReport, type SwarmTotal, type ZergReport } from './zerg-report.js';
 import { Rankings } from './rankings.js';
 import { DEFAULT_KEEP, GameArchive, type CommitInfo } from './archive.js';
@@ -896,6 +897,8 @@ export class Store {
   tournaments: TournamentManager;
   /** The quick-play queue (POST /api/queue, MCP quick_play): seats waiting entrants in fresh rooms, filled with Zergs. */
   quickPlay: QuickPlayQueue;
+  /** Scheduled nested tournaments (RISK_TOURNAMENT_SCHEDULE); null = no schedule (the default). */
+  schedule: TournamentScheduler | null = null;
   rankings: Rankings;
   /** The training leaderboard: model-vs-model yardstick games (rooms with board "training"), same scoring, no seasons. */
   training: Rankings;
@@ -1257,6 +1260,7 @@ export class Store {
     for (const room of this.rooms.values()) room.stopBot();
     this.tournaments.stopTimers();
     this.quickPlay.stop();
+    this.schedule?.stop();
   }
 
   /** Quick-play rooms still being played (the queue's room cap counts these). */

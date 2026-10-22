@@ -1,18 +1,20 @@
 import { createServer, type Server } from 'node:http';
 import { monitorEventLoopDelay } from 'node:perf_hooks';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import cors from 'cors';
 import { WebSocket } from 'ws';
 import { Store } from './store.js';
+import { OG_IMAGE_CACHE, OgImages, ogTags, withOgTags } from './og.js';
 import { createApi } from './http.js';
 import { attachWebSocket } from './ws.js';
 import { buildInfo } from './build-info.js';
 import { createMcpRouter } from './mcp.js';
 import { CharacterStore } from './characters.js';
 import type { SeasonKeyGuard } from './season-key.js';
+import { TournamentScheduler, type ScheduleEntry } from './tournament-schedule.js';
 
 export interface AppOptions {
   /** Directory holding the built web client (served if it exists). */
@@ -36,6 +38,10 @@ export interface AppOptions {
   seasonLockFile?: string | null;
   /** Tests: the season-key guard (limits and clock). */
   seasonGuard?: SeasonKeyGuard;
+  /** Scheduled nested tournaments (parsed RISK_TOURNAMENT_SCHEDULE); unset or empty = no schedule. */
+  tournamentSchedule?: ScheduleEntry[] | null;
+  /** Where the schedule's state is saved (under RISK_DATA_DIR), so a restart neither repeats nor skips a slot. */
+  scheduleFile?: string | null;
   /** Sweep interval for idle rooms; 0 disables the automatic sweeper (tests). */
   sweepIntervalMs?: number;
 }
@@ -92,9 +98,22 @@ export function createRiskServer(store: Store, opts: AppOptions = {}): RiskServe
     res.setHeader('Cache-Control', 'no-store');
     next();
   });
+  // Link previews: the board picture for a shared game link, outside /api (which stays no-store, hard rule 6). A cache
+  // may keep it for a minute: crawlers fetch it rarely, and the page's og:image URL carries the game version.
+  const ogImages = new OgImages();
+  app.get('/og/game/:file', (req, res, next) => {
+    const m = /^([A-Za-z0-9]+)\.png$/.exec(String(req.params.file));
+    const room = m ? store.get(m[1]) : undefined;
+    if (!room || room.closed || room.state.phase === 'lobby') return res.status(404).json({ error: 'Game not found' });
+    ogImages
+      .gamePng(room)
+      .then((png) => res.setHeader('Cache-Control', OG_IMAGE_CACHE).type('image/png').send(png))
+      .catch(next);
+  });
   const characters = opts.characters ?? new CharacterStore(DEFAULT_AI_DIR, null);
   app.use('/api', createApi(store, { adminToken: opts.adminToken, recordsKey: opts.recordsKey, openTournaments: opts.openTournaments ?? true, characters, seasonKey: opts.seasonKey, seasonGuard: opts.seasonGuard, seasonLockFile: opts.seasonLockFile }));
   if (opts.sweepIntervalMs !== 0) store.startSweeper(opts.sweepIntervalMs ?? 30_000);
+  if (opts.tournamentSchedule?.length) store.schedule = new TournamentScheduler(store.tournaments, opts.tournamentSchedule, opts.scheduleFile ?? null);
 
   // Remote MCP endpoint for AI agents (claude.ai connectors, any Streamable HTTP MCP client).
   const mcp = createMcpRouter(store, characters, opts.mcpLabel ?? 'Risky Business', opts.adminToken ?? null, opts.openTournaments ?? true);
@@ -161,11 +180,13 @@ export function createRiskServer(store: Store, opts: AppOptions = {}): RiskServe
       }),
     );
     // SPA entry + history fallback: always revalidated so a new deploy is picked up on next load.
-    app.get(/^(?!\/api|\/ws|\/healthz|\/mcp).*/, (_req, res) => {
+    // The page carries link-preview tags for the game or tournament in its query (og:/twitter:, see og.ts). The built
+    // index.html is read once; absolute URLs come from this request (no hard-coded host).
+    const indexHtml = readFileSync(join(clientDir, 'index.html'), 'utf8');
+    app.get(/^(?!\/api|\/ws|\/healthz|\/mcp|\/og\/).*/, (req, res) => {
       noCache(res);
-      // Relative path + root: `send` dot-checks only 'index.html', so a checkout under a dot-folder
-      // (e.g. .claude/worktrees/...) does not 404.
-      res.sendFile('index.html', { root: clientDir });
+      const origin = `${req.protocol}://${req.get('host')}`;
+      res.type('html').send(withOgTags(indexHtml, ogTags(store, req.query, origin)));
     });
   } else {
     app.get('/', (_req, res) =>

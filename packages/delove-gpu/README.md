@@ -820,7 +820,12 @@ a replacement takes over its lanes; so is a pod that ends with lanes that delive
 mid-run), and its replacement plays only those lanes, so the lanes it finished are kept. Each planned pod may be
 replaced `--replacements` times (default 2), and only while its slot's time left still fits its lanes. No more pods
 run at once than the plan has (a replacement is rented only once the old pod's DELETE succeeded, retried each pass),
-and a replacement's watchdog gets only its slot's time left, so the GPU-hour cap still holds.
+and a replacement's watchdog gets only its slot's time left, so the GPU-hour cap still holds. One exception: when every
+lane of a pod failed within 180 s (`SYSTEMATIC_S`) and none delivered anything, the cause is the code, the models or the
+arguments, not the host, so `worker.sh` reports `failed: systematic: ...` (with the last line of the first gpu.log that
+has one) and `remote.py` rents no replacement for it and no further pod for the run; the run exits 1 with that reason.
+On 2026-10-22 a model the mirror could not load (`delove@12`, fog inputs) failed every lane at once and was replaced 14
+times for nothing.
 
 **Stock.** Before renting anything, `run` reads RunPod's stock of `--gpu-type` (GraphQL `gpuTypes { lowestPrice
 { stockStatus } }`, read-only; `--no-capacity-check` skips it) and waits up to `--capacity-wait` minutes (default 30)

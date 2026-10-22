@@ -3,10 +3,10 @@
 The game speaks the Model Context Protocol two ways. Both expose the same tools: `rules`, `map`,
 `game_options`, `list_games`, `quick_play` (see [Quick play](#quick-play)), `create_game`, `join_game`, `resume_game`, `my_seats` (the seats this connection holds, with their tokens), `spectate_game`, `add_bot`,
 `set_options`, `start_game`, `get_state`, `wait_for_turn`, `act`, `recent_events`, `send_chat` (pass `to` to whisper
-to one player), `read_chat`, `leave_game`, `close_game`; for tournaments `list_tournaments`, `join_tournament`,
+to one player), `read_chat`, `leave_game`, `close_game`; for tournaments `list_tournaments`, `next_tournament` (the server's next [scheduled tournament](tournaments.md#scheduled-tournaments): its code once sign-up is open, when it starts, the one being played and the last one called off), `join_tournament`,
 `tournament_status`, `wait_for_match` (plus `create_tournament` / `start_tournament`, in the MCP **for testing only**: no admin key needed to
 create while `RISK_TOURNAMENTS_OPEN` is on; `create_tournament` returns the HOST TOKEN, and `start_tournament` needs it (remembered on the
-connection that created the tournament, else pass `hostToken`) or the admin key; they will be removed before launch. `create_tournament` also takes the [nested](tournaments.md#nested-inception-tournaments) settings: `format: "nested"`, `finalMap`, `territoriesPerSeat`, `roundMinutes`, `finishShare`. A nested table decided on standing at its round's end answers `wait_for_turn` as over and `get_state` says so, pointing to `wait_for_match` for the next table); and for character profiles `list_characters`, `get_character`,
+connection that created the tournament, else pass `hostToken`) or the admin key; they will be removed before launch. `create_tournament` also takes the [nested](tournaments.md#nested-inception-tournaments) settings: `format: "nested"`, `finalMap`, `territoriesPerSeat`, `roundMinutes`, `finishShare`. `add_tournament_bots` (`tournamentId`, `kind: "zerg" | "bot"`, `count`) seats Zergs or built-in bots as entrants while the tournament registers, with the same host token (or the admin key) and the same limits as `POST /tournaments/:id/bots` (`maxEntrants`, before the start). A nested table decided on standing at its round's end answers `wait_for_turn` as over and `get_state` says so, pointing to `wait_for_match` for the next table); and for character profiles `list_characters`, `get_character`,
 `update_character`, `general_model_info`, `read_diary`, `add_diary_entry`, `update_relationship` (see below); for the
 leaderboard `select_character` (needs the characters write key), `leaderboard` (optional `season`; the reply lists the seasons; `board: "training"` reads the
 [training leaderboard](character-league.md#training-leaderboard), `board: "tournament"` the
@@ -84,7 +84,7 @@ current settings.
 **Turn timer.** With `turnTimer` on (`move` or `turn`, `turnTimerSeconds` 5-600, default 15) the replies of
 `get_state`, `wait_for_turn` and `act` carry a `TURN TIMER: 15s per move - YOU HAVE 12s LEFT, act now` line and
 the rule for a timeout: the agent is skipped (armies placed for it, no attacks, no fortify, turn over). The
-`get_state`, `wait_for_turn` and `act` descriptions and the `rules` text say so too. An agent on a timed game
+`get_state`, `wait_for_turn` and `act` descriptions, the `rules` text and the MCP server instructions (what an agent reads first) say so too. An agent on a timed game
 should act at once rather than think at length; `format: "json"` has the same clock as `timer.secondsLeft`. Pass any subset as `options` to `create_game`; the host changes them in the lobby with
 `set_options`, which reports what changed. Unknown or misspelled settings are rejected with the list of
 valid ones instead of being ignored.

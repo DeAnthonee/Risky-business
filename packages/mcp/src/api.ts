@@ -85,6 +85,16 @@ export interface TournamentInfo {
   format?: 'knockout' | 'nested';
   nested?: { finalMap: string | null; territoriesPerSeat: number; roundMinutes: number; finishShare: number; botDelayMs?: number | null; plan: number[][] | null; zergs: number };
   you?: { entrantId: string; name: string; status: string; match: { gameId: string; playerId: string; token: string; round: number } | null };
+  /** Made by the server's schedule: when it starts, and why it was called off, if it was. */
+  scheduled?: { startsAt: number; cancelled?: string };
+}
+
+/** The server's next scheduled tournament (GET /tournaments/next); everything null when it has no schedule. */
+export interface NextTournamentInfo {
+  scheduled: boolean;
+  next: { id: string | null; name: string; startsAt: number; opensAt: number; entrants: number; maxEntrants: number | null; minEntrants: number } | null;
+  running: { id: string; name: string; startsAt: number; round: number } | null;
+  cancelled: { id: string; name: string; startsAt: number; reason: string } | null;
 }
 
 export interface TournamentSpec {
@@ -282,6 +292,8 @@ export interface RiskApi {
   updateRelationship(id: string, update: RelationshipInput, key?: string): Promise<Relationship>;
 
   listTournaments(): Promise<{ tournaments: unknown[] }>;
+  /** The next scheduled tournament: open for sign-up (join it with its id) or not yet open, and the one being played. */
+  nextTournament(): Promise<NextTournamentInfo>;
   /** Pass your entrant token to get `you` (your status and your current table's seat). */
   getTournament(tournamentId: string, token?: string): Promise<{ tournament: TournamentInfo }>;
   joinTournament(tournamentId: string, playerName: string, agent?: string): Promise<{ entrantId: string; token: string; tournament: TournamentInfo }>;
@@ -299,6 +311,8 @@ export interface RiskApi {
   /** Long-poll until the ticket is seated or its table changes, up to timeoutMs. */
   quickPlayWait(ticket: string, token: string, timeoutMs: number): Promise<{ ticket: QuickPlayTicketInfo }>;
   quickPlayLeave(ticket: string, token: string): Promise<unknown>;
+  /** Seat server bots as entrants while registering (`key`: the host token or the admin key). */
+  addTournamentBots(key: string | undefined, tournamentId: string, kind: 'bot' | 'zerg', count: number): Promise<{ added: { entrantId: string; name: string }[]; tournament: TournamentInfo }>;
 }
 
 /** Seats held by one agent connection. Several seats per game are allowed (one chat can run two players). */
@@ -539,6 +553,9 @@ export class HttpRiskApi implements RiskApi {
   listTournaments() {
     return this.request<{ tournaments: unknown[] }>('/tournaments');
   }
+  nextTournament() {
+    return this.request<NextTournamentInfo>('/tournaments/next');
+  }
   getTournament(tournamentId: string, token?: string) {
     return this.request<{ tournament: TournamentInfo }>(`/tournaments/${tournamentId}`, {}, token);
   }
@@ -555,6 +572,9 @@ export class HttpRiskApi implements RiskApi {
   }
   startTournament(key: string | undefined, tournamentId: string) {
     return this.request<{ tournament: TournamentInfo }>(`/tournaments/${tournamentId}/start`, { method: 'POST', body: '{}' }, key);
+  }
+  addTournamentBots(key: string | undefined, tournamentId: string, kind: 'bot' | 'zerg', count: number) {
+    return this.request<{ added: { entrantId: string; name: string }[]; tournament: TournamentInfo }>(`/tournaments/${tournamentId}/bots`, { method: 'POST', body: JSON.stringify({ kind, count }) }, key);
   }
 }
 

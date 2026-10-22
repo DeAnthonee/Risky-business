@@ -16,7 +16,9 @@ Open http://localhost:8080, enter a name, press **Create room** (it opens the se
 with a live preview, settings grouped into Players and setup, Cards and combat, Board twists; the lobby uses the same
 groups), add a bot or a **Zerg** (a rushing house bot with a Zerg pun for a name, Mark Zergburg, Elon Zerg, Zergy Mercury and so on, that never attacks a fellow Zerg while anyone else is alive; when only Zergs are left the game ends at once and the strongest Zerg wins; see [zergs.md](zergs.md)) or share the 6-letter join code (or the invite link `?game=CODE`), and press **Start**. The home
 page lists open games as tickets (joinable rooms first, then live and finished ones) next to the leaderboard (once a season has been archived, a season picker above it shows past seasons; the current one is the default; when the host has set a season password, an **Archive season** button there archives the season after a password and a confirm; the **Training** toggle beside it switches to the training leaderboard of model-vs-model yardstick games, and the **Tournament** toggle to the tournament leaderboard of finished tournaments; neither counts on the public one) and the **match history**: the most recent finished games, newest first, each with its winner (click the name for their profile), how they won, the room, map, turns, how long it took and every seat's final place. While a finished room is still on the server, **View final board** opens it to watch. Wide screens show the three boards side by side; narrower ones stack the leaderboard and match history beside the open games. Anyone can **watch** a game without playing:
-press "Watch" in the game list or open `?game=CODE&spectate=1`. Spectators see the public board, the
+press "Watch" in the game list or open `?game=CODE&spectate=1`. The **🔗 Share** button on a game or tournament page
+copies its link (on a phone it opens the share sheet); pasted into a chat app, the link shows a preview with the
+name, map, seats, status and a picture of the board (owner colours only under fog of war). Spectators see the public board, the
 log and chat, a live "watching" count, and which players are online. Next to each player's name a small badge shows
 what kind of player it is ("Claude Sonnet", "Delove delove@10", "Zerg", "Bot", "Human", or "?" when the seat did not
 say); the seat declares it itself, and only spectators see these badges, never the players. In fog-of-war games they can
@@ -100,6 +102,19 @@ those three parts; hover a bar for the numbers. Each row also shows the player's
 possible; orange at 4+). Card counts are public, so under fog of war a seated player still gets the card-count list.
 In a progressive-cards game the top bar shows what the **next set** is worth (hover for the next three values).
 
+## Next tournament
+
+When the server runs [scheduled tournaments](tournaments.md#scheduled-tournaments), the home page shows a **Next
+tournament** card under the name box:
+- the next one's name;
+- a countdown to its start, or to sign-up while sign-up is still closed;
+- how many have signed up, and how many it needs to run;
+- **Join** and **Watch**, both opening its page, where you join with your name;
+- once it is under way, **Playing now** with a Watch button;
+- a line when the last one was called off ("not enough entrants").
+
+It refreshes every 15 seconds, and it's hidden when the server has no schedule.
+
 ## The House
 
 The home page shows **The House**: the server's own bots over every finished tournament, "The Swarm" (Zergs) against
@@ -116,6 +131,9 @@ A nested ("Inception") tournament's page (`?tournament=CODE`) shows the round cl
 decided on standing) and three tabs:
 - **Map:** the final's board with every table's board drawn inside its territory, boards inside boards. Click a board
   to zoom in, Esc, **Zoom out** or the breadcrumb to zoom out, and **Watch table** to open a table as a spectator.
+  When the board in view is Hex Earth (a final with `finalMap: 'hexworld'`), it is a spinning globe whose portal
+  territories are raised in gold: click one to zoom into the flat board inside it; **Flat** / **Globe** switches (the
+  same choice as in games). Dev builds preview it at `/?dev=inception&players=40&final=hexworld`.
 - **Bracket:** every round from the final down; a table decided on standing lists its order and the tie-break dice.
 - **Live tables:** the tables being played, the most exciting first.
 

@@ -2,6 +2,7 @@ import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { Leaderboard } from './Profiles';
 import { MatchHistory } from './MatchHistory';
 import { HouseBotsWidget } from './HouseBots';
+import { NextTournamentCard } from './NextTournament';
 import { MapPreview, MapThumb } from './MapPreview';
 import { MAPS, MAP_IDS, getMap, isMapId, maxBlizzards, type GameOptions } from '@risk/engine';
 import { api, type GameSummary, type TournamentSummary } from '../api';
@@ -209,6 +210,8 @@ export function Home({
           )}
         </section>
       </header>
+
+      <NextTournamentCard onOpen={onOpenTournament} />
 
       <section id="create-panel" className={`create-panel${creating ? ' open' : ''}`} aria-label="Room setup" inert={!creating}>
         <div className="create-clip">

@@ -1,7 +1,11 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getMap, type MapDef, type NestNode } from '@risk/engine';
 import { continentColor } from './Map';
 import { cameraFor, layoutNest, lerpCamera, pathTo } from '../inception';
+import { hasGlobe, loadGlobe, preferFlat, setPreferFlat, webglAvailable, type GlobeData } from '../globeData';
+
+// A hex-globe board in focus (Hex Earth as the final) is shown as a spinning globe; three.js is the globe's lazy chunk.
+const InceptionGlobe = lazy(() => import('./GlobeMap').then((m) => ({ default: m.InceptionGlobe })));
 
 /** What the view knows about one table: who holds what, and how it stands. From the tournament feed (later) or a demo. */
 export interface TableSnapshot {
@@ -124,6 +128,39 @@ export function Inception({
   const table = tables[focus];
   const strokeW = camera[2] / 900;
 
+  // The focused board on a globe, when it is a hex-globe board and the browser can draw one (Flat / Globe to switch,
+  // remembered like the game view's choice). Clicking a gold portal zooms into the flat board inside it.
+  const focusMap = nodes[focus].map;
+  const globeable = hasGlobe(focusMap) && webglAvailable();
+  const [flat, setFlat] = useState(preferFlat);
+  const [globe, setGlobe] = useState<GlobeData | null>(null);
+  useEffect(() => {
+    if (!globeable || flat || globe?.id === focusMap) return;
+    let current = true;
+    loadGlobe(focusMap)
+      .then((g) => current && setGlobe(g))
+      .catch(() => {
+        // The globe chunk failed to load: keep the flat view.
+      });
+    return () => {
+      current = false;
+    };
+  }, [focusMap, globeable, flat, globe]);
+  const chooseFlat = (toFlat: boolean) => {
+    setFlat(toFlat);
+    setPreferFlat(toFlat);
+  };
+  const focusBoard = maps[focus];
+  const fillOf = useCallback(
+    (t: string) => {
+      const owner = table?.owners?.[t];
+      return owner === undefined ? continentColor(focusBoard, focusBoard.territoryById[t]?.continent ?? '') : owner === null ? '#cfc6b8' : (table!.players[owner]?.color ?? '#999');
+    },
+    [table, focusBoard],
+  );
+  const portalChild = (t: string) => children[focus].find((i) => nodes[i].portal === t);
+  const showGlobe = globeable && !flat && globe?.id === focusMap && !!focusBoard;
+
   return (
     <div className="inception">
       <nav className="inception-trail" aria-label="Where you are">
@@ -134,6 +171,11 @@ export function Inception({
           </span>
         ))}
         {follow && <span className="inception-follow">{follow.caption}</span>}
+        {globeable && (
+          <button className="inception-out" onClick={() => chooseFlat(!flat)} title={flat ? 'Show this board as a globe' : 'Show the flat board'}>
+            {flat ? 'Globe' : 'Flat'}
+          </button>
+        )}
         {nodes[focus].parent !== null && (
           <button className="inception-out" onClick={() => zoomByHand(nodes[focus].parent!)} title="Zoom out (Esc)">
             Zoom out
@@ -141,27 +183,42 @@ export function Inception({
         )}
       </nav>
       <div className="inception-body">
-        <svg className="inception-svg" viewBox={camera.join(' ')} preserveAspectRatio="xMidYMid meet" role="img" aria-label={`Nested tournament, ${label(focus)}`}>
-          {shown.map((n, i) =>
-            n.depth > depthLimit ? null : (
-              <g key={i} transform={`translate(${places[i].x} ${places[i].y}) scale(${places[i].scale})`}>
-                {n.parent !== null && <rect className="inception-frame" width={places[i].w} height={places[i].h} rx={places[i].w / 40} />}
-                <Board map={maps[i]} table={tables[i]} portals={n.portals} />
-                {i !== focus && n.parent !== null && (
-                  <rect
-                    className="inception-hit"
-                    width={places[i].w}
-                    height={places[i].h}
-                    onClick={() => zoomByHand(i)}
-                    style={{ strokeWidth: strokeW / places[i].scale }}
-                  >
-                    <title>Zoom into {label(i)}</title>
-                  </rect>
-                )}
-              </g>
-            ),
-          )}
-        </svg>
+        {showGlobe ? (
+          <Suspense fallback={<div className="inception-globe" />}>
+            <InceptionGlobe
+              globe={globe!}
+              fill={fillOf}
+              portals={nodes[focus].portals}
+              labelOf={(t) => focusBoard.territoryById[t]?.name ?? t}
+              onPortal={(t) => {
+                const child = portalChild(t);
+                if (child !== undefined) zoomByHand(child);
+              }}
+            />
+          </Suspense>
+        ) : (
+          <svg className="inception-svg" viewBox={camera.join(' ')} preserveAspectRatio="xMidYMid meet" role="img" aria-label={`Nested tournament, ${label(focus)}`}>
+            {shown.map((n, i) =>
+              n.depth > depthLimit ? null : (
+                <g key={i} transform={`translate(${places[i].x} ${places[i].y}) scale(${places[i].scale})`}>
+                  {n.parent !== null && <rect className="inception-frame" width={places[i].w} height={places[i].h} rx={places[i].w / 40} />}
+                  <Board map={maps[i]} table={tables[i]} portals={n.portals} />
+                  {i !== focus && n.parent !== null && (
+                    <rect
+                      className="inception-hit"
+                      width={places[i].w}
+                      height={places[i].h}
+                      onClick={() => zoomByHand(i)}
+                      style={{ strokeWidth: strokeW / places[i].scale }}
+                    >
+                      <title>Zoom into {label(i)}</title>
+                    </rect>
+                  )}
+                </g>
+              ),
+            )}
+          </svg>
+        )}
         <aside className="inception-side">
           <h3>{label(focus)}</h3>
           <p className="muted">

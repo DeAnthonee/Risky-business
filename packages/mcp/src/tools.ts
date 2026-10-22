@@ -137,12 +137,12 @@ export function formatMemory(m: CharacterMemory): string {
 /** Told to every agent on the tools it plays with: a game may have a turn timer. */
 /** Said wherever a Delove seat count is taken. */
 const DELOVE_SEATS_NOTE =
-  'delove (Delove seats) is accepted and stored with the tournament, but nothing joins them automatically yet: until the Delove seat pool joins on request, an operator joins them.';
+  'delove (Delove seats): the server asks the Delove seat pool to fill them before the start (preview_tournament says how many it has free, or that it is offline); seats still empty at the start go to Zergs. Where no pool is set up, an operator joins them.';
 
 /** Seat counts for preview_tournament and create_tournament. */
 const seatCountsSchema = {
   zergs: z.number().int().min(0).max(256).optional().describe('Zerg entrants (rushing house bots), added when the tournament is created'),
-  delove: z.number().int().min(0).max(256).optional().describe('Delove seats asked for: stored only for now (see the description)'),
+  delove: z.number().int().min(0).max(256).optional().describe('Delove seats asked for: the seat pool fills them, Zergs take the rest at the start (see the description)'),
   open: z.number().int().min(0).max(256).optional().describe('Open spots for people and agents to join'),
 };
 

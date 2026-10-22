@@ -172,6 +172,20 @@ for a bound on how many entrants a flood can create.
 and the day's count next to `tournaments.json`, and rebuild both on load. Player keys (#260) or sign-in give a real
 identity to cap on.
 
+## 14. Anyone can lock the Delove seat pool out
+
+**Where:** `packages/server/src/seat-requests.ts` (`SeatRequests.authorize`, a `SeasonKeyGuard`), every
+`/api/seat-requests` route and the pool's joins (`POST /api/tournaments/:id/join` with `seatRequestId`).
+
+**What is wrong:** as for the hosting codes (item 10), 50 wrong pool keys from anyone within an hour refuse every key
+check for that hour, the right key included, and the per-IP limit trusts the proxy's client address (item 7). So any
+visitor can lock the seat-pool daemon out for an hour: it can neither poll nor claim nor join, the preview shows
+"pool offline", and the Delove seats of tournaments starting in that hour go to Zergs. Nothing is lost or exposed;
+the tournaments still run.
+
+**Fix (to do):** if it is ever abused, give the pool its own bucket (count wrong keys per client address only and
+never refuse a right key), or let the pool authenticate from a fixed address.
+
 ## Fixed
 
 - **Anyone could create tournaments while testing (was item 1).** Creating now needs a hosting code once the owner

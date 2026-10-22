@@ -7,6 +7,7 @@ import { LocalRiskApi } from './local-api.js';
 import type { Store } from './store.js';
 import type { CharacterStore } from './characters.js';
 import type { TournamentAccess } from './tournament-access.js';
+import type { SeatRequests } from './seat-requests.js';
 
 interface McpSession {
   transport: StreamableHTTPServerTransport;
@@ -21,7 +22,7 @@ const SESSION_IDLE_MS = Number(process.env.RISK_MCP_SESSION_IDLE_MS ?? 6 * 3600_
  * its game identities live in memory for the life of the session; tools also accept an explicit
  * token, and resume_game recovers a seat after a reconnect.
  */
-export function createMcpRouter(store: Store, characters: CharacterStore, label: string, adminToken: string | null = null, openTournaments = true, access?: TournamentAccess) {
+export function createMcpRouter(store: Store, characters: CharacterStore, label: string, adminToken: string | null = null, openTournaments = true, access?: TournamentAccess, seatRequests?: SeatRequests) {
   const router = express.Router();
   const sessions = new Map<string, McpSession>();
 
@@ -56,7 +57,7 @@ export function createMcpRouter(store: Store, characters: CharacterStore, label:
       const server = createRiskMcpServer({
         // Per connection, so quick play can cap tickets by the client's address.
         // Per connection: the client's address for per-client limits, and its player key (X-Player-Key header) if any.
-        api: new LocalRiskApi(store, characters, adminToken, openTournaments, req.ip ?? null, access, playerKeyHeader(req)),
+        api: new LocalRiskApi(store, characters, adminToken, openTournaments, req.ip ?? null, access, playerKeyHeader(req), seatRequests),
         identities: new MemoryIdentityStore(),
         defaultName: 'Agent',
         serverLabel: label,

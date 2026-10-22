@@ -36,10 +36,12 @@ export interface TourneyAccessConfig {
   seatsLimited: number;
   /** Entrant seats reserved (maxEntrants) by every tournament registering or running, at most. */
   maxLiveSeats: number;
-  /** Delove seats per tournament (admin, limited) and at once, site-wide. Stored for P3; not enforced yet. */
+  /** Delove seats per tournament (admin code or key, limited code or open mode) and at once, site-wide (seat-requests.ts). */
   deloveAdmin: number;
   deloveLimited: number;
   deloveAtOnce: number;
+  /** Of those, at most this many may run search at once (fog-off tables only); the rest play the bare network. */
+  deloveSearchAtOnce: number;
   /** Refuse creates while the event loop's p99 lag (the /healthz figure) is above this many ms (0 = off). */
   lagBrakeMs: number;
   /** A tournament never started is called off this long after it was created, ms. */
@@ -65,6 +67,7 @@ export const DEFAULT_TOURNEY_ACCESS: TourneyAccessConfig = {
   deloveAdmin: 40,
   deloveLimited: 16,
   deloveAtOnce: 48,
+  deloveSearchAtOnce: 20,
   lagBrakeMs: 100,
   expireMs: 24 * H,
   scheduledExpireMs: 2 * H,
@@ -83,6 +86,10 @@ export const NO_TOURNEY_CAPS: Partial<TourneyAccessConfig> = {
   seatsAdmin: 0,
   seatsLimited: 0,
   maxLiveSeats: 0,
+  deloveAdmin: 0,
+  deloveLimited: 0,
+  deloveAtOnce: 0,
+  deloveSearchAtOnce: 0,
   lagBrakeMs: 0,
   expireMs: 0,
   scheduledExpireMs: 0,
@@ -114,6 +121,7 @@ export function tourneyAccessFromEnv(env: NodeJS.ProcessEnv): TourneyAccessConfi
     deloveAdmin: int('RISK_TOURNEY_DELOVE_ADMIN', d.deloveAdmin),
     deloveLimited: int('RISK_TOURNEY_DELOVE_LIMITED', d.deloveLimited),
     deloveAtOnce: int('RISK_TOURNEY_DELOVE_AT_ONCE', d.deloveAtOnce),
+    deloveSearchAtOnce: int('RISK_TOURNEY_DELOVE_SEARCH_AT_ONCE', d.deloveSearchAtOnce),
     lagBrakeMs: int('RISK_TOURNEY_LAG_BRAKE_MS', d.lagBrakeMs),
     expireMs: int('RISK_TOURNEY_EXPIRE_HOURS', d.expireMs / H) * H,
     scheduledExpireMs: int('RISK_TOURNEY_SCHEDULED_EXPIRE_HOURS', d.scheduledExpireMs / H) * H,

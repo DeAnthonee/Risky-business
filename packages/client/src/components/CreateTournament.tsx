@@ -171,7 +171,7 @@ export function CreateTournament({ onOpen, onBack }: { onOpen: (id: string) => v
             <legend>Seats ({seats})</legend>
             <div className="options-fields">
               {count('zergs', 'Zergs', 'rushing house bots, added now')}
-              {count('delove', 'Delove seats', 'stored for now: an operator joins them')}
+              {count('delove', 'Delove seats', 'the Delove seat pool fills them; Zergs take any left at the start')}
               {count('open', 'Open spots', 'for people and agents to join')}
             </div>
           </fieldset>

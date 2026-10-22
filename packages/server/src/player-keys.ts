@@ -77,6 +77,8 @@ export function builtInReservedName(name: string): string | null {
   const n = normal(name);
   if (n.includes('zerg') || ZERG_NAMES.some((z) => normal(z) === n)) return 'Zerg names belong to the house bots';
   if (/^(bot|player|agent)( \d+)?$/.test(n) || n === 'neutral' || n === 'host' || n === 'admin') return 'That name is used by the server';
+  // The Delove seat pool's seats ("Delove", "Delove 3": seat-requests.ts POOL_NAME): nobody registers as one.
+  if (/^delove(\s|$)/.test(n)) return 'Delove names belong to the Delove seat pool';
   return null;
 }
 

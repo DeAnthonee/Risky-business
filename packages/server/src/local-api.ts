@@ -8,6 +8,7 @@ import { QuickPlayBusyError } from './quick-play.js';
 import { RateLimitedError } from './rate-limit.js';
 import type { CharacterStore } from './characters.js';
 import { NO_TOURNEY_CAPS, TournamentAccess } from './tournament-access.js';
+import type { SeatRequests } from './seat-requests.js';
 
 /** RiskApi implemented directly over the in-memory store (for the embedded /mcp endpoint). */
 export class LocalRiskApi implements RiskApi {
@@ -23,6 +24,8 @@ export class LocalRiskApi implements RiskApi {
     private access: TournamentAccess = new TournamentAccess(store.tournaments, NO_TOURNEY_CAPS),
     /** The X-Player-Key header the MCP connection was opened with, if any: its seats play as that registered player. */
     private playerKey: string | null = null,
+    /** Delove seats on request (shared with the HTTP API): a create with Delove seats opens a request. */
+    private seatRequests: SeatRequests | null = null,
   ) {}
 
   /**
@@ -230,9 +233,12 @@ export class LocalRiskApi implements RiskApi {
   async joinTournament(tournamentId: string, playerName: string, agent?: string) {
     const t = this.tournament(tournamentId);
     const player = this.keyedPlayer();
+    const name = this.store.playerKeys.seatName(playerName, player);
+    // The Delove seat pool's names are its own in a tournament with a seat request (it joins over HTTP with its key).
+    this.seatRequests?.checkJoinName(t.id, name);
     let joined: { entrantId: string; token: string };
     try {
-      joined = this.store.tournaments.join(t.id, this.store.playerKeys.seatName(playerName, player), parseAgent(agent), player ? { id: player.id, name: player.name } : undefined, this.client !== null ? this.session : null);
+      joined = this.store.tournaments.join(t.id, name, parseAgent(agent), player ? { id: player.id, name: player.name } : undefined, this.client !== null ? this.session : null);
     } catch (e) {
       // The site-wide daily pre-registration cap: 429, as over HTTP.
       if (e instanceof RateLimitedError) throw new RiskHttpError(e.message, 429);
@@ -253,12 +259,18 @@ export class LocalRiskApi implements RiskApi {
     const { code, ...rest } = spec;
     if (adminKey) {
       this.admin(adminKey);
-      const t = this.store.tournaments.create(parseTournamentSpec(rest));
+      const parsed = parseTournamentSpec(rest);
+      this.seatRequests?.checkCreate('key', parsed.delove);
+      const t = this.store.tournaments.create(parsed);
+      this.seatRequests?.openFor(t);
       return { hostToken: t.hostToken!, tournament: this.store.tournaments.view(t.id) };
     }
     const tier = this.access.hostTier(this.client ?? '', code, this.openTournaments);
-    const t = this.store.tournaments.create(this.access.checkCreate(tier, parseTournamentSpec(rest)));
+    const spec2 = this.access.checkCreate(tier, parseTournamentSpec(rest));
+    this.seatRequests?.checkCreate(tier, spec2.delove);
+    const t = this.store.tournaments.create(spec2);
     this.access.recordCreate(tier, t.id);
+    this.seatRequests?.openFor(t);
     return { hostToken: t.hostToken!, tournament: this.store.tournaments.view(t.id) };
   }
   /** `key`: the tournament's host token or the admin key (tournaments saved before host tokens: the admin key only). */

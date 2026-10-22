@@ -73,6 +73,30 @@ Jacob Sensei 2): Classic 6 players 0.17 s mean, 0.35 s at the 90th percentile, 1
 and their seats are named "Sensei 1" and "Sensei 2" unless `--names` says otherwise (#88). `jacob-sensei@1` (alias `jacob`)
 sits as "Jacob Sensei", `jacob-sensei@2` (alias `jacob2`) as "Jacob Sensei 2".
 
+**Decision notes** (`src/notes.ts`; the server side is #206): every move a seat sends carries a short private
+note on what Delove saw in it. It is kept on the game record's step and never shown during the game; the admin reads
+it after the game ([docs/game-records.md](../../docs/game-records.md)). `--no-notes` turns them off. A note reports
+only what the move already computed (no extra inference), stays under 2 KB (3 decimals, candidates cut first), and a
+note that can't be built never stops the move. A search seat's option scores come from branch and score's own trace
+(`DELOVE_BRANCH_TRACE`, which `delove-seat` points at a per-process file it keeps small), so `branch.ts` is unchanged.
+
+```jsonc
+// a search seat that compared options
+{"agent":"delove@11 + search","model":"delove@11","preset":"js2-range","phase":"attack","alive":4,"fog":false,
+ "top":[{"m":"att ontario>quebec","s":0.412,"r":6},{"m":"end","s":0.398,"r":6}],"chosen":0,"margin":0.02,"value":0.31}
+// a network seat
+{"agent":"delove@11","model":"delove@11","preset":null,"phase":"reinforce","alive":3,"fog":false,
+ "top":[{"m":"pl ontario 3","p":0.62},{"m":"pl quebec 3","p":0.21},{"m":"pl alaska 3","p":0.05}],"value":0.44}
+```
+
+`top`: for a search seat, the options it tried (the teacher's move first) with their branch score `s` (the share of
+the table it expects one round on, or its range score) and rollouts `r`, `chosen` the one played (it changes only by
+more than `margin`); `br: 0` when it played its teacher's move without comparing (setup, or nothing worth comparing);
+`fb: 1` under fog, where it plays its ranker's move (`top` then lists the ranker's favourites). For a network seat:
+its 3 favourite moves with their probability `p`. `value`: the network's win chance for this seat. Teachers (Jacob
+Sensei) send the header only. Moves read: `pl T n` place, `att A>B` attack, `occ n` move in, `ff A` / `ft B n`
+fortify from / to, `cap T` capital, `trade`, `end`.
+
 **Tournaments** (many Delove entrants, e.g. 20 Delove among 80 Zergs): `--tournament CODE --entrants N`.
 
 ```bash

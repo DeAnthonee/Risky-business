@@ -339,7 +339,15 @@ to `runs/delove/<name>/cycle.md`.
 ```bash
 npm run delove-seat -- --server https://risky.deanthoneeking.com --join <CODE> --agents delove@3,delove-teacher@2 --names "Delove@3,Sensei@2"
 ```
-Fog of war only for fog-trained models (`fogInputs`, enforced by `delove-seat`); one seat per agent. For full environment parity options (random fog 50/50, blizzards, capitals, progressive/fixed/exponential cards), see **[docs/game-settings.md](game-settings.md)**.
+Fog of war only for fog-trained models (`fogInputs`, enforced by `delove-seat`); one seat per agent.
+
+**How to read Delove's notes** (live games since #PR): every move `delove-seat` makes carries a private decision note,
+kept on the game record (admin, after the game). `agent` / `model` / `preset` say who played; `phase`, `alive`, `fog`
+where. A search seat's `top` lists the options it compared with their branch score `s`: the gap between the chosen
+one (`chosen`) and the teacher's (index 0) is what search added on that move (it switches only past `margin`); many
+`br: 0` moves mean little was compared. A network seat's `top` has its 3 favourites with probabilities: a low first
+`p` marks a move it was unsure of. `value` is the network's win chance for the seat; following it through a game shows
+where Delove thought the game turned. Format and reading in packages/delove/README.md ("Decision notes"). For full environment parity options (random fog 50/50, blizzards, capitals, progressive/fixed/exponential cards), see **[docs/game-settings.md](game-settings.md)**.
 
 ## 7. Decisions made by the owner
 

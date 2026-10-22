@@ -90,7 +90,19 @@ export interface TournamentSummary {
 /** The server's next scheduled tournament (GET /api/tournaments/next); `scheduled` false = no schedule. */
 export interface NextTournament {
   scheduled: boolean;
-  next: { id: string | null; name: string; startsAt: number; opensAt: number; entrants: number; maxEntrants: number | null; minEntrants: number } | null;
+  next: {
+    id: string | null;
+    name: string;
+    startsAt: number;
+    opensAt: number;
+    /** The check-in window opens; who has not checked in by the start is swapped for a Zerg. */
+    checkinOpensAt?: number;
+    entrants: number;
+    /** Once check-in is open: how many have checked in. */
+    checkedIn?: number;
+    maxEntrants: number | null;
+    minEntrants: number;
+  } | null;
   running: { id: string; name: string; startsAt: number; round: number } | null;
   cancelled: { id: string; name: string; startsAt: number; reason: string } | null;
 }
@@ -159,7 +171,16 @@ export interface TournamentView {
     nodes?: NestNode[] | null;
   };
   version: number;
-  you?: { entrantId: string; name: string; status: EntrantStatus; match: { gameId: string; playerId: string; token: string; round: number } | null };
+  you?: {
+    entrantId: string;
+    name: string;
+    status: EntrantStatus;
+    match: { gameId: string; playerId: string; token: string; round: number } | null;
+    /** Scheduled tournaments: whether you have checked in (this page checks you in while it is open in the window). */
+    checkedIn?: boolean;
+  };
+  /** Made by the server's schedule: the start, the check-in window and, once it is open, how many checked in. */
+  scheduled?: { startsAt: number; cancelled?: string; checkinMinutes?: number; checkedIn?: number; noShows?: number };
 }
 
 export interface JoinResponse {

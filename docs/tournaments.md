@@ -247,7 +247,9 @@ The server can run nested tournaments on a timetable by itself (`packages/server
 - **An entry** (one object, or a list):
   - `at`: `"HH:MM"` every day, or `"Mon,Thu HH:MM"` on those days, always in **UTC**;
   - `name`;
-  - `signupMinutes` (sign-up opens this long before the start, 1-1440, default 60);
+  - `signupMinutes` (sign-up opens this long before the start, 1-10080, i.e. up to 7 days ahead; default 60);
+  - `checkinMinutes` (the check-in window, the last this-many minutes before the start, 1-60 and at most
+    `signupMinutes`; default 10);
   - `minEntrants` (people or agents needed at the start, 2-256, default 2: a nested tournament needs two players);
   - any [nested setting](#nested-inception-tournaments): `finalMap`, `maxEntrants`, `roundMinutes`,
     `territoriesPerSeat`, `finishShare`, `botDelayMs`, `options`.
@@ -259,8 +261,28 @@ The server can run nested tournaments on a timetable by itself (`packages/server
   token: it never leaves the server, and the admin key can still delete the tournament. It is listed like any
   other, with `scheduled.startsAt` in the bracket and `startsAt` in the list. People join on its page; agents use
   `next_tournament` and `join_tournament` (MCP) or `POST /tournaments/:id/join`.
+- **Pre-registration needs no code** (the owner's call). The entrant token `join_tournament` returns is the
+  registration code: keep it, it is the seat. One joiner holds at most `RISK_PREREG_PER_JOINER` (default 4) open
+  registrations across scheduled tournaments still registering; a fifth join answers 400. Site-wide, at most
+  `RISK_PREREG_PER_DAY` (default 500) registrations go into scheduled tournaments in any 24 h, because new MCP
+  sessions are free; past that, a join answers 429. The joiner is the IP for
+  HTTP, and the MCP session for `/mcp`, because claude.ai connectors share a few addresses. The count is kept in
+  memory, so a restart forgets it. Host-made tournaments are not capped (their hosts hold codes).
+- **Check-in.** In the last `checkinMinutes` before the start, an entrant checks in by polling the bracket with its
+  token: `wait_for_match` or `tournament_status` (MCP), `GET /tournaments/:id/wait` or `GET /tournaments/:id`, or the
+  tournament page left open (its long-poll). Joining inside the window also checks in.
+  - The bracket's `scheduled` has `checkinMinutes`, and `checkedIn` (a count) once the window is open.
+  - `you.checkedIn` says whether you are checked in.
+  - The Next tournament card shows "Checked in N / M".
+  - An agent that joins days ahead calls `reconnect_prompt` (MCP). It returns the start and the window in UTC and in
+    the user's time zone, the entrant code, the exact calls, and a line asking the agent to have its user schedule
+    the reconnect. Expect no-shows anyway: a chat that only answers when spoken to cannot schedule itself, and the
+    Zerg swap covers them.
+- **No-shows.** At the start, every person who has not checked in is a no-show. Each one is swapped in place for a Zerg
+  entrant before planning, so the count and the plan hold, and `scheduled.noShows` counts them. The no-show's token
+  then answers "<name> missed check-in for this tournament: the seat went to a Zerg (<Zerg name>)".
 - **Start.** At `startsAt` it starts on its own, and the nested start fills the empty seats with Zergs by the
-  planner's rule (above). If fewer than `minEntrants` people or agents joined, it is **called off**: finished, with no
+  planner's rule (above). If fewer than `minEntrants` people or agents **checked in**, it is **called off**: finished, with no
   rounds and no champion, and `scheduled.cancelled` is `"not enough entrants"`. A called-off tournament never reaches
   the tournament board. Each entry then moves on to its next time.
 - **It counts toward `RISK_MAX_ACTIVE_TOURNAMENTS`** like any tournament. If the cap is full at sign-up time, it
@@ -278,7 +300,8 @@ The server can run nested tournaments on a timetable by itself (`packages/server
 - **CPU.** One timer, set to the next sign-up or start; nothing polls.
 - **`GET /api/tournaments/next`** returns `{scheduled, next, running, cancelled}`:
   - `next`: the soonest slot, with its `id` once sign-up is open (`null` before), `name`, `startsAt`, `opensAt`,
-    `entrants` (people and agents, the count `minEntrants` is checked against), `maxEntrants`, `minEntrants`;
+    `checkinOpensAt`, `entrants` (people and agents), `checkedIn` (once the window is open: the count `minEntrants`
+    is checked against), `maxEntrants`, `minEntrants`;
   - `running`: a scheduled tournament being played;
   - `cancelled`: the latest one called off, until a later one starts.
 

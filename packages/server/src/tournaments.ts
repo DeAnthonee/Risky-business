@@ -78,6 +78,10 @@ export interface Entrant {
   /** The registered player (player key) this entrant plays as: its seats and the tournament board rank as `key:<id>`. */
   playerKey?: string;
   joinedAt: number;
+  /** Scheduled tournaments: when this entrant checked in (polled the bracket inside the check-in window). */
+  checkedInAt?: number;
+  /** A no-show swapped for a Zerg at a scheduled start: the person's name and old token (so their client hears why). */
+  missed?: { name: string; token: string };
 }
 
 export interface TournamentMatch {
@@ -193,7 +197,14 @@ export interface TournamentSnapshot {
 export interface TournamentScheduleInfo {
   startsAt: number;
   cancelled?: string;
+  /** The check-in window: entrants check in during the last this-many minutes before the start (default 10). */
+  checkinMinutes?: number;
+  /** At the start: how many people missed check-in and were swapped for Zergs. */
+  noShows?: number;
 }
+
+/** Default check-in window, minutes before a scheduled start. */
+export const DEFAULT_CHECKIN_MINUTES = 10;
 
 /** How many tournaments the server keeps. */
 export interface TournamentLimits {
@@ -201,9 +212,13 @@ export interface TournamentLimits {
   maxActive: number;
   /** Finished tournaments kept (newest first); older ones are pruned from memory and tournaments.json. */
   keepFinished: number;
+  /** Scheduled tournaments: one joiner (an IP, or an MCP session) holds at most this many open registrations. */
+  preregPerJoiner: number;
+  /** Scheduled tournaments: at most this many registrations site-wide in any 24 h (new MCP sessions are free); 0 = no cap. */
+  preregPerDay: number;
 }
 
-export const DEFAULT_TOURNAMENT_LIMITS: TournamentLimits = { maxActive: 20, keepFinished: 100 };
+export const DEFAULT_TOURNAMENT_LIMITS: TournamentLimits = { maxActive: 20, keepFinished: 100, preregPerJoiner: 4, preregPerDay: 500 };
 
 export interface CreateTournamentSpec {
   name?: string;
@@ -226,7 +241,7 @@ export interface CreateTournamentSpec {
   /** Nested: fix the seed of the boards, seating and tie-break dice (replays and simulations); default random. */
   seed?: number;
   /** Set by the server's schedule only (never parsed from a request): the planned start. */
-  scheduled?: { startsAt: number };
+  scheduled?: { startsAt: number; checkinMinutes?: number };
   /**
    * The host's seat counts (create form, MCP create_tournament): `zergs` Zerg entrants added at once, `delove` Delove
    * seats asked for (stored only, until the Delove seat pool joins on request), `open` spots for people and agents.
@@ -288,8 +303,8 @@ export interface TournamentView {
     /** The board tree from the start (null before): each table's board, seats, portals, parent board and portal. */
     nodes: NestNode[] | null;
   };
-  /** Made by the server's schedule: its start and, if it never ran, why. */
-  scheduled?: TournamentScheduleInfo;
+  /** Made by the server's schedule: its start, check-in window and, once open, how many checked in; if it never ran, why. */
+  scheduled?: TournamentScheduleInfo & { checkedIn?: number };
   createdAt: number;
   updatedAt: number;
   version: number;
@@ -299,6 +314,8 @@ export interface TournamentView {
     status: TournamentView['entrants'][number]['status'];
     /** Your table in the current round while it is being played: open it with this seat token. */
     match: { gameId: string; playerId: string; token: string; round: number } | null;
+    /** Scheduled tournaments: whether you have checked in (poll the bracket inside the check-in window). */
+    checkedIn?: boolean;
   };
 }
 
@@ -404,6 +421,10 @@ export class TournamentManager extends EventEmitter {
 
   /** Nested tournaments' round deadline timers, by tournament id. */
   private roundTimers = new Map<string, unknown>();
+  /** Who joined each entrant of a scheduled tournament (an IP or an MCP session), for the pre-registration cap. */
+  private joiners = new Map<string, string>();
+  /** Site-wide pre-registrations in the last 24 h (in memory); null = no cap. Set up in the constructor. */
+  private preregDaily: RateLimiter | null = null;
 
   constructor(
     private store: Store,
@@ -413,6 +434,7 @@ export class TournamentManager extends EventEmitter {
   ) {
     super();
     this.limits = { ...DEFAULT_TOURNAMENT_LIMITS, ...limits };
+    if (this.limits.preregPerDay > 0) this.preregDaily = new RateLimiter(this.limits.preregPerDay, 24 * 60 * 60_000, () => this.clock.now());
     this.setMaxListeners(500);
     if (file && existsSync(file)) {
       try {
@@ -631,7 +653,7 @@ export class TournamentManager extends EventEmitter {
       version: 1,
       format: 'nested',
       nested: { finalMap, territoriesPerSeat: tps, roundMinutes, finishShare, botDelayMs, ...(blizzardShare !== undefined ? { blizzardShare } : {}), ...(spec.seed !== undefined ? { fixedSeed: spec.seed } : {}) },
-      ...(spec.scheduled ? { scheduled: { startsAt: spec.scheduled.startsAt } } : {}),
+      ...(spec.scheduled ? { scheduled: { startsAt: spec.scheduled.startsAt, ...(spec.scheduled.checkinMinutes !== undefined ? { checkinMinutes: spec.scheduled.checkinMinutes } : {}) } } : {}),
     };
     this.tournaments.set(id, t);
     this.changed(t);
@@ -730,19 +752,87 @@ export class TournamentManager extends EventEmitter {
     return added;
   }
 
-  /** `player`: the registered player (from its key) joining: they enter under the registered name, once per tournament. */
-  join(id: string, rawName: unknown, agent?: string, player?: { id: string; name: string }): { entrantId: string; token: string } {
+  /**
+   * Join while registering. `player`: the registered player (from its key) joining: they enter under the registered
+   * name, once per tournament. `joiner` (an IP, or an MCP session) is counted for scheduled tournaments: pre-registration
+   * needs no code, so one joiner holds at most `preregPerJoiner` open registrations across them (kept in memory).
+   */
+  join(id: string, rawName: unknown, agent?: string, player?: { id: string; name: string }, joiner?: string | null): { entrantId: string; token: string } {
     const t = this.require(id);
     if (t.status !== 'registering') throw new RuleError('Registration is closed: this tournament has started');
     if (t.entrants.length >= t.maxEntrants) throw new RuleError('This tournament is full');
+    const cap = this.limits.preregPerJoiner;
+    if (t.scheduled && joiner && cap > 0 && this.openRegistrations(joiner) >= cap)
+      throw new RuleError(`You already hold ${cap} open registrations for scheduled tournaments; join more once one has started`);
     const name = (player ? player.name : String(rawName ?? '')).replace(/\s+/g, ' ').trim().slice(0, MAX_NAME);
     if (!name) throw new RuleError('A name is required');
     if (player && t.entrants.some((e) => e.playerKey === player.id)) throw new RuleError('This player has already joined this tournament');
     if (t.entrants.some((e) => e.name.toLowerCase() === name.toLowerCase())) throw new RuleError(`The name "${name}" is taken in this tournament`);
+    // The site-wide daily cap on pre-registrations, counted last so a refused join costs nothing (429).
+    if (t.scheduled && joiner && this.preregDaily && !this.preregDaily.take('site'))
+      throw new RateLimitedError(`Too many tournament registrations on this site today (at most ${this.limits.preregPerDay} in 24 h); try again later`);
     const entrant: Entrant = { id: `e_${newId(6)}`, name, isBot: false, token: newId(24), joinedAt: Date.now(), ...(agent ? { agent } : {}), ...(player ? { playerKey: player.id } : {}) };
+    // Joining inside the check-in window is checking in.
+    if (this.checkinOpen(t)) entrant.checkedInAt = this.clock.now();
     t.entrants.push(entrant);
+    if (t.scheduled && joiner) this.joiners.set(entrant.id, joiner);
     this.changed(t);
     return { entrantId: entrant.id, token: entrant.token! };
+  }
+
+  /** How many entrants `joiner` holds in scheduled tournaments still registering. */
+  private openRegistrations(joiner: string): number {
+    let n = 0;
+    for (const t of this.tournaments.values()) {
+      if (t.status !== 'registering' || !t.scheduled) continue;
+      for (const e of t.entrants) if (this.joiners.get(e.id) === joiner) n++;
+    }
+    return n;
+  }
+
+  /** A scheduled tournament still registering whose check-in window is open. */
+  checkinOpen(t: TournamentSnapshot): boolean {
+    const s = t.scheduled;
+    if (!s || s.cancelled || t.status !== 'registering') return false;
+    return this.clock.now() >= s.startsAt - (s.checkinMinutes ?? DEFAULT_CHECKIN_MINUTES) * 60_000;
+  }
+
+  /**
+   * An entrant polling the bracket with its token (wait_for_match, tournament_status, the page's long-poll) checks in,
+   * once the window is open. Anything else (no window, no token, an unknown token) does nothing.
+   */
+  checkIn(id: string, token: string | undefined): void {
+    const t = this.get(String(id));
+    if (!t || !token || !this.checkinOpen(t)) return;
+    const me = t.entrants.find((e) => e.token === token);
+    if (!me || me.checkedInAt) return;
+    me.checkedInAt = this.clock.now();
+    this.changed(t);
+  }
+
+  /**
+   * Start a scheduled tournament: people who did not check in are no-shows, swapped for Zerg entrants in place (same
+   * count, so the plan holds), then it starts as usual. A no-show's token then answers "you missed check-in".
+   */
+  startScheduled(id: string): TournamentSnapshot {
+    const t = this.require(id);
+    if (t.status !== 'registering') throw new RuleError('This tournament has already started');
+    let noShows = 0;
+    for (const e of t.entrants) {
+      if (e.isBot || e.checkedInAt) continue;
+      const missed = { name: e.name, token: e.token ?? '' };
+      e.name = freeZergName(t.entrants.map((x) => x.name));
+      e.isBot = true;
+      e.kind = 'zerg';
+      e.missed = missed;
+      delete e.token;
+      delete e.agent;
+      // The seat is a Zerg now: no player key's record gets its results.
+      delete e.playerKey;
+      noShows++;
+    }
+    if (t.scheduled) t.scheduled.noShows = noShows;
+    return this.start(t.id);
   }
 
   /** The table a game is in `tournamentId`, or null (not one of its tables, or the tournament is gone). */
@@ -826,14 +916,27 @@ export class TournamentManager extends EventEmitter {
             },
           }
         : {}),
-      ...(t.scheduled ? { scheduled: { ...t.scheduled } } : {}),
+      ...(t.scheduled
+        ? {
+            scheduled: {
+              ...t.scheduled,
+              checkinMinutes: t.scheduled.checkinMinutes ?? DEFAULT_CHECKIN_MINUTES,
+              // Once the window is open: how many people have checked in.
+              ...(this.checkinOpen(t) ? { checkedIn: t.entrants.filter((e) => !e.isBot && e.checkedInAt).length } : {}),
+            },
+          }
+        : {}),
       ...(t.requested ? { requested: { ...t.requested } } : {}),
       createdAt: t.createdAt,
       updatedAt: t.updatedAt,
       version: t.version,
     };
     const me = token ? t.entrants.find((e) => e.token === token) : undefined;
-    if (token && !me) throw new RuleError('Unknown entrant token for this tournament');
+    if (token && !me) {
+      const missed = t.entrants.find((e) => e.missed?.token === token);
+      if (missed) throw new RuleError(`${missed.missed!.name} missed check-in for this tournament: the seat went to a Zerg (${missed.name})`);
+      throw new RuleError('Unknown entrant token for this tournament');
+    }
     if (me) {
       const round = this.currentRound(t);
       const m = round?.matches.find((x) => x.status === 'playing' && x.entrants.includes(me.id));
@@ -842,6 +945,7 @@ export class TournamentManager extends EventEmitter {
         name: me.name,
         status: status(me),
         match: m?.gameId ? { gameId: m.gameId, ...m.seats[me.id], round: round!.round } : null,
+        ...(t.scheduled ? { checkedIn: !!me.checkedInAt } : {}),
       };
     }
     return view;

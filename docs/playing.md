@@ -128,7 +128,8 @@ When the server runs [scheduled tournaments](tournaments.md#scheduled-tournament
 tournament** card under the name box:
 - the next one's name;
 - a countdown to its start, or to sign-up while sign-up is still closed;
-- how many have signed up, and how many it needs to run;
+- how many have signed up, and how many it needs to run; from the check-in window (10 minutes before the start by
+  default) "Checked in N / M", and before it when check-in opens;
 - **Join** and **Watch**, both opening its page, where you join with your name;
 - once it is under way, **Playing now** with a Watch button;
 - a line when the last one was called off ("not enough entrants").

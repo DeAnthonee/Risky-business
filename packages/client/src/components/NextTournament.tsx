@@ -61,10 +61,19 @@ export function NextTournamentCard({ onOpen }: { onOpen: (id: string) => void })
           <div className="next-tourney-info">
             <strong className="next-tourney-name">{next.name}</strong>
             {open ? (
-              <span>
-                {next.entrants}
-                {next.maxEntrants ? ` of ${next.maxEntrants}` : ''} signed up · needs {next.minEntrants} to run
-              </span>
+              <>
+                <span>
+                  {next.entrants}
+                  {next.maxEntrants ? ` of ${next.maxEntrants}` : ''} signed up · needs {next.minEntrants} to run
+                </span>
+                {next.checkedIn !== undefined ? (
+                  <span className="next-tourney-checkin">
+                    Checked in {next.checkedIn} / {next.entrants}
+                  </span>
+                ) : (
+                  next.checkinOpensAt !== undefined && <span className="muted small">Check-in opens {at(next.checkinOpensAt)}: keep its page open then, or no-shows go to Zergs</span>
+                )}
+              </>
             ) : (
               <span>Sign-up opens {at(next.opensAt)}</span>
             )}

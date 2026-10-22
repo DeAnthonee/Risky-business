@@ -3,10 +3,10 @@
 Covers deploy behaviour (`/healthz`, caching, SIGTERM, `RISK_DATA_DIR`, room cleanup, env vars), the CI workflow
 (`.github/workflows/ci.yml`), the test gate and `[OPS]` issue fixes. Guide: [docs/hosting.md](../hosting.md).
 
-Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. Changes from before pull requests carry the
-commit hash instead. **Append a line in the same PR** as any change to this area (README hard rule 12).
+Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. Changes from before pull requests carry the commit
+hash instead. **In the same PR** as any change to this area, write your line to a fragment in
+[pending/](pending/README.md), not to this file (README hard rule 12; folded in by `npm run logs:fold`).
 
-- 2026-10-21 #194 docs drift: hosting.md env table lists `RISK_AI_DIR` and `RISK_MCP_SESSION_IDLE_MS`
 - 2026-10-21 #179 `/healthz` adds `loopLagMs` (event-loop p99 over the last minute); the healthz shape only gains a field
 - 2026-10-21 #186 `/healthz` `persistence` is `"disk"` or `"disabled"` instead of the save-file path (it named a folder on the host); the field stays
 - 2026-10-20 #107 the first start after deploy archives `rankings.json` as `rankings.season-1.json` and the leaderboard restarts empty

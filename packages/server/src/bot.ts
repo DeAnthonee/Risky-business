@@ -28,7 +28,15 @@ export const ZERG_NAMES = [
 
 /** A random name from ZERG_NAMES that nobody in the room uses yet (any case). */
 export function zergName(state: GameState): string {
-  const taken = new Set(state.players.map((p) => p.name.trim().toLowerCase()));
+  return freeZergName(state.players.map((p) => p.name));
+}
+
+/**
+ * A random name from ZERG_NAMES that none of `names` uses (any case). Once all are taken: "Godzilla 2", "Godzilla 3",
+ * ... (a tournament with more Zergs than the list).
+ */
+export function freeZergName(names: readonly string[]): string {
+  const taken = new Set(names.map((n) => n.trim().toLowerCase()));
   const free = ZERG_NAMES.filter((n) => !taken.has(n.toLowerCase()));
   if (free.length > 0) return free[randomInt(free.length)];
   for (let i = 2; ; i++) {

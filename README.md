@@ -31,8 +31,8 @@ Aider, Cline or any other). It holds two things: the **table of contents** of ev
    change anything. Start with [CONTRIBUTING.md](CONTRIBUTING.md) (how to branch and ship a feature end to end) and
    [docs/conventions.md](docs/conventions.md) (how each area is done), and read [docs/hardening.md](docs/hardening.md)
    before touching any feature it lists.
-3. **When you finish**, update the doc that describes what you changed and append a line to that area's running log
-   in [docs/logs/](docs/logs/), in the same PR (hard rule 12).
+3. **When you finish**, update the doc that describes what you changed and add a line for that area's running log
+   to your PR's fragment in [docs/logs/pending/](docs/logs/pending/README.md), in the same PR (hard rule 12).
 
 The agent files for other tools (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `.github/copilot-instructions.md`,
 `.cursor/rules/read-project-context.mdc`, `.windsurf/rules/read-project-context.md`, `.clinerules`) only point here;
@@ -54,6 +54,7 @@ Every documentation file in the repo, what it covers and when to read it.
 | [CONTRIBUTING.md](CONTRIBUTING.md) | commands, branching, the standard path for a feature (engine → server/API → MCP → client → docs → `npm test`), maps workflow, style, `[OPS]` issues | before your first change; whenever you add a feature |
 | [docs/conventions.md](docs/conventions.md) | per-area conventions: packages, settings (`OPTION_SPECS`), maps, MCP tools, tournaments, records, self-play, characters, runner | before changing that area |
 | [docs/hardening.md](docs/hardening.md) | known gaps left open on purpose (open tournaments, fog totals, leaderboard identities, watcher memory, scenarios, seeded leaderboard) and trade-offs | before touching any feature it lists |
+| [docs/logs/pending/README.md](docs/logs/pending/README.md) | where a PR writes its running-log lines (one fragment file per PR), the line format, how `npm run logs:fold` folds them in | before adding your log line (every PR) |
 | [docs/roadmap.md](docs/roadmap.md) | old wish list of polish ideas | when looking for something to build |
 | [.github/pull_request_template.md](.github/pull_request_template.md) | what a PR must say and check | when opening a PR |
 | [.github/workflows/ci.yml](.github/workflows/ci.yml) | the CI gate run on every PR (same as `npm test`, plus the GPU fingerprint warning and the map status table) | when CI fails or you change the gate |
@@ -113,6 +114,10 @@ Every documentation file in the repo, what it covers and when to read it.
 | [packages/delove-gpu/README.md](packages/delove-gpu/README.md) | the GPU rules mirror: coverage, replay proof, fingerprint and re-verification, speed | working on `packages/delove-gpu` or changing a mirrored engine file |
 
 ### Running logs (one per area; newest first)
+
+A PR never edits these files: it writes its lines to its own fragment in
+[docs/logs/pending/](docs/logs/pending/README.md) (`<area>: - YYYY-MM-DD #123 what changed`, checked by `npm test`), and a
+reviewer folds the fragments into the logs in a periodic docs PR with `npm run logs:fold` (`scripts/fold-logs.mjs`).
 
 | log | area |
 | --- | --- |
@@ -177,7 +182,9 @@ These keep the deploy, the game and the training pipeline from breaking. Everyth
     (`CHARACTER_DATA_NOTICE` in `packages/mcp/src/tools.ts`). Don't move or rename files under `AI/`: the server and
     the MCP `general_model_info` tool read them by path.
 12. **Docs and logs move with the code.** A PR that changes an area updates the doc that describes it (see the table
-    of contents) **and** appends one dated line with the PR number to that area's log in [docs/logs/](docs/logs/).
+    of contents) **and** adds one dated line with the PR number for that area's log in [docs/logs/](docs/logs/). The
+    line goes in the PR's own fragment, `docs/logs/pending/<branch>.md`, never in the log itself, so PRs never conflict
+    there; a reviewer folds the fragments in with `npm run logs:fold`.
     A new doc gets a line in the table of contents. An item in [docs/hardening.md](docs/hardening.md) is removed only
     in the PR that fixes it.
 13. **Nothing private or generated in git.** The repo is public: no secrets, tokens or personal paths (write

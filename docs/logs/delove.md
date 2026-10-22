@@ -4,10 +4,10 @@ Covers `packages/delove` (teacher, network agent, seat player, trainer, cycle sc
 numbers go in [packages/delove/CYCLES.md](../../packages/delove/CYCLES.md) and the current state in
 [docs/delove-status.md](../delove-status.md); this log only lists the merged changes. GPU mirror: [delove-gpu.md](delove-gpu.md).
 
-Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. **Append a line in the same PR** as any change to
-this area (README hard rule 12).
+Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. **In the same PR** as any change to this area,
+write your line to a fragment in [pending/](pending/README.md), not to this file (README hard rule 12; folded in by
+`npm run logs:fold`).
 
-- 2026-10-21 #194 delove-status section 9 item 4: the #170 yardstick control (jacob-sensei@2 in Delove's seat drew early attacks too), Zerg docs after #176 (zergs.md: target score `− exposure / 2`, no hysteresis, the horde gate plays on after Delove is out, the endgame landed in #176; delove README: the strongest Zerg wins, sacrifice 1, `selfWeight` / `ZERG_BRANCH_SELF_WEIGHT`), from the docs-drift sweep
 - 2026-10-22 #180 `delove-seat` and the yardstick `setup.mjs` declare each seat's player type on join (the search seat "<ranker> + search", e.g. "delove@10 + search", other seats their agent id; `claude-<tier>`), seen by spectators only
 - 2026-10-21 #176 strongest-keeps-the-table ending with the sacrifice back on: horde gate verdict unchanged (+0.118), games shorter (9.8 rounds against 15.7), turn limits 4/500 (10 with the sacrifice off); `zerg-branch@1`'s self term rewards being the strongest Zerg when the prey falls; horde-aware rollouts never attack a fellow Zerg; horde.jobs ~5.1 s a game, ~85 min for 4,000 games on 8 processes
 - 2026-10-21 #172 `generate.sh` turn cap: a jobs file's `#@max-turns N` line (or `MAX_TURNS=N`) passes `--max-turns N` to every game; files without it unchanged. `horde.jobs` capped at 250 turns (stalled horde games cost CPU and teach nothing); CPU about 5.6 s a game at 8 processes, ~85 min for the 4,000 games

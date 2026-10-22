@@ -35,7 +35,9 @@ cards are hidden).
 | `GET  /games/:id/players/:player/profile` | a seat's ranking and profile (a training game's seats: their training standing) |
 | `GET  /admin/games`, `DELETE /admin/games/:id`, `POST /admin/sweep` | admin token only: inspect, delete, sweep rooms |
 | `POST /admin/games/:id/board`      | admin: `{board: "training"}` moves a game to the training leaderboard → `{ok, board, gameId, room, result, records}`. Flags its room if still open (its result goes to the training board when it ends), moves its result off the current public board (`result: "moved"`; `"recorded"` if the room had finished unranked, `"already"`, or `"none"` while still playing) and marks its finished game records. 404 when no room, result or record has the id |
+| `POST /rankings/new-season`        | `{password}` (the host's `RISK_SEASON_KEY`) or the admin token → `{archived, season}`, the same archive as the admin route. `403` wrong password or `RISK_SEASON_KEY` unset; `429` + `Retry-After` after too many wrong tries (5 per IP, 20 in total, per 15 minutes). `GET /rankings/seasons` adds `archiving: true` when the key is set |
 | `POST /admin/rankings/new-season`  | admin: archive the leaderboard now and start the next season empty → `{archived, season}` (500 and no change if the archive fails) |
+| `GET  /records/:id`, `GET /records/:id/playbyplay?format=` | **records key** (`x-records-key: <RISK_RECORDS_KEY>`, or the admin token): one full game record (hidden hands and boards, decision notes), read-only; its [play-by-play](game-records.md#play-by-play) as text, or `format=json` for `{header, setup, turns: [{turn, round, player, lines}], end}`. No key set on the server, or a missing or wrong key: 403 `{error}` with nothing else; unknown id 404 |
 | `GET  /admin/archive`, `GET /admin/archive/:id`, `GET /admin/archive/:id/steps/:step?viewer=` | admin: recorded games (index; one whole record; one moment rebuilt by replay, through a player's eyes under fog). See [game records](game-records.md) |
 | `POST /admin/scenarios`            | admin: `{recordId, step, seats?: {<playerId>: "bot" \| "open"}, keepDice?, name?}` → `{gameId, scenarioOf, seats: [{playerId, bot, token}]}`: a new live game from one moment of a recorded game (see [game records](game-records.md#scenarios-playing-a-recorded-moment-out-again)) |
 | `POST /games/:id/seat`             | scenario seat token: `{bot?: false}` takes the seat over from its bot; `{bot: true}` hands it back |
@@ -48,7 +50,7 @@ cards are hidden).
 | `POST /tournaments/:id/join`       | `{playerName, agent?}` while registering → `{entrantId, token, tournament}`; `agent` goes to every table seat |
 | `GET  /tournaments/:id/wait?since=&timeoutMs=` | long-poll until the bracket's `version` passes `since` |
 | `GET  /games/:id`                  | your view of the state, including `legal` moves on your turn; with no seat token, the spectator view with each player's `agent`. Every state (here, in `/wait`, `/actions` and over the WebSocket) has `timer`: `null` when the game has no turn timer, else `{mode: "move"\|"turn", seconds, player, deadline, secondsLeft}` (`player`/`deadline`/`secondsLeft` are `null` while no human or agent clock runs; `deadline` is epoch ms on the server's clock, so count down from `secondsLeft`). On a timeout the server makes the player's moves itself: they arrive as ordinary events, the first one `{type: "timeout", player, scope}`, and `/events` history entries carry `timeout: true` |
-| `POST /games/:id/actions`          | `{action}` → `{events, state}`                                     |
+| `POST /games/:id/actions`          | `{action, note?}` → `{events, state}`. `note` is the seat's private **decision note** for this move (a string or any JSON, at most 2 KB serialized; larger is 400): it is saved with the move in the game record and is never shown during the game (not in any view, event, `/events` entry, chat, WebSocket or MCP output); after the game the admin reads it in `GET /admin/archive/:id` |
 | `GET  /games/:id/wait?timeoutMs=&since=` | long-poll until it is your turn, the game ends, or the version passes `since` |
 | `GET  /games/:id/events?since=`    | event history                                                      |
 | `GET/POST /games/:id/chat`         | chat. POST without a token posts as a spectator: `{message, name}` (5 messages / 10 s; host can turn it off with `spectatorChat`; every player sees them, even under fog). Players whisper with `{message, to}` (`to` = player id, or a name exactly one player has): only the two players and spectators can read it; spectators whisper with `{message, name, to}`: only that player and spectators can read it; the message carries `to` and `toName`. GET with a token returns what that seat may read (a token that is not a seat here is a 401) |
@@ -73,7 +75,7 @@ Spectators chat with `{"type":"chat","message":"…","name":"Your name"}` (add `
 `{"type":"chat","message":"…","to":"Bob"}` (only that player and spectators receive it). The server pushes
 `{"type":"state", state, events, version}` after every change and `{"type":"chat", message}` for chat.
 Every spectator socket of a room gets the same message for a change, built once per change (players get their own view).
-Send `{"type":"action","reqId":"1","action":{…}}` and receive `{"type":"ack","reqId":"1","ok":true}`
+Send `{"type":"action","reqId":"1","action":{…},"note":…}` (`note` optional, as on `POST /games/:id/actions`) and receive `{"type":"ack","reqId":"1","ok":true}`
 or `{"ok":false,"error":"…"}`.
 
 ## Actions

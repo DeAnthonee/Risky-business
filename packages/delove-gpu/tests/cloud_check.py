@@ -17,6 +17,9 @@
    again for a later cycle and handles an abort (with --data and --jobs).
 5. train: `remote.py train` end to end against a fake API, pod and clock (see check_train); the API key only in the
    Authorization header.
+6. pack cache: `remote.py train --push-missing` packs from a home cache (cached_pack): packed once, reused while the
+   folder is unchanged, packed again (and the old pack removed) after a change; in check_train's push scenario every
+   pack is made before the first pod is rented.
 
     python tests/cloud_check.py --data data/delove/c6-micro/skirmish [--games 600] [--jobs packages/delove/scripts/cycles/c6-big.jobs]
 """
@@ -517,8 +520,15 @@ def check_train() -> bool:
             fake["s"] = FakeSsh(work)
             return fake["s"]
 
-        saved = remote.api, remote.Ssh, remote.time
-        remote.api, remote.Ssh, remote.time = api, make_ssh, Clock
+        packs = []  # pods rented (POSTs) when each pack was made: a push's packs come before any pod
+        real_pack = remote.pack_dataset
+
+        def pack(folder, out_):
+            packs.append(sum(1 for m, _ in calls if m == "POST"))
+            real_pack(folder, out_)
+
+        saved = remote.api, remote.Ssh, remote.time, remote.pack_dataset
+        remote.api, remote.Ssh, remote.time, remote.pack_dataset = api, make_ssh, Clock, pack
         argv = ["train", "--name", "c9", "--candidate", "c9-candidate", "--init", "delove@4", "--models", str(models), "--out", str(out),
                 "--volume", "vol1", "--data", "c9-a1/classic", "--data", "c9-a1/classic", "--data", "c6-big/world:value#0.3",
                 "--data-root", str(data_root), "--wait-for", str(done_file), "--eta", str(eta_file), "--abort-file", str(abort_file),
@@ -528,7 +538,7 @@ def check_train() -> bool:
         except KeyboardInterrupt:
             rc = "interrupted"
         finally:
-            remote.api, remote.Ssh, remote.time = saved
+            remote.api, remote.Ssh, remote.time, remote.pack_dataset = saved
         s = fake.get("s")
         deleted = sorted(set(p for m, p in calls if m == "DELETE"))
         good = deleted == sorted(f"/pods/{i}" for i in pods) and len(pods) == want_pods and rc == want_rc
@@ -548,6 +558,7 @@ def check_train() -> bool:
             good = good and "/root/upload.tar" not in s.puts
         if scenario == "push":
             good = good and s.puts.index(f"{remote.VOL}/datasets/c6-big/world.tar.gz") < s.puts.index("/root/upload.tar")
+            good = good and packs == [0]  # packed once, before the pod was rented
         if scenario == "waits for generation":
             good = good and s.go_at is not None and s.go_at >= 3
         if scenario == "abort while waiting":
@@ -559,6 +570,33 @@ def check_train() -> bool:
         print(f"train ({scenario}): {len(pods)} pods created, {len(deleted)} terminated, exit {rc} -> {'OK' if good else 'MISMATCH'}")
         ok = ok and good
         shutil.rmtree(tmp, ignore_errors=True)
+    return ok
+
+
+def check_pack_cache() -> bool:
+    """remote.cached_pack: packs a dataset folder once, reuses the pack while the folder is unchanged, packs it again
+    after a change (removing the older pack), and the pack holds the folder."""
+    import tarfile as tf
+    import time as t
+
+    import remote
+
+    tmp = Path(tempfile.mkdtemp(prefix="cloud-pack-"))
+    folder, cache = tmp / "data" / "c6-big" / "world", tmp / "cache"
+    folder.mkdir(parents=True)
+    (folder / "features.json").write_text("{}", encoding="utf8")
+    (folder / "game.npy").write_bytes(b"x" * 100)
+    a, packed_a = remote.cached_pack(folder, cache, "c6-big", "world")
+    b, packed_b = remote.cached_pack(folder, cache, "c6-big", "world")
+    t.sleep(0.05)
+    (folder / "game.npy").write_bytes(b"y" * 101)  # the folder changes: a new key
+    c, packed_c = remote.cached_pack(folder, cache, "c6-big", "world")
+    with tf.open(c) as f:
+        names = sorted(f.getnames())
+    ok = (packed_a and not packed_b and a == b and packed_c and c != a and not a.exists() and c.exists()
+          and names == ["world", "world/features.json", "world/game.npy"] and not list(cache.glob("*.part")))
+    print(f"pack cache: packed once, reused while unchanged, packed again after a change -> {'OK' if ok else 'MISMATCH'}")
+    shutil.rmtree(tmp, ignore_errors=True)
     return ok
 
 
@@ -613,6 +651,7 @@ def main():
     ok = check_summaries()
     ok = check_api_key() and ok
     ok = check_train() and ok
+    ok = check_pack_cache() and ok
     if args.data:
         ok = check_merge(Path(args.data), args.games, args.workers) and ok
     if args.jobs:

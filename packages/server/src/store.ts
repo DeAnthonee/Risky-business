@@ -57,6 +57,11 @@ export interface HistoryEntry {
   events: GameEvent[];
   /** The turn timer ran out and the server made this move for the player. */
   timeout?: true;
+  /**
+   * The acting seat's private decision note for this move (`act` with `note`): kept for after the game, never shown
+   * to other players or spectators while it is played (eventsSince strips it).
+   */
+  decisionNote?: DecisionNote;
 }
 
 /** The turn timer as a game's state shows it (null when the game has none). */
@@ -69,6 +74,19 @@ export interface TurnTimerInfo {
   deadline: number | null;
   /** Whole seconds left on the running clock, or null. */
   secondsLeft: number | null;
+}
+
+/** A seat's note on one move: a string or any JSON value, at most MAX_NOTE_BYTES once serialized. */
+export type DecisionNote = string | number | boolean | Record<string, unknown> | unknown[];
+export const MAX_NOTE_BYTES = 2048;
+
+/** A decision note from an untrusted request: undefined when absent, else the value, or a RuleError when too big. */
+export function parseDecisionNote(raw: unknown): DecisionNote | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  const json = JSON.stringify(raw);
+  if (json === undefined) throw new RuleError('note must be a string or JSON');
+  if (Buffer.byteLength(json, 'utf8') > MAX_NOTE_BYTES) throw new RuleError(`note is too long: at most ${MAX_NOTE_BYTES} bytes once serialized as JSON`);
+  return raw as DecisionNote;
 }
 
 export interface RoomSnapshot {
@@ -382,7 +400,8 @@ export class GameRoom extends EventEmitter {
     };
   }
 
-  private commit(next: GameState, events: GameEvent[], playerId: PlayerId | null, action: HistoryEntry['action'], timeout = false) {
+  private commit(next: GameState, events: GameEvent[], playerId: PlayerId | null, action: HistoryEntry['action'], opts: { timeout?: boolean; note?: DecisionNote } = {}) {
+    const { timeout = false, note } = opts;
     for (const player of this.state.players) {
       if (!player.isNeutral && player.alive && next.players.some(p => p.id === player.id && !p.alive) && !this.eliminationOrder.includes(player.id)) this.eliminationOrder.push(player.id);
     }
@@ -390,10 +409,10 @@ export class GameRoom extends EventEmitter {
     this.state = next;
     this.updatedAt = Date.now();
     if (next.phase === 'finished' && this.finishedAt === null) this.finishedAt = this.updatedAt;
-    this.history.push({ version: next.version, at: this.updatedAt, playerId, action, events, ...(timeout ? { timeout: true as const } : {}) });
+    this.history.push({ version: next.version, at: this.updatedAt, playerId, action, events, ...(timeout ? { timeout: true as const } : {}), ...(note !== undefined ? { decisionNote: note } : {}) });
     if (this.history.length > MAX_HISTORY) this.history.splice(0, this.history.length - MAX_HISTORY);
     // The game archive listens here: every move, in full, before anything else reacts to it.
-    const info: CommitInfo = { before, next, events, playerId, action, at: this.updatedAt, ...(timeout ? { timeout: true as const } : {}) };
+    const info: CommitInfo = { before, next, events, playerId, action, at: this.updatedAt, ...(timeout ? { timeout: true as const } : {}), ...(note !== undefined ? { note } : {}) };
     this.emit('commit', info);
     // The clock is set before anyone hears of the change, so the state they read carries the new deadline.
     this.armTurnTimer();
@@ -500,10 +519,11 @@ export class GameRoom extends EventEmitter {
 
   // ---- play ----
 
-  act(playerId: PlayerId, action: Action): { state: GameState; events: GameEvent[] } {
+  /** Make a move. `note` is the seat's private decision note (see HistoryEntry.decisionNote); check it first. */
+  act(playerId: PlayerId, action: Action, note?: DecisionNote): { state: GameState; events: GameEvent[] } {
     const { state, events } = applyAction(this.state, playerId, action);
     if (!this.state.players.find((p) => p.id === playerId)?.isBot) this.touch();
-    this.commit(state, events, playerId, action);
+    this.commit(state, events, playerId, action, { note });
     return { state, events };
   }
 
@@ -594,8 +614,9 @@ export class GameRoom extends EventEmitter {
     return this.chat.filter((m) => m.id > since && this.canReadChat(m, viewer));
   }
 
+  /** History since `version`, as anyone may read it: decision notes are taken out. */
   eventsSince(version: number): HistoryEntry[] {
-    return this.history.filter((h) => h.version > version);
+    return this.history.filter((h) => h.version > version).map(({ decisionNote: _private, ...h }) => h);
   }
 
   /**
@@ -707,7 +728,7 @@ export class GameRoom extends EventEmitter {
     this.clearTurnTimer();
     if (!t || !cur || this.closed) return;
     try {
-      for (const step of timeoutSteps(this.state, cur, t.mode)) this.commit(step.state, step.events, cur, step.action, true);
+      for (const step of timeoutSteps(this.state, cur, t.mode)) this.commit(step.state, step.events, cur, step.action, { timeout: true });
     } catch (err) {
       console.error(`[timer ${this.id}] skipping ${cur} failed:`, err);
     }

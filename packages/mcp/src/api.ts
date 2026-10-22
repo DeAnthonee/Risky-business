@@ -216,7 +216,8 @@ export interface RiskApi {
   setOptions(gameId: string, token: string, options: Partial<GameOptions>): Promise<{ state: GameView }>;
   start(gameId: string, token: string): Promise<{ state: GameView }>;
   getGame(gameId: string, token?: string): Promise<GameInfo>;
-  act(gameId: string, token: string, action: Action): Promise<{ events: GameEvent[]; state: GameView }>;
+  /** `note`: a private decision note for this move (string or JSON, at most 2 KB), kept for after the game only. */
+  act(gameId: string, token: string, action: Action, note?: unknown): Promise<{ events: GameEvent[]; state: GameView }>;
   wait(gameId: string, token: string | undefined, since: number | undefined, timeoutMs: number): Promise<WaitResult>;
   events(gameId: string, since: number, token?: string): Promise<EventsResult>;
   /** Pass the reader's token so fog-of-war games hide spectator messages from players. */
@@ -414,8 +415,8 @@ export class HttpRiskApi implements RiskApi {
   getGame(gameId: string, token?: string) {
     return this.request<GameInfo>(`/games/${gameId}`, {}, token);
   }
-  act(gameId: string, token: string, action: Action) {
-    return this.request<{ events: GameEvent[]; state: GameView }>(`/games/${gameId}/actions`, { method: 'POST', body: JSON.stringify({ action }) }, token);
+  act(gameId: string, token: string, action: Action, note?: unknown) {
+    return this.request<{ events: GameEvent[]; state: GameView }>(`/games/${gameId}/actions`, { method: 'POST', body: JSON.stringify({ action, ...(note !== undefined ? { note } : {}) }) }, token);
   }
   wait(gameId: string, token: string | undefined, since: number | undefined, timeoutMs: number) {
     const q = new URLSearchParams({ timeoutMs: String(timeoutMs) });

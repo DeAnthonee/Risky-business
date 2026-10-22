@@ -1,2 +1,2 @@
-server: - 2026-10-22 #PR tournament hosting, testing (owner: "I dont care to have some code block our testing right now"): with no codes set, a typed code is ignored on start too, never checked or counted (logged once), and in open mode anyone may start a tournament (HTTP and MCP start_tournament) (follow-up to #279)
-docs: - 2026-10-22 #PR tournaments.md: no codes on the server means a typed code is ignored and open mode lets anyone start
+server: - 2026-10-22 #280 tournament hosting, testing (owner: "I dont care to have some code block our testing right now"): with no codes set, a typed code is ignored on start too, never checked or counted (logged once), and in open mode anyone may start a tournament (HTTP and MCP start_tournament) (follow-up to #279)
+docs: - 2026-10-22 #280 tournaments.md: no codes on the server means a typed code is ignored and open mode lets anyone start

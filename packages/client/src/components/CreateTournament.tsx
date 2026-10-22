@@ -22,7 +22,7 @@ interface Form {
   code: string;
 }
 
-const START: Form = { name: '', zergs: 20, delove: 0, open: 12, roundMinutes: 30, finalMap: '', timer: 90, capitals: true, fog: false, code: '' };
+const START: Form = { name: '', zergs: 20, delove: 0, open: 12, roundMinutes: 15, finalMap: '', timer: 90, capitals: true, fog: false, code: '' };
 
 /** The request both the preview and create send (nested format; unset settings keep the server's tournament defaults). */
 function specOf(f: Form) {

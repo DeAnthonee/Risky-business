@@ -190,9 +190,11 @@ reduced motion. It's hidden until a house bot has played a tournament.
 
 ## Watching a nested tournament
 
-A nested ("Inception") tournament's page (`?tournament=CODE`) shows the round clock ("Round 1 · 9 of 17 tables needed ·
-14:20 left": a round ends when enough tables finish or the time runs out, and the tables still playing are then
-decided on standing) and three tabs:
+A nested ("Inception") tournament's page (`?tournament=CODE`) shows the round clock ("Round 1 · 9 of 17 tables finished ·
+14:20 left": a round ends when every table has finished, or when its time (15 minutes by default) runs out. At that
+point the clock says **last lap**: the tables still playing finish the current go-around of turns, so every player
+there has taken the same number of turns, and are then decided on standing; see
+[tournaments.md](tournaments.md#nested-inception-tournaments)) and three tabs:
 - **Map:** the final's board with every table's board drawn inside its territory, boards inside boards. Click a board
   to zoom in, Esc, **Zoom out** or the breadcrumb to zoom out, and **Watch table** to open a table as a spectator.
   **Globe** / **Flat** switches the Map tab between this flat view and a spinning **globe of the round in play**: every

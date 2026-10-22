@@ -1,0 +1,1 @@
+docs: - 2026-10-22 #PR hardening.md item 10: the global wrong-code lock (50 an hour) also refuses the right hosting code for an hour, so anyone can trip it; the admin key still works (review note on #257)

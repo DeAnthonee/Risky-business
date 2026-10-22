@@ -26,7 +26,8 @@ export interface ScoredBracket {
   name: string;
   /** 'knockout' today; nested tournaments later. */
   format?: string;
-  entrants: { id: string; name: string; isBot: boolean; kind?: 'bot' | 'zerg' }[];
+  /** `kind` "zerg" marks a Zerg entrant (#182); any other bot is a built-in fill bot. */
+  entrants: { id: string; name: string; isBot: boolean; kind?: string }[];
   rounds: {
     matches: {
       entrants: string[];
@@ -86,6 +87,8 @@ export interface TournamentResult {
   rounds: number;
   finishedAt: number;
   entrants: TournamentEntrantResult[];
+  /** The built-in fill bots, scored apart: never ranked, only in the house-bot panel. Absent on older results. */
+  bots?: TournamentEntrantResult[];
 }
 
 export interface TournamentRow {
@@ -117,7 +120,12 @@ export function entrantKey(e: { name: string; isBot: boolean }): string {
 export function scoreTournament(t: ScoredBracket, finishedAt = Date.now()): TournamentResult | null {
   const L = t.rounds.length;
   if (!L) return null;
-  const entrants: TournamentEntrantResult[] = t.entrants.map((e) => {
+  // Built-in fill bots never go on the tournament board (owner's decision); Zergs do. Keyed off the entrant's kind,
+  // never its "Bot N" name, so a person called "Bot 1" still scores.
+  const ranked = t.entrants.filter((e) => !e.isBot || e.kind === 'zerg');
+  // The fill bots are scored too, apart, for the house-bot panel (houseBotStats); they never become rows.
+  const fill = t.entrants.filter((e) => e.isBot && e.kind !== 'zerg');
+  const score = (e: ScoredBracket['entrants'][number]): TournamentEntrantResult => {
     let round = 0;
     let final: TournamentEntrantResult['final'] = null;
     let tablesWon = 0;
@@ -165,8 +173,10 @@ export function scoreTournament(t: ScoredBracket, finishedAt = Date.now()): Tour
       ...(e.isBot ? { bot: e.kind === 'zerg' ? ('zerg' as const) : ('bot' as const) } : {}),
       fun,
     };
-  });
-  return { tournamentId: t.id, name: t.name, format: t.format ?? 'knockout', rounds: L, finishedAt, entrants };
+  };
+  const entrants = ranked.map(score);
+  const bots = fill.map(score);
+  return { tournamentId: t.id, name: t.name, format: t.format ?? 'knockout', rounds: L, finishedAt, entrants, ...(bots.length ? { bots } : {}) };
 }
 
 function finishText(r: TournamentEntrantResult): string {
@@ -192,8 +202,6 @@ export function rankTournaments(results: readonly TournamentResult[]): Tournamen
   const rows = new Map<string, TournamentRow & { best: number }>();
   for (const t of results) {
     for (const e of t.entrants) {
-      // Fill bots are never ranked (owner, 2026-10-22): they show in the house-bot panel instead. Zergs rank like anyone.
-      if (e.bot === 'bot') continue;
       const row = rows.get(e.key) ?? { key: e.key, name: e.name, rank: 0, points: 0, tournaments: 0, championships: 0, finals: 0, tablesWon: 0, kills: 0, bestFinish: '', best: -1 };
       row.name = e.name;
       row.points += e.points;
@@ -241,7 +249,8 @@ export class TournamentRankings {
   record(bracket: ScoredBracket, finishedAt = Date.now()): boolean {
     if (this.ids.has(bracket.id)) return false;
     const result = scoreTournament(bracket, finishedAt);
-    if (!result || result.entrants.length < 2) return false;
+    // Fill bots count here (they feed the house-bot panel), so a cup of one person and fill bots is still recorded.
+    if (!result || result.entrants.length + (result.bots?.length ?? 0) < 2) return false;
     this.results.push(result);
     this.ids.add(result.tournamentId);
     this.save();
@@ -330,7 +339,7 @@ export function houseBotStats(results: readonly TournamentResult[]): HouseBots {
     if (value > 0 && (!r || value > r.value)) g.records[k] = { name, value, tournament };
   };
   for (const t of results) {
-    for (const e of t.entrants) {
+    for (const e of [...t.entrants, ...(t.bots ?? [])]) {
       if (!e.bot) continue;
       const which = e.bot === 'zerg' ? 'zergs' : 'bots';
       const g = out[which];

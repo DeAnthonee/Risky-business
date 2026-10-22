@@ -18,6 +18,7 @@ import {
   shuffle as seededShuffle,
   startOnSpots,
   type GameOptions,
+  type NestNode,
   type NestPlan,
 } from '@risk/engine';
 import type { GameRoom, Store } from './store.js';
@@ -82,9 +83,10 @@ export interface TournamentMatch {
    * 'decided' (nested): the round ended first, and the table was decided on standing.
    */
   status: 'playing' | 'finished' | 'bye' | 'abandoned' | 'decided';
-  /** Nested: the table's index in its round of the plan, and its board. */
+  /** Nested: the table's index in its round of the plan, its board, and that board's index in `nested.nodes`. */
   table?: number;
   map?: string;
+  node?: number;
   /** Nested, a decided table: every entrant in standing order, and the dice rolled to break ties (by entrant). */
   standing?: { order: string[]; rolls: Record<string, number[]> };
   /** Set when the table settles: its entrants best first (the game's final placings, or a decided table's standing). */
@@ -136,6 +138,10 @@ export interface NestedSettings {
   plan?: NestPlan;
   boards?: string[][];
   portals?: string[][][];
+  /** The board tree (resolveNest's list): every table's board, seats, portals and parent, known from the start. */
+  nodes?: NestNode[];
+  /** Index in `nodes` of each table's board ([round][table]). */
+  nodeOf?: number[][];
 }
 
 export interface TournamentSnapshot {
@@ -214,8 +220,9 @@ export interface TournamentView {
       status: TournamentMatch['status'];
       players: { entrantId: string; name: string }[];
       winner: string | null;
-      /** Nested: the table's board. */
+      /** Nested: the table's board, and its index in `nested.nodes`. */
       map?: string;
+      node?: number;
       /** Nested, decided on standing: entrants in order, and tie-break dice. */
       standing?: TournamentMatch['standing'];
     }[];
@@ -223,7 +230,17 @@ export interface TournamentView {
   champion: { entrantId: string; name: string } | null;
   format: TournamentFormat;
   /** Nested: the settings and the plan's table sizes per round (seats per table, the final last). */
-  nested?: { finalMap: string | null; territoriesPerSeat: number; roundMinutes: number; finishShare: number; botDelayMs: number | null; plan: number[][] | null; zergs: number };
+  nested?: {
+    finalMap: string | null;
+    territoriesPerSeat: number;
+    roundMinutes: number;
+    finishShare: number;
+    botDelayMs: number | null;
+    plan: number[][] | null;
+    zergs: number;
+    /** The board tree from the start (null before): each table's board, seats, portals, parent board and portal. */
+    nodes: NestNode[] | null;
+  };
   createdAt: number;
   updatedAt: number;
   version: number;
@@ -391,7 +408,7 @@ export class TournamentManager extends EventEmitter {
     // Tables run on a per-move turn timer unless the host says otherwise, so a stalled seat cannot hold a round.
     if (options.turnTimer === undefined) {
       options.turnTimer = 'move';
-      if (options.turnTimerSeconds === undefined) options.turnTimerSeconds = 30;
+      if (options.turnTimerSeconds === undefined) options.turnTimerSeconds = 15;
     }
     const maxEntrants = spec.maxEntrants ?? DEFAULT_MAX_NESTED_ENTRANTS;
     if (!Number.isInteger(maxEntrants) || maxEntrants < 2 || maxEntrants > MAX_ENTRANTS) throw new RuleError(`maxEntrants must be a whole number from 2 to ${MAX_ENTRANTS}`);
@@ -543,6 +560,7 @@ export class TournamentManager extends EventEmitter {
           players: m.entrants.map((eid) => ({ entrantId: eid, name: name(eid) })),
           winner: m.winner,
           ...(m.map ? { map: m.map } : {}),
+          ...(m.node !== undefined ? { node: m.node } : {}),
           ...(m.standing ? { standing: m.standing } : {}),
         })),
       })),
@@ -558,6 +576,7 @@ export class TournamentManager extends EventEmitter {
               botDelayMs: t.nested.botDelayMs ?? null,
               plan: t.nested.plan ? t.nested.plan.rounds.map((r) => r.map((x) => x.seats)) : null,
               zergs: t.nested.plan?.zergs ?? 0,
+              nodes: t.nested.nodes ?? null,
             },
           }
         : {}),
@@ -798,9 +817,11 @@ export class TournamentManager extends EventEmitter {
     for (let i = 1; i <= plan.zergs; i++) t.entrants.push({ id: `e_${newId(6)}`, name: `Bot ${i}`, isBot: true, joinedAt: Date.now() });
     n.seed = randomBytes(4).readUInt32LE(0);
     n.plan = plan;
-    const { boards } = planToNest(plan, { seed: n.seed, final: n.finalMap ? { map: n.finalMap } : undefined, boards: { territoriesPerSeat: n.territoriesPerSeat } });
+    const { boards, nodes, index } = planToNest(plan, { seed: n.seed, final: n.finalMap ? { map: n.finalMap } : undefined, boards: { territoriesPerSeat: n.territoriesPerSeat } });
     n.boards = boards.map((round) => round.map((node) => node.map));
     n.portals = boards.map((round) => round.map((node) => node.portals));
+    n.nodes = nodes;
+    n.nodeOf = index;
     // Seating, from the tournament seed: people and agents first, spread over the tables, then bots fill the rest,
     // so a table is all bots only when there are more tables than people.
     const rng = createRng(nestSeed(n.seed, 'seats'));
@@ -831,8 +852,9 @@ export class TournamentManager extends EventEmitter {
     const matches: TournamentMatch[] = groups.map((group, j) => {
       const entrants = group.map((g) => g.entrant);
       const map = n.boards![r][j];
-      if (entrants.length === 0) return { gameId: null, entrants, seats: {}, winner: null, status: 'abandoned', table: j, map };
-      if (entrants.length === 1) return { gameId: null, entrants, seats: {}, winner: entrants[0], status: 'bye', table: j, map };
+      const node = n.nodeOf?.[r]?.[j];
+      if (entrants.length === 0) return { gameId: null, entrants, seats: {}, winner: null, status: 'abandoned', table: j, map, node };
+      if (entrants.length === 1) return { gameId: null, entrants, seats: {}, winner: entrants[0], status: 'bye', table: j, map, node };
       const players = entrants.map((eid) => this.entrant(t, eid)!);
       const label = last ? 'Final' : `Table ${j + 1}`;
       const portals = n.portals?.[r]?.[j] ?? [];
@@ -849,7 +871,7 @@ export class TournamentManager extends EventEmitter {
           ...(onPortals ? { prepare: (lobby, seated) => startOnSpots(lobby, Object.fromEntries(seated.map((s, k) => [s.playerId, portals[group[k].portal!]])), () => nextFloat(rng)) } : {}),
         },
       );
-      return { gameId: room.id, entrants, seats: Object.fromEntries(entrants.map((eid, k) => [eid, seats[k]])), winner: null, status: 'playing', table: j, map };
+      return { gameId: room.id, entrants, seats: Object.fromEntries(entrants.map((eid, k) => [eid, seats[k]])), winner: null, status: 'playing', table: j, map, node };
     });
     t.rounds.push({ round: r + 1, matches, deadline: this.clock.now() + n.roundMinutes * 60_000 });
     for (const m of matches) if (m.status === 'playing') this.watch(t, m, this.store.get(m.gameId!)!);

@@ -85,7 +85,7 @@ describe('nested tournaments', () => {
       expect(ok.status).toBe(201);
       expect(ok.body.tournament).toMatchObject({ format: 'nested', map: 'nested', maxEntrants: 128, nested: { finalMap: 'world', territoriesPerSeat: 5, roundMinutes: 30, finishShare: 0.51, botDelayMs: 300, plan: null } });
       // Tables run on a per-move turn timer by default.
-      expect(ok.body.tournament.options).toMatchObject({ turnTimer: 'move', turnTimerSeconds: 30 });
+      expect(ok.body.tournament.options).toMatchObject({ turnTimer: 'move', turnTimerSeconds: 15 });
       expect(await bad({ botDelayMs: 5000 })).toBe(400);
     } finally {
       await risk.shutdown('test');
@@ -128,6 +128,15 @@ describe('nested tournaments', () => {
       expect(r1.matches).toHaveLength(10);
       expect(r1.matches.every((m: any) => m.status === 'playing' && /^gen1-s\d+-p4-t20$/.test(m.map))).toBe(true);
       expect(new Set(r1.matches.map((m: any) => m.map)).size).toBe(10);
+      // The whole board tree is public from the start: the final's board holds the ten round-1 boards in its portals.
+      const nodes = started.body.tournament.nested.nodes;
+      expect(nodes).toHaveLength(11);
+      expect(nodes[0]).toMatchObject({ depth: 0, parent: null, seats: 10 });
+      expect(nodes[0].portals).toHaveLength(10);
+      for (const m of r1.matches) {
+        expect(nodes[m.node]).toMatchObject({ map: m.map, parent: 0, depth: 1 });
+        expect(nodes[0].portals).toContain(nodes[m.node].portal);
+      }
       const humanTables = r1.matches.filter((m: any) => m.players.some((p: any) => !p.name.startsWith('Bot ')));
       expect(humanTables).toHaveLength(3);
       expect(r1.deadline).toBe(clock.now() + 20 * 60_000);
@@ -191,22 +200,22 @@ describe('nested tournaments', () => {
       expect(view.champion.entrantId).toBe(t.champion);
       expect(view.rounds[1].matches[0].status).toMatch(/finished|decided/);
 
-      // The tournament board (#183): one result per entrant; a decided table's win is worth +1, a played-out one +2;
-      // the champion of a 2-round event with a final of 10 scores 3 + 2 × 9 + 6 = 27 for placement.
-      // Fill bots are not ranked (the house-bot panel has them): only the 3 people are rows.
+      // The tournament board (#183): one result per person (the 37 built-in fill bots stay off it, owner's decision);
+      // a decided table's win is worth +1, a played-out one +2; a champion of this 2-round event with a final of 10
+      // scores 3 + 2 × 9 + 6 = 27 for placement.
       const board = (await call('/rankings?board=tournament')).body.rankings;
-      expect(board).toHaveLength(t.entrants.filter((e) => !e.isBot).length);
+      expect(board.map((r: any) => r.name).sort()).toEqual(['Ada', 'Claude', 'Grace']);
       const result = store.tournamentBoard.result(id)!;
       expect(result).toMatchObject({ format: 'nested', rounds: 2 });
       const tablePoints = (eid: string) =>
         t.rounds.flatMap((r) => r.matches).filter((m) => m.winner === eid && (m.status === 'finished' || m.status === 'decided')).reduce((n, m) => n + (m.status === 'decided' ? 1 : 2), 0);
-      for (const e of t.entrants) {
+      for (const e of t.entrants.filter((x) => !x.isBot)) {
         const r = result.entrants.find((x) => x.name === e.name)!;
         expect(r.tablePoints).toBe(tablePoints(e.id));
+        if (e.id === t.champion) expect(r).toMatchObject({ champion: true, placementPoints: 27, final: { place: 1, of: 10 } });
+        else if (final.entrants.includes(e.id)) expect(r.placementPoints).toBe(3 + 2 * (10 - r.final!.place));
+        else expect(r.placementPoints).toBe(0);
       }
-      const champ = result.entrants.find((x) => x.champion)!;
-      expect(champ).toMatchObject({ name: t.entrants.find((e) => e.id === t.champion)!.name, placementPoints: 27, final: { place: 1, of: 10 } });
-      for (const m of decided) expect(result.entrants.find((x) => x.name === t.entrants.find((e) => e.id === m.winner)!.name)!.tablesWon).toBeGreaterThanOrEqual(1);
       // Tournament tables never land on the public board.
       expect((await call('/rankings')).body.rankings).toEqual([]);
     } finally {

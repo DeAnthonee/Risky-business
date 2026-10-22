@@ -59,7 +59,7 @@ describe('tournament scoring (owner decisions 18 and 20)', () => {
     const bracket: ScoredBracket = {
       id: 'TBRK01',
       name: 'Hand',
-      entrants: ['A', 'B', 'C', 'D', 'E', 'F'].map((id) => ({ id, name: `P${id}`, isBot: id === 'F' })),
+      entrants: ['A', 'B', 'C', 'D', 'E', 'F'].map((id) => ({ id, name: `P${id}`, isBot: id === 'F', ...(id === 'F' ? { kind: 'zerg' } : {}) })),
       rounds: [
         {
           matches: [
@@ -79,13 +79,28 @@ describe('tournament scoring (owner decisions 18 and 20)', () => {
     expect(by.PD).toMatchObject({ placementPoints: 3, tablesWon: 1, tablePoints: 1, kills: 0, points: 4, final: { place: 2, of: 2 } });
     expect(by.PB).toMatchObject({ placementPoints: 0, points: 0, round: 1, final: null });
     expect(by.PF).toMatchObject({ key: 'bot:pf', points: 1, kills: 1 });
-    // PF is a fill bot: scored (for the house-bot panel) but not ranked.
-    expect(by.PF.bot).toBe('bot');
     const rows = rankTournaments([r]);
-    expect(rows.map((x) => x.name)).toEqual(['PA', 'PD', 'PB', 'PC', 'PE']);
+    expect(rows.map((x) => x.name)).toEqual(['PA', 'PD', 'PF', 'PB', 'PC', 'PE']);
     expect(rows[0]).toMatchObject({ rank: 1, tournaments: 1, championships: 1, finals: 1, tablesWon: 2, kills: 3, bestFinish: 'champion' });
     expect(rows[1].bestFinish).toBe('2nd in the final');
     expect(rows[3].bestFinish).toBe('out in round 1');
+  });
+
+  it('built-in fill bots stay off the board; Zergs and a person named "Bot 1" score', () => {
+    const bracket: ScoredBracket = {
+      id: 'TFILL1',
+      name: 'Fill',
+      entrants: [
+        { id: 'h', name: 'Bot 1', isBot: false },
+        { id: 'z', name: 'Zerg 1', isBot: true, kind: 'zerg' },
+        { id: 'f', name: 'Bot 2', isBot: true },
+      ],
+      rounds: [{ matches: [{ entrants: ['h', 'z', 'f'], winner: 'z', status: 'finished', order: ['z', 'h', 'f'], kills: { z: 1 } }] }],
+      champion: 'z',
+    };
+    const r = scoreTournament(bracket, 1)!;
+    expect(r.entrants.map((e) => e.key).sort()).toEqual(['bot:zerg 1', 'player:bot 1']);
+    expect(rankTournaments([r]).map((x) => x.name)).toEqual(['Zerg 1', 'Bot 1']);
   });
 
   it('sums results over tournaments, sorted by points then championships', () => {

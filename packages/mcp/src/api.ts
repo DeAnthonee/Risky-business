@@ -51,7 +51,7 @@ export interface TournamentInfo {
     round: number;
     deadline?: number;
     endedAt?: number;
-    matches: { gameId: string | null; status: string; players: { entrantId: string; name: string }[]; winner: string | null; map?: string; standing?: { order: string[]; rolls: Record<string, number[]> } }[];
+    matches: { gameId: string | null; status: string; players: { entrantId: string; name: string }[]; winner: string | null; map?: string; node?: number; standing?: { order: string[]; rolls: Record<string, number[]> } }[];
   }[];
   champion: { entrantId: string; name: string } | null;
   version: number;

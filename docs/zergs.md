@@ -8,7 +8,7 @@
 >    Mamba, Gecko, Iguana, Viper, ...). Adding a Zerg bot to a live game is game development's. In self-play a seat is
 >    named after its agent id (`zerg@1`), which is how a horde recognises itself there.
 > 3. **The alliance ends with the prey.** Once no non-Zerg is left, the Zergs attack each other until one wins: no
->    surrenders. Built into `zerg@1` (#PR); a trained Zerg must also come out of the hunt well placed (section 6a).
+>    surrenders. Built into `zerg@1` (#169); a trained Zerg must also come out of the hunt well placed (section 6a).
 
 Two modes:
 
@@ -90,7 +90,7 @@ All Zergs run the same deterministic **target rule** on the same public board, s
   (seen in testing: a Delove turtle in Australia stalled 3 Zergs for 500 turns). Zergs take neutral land at good odds,
   so the front Zerg eats that land for cards and continents.
 - **Ending: the falling-out.** When only Zergs are left, the alliance is over: each Zerg plays for itself (its horde is
-  just itself) and they fight to one winner. No surrenders. (Until #PR, all but one Zerg surrendered; the golden test
+  just itself) and they fight to one winner. No surrenders. (Until #169, all but one Zerg surrendered; the golden test
   was updated on purpose, and it pins the alliance phase's moves as unchanged.)
 - **Later behaviours**, tunable and off in `zerg@1`:
   - a synchronised strike on the target once the horde has massed;
@@ -170,7 +170,7 @@ delove@10 that learns a horde objective from a stronger teacher.
      3/4/6p), Zerg decisions recorded.
    - `zerg@1` games run about 30 a second per core, so 50k games take minutes. No pod.
 3. **Iteration 0, behaviour cloning:** imitate `zerg@1`, giving an ally-aware network that plays about like
-   `zerg@1`. The data comes from the `zerg@1` with the falling-out (#PR), so the network never learns to surrender.
+   `zerg@1`. The data comes from the `zerg@1` with the falling-out (#169), so the network never learns to surrender.
    The ally flags switch off once no prey is left, so the network sees the Zergs as rivals in the endgame. `train.py --init delove@10.pt`, with a widening flag for the ally columns and the value target set to
    the horde's outcome (`rush`).
 4. **Iteration 1, a stronger teacher:**

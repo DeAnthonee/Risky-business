@@ -391,10 +391,10 @@ npm run delove:horde -- --candidate delove@10 --tables classic:4:3,classic:6:3 -
 - Worker threads (`--procs`, default all cores but one): 1000 games in about 17 s for delove@10.
 - First result (2026-10-21, 100 games per table): delove@10 vs jacob-sensei@2, pooled hold 0.477 vs 0.361, diff
   +0.115 (95% +0.081 to +0.150), better.
-  - Re-run with the falling-out (#PR): 0.459 vs 0.342, diff +0.118 (+0.083 to +0.152); win, place and kills are
+  - Re-run with the falling-out (#169): 0.459 vs 0.342, diff +0.118 (+0.083 to +0.152); win, place and kills are
     identical.
   - Solo-table hold reads lower (4p vs 3 Zergs: 0.186, was 0.233) because survival is now the candidate's last round,
-    not the game's length. Compare only results from #PR on.
+    not the game's length. Compare only results from #169 on.
   - The games run on after the candidate falls: 13.7 rounds against its 7.4, and the gate takes about 3x longer. Neither survives a solo rush often: delove@10 wins about 1% of solo tables
   (Jacob 0%) and 7-20% of the tables with fillers.
 - For scenarios or training data, the agents play in any self-play command:

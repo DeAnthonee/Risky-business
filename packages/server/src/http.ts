@@ -58,6 +58,8 @@ export interface ApiOptions {
   openTournaments?: boolean;
   /** RISK_SEASON_KEY: the password that archives the public leaderboard's season from the site (unset = off). */
   seasonKey?: string | null;
+  /** Where the season-key lockout is saved (under RISK_DATA_DIR), so a restart does not reset it. */
+  seasonLockFile?: string | null;
   /** Tests: the season-key guard to use (limits and clock). */
   seasonGuard?: SeasonKeyGuard;
 }
@@ -65,7 +67,7 @@ export interface ApiOptions {
 export function createApi(store: Store, opts: ApiOptions = {}) {
   const api = express.Router();
   api.use(express.json({ limit: '64kb' }));
-  const seasonGuard = opts.seasonGuard ?? new SeasonKeyGuard(opts.seasonKey);
+  const seasonGuard = opts.seasonGuard ?? new SeasonKeyGuard(opts.seasonKey, undefined, undefined, opts.seasonLockFile ?? null);
 
   const wrap =
     (fn: (req: Req, res: Response) => Promise<unknown> | unknown) => (req: Request, res: Response, next: NextFunction) => {

@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
@@ -81,6 +81,39 @@ describe('archive the season from the site (RISK_SEASON_KEY)', () => {
     } finally {
       await risk.shutdown('test');
     }
+  });
+
+  it('keeps the lockout across a restart (saved under the data dir)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'risk-season-lock-'));
+    dirs.push(dir);
+    const file = join(dir, 'season-key-lockout.json');
+    let now = 5_000;
+    const first = new SeasonKeyGuard(KEY, { perIp: 3, global: 20, lockMs: 60_000 }, () => now, file);
+    for (let i = 0; i < 3; i++) first.check('10.1.1.1', 'nope');
+    expect(first.check('10.1.1.1', KEY)).toMatchObject({ ok: false, status: 429 });
+    // A new guard (a restarted server) reads the same file: still locked, even with the right password.
+    const second = new SeasonKeyGuard(KEY, { perIp: 3, global: 20, lockMs: 60_000 }, () => now, file);
+    expect(second.check('10.1.1.1', KEY)).toMatchObject({ ok: false, status: 429 });
+    now += 60_001;
+    expect(second.check('10.1.1.1', KEY)).toEqual({ ok: true });
+    // The file never holds the password or a guess.
+    expect(readFileSync(file, 'utf8')).not.toMatch(/nope|test-season-key/);
+  });
+
+  it('forgets IPs once their window has passed (memory and file)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'risk-season-prune-'));
+    dirs.push(dir);
+    const file = join(dir, 'season-key-lockout.json');
+    let now = 0;
+    const guard = new SeasonKeyGuard(KEY, { perIp: 3, global: 100, lockMs: 60_000 }, () => now, file);
+    guard.check('10.2.0.1', 'nope');
+    for (let i = 0; i < 3; i++) guard.check('10.2.0.2', 'nope');
+    expect(guard.tracked).toBe(2);
+    now += 60_001;
+    guard.check('10.2.0.3', 'nope');
+    expect(guard.tracked).toBe(1);
+    expect(readFileSync(file, 'utf8')).not.toMatch(/10\.2\.0\.1|10\.2\.0\.2/);
+    expect(new SeasonKeyGuard(KEY, undefined, () => now, file).tracked).toBe(1);
   });
 
   it('locks everyone out after too many wrong tries in total', () => {

@@ -165,7 +165,7 @@ export function Leaderboard() {
   // '' is the current season; archived seasons come from /rankings/seasons and never change, so they load once.
   const [season, setSeason] = useState('');
   const [seasons, setSeasons] = useState<SeasonInfo[]>([]);
-  // The server allows archiving the season from here (RISK_SEASON_KEY is set); the button is hidden otherwise.
+  // The server allows archiving the season from here (RISK_SEASON_KEY is set); otherwise the button shows disabled.
   const [archiving, setArchiving] = useState(false);
   // Other boards, apart from the public one, no seasons: training (model-vs-model yardstick games, Delove against Claude
   // seats) and tournament (one result per entrant per finished tournament; tournament tables never count publicly).
@@ -201,7 +201,9 @@ export function Leaderboard() {
             {seasons.filter(s => !s.current).map(s => <option key={s.id} value={s.id}>{s.id} ({s.games} games)</option>)}
           </select>
         </label>}
-        {archiving && !board && current && <ArchiveSeason season={current.season} onDone={() => { setSeason(''); setRetry(n => n + 1); }} />}
+        {!board && current && (archiving
+          ? <ArchiveSeason season={current.season} onDone={() => { setSeason(''); setRetry(n => n + 1); }} />
+          : <button type="button" className="board-toggle" disabled title="Archiving seasons from the site is off on this server (its host has not set a season password)">Archive season</button>)}
         <button type="button" className={`board-toggle${training ? ' on' : ''}`} aria-pressed={training} onClick={() => toggle('training')}
           title="Model-vs-model yardstick games, ranked apart from the public leaderboard">Training</button>
         <button type="button" className={`board-toggle${tournament ? ' on' : ''}`} aria-pressed={tournament} onClick={() => toggle('tournament')}

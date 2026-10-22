@@ -144,8 +144,8 @@ export interface ChangeMessage {
 
 const BOT_DELAY_MS = Number(process.env.RISK_BOT_DELAY_MS ?? 700);
 /**
- * Whether a game seated with Zergs only ends right after the deal (true) or plays out (false). Default true until the
- * owner decides (Lord of game development, 2026-10-22); games with any non-Zerg seat always end once only Zergs are left.
+ * A game seated with Zergs only ends right after the deal, decided by standing (owner, 2026-10-22); false would let it
+ * play out. Games with any non-Zerg seat always end once only Zergs are left.
  */
 const ALL_ZERG_TABLES_END_AT_ONCE = true;
 const MAX_HISTORY = 2000;

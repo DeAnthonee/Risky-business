@@ -42,6 +42,10 @@ race +15, two players left +15, heavy fighting up to +20, the final +20. `pickFo
 watcher sees: it stays at least 20 s and switches only for a table 15 or more ahead, or when the current one ends,
 with a "Following: Table 7 (capital under threat)" caption. The tournament feed and the client switch come later.
 
+**Zerg-only tables.** A table where only Zerg seats are left ends at once, decided by standing, and its strongest
+Zerg moves on (see [zergs.md](zergs.md)). A table seated with Zergs only ends right after the deal (owner,
+2026-10-22).
+
 Tournaments are saved to `tournaments.json` in `RISK_DATA_DIR` and pick up their tables again after a restart;
 tables a tournament is still waiting on are not swept as idle, except past the hard limit of 7 days idle (the Store's fixed `max`; no env var changes it).
 

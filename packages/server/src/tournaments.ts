@@ -503,9 +503,11 @@ export class TournamentManager extends EventEmitter {
       const { room, seats } = this.store.createTable(`${t.name} · R${round} ${label}`.slice(0, 40), { ...t.options, maxPlayers: entrants.length }, players.map((p) => ({ name: p.name, isBot: p.isBot, ...(p.kind ? { kind: p.kind } : {}), agent: p.agent })), t.id);
       const match: TournamentMatch = { gameId: room.id, entrants, seats: Object.fromEntries(entrants.map((eid, k) => [eid, seats[k]])), winner: null, status: 'playing' };
       matches.push(match);
-      this.watch(t, match, room);
     }
+    // The round is in place before its tables are watched: a table can already be over when it starts (only Zergs
+    // seated: the game ends right after the deal), and settling it must see this round, not build it again.
     t.rounds.push({ round, matches });
+    for (const m of matches) if (m.status === 'playing') this.watch(t, m, this.store.get(m.gameId!)!);
   }
 
   private watch(t: TournamentSnapshot, m: TournamentMatch, room: GameRoom) {

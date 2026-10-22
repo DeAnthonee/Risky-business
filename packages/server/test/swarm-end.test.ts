@@ -59,7 +59,7 @@ describe('a live game ends when only Zergs are left (owner rule A)', () => {
     store.stopTimers();
   }, 180_000);
 
-  it('a table seated with Zergs only ends right after the deal (the default until the owner decides)', () => {
+  it('a table seated with Zergs only ends right after the deal, decided by standing (owner)', () => {
     const store = new Store(null);
     const { room } = store.createTable('Zerg table', { map: 'classic', maxPlayers: 3, autoSetup: true }, ['Mamba', 'Viper', 'Cobra'].map((name) => ({ name, isBot: true, kind: 'zerg' as const })), 'TZERG');
     expect(room.state.phase).toBe('finished');

@@ -377,8 +377,8 @@ npm run delove:horde -- --candidate delove@10 --tables classic:4:3,classic:6:3 -
 ```
 
 - Tables are `map:players:zergs`; the default is `classic:3:2,classic:4:3,classic:4:2,classic:6:3,classic:6:2`. At a
-  solo table (no fillers) the Zergs hunt only the candidate. Once it is out the alliance ends and the Zergs fight each
-  other to a winner (docs/zergs.md), so the gate measures the candidate's survival as the last round it made a decision
+  solo table (no fillers) the Zergs hunt only the candidate. Once it is out the weaker Zergs surrender to the strongest
+  (`strongestZergOf`, #176), who wins (docs/zergs.md), so the gate measures the candidate's survival as the last round it made a decision
   in. `game` reports the whole games' length.
 - `hold` (the default `--metric`): at a solo table, 1 for a win, else rounds survived / 30 (capped at 0.99); with
   fillers, the candidate's place among the non-Zerg seats (1 = best, 0 = first out). Also reported: `win`, `place`,
@@ -424,8 +424,9 @@ npm run delove:horde -- --candidate delove@10 --tables classic:4:3,classic:6:3 -
 Branch and score for the horde (src/zerg-branch.ts): the Zerg's own move and up to 3 alternatives (never an attack on a
 fellow Zerg) are each played on 8 copies of the board with common dice, 2 rounds forward, Zergs playing `zerg@1` and the
 prey modelled by Jacob Sensei 2, and scored for the horde: prey knocked out × kill weight + the horde's share of the
-alive players' armies and income. It is the teacher for a trained Zerg network (docs/zergs.md). Its numbers come from
-`ZERG_BRANCH_OPTIONS`, `_ROLLOUTS`, `_HORIZON`, `_KILL_WEIGHT` and `_MARGIN`. A Zerg agent's id must start with `zerg`:
+alive players' armies and income + `selfWeight` (default 0.5) × my standing (my share of the horde's strength; once
+the prey is gone, 1 if I am the strongest Zerg). It is the teacher for a trained Zerg network (docs/zergs.md). Its
+numbers come from `ZERG_BRANCH_OPTIONS`, `_ROLLOUTS`, `_HORIZON`, `_KILL_WEIGHT`, `_MARGIN` and `_SELF_WEIGHT`. A Zerg agent's id must start with `zerg`:
 self-play seats named so are one horde.
 
 First result (2026-10-21, delove@10 as the candidate, `--base-zerg zerg@1`, same games): **no gain yet**. Defaults
@@ -437,7 +438,7 @@ give the search a network's alternatives.
 ### Tuning the Zerg (`npm run delove:zerg-tune`)
 
 `zerg@1`'s judgement numbers are `ZERG_1_PARAMS` in packages/engine/src/zerg.ts (attack odds per kind of target, the
-knock-out bonus, the target rule's weights, occupation share, staging pull, the sacrifice switch, 0 in `zerg@1` since #169: no surrenders). Four later
+knock-out bonus, the target rule's weights, occupation share, staging pull, the sacrifice switch, 1 in `zerg@1` since #176; it was 0 from #169 to #176). Four later
 behaviours are terms that are 0 (off) in `ZERG_1_PARAMS`, so `zerg@1` plays exactly as recorded (a golden test guards it):
 
 - `strikeRatio`: synchronised strike. The horde holds its attacks on the target until its border armies reach that

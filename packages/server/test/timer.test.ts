@@ -175,6 +175,8 @@ describe('turn timer over HTTP and MCP', () => {
       expect(text).toMatch(/you are skipped/);
       const tools = (await client.listTools()).tools;
       for (const name of ['get_state', 'wait_for_turn', 'act']) expect(tools.find((t) => t.name === name)!.description).toMatch(/TURN TIMER/);
+      // The server instructions every agent reads first say it too: act at once, or be skipped.
+      expect(client.getInstructions()).toMatch(/TURN TIMER: .*YOU HAVE Ns LEFT.*act at once.*you are skipped/);
       expect(await call('rules', {})).toMatch(/TURN TIMER/);
       // A skip shows in the events agents read.
       room.expireTurn();

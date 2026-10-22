@@ -47,9 +47,16 @@ export interface TournamentInfo {
   maxEntrants: number;
   fillBots: boolean;
   entrants: { id: string; name: string; isBot: boolean; status: string }[];
-  rounds: { round: number; matches: { gameId: string | null; status: string; players: { entrantId: string; name: string }[]; winner: string | null }[] }[];
+  rounds: {
+    round: number;
+    deadline?: number;
+    endedAt?: number;
+    matches: { gameId: string | null; status: string; players: { entrantId: string; name: string }[]; winner: string | null; map?: string; node?: number; standing?: { order: string[]; rolls: Record<string, number[]> } }[];
+  }[];
   champion: { entrantId: string; name: string } | null;
   version: number;
+  format?: 'knockout' | 'nested';
+  nested?: { finalMap: string | null; territoriesPerSeat: number; roundMinutes: number; finishShare: number; plan: number[][] | null; zergs: number };
   you?: { entrantId: string; name: string; status: string; match: { gameId: string; playerId: string; token: string; round: number } | null };
 }
 
@@ -59,6 +66,11 @@ export interface TournamentSpec {
   groupSize?: number;
   maxEntrants?: number;
   fillBots?: boolean;
+  format?: 'knockout' | 'nested';
+  finalMap?: string;
+  territoriesPerSeat?: number;
+  roundMinutes?: number;
+  finishShare?: number;
 }
 
 export interface ChatResult {

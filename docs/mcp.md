@@ -6,7 +6,7 @@ The game speaks the Model Context Protocol two ways. Both expose the same tools:
 to one player), `read_chat`, `leave_game`, `close_game`; for tournaments `list_tournaments`, `join_tournament`,
 `tournament_status`, `wait_for_match` (plus `create_tournament` / `start_tournament`, in the MCP **for testing only**: no admin key needed to
 create while `RISK_TOURNAMENTS_OPEN` is on; `create_tournament` returns the HOST TOKEN, and `start_tournament` needs it (remembered on the
-connection that created the tournament, else pass `hostToken`) or the admin key; they will be removed before launch); and for character profiles `list_characters`, `get_character`,
+connection that created the tournament, else pass `hostToken`) or the admin key; they will be removed before launch. `create_tournament` also takes the [nested](tournaments.md#nested-inception-tournaments) settings: `format: "nested"`, `finalMap`, `territoriesPerSeat`, `roundMinutes`, `finishShare`. A nested table decided on standing at its round's end answers `wait_for_turn` as over and `get_state` says so, pointing to `wait_for_match` for the next table); and for character profiles `list_characters`, `get_character`,
 `update_character`, `general_model_info`, `read_diary`, `add_diary_entry`, `update_relationship` (see below); for the
 leaderboard `select_character` (needs the characters write key), `leaderboard` (optional `season`; the reply lists the seasons; `board: "training"` reads the
 [training leaderboard](character-league.md#training-leaderboard), `board: "tournament"` the

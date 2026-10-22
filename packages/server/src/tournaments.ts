@@ -2,7 +2,24 @@ import { EventEmitter } from 'node:events';
 import { randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { RuleError, createGame, finalPlacements, getMap, type GameOptions } from '@risk/engine';
+import {
+  RuleError,
+  createGame,
+  createRng,
+  finalPlacements,
+  genMapId,
+  getMap,
+  isMapId,
+  nestSeed,
+  nextFloat,
+  planNest,
+  planToNest,
+  rankByStanding,
+  shuffle as seededShuffle,
+  type GameOptions,
+  type NestNode,
+  type NestPlan,
+} from '@risk/engine';
 import type { GameRoom, Store } from './store.js';
 import { freeZergName, type BotKind } from './bot.js';
 
@@ -14,7 +31,31 @@ import { freeZergName, type BotKind } from './bot.js';
  *
  * Rules stay in the engine: a table is decided by the game's own winner. The manager only listens to
  * the rooms it created and builds the next round when the current one is done.
+ *
+ * The `nested` format (docs/tournaments.md) plans its rounds with the engine's planNest (tables of 3-6, a final of
+ * 6-10, bots only when the count fits no plan) and plays every table on its own board from planToNest. A round ends
+ * when enough of its tables have finished (`finishShare`, 51% by default) or at its deadline; the tables still
+ * playing are then frozen and decided on standing (the engine's rankByStanding: territories, armies, dice).
  */
+
+/** Wall clock for round deadlines; tests pass a fake one. */
+export interface TournamentClock {
+  now(): number;
+  setTimeout(fn: () => void, ms: number): unknown;
+  clearTimeout(handle: unknown): void;
+}
+
+export const REAL_CLOCK: TournamentClock = {
+  now: () => Date.now(),
+  setTimeout: (fn, ms) => {
+    const h = setTimeout(fn, ms);
+    h.unref?.();
+    return h;
+  },
+  clearTimeout: (h) => clearTimeout(h as NodeJS.Timeout),
+};
+
+export type TournamentFormat = 'knockout' | 'nested';
 
 export type TournamentStatus = 'registering' | 'running' | 'finished';
 
@@ -38,19 +79,47 @@ export interface TournamentMatch {
   /** Each entrant's seat in the room. */
   seats: Record<string, { playerId: string; token: string }>;
   winner: string | null;
-  /** 'abandoned': the room was closed before anyone won, so nobody from this table moves on. */
-  status: 'playing' | 'finished' | 'bye' | 'abandoned';
-  /** Set when the table settles: its entrants best first (the game's final placings), for the tournament board. */
+  /**
+   * 'abandoned': the room was closed before anyone won, so nobody from this table moves on.
+   * 'decided' (nested): the round ended first, and the table was decided on standing.
+   */
+  status: 'playing' | 'finished' | 'bye' | 'abandoned' | 'decided';
+  /** Nested: the table's index in its round of the plan, its board, and that board's index in `nested.nodes`. */
+  table?: number;
+  map?: string;
+  node?: number;
+  /** Nested, a decided table: every entrant in standing order, and the dice rolled to break ties (by entrant). */
+  standing?: { order: string[]; rolls: Record<string, number[]> };
+  /** Set when the table settles: its entrants best first (the game's final placings, or the standing), for the tournament board. */
   order?: string[];
   /** Set when the table settles: players each entrant eliminated there (surrenders credit nobody). */
   kills?: Record<string, number>;
-  /** Decided on standing rather than played out (nested tournaments' round clock); never set for knockouts yet. */
-  decided?: boolean;
 }
 
 export interface TournamentRound {
   round: number;
   matches: TournamentMatch[];
+  /** Nested: when the round ends at the latest (absolute ms), and when it did end. */
+  deadline?: number;
+  endedAt?: number;
+}
+
+/** A nested tournament's settings, and from its start its plan and boards. */
+export interface NestedSettings {
+  /** Board of the final: an existing map, or null for a generated one. */
+  finalMap: string | null;
+  territoriesPerSeat: number;
+  roundMinutes: number;
+  /** Share of a round's tables that must finish before the rest are decided on standing. */
+  finishShare: number;
+  /** Set at start: the seed of every board and of the seating, the plan, and each table's board. */
+  seed?: number;
+  plan?: NestPlan;
+  boards?: string[][];
+  /** The board tree (resolveNest's list): every table's board, seats, portals and parent, known from the start. */
+  nodes?: NestNode[];
+  /** Index in `nodes` of each table's board ([round][table]). */
+  nodeOf?: number[][];
 }
 
 export interface TournamentSnapshot {
@@ -73,6 +142,9 @@ export interface TournamentSnapshot {
   createdAt: number;
   updatedAt: number;
   version: number;
+  /** Absent on tournaments saved before formats existed: a knockout. */
+  format?: TournamentFormat;
+  nested?: NestedSettings;
 }
 
 /** How many tournaments the server keeps. */
@@ -91,6 +163,16 @@ export interface CreateTournamentSpec {
   groupSize?: number;
   maxEntrants?: number;
   fillBots?: boolean;
+  /** 'nested': planned rounds on boards inside boards (the settings below); default 'knockout'. */
+  format?: TournamentFormat;
+  /** Nested: the final's board (an existing map seating 6+, with a region per seat); default a generated board. */
+  finalMap?: string;
+  /** Nested: generated boards' size, territories per seat (4-6, default 5). */
+  territoriesPerSeat?: number;
+  /** Nested: a round's deadline in minutes (1-240, default 30). */
+  roundMinutes?: number;
+  /** Nested: share of a round's tables that must finish before the rest are decided (0.1-1, default 0.51). */
+  finishShare?: number;
 }
 
 /** Public view; `you` is filled in when the caller passed their entrant token. */
@@ -104,8 +186,36 @@ export interface TournamentView {
   maxEntrants: number;
   fillBots: boolean;
   entrants: { id: string; name: string; isBot: boolean; status: 'registered' | 'playing' | 'waiting' | 'out' | 'champion' }[];
-  rounds: { round: number; matches: { gameId: string | null; status: TournamentMatch['status']; players: { entrantId: string; name: string }[]; winner: string | null }[] }[];
+  rounds: {
+    round: number;
+    /** Nested: the round's deadline and end (ms). */
+    deadline?: number;
+    endedAt?: number;
+    matches: {
+      gameId: string | null;
+      status: TournamentMatch['status'];
+      players: { entrantId: string; name: string }[];
+      winner: string | null;
+      /** Nested: the table's board, and its index in `nested.nodes`. */
+      map?: string;
+      node?: number;
+      /** Nested, decided on standing: entrants in order, and tie-break dice. */
+      standing?: TournamentMatch['standing'];
+    }[];
+  }[];
   champion: { entrantId: string; name: string } | null;
+  format: TournamentFormat;
+  /** Nested: the settings and the plan's table sizes per round (seats per table, the final last). */
+  nested?: {
+    finalMap: string | null;
+    territoriesPerSeat: number;
+    roundMinutes: number;
+    finishShare: number;
+    plan: number[][] | null;
+    zergs: number;
+    /** The board tree from the start (null before): each table's board, seats, portals, parent board and portal. */
+    nodes: NestNode[] | null;
+  };
   createdAt: number;
   updatedAt: number;
   version: number;
@@ -132,7 +242,10 @@ export interface TournamentSummary {
 
 const MAX_NAME = 24;
 const DEFAULT_MAX_ENTRANTS = 64;
+const DEFAULT_MAX_NESTED_ENTRANTS = 128;
 const MAX_ENTRANTS = 256;
+const NESTED_TABLE = { min: 3, max: 6 };
+const NESTED_FINAL = { min: 6, max: 10 };
 
 function newId(bytes: number): string {
   return randomBytes(bytes).toString('base64url');
@@ -176,10 +289,14 @@ export class TournamentManager extends EventEmitter {
 
   limits: TournamentLimits;
 
+  /** Nested tournaments' round deadline timers, by tournament id. */
+  private roundTimers = new Map<string, unknown>();
+
   constructor(
     private store: Store,
     private file: string | null,
     limits: Partial<TournamentLimits> = {},
+    private clock: TournamentClock = REAL_CLOCK,
   ) {
     super();
     this.limits = { ...DEFAULT_TOURNAMENT_LIMITS, ...limits };
@@ -199,10 +316,18 @@ export class TournamentManager extends EventEmitter {
       for (const m of this.currentRound(t)?.matches ?? []) {
         if (m.status !== 'playing' || !m.gameId) continue;
         const room = this.store.get(m.gameId);
-        if (room && !room.closed) this.watch(t, m, room);
+        if (room && !room.closed && room.decidedAt === null) this.watch(t, m, room);
         else m.status = 'abandoned';
       }
       this.advance(t);
+      // Nested: the round clock starts again from its saved deadline (a deadline passed while down ends the round now).
+      if (t.format === 'nested' && t.status === 'running') {
+        const round = this.currentRound(t);
+        if (round && !round.endedAt && round.deadline !== undefined && this.clock.now() >= round.deadline) {
+          this.endRound(t);
+          this.changed(t);
+        } else this.armRound(t);
+      }
     }
     this.prune();
   }
@@ -214,6 +339,8 @@ export class TournamentManager extends EventEmitter {
     const { maxActive } = this.limits;
     if (maxActive > 0 && [...this.tournaments.values()].filter((x) => x.status !== 'finished').length >= maxActive)
       throw new RuleError(`Too many tournaments are open right now (${maxActive}); try again when one has finished`);
+    if (spec.format === 'nested') return this.createNested(spec);
+    if (spec.format !== undefined && spec.format !== 'knockout') throw new RuleError('format must be "knockout" or "nested"');
     const options: Partial<GameOptions> = { map: 'skirmish', ...(spec.options ?? {}) };
     delete options.maxPlayers; // set per table
     const map = getMap(options.map);
@@ -248,10 +375,65 @@ export class TournamentManager extends EventEmitter {
     return t;
   }
 
+  /** A nested tournament: the boards come from the plan at start, so the settings are checked on every table size. */
+  private createNested(spec: CreateTournamentSpec): TournamentSnapshot {
+    const options: Partial<GameOptions> = { ...(spec.options ?? {}) };
+    delete options.maxPlayers; // set per table
+    delete options.map; // every table plays its own board
+    const tps = spec.territoriesPerSeat ?? 5;
+    if (!Number.isInteger(tps) || tps < 4 || tps > 6) throw new RuleError('territoriesPerSeat must be a whole number from 4 to 6');
+    const roundMinutes = spec.roundMinutes ?? 30;
+    if (!Number.isInteger(roundMinutes) || roundMinutes < 1 || roundMinutes > 240) throw new RuleError('roundMinutes must be a whole number from 1 to 240');
+    const finishShare = spec.finishShare ?? 0.51;
+    if (typeof finishShare !== 'number' || !(finishShare >= 0.1 && finishShare <= 1)) throw new RuleError('finishShare must be a number from 0.1 to 1');
+    const maxEntrants = spec.maxEntrants ?? DEFAULT_MAX_NESTED_ENTRANTS;
+    if (!Number.isInteger(maxEntrants) || maxEntrants < 2 || maxEntrants > MAX_ENTRANTS) throw new RuleError(`maxEntrants must be a whole number from 2 to ${MAX_ENTRANTS}`);
+    let finalMap: string | null = null;
+    if (spec.finalMap !== undefined) {
+      if (!isMapId(spec.finalMap)) throw new RuleError(`Unknown map "${spec.finalMap}"`);
+      finalMap = spec.finalMap;
+      if (this.maxFinal(finalMap) < NESTED_FINAL.min) throw new RuleError(`The final needs a board seating ${NESTED_FINAL.min}+ players with a region per seat`);
+    }
+    // The settings must work at every table size the plan can make, on generated boards and on the final's board.
+    for (let seats = 2; seats <= NESTED_FINAL.max; seats++) createGame('CHECK', { ...options, map: genMapId({ seed: 1, seats, territoriesPerSeat: tps }), maxPlayers: seats });
+    if (finalMap) for (let seats = NESTED_FINAL.min; seats <= this.maxFinal(finalMap); seats++) createGame('CHECK', { ...options, map: finalMap as GameOptions['map'], maxPlayers: seats });
+    let id = code();
+    while (this.tournaments.has(id)) id = code();
+    const now = Date.now();
+    const t: TournamentSnapshot = {
+      id,
+      name: String(spec.name ?? '').trim().slice(0, 60) || 'Tournament',
+      status: 'registering',
+      options,
+      groupSize: NESTED_TABLE.max,
+      maxEntrants,
+      fillBots: true,
+      entrants: [],
+      rounds: [],
+      champion: null,
+      hostToken: newId(24),
+      createdAt: now,
+      updatedAt: now,
+      version: 1,
+      format: 'nested',
+      nested: { finalMap, territoriesPerSeat: tps, roundMinutes, finishShare },
+    };
+    this.tournaments.set(id, t);
+    this.changed(t);
+    return t;
+  }
+
+  /** The biggest final a board can seat: its seats, one region per seat, at most 10. */
+  private maxFinal(map: string): number {
+    const m = getMap(map);
+    return Math.min(NESTED_FINAL.max, m.maxPlayers, m.continents.length);
+  }
+
   start(id: string): TournamentSnapshot {
     const t = this.require(id);
     if (t.status !== 'registering') throw new RuleError('This tournament has already started');
     if (!t.entrants.length) throw new RuleError('Nobody has joined yet');
+    if (t.format === 'nested') return this.startNested(t);
     if (t.fillBots) {
       const target = Math.max(2, Math.ceil(t.entrants.length / t.groupSize) * t.groupSize);
       while (t.entrants.length < target) t.entrants.push({ id: `e_${newId(6)}`, name: nextBotName(t.entrants.map((e) => e.name)), isBot: true, joinedAt: Date.now() });
@@ -279,6 +461,7 @@ export class TournamentManager extends EventEmitter {
     const t = this.tournaments.get(id.toUpperCase());
     if (!t) return false;
     this.tournaments.delete(t.id);
+    this.clearRoundTimer(t.id);
     for (const m of this.currentRound(t)?.matches ?? []) if (m.status === 'playing' && m.gameId) this.store.delete(m.gameId, 'admin');
     this.emit('change', t.id);
     this.store.requestSave();
@@ -341,7 +524,7 @@ export class TournamentManager extends EventEmitter {
         id: t.id,
         name: t.name,
         status: t.status,
-        map: String(t.options.map),
+        map: t.format === 'nested' ? 'nested' : String(t.options.map),
         entrants: t.entrants.length,
         maxEntrants: t.maxEntrants,
         round: t.rounds.length,
@@ -359,7 +542,7 @@ export class TournamentManager extends EventEmitter {
       id: t.id,
       name: t.name,
       status: t.status,
-      map: String(t.options.map),
+      map: t.format === 'nested' ? 'nested' : String(t.options.map),
       options: t.options,
       groupSize: t.groupSize,
       maxEntrants: t.maxEntrants,
@@ -367,9 +550,33 @@ export class TournamentManager extends EventEmitter {
       entrants: t.entrants.map((e) => ({ id: e.id, name: e.name, isBot: e.isBot, status: status(e) })),
       rounds: t.rounds.map((r) => ({
         round: r.round,
-        matches: r.matches.map((m) => ({ gameId: m.gameId, status: m.status, players: m.entrants.map((eid) => ({ entrantId: eid, name: name(eid) })), winner: m.winner })),
+        ...(r.deadline !== undefined ? { deadline: r.deadline } : {}),
+        ...(r.endedAt !== undefined ? { endedAt: r.endedAt } : {}),
+        matches: r.matches.map((m) => ({
+          gameId: m.gameId,
+          status: m.status,
+          players: m.entrants.map((eid) => ({ entrantId: eid, name: name(eid) })),
+          winner: m.winner,
+          ...(m.map ? { map: m.map } : {}),
+          ...(m.node !== undefined ? { node: m.node } : {}),
+          ...(m.standing ? { standing: m.standing } : {}),
+        })),
       })),
       champion: t.champion ? { entrantId: t.champion, name: name(t.champion) } : null,
+      format: t.format ?? 'knockout',
+      ...(t.nested
+        ? {
+            nested: {
+              finalMap: t.nested.finalMap,
+              territoriesPerSeat: t.nested.territoriesPerSeat,
+              roundMinutes: t.nested.roundMinutes,
+              finishShare: t.nested.finishShare,
+              plan: t.nested.plan ? t.nested.plan.rounds.map((r) => r.map((x) => x.seats)) : null,
+              zergs: t.nested.plan?.zergs ?? 0,
+              nodes: t.nested.nodes ?? null,
+            },
+          }
+        : {}),
       createdAt: t.createdAt,
       updatedAt: t.updatedAt,
       version: t.version,
@@ -544,6 +751,7 @@ export class TournamentManager extends EventEmitter {
   /** When every table of the current round is decided: crown the champion or seat the next round. */
   private advance(t: TournamentSnapshot) {
     if (t.status !== 'running') return;
+    if (t.format === 'nested') return this.checkRound(t);
     const round = this.currentRound(t);
     if (!round || round.matches.some((m) => m.status === 'playing')) return;
     const winners = round.matches.map((m) => m.winner).filter((w): w is string => !!w);
@@ -554,5 +762,144 @@ export class TournamentManager extends EventEmitter {
       return;
     }
     this.buildRound(t, winners);
+  }
+
+  // ---- nested format ----
+
+  /** Plan the rounds, add the bots the plan needs, draw the boards and seat round 1 (every table at once). */
+  private startNested(t: TournamentSnapshot): TournamentSnapshot {
+    const n = t.nested!;
+    const plan = planNest(t.entrants.length, { maxFinal: n.finalMap ? this.maxFinal(n.finalMap) : NESTED_FINAL.max });
+    for (let i = 1; i <= plan.zergs; i++) t.entrants.push({ id: `e_${newId(6)}`, name: `Bot ${i}`, isBot: true, joinedAt: Date.now() });
+    n.seed = randomBytes(4).readUInt32LE(0);
+    n.plan = plan;
+    const { boards, nodes, index } = planToNest(plan, { seed: n.seed, final: n.finalMap ? { map: n.finalMap } : undefined, boards: { territoriesPerSeat: n.territoriesPerSeat } });
+    n.boards = boards.map((round) => round.map((node) => node.map));
+    n.nodes = nodes;
+    n.nodeOf = index;
+    // Seating, from the tournament seed: people and agents first, spread over the tables, then bots fill the rest,
+    // so a table is all bots only when there are more tables than people.
+    const rng = createRng(nestSeed(n.seed, 'seats'));
+    const people = seededShuffle(rng, t.entrants.filter((e) => !e.isBot).map((e) => e.id));
+    const bots = seededShuffle(rng, t.entrants.filter((e) => e.isBot).map((e) => e.id));
+    const tables = plan.rounds[0].map(() => [] as string[]);
+    for (const eid of [...people, ...bots]) {
+      let best = -1;
+      for (let j = 0; j < tables.length; j++) {
+        const free = plan.rounds[0][j].seats - tables[j].length;
+        if (free > 0 && (best < 0 || free > plan.rounds[0][best].seats - tables[best].length)) best = j;
+      }
+      tables[best].push(eid);
+    }
+    t.status = 'running';
+    this.buildNestedRound(t, 0, tables);
+    this.changed(t);
+    return t;
+  }
+
+  /** Seat plan round `r` (0-based) with `groups[j]` at table j, start its clock. */
+  private buildNestedRound(t: TournamentSnapshot, r: number, groups: string[][]) {
+    const n = t.nested!;
+    const last = r === n.plan!.rounds.length - 1;
+    const matches: TournamentMatch[] = groups.map((entrants, j) => {
+      const map = n.boards![r][j];
+      const node = n.nodeOf?.[r]?.[j];
+      if (entrants.length === 0) return { gameId: null, entrants, seats: {}, winner: null, status: 'abandoned', table: j, map, node };
+      if (entrants.length === 1) return { gameId: null, entrants, seats: {}, winner: entrants[0], status: 'bye', table: j, map, node };
+      const players = entrants.map((eid) => this.entrant(t, eid)!);
+      const label = last ? 'Final' : `Table ${j + 1}`;
+      const { room, seats } = this.store.createTable(`${t.name} · R${r + 1} ${label}`.slice(0, 40), { ...t.options, map: map as GameOptions['map'], maxPlayers: entrants.length }, players.map((p) => ({ name: p.name, isBot: p.isBot })), t.id);
+      return { gameId: room.id, entrants, seats: Object.fromEntries(entrants.map((eid, k) => [eid, seats[k]])), winner: null, status: 'playing', table: j, map, node };
+    });
+    const round: TournamentRound = { round: r + 1, matches, deadline: this.clock.now() + n.roundMinutes * 60_000 };
+    t.rounds.push(round);
+    for (const m of matches) if (m.status === 'playing') this.watch(t, m, this.store.get(m.gameId!)!);
+    // A table already over (a bye-only round, or a game that ended while being watched) may have ended this round.
+    if (this.currentRound(t) === round && !round.endedAt) {
+      this.armRound(t);
+      this.checkRound(t);
+    }
+  }
+
+  /** End the current round once enough tables have finished (or none is left playing). */
+  private checkRound(t: TournamentSnapshot) {
+    const round = this.currentRound(t);
+    if (t.status !== 'running' || !round || round.endedAt) return;
+    const playing = round.matches.filter((m) => m.status === 'playing').length;
+    const finished = round.matches.filter((m) => m.status === 'finished' || m.status === 'bye').length;
+    if (playing === 0 || finished >= Math.ceil(t.nested!.finishShare * round.matches.length)) this.endRound(t);
+  }
+
+  /** Decide every table still playing on standing, then seat the next round or crown the champion. */
+  private endRound(t: TournamentSnapshot) {
+    const round = this.currentRound(t);
+    const n = t.nested!;
+    if (t.status !== 'running' || !round || round.endedAt) return;
+    this.clearRoundTimer(t.id);
+    const now = this.clock.now();
+    for (const m of round.matches) {
+      if (m.status !== 'playing') continue;
+      const room = m.gameId ? this.store.get(m.gameId) : undefined;
+      if (!room || room.closed) {
+        m.status = 'abandoned';
+        continue;
+      }
+      // Engine rules (rankByStanding), with dice seeded from the tournament, the round and the table: replayable.
+      const rng = createRng(nestSeed(n.seed!, `${round.round}:${m.gameId}`));
+      const standing = rankByStanding(room.state, () => nextFloat(rng), room.eliminationOrder);
+      const byPlayer = new Map(Object.entries(m.seats).map(([eid, s]) => [s.playerId, eid]));
+      const order = standing.order.map((pid) => byPlayer.get(pid)).filter((eid): eid is string => !!eid);
+      m.standing = { order, rolls: Object.fromEntries(Object.entries(standing.rolls).filter(([pid]) => byPlayer.has(pid)).map(([pid, r]) => [byPlayer.get(pid)!, r])) };
+      m.winner = order[0] ?? null;
+      m.status = m.winner ? 'decided' : 'abandoned';
+      // The tournament board: kills from the game so far, and the standing as the table's order.
+      this.scoreTable(m, room);
+      m.order = order;
+      const names = order.map((eid, i) => `${i + 1}. ${this.entrant(t, eid)?.name ?? '?'}`).join(', ');
+      room.decide(`Round ${round.round} is over: this table was decided on standing (territories, then armies, then dice): ${names}.`, now);
+    }
+    round.endedAt = now;
+    const plan = n.plan!;
+    const r = round.round - 1;
+    if (r === plan.rounds.length - 1) {
+      t.champion = round.matches[0]?.winner ?? null;
+      t.status = 'finished';
+      this.onFinished?.(t);
+      return;
+    }
+    // Every table's winner takes its seat at the parent table, in portal order.
+    const groups = plan.rounds[r + 1].map((parent) =>
+      round.matches
+        .filter((m) => plan.rounds[r][m.table!].parent === parent.index)
+        .sort((a, b) => plan.rounds[r][a.table!].portal! - plan.rounds[r][b.table!].portal!)
+        .map((m) => m.winner)
+        .filter((w): w is string => !!w),
+    );
+    this.buildNestedRound(t, r + 1, groups);
+  }
+
+  /** (Re)arm the current round's deadline timer. */
+  private armRound(t: TournamentSnapshot) {
+    this.clearRoundTimer(t.id);
+    const round = this.currentRound(t);
+    if (t.status !== 'running' || !round || round.endedAt || round.deadline === undefined) return;
+    const handle = this.clock.setTimeout(() => {
+      this.roundTimers.delete(t.id);
+      if (this.tournaments.get(t.id) !== t || this.currentRound(t) !== round) return;
+      this.endRound(t);
+      this.changed(t);
+    }, Math.max(0, round.deadline - this.clock.now()));
+    this.roundTimers.set(t.id, handle);
+  }
+
+  private clearRoundTimer(id: string) {
+    const h = this.roundTimers.get(id);
+    if (h !== undefined) this.clock.clearTimeout(h);
+    this.roundTimers.delete(id);
+  }
+
+  /** Stop every round timer (shutdown). */
+  stopTimers() {
+    for (const id of [...this.roundTimers.keys()]) this.clearRoundTimer(id);
   }
 }

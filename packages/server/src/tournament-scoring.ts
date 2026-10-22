@@ -33,8 +33,9 @@ export interface ScoredBracket {
     matches: {
       entrants: string[];
       winner: string | null;
-      status: 'playing' | 'finished' | 'bye' | 'abandoned';
-      /** Decided on standing (a round clock ran out) rather than played out: the win is worth less. */
+      /** 'decided' (nested): the round clock ran out and the table was decided on standing: the win is worth less. */
+      status: 'playing' | 'finished' | 'bye' | 'abandoned' | 'decided';
+      /** Older flag for a table decided on standing (same as status 'decided'). */
       decided?: boolean;
       /** The table's entrants best first, from the game's final placings (missing for tables settled before scoring). */
       order?: string[];
@@ -115,9 +116,9 @@ export function scoreTournament(t: ScoredBracket, finishedAt = Date.now()): Tour
       if (!m) return;
       round = i + 1;
       kills += m.kills?.[e.id] ?? 0;
-      if (m.status === 'finished' && m.winner === e.id) {
+      if ((m.status === 'finished' || m.status === 'decided') && m.winner === e.id) {
         tablesWon++;
-        tablePoints += m.decided ? DECIDED_WIN_POINTS : TABLE_WIN_POINTS;
+        tablePoints += m.status === 'decided' || m.decided ? DECIDED_WIN_POINTS : TABLE_WIN_POINTS;
       }
       if (i === L - 1) {
         const order = m.order ?? (m.winner ? [m.winner, ...m.entrants.filter((x) => x !== m.winner)] : m.entrants);

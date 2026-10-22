@@ -37,12 +37,20 @@ export function parseTournamentSpec(body: Record<string, unknown>): CreateTourna
     return v;
   };
   if (body.fillBots !== undefined && typeof body.fillBots !== 'boolean') throw new RuleError('fillBots must be true or false');
+  if (body.format !== undefined && body.format !== 'knockout' && body.format !== 'nested') throw new RuleError('format must be "knockout" or "nested"');
+  if (body.finalMap !== undefined && typeof body.finalMap !== 'string') throw new RuleError('finalMap must be a map id');
+  if (body.finishShare !== undefined && typeof body.finishShare !== 'number') throw new RuleError('finishShare must be a number');
   return {
     name: body.name === undefined ? undefined : String(body.name),
     options: body.options === undefined ? undefined : parseOptions(body.options),
     groupSize: int(body.groupSize, 'groupSize'),
     maxEntrants: int(body.maxEntrants, 'maxEntrants'),
     fillBots: body.fillBots as boolean | undefined,
+    format: body.format as CreateTournamentSpec['format'],
+    finalMap: body.finalMap as string | undefined,
+    territoriesPerSeat: int(body.territoriesPerSeat, 'territoriesPerSeat'),
+    roundMinutes: int(body.roundMinutes, 'roundMinutes'),
+    finishShare: body.finishShare as number | undefined,
   };
 }
 

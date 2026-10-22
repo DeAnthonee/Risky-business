@@ -156,7 +156,11 @@ export function GameMap(props: MapProps) {
   useEffect(() => {
     if (!globeable || flat || globe?.id === mapId) return;
     let current = true;
-    loadGlobe(mapId).then((g) => current && setGlobe(g));
+    loadGlobe(mapId)
+      .then((g) => current && setGlobe(g))
+      .catch(() => {
+        // The globe chunk failed to load (offline, a new deploy): keep the flat map.
+      });
     return () => {
       current = false;
     };

@@ -47,6 +47,8 @@ const risk = createRiskServer(store, {
   ]),
   // TEMPORARY: tournaments are open to create while testing; RISK_TOURNAMENTS_OPEN=0 makes them host-only.
   openTournaments: process.env.RISK_TOURNAMENTS_OPEN !== '0',
+  // The site's "Archive season" button: unset = off.
+  seasonKey: process.env.RISK_SEASON_KEY || null,
 });
 
 risk.server.listen(PORT, HOST, () => {

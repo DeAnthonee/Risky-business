@@ -12,6 +12,7 @@ import { attachWebSocket } from './ws.js';
 import { buildInfo } from './build-info.js';
 import { createMcpRouter } from './mcp.js';
 import { CharacterStore } from './characters.js';
+import type { SeasonKeyGuard } from './season-key.js';
 
 export interface AppOptions {
   /** Directory holding the built web client (served if it exists). */
@@ -29,6 +30,10 @@ export interface AppOptions {
    * Turn off before launch (RISK_TOURNAMENTS_OPEN=0) so only the host can.
    */
   openTournaments?: boolean;
+  /** RISK_SEASON_KEY: lets the site archive the public leaderboard's season with this password (unset = off). */
+  seasonKey?: string | null;
+  /** Tests: the season-key guard (limits and clock). */
+  seasonGuard?: SeasonKeyGuard;
   /** Sweep interval for idle rooms; 0 disables the automatic sweeper (tests). */
   sweepIntervalMs?: number;
 }
@@ -86,7 +91,7 @@ export function createRiskServer(store: Store, opts: AppOptions = {}): RiskServe
     next();
   });
   const characters = opts.characters ?? new CharacterStore(DEFAULT_AI_DIR, null);
-  app.use('/api', createApi(store, { adminToken: opts.adminToken, recordsKey: opts.recordsKey, openTournaments: opts.openTournaments ?? true, characters }));
+  app.use('/api', createApi(store, { adminToken: opts.adminToken, recordsKey: opts.recordsKey, openTournaments: opts.openTournaments ?? true, characters, seasonKey: opts.seasonKey, seasonGuard: opts.seasonGuard }));
   if (opts.sweepIntervalMs !== 0) store.startSweeper(opts.sweepIntervalMs ?? 30_000);
 
   // Remote MCP endpoint for AI agents (claude.ai connectors, any Streamable HTTP MCP client).

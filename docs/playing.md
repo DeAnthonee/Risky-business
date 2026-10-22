@@ -67,6 +67,21 @@ those three parts; hover a bar for the numbers. Each row also shows the player's
 possible; orange at 4+). Card counts are public, so under fog of war a seated player still gets the card-count list.
 In a progressive-cards game the top bar shows what the **next set** is worth (hover for the next three values).
 
+## Watching a nested tournament
+
+A nested ("Inception") tournament's page (`?tournament=CODE`) shows the round clock ("Round 1 · 9 of 17 tables needed ·
+14:20 left": a round ends when enough tables finish or the time runs out, and the tables still playing are then
+decided on standing) and three tabs:
+- **Map:** the final's board with every table's board drawn inside its territory, boards inside boards. Click a board
+  to zoom in, Esc, **Zoom out** or the breadcrumb to zoom out, and **Watch table** to open a table as a spectator.
+- **Bracket:** every round from the final down; a table decided on standing lists its order and the tie-break dice.
+- **Live tables:** the tables being played, the most exciting first.
+
+**Follow the action** (Map tab) is an opt-in switch, off by default. While it is on, the view moves by itself to the
+most exciting table, with a caption saying why. Any zoom by hand turns it off. It needs the server's live tournament
+feed, and it is never offered to someone holding a seat in the tournament. The page also links to the tournament
+leaderboard.
+
 ## Rules implemented
 
 Classic Hasbro world-domination rules on the classic board: 42 territories / 6 continents, 2–6 players (2-player games get the

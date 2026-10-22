@@ -16,15 +16,55 @@ export interface TableSnapshot {
 }
 
 const ZOOM_MS = 600;
+/** Board generation per slice of the main thread, so a big tree never blocks the page in one go. */
+const SLICE_MS = 12;
+
+/**
+ * Boards appear as they are generated, outermost first (nodes are breadth-first, so a parent is always ready before its
+ * children). Generated boards take a few ms each; 40+ of them at once would freeze the page for a second or two.
+ */
+function useReadyBoards(nodes: NestNode[]): number {
+  const [ready, setReady] = useState(() => (nodes.length ? (getMap(nodes[0].map), 1) : 0));
+  useEffect(() => {
+    let i = 1;
+    let timer = 0;
+    setReady(Math.min(1, nodes.length));
+    const work = () => {
+      const until = performance.now() + SLICE_MS;
+      while (i < nodes.length && performance.now() < until) getMap(nodes[i++].map);
+      setReady(i);
+      if (i < nodes.length) timer = window.setTimeout(work, 0);
+    };
+    if (nodes.length > 1) timer = window.setTimeout(work, 0);
+    return () => window.clearTimeout(timer);
+  }, [nodes]);
+  return ready;
+}
 
 /**
  * The "Inception" view of a nested tournament: the outermost board, with each table's board drawn inside its portal
  * territory, and so on down. Click a portal to zoom into it, Esc or the breadcrumb to zoom out. At a table, "Watch
  * table" opens its game as a spectator. It never moves the viewer by itself (README hard rule 10).
  */
-export function Inception({ nodes, tables, onWatch }: { nodes: NestNode[]; tables: Record<number, TableSnapshot>; onWatch?: (gameId: string) => void }) {
-  const maps = useMemo(() => nodes.map((n) => getMap(n.map)), [nodes]);
-  const places = useMemo(() => layoutNest(nodes, getMap), [nodes]);
+export function Inception({
+  nodes,
+  tables,
+  onWatch,
+  follow,
+  onManualZoom,
+}: {
+  nodes: NestNode[];
+  tables: Record<number, TableSnapshot>;
+  onWatch?: (gameId: string) => void;
+  /** Opt-in "Follow the action": the table to show and why. The view zooms there by itself only while this is set. */
+  follow?: { node: number; caption: string } | null;
+  /** The viewer zoomed by hand (click, Esc, breadcrumb): the page turns following off. */
+  onManualZoom?: () => void;
+}) {
+  const ready = useReadyBoards(nodes);
+  const shown = useMemo(() => nodes.slice(0, ready), [nodes, ready]);
+  const maps = useMemo(() => shown.map((n) => getMap(n.map)), [shown]);
+  const places = useMemo(() => layoutNest(shown, getMap), [shown]);
   const children = useMemo(() => {
     const by: number[][] = nodes.map(() => []);
     nodes.forEach((n, i) => n.parent !== null && by[n.parent].push(i));
@@ -56,18 +96,31 @@ export function Inception({ nodes, tables, onWatch }: { nodes: NestNode[]; table
     [places],
   );
   useEffect(() => () => void (anim.current !== null && cancelAnimationFrame(anim.current)), []);
+  // Following: go to the followed table once its board is drawn.
+  const followNode = follow?.node;
+  useEffect(() => {
+    if (followNode !== undefined && followNode < places.length && followNode !== focus) zoomTo(followNode);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [followNode, places.length]);
+  const zoomByHand = (index: number) => {
+    onManualZoom?.();
+    zoomTo(index);
+  };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && nodes[focus].parent !== null) zoomTo(nodes[focus].parent!);
+      if (e.key === 'Escape' && nodes[focus].parent !== null) {
+        onManualZoom?.();
+        zoomTo(nodes[focus].parent!);
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [focus, nodes, zoomTo]);
+  }, [focus, nodes, zoomTo, onManualZoom]);
 
   // Draw boards down to two levels below the focused one; deeper ones are too small to see.
   const depthLimit = nodes[focus].depth + 2;
   const trail = pathTo(nodes, focus);
-  const label = (i: number) => (nodes[i].parent === null ? 'Final' : maps[nodes[i].parent!].territoryById[nodes[i].portal!]?.name ?? nodes[i].portal!);
+  const label = (i: number) => (nodes[i].parent === null ? 'Final' : (maps[nodes[i].parent!]?.territoryById[nodes[i].portal!]?.name ?? nodes[i].portal!));
   const table = tables[focus];
   const strokeW = camera[2] / 900;
 
@@ -77,18 +130,19 @@ export function Inception({ nodes, tables, onWatch }: { nodes: NestNode[]; table
         {trail.map((i, k) => (
           <span key={i}>
             {k > 0 && ' › '}
-            {i === focus ? <strong>{label(i)}</strong> : <button onClick={() => zoomTo(i)}>{label(i)}</button>}
+            {i === focus ? <strong>{label(i)}</strong> : <button onClick={() => zoomByHand(i)}>{label(i)}</button>}
           </span>
         ))}
+        {follow && <span className="inception-follow">{follow.caption}</span>}
         {nodes[focus].parent !== null && (
-          <button className="inception-out" onClick={() => zoomTo(nodes[focus].parent!)} title="Zoom out (Esc)">
+          <button className="inception-out" onClick={() => zoomByHand(nodes[focus].parent!)} title="Zoom out (Esc)">
             Zoom out
           </button>
         )}
       </nav>
       <div className="inception-body">
         <svg className="inception-svg" viewBox={camera.join(' ')} preserveAspectRatio="xMidYMid meet" role="img" aria-label={`Nested tournament, ${label(focus)}`}>
-          {nodes.map((n, i) =>
+          {shown.map((n, i) =>
             n.depth > depthLimit ? null : (
               <g key={i} transform={`translate(${places[i].x} ${places[i].y}) scale(${places[i].scale})`}>
                 {n.parent !== null && <rect className="inception-frame" width={places[i].w} height={places[i].h} rx={places[i].w / 40} />}
@@ -98,7 +152,7 @@ export function Inception({ nodes, tables, onWatch }: { nodes: NestNode[]; table
                     className="inception-hit"
                     width={places[i].w}
                     height={places[i].h}
-                    onClick={() => zoomTo(i)}
+                    onClick={() => zoomByHand(i)}
                     style={{ strokeWidth: strokeW / places[i].scale }}
                   >
                     <title>Zoom into {label(i)}</title>

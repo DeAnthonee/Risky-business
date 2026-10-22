@@ -4,9 +4,11 @@ Covers `packages/server` (rooms, `/api`, `/ws`, persistence, bots, tournaments, 
 except character saves ([characters.md](characters.md)) and deploy behaviour ([hosting.md](hosting.md)). Guides:
 [docs/http-api.md](../http-api.md), [docs/tournaments.md](../tournaments.md), [docs/game-records.md](../game-records.md).
 
-Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. Changes from before pull requests carry the
-commit hash instead. **Append a line in the same PR** as any change to this area (README hard rule 12).
+Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. Changes from before pull requests carry the commit
+hash instead. **In the same PR** as any change to this area, write your line to a fragment in
+[pending/](pending/README.md), not to this file (README hard rule 12; folded in by `npm run logs:fold`).
 
+- 2026-10-22 #182 tournaments: `POST /tournaments/:id/bots {kind, count}` (host token) adds built-in bots or Zerg entrants (`Entrant.kind`, reptile names unique in the tournament); `createTable` seats a Zerg entrant as a Zerg (`zerg_` id); `fillBots` names never clash with added bots
 - 2026-10-22 #180 player-type labels: `agent` on `POST /games`, `/games/:id/join` and `/tournaments/:id/join` (self-declared; bots `"bot"`, Zergs `"zerg"`), stored per room (`agents` in snapshots, optional); only the spectator view (no seat token: `GET /games/:id`, `/wait`, WebSocket) carries them, never a seat's reply, chat, the log or `/games`; finished records (`room.agents`), the archive index and `/history` include them
 - 2026-10-21 #184 `excitement.ts`: `excitementScore` (a table's 0-100 excitement from its spectator view and recent events, the §4.1 signals) and `pickFollow` (stay 20 s, switch for +15 or when the table ends, with a caption); pure, not wired into a feed yet
 - 2026-10-21 #179 scale groundwork: one WebSocket spectator frame per (room, change), shared by every spectator socket; snapshot debounce 2 s while more than 10 games play (0.5 s otherwise); tournament tables save only their last 500 history entries

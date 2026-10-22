@@ -131,9 +131,13 @@ A nested ("Inception") tournament's page (`?tournament=CODE`) shows the round cl
 decided on standing) and three tabs:
 - **Map:** the final's board with every table's board drawn inside its territory, boards inside boards. Click a board
   to zoom in, Esc, **Zoom out** or the breadcrumb to zoom out, and **Watch table** to open a table as a spectator.
-  When the board in view is Hex Earth (a final with `finalMap: 'hexworld'`), it is a spinning globe whose portal
-  territories are raised in gold: click one to zoom into the flat board inside it; **Flat** / **Globe** switches (the
-  same choice as in games). Dev builds preview it at `/?dev=inception&players=40&final=hexworld`.
+  **Globe** / **Flat** switches the Map tab between this flat view and a spinning **globe of the round in play**: every
+  live table's board is a patch of the sphere in its holders' colours, updated from the live feed. Click a patch to
+  focus that table (the camera turns to it, **Watch table** opens it); a new round redraws the next boards. When the
+  round in play is a final on Hex Earth (`finalMap: 'hexworld'`), the globe is Hex Earth itself with its portal
+  territories raised in gold (click one to zoom into the flat board inside). The choice is remembered like the game
+  view's, and browsers without WebGL keep the flat view. Dev builds preview it at `/?dev=inception&players=100`
+  (32 tables) and `/?dev=inception&players=40&final=hexworld`.
 - **Bracket:** every round from the final down; a table decided on standing lists its order and the tie-break dice.
 - **Live tables:** the tables being played, the most exciting first.
 

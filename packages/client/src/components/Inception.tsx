@@ -3,9 +3,12 @@ import { getMap, type MapDef, type NestNode } from '@risk/engine';
 import { continentColor } from './Map';
 import { cameraFor, layoutNest, lerpCamera, pathTo } from '../inception';
 import { hasGlobe, loadGlobe, preferFlat, setPreferFlat, webglAvailable, type GlobeData } from '../globeData';
+import { liveDepth } from '../globeLayout';
 
-// A hex-globe board in focus (Hex Earth as the final) is shown as a spinning globe; three.js is the globe's lazy chunk.
+// The Globe view (three.js, the globe's lazy chunk): the round in play tiled on a sphere (LiveGlobe), or a final on a
+// hex-globe board (Hex Earth) as that globe with its portals (InceptionGlobe).
 const InceptionGlobe = lazy(() => import('./GlobeMap').then((m) => ({ default: m.InceptionGlobe })));
+const LiveGlobe = lazy(() => import('./GlobeMap').then((m) => ({ default: m.LiveGlobe })));
 
 /** What the view knows about one table: who holds what, and how it stands. From the tournament feed (later) or a demo. */
 export interface TableSnapshot {
@@ -128,16 +131,23 @@ export function Inception({
   const table = tables[focus];
   const strokeW = camera[2] / 900;
 
-  // The focused board on a globe, when it is a hex-globe board and the browser can draw one (Flat / Globe to switch,
-  // remembered like the game view's choice). Clicking a gold portal zooms into the flat board inside it.
-  const focusMap = nodes[focus].map;
-  const globeable = hasGlobe(focusMap) && webglAvailable();
+  // The Globe view (Flat / Globe to switch, remembered like the game view's choice; flat without WebGL). It shows the
+  // round in play: every live table's board as a patch of the sphere in its holders' colours, click one to focus it.
+  // When the round in play is a final on a hex-globe board (Hex Earth), that globe instead, its portals in gold.
+  const webgl = webglAvailable();
   const [flat, setFlat] = useState(preferFlat);
+  const chooseFlat = (toFlat: boolean) => {
+    setFlat(toFlat);
+    setPreferFlat(toFlat);
+  };
+  const depth = useMemo(() => liveDepth(nodes, (i) => tables[i]?.status), [nodes, tables]);
+  const rootMap = nodes[0].map;
+  const finalOnGlobe = depth === 0 && hasGlobe(rootMap);
   const [globe, setGlobe] = useState<GlobeData | null>(null);
   useEffect(() => {
-    if (!globeable || flat || globe?.id === focusMap) return;
+    if (!webgl || flat || !finalOnGlobe || globe?.id === rootMap) return;
     let current = true;
-    loadGlobe(focusMap)
+    loadGlobe(rootMap)
       .then((g) => current && setGlobe(g))
       .catch(() => {
         // The globe chunk failed to load: keep the flat view.
@@ -145,21 +155,18 @@ export function Inception({
     return () => {
       current = false;
     };
-  }, [focusMap, globeable, flat, globe]);
-  const chooseFlat = (toFlat: boolean) => {
-    setFlat(toFlat);
-    setPreferFlat(toFlat);
-  };
-  const focusBoard = maps[focus];
-  const fillOf = useCallback(
-    (t: string) => {
-      const owner = table?.owners?.[t];
-      return owner === undefined ? continentColor(focusBoard, focusBoard.territoryById[t]?.continent ?? '') : owner === null ? '#cfc6b8' : (table!.players[owner]?.color ?? '#999');
+  }, [rootMap, webgl, flat, finalOnGlobe, globe]);
+  const colourIn = useCallback(
+    (node: number, t: string) => {
+      const board = getMap(nodes[node].map);
+      const snap = tables[node];
+      const owner = snap?.owners?.[t];
+      return owner === undefined ? continentColor(board, board.territoryById[t]?.continent ?? '') : owner === null ? '#cfc6b8' : (snap!.players[owner]?.color ?? '#999');
     },
-    [table, focusBoard],
+    [nodes, tables],
   );
-  const portalChild = (t: string) => children[focus].find((i) => nodes[i].portal === t);
-  const showGlobe = globeable && !flat && globe?.id === focusMap && !!focusBoard;
+  const rootFill = useCallback((t: string) => colourIn(0, t), [colourIn]);
+  const mode = !webgl || flat ? 'flat' : finalOnGlobe ? (globe?.id === rootMap ? 'hexglobe' : 'flat') : ready === nodes.length ? 'live' : 'flat';
 
   return (
     <div className="inception">
@@ -171,8 +178,8 @@ export function Inception({
           </span>
         ))}
         {follow && <span className="inception-follow">{follow.caption}</span>}
-        {globeable && (
-          <button className="inception-out" onClick={() => chooseFlat(!flat)} title={flat ? 'Show this board as a globe' : 'Show the flat board'}>
+        {webgl && (
+          <button className="inception-out" onClick={() => chooseFlat(!flat)} title={flat ? 'Show the round in play on a globe' : 'Show the flat boards'}>
             {flat ? 'Globe' : 'Flat'}
           </button>
         )}
@@ -183,18 +190,22 @@ export function Inception({
         )}
       </nav>
       <div className="inception-body">
-        {showGlobe ? (
+        {mode === 'hexglobe' ? (
           <Suspense fallback={<div className="inception-globe" />}>
             <InceptionGlobe
               globe={globe!}
-              fill={fillOf}
-              portals={nodes[focus].portals}
-              labelOf={(t) => focusBoard.territoryById[t]?.name ?? t}
+              fill={rootFill}
+              portals={nodes[0].portals}
+              labelOf={(t) => maps[0]?.territoryById[t]?.name ?? t}
               onPortal={(t) => {
-                const child = portalChild(t);
+                const child = children[0].find((i) => nodes[i].portal === t);
                 if (child !== undefined) zoomByHand(child);
               }}
             />
+          </Suspense>
+        ) : mode === 'live' ? (
+          <Suspense fallback={<div className="inception-globe" />}>
+            <LiveGlobe nodes={nodes} depth={depth} mapOf={getMap} fill={colourIn} focus={focus} labelOf={label} onPick={zoomByHand} version={tables} />
           </Suspense>
         ) : (
           <svg className="inception-svg" viewBox={camera.join(' ')} preserveAspectRatio="xMidYMid meet" role="img" aria-label={`Nested tournament, ${label(focus)}`}>

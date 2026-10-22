@@ -59,8 +59,10 @@ round; the boards nest inside each other's territories (the map side: [maps.md](
 - **Start.** The engine's `planNest` plans the rounds for the entrants: tables of 3-6, uneven by at most one in a
   round, and a final of 6-10. Zerg entrants are added only when the count fits no plan (11-17 entrants fill to 18; under 6 fill
   the final to 6). A random seed, saved with the tournament, fixes every board (`planToNest`, generated gen1 boards
-  sized for each table) and the seating: people and agents are spread over the round-1 tables first, then bots fill
-  the rest, so a table is all bots only when there are more tables than people. **Every round-1 table starts at
+  sized for each table) and the seating: the planner's filler Zergs are spread first, as the plan shares them out (at
+  most one more at any table than at another), then people and agents over the free seats, then the host's own bots
+  fill the rest, so a table is all bots only when there are more tables than people. Filler Zergs move up like any
+  entrant when they win. **Every round-1 table starts at
   once.**
 - **The round clock.** A round ends at the first of: `ceil(finishShare × tables)` tables finished by a win (byes
   count; tables decided on standing do not), no table left playing, or the round's deadline (`roundMinutes` after it

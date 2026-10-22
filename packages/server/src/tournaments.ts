@@ -785,7 +785,12 @@ export class TournamentManager extends EventEmitter {
     const n = t.nested!;
     const plan = planNest(t.entrants.length, { maxFinal: n.finalMap ? this.maxFinal(n.finalMap) : NESTED_FINAL.max });
     // The bots the plan needs are Zerg entrants (docs/zergs.md), with reptile names unique in the tournament.
-    for (let i = 1; i <= plan.zergs; i++) t.entrants.push({ id: `e_${newId(6)}`, name: freeZergName(t.entrants.map((e) => e.name)), isBot: true, kind: 'zerg', joinedAt: Date.now() });
+    const fillers: string[] = [];
+    for (let i = 1; i <= plan.zergs; i++) {
+      const entrant: Entrant = { id: `e_${newId(6)}`, name: freeZergName(t.entrants.map((e) => e.name)), isBot: true, kind: 'zerg', joinedAt: Date.now() };
+      t.entrants.push(entrant);
+      fillers.push(entrant.id);
+    }
     n.seed = randomBytes(4).readUInt32LE(0);
     n.plan = plan;
     const { boards, nodes, index } = planToNest(plan, { seed: n.seed, final: n.finalMap ? { map: n.finalMap } : undefined, boards: { territoriesPerSeat: n.territoriesPerSeat } });
@@ -793,12 +798,16 @@ export class TournamentManager extends EventEmitter {
     n.portals = boards.map((round) => round.map((node) => node.portals));
     n.nodes = nodes;
     n.nodeOf = index;
-    // Seating, from the tournament seed: people and agents first, spread over the tables, then bots fill the rest,
-    // so a table is all bots only when there are more tables than people.
+    // Seating, from the tournament seed. The planner's filler Zergs first, spread as the plan shares them out (at most
+    // one more at any table than at another; owner's rule), then people and agents, spread over the free seats, then
+    // the host's own bots fill the rest, so a table is all bots only when there are more tables than people.
     const rng = createRng(nestSeed(n.seed, 'seats'));
+    const filler = new Set(fillers);
     const people = seededShuffle(rng, t.entrants.filter((e) => !e.isBot).map((e) => e.id));
-    const bots = seededShuffle(rng, t.entrants.filter((e) => e.isBot).map((e) => e.id));
+    const bots = seededShuffle(rng, t.entrants.filter((e) => e.isBot && !filler.has(e.id)).map((e) => e.id));
     const tables = plan.rounds[0].map(() => [] as string[]);
+    const spread = seededShuffle(rng, fillers);
+    plan.rounds[0].forEach((table, j) => tables[j].push(...spread.splice(0, table.zergs)));
     for (const eid of [...people, ...bots]) {
       let best = -1;
       for (let j = 0; j < tables.length; j++) {

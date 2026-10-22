@@ -98,7 +98,9 @@ export function InceptionDemo() {
   const params = new URLSearchParams(location.search);
   const players = Math.max(6, Math.min(400, Number(params.get('players')) || 100));
   const seed = Number(params.get('seed')) || 7;
-  const nodes = useMemo(() => resolveNest(planToNest(planNest(players), { seed }).spec), [players, seed]);
+  // `final=hexworld` (any existing board seating the final) plays the final there instead of on a generated board.
+  const finalMap = params.get('final');
+  const nodes = useMemo(() => resolveNest(planToNest(planNest(players), { seed, ...(finalMap ? { final: { map: finalMap } } : {}) }).spec), [players, seed, finalMap]);
   const base = useMemo(() => mockTables(nodes, seed), [nodes, seed]);
   const liveIndex = nodes.length - 1;
   const live = useLiveTable(nodes[liveIndex], seed);
@@ -116,7 +118,7 @@ export function InceptionDemo() {
         <p className="muted">
           {players} players · {nodes.length} boards ({nodes.filter((n) => n.portals.length === 0).length} first-round tables) · mock tables, one live bot game
           (the last board) · drawn {renderMs ?? '…'} ms after load started · <a href="?dev=inception&players=40">40</a> · <a href="?dev=inception&players=100">100</a> ·{' '}
-          <a href="?dev=inception&players=250">250</a>
+          <a href="?dev=inception&players=250">250</a> · <a href="?dev=inception&players=40&final=hexworld">Hex Earth final</a>
         </p>
       </header>
       <Inception nodes={nodes} tables={tables} onWatch={(id) => alert(`Would open /?game=${id}&spectate=1`)} />

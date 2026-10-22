@@ -680,3 +680,198 @@ export default function GlobeMap(props: Props) {
     </div>
   );
 }
+
+/**
+ * A light globe for the Inception view of a nested tournament: one hex-globe board coloured by `fill` (the table's
+ * holders, or regions before the deal), its portal territories raised in gold. Click a portal to zoom into the board
+ * inside it (the flat sub-board); drag to spin, wheel or pinch to zoom. It spins slowly by itself unless the viewer
+ * prefers reduced motion. No game state: the Inception view hands it colours only.
+ */
+export function InceptionGlobe({
+  globe,
+  fill,
+  portals,
+  labelOf,
+  onPortal,
+}: {
+  globe: GlobeData;
+  /** Colour of each territory (by id). */
+  fill: (territory: string) => string;
+  portals: string[];
+  labelOf: (territory: string) => string;
+  onPortal: (territory: string) => void;
+}) {
+  const shape = useMemo(() => buildShape(globe), [globe]);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [hover, setHover] = useState<string | null>(null);
+  const live = useRef({ fill, portals, onPortal });
+  live.current = { fill, portals, onPortal };
+  const repaint = useRef<() => void>(() => undefined);
+
+  useEffect(() => {
+    const wrap = wrapRef.current;
+    if (!wrap) return;
+    let renderer: THREE.WebGLRenderer;
+    try {
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    } catch {
+      return;
+    }
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.domElement.className = 'globe-canvas';
+    wrap.prepend(renderer.domElement);
+    const scn = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(35, 1, 0.05, 50);
+    scn.add(new THREE.AmbientLight(0xffffff, 0.85));
+    const sun = new THREE.DirectionalLight(0xffffff, 1.4);
+    sun.position.set(2, 3, 4);
+    camera.add(sun);
+    scn.add(camera);
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.enablePan = false;
+    controls.minDistance = 1.45;
+    controls.maxDistance = 4.6;
+    controls.autoRotateSpeed = 0.35;
+    controls.autoRotate = !reducedMotion();
+    // Start facing the portals.
+    const facing = live.current.portals.map((t) => shape.badgeDir.get(t)?.clone()).filter(Boolean) as THREE.Vector3[];
+    const home = facing.reduce((s, v) => s.add(v), new THREE.Vector3());
+    camera.position.copy(home.lengthSq() > 1e-6 ? home.normalize() : lonLatToVec(10, 20)).multiplyScalar(4);
+    controls.update();
+
+    const disposables: { dispose: () => void }[] = [];
+    const keep = <T extends { dispose: () => void }>(x: T) => (disposables.push(x), x);
+    scn.add(new THREE.Mesh(keep(new THREE.SphereGeometry(0.997, 64, 48)), keep(new THREE.MeshStandardMaterial({ color: 0x2c6e8a, roughness: 1 }))));
+    const geo = keep(new THREE.BufferGeometry());
+    const mesh = new THREE.Mesh(geo, keep(new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.8, side: THREE.DoubleSide })));
+    scn.add(mesh);
+    const lines = keep(new THREE.BufferGeometry());
+    scn.add(new THREE.LineSegments(lines, keep(new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.45 }))));
+    let triCell: number[] = [];
+
+    const paint = () => {
+      const { fill: colour, portals: gates } = live.current;
+      const portalSet = new Set(gates);
+      const pos: number[] = [];
+      const col: number[] = [];
+      triCell = [];
+      const c = new THREE.Color();
+      const heightOf = (t: number) => (t >= 0 ? (portalSet.has(globe.territories[t]) ? LAND + 0.03 : LAND) : t === -2 ? ICE : 1);
+      globe.cells.forEach((cell, ci) => {
+        const id = cell.t >= 0 ? globe.territories[cell.t] : null;
+        const h = heightOf(cell.t);
+        if (id && portalSet.has(id)) c.set('#f2c14e');
+        else if (id) c.set(colour(id));
+        else c.set(cell.t === -2 ? '#e6edf5' : '#3b86a8');
+        c.offsetHSL(0, 0, (((ci * 7) % 5) - 2) * 0.01);
+        const side = c.clone().multiplyScalar(0.6);
+        const ctr = shape.centres[ci].clone().multiplyScalar(h);
+        const ring = cell.v.map((k) => shape.corners[k].clone().multiplyScalar(h));
+        const base = cell.v.map((k) => shape.corners[k].clone().multiplyScalar(0.999));
+        const put = (p: THREE.Vector3, k: THREE.Color) => {
+          pos.push(p.x, p.y, p.z);
+          col.push(k.r, k.g, k.b);
+        };
+        for (let j = 0; j < ring.length; j++) {
+          const n = (j + 1) % ring.length;
+          put(ctr, c), put(ring[n].clone().lerp(ctr, 0.035), c), put(ring[j].clone().lerp(ctr, 0.035), c);
+          triCell.push(ci);
+          if (h > 1) {
+            put(ring[j], side), put(ring[n], side), put(base[j], side);
+            put(ring[n], side), put(base[n], side), put(base[j], side);
+            triCell.push(ci, ci);
+          }
+        }
+      });
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+      geo.computeBoundingSphere();
+      const seg: number[] = [];
+      for (const [p, q, a, b] of shape.borders) {
+        const r = Math.max(heightOf(globe.cells[a].t), heightOf(globe.cells[b].t)) + 0.0008;
+        const [A, B] = [shape.corners[p].clone().multiplyScalar(r), shape.corners[q].clone().multiplyScalar(r)];
+        seg.push(A.x, A.y, A.z, B.x, B.y, B.z);
+      }
+      lines.setAttribute('position', new THREE.Float32BufferAttribute(seg, 3));
+    };
+    paint();
+    repaint.current = paint;
+
+    const ray = new THREE.Raycaster();
+    const ndc = new THREE.Vector2();
+    const pick = (e: PointerEvent): string | null => {
+      const r = renderer.domElement.getBoundingClientRect();
+      ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+      ray.setFromCamera(ndc, camera);
+      const hit = ray.intersectObject(mesh, false)[0];
+      if (!hit || hit.faceIndex == null) return null;
+      const t = globe.cells[triCell[hit.faceIndex]]?.t ?? -1;
+      return t >= 0 ? globe.territories[t] : null;
+    };
+    const isPortal = (id: string | null): id is string => !!id && live.current.portals.includes(id);
+    let down: { x: number; y: number } | null = null;
+    const el = renderer.domElement;
+    const onDown = (e: PointerEvent) => {
+      down = { x: e.clientX, y: e.clientY };
+      controls.autoRotate = false; // grabbed: stop spinning for good
+    };
+    const onUp = (e: PointerEvent) => {
+      if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) < 6) {
+        const id = pick(e);
+        if (isPortal(id)) live.current.onPortal(id);
+      }
+      down = null;
+    };
+    const onMove = (e: PointerEvent) => {
+      if (e.buttons) return;
+      const id = pick(e);
+      setHover(isPortal(id) ? id : null);
+      el.style.cursor = isPortal(id) ? 'pointer' : '';
+    };
+    el.addEventListener('pointerdown', onDown);
+    el.addEventListener('pointerup', onUp);
+    el.addEventListener('pointermove', onMove);
+    const resize = () => {
+      const w = wrap.clientWidth || 1;
+      const h = wrap.clientHeight || 1;
+      renderer.setSize(w, h, false);
+      camera.aspect = w / h;
+      camera.fov = w >= h ? 35 : Math.min(70, 2 * Math.atan(Math.tan((35 * Math.PI) / 360) / camera.aspect) * (180 / Math.PI));
+      camera.updateProjectionMatrix();
+    };
+    const ro = new ResizeObserver(resize);
+    ro.observe(wrap);
+    resize();
+    let raf = 0;
+    const frame = () => {
+      raf = requestAnimationFrame(frame);
+      controls.update();
+      renderer.render(scn, camera);
+    };
+    raf = requestAnimationFrame(frame);
+    return () => {
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+      el.removeEventListener('pointerdown', onDown);
+      el.removeEventListener('pointerup', onUp);
+      el.removeEventListener('pointermove', onMove);
+      controls.dispose();
+      for (const d of disposables) d.dispose();
+      renderer.dispose();
+      el.remove();
+      repaint.current = () => undefined;
+    };
+  }, [globe, shape]);
+
+  // New holders or portals: repaint the hexes.
+  useEffect(() => {
+    repaint.current();
+  }, [fill, portals]);
+
+  return (
+    <div ref={wrapRef} className="inception-globe">
+      {hover && <div className="globe-hover-name">Zoom into {labelOf(hover)}</div>}
+    </div>
+  );
+}

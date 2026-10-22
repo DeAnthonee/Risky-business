@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path';
 import {
   RuleError,
   endByStanding,
+  onlySideLeft,
   addPlayer,
   applyAction,
   createGame,
@@ -379,12 +380,21 @@ export class GameRoom extends EventEmitter {
    */
   private endIfOnlySwarm() {
     const s = this.state;
-    if (s.phase === 'lobby' || s.phase === 'finished') return;
-    const living = s.players.filter((p) => !p.isNeutral && p.alive);
-    if (!living.length || !living.every((p) => isZergSeat(p.id))) return;
+    // The server only says which seats are Zergs (a seating concept); whether that side is all that is left, and not
+    // mid-conquest, is the engine's call (onlySideLeft): the game ends on the occupy, never with a 0-army territory.
+    const zergs = new Set(s.players.filter((p) => isZergSeat(p.id)).map((p) => p.id));
+    // The last non-Zerg just fell to an attack and the armies have not moved in. The Zerg's own rule (no prey left and
+    // not the strongest: surrender) would come before its occupy, so the server moves the minimum in for it, as an
+    // ordinary move through commit; that commit then ends the game on a legal board.
+    const pc = s.pendingConquest;
+    if (pc && s.currentPlayer && zergs.has(s.currentPlayer) && onlySideLeft({ ...s, pendingConquest: null }, zergs)) {
+      this.act(s.currentPlayer, { type: 'occupy', armies: pc.minArmies });
+      return;
+    }
+    if (!onlySideLeft(s, zergs)) return;
     // A table seated with Zergs only (e.g. a tournament table) ends right after the deal too, unless switched off.
     if (!ALL_ZERG_TABLES_END_AT_ONCE && s.players.every((p) => p.isNeutral || isZergSeat(p.id))) return;
-    const { state, events } = endByStanding(s, new Set(living.map((p) => p.id)));
+    const { state, events } = endByStanding(s, new Set(s.players.filter((p) => p.alive && zergs.has(p.id)).map((p) => p.id)));
     this.addChat(null, 'Game', 'Only Zergs are left: the swarm has won, and the game ends as it stands.');
     this.commit(state, events, null, { type: 'system', note: 'only Zergs are left: the swarm has won, the game ends by standing' });
   }

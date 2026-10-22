@@ -52,6 +52,17 @@ function breakTie(ids: PlayerId[], random: RandomSource, rolls: Record<PlayerId,
 }
 
 /**
+ * Whether only `side` is left: the game is in progress, not in the middle of a conquest (the armies have not moved in
+ * yet: the engine's own victory waits for the occupy too), and every living player is one of `side`, with at least
+ * one alive. The server says who the side is (it knows which seats are Zergs); the decision is the engine's.
+ */
+export function onlySideLeft(state: GameState, side: ReadonlySet<PlayerId>): boolean {
+  if (state.phase === 'lobby' || state.phase === 'finished' || state.pendingConquest) return false;
+  const living = state.players.filter((p) => !p.isNeutral && p.alive);
+  return living.length > 0 && living.every((p) => side.has(p.id));
+}
+
+/**
  * End a game as it stands when only one side is left: the swarm of a live game (owner's rule A, docs/zergs.md). The
  * strongest player of `side` wins (most territories, then most armies, then the lowest seat: zerg.ts's
  * strongestZergOf, so a live game and a self-play game, where the weaker Zergs surrender instead, crown the same
@@ -62,6 +73,7 @@ function breakTie(ids: PlayerId[], random: RandomSource, rolls: Record<PlayerId,
  */
 export function endByStanding(state: GameState, side: ReadonlySet<PlayerId>, at = Date.now()): ActionResult {
   if (state.phase === 'lobby' || state.phase === 'finished') throw new RuleError('Only a game in progress can end by standing');
+  if (state.pendingConquest) throw new RuleError('A conquest is being occupied: the game ends by standing after the armies move in');
   const winner = strongestZergOf(state, side);
   if (!winner) throw new RuleError('Nobody of that side is left to win');
   return {

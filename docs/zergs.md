@@ -20,7 +20,10 @@ Zergs are house bots that rush, never attack each other and hunt eliminations to
   left (server, `endByStanding` in `packages/engine/src/standing.ts`): the strongest Zerg wins (most territories,
   then armies, then the lowest seat, the same Zerg as `strongestZergOf`), nobody surrenders, no land turns neutral,
   and the rest are placed by standing (the public board's own order: territories, then armies, then turn order). The room posts "Only Zergs are left: the swarm
-  has won" and records the ending as a system step. A table seated with Zergs only (a tournament table) ends right
+  has won" and records the ending as a system step. It never ends in the middle of a conquest: the decision is the
+  engine's `onlySideLeft(state, zergSeats)` (false while armies are still to move in), and when the last non-Zerg has
+  just fallen to an attack, the server moves the minimum in for the Zerg (an ordinary occupy, since the Zerg's own rule
+  would surrender first) and the game ends on that move, so no territory is ever left with 0 armies. A table seated with Zergs only (a tournament table) ends right
   after the deal, by the same standing (owner, 2026-10-22; `ALL_ZERG_TABLES_END_AT_ONCE` in
   `packages/server/src/store.ts`). In self-play, where there is no server, zerg@1 and zerg@2's weaker Zergs surrender
   to the strongest; the winner is the same Zerg either way.

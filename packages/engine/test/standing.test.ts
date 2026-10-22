@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addPlayer, createGame, createRng, endByStanding, finalPlacements, nextFloat, rankByStanding, startGame, type GameState } from '../src/index.js';
+import { addPlayer, createGame, createRng, endByStanding, finalPlacements, nextFloat, onlySideLeft, rankByStanding, startGame, type GameState } from '../src/index.js';
 
 function seeded(seed: number) {
   const rng = createRng(seed);
@@ -66,6 +66,24 @@ describe('rankByStanding', () => {
     expect(one.order).toHaveLength(4);
     expect(one.order).not.toContain('neutral');
     expect(new Set(one.order)).toEqual(new Set(['a', 'b', 'c', 'd']));
+  });
+});
+
+describe('onlySideLeft', () => {
+  it('true only in progress, not mid-conquest, with every living player on the side', () => {
+    const s = board([['a', 20, 2], ['b', 22, 2]], ['c', 'd']);
+    expect(onlySideLeft(s, new Set(['a', 'b']))).toBe(true);
+    expect(onlySideLeft(s, new Set(['a']))).toBe(false); // b is alive and not on the side
+    const t = Object.keys(s.territories)[0];
+    expect(onlySideLeft({ ...s, pendingConquest: { from: t, to: t, minArmies: 1, maxArmies: 1 } }, new Set(['a', 'b']))).toBe(false);
+    expect(onlySideLeft({ ...s, phase: 'finished' }, new Set(['a', 'b']))).toBe(false);
+    expect(onlySideLeft({ ...s, players: s.players.map((p) => ({ ...p, alive: false })) }, new Set(['a', 'b']))).toBe(false);
+  });
+
+  it('endByStanding refuses a game in the middle of a conquest', () => {
+    const s = board([['a', 20, 2], ['b', 22, 2]], ['c', 'd']);
+    const t = Object.keys(s.territories)[0];
+    expect(() => endByStanding({ ...s, pendingConquest: { from: t, to: t, minArmies: 1, maxArmies: 1 } }, new Set(['a', 'b']))).toThrow(/conquest/);
   });
 });
 

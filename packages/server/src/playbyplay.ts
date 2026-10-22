@@ -179,6 +179,8 @@ export function narrate(record: GameRecord, opts: NarrateOptions = {}): PlayByPl
         return `  ★ ${who(e.player)} captures ${who(e.previousOwner)}'s capital ${where(e.territory)}`;
       case 'game_over':
         return `Game over: ${who(e.winner)} wins${e.reason ? ` by ${e.reason}` : ''}`;
+      case 'fog_lifted':
+        return `  🌫 The fog lifts: no battles for ${e.rounds} rounds`;
       default:
         return '';
     }

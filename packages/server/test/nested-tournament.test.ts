@@ -560,9 +560,9 @@ describe('nested tournaments', () => {
     const clock = new FakeClock();
     const store = new Store(null, {}, { clock });
     const t = store.tournaments.create({ format: 'nested', finalMap: 'hexworld', botDelayMs: 2000 });
-    expect(t.options).toMatchObject({ autoSetup: true, capitals: true });
+    expect(t.options).toMatchObject({ autoSetup: true, capitals: true, stallFogLift: 3 }); // the stall breaker: fog lifts after 3 stalled rounds
     expect(t.options.blizzards).toBeUndefined();
-    expect(NESTED_DEFAULT_OPTIONS).toEqual({ autoSetup: true, capitals: true });
+    expect(NESTED_DEFAULT_OPTIONS).toEqual({ autoSetup: true, capitals: true, stallFogLift: 3 });
     // Blizzards scale with each table's board: 10%, at least 1 (lord of game development).
     expect(NESTED_BLIZZARD_SHARE).toBe(0.1);
     expect(t.nested!.blizzardShare).toBe(0.1);
@@ -577,7 +577,7 @@ describe('nested tournaments', () => {
       for (const m of t.rounds[r].matches) {
         const s = store.get(m.gameId!)!.state;
         const where = `round ${r + 1} ${m.map}`;
-        expect(s.options, where).toMatchObject({ autoSetup: true, capitals: true, blizzards: blizzardsFor(m.map!, 0.1) });
+        expect(s.options, where).toMatchObject({ autoSetup: true, capitals: true, stallFogLift: 3, blizzards: blizzardsFor(m.map!, 0.1) });
         expect(s.phase, where).not.toBe('setup'); // dealt and placed at once
         expect(s.blizzards.length, where).toBeGreaterThan(0);
         for (const p of s.players.filter((x) => !x.isNeutral)) expect(s.blizzards, where).not.toContain(s.capitals[p.id]);

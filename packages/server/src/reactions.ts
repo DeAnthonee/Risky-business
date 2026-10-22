@@ -110,7 +110,7 @@ export function bigMoveMessage(gameId: string, state: GameState, characterIds: R
  * engine's own fog rule in view.ts). Seated, living players in a fog game get none.
  */
 export function seesWholeBoard(state: GameState, viewer: PlayerId | null): boolean {
-  if (!state.options.fogOfWar || viewer === null || state.phase === 'finished') return true;
+  if (!state.options.fogOfWar || state.fogLifted || viewer === null || state.phase === 'finished') return true;
   const p = state.players.find((x) => x.id === viewer);
   return !p || !p.alive;
 }

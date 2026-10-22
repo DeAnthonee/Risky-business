@@ -147,6 +147,14 @@ export const OPTION_SPECS: { [K in OptionKey]: OptionSpec } = {
     max: (m) => maxBlizzards(m),
     description: 'This many random territories are frozen for the whole game (0 = off; up to 8, or a sixth of the map on bigger boards): nobody owns, attacks, enters or crosses them, and continents count only their open territories. Visible to everyone, even under fog.',
   },
+  stallFogLift: {
+    kind: 'int',
+    label: 'Lift fog when stalled',
+    min: 0,
+    max: () => 20,
+    description:
+      'Fog of war games only: after this many full rounds in a row with no territory captured by anyone, the fog lifts for the rest of the game and everyone sees the whole board (0 = off). Breaks stalls where every player only reinforces.',
+  },
   turnTimer: {
     kind: 'enum',
     label: 'Turn timer',
@@ -281,6 +289,7 @@ export function describeOptions(o: GameOptions, tradeCount = 0): string[] {
     `Capital Conquest: ${o.capitals ? `on (+2 per capital held, capitals defend with 3 dice, hold every capital to win; ${o.chooseCapitals ? 'players choose their capitals before turn 1' : 'capital = most garrisoned territory after setup'})` : 'off'}`,
     `Neutral territories: ${o.neutrals > 0 ? `${o.neutrals} with ${o.neutralArmies} arm${o.neutralArmies === 1 ? 'y' : 'ies'} each (games of 3+ players)` : 'off'}`,
     `Blizzards: ${o.blizzards > 0 ? `${o.blizzards} frozen territories (max ${maxBlizzards(map)} on this map)` : 'off'}`,
+    ...(o.fogOfWar ? [`Stall breaker: ${o.stallFogLift > 0 ? `the fog lifts for good after ${o.stallFogLift} full round${o.stallFogLift === 1 ? '' : 's'} with no territory captured` : 'off'}`] : []),
     `Turn timer: ${timerOf(o) ? `${timerOf(o)!.seconds}s per ${timerOf(o)!.mode} for human and agent seats; on a timeout the player is skipped (armies placed for them, no attacks, no fortify)` : 'off'}`,
   ];
   return lines;

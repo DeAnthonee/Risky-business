@@ -235,6 +235,9 @@ export function formatEvents(events: GameEvent[], view: GameView): string {
       case 'blizzards':
         out.push(`Blizzards froze ${e.territories.map(t).join(', ')} (impassable all game)`);
         break;
+      case 'fog_lifted':
+        out.push(`The fog lifts: no territory captured for ${e.rounds} rounds, so everyone sees the whole board for the rest of the game`);
+        break;
       case 'capital_chosen':
         out.push(e.auto ? `${name(e.player)}'s capital is ${t(e.territory)} (+${e.armies} armies there)` : `${name(e.player)} chose ${t(e.territory)} as their capital (+${e.armies} armies there)`);
         break;
@@ -269,7 +272,7 @@ export function formatEvents(events: GameEvent[], view: GameView): string {
  * previous owners, so it needs no earlier snapshot.
  */
 export function revealedByConquests(events: GameEvent[], view: GameView): string[] {
-  if (!view.options.fogOfWar || !view.you) return [];
+  if (!view.options.fogOfWar || view.fogLifted || !view.you) return [];
   const conquests = events.filter((e): e is Extract<GameEvent, { type: 'conquered' }> => e.type === 'conquered' && e.player === view.you);
   if (conquests.length === 0) return [];
   const map = getMap(view.options.map);

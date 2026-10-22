@@ -146,7 +146,8 @@ export function Game({
   };
   const spectator = !me;
   // Spectator fog preview: follow the current player by default; click a player to pin, click again to see all.
-  const fogOn = !!view.options.fogOfWar;
+  // Fog is off once the stall breaker lifted it (stallFogLift): every view sees the whole board from then on.
+  const fogOn = !!view.options.fogOfWar && !view.fogLifted;
   const [fogPin, setFogPin] = useState<string | null>(null);
   const [followTurn, setFollowTurn] = useState(true);
   // "Hide fog" reveals the whole map at a glance without forgetting which fog view was chosen.
@@ -554,6 +555,7 @@ export function Game({
               <span className="muted watch-note">
                 👁 You are watching. {current ? `${current.name} is playing (${view.phase}).` : ''}
               </span>
+              {view.options.fogOfWar && view.fogLifted && <span className="fog-lifted-tag" title="The stall breaker lifted the fog for the rest of the game">🌫 Fog lifted</span>}
               {fogOn && (
                 <span className="fog-controls">
                   Fog view:{' '}
@@ -1053,6 +1055,7 @@ function useAnimations(
         const mine = battles.some((e) => e.attacker === myId || e.defender === myId);
         queue.current = mine ? [] : queue.current.slice(-2);
       }
+      let fogJustLifted = false;
       for (const e of b.events as GameEvent[]) {
         switch (e.type) {
           case 'battle': {
@@ -1090,9 +1093,14 @@ function useAnimations(
           case 'cards_taken':
             if (e.count > 0) newCards.push({ id: ++ids.current, kind: 'taken', player: e.player, from: e.from, color: colorOf(e.player), fromColor: colorOf(e.from), count: e.count });
             break;
+          case 'fog_lifted':
+            fogJustLifted = true;
+            setBanner({ text: `🌫 Fog lifted: no battles for ${e.rounds} rounds`, color: '#8fa3b8' });
+            break;
           case 'turn_started':
             lastQueued.current = null;
-            setBanner({ text: `${view.players.find((p) => p.id === e.player)?.name ?? 'Someone'}'s turn`, color: colorOf(e.player) });
+            // The fog-lifted banner comes just before this turn's start: keep it up for this turn.
+            if (!fogJustLifted) setBanner({ text: `${view.players.find((p) => p.id === e.player)?.name ?? 'Someone'}'s turn`, color: colorOf(e.player) });
             break;
           case 'eliminated':
             setBanner({ text: `${view.players.find((p) => p.id === e.player)?.name ?? 'Someone'} is out!`, color: colorOf(e.player) });

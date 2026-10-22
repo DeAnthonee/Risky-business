@@ -129,7 +129,7 @@ describe('scheduled nested tournaments', () => {
     const view = (await call(`/tournaments/${id}`)).body.tournament;
     expect(view).toMatchObject({ status: 'registering', format: 'nested', scheduled: { startsAt: start } });
     // The owner's tournament mode, as every nested tournament: auto setup, capitals, blizzards scaled per table.
-    expect(view.options).toMatchObject({ autoSetup: true, capitals: true });
+    expect(view.options).toMatchObject({ autoSetup: true, capitals: true, stallFogLift: 3 });
     expect(view.options.blizzards).toBeUndefined();
     expect(view).not.toHaveProperty('hostToken');
     expect((await call('/tournaments')).body.tournaments[0]).toMatchObject({ id, startsAt: start });

@@ -80,6 +80,11 @@ export interface GameOptions {
   turnTimer: 'off' | 'move' | 'turn';
   /** Seconds on the turn timer (ignored when turnTimer is 'off'). */
   turnTimerSeconds: number;
+  /**
+   * Stall breaker (fog games): after this many full rounds in a row with no territory captured by anyone, the fog of
+   * war lifts for the rest of the game (0 = off).
+   */
+  stallFogLift: number;
 }
 
 /** Reinforcements per capital held when the capitals option is on. */
@@ -115,6 +120,7 @@ export const DEFAULT_OPTIONS: GameOptions = {
   blizzards: 0,
   turnTimer: 'off',
   turnTimerSeconds: 15,
+  stallFogLift: 0,
 };
 
 export interface PendingConquest {
@@ -150,6 +156,10 @@ export interface GameState {
   blizzards: TerritoryId[];
   /** Set once the player has fortified this turn. */
   fortifiedThisTurn: boolean;
+  /** The round of the last territory captured by anyone (0 = none yet). Absent in games saved before the stall breaker. */
+  lastCaptureRound?: number;
+  /** The stall breaker lifted the fog of war (stallFogLift): every view sees the whole board for the rest of the game. */
+  fogLifted?: boolean;
   winner: PlayerId | null;
   seed: number;
   rngState: number;
@@ -255,6 +265,8 @@ export type GameEvent =
   | { type: 'game_started'; players: PlayerId[]; turnOrder: PlayerId[] }
   | { type: 'phase'; phase: Phase; player: PlayerId | null }
   | { type: 'turn_started'; player: PlayerId; turnNumber: number; round: number; reinforcements: ReinforcementBreakdown }
+  /** The stall breaker: `rounds` full rounds passed with no territory captured, so the fog of war lifts for good. */
+  | { type: 'fog_lifted'; rounds: number }
   | { type: 'placed'; player: PlayerId; territory: TerritoryId; armies: number }
   /** auto: the game traded this set itself because the player held 5 or more cards. */
   | { type: 'traded'; player: PlayerId; cardIds: number[]; cards: Card[]; armies: number; bonusTerritory: TerritoryId | null; auto?: boolean }

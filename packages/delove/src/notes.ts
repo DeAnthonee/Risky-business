@@ -1,4 +1,4 @@
-import { closeSync, existsSync, openSync, readSync, statSync, truncateSync } from 'node:fs';
+import { closeSync, existsSync, openSync, readSync, rmSync, statSync, truncateSync } from 'node:fs';
 import { getMap, type GameView } from '@risk/engine';
 import type { Agent, Candidate } from '@risk/selfplay';
 import { decisionScore } from './branch.js';
@@ -78,7 +78,12 @@ export function capNote(note: DecisionNote, max = MAX_NOTE_BYTES): DecisionNote 
   return head;
 }
 
-/** Reads the search's trace lines (branch.ts DELOVE_BRANCH_TRACE) written since the last call. */
+/**
+ * Reads the search's trace lines (branch.ts DELOVE_BRANCH_TRACE) written since the last call. One process decides for
+ * its seats one at a time and synchronously (seat.ts: begin, the search, note, with no await in between), so the lines
+ * read after a move are that move's own; they are also matched to the game and seat. Our own file is emptied after
+ * every read (it never holds more than one move's lines) and deleted when the process exits.
+ */
 class TraceReader {
   private offset = 0;
   constructor(
@@ -87,6 +92,7 @@ class TraceReader {
     readonly owned: boolean,
   ) {
     this.offset = existsSync(path) ? statSync(path).size : 0;
+    if (owned) process.once('exit', () => rmSync(path, { force: true }));
   }
 
   /** The new lines (parsed), moving past them. */
@@ -103,8 +109,8 @@ class TraceReader {
       closeSync(fd);
     }
     this.offset = size;
-    if (this.owned && size > 1 << 20) {
-      truncateSync(this.path, 0);
+    if (this.owned) {
+      truncateSync(this.path, 0); // branch.ts appends, so the next move's line starts the file again
       this.offset = 0;
     }
     return buf

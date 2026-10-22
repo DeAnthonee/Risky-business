@@ -78,7 +78,9 @@ note on what Delove saw in it. It is kept on the game record's step and never sh
 it after the game ([docs/game-records.md](../../docs/game-records.md)). `--no-notes` turns them off. A note reports
 only what the move already computed (no extra inference), stays under 2 KB (3 decimals, candidates cut first), and a
 note that can't be built never stops the move. A search seat's option scores come from branch and score's own trace
-(`DELOVE_BRANCH_TRACE`, which `delove-seat` points at a per-process file it keeps small), so `branch.ts` is unchanged.
+(`DELOVE_BRANCH_TRACE`, which `delove-seat` points at a per-process temp file), so `branch.ts` is unchanged. A
+process decides for its seats one at a time with no wait in between, so each note reads its own move's line (matched to
+the game and seat too); the file is emptied after every move and deleted when the process exits.
 
 ```jsonc
 // a search seat that compared options

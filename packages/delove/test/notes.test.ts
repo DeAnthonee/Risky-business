@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, statSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -91,6 +91,34 @@ describe('decision notes (notes.ts)', () => {
     expect(n.chosen).toBeGreaterThanOrEqual(0);
     expect(n.chosen as number).toBeLessThan(top.length);
     expect(notes.some((x) => x.br === 0)).toBe(true); // setup / teacher-only moves: nothing compared
+  });
+
+  it('two search seats in one process, back to back: each note has its own decision, and the trace stays empty', () => {
+    const env = { DELOVE_BRANCH_TEACHER: 'jacob-sensei@1', DELOVE_BRANCH_ROLLOUTS: '2', DELOVE_BRANCH_OPTIONS: '3', DELOVE_BRANCH_HORIZON: '1', DELOVE_BRANCH_MARGIN: '0.01' };
+    const a = D.branchFromEnv(FIXTURES, { ...env, DELOVE_BRANCH_RANKER: 'tiny' });
+    const b = D.branchFromEnv(FIXTURES, { ...env, DELOVE_BRANCH_RANKER: 'tiny-fog' });
+    const noter = new Noter(new Map([[a, { label: 'A', model: 'tiny', preset: 'measured' }], [b, { label: 'B', model: 'tiny-fog', preset: 'measured' }]]));
+    let state = game(2, { map: 'skirmish', autoSetup: true }, 7);
+    let checked = 0;
+    for (let k = 0; k < 120 && state.phase !== 'finished'; k++) {
+      const me = state.currentPlayer!;
+      const agent = me === 'p0' ? a : b; // the two seats take turns in the same process, as a --tournament child does
+      const view = viewFor(state, me);
+      noter.begin(agent);
+      const action = chooseFromView(agent, view, me, seededRandom(k + 1))!;
+      const seat = view.players.filter((p) => !p.isNeutral).findIndex((p) => p.id === me);
+      const note = noter.note(agent, view, seat)!;
+      expect(statSync(process.env.DELOVE_BRANCH_TRACE!).size).toBe(0); // read and emptied: no line left for the next move
+      expect(note.agent).toBe(me === 'p0' ? 'A' : 'B');
+      if (Array.isArray(note.top) && typeof note.chosen === 'number' && (action.type === 'attack' || action.type === 'place')) {
+        // the option the note says was played is the move this seat sent
+        const played = action.type === 'attack' ? `att ${action.from}>${action.to}` : `pl ${Object.keys(action.placements)[0]} ${Object.values(action.placements)[0]}`;
+        expect((note.top as { m: string }[])[note.chosen].m).toBe(played);
+        checked++;
+      }
+      state = applyAction(state, me, action).state;
+    }
+    expect(checked).toBeGreaterThan(3);
   });
 
   it('a search seat under fog plays its ranker (fb) and says so', () => {

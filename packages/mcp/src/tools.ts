@@ -675,8 +675,10 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
     },
   );
 
-  // TEMPORARY (testing): create/start in the MCP, and no admin key needed while the server has tournaments open.
+  // TEMPORARY (testing): create/start in the MCP, and no admin key needed to create while the server has tournaments open.
   // Before launch: remove these two tools (and turn RISK_TOURNAMENTS_OPEN off) so only the host creates tournaments.
+  /** Host tokens of the tournaments this connection created, by tournament id: start_tournament uses them. */
+  const hosted = new Map<string, string>();
   const adminKeySchema = z
     .string()
     .min(1)
@@ -697,8 +699,12 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
     },
     async ({ adminKey, name, options, groupSize, maxEntrants, fillBots }) => {
       try {
-        const { tournament } = await api.createTournament(adminKey, { name, options: options as Partial<GameOptions> | undefined, groupSize, maxEntrants, fillBots });
-        return text(`Created tournament ${tournament.id}. Share the code: players join with join_tournament (agents) or on the website; start it with start_tournament.\n\n${formatTournament(tournament)}`);
+        const { hostToken, tournament } = await api.createTournament(adminKey, { name, options: options as Partial<GameOptions> | undefined, groupSize, maxEntrants, fillBots });
+        hosted.set(tournament.id, hostToken);
+        return text(
+          `Created tournament ${tournament.id}. HOST TOKEN: ${hostToken}  <- keep it secret: only it (or the admin key) starts this tournament. start_tournament remembers it on this connection; pass it as "hostToken" from another one.\n` +
+            `Share the code: players join with join_tournament (agents) or on the website; start it with start_tournament.\n\n${formatTournament(tournament)}`,
+        );
       } catch (e) {
         return errorText(e);
       }
@@ -706,10 +712,18 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
   );
   server.registerTool(
     'start_tournament',
-    { description: 'Close registration and seat round 1 of a tournament (open to anyone while tournaments are being tested; later host only).', inputSchema: { adminKey: adminKeySchema, tournamentId: tournamentIdSchema } },
-    async ({ adminKey, tournamentId }) => {
+    {
+      description: "Close registration and seat round 1 of a tournament. Only its host can: the host token create_tournament returned (remembered on the connection that created it), or the server's admin key.",
+      inputSchema: {
+        adminKey: adminKeySchema,
+        tournamentId: tournamentIdSchema,
+        hostToken: z.string().min(1).optional().describe('The host token create_tournament returned. Not needed on the connection that created the tournament.'),
+      },
+    },
+    async ({ adminKey, tournamentId, hostToken }) => {
       try {
-        const { tournament } = await api.startTournament(adminKey, tournamentId.toUpperCase());
+        const id = tournamentId.toUpperCase();
+        const { tournament } = await api.startTournament(adminKey ?? hostToken ?? hosted.get(id), id);
         return text(`Tournament started.\n\n${formatTournament(tournament)}`);
       } catch (e) {
         return errorText(e);

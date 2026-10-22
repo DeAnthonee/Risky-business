@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from '
 import { dirname } from 'node:path';
 import { RiskHttpError } from '@risk/mcp';
 import type { GameOptions } from '@risk/engine';
+import { nameSkeleton } from './player-keys.js';
 import { SeasonKeyGuard } from './season-key.js';
 import type { HostTier, TourneyAccessConfig } from './tournament-access.js';
 import type { TournamentManager, TournamentSnapshot } from './tournaments.js';
@@ -53,8 +54,11 @@ export interface PoolStatus {
   at: number | null;
 }
 
-/** Names kept for the pool's seats in a tournament with a seat request: "Delove", "Delove 3", ... */
-export const POOL_NAME = /^delove(\s|$)/i;
+/**
+ * Names kept for the pool's seats in a tournament with a seat request: "Delove", "Delove 3", ... Matched against a
+ * name's skeleton (player-keys.ts nameSkeleton), so look-alikes such as "Dε1ove 1" or "Ｄｅｌｏｖｅ" count too.
+ */
+export const POOL_NAME = /^delove(\s|$)/;
 
 /** The Delove caps (tournament-access.ts); every one 0 = no cap. */
 export type SeatCaps = Pick<TourneyAccessConfig, 'deloveAdmin' | 'deloveLimited' | 'deloveAtOnce' | 'deloveSearchAtOnce'>;
@@ -173,7 +177,7 @@ export class SeatRequests {
    * nobody can take or block a pool seat by name. Elsewhere they stay free (the operator's npm run delove-seat).
    */
   checkJoinName(tournamentId: string, name: string) {
-    if (POOL_NAME.test(name.trim()) && this.requestOf(tournamentId))
+    if (POOL_NAME.test(nameSkeleton(name)) && this.requestOf(tournamentId))
       throw new RiskHttpError('Names starting with "Delove" are kept for the Delove seat pool in this tournament', 400);
   }
 

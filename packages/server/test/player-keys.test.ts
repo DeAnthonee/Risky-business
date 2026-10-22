@@ -67,6 +67,25 @@ describe('player keys', () => {
     if (character) expect((await call('/players', { body: { name: character.name } })).status).toBe(400);
   });
 
+  it('treats look-alike names as the same name (NFKC + a confusables fold)', async () => {
+    const { nameSkeleton } = await import('../src/player-keys.js');
+    expect(nameSkeleton('Ада')).not.toBe(nameSkeleton('Ada')); // д is not a look-alike: a different name
+    expect(nameSkeleton('Аda')).toBe(nameSkeleton('Ada')); // Cyrillic А
+    expect(nameSkeleton('Ａｄａ')).toBe(nameSkeleton('Ada')); // full-width
+    expect(nameSkeleton('Ada​')).toBe(nameSkeleton('Ada')); // zero-width space
+    expect(nameSkeleton('Nik0la')).toBe(nameSkeleton('Nikola'));
+    expect(nameSkeleton('Bob')).not.toBe(nameSkeleton('Rob'));
+
+    expect((await call('/players', { body: { name: 'Ada' } })).status).toBe(201);
+    expect((await call('/players', { body: { name: 'Аda' } })).status).toBe(400);
+    expect((await call('/players', { body: { name: 'Ａｄａ' } })).status).toBe(400);
+    // A keyless seat cannot use a look-alike of a registered name either.
+    const g = (await call('/games', { body: { playerName: 'Host', options: {} } })).body;
+    expect((await call(`/games/${g.gameId}/join`, { body: { playerName: 'АDA' } })).status).toBe(400);
+    // Server names, folded the same way.
+    for (const name of ['Bot 1', 'Bot l', 'Adm1n', 'NEUTRAL']) expect((await call('/players', { body: { name } })).status, name).toBe(400);
+  });
+
   it('limits issuing per IP and in total, and the counts survive a restart', async () => {
     for (const name of ['One', 'Two', 'Three']) expect((await call('/players', { body: { name } })).status).toBe(201);
     const over = await call('/players', { body: { name: 'Four' } });

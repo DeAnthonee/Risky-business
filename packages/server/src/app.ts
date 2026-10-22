@@ -12,6 +12,7 @@ import { createApi } from './http.js';
 import { attachWebSocket } from './ws.js';
 import { buildInfo } from './build-info.js';
 import { createMcpRouter } from './mcp.js';
+import { nameSkeleton } from './player-keys.js';
 import { CharacterStore } from './characters.js';
 import type { SeasonKeyGuard } from './season-key.js';
 import { NO_TOURNEY_CAPS, TournamentAccess, type TourneyAccessConfig } from './tournament-access.js';
@@ -118,8 +119,8 @@ export function createRiskServer(store: Store, opts: AppOptions = {}): RiskServe
   const characters = opts.characters ?? new CharacterStore(DEFAULT_AI_DIR, null);
   // Nobody may register an AI character's id or name as a player name (player-keys.ts).
   store.playerKeys.reserved = (name) => {
-    const n = name.trim().toLowerCase();
-    return characters.list().some((c) => c.id.toLowerCase() === n || c.name.toLowerCase() === n || c.id.split('/').pop()!.toLowerCase() === n) ? 'that is an AI character' : null;
+    const n = nameSkeleton(name);
+    return characters.list().some((c) => nameSkeleton(c.id) === n || nameSkeleton(c.name) === n || nameSkeleton(c.id.split('/').pop()!) === n) ? 'that is an AI character' : null;
   };
   // Hosting codes, caps and expiry: one instance for the HTTP API and the MCP. Creates pause while the loop lags.
   // The brake reads only a finished minute's p99, so it acts on lag that stayed high, not on a start-up blip.

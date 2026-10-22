@@ -13,7 +13,7 @@ export interface FeedTable {
   version: number;
   status: TableSnapshot['status'];
   players: { name: string; color: string; alive: boolean }[];
-  /** Owner of each territory, in `getMap(node.map).territories` order, as an index into `players` (null: nobody). */
+  /** Owner of each territory, in `getMap(node.map).territoryIds` order, as an index into `players` (null: nobody). */
   owners: (number | null)[] | null;
   leader?: number;
   excitement?: { score: number; why?: string };
@@ -47,13 +47,14 @@ export function useTournamentFeed(t: TournamentView | null): TournamentFeed {
     const ws = new WebSocket(WS_URL);
     ws.onopen = () => ws.send(JSON.stringify({ type: 'subscribe_tournament', id }));
     ws.onmessage = (e) => {
-      const m = JSON.parse(String(e.data)) as { type: string; tables?: FeedTable[]; follow?: TournamentFeed['follow'] };
+      const m = JSON.parse(String(e.data)) as { type: string; full?: boolean; tables?: FeedTable[]; follow?: TournamentFeed['follow'] };
       if (m.type !== 'tournament_tables' || !alive) return;
       live = true;
       window.clearTimeout(pollTimer);
       setFeed((f) => {
-        const tables = { ...f.tables };
-        for (const x of m.tables ?? []) tables[x.node] = x;
+        // The first message (and any resync) has every table; later ones only the tables that changed.
+        const tables = m.full ? {} : { ...f.tables };
+        for (const x of m.tables ?? []) if (x.node !== null && x.node !== undefined) tables[x.node] = x;
         return { tables, follow: m.follow ?? null, live: true };
       });
     };

@@ -57,6 +57,8 @@ export interface HistoryEntry {
 
 export interface RoomSnapshot {
   characterIds?: Record<string, string>;
+  /** Each seat's self-declared player type ("claude-sonnet-5-5", "delove@10", "bot", "zerg"), shown to spectators only. */
+  agents?: Record<string, string>;
   eliminationOrder?: string[];
   id: string;
   name: string;
@@ -161,6 +163,8 @@ function joinCode(): string {
 
 export class GameRoom extends EventEmitter {
   characterIds: Record<string, string> = {};
+  /** Player-type labels by seat: spectators see them (`spectatorView`); a seated player's view never has them. */
+  agents: Record<string, string> = {};
   eliminationOrder: string[] = [];
   id: string;
   name: string;
@@ -197,6 +201,7 @@ export class GameRoom extends EventEmitter {
     this.setMaxListeners(500);
     this.id = snapshot.id;
     this.characterIds = snapshot.characterIds ?? {};
+    this.agents = snapshot.agents ?? {};
     this.eliminationOrder = snapshot.eliminationOrder ?? snapshot.history.flatMap(h => h.events.filter(e => e.type === 'eliminated').map(e => (e as { player: string }).player));
     this.name = snapshot.name;
     this.hostId = snapshot.hostId;
@@ -218,6 +223,7 @@ export class GameRoom extends EventEmitter {
     return {
       id: this.id,
       characterIds: this.characterIds,
+      ...(Object.keys(this.agents).length ? { agents: this.agents } : {}),
       eliminationOrder: this.eliminationOrder,
       name: this.name,
       hostId: this.hostId,
@@ -318,8 +324,18 @@ export class GameRoom extends EventEmitter {
     return id;
   }
 
+  /** The game as a seat (or, with null, an anonymous spectator) sees it. Never carries player-type labels. */
   view(playerId: PlayerId | null): GameView {
     return viewFor(this.state, playerId);
+  }
+
+  /**
+   * The spectator view plus each seat's player-type label (`agent`). Only for watchers on the web (HTTP or WebSocket
+   * with no seat token); a seated player's view, the MCP and chat never get labels.
+   */
+  spectatorView(): GameView {
+    const v = viewFor(this.state, null);
+    return { ...v, players: v.players.map((p) => (this.agents[p.id] ? { ...p, agent: this.agents[p.id] } : p)) };
   }
 
   private commit(next: GameState, events: GameEvent[], playerId: PlayerId | null, action: HistoryEntry['action']) {
@@ -359,11 +375,17 @@ export class GameRoom extends EventEmitter {
     return this.join(name ?? `Bot ${n}`, true);
   }
 
-  join(name: string, isBot = false, kind: BotKind = 'bot'): { playerId: PlayerId; token: string } {
+  /**
+   * Take a seat. `agent` is the seat's self-declared player type, shown to spectators only. A built-in bot or Zerg is
+   * labelled by the server ("bot", "zerg"), whatever it declares.
+   */
+  join(name: string, isBot = false, kind: BotKind = 'bot', agent?: string): { playerId: PlayerId; token: string } {
     const playerId = seatIdPrefix(isBot ? kind : null) + newId(6);
     const next = addPlayer(this.state, playerId, name, isBot);
     const token = newId(24);
     this.tokens.set(token, playerId);
+    const label = isBot ? kind : agent;
+    if (label) this.agents[playerId] = label;
     if (!isBot) {
       this.touch();
       this.lastSeatSeen = Date.now();
@@ -412,6 +434,9 @@ export class GameRoom extends EventEmitter {
       this.touch();
       this.lastSeatSeen = Date.now();
     }
+    // Whoever plays the seat now: the built-in bot, or someone who has not said what they are.
+    if (bot) this.agents[playerId] = 'bot';
+    else delete this.agents[playerId];
     this.commit(next, [], playerId, { type: 'system', note: bot ? `${playerId} handed to a bot` : `${playerId} taken over` });
   }
 
@@ -737,7 +762,7 @@ export class Store {
     return { gameId: id, room: !!room, result, records };
   }
 
-  create(name: string, options: Partial<GameOptions>, hostName: string, hostIsBot = false, board?: RankingBoard): { room: GameRoom; playerId: PlayerId; token: string } {
+  create(name: string, options: Partial<GameOptions>, hostName: string, hostIsBot = false, board?: RankingBoard, agent?: string): { room: GameRoom; playerId: PlayerId; token: string } {
     let id = joinCode();
     while (this.rooms.has(id)) id = joinCode();
     const state = createGame(id, options);
@@ -753,7 +778,7 @@ export class Store {
       ...(board ? { board } : {}),
     });
     this.attach(room);
-    const { playerId, token } = room.join(hostName, hostIsBot);
+    const { playerId, token } = room.join(hostName, hostIsBot, 'bot', agent);
     room.hostId = playerId;
     this.scheduleSave();
     return { room, playerId, token };
@@ -763,12 +788,12 @@ export class Store {
    * A tournament table: a room nobody hosts (so no seat can close it, kick or add players), seated with
    * the given players in order and started at once. Returns each player's seat in the same order.
    */
-  createTable(name: string, options: Partial<GameOptions>, players: { name: string; isBot: boolean }[], tournamentId: string): { room: GameRoom; seats: { playerId: PlayerId; token: string }[] } {
+  createTable(name: string, options: Partial<GameOptions>, players: { name: string; isBot: boolean; agent?: string }[], tournamentId: string): { room: GameRoom; seats: { playerId: PlayerId; token: string }[] } {
     let id = joinCode();
     while (this.rooms.has(id)) id = joinCode();
     const room = new GameRoom({ id, name, hostId: '', state: createGame(id, options), tokens: {}, chat: [], history: [], updatedAt: Date.now(), tournamentId });
     this.attach(room);
-    const seats = players.map((p) => room.join(p.name, p.isBot));
+    const seats = players.map((p) => room.join(p.name, p.isBot, 'bot', p.agent));
     room.start();
     this.scheduleSave();
     return { room, seats };

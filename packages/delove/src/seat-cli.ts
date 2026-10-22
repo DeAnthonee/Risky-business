@@ -103,7 +103,8 @@ async function main() {
   const seats: { gameId: string; playerId: string; token: string; name: string; agent: Agent }[] = [];
   let gameId = values.join?.trim().toUpperCase() ?? '';
   for (let i = 0; i < agents.length; i++) {
-    const r = !gameId ? await api.createGame(names[i], 'Delove test game', options) : await api.joinGame(gameId, names[i]);
+    // The seat's player type, for spectators only (players never see it): the Delove version it plays.
+    const r = !gameId ? await api.createGame(names[i], 'Delove test game', options, undefined, undefined, agents[i].id) : await api.joinGame(gameId, names[i], agents[i].id);
     gameId = r.gameId;
     seats.push({ gameId, playerId: r.playerId, token: r.token, name: names[i], agent: agents[i] });
     log(`${names[i]} (${agents[i].id}) sits in game ${gameId}`);

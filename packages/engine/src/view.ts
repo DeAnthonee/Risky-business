@@ -130,6 +130,11 @@ export interface PlayerView extends Omit<Player, 'cards'> {
   continents: string[];
   /** Armies this player would receive at the start of their next turn, before cards (null for the Neutral; under fog total is visible and breakdown is hidden). */
   income: ReinforcementBreakdown | null;
+  /**
+   * The seat's self-declared player type ("claude-sonnet-5-5", "delove@10", "bot", "zerg"). Never set by `viewFor`:
+   * the server adds it to the spectator view only, so a seated player never sees it.
+   */
+  agent?: string;
 }
 
 export interface GameView extends Omit<GameState, 'players' | 'deck' | 'discard' | 'rngState' | 'seed'> {

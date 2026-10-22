@@ -1073,6 +1073,17 @@ footer {
   font-size: 0.85em;
   font-weight: 700;
 }
+.agent-badge {
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  border: 1px solid var(--teal);
+  color: var(--teal);
+  background: var(--panel);
+  font-size: 0.75em;
+  font-weight: 600;
+  white-space: nowrap;
+}
 .spectate-note {
   background: rgba(255, 209, 102, 0.1);
   border: 1px solid rgba(255, 209, 102, 0.35);

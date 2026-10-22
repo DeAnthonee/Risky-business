@@ -115,7 +115,7 @@ export function attachWebSocket(server: Server, store: Store, commit: () => stri
             if (!r || r.closed) return send({ type: 'closed', reason: 'gone', reqId: msg.reqId });
             room = r;
             playerId = r.playerForToken(msg.token);
-            onChange = (m) => send({ type: 'state', state: r.view(playerId), events: redactEvents(m.state, playerId, m.events), version: m.version, host: r.hostId, name: r.name, you: playerId, commit: commit() });
+            onChange = (m) => send({ type: 'state', state: playerId ? r.view(playerId) : r.spectatorView(), events: redactEvents(m.state, playerId, m.events), version: m.version, host: r.hostId, name: r.name, you: playerId, commit: commit() });
             onChat = (m) => {
               if (r.canReadChat(m, playerId)) send({ type: 'chat', message: m });
             };
@@ -129,7 +129,7 @@ export function attachWebSocket(server: Server, store: Store, commit: () => stri
             };
             r.on('closed', onClosed);
             enter(r, playerId);
-            send({ type: 'state', state: r.view(playerId), events: [], version: r.state.version, host: r.hostId, name: r.name, you: playerId, commit: commit(), reqId: msg.reqId });
+            send({ type: 'state', state: playerId ? r.view(playerId) : r.spectatorView(), events: [], version: r.state.version, host: r.hostId, name: r.name, you: playerId, commit: commit(), reqId: msg.reqId });
             send({ type: 'chat_history', messages: r.chatFor(playerId).slice(-100) });
             return;
           }

@@ -35,6 +35,11 @@ as hand-sketched landmasses whose coasts are roughened deterministically, split 
 Voronoi partition of per-territory sites with wiggly shared borders (`scripts/authored-map.mjs`, `d3-delaunay`).
 Its land adjacency comes from shared borders, plus the `seaLanes` it lists. An authored map can also set `walls: {width, passWidth, passes}`: every land border between territories of different regions is then cut by a water channel, except the listed `passes`, which keep a narrow land bridge, so regions meet only at chokepoints (The Nine Realms uses this).
 
+A map with `kind: 'hexglobe'` tiles the whole sphere with hexagons over real land for the client's rotatable 3D globe
+(`scripts/hex-globe.mjs`; [map-making.md](map-making.md#9-hex-globe-maps)). Hex Earth (`hexworld`: 80 territories,
+14 regions, 25 sea links, 2–10 players) is generated but not registered yet: it waits for the owner's approval and
+is not offered for games.
+
 ## Generated boards
 
 Besides the twelve boards, a game can be played on a **generated board**: a hex board built by the seeded generator

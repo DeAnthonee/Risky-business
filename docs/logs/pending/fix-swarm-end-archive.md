@@ -1,1 +1,1 @@
-server: - 2026-10-22 #PR a live game ended by the Zerg-only rule (#205) is archived again: `archive.onCommit` finishes the record on the system commit that ends it (it returned before its finished check, so those games got no history entry, report or replay)
+server: - 2026-10-22 #217 a live game ended by the Zerg-only rule (#205) is archived again: `archive.onCommit` finishes the record on the system commit that ends it (it returned before its finished check, so those games got no history entry, report or replay)

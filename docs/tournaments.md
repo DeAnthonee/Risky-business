@@ -77,14 +77,23 @@ round; the boards nest inside each other's territories (the map side: [maps.md](
 - **Start.** The engine's `planNest` plans the rounds for the entrants: tables of 3-6, uneven by at most one in a
   round, and a final of 6-10. Zerg entrants are added only when the count fits no plan (11-17 entrants fill to 18; under 6 fill
   the final to 6). A random seed, saved with the tournament, fixes every board (`planToNest`, generated gen1 boards
-  sized for each table) and the seating: the planner's filler Zergs are spread first, as the plan shares them out (at
-  most one more at any table than at another), then people and agents over the free seats, then the host's own bots
-  fill the rest, so a table is all bots only when there are more tables than people. Filler Zergs move up like any
-  entrant when they win. **Every round-1 table starts at
+  sized for each table) and the seating (`seatNestedRound` in `packages/server/src/tournaments.ts`; owner,
+  2026-10-22: "Zergs spread out between all rooms approximately evenly; no Zerg-only lobbies"): people and agents
+  first, one per table in turn (the table with the fewest, then the parent group with the fewest, so they spread over
+  the whole bracket), then the server bots: Zergs (the host's and the planner's fillers) each to the table with the
+  fewest server bots, then the built-in bots the same way. So no table is all server bots while there are at least as
+  many people as tables, and the Zergs at tables of one size differ by at most one. Delove seats join over HTTP like
+  any agent and count as people here. Filler Zergs move up like any entrant when they win. Later rounds seat each
+  table's winner at its parent table (its portal), so a parent table can still be all Zergs when Zergs won every
+  child table under it; the round clock below keeps such tables from closing a round. **Every round-1 table starts at
   once.**
-- **The round clock.** A round ends at the first of: `ceil(finishShare × tables)` tables finished by a win (byes
-  count; tables decided on standing do not), no table left playing, or the round's deadline (`roundMinutes` after it
-  started; stored as an absolute time). A one-table round (the final) therefore ends only by its win or its deadline.
+- **The round clock.** A round ends at the first of: no table left playing; the round's deadline (`roundMinutes`
+  after it started; stored as an absolute time); or early, once `ceil(finishShare × tables)` of the tables **with a
+  person or agent** are finished by a win (byes count; tables decided on standing do not) **and** every such table
+  still playing has played at least `ROUND_MIN_TURNS` (3) full rounds of turns. Tables of server bots only do not
+  count (they finish in seconds and used to close a round while the people's tables were still in setup, TTBQAH
+  2026-10-22); they are decided with the rest when the round ends. A round of server bots only counts all its tables
+  and has no turn rule. A one-table round (the final) therefore ends only by its win or its deadline.
 - **Decided on standing.** When a round ends, every table still playing is frozen (bots and the turn timer stop,
   every move is refused with "This table was decided at the round's end") and ranked by the engine's
   `rankByStanding` (`packages/engine/src/standing.ts`): players still in by territories, then armies, then dice (the

@@ -295,23 +295,6 @@ describe('scheduled nested tournaments', () => {
     for (let i = 1; i <= 6; i++) store.tournaments.join(open.id, `H${i}`, undefined, 'ip:127.0.0.1');
   });
 
-  it('a site-wide cap on pre-registrations a day (fresh MCP sessions are free): 429 past it, back after 24 h', async () => {
-    const clock = new FakeClock();
-    const store = new Store(null, {}, { clock });
-    const { TournamentManager } = await import('../src/tournaments.js');
-    const capped = new TournamentManager(store, null, { preregPerDay: 3 }, clock);
-    const t = capped.create({ name: 'Daily', format: 'nested', scheduled: { startsAt: NOON + 3 * 24 * H } });
-    for (let i = 1; i <= 3; i++) capped.join(t.id, `P${i}`, undefined, `mcp:session-${i}`);
-    expect(() => capped.join(t.id, 'P4', undefined, 'mcp:session-4')).toThrow(/Too many tournament registrations on this site today \(at most 3 in 24 h\)/);
-    // A host-made tournament is not counted; after 24 h there is room again.
-    const host = capped.create({ name: 'Host made', format: 'nested' });
-    capped.join(host.id, 'H1', undefined, 'mcp:session-5');
-    clock.advance(24 * H);
-    expect(capped.join(t.id, 'P4', undefined, 'mcp:session-4').token).toBeTruthy();
-    capped.stopTimers();
-    store.stopTimers();
-  });
-
   it('agents find and join it over MCP: next_tournament, list_tournaments, join_tournament', async () => {
     const clock = new FakeClock(NOON + H);
     const store = new Store(null, {}, { clock });

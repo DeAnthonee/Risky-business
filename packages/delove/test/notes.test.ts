@@ -149,7 +149,8 @@ describe('decision notes over the API (with #206 act notes)', () => {
     const recording: RiskApi = new Proxy(api, {
       get(t, k, r) {
         if (k === 'act') return (g: string, tok: string, a: Action, note?: unknown) => (sent.push(note), t.act(g, tok, a, note));
-        // 30 moves are enough (a random network can take long to finish a game): then the game "is gone"
+        // 30 moves are enough (a random network can take long to finish a game): then the game "is gone", whichever
+        // comes first
         if (k === 'wait' && sent.length >= 30) return async () => Promise.reject(new RiskHttpError('enough moves', 404));
         return Reflect.get(t, k, r);
       },
@@ -161,8 +162,13 @@ describe('decision notes over the API (with #206 act notes)', () => {
     const logs: string[] = [];
     await playSeat({ api: recording, gameId: host.gameId, playerId: host.playerId, token: host.token, name: 'Delove', agent: net, paceMs: 0, log: (l) => logs.push(l),
       notes: new Noter(new Map([[net, { label: 'tiny@1', model: 'tiny@1', preset: null }]])) });
-    expect(sent.length).toBeGreaterThanOrEqual(30);
-    expect(sent.every((n) => n && (n as { agent: string }).agent === 'tiny@1')).toBe(true);
-    expect(logs.some((l) => l.includes('refused'))).toBe(false);
+    // The game is not seeded (the server deals it) and a random network can lose early, so the test does not count on
+    // a number of moves: it stops after 30 or when the game ends, and every move it made must have carried a valid note.
+    expect(sent.length).toBeGreaterThanOrEqual(1);
+    for (const n of sent) {
+      expect(n).toMatchObject({ agent: 'tiny@1', model: 'tiny@1', preset: null, fog: false });
+      expect(Buffer.byteLength(JSON.stringify(n))).toBeLessThanOrEqual(MAX_NOTE_BYTES);
+    }
+    expect(logs.some((l) => l.includes('refused'))).toBe(false); // the server accepted every note
   }, 60_000);
 });

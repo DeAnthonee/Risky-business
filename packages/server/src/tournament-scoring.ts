@@ -26,7 +26,7 @@ export interface ScoredBracket {
   name: string;
   /** 'knockout' today; nested tournaments later. */
   format?: string;
-  /** `kind` "zerg" marks a Zerg entrant (#182); any other bot is a built-in fill bot. */
+  /** `isBot`: a server bot (a built-in fill bot, or `kind` "zerg" for a Zerg); bots are never ranked here. */
   entrants: { id: string; name: string; isBot: boolean; kind?: string }[];
   rounds: {
     matches: {
@@ -98,9 +98,10 @@ export function entrantKey(e: { name: string; isBot: boolean }): string {
 export function scoreTournament(t: ScoredBracket, finishedAt = Date.now()): TournamentResult | null {
   const L = t.rounds.length;
   if (!L) return null;
-  // Built-in fill bots never go on the tournament board (owner's decision); Zergs do. Keyed off the entrant's kind,
-  // never its "Bot N" name, so a person called "Bot 1" still scores.
-  const ranked = t.entrants.filter((e) => !e.isBot || e.kind === 'zerg');
+  // Only people go on the tournament board (owner's decision): no server bot of any kind, neither built-in fill bots
+  // nor Zergs (planner fillers or added by the host). Keyed off the entrant being a server bot, never its name, so a
+  // person called "Bot 1" or "Zerg 1" still scores. (Bots' own stats are kept apart, for the house-bots panel.)
+  const ranked = t.entrants.filter((e) => !e.isBot);
   const entrants: TournamentEntrantResult[] = ranked.map((e) => {
     let round = 0;
     let final: TournamentEntrantResult['final'] = null;

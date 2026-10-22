@@ -200,7 +200,7 @@ describe('nested tournaments', () => {
       expect(view.champion.entrantId).toBe(t.champion);
       expect(view.rounds[1].matches[0].status).toMatch(/finished|decided/);
 
-      // The tournament board (#183): one result per person (the 37 built-in fill bots stay off it, owner's decision);
+      // The tournament board (#183): one result per person (no server bot is ranked there, owner's decision);
       // a decided table's win is worth +1, a played-out one +2; a champion of this 2-round event with a final of 10
       // scores 3 + 2 × 9 + 6 = 27 for placement.
       const board = (await call('/rankings?board=tournament')).body.rankings;

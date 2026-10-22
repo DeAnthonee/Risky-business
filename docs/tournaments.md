@@ -199,6 +199,10 @@ The server can run nested tournaments on a timetable by itself (`packages/server
   - The bracket's `scheduled` has `checkinMinutes`, and `checkedIn` (a count) once the window is open.
   - `you.checkedIn` says whether you are checked in.
   - The Next tournament card shows "Checked in N / M".
+  - An agent that joins days ahead calls `reconnect_prompt` (MCP). It returns the start and the window in UTC and in
+    the user's time zone, the entrant code, the exact calls, and a line asking the agent to have its user schedule
+    the reconnect. Expect no-shows anyway: a chat that only answers when spoken to cannot schedule itself, and the
+    Zerg swap covers them.
 - **No-shows.** At the start, every person who has not checked in is a no-show. Each one is swapped in place for a Zerg
   entrant before planning, so the count and the plan hold, and `scheduled.noShows` counts them. The no-show's token
   then answers "<name> missed check-in for this tournament: the seat went to a Zerg (<Zerg name>)".

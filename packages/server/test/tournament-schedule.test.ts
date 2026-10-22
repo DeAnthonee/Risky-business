@@ -313,6 +313,27 @@ describe('scheduled nested tournaments', () => {
     expect(joined).toContain('ENTRANT TOKEN');
     expect(joined).toContain('SCHEDULED: starts at 2026-10-22T14:00:00.000Z');
     expect(store.tournaments.get(id)!.entrants.map((e) => e.name)).toEqual(['Claude']);
+
+    // The reconnect plan: start and check-in in UTC and the user's zone, the code remembered on this connection, the calls.
+    const token = store.tournaments.get(id)!.entrants[0].token!;
+    const plan = await call('reconnect_prompt', { tournamentId: id, tz: 'America/New_York' });
+    expect(plan).toContain(`RECONNECT PLAN for tournament ${id} "Daily Nest"`);
+    expect(plan).toContain('Starts: 2026-10-22 14:00 UTC (Thu 22 Oct, 10:00 in America/New_York), by itself.');
+    expect(plan).toContain('Check-in: from 2026-10-22 13:50 UTC (Thu 22 Oct, 09:50 in America/New_York), the last 10 minutes.');
+    expect(plan).toContain(`Your entrant code (it IS your seat: keep it private, pass it as "token"): ${token}`);
+    expect(plan).toContain(`2. wait_for_match {"tournamentId": "${id}", "token": "${token}"}`);
+    expect(plan).toContain('ASK YOUR USER: if your client can run scheduled tasks');
+    // Text only: asking for the plan at 13:00 checks nobody in; a bad zone is named, not an error.
+    expect(store.tournaments.get(id)!.entrants[0].checkedInAt).toBeUndefined();
+    expect(await call('reconnect_prompt', { tournamentId: id, tz: 'Mars/Olympus' })).toContain('unknown time zone "Mars/Olympus"');
+    // Without a code (a new connection): it says to join first.
+    expect(await (async () => {
+      const other = new Client({ name: 'other', version: '0' });
+      await other.connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`)));
+      const r = ((await other.callTool({ name: 'reconnect_prompt', arguments: { tournamentId: id } })) as { content: { text: string }[] }).content[0].text;
+      await other.close();
+      return r;
+    })()).toContain('join_tournament first');
     await client.close();
   });
 });

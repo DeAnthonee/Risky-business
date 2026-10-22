@@ -12,7 +12,7 @@ vi.hoisted(() => {
 const { Store } = await import('../src/store.js');
 const { createRiskServer } = await import('../src/app.js');
 type TournamentClock = import('../src/tournaments.js').TournamentClock;
-const { ROUND_MIN_TURNS, seatNestedRound } = await import('../src/tournaments.js');
+const { NESTED_DEFAULT_OPTIONS, ROUND_MIN_TURNS, seatNestedRound } = await import('../src/tournaments.js');
 const { createRng, nestSeed } = await import('@risk/engine');
 
 /** A clock the test moves by hand: round deadlines fire only when it is advanced past them. */
@@ -511,5 +511,38 @@ describe('nested tournaments', () => {
     expect(t2.rounds).toHaveLength(2);
     store2.stopTimers();
     for (const room of store2.rooms.values()) room.stopBot();
+  });
+
+  it('every table of every round plays the owner\'s tournament mode by default: auto setup, capitals, blizzards', () => {
+    const clock = new FakeClock();
+    const store = new Store(null, {}, { clock });
+    const t = store.tournaments.create({ format: 'nested', finalMap: 'hexworld', botDelayMs: 2000 });
+    expect(t.options).toMatchObject({ autoSetup: true, capitals: true, blizzards: 4 });
+    expect(NESTED_DEFAULT_OPTIONS).toEqual({ autoSetup: true, capitals: true, blizzards: 4 });
+    // 100 entrants: three rounds (generated boards, then moved-on tables on generated boards, then the Hex Earth final).
+    for (let i = 1; i <= 100; i++) t.entrants.push({ id: `e_${i}`, name: `B${i}`, isBot: true, joinedAt: 0 });
+    store.tournaments.start(t.id);
+    const rounds = t.nested!.plan!.rounds.length;
+    expect(rounds).toBe(3);
+    for (let r = 0; r < rounds; r++) {
+      expect(t.rounds).toHaveLength(r + 1);
+      for (const m of t.rounds[r].matches) {
+        const s = store.get(m.gameId!)!.state;
+        const where = `round ${r + 1} ${m.map}`;
+        expect(s.options, where).toMatchObject({ autoSetup: true, capitals: true, blizzards: 4 });
+        expect(s.phase, where).not.toBe('setup'); // dealt and placed at once
+        expect(s.blizzards.length, where).toBeGreaterThan(0);
+        for (const p of s.players.filter((x) => !x.isNeutral)) expect(s.blizzards, where).not.toContain(s.capitals[p.id]);
+        if (r === rounds - 1) expect(m.map).toBe('hexworld');
+        else expect(m.map, where).toMatch(/^gen1-/);
+      }
+      // The round's deadline decides whatever is still playing; the next round is seated at once.
+      if (r < rounds - 1) clock.advance(30 * 60_000);
+    }
+    // The host can still turn them off.
+    const plain = store.tournaments.create({ format: 'nested', botDelayMs: 2000, options: { autoSetup: false, capitals: false, blizzards: 0 } });
+    expect(plain.options).toMatchObject({ autoSetup: false, capitals: false, blizzards: 0 });
+    store.stopTimers();
+    for (const room of store.rooms.values()) room.stopBot();
   });
 });

@@ -292,6 +292,8 @@ export interface TournamentSummary {
 const MAX_NAME = 24;
 const DEFAULT_MAX_ENTRANTS = 64;
 const DEFAULT_MAX_NESTED_ENTRANTS = 128;
+/** Nested (and so scheduled) tournaments' table settings when the host leaves them out (owner, 2026-10-22). */
+export const NESTED_DEFAULT_OPTIONS: Partial<GameOptions> = { autoSetup: true, capitals: true, blizzards: 4 };
 const MAX_ENTRANTS = 256;
 const NESTED_TABLE = { min: 3, max: 6 };
 const NESTED_FINAL = { min: 6, max: 10 };
@@ -434,7 +436,8 @@ export class TournamentManager extends EventEmitter {
   private createNested(spec: CreateTournamentSpec, dryRun: true): null;
   private createNested(spec: CreateTournamentSpec, dryRun?: false): TournamentSnapshot;
   private createNested(spec: CreateTournamentSpec, dryRun = false): TournamentSnapshot | null {
-    const options: Partial<GameOptions> = { ...(spec.options ?? {}) };
+    // The owner's tournament mode (a random deal and placement, capitals, blizzards) unless the host says otherwise.
+    const options: Partial<GameOptions> = { ...NESTED_DEFAULT_OPTIONS, ...(spec.options ?? {}) };
     delete options.maxPlayers; // set per table
     delete options.map; // every table plays its own board
     const tps = spec.territoriesPerSeat ?? 5;

@@ -48,11 +48,23 @@ export function startOnSpots(lobby: GameState, spots: Record<PlayerId, Territory
         state.blizzards = state.blizzards.map((t) => (t === spot ? moved : t));
       } else {
         // Nowhere it may go (the board already has as many blizzards as the rules allow): it thaws instead, one blizzard
-        // fewer. The spot is the player's with one army, taken from the armies they have left to place.
+        // fewer. The spot is the player's with one army, taken from the armies they have left to place. A spot ringed
+        // by blizzards would be cut off once open, so the blizzards next to its open patch thaw too, one at a time,
+        // until the open territories are one network again; each goes the same way to its spot's player, else to this one.
         state.blizzards = others;
-        state.territories[spot] = { owner: player, armies: 1 };
-        const p = state.players.find((x) => x.id === player)!;
-        p.armiesToPlace = Math.max(0, p.armiesToPlace - 1);
+        const thawed = [spot];
+        while (!playable(map, new Set(state.blizzards))) {
+          const patch = reach(map, spot, new Set(state.blizzards));
+          const next = state.blizzards.find((b) => map.adjacency[b].some((n) => patch.has(n)))!;
+          state.blizzards = state.blizzards.filter((t) => t !== next);
+          thawed.push(next);
+        }
+        for (const t of thawed) {
+          const owner = t === spot ? player : (wanted.find(([, s]) => s === t)?.[0] ?? player);
+          state.territories[t] = { owner, armies: 1 };
+          const p = state.players.find((x) => x.id === owner)!;
+          p.armiesToPlace = Math.max(0, p.armiesToPlace - 1);
+        }
       }
       for (const e of events) if (e.type === 'blizzards') e.territories = [...state.blizzards];
     }
@@ -99,4 +111,12 @@ function playable(map: MapDef, blocked: Set<TerritoryId>): boolean {
     for (const n of map.adjacency[t]) if (!blocked.has(n) && !seen.has(n)) (seen.add(n), queue.push(n));
   }
   return seen.size === open.length;
+}
+
+/** The open territories reachable from `from` (itself included) without crossing `blocked`. */
+function reach(map: MapDef, from: TerritoryId, blocked: Set<TerritoryId>): Set<TerritoryId> {
+  const seen = new Set<TerritoryId>([from]);
+  const queue = [from];
+  while (queue.length) for (const n of map.adjacency[queue.pop()!]) if (!blocked.has(n) && !seen.has(n)) (seen.add(n), queue.push(n));
+  return seen;
 }

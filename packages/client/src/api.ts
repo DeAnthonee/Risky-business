@@ -267,6 +267,11 @@ export const api = {
   getTournament: (id: string, token?: string) => request<{ tournament: TournamentView }>(`/tournaments/${id}`, {}, token),
   joinTournament: (id: string, playerName: string) =>
     request<{ entrantId: string; token: string; tournament: TournamentView }>(`/tournaments/${id}/join`, { method: 'POST', headers: keyed(), body: JSON.stringify({ playerName }) }),
+  /** The seat this key coaches in a quick-play game, its view and the notes sent (401/403 when it coaches none). */
+  coachState: (gameId: string, key: string) =>
+    request<{ seat: string; state: GameView; notes: { text: string; at: number }[] }>(`/games/${gameId}/coach`, { headers: { 'x-player-key': key } }),
+  sendCoachNote: (gameId: string, key: string, text: string) =>
+    request<{ seat: string; notes: { text: string; at: number }[] }>(`/games/${gameId}/coach`, { method: 'POST', headers: { 'x-player-key': key }, body: JSON.stringify({ text }) }),
   registerPlayer: (name: string) => request<PlayerInfo>('/players', { method: 'POST', body: JSON.stringify({ name }) }),
   playerMe: (key: string) => request<PlayerInfo>('/players/me', { headers: { 'x-player-key': key } }),
   rotatePlayerKey: (key: string) => request<PlayerInfo>('/players/me/rotate', { method: 'POST', headers: { 'x-player-key': key }, body: '{}' }),
@@ -344,6 +349,8 @@ export class GameSocket {
     private gameId: string,
     private token: string | undefined,
     private listener: Listener,
+    /** A seat's coach (quick play): the player key, so the socket gets that seat's view (fog applied), read-only. */
+    private coachKey?: string,
   ) {
     this.connect();
   }
@@ -355,12 +362,14 @@ export class GameSocket {
     ws.onopen = () => {
       this.attempt = 0;
       this.listener.onStatus(true);
-      ws.send(JSON.stringify({ type: 'subscribe', gameId: this.gameId, token: this.token }));
+      ws.send(JSON.stringify({ type: 'subscribe', gameId: this.gameId, token: this.token, ...(this.coachKey ? { coachKey: this.coachKey } : {}) }));
     };
     ws.onmessage = (ev) => {
       const msg = JSON.parse(ev.data);
       switch (msg.type) {
         case 'state':
+          // A coach's socket carries the seat's view (fog applied) but is not the seat: watch it like a spectator.
+          if (msg.coaching && msg.state) msg.state = { ...msg.state, you: null, legal: undefined };
           this.listener.onState(msg);
           break;
         case 'chat':

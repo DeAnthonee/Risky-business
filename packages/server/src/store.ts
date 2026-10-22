@@ -1324,6 +1324,17 @@ export class Store {
     this.schedule?.stop();
   }
 
+  /**
+   * The seat a player key may coach in this room (live coach channel): the key's registered player owns it, and the room
+   * is quick play. Null otherwise (no key, a key that does not work, no seat, not quick play).
+   */
+  coachSeat(room: GameRoom, key: unknown): PlayerId | null {
+    if (!room.quickPlay) return null;
+    const player = this.playerKeys.verify(key);
+    if (!player) return null;
+    return Object.entries(room.playerKeys).find(([, id]) => id === player.id)?.[0] ?? null;
+  }
+
   /** Quick-play rooms still being played (the queue's room cap counts these). */
   liveQuickPlayRooms(): number {
     let n = 0;

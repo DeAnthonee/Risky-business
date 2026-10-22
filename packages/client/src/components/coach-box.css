@@ -1,0 +1,43 @@
+/* ---------- Live coach box (quick play): a small panel over the game page, theme tokens only ---------- */
+.coach-box,
+.coach-toggle {
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  z-index: 40;
+}
+.coach-box {
+  width: min(320px, calc(100vw - 32px));
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  background: var(--paper, var(--panel));
+  color: var(--ink, var(--text));
+  border: 3px solid var(--ink, var(--border));
+  box-shadow: 4px 4px 0 var(--ink, #000);
+}
+.coach-head,
+.coach-send {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.coach-hint {
+  margin: 0;
+  font-size: 0.85em;
+}
+.coach-notes {
+  margin: 0;
+  padding-left: 18px;
+  max-height: 8em;
+  overflow-y: auto;
+  font-size: 0.9em;
+}
+.coach-box textarea {
+  width: 100%;
+  resize: vertical;
+}
+.coach-box .error {
+  margin: 0;
+}

@@ -86,7 +86,8 @@ function paceFor(events: GameEvent[], previous: GameEvent[] | null): number {
   return events.length ? PACE.quietMs : 0;
 }
 
-export function useGame(gameId: string | null, token: string | undefined): GameConnection {
+/** `coachKey`: watch as the coach of the seat this player key owns (quick play): that seat's view, read-only. */
+export function useGame(gameId: string | null, token: string | undefined, coachKey?: string): GameConnection {
   const [view, setView] = useState<GameView | null>(null);
   const [host, setHost] = useState<string | null>(null);
   const [name, setName] = useState('');
@@ -157,7 +158,10 @@ export function useGame(gameId: string | null, token: string | undefined): GameC
       if (pb.queue.length) pb.timer = setTimeout(pump, wait);
       else if (wait) pb.timer = setTimeout(pump, wait); // hold the last frame before the next arrival
     };
-    const sock = new GameSocket(gameId, token, {
+    const sock = new GameSocket(
+      gameId,
+      token,
+      {
       onState: (m: StateMessage) => {
         if (m.commit && m.commit !== 'unknown' && __COMMIT__ !== 'unknown' && m.commit !== __COMMIT__) setUpdateAvailable(true);
         // Fast-forward: no replay at all.
@@ -186,7 +190,7 @@ export function useGame(gameId: string | null, token: string | undefined): GameC
       },
       onClosed: setClosedReason,
       onStatus: setConnected,
-    });
+    }, coachKey);
     sockRef.current = sock;
     return () => {
       sock.close();
@@ -197,7 +201,7 @@ export function useGame(gameId: string | null, token: string | undefined): GameC
       pb.previous = null;
       pb.flush = null;
     };
-  }, [gameId, token]);
+  }, [gameId, token, coachKey]);
 
   const act = useCallback(async (action: Action) => {
     if (!sockRef.current) throw new Error('Not connected');

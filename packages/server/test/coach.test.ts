@@ -110,6 +110,32 @@ describe('live coach channel (quick play)', () => {
     expect(JSON.stringify(r.body.state.territories)).not.toBe(JSON.stringify(g.room.spectatorView().territories));
   });
 
+  it("a coach's WebSocket gets the seat's fogged view, read-only; a wrong key gets the spectator view", async () => {
+    const { WebSocket } = await import('ws');
+    const g = await seated(true);
+    const first = (coachKey?: string) =>
+      new Promise<{ state: { you: string | null; territories: unknown }; you: string | null; coaching?: string }>((resolve, reject) => {
+        const ws = new WebSocket(base.replace('http', 'ws') + '/ws');
+        ws.on('open', () => ws.send(JSON.stringify({ type: 'subscribe', gameId: g.gameId, ...(coachKey ? { coachKey } : {}) })));
+        ws.on('message', (raw) => {
+          const m = JSON.parse(String(raw));
+          if (m.type === 'state') {
+            ws.close();
+            resolve(m);
+          }
+        });
+        ws.on('error', reject);
+      });
+    const coached = await first(g.key);
+    expect(coached.coaching).toBe(g.seat);
+    expect(coached.you).toBeNull();
+    expect(JSON.stringify(coached.state.territories)).toBe(JSON.stringify(g.room.view(g.seat).territories));
+    const other = (await call('/players', { body: { name: 'Lurker' } })).body;
+    const spectator = await first(other.key);
+    expect(spectator.coaching).toBeUndefined();
+    expect(JSON.stringify(spectator.state.territories)).toBe(JSON.stringify(g.room.spectatorView().territories));
+  });
+
   it('files the notes in the game record as private notes', async () => {
     const g = await seated();
     await call(`/games/${g.gameId}/coach`, { key: g.key, body: { text: 'trade cards early' } });

@@ -9,8 +9,9 @@ type StepPick = (ctx: StepContext) => number;
  * play the hand-coded horde bot's move, mapped onto the candidate list; every other seat plays `base` (the branch
  * teacher). So a searching Delove seat foresees the horde ganging up instead of imagining the Zergs as Jacob Sensei.
  * A Zerg move that is not a candidate (a surrender to feed the swarm, an off-list placement) falls back to `base`, or,
- * when that would attack a fellow Zerg while prey is left, to ending the turn (else the first candidate that doesn't).
- * Once no prey is left the alliance is over and Zergs fight each other (chooseZergAction plays for itself).
+ * when that would attack a fellow Zerg, to ending the turn (else the first candidate that doesn't). Once no prey is
+ * left the weaker Zergs surrender (not a candidate, so they end their turns in a rollout) and the strongest keeps the
+ * table; Zergs never attack each other.
  * Lives outside the mirrored branch.ts: branchAgent takes any StepPick.
  */
 export function hordeRolloutPick(base: StepPick): StepPick {
@@ -18,11 +19,10 @@ export function hordeRolloutPick(base: StepPick): StepPick {
     const player = ctx.state.players.find((p) => p.id === ctx.me);
     if (!player || !isZergName(player.name)) return base(ctx);
     const horde = hordeOf(ctx.state, ctx.me);
-    const preyLeft = ctx.state.players.some((p) => p.alive && !p.isNeutral && !horde.has(p.id));
     const ids = getMap(ctx.state.options.map).territoryIds;
     const safe = (i: number) => {
       const c = ctx.candidates[i];
-      return !preyLeft || c[0] !== 'attack' || !horde.has(ctx.state.territories[ids[c[2]]].owner ?? '');
+      return c[0] !== 'attack' || !horde.has(ctx.state.territories[ids[c[2]]].owner ?? '');
     };
     const fallback = () => {
       const b = base(ctx);

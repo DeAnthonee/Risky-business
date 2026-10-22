@@ -7,6 +7,7 @@ numbers go in [packages/delove/CYCLES.md](../../packages/delove/CYCLES.md) and t
 Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. **Append a line in the same PR** as any change to
 this area (README hard rule 12).
 
+- 2026-10-21 #176 strongest-keeps-the-table ending with the sacrifice back on: horde gate verdict unchanged (+0.118), games shorter (9.8 rounds against 15.7), turn limits 4/500 (10 with the sacrifice off); `zerg-branch@1`'s self term rewards being the strongest Zerg when the prey falls; horde-aware rollouts never attack a fellow Zerg; horde.jobs ~5.1 s a game, ~85 min for 4,000 games on 8 processes
 - 2026-10-21 #172 `generate.sh` turn cap: a jobs file's `#@max-turns N` line (or `MAX_TURNS=N`) passes `--max-turns N` to every game; files without it unchanged. `horde.jobs` capped at 250 turns (stalled horde games cost CPU and teach nothing); CPU about 5.6 s a game at 8 processes, ~85 min for the 4,000 games
 - 2026-10-22 #170 live yardstick control: jacob-sensei@2 in Delove's seat, 2 games vs Sonnet under the neutral protocol (6th -3, 3rd +1; attacked early by 3 and 1 seats) in docs/delove-yardstick.md
 - 2026-10-21 #169 horde gate with the falling-out and no sacrifice: delove@10 vs jacob-sensei@2 hold diff +0.119 (+0.084 to +0.154), unchanged; turn limits at 4p vs 3 Zergs 9/100 (3 with the sacrifice): a turtling prey can stall the horde

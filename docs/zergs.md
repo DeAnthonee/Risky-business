@@ -1,76 +1,47 @@
-# Zerg hordes (design, draft for the owner's OK)
+# Zerg hordes
 
-> **The owner's decisions (2026-10-21), which override the drafts below where they differ:**
-> 1. **No ranking or leaderboard changes.** For now Zergs count as regular players: no faction flag in rankings, no
->    special placements, no change to `ranking.ts`. Sections 1-2's faction rules, endings and scoring are a draft
->    that game development (which owns the open mode) may revisit.
-> 2. **Reptile names.** Every Zerg added to a game gets a lizard or reptile name (Godzilla, Cobra, Komodo, Basilisk,
->    Mamba, Gecko, Iguana, Viper, ...). Adding a Zerg bot to a live game is game development's. In self-play a seat is
->    named after its agent id (`zerg@1`), which is how a horde recognises itself there.
-> 3. **The alliance ends with the prey.** Once no non-Zerg is left, the Zergs attack each other until one wins: no
->    surrenders. Built into `zerg@1` (#169); a trained Zerg must also come out of the hunt well placed (section 6a).
+Zergs are house bots that rush, never attack each other and hunt eliminations together. Two ways to play with them:
 
-Two modes:
+- **Live Zergs** (sections 1 to 6): the owner's rules, built. A host seats Zergs like any bot; they are regular
+  players with reptile names.
+- **Stealth mode** (section 7): a later idea, not built. A surprise social-deduction game where Zergs find each other
+  through table chat with a learned challenge-response.
 
-- **Open mode** (sections 1 to 6): disclosed house bots for tournaments and the training board. The server and engine
-  know who is a Zerg (a faction flag), and every rule below depends on it.
-- **Stealth mode** (section 7): a surprise social-deduction game for friends. Nobody is told; Zergs find each other
-  through table chat with a learned challenge-response. It is never ranked and the Zergs are revealed at the end.
+## 1. The owner's rules (2026-10-22)
 
-## Open mode
+- **Zergs are regular players.** No faction flag, no engine option, no `ranking.ts` change and no special scoring: a
+  Zerg seat places, scores, kills and is killed like any other bot seat, on whichever leaderboard its room ranks on.
+- **Reptile names.** Every Zerg added to a game gets a name from a fixed list (`ZERG_NAMES` in
+  `packages/server/src/bot.ts`: Godzilla, Cobra, Komodo, Basilisk, ...), never two alike in one room. The name is how
+  outsiders tell which seats are Zergs; there is no badge or banner.
+- **Allies until the prey is gone.** A Zerg never attacks a fellow Zerg while any non-Zerg is alive.
+- **The Zerg endgame (owner, 2026-10-22).** When only Zergs are left, the weaker Zergs surrender at once to the
+  strongest (most territories, then armies, then the lowest seat), and the walled-in sacrifice is on. This replaces
+  #169's fight to one winner and lands in `zerg@1` in its own PR; section 4 says what is built. Live seats play
+  `ZERG_1_PARAMS`, the same as training and the horde gate, so they follow `zerg@1` with no server change.
+- **The rules don't change.** The ally rule lives in the Zerg's own policy (`packages/engine/src/zerg.ts`), not in
+  `legalMoves`: anyone, Zergs included, may attack a Zerg as far as the engine is concerned. Cards, endings and
+  Capital Conquest are as normal, so no mirrored file is touched.
 
-Zergs are house bots that can be added to a game or to every tournament table. They are a **disclosed hazard**: the
-lobby, the tournament page, the rules tool and the game log all say Zergs are in play. They rush, they never attack
-each other, they agree on one target and they hunt eliminations. They are never entrants: they take no placement, no
-prize and no leaderboard points.
+## 2. How a Zerg seat works (server)
 
-## 1. Rules (engine, `packages/engine`)
+- **Seating.** `POST /api/games/:id/bots` with `{kind: "zerg"}` (host only, lobby only), the MCP `add_bot` tool with
+  `kind: "zerg"`, or **Add Zerg** in the web lobby. A custom `name` is refused: the reptile list names every Zerg.
+- **Who is a Zerg.** The seat id starts with `zerg_` (built-in bots are `bot_...`, people `p_...`). The server mints
+  every id, so nobody can join as a Zerg or turn a seat into one (a person can still take a reptile name), and saved
+  rooms need no new field: old snapshots load as before, and a restored Zerg seat is still a Zerg. (In self-play a
+  horde is instead the seats named after the agent id, `zerg@1`.)
+- **Moves.** The room's bot loop plays a Zerg seat with `chooseZergAction(state, me, horde)` (`zerg@1`), the horde
+  being every Zerg seat in the room; other bots play `chooseBotAction`. Every move goes through `GameRoom.commit`,
+  like any bot.
+- **Ranking.** A Zerg is ranked as `bot:<name>`, like any built-in bot.
 
-- **Option `zergs`** (int, `OPTION_SPECS`): how many Zerg seats the game has, 0 (default) up to `maxPlayers - 1`
-  (at least one non-Zerg seat). Zerg seats count toward `maxPlayers`: a 4-seat game with `zergs: 2` takes 2 joiners.
-- **Faction flag.** `Player.faction?: 'zerg'`, set by the engine when the game starts: it adds the Zerg seats itself
-  (ids `zerg_1`, `zerg_2`, ...; names `Zerg 1`, ...; `isBot: true`) before the deal. Nobody can join as, rename to or
-  hand a seat over to a Zerg, so the flag cannot be spoofed; spotting "who is a Zerg" never depends on chat or names.
-- **Allies.** A Zerg cannot attack another Zerg (`legalMoves` leaves those attacks out and `attack` rejects them).
-  Non-Zergs may attack anyone, Zergs included.
-- **How the game ends**, when it has Zergs:
-  1. **Last one standing.** When only one non-Zerg player is left alive (and the game started with two or more), that
-     player wins at once, even if Zergs are still on the board. Zergs are the storm; the race is to outlast the other
-     entrants.
-  2. **Horde wins.** When every non-Zerg is out (only possible with a single non-Zerg seat, as in the Delove gate
-     below), the game ends with reason `horde`; `winner` is the Zerg holding the most territories.
-  3. Otherwise as normal: a lone non-Zerg must knock out every Zerg (domination). Capital Conquest: holding every
-     capital wins only for a non-Zerg; Zergs win only through rule 2.
-- **Cards.** As normal: knocking out a Zerg hands you its cards, and Zergs take the cards of the players they knock
-  out.
-- **The Zerg strategy** lives in the engine next to the built-in bot (`packages/engine/src/zerg.ts`,
-  `chooseZergAction`), pure and seedable, so the server, self-play and Delove all play the same code (see section 4).
+## 3. Tests
 
-## 2. Scoring
-
-- `finalPlacements` skips Zergs the way it skips the Neutral: places are counted among non-Zergs only (a 2-entrant +
-  2-Zerg table is ranked as a 2-player game: +1 / -1).
-- **Kills by Zergs credit nobody** (like surrenders). The victim still places by elimination order as usual.
-- **Kills on Zergs score no points** and are not listed in `killed` (only ranked victims count, so nobody farms
-  Zergs for points). The game log and the end-of-game summary still show who knocked out each Zerg.
-- Zerg seats never appear on any leaderboard, public or training.
-- **Tournaments.** The table winner moves on as usual, which is always an entrant under rule 1 (a table has at least
-  two entrants; a lone entrant gets a bye and no table). If a table still ends with a horde win, the entrant who went
-  out last moves on, so a table never advances nobody.
-
-## 3. Server, MCP, client
-
-- **Rollout.** Games with `zergs > 0` are ranked on the **training board** only until the owner turns them on for
-  the public board and tournaments (a server env var, `RISK_ZERGS_PUBLIC`, off by default).
-- Zerg seats are bots, driven by the room's bot loop through `GameRoom.commit` with `chooseZergAction` instead of
-  `chooseBotAction`.
-- **Tournaments.** `options.zergs` applies to every table: each table has `entrants + zergs` seats, so `groupSize`
-  is capped at `map.maxPlayers - zergs`. `fillBots` tops up with ordinary bots as today.
-- **Disclosure.** The lobby setting and the tournament page show a banner ("Zerg hordes in play: N per table. They
-  rush, ally with each other and hunt eliminations; they never place or score"). Zerg seats get a horde badge and a
-  shared colour family. `describeOptions`, the `rules` tool and `get_state` list factions, so agents know.
-- **Optional flavour.** When the horde switches target, one Zerg posts a short chat line ("The swarm turns to
-  Alice."). It is cosmetic: the Zergs coordinate through the shared target rule below, never through chat.
+`packages/server/test/zerg.test.ts`: Zerg names are distinct reptile names, a custom name or an unknown kind is a
+400, and a room with 2 Zergs and 1 built-in bot plays to the end with Zerg battles, no Zerg-on-Zerg battle while the
+bot lives, and a Zerg winner. How the Zergs settle it among themselves is `zerg@1`'s rule, pinned by the engine's
+Zerg tests.
 
 ## 4. Zerg behaviour (hand-coded first)
 
@@ -81,19 +52,22 @@ All Zergs run the same deterministic **target rule** on the same public board, s
   another non-Zerg becomes far weaker (hysteresis, so the horde doesn't flip-flop).
 - **Reinforce** on the Zerg territory with the best attack path into the target; with no border, toward it.
 - **Attack** the target at a lower bar than the built-in bot (attacker ≥ defender, blitz), and press on while the
-  odds hold. Take any non-Zerg's territory when it finishes them off or wins a card. Never Zerg on Zerg (the engine
-  enforces it too).
+  odds hold. Take any non-Zerg's territory when it finishes them off or wins a card. Never Zerg on Zerg (the policy
+  holds back; the engine has no ally rule).
 - **Occupy** with everything when the new territory faces the target; **fortify** toward the target's front.
 - **Cards**: trade as soon as possible.
-- **Feed the swarm: off.** With `sacrifice: 1`, a Zerg walled in by its allies (no road to any prey) that is not
-  the horde's strongest surrenders, and its land turns neutral for the front Zerg to eat. It is **0 in `zerg@1`**
-  (#169): the owner's "no surrenders" rules it out, and the live Zerg seat plays with 0. The parameter stays for tests.
-  - The cost: the walled-in Zergs idle while one front Zerg fights alone, so a turtling prey can stall the horde. At
-    4p against 3 Zergs, 9 of 100 games against delove@10 reach the 500-turn limit (3 with the sacrifice).
-  - Zergs still take neutral land at good odds.
-- **Ending: the falling-out.** When only Zergs are left, the alliance is over: each Zerg plays for itself (its horde is
-  just itself) and they fight to one winner. No surrenders. (Until #169, all but one Zerg surrendered; the golden test
-  was updated on purpose, and it pins the alliance phase's moves as unchanged.)
+- **Feed the swarm: on.** A Zerg walled in by its allies (no road to any prey) that is not the horde's strongest
+  surrenders, and its land turns neutral for the front Zerg to eat for cards and continents. It is `sacrifice: 1` in
+  `zerg@1` (the owner's decision, 2026-10-22, in #176). It was off from #169 to #176.
+  - Without it the walled-in Zergs idle and a turtling prey can stall the horde. At 4p against 3 Zergs, games against
+    delove@10 reaching the turn limit were 9 of 100 with it off and 3 of 100 with it on.
+  - Zergs take neutral land at good odds.
+- **Ending: the strongest keeps the table.** When only Zergs are left, every Zerg but the strongest (`strongestZergOf`:
+  most territories, then most armies, then the lowest seat index) surrenders on its turn, and the strongest wins. It
+  keeps playing as an ally until it stands alone, so no Zerg attacks another.
+  - The history: until #169 all but the first Zerg in turn order surrendered; #169 had them fight to one winner;
+    #176 is this rule.
+  - Each change updated the golden test on purpose, with the alliance phase's moves pinned as unchanged.
 - **Later behaviours**, tunable and off in `zerg@1`:
   - a synchronised strike on the target once the horde has massed;
   - hoarding cards for the kill;
@@ -134,10 +108,9 @@ Order, by the owner's direction (the Zerg model and training come first; game-mo
   - The network needs ally inputs, which Delove's encoder lacks. The plan is a separate, unmirrored Zerg encoder:
     Delove's encoding plus one ally flag per seat, with zero-initialised weights, warm-started from delove@10. That
     avoids an `ENCODER_VERSION` bump.
-- **PR 3:** open mode in the game: engine option, faction, ally rule, endings, placements (the one mirrored-file PR,
-  one re-verification) + server, MCP, tests, docs.
-- **PR 4:** client (badges, banner, lobby setting) + the demo game (2 Zergs vs 2 bots on the training board).
-- **PR 5 onward:** stealth mode (section 7), once the owner settles its product rules.
+- **PR 3 (the owner's rules, sections 1 to 3):** live Zerg seats: the server's `zerg` bot kind, the MCP `add_bot`
+  `kind`, **Add Zerg** in the lobby. No engine option, faction, placements or badges, so no mirrored file.
+- **Later:** stealth mode (section 7), once the owner settles its product rules.
 
 ## 6a. Tuning results and the trained Zerg (draft recipe)
 
@@ -172,19 +145,21 @@ delove@10 that learns a horde objective from a stronger teacher.
      3/4/6p), Zerg decisions recorded.
    - `zerg@1` games run about 30 a second per core, so 50k games take minutes. No pod.
 3. **Iteration 0, behaviour cloning:** imitate `zerg@1`, giving an ally-aware network that plays about like
-   `zerg@1`. The data comes from the `zerg@1` with the falling-out (#169), so the network never learns to surrender.
-   The ally flags switch off once no prey is left, so the network sees the Zergs as rivals in the endgame. `train.py --init delove@10.pt`, with a widening flag for the ally columns and the value target set to
+   `zerg@1`. The data comes from the current `zerg@1`: no surrender while prey is left, and the strongest keeps the
+   table after it. `train.py --init delove@10.pt`, with a widening flag for the ally columns and the value target set to
    the horde's outcome (`rush`).
 4. **Iteration 1, a stronger teacher:**
    - `zerg-branch@1` with the iteration-0 network as its ranker only. The rollouts stay `zerg@1` until the network beats
      `zerg@1` on the gate: Delove's #141 found network rollouts worse, and 10-30x slower, while the network trailed its
      teacher. The prey is modelled by delove@10 instead of Jacob 2.
    - Distil the searched choices, then repeat (the AlphaZero loop, at Delove's scale).
-   - **Objective: the horde and the Zerg itself.** The score has a team part (prey knocked out × kill weight + the
-     horde's share) and a self part (`selfWeight` × my share of the horde's strength; a won game counts 1). The
-     falling-out is coming, so a Zerg that spends itself for the horde ends up last among the Zergs. The value target
-     adds the seat's own final place and kills in the Zerg-vs-Zerg endgame to the horde's `rush`. `zerg-branch@1`
-     already scores this way (`ZERG_BRANCH_SELF_WEIGHT`, default 0.5), and its rollouts play the falling-out.
+   - **Objective: the horde and the Zerg itself.** The score has two parts:
+     - a team part: prey knocked out × kill weight + the horde's share;
+     - a self part: `selfWeight` × my standing, which is my share of the horde's strength while prey is left, and 1 if
+       I'm the strongest Zerg once it's gone (who keeps the table; a won game counts 1).
+     The strongest Zerg wins the table, so a Zerg that spends itself for the horde hands the win to another. The value
+     target adds "was I the strongest Zerg when the prey fell" to the horde's `rush`. There is no Zerg-vs-Zerg fight to
+     learn. `zerg-branch@1` already scores this way (`ZERG_BRANCH_SELF_WEIGHT`, default 0.5).
 5. **Gate.** `npm run delove:horde -- --candidate delove@10 --zerg zergnet@N --base-zerg zerg@1` (`rush` and `hold`,
    500+ games per table, fixed seeds). A stronger Zerg lowers delove@10's `hold`. `zerg@1` stays the fixed reference. A passing network becomes `zerg@2`
    alongside it.

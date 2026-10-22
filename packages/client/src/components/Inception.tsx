@@ -5,9 +5,8 @@ import { cameraFor, layoutNest, lerpCamera, pathTo } from '../inception';
 import { hasGlobe, loadGlobe, preferFlat, setPreferFlat, webglAvailable, type GlobeData } from '../globeData';
 import { liveDepth } from '../globeLayout';
 
-// The Globe view (three.js, the globe's lazy chunk): the round in play tiled on a sphere (LiveGlobe), or a final on a
-// hex-globe board (Hex Earth) as that globe with its portals (InceptionGlobe).
-const InceptionGlobe = lazy(() => import('./GlobeMap').then((m) => ({ default: m.InceptionGlobe })));
+// The Globe view (three.js, the globe's lazy chunk): the round in play tiled on a sphere, down to a final on a
+// hex-globe board (Hex Earth), which is the whole globe.
 const LiveGlobe = lazy(() => import('./GlobeMap').then((m) => ({ default: m.LiveGlobe })));
 
 /** What the view knows about one table: who holds what, and how it stands. From the tournament feed (later) or a demo. */
@@ -177,8 +176,8 @@ export function Inception({
     },
     [nodes, tables, children],
   );
-  const rootFill = useCallback((t: string) => colourIn(0, t), [colourIn]);
-  const mode = !webgl || flat ? 'flat' : finalOnGlobe ? (globe?.id === rootMap ? 'hexglobe' : 'flat') : ready === nodes.length ? 'live' : 'flat';
+  // A Hex Earth final waits for its globe file; every board must be generated before the round is drawn.
+  const mode = !webgl || flat || ready < nodes.length || (finalOnGlobe && globe?.id !== rootMap) ? 'flat' : 'live';
 
   return (
     <div className="inception">
@@ -202,20 +201,7 @@ export function Inception({
         )}
       </nav>
       <div className="inception-body">
-        {mode === 'hexglobe' ? (
-          <Suspense fallback={<div className="inception-globe" />}>
-            <InceptionGlobe
-              globe={globe!}
-              fill={rootFill}
-              portals={nodes[0].portals}
-              labelOf={(t) => maps[0]?.territoryById[t]?.name ?? t}
-              onPortal={(t) => {
-                const child = children[0].find((i) => nodes[i].portal === t);
-                if (child !== undefined) zoomByHand(child);
-              }}
-            />
-          </Suspense>
-        ) : mode === 'live' ? (
+        {mode === 'live' ? (
           <Suspense fallback={<div className="inception-globe" />}>
             <LiveGlobe
               nodes={nodes}
@@ -228,6 +214,7 @@ export function Inception({
               labelOf={label}
               onPick={zoomByHand}
               version={tables}
+              globe={finalOnGlobe ? globe : null}
             />
           </Suspense>
         ) : (

@@ -1,0 +1,2 @@
+client: - 2026-10-22 #PR live globe: a final on Hex Earth is a layer of the live globe, so the last round shrinks into the winners' starting territories on Hex Earth, which then shows the final live (holders' colours, armies, battle arcs; a portal hex opens the board inside); replaces the separate Inception Hex Earth globe from #229
+docs: - 2026-10-22 #PR playing.md: the live globe's Hex Earth final

@@ -191,7 +191,8 @@ export interface RiskApi {
   /** board "training" makes a yardstick game for the training leaderboard; it needs the characters write key. */
   createGame(playerName: string, gameName: string | undefined, options: Partial<GameOptions> | undefined, board?: 'training', key?: string): Promise<JoinResult>;
   joinGame(gameId: string, playerName: string): Promise<JoinResult>;
-  addBot(gameId: string, token: string, name?: string): Promise<{ playerId: string }>;
+  /** kind "zerg" seats a Zerg (named from the reptile list, so no name); default "bot", the built-in bot. */
+  addBot(gameId: string, token: string, name?: string, kind?: 'bot' | 'zerg'): Promise<{ playerId: string; name?: string }>;
   setOptions(gameId: string, token: string, options: Partial<GameOptions>): Promise<{ state: GameView }>;
   start(gameId: string, token: string): Promise<{ state: GameView }>;
   getGame(gameId: string, token?: string): Promise<GameInfo>;
@@ -381,8 +382,8 @@ export class HttpRiskApi implements RiskApi {
   joinGame(gameId: string, playerName: string) {
     return this.request<JoinResult>(`/games/${gameId}/join`, { method: 'POST', body: JSON.stringify({ playerName }) });
   }
-  addBot(gameId: string, token: string, name?: string) {
-    return this.request<{ playerId: string }>(`/games/${gameId}/bots`, { method: 'POST', body: JSON.stringify({ name }) }, token);
+  addBot(gameId: string, token: string, name?: string, kind?: 'bot' | 'zerg') {
+    return this.request<{ playerId: string; name?: string }>(`/games/${gameId}/bots`, { method: 'POST', body: JSON.stringify({ name, ...(kind ? { kind } : {}) }) }, token);
   }
   setOptions(gameId: string, token: string, options: Partial<GameOptions>) {
     return this.request<{ state: GameView }>(`/games/${gameId}/options`, { method: 'POST', body: JSON.stringify({ options }) }, token);

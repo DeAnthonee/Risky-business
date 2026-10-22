@@ -850,6 +850,31 @@ export class TournamentManager extends EventEmitter {
     return null;
   }
 
+  /**
+   * The host's live list of entrants (host token or admin key only): each entrant's kind, self-declared agent label and
+   * join time, newest first, with counts by kind and the open spots left. Never an entrant token. `deloveIds`: the
+   * entrants the Delove seat pool joined (seat requests).
+   */
+  hostEntrants(id: string, deloveIds: ReadonlySet<string> = new Set()): HostEntrants {
+    const t = this.require(id);
+    const kindOf = (e: Entrant): HostEntrantKind => {
+      if (e.isBot) return e.kind === 'zerg' ? 'zerg' : 'bot';
+      if (deloveIds.has(e.id) || /^delove(@|$)/i.test(e.agent ?? '')) return 'delove';
+      return e.agent ? 'agent' : 'human';
+    };
+    const entrants = t.entrants
+      .map((e) => ({ id: e.id, name: e.name, kind: kindOf(e), ...(e.agent ? { agent: e.agent } : {}), joinedAt: e.joinedAt }))
+      .sort((a, b) => b.joinedAt - a.joinedAt);
+    const count = (k: HostEntrantKind) => entrants.filter((e) => e.kind === k).length;
+    return {
+      status: t.status,
+      maxEntrants: t.maxEntrants,
+      version: t.version,
+      counts: { zergs: count('zerg'), delove: count('delove'), agents: count('agent'), humans: count('human'), bots: count('bot'), open: Math.max(0, t.maxEntrants - t.entrants.length) },
+      entrants,
+    };
+  }
+
   get(id: string): TournamentSnapshot | undefined {
     return this.tournaments.get(id.toUpperCase());
   }
@@ -1438,4 +1463,16 @@ export function tournamentCounts(spec: Pick<CreateTournamentSpec, 'zergs' | 'del
   if (total < 2) throw new RuleError('A tournament needs at least 2 seats: count Zergs, Delove seats and open spots');
   if (total > MAX_ENTRANTS) throw new RuleError(`At most ${MAX_ENTRANTS} seats in a tournament`);
   return counts;
+}
+
+/** An entrant as the host's live list shows it: Zerg, built-in bot, Delove (pool or delove@ label), other agent, human. */
+export type HostEntrantKind = 'zerg' | 'bot' | 'delove' | 'agent' | 'human';
+
+/** GET /api/tournaments/:id/entrants (the host only). */
+export interface HostEntrants {
+  status: TournamentStatus;
+  maxEntrants: number;
+  version: number;
+  counts: { zergs: number; delove: number; agents: number; humans: number; bots: number; open: number };
+  entrants: { id: string; name: string; kind: HostEntrantKind; agent?: string; joinedAt: number }[];
 }

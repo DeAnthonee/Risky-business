@@ -1,0 +1,62 @@
+/* ---------- The host's live entrants list: layout only; the look is the home page's .board/.tickets ---------- */
+.host-entrants {
+  margin-top: 16px;
+}
+.he-tiles {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+  gap: 8px;
+}
+.he-tiles li {
+  display: grid;
+  justify-items: center;
+  padding: 8px 4px;
+  border: 2px solid var(--ink, var(--border));
+  background: var(--paper, var(--panel));
+  text-align: center;
+}
+.he-tiles strong {
+  font-family: var(--display, inherit);
+  font-size: 1.6em;
+  line-height: 1.1;
+}
+.he-list {
+  max-height: 22rem;
+  overflow-y: auto;
+}
+.he-list .ticket {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.he-name {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+/* A long agent label must not squeeze the name: the badge shrinks with an ellipsis. */
+.he-list .ticket-stamp {
+  flex: 0 1 auto;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.he-name {
+  min-width: 5em;
+}
+.he-list time {
+  flex: none;
+}
+/* .tickets is a grid sized to its content: keep the rows within the panel on a phone. */
+.he-list {
+  grid-template-columns: minmax(0, 1fr);
+}
+/* The host bar above every view of a registering tournament (Tournament.tsx): one column. */
+.home.p5 .home-actions.tourney-hostbar {
+  grid-template-columns: 1fr;
+  margin-bottom: 24px;
+}

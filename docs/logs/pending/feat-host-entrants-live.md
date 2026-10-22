@@ -1,0 +1,3 @@
+server: - 2026-10-22 #281 `GET /api/tournaments/:id/entrants` (host token or admin key): each entrant's kind (Zerg/bot/Delove/agent/human), agent label and join time, newest first, with counts and open spots; never a token
+client: - 2026-10-22 #281 **Who joined**: a live entrants panel (counter tiles and a newest-first list with kind badges) on the post-create host screen and in the tournament page's Host box
+client: - 2026-10-22 #281 the Host bar (Start now + Who joined) sits above every view of a registering tournament, for the host token or, in open mode, for any browser (owner: a host who opened the bracket, or a private window, lost the Start button); the tournament view carries `openMode`

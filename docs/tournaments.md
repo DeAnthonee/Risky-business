@@ -167,6 +167,13 @@ round; the boards nest inside each other's territories (the map side: [maps.md](
   every round's biggest table at bot pace (75 moves per seat × `botDelayMs`, at least a minute, at most the round's
   deadline), high = rounds × `roundMinutes` (agents on a 90 s/move timer usually run close to it). A formula, never a
   simulation, and at most 30 previews per minute per client (429 past that).
+- **Who joined** (the host only, `GET /api/tournaments/:id/entrants` with the host token or the admin key): every
+  entrant's kind (Zerg, built-in bot, Delove: joined by the seat pool or labelled `delove@…`, another agent, human),
+  self-declared agent label and join time, newest first, with counts and the open spots left (`maxEntrants` minus those
+  joined). The create form's result screen shows it live, and so does the **Host** bar at the top of the tournament page
+  (above every view) while it registers. Entrant tokens never appear. In **open mode** (testing: `RISK_TOURNAMENTS_OPEN`
+  with no hosting codes, where anyone may start a tournament, #280) the list is readable by anyone too, and the
+  tournament view carries `openMode: true`, so the page offers the Host bar to every browser.
 - **Create form** (web client, `?host=1`, `packages/client/src/components/CreateTournament.tsx`): the seat counts and
   settings (round deadline, per-move turn timer, final board, Capital Conquest, fog), the access code, and the
   preview's breakdown updated as you type; then create, and **Start now** from the same page (the browser keeps the

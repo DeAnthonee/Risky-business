@@ -1,1 +1,1 @@
-delove: - 2026-10-22 #PR `notes.test.ts`: the API notes test no longer counts on 30 moves of an unseeded game (it stops at 30 or at the game's end and checks every note sent was valid, under 2 KB and accepted); it failed when the random network lost early
+delove: - 2026-10-22 #223 `notes.test.ts`: the API notes test no longer counts on 30 moves of an unseeded game (it stops at 30 or at the game's end and checks every note sent was valid, under 2 KB and accepted); it failed when the random network lost early

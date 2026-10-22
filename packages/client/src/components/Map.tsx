@@ -519,26 +519,33 @@ export function GameMap(props: MapProps) {
           const A = anchor(sw.from);
           const B = anchor(sw.territory);
           const clipId = `pour-${sw.id}`;
+          // Under fog the viewer may see the attacker's side but not the captured land: show only the drops crossing
+          // the border, never the territory's old or new colour.
+          const toHidden = isHidden(sw.territory);
           const timing = { '--pour': `${POUR_MS}ms`, '--dist': `${2 * r + 14}px` } as CSSProperties;
           return (
             <g key={sw.id} className="sweep" style={timing}>
-              <clipPath id={clipId}>
-                <path d={t.path} />
-              </clipPath>
-              <g className="pour" clipPath={`url(#${clipId})`}>
-                <path d={t.path} fill={sw.prevColor} />
-                <g transform={`translate(${cx},${cy}) rotate(${angle}) translate(${-r},0)`}>
-                  <g className="pour-front">
-                    <g className="pour-wave back">
-                      <path d={liquidSlab(r, 7)} fill={sw.color} opacity={0.55} transform="translate(9,0)" />
-                    </g>
-                    <g className="pour-wave">
-                      <path d={liquidSlab(r, 4.5)} fill={sw.color} />
-                      <path d={liquidSlab(r, 4.5)} fill="url(#pour-ripples)" opacity={0.8} />
+              {!toHidden && (
+                <>
+                  <clipPath id={clipId}>
+                    <path d={t.path} />
+                  </clipPath>
+                  <g className="pour" clipPath={`url(#${clipId})`}>
+                    <path d={t.path} fill={sw.prevColor} />
+                    <g transform={`translate(${cx},${cy}) rotate(${angle}) translate(${-r},0)`}>
+                      <g className="pour-front">
+                        <g className="pour-wave back">
+                          <path d={liquidSlab(r, 7)} fill={sw.color} opacity={0.55} transform="translate(9,0)" />
+                        </g>
+                        <g className="pour-wave">
+                          <path d={liquidSlab(r, 4.5)} fill={sw.color} />
+                          <path d={liquidSlab(r, 4.5)} fill="url(#pour-ripples)" opacity={0.8} />
+                        </g>
+                      </g>
                     </g>
                   </g>
-                </g>
-              </g>
+                </>
+              )}
               <g className="pour-drops" filter="url(#goo)">
                 {[0, 1, 2, 3, 4, 5, 6].map((i) => {
                   const j = (k: number) => (((sw.id * 7 + i * 13 + k * 5) % 9) - 4);
@@ -552,11 +559,13 @@ export function GameMap(props: MapProps) {
                   return <circle key={i} className="pour-drop" r={3 + ((sw.id + i) % 4)} fill={sw.color} style={drop} />;
                 })}
               </g>
-              <g className="lock-in">
-                <path d={t.path} className="lock-fill" fill={sw.color} />
-                <path d={t.path} className="lock-rim" stroke={sw.color} />
-                <circle cx={B.x} cy={B.y} r={26} className="lock-ripple" />
-              </g>
+              {!toHidden && (
+                <g className="lock-in">
+                  <path d={t.path} className="lock-fill" fill={sw.color} />
+                  <path d={t.path} className="lock-rim" stroke={sw.color} />
+                  <circle cx={B.x} cy={B.y} r={26} className="lock-ripple" />
+                </g>
+              )}
             </g>
           );
         })}

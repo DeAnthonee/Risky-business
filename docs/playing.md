@@ -32,7 +32,8 @@ bottom) so you can see at a glance what they hold. Under fog only the land you c
 A **capture** pours in like liquid: drops of the new owner's colour run across the border from the attacking
 territory, a rippling front fills the captured territory from that side and pushes the old colour out (about a
 second), then a white rim flash, a small pop and a ripple from the army badge lock the new colour in. With reduced
-motion only the rim flash plays; Fast-forward skips it.
+motion only the rim flash plays; Fast-forward skips it. Under fog, when you can see the attacker but not the captured
+territory, only the drops crossing the border show.
 
 **Auto-spectate** is a hands-off live stream: press **Auto-Spectate Live Stream** above the game list (shown while a
 game is being played) or open `/?spectate=1` with no game. It tunes into a game in progress and, when that game ends

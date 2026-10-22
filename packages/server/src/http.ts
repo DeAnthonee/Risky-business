@@ -644,8 +644,12 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
   // those made with it).
   function requireHostOrCode(req: Request, res: Response, next: NextFunction) {
     const code = (req.body as { code?: unknown } | undefined)?.code;
-    if (code === undefined || code === null || code === '') return requireTournamentHost(req, res, next);
     const id = String(req.params.id);
+    // No codes set on the server: a typed code is ignored, and in open mode anyone may start (testing).
+    if (!access.usable(code)) {
+      if (access.openStart(!!opts.openTournaments)) return store.tournaments.get(id) ? next() : res.status(404).json({ error: 'Tournament not found' });
+      return requireTournamentHost(req, res, next);
+    }
     if (!store.tournaments.get(id)) return res.status(404).json({ error: 'Tournament not found' });
     try {
       if (access.canStart(req.ip ?? '', code, id)) return next();

@@ -275,10 +275,13 @@ export class LocalRiskApi implements RiskApi {
   }
   /** `key`: the tournament's host token or the admin key (tournaments saved before host tokens: the admin key only). */
   async startTournament(key: string | undefined, tournamentId: string, code?: string) {
-    const id = code
-      ? this.tournament(tournamentId).id
-      : this.tournamentHostOf(key, tournamentId, 'Starting a tournament', 'start it');
-    if (code && !this.access.canStart(this.client ?? '', code, id)) throw new RiskHttpError("Only this tournament's host can start it", 403);
+    // As POST /tournaments/:id/start: with no codes set a typed code is ignored, and open mode lets anyone start.
+    const useCode = this.access.usable(code);
+    const id =
+      useCode || (!key && this.access.openStart(this.openTournaments))
+        ? this.tournament(tournamentId).id
+        : this.tournamentHostOf(key, tournamentId, 'Starting a tournament', 'start it');
+    if (useCode && !this.access.canStart(this.client ?? '', code, id)) throw new RiskHttpError("Only this tournament's host can start it", 403);
     const t = this.store.tournaments.start(id);
     return { tournament: this.store.tournaments.view(t.id) };
   }

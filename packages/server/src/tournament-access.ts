@@ -214,6 +214,28 @@ export class TournamentAccess {
     return !!(this.config.adminCode || this.config.limitedCode);
   }
 
+  private ignoredLogged = false;
+
+  /**
+   * With no codes set on the server, a code someone types is ignored, never checked or counted (owner, 2026-10-22: "I
+   * dont care to have some code block our testing right now"). Logged once. Returns whether `code` should be used.
+   */
+  usable(code: unknown): boolean {
+    const given = code !== undefined && code !== null && code !== '';
+    if (!given) return false;
+    if (this.codesSet) return true;
+    if (!this.ignoredLogged) {
+      this.ignoredLogged = true;
+      console.info('[tourney] code given but no codes set; ignored');
+    }
+    return false;
+  }
+
+  /** With no codes set and open mode on, anyone may start a tournament (testing; owner, 2026-10-22). */
+  openStart(open: boolean): boolean {
+    return !this.codesSet && open;
+  }
+
   private now() {
     return this.tournaments.clock.now();
   }
@@ -296,9 +318,7 @@ export class TournamentAccess {
    * RISK_TOURNAMENTS_OPEN (off by default once a code is set).
    */
   hostTier(ip: string, code: unknown, open: boolean): HostTier {
-    // No codes on this server and open mode on: a code typed into the form is ignored, not a 400 (owner's testing).
-    if (!this.codesSet && open) return 'open';
-    if (code !== undefined && code !== null && code !== '') return this.checkCode(ip, code);
+    if (this.usable(code)) return this.checkCode(ip, code);
     if (open) return 'open';
     if (this.codesSet) throw new RiskHttpError('Creating a tournament needs a tournament code', 401);
     throw new RiskHttpError('Only the host can create tournaments: it needs the admin key', 403);

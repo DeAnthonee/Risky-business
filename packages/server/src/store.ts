@@ -15,6 +15,7 @@ import {
   renamePlayer,
   scenarioState,
   setOptions,
+  renameStandIn,
   setPlayerBot,
   startGame,
   viewFor,
@@ -29,6 +30,7 @@ import {
   type ScenarioRef,
   type ScenarioSeat,
 } from '@risk/engine';
+import { DISCONNECT_FROM_ENV as DISCONNECT, disconnectIdleMs } from './seat-health.js';
 import { timeoutSteps, timerOf, type RecordDecision } from '@risk/engine';
 import { BigMoveTracker, ReactionPacer, bigMoveMessage } from './reactions.js';
 import { chooseSeatAction, isZergSeat, seatIdPrefix, zergName, type BotKind } from './bot.js';
@@ -110,6 +112,8 @@ export interface RoomSnapshot {
   hostId: PlayerId;
   state: GameState;
   tokens: Record<string, PlayerId>;
+  /** Tokens of seats dropped as disconnected (seat-health.ts), with why: they answer 410 instead of a seat. */
+  droppedTokens?: Record<string, string>;
   chat: ChatMessage[];
   history: HistoryEntry[];
   updatedAt: number;
@@ -278,6 +282,13 @@ export class GameRoom extends EventEmitter {
   /** Last time a seat (non-bot, living player) was present: a socket, an authenticated request or a long-poll. */
   lastSeatSeen = Date.now();
   private seatSockets = new Map<PlayerId, number>();
+  /** When each seat last did anything (any request with its token, an open socket): seat-health.ts. */
+  private seatSeen = new Map<PlayerId, number>();
+  /** Turn-timer timeouts in a row per seat; a move of its own resets it. */
+  private seatTimeouts = new Map<PlayerId, number>();
+  /** Old tokens of seats dropped as disconnected, with the reason (saved). */
+  droppedTokens = new Map<string, string>();
+  private readonly loadedAt = Date.now();
   private seatPolls = new Map<PlayerId, number>();
   /** Tournament that owns this table, if any. */
   tournamentId?: string;
@@ -317,6 +328,7 @@ export class GameRoom extends EventEmitter {
     this.hostId = snapshot.hostId;
     this.state = snapshot.state;
     this.tokens = new Map(Object.entries(snapshot.tokens));
+    this.droppedTokens = new Map(Object.entries(snapshot.droppedTokens ?? {}));
     this.chat = snapshot.chat;
     this.history = snapshot.history;
     this.updatedAt = snapshot.updatedAt;
@@ -344,6 +356,7 @@ export class GameRoom extends EventEmitter {
       hostId: this.hostId,
       state: this.state,
       tokens: Object.fromEntries(this.tokens),
+      ...(this.droppedTokens.size ? { droppedTokens: Object.fromEntries(this.droppedTokens) } : {}),
       chat: this.chat,
       // Tournament tables keep their full history in memory but save only the tail (the record has every move).
       history: this.tournamentId && this.history.length > TABLE_SAVED_HISTORY ? this.history.slice(-TABLE_SAVED_HISTORY) : this.history,
@@ -393,7 +406,51 @@ export class GameRoom extends EventEmitter {
 
   /** A seat did something (any authenticated request): it counts as present now. */
   markSeat(playerId: PlayerId | null) {
-    if (playerId && this.isSeat(playerId)) this.lastSeatSeen = Date.now();
+    if (!playerId || !this.isSeat(playerId)) return;
+    this.lastSeatSeen = Date.now();
+    this.seatSeen.set(playerId, this.lastSeatSeen);
+  }
+
+  /** Why a token no longer plays here (its seat was dropped as disconnected), or null. */
+  droppedReason(token: string | undefined): string | null {
+    return (token && this.droppedTokens.get(token)) || null;
+  }
+
+  /**
+   * After a turn-timer timeout: is the seat disconnected (seat-health.ts)? Tournament tables only, outside seats only:
+   * `timeouts` timeouts in a row and nothing from it (no request, no open socket or long-poll) for the idle window.
+   */
+  private checkDisconnect(playerId: PlayerId) {
+    const t = timerOf(this.state.options);
+    const p = this.state.players.find((x) => x.id === playerId);
+    if (!this.tournamentId || !t || !p || p.isBot || !p.alive || this.state.phase === 'finished' || DISCONNECT.timeouts <= 0) return;
+    if ((this.seatTimeouts.get(playerId) ?? 0) < DISCONNECT.timeouts) return;
+    if (this.seatSockets.has(playerId) || this.seatPolls.has(playerId)) return;
+    const seen = this.seatSeen.get(playerId) ?? this.loadedAt;
+    if (Date.now() - seen < disconnectIdleMs(t.seconds, DISCONNECT)) return;
+    this.dropSeat(playerId, 'disconnected');
+  }
+
+  /**
+   * Drop a seat (disconnected): its tokens stop working here (410 with the reason), and the house bot plays it on as
+   * "<name>-bot" so the table never waits. Through commit like any change; the room emits 'seat_dropped' (tournaments
+   * mark the entrant dropped: it can win the table but never moves on).
+   */
+  dropSeat(playerId: PlayerId, reason: string) {
+    const p = this.state.players.find((x) => x.id === playerId);
+    if (!p || p.isNeutral) return;
+    for (const [token, id] of [...this.tokens]) {
+      if (id !== playerId) continue;
+      this.tokens.delete(token);
+      this.droppedTokens.set(token, reason);
+    }
+    this.seatTimeouts.delete(playerId);
+    this.agents[playerId] = 'bot';
+    const standIn = `${p.name}-bot`;
+    const next = renameStandIn(setPlayerBot(this.state, playerId, true), playerId, standIn);
+    this.addChat(null, 'Game', `${p.name} was dropped (${reason}): the house bot plays the seat as ${standIn}.`);
+    this.commit(next, [], playerId, { type: 'system', note: `${playerId} dropped (${reason}): the house bot plays it as ${standIn}` });
+    this.emit('seat_dropped', { playerId, name: p.name, standIn, reason });
   }
 
   seatSocket(playerId: PlayerId, delta: 1 | -1) {
@@ -683,7 +740,12 @@ export class GameRoom extends EventEmitter {
   act(playerId: PlayerId, action: Action, note?: DecisionNote): { state: GameState; events: GameEvent[] } {
     if (this.decidedAt !== null) throw new RuleError("This table was decided at the round's end");
     const { state, events } = applyAction(this.state, playerId, action);
-    if (!this.state.players.find((p) => p.id === playerId)?.isBot) this.touch();
+    if (!this.state.players.find((p) => p.id === playerId)?.isBot) {
+      this.touch();
+      // A move of its own: the seat is here, and its run of timeouts ends.
+      this.seatTimeouts.delete(playerId);
+      this.markSeat(playerId);
+    }
     this.commit(state, events, playerId, action, { note });
     return { state, events };
   }
@@ -894,6 +956,8 @@ export class GameRoom extends EventEmitter {
     } catch (err) {
       console.error(`[timer ${this.id}] skipping ${cur} failed:`, err);
     }
+    this.seatTimeouts.set(cur, (this.seatTimeouts.get(cur) ?? 0) + 1);
+    this.checkDisconnect(cur);
   }
 
   // ---- bots ----

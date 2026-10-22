@@ -9,6 +9,7 @@ import { RateLimitedError } from './rate-limit.js';
 import type { CharacterStore } from './characters.js';
 import { NO_TOURNEY_CAPS, TournamentAccess } from './tournament-access.js';
 import type { SeatRequests } from './seat-requests.js';
+import { droppedMessage } from './seat-health.js';
 
 /** RiskApi implemented directly over the in-memory store (for the embedded /mcp endpoint). */
 export class LocalRiskApi implements RiskApi {
@@ -49,6 +50,8 @@ export class LocalRiskApi implements RiskApi {
   }
   private player(room: GameRoom, token: string | undefined): string {
     const p = room.playerForToken(token);
+    const dropped = p ? null : room.droppedReason(token);
+    if (dropped) throw new RiskHttpError(droppedMessage(dropped), 410);
     if (!p) throw new RiskHttpError('A valid player token is required', 401);
     return p;
   }

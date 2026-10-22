@@ -129,7 +129,7 @@ export interface MatchSummary {
   players: { id: string; name: string; isBot: boolean; characterId: string | null; place: number | null }[];
 }
 
-export type EntrantStatus = 'registered' | 'playing' | 'waiting' | 'out' | 'champion';
+export type EntrantStatus = 'registered' | 'playing' | 'waiting' | 'out' | 'champion' | 'dropped';
 
 export interface TournamentView {
   id: string;
@@ -143,7 +143,8 @@ export interface TournamentView {
   groupSize: number;
   maxEntrants: number;
   fillBots: boolean;
-  entrants: { id: string; name: string; isBot: boolean; status: EntrantStatus }[];
+  /** `dropped`: out of the tournament (disconnected); `standIn` plays its seat to the end of that table. */
+  entrants: { id: string; name: string; isBot: boolean; status: EntrantStatus; dropped?: { reason: string; standIn: string } }[];
   rounds: {
     round: number;
     /** Nested: the round's deadline, the start of its last lap (the deadline passed) and its end (ms since the epoch). */

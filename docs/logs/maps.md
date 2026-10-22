@@ -3,8 +3,9 @@
 Covers `scripts/maps/*.mjs`, `scripts/build-map.mjs`, `scripts/authored-map.mjs`, `packages/engine/src/generated/`
 and the map registry in `packages/engine/src/maps.ts`. Guide: [docs/maps.md](../maps.md).
 
-Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. Changes from before pull requests carry the
-commit hash instead. **Append a line in the same PR** as any change to this area (README hard rule 12).
+Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. Changes from before pull requests carry the commit
+hash instead. **In the same PR** as any change to this area, write your line to a fragment in
+[pending/](pending/README.md), not to this file (README hard rule 12; folded in by `npm run logs:fold`).
 
 - 2026-10-21 #178 Generated boards: a seeded hex-board generator (`packages/engine/src/procgen.ts`, ids `gen1-s<seed>-p<seats>-t<territories>`, 5 territories per seat by default) built on demand by `getMap`, frozen by golden hashes; `pickStartSpots`; `scripts/preview-map.mjs` previews gen ids and contact sheets (`--sheet`)
 - 2026-10-20 #102 The Nine Realms (`nine_realms`): 58 territories, 9 regions, 2-8 players, a tall original single-continent board; authored maps can set `walls` (water on every border between regions except the listed passes)

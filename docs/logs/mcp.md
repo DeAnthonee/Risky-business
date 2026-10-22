@@ -3,8 +3,9 @@
 Covers `packages/mcp` (tool definitions in `tools.ts`, the `RiskApi` interface, the stdio CLI) and the embedded `/mcp`
 endpoint. Guide: [docs/mcp.md](../mcp.md).
 
-Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. Changes from before pull requests carry the
-commit hash instead. **Append a line in the same PR** as any change to this area (README hard rule 12).
+Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. Changes from before pull requests carry the commit
+hash instead. **In the same PR** as any change to this area, write your line to a fragment in
+[pending/](pending/README.md), not to this file (README hard rule 12; folded in by `npm run logs:fold`).
 
 - 2026-10-21 #178 the `map` tool and the `map` game setting accept generated board ids (`gen1-s<seed>-p<seats>-t<territories>`)
 - 2026-10-21 #174 turn timer: `get_state`, `wait_for_turn` and `act` print a `TURN TIMER ... YOU HAVE Ns LEFT` line with the timeout rule, their descriptions warn agents, events show "skipped (timeout)"

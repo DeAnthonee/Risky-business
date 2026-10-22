@@ -3,8 +3,9 @@
 Covers `packages/delove-gpu` (the training-only GPU mirror of the rules, its replay tests, the engine fingerprint).
 Guide: [packages/delove-gpu/README.md](../../packages/delove-gpu/README.md).
 
-Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. **Append a line in the same PR** as any change to
-this area (README hard rule 12), and say when the fingerprint (`engine-fingerprint.json`) was re-verified.
+Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. **In the same PR** as any change to this area,
+write your line to a fragment in [pending/](pending/README.md), not to this file (README hard rule 12; folded in by
+`npm run logs:fold`), and say when the fingerprint (`engine-fingerprint.json`) was re-verified.
 
 - 2026-10-21 #178 mirrored `maps.ts` and `types.ts` changed (generated-board ids resolved by `getMap`, the `map` option type widened; no change to any existing board): the fingerprint needs the batched `verify.py` run; `procgen.ts` itself is not mirrored
 - 2026-10-21 #160 `delove_gpu.ladder` reports `pairPointsDiff` like `runMatch` (no rule-file change, fingerprint unchanged)

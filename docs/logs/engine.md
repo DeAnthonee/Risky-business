@@ -3,8 +3,9 @@
 Covers `packages/engine/src` and its tests: rules, turn flow, settings (`options.ts`), views and fog, the built-in
 bot, ranking and the game-record format. Map data has its own log ([maps.md](maps.md)).
 
-Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. Changes from before pull requests carry the
-commit hash instead. **Append a line in the same PR** as any change to this area (README hard rule 12).
+Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. Changes from before pull requests carry the commit
+hash instead. **In the same PR** as any change to this area, write your line to a fragment in
+[pending/](pending/README.md), not to this file (README hard rule 12; folded in by `npm run logs:fold`).
 
 - 2026-10-21 #178 `GameOptions.map` and `parseOptions` accept generated board ids (`gen1-...`, procgen.ts); `getMap`/`isMapId` resolve them (64-board cache); `describeOptions` names a generated board; engine tests for the generator (determinism, golden hashes, quality over 3-10 seats, full bot games, fog)
 - 2026-10-21 #174 turn timer settings `turnTimer` (off/move/turn, default off) and `turnTimerSeconds` (5-600, default 15) in OPTION_SPECS + `GameOptions`/`DEFAULT_OPTIONS`; new `timeout` GameEvent; new unmirrored `timeout.ts` (`timeoutSteps`: the skip as ordinary actions, `timerOf`); rules text section; `parseOptions` also rejects ints above their largest value; record steps may carry `timeout: true` (optional, no `RECORD_VERSION` bump). Mirrored `types.ts` changed (behaviour-neutral when off): the GPU fingerprint needs a re-verify

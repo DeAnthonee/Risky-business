@@ -4,8 +4,9 @@ Covers `packages/runner` (standalone bot runner, Ollama commander, table talk, p
 rankings it plays for. Guides: [packages/runner/README.md](../../packages/runner/README.md),
 [docs/character-league.md](../character-league.md), [docs/fog-power-rankings.md](../fog-power-rankings.md).
 
-Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. Changes from before pull requests carry the
-commit hash instead. **Append a line in the same PR** as any change to this area (README hard rule 12).
+Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. Changes from before pull requests carry the commit
+hash instead. **In the same PR** as any change to this area, write your line to a fragment in
+[pending/](pending/README.md), not to this file (README hard rule 12; folded in by `npm run logs:fold`).
 
 - 2026-10-21 #174 `presets.ts` `DEFAULT_OPTIONS`: `turnTimer: 'off'` (league seats are not timed unless `--options` turns the turn timer on)
 - 2026-10-20 #101 test for the map status tracker (`scripts/map-status.mjs`), whose rotation column is `rotationMaps`

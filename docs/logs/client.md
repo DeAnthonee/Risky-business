@@ -2,8 +2,9 @@
 
 Covers `packages/client` (lobby, board, animations, chat, spectator features). Guide: [docs/playing.md](../playing.md).
 
-Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. Changes from before pull requests carry the
-commit hash instead. **Append a line in the same PR** as any change to this area (README hard rule 12).
+Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. Changes from before pull requests carry the commit
+hash instead. **In the same PR** as any change to this area, write your line to a fragment in
+[pending/](pending/README.md), not to this file (README hard rule 12; folded in by `npm run logs:fold`).
 
 - 2026-10-21 #178 the lobby and map previews look boards up with `getMap`, so a game on a generated board (`gen1-...`) shows its board and name
 - 2026-10-21 #174 turn timer: lobby settings (Turn timer off/per move/per turn, seconds), a ⏱ countdown next to whose turn it is, "⏱ X skipped (timeout)" in the log

@@ -87,7 +87,7 @@ describe('startOnSpots', () => {
     };
     let naiveWouldBreak = 0;
     let moved = 0;
-    let thawed = 0;
+    let redrawn = 0;
     for (const mapId of ['skirmish', 'classic'] as const) {
       const options = { map: mapId, randomDeal: true, blizzards: 8 };
       for (let seed = 1; seed <= 40; seed++) {
@@ -103,9 +103,9 @@ describe('startOnSpots', () => {
         if (new Set(Object.values(spots)).size !== seats.length) continue;
         const { state } = startOnSpots(lobby(seats, options, seed), spots, seeded(seed));
         expect(state.territories[spot].owner).toBe('a');
-        // Moved (same count) or, with nowhere legal to go, thawed (one fewer).
-        expect(state.blizzards.length === plain.blizzards.length || state.blizzards.length === plain.blizzards.length - 1).toBe(true);
-        if (state.blizzards.length < plain.blizzards.length) thawed++;
+        // Moved (one territory changes) or, with nowhere legal to go alone, drawn again (#264): the count is kept.
+        expect(state.blizzards).toHaveLength(plain.blizzards.length);
+        if (state.blizzards.filter((t) => !plain.blizzards.includes(t)).length > 1) redrawn++;
         else moved++;
         expect(state.blizzards).not.toContain(spot);
         expect(playable(mapId, new Set(state.blizzards))).toBe(true);
@@ -116,7 +116,7 @@ describe('startOnSpots', () => {
     expect(naiveWouldBreak).toBeGreaterThan(0);
     // Both paths ran.
     expect(moved).toBeGreaterThan(0);
-    expect(thawed).toBeGreaterThan(0);
+    expect(redrawn).toBeGreaterThan(0);
   });
 
   it('takes a spot the neutral was dealt in a two-player game', () => {
@@ -175,7 +175,7 @@ describe('blizzards on generated nested boards', () => {
     }
   }
 
-  it('a blizzard on a spot that cannot move alone thaws with its neighbour, and the board gets both back elsewhere (CI flake on #258)', () => {
+  it('a blizzard on a spot that cannot move alone: the set is drawn again away from the spots, count and deal kept (#264)', () => {
     // On this board t13's only way out runs through t14: with both frozen, the blizzard on t13 can go nowhere alone.
     const mapId = 'gen1-s1533255644-p3-t15';
     const seats = ['a', 'b', 'c'];
@@ -199,6 +199,29 @@ describe('blizzards on generated nested boards', () => {
     }
     expect(hits).toBeGreaterThan(0); // the case really came up
   });
+
+  it('a parent table keeps its blizzard count and an even deal, and never throws (seed sweep, #264)', () => {
+    // As the server builds a parent table: a gen1 board with a region per seat, the nested default of 10% blizzards (at
+    // least 1, tournaments.ts blizzardsFor), spots from pickStartSpots.
+    for (let n = 3; n <= 6; n++)
+      for (let seed = 1; seed <= 400; seed++) {
+        const seats = Array.from({ length: n }, (_, i) => `p${i}`);
+        const mapId = genMapId({ seed: seed * 104729 + n, seats: n, territoriesPerSeat: 5, regions: Math.max(defaultRegions(n * 5), n) });
+        const map = getMap(mapId);
+        const want = Math.min(maxBlizzards(map), Math.max(1, Math.round(0.1 * map.territoryIds.length)));
+        const portals = pickStartSpots(map, n, seed);
+        const spots = Object.fromEntries(seats.map((id, i) => [id, portals[i]]));
+        const opts: Partial<GameOptions> = { map: mapId as GameOptions['map'], autoSetup: true, capitals: true, blizzards: want };
+        const where = `${mapId} seed ${seed}`;
+        let s!: GameState;
+        expect(() => (s = startOnSpots(lobby(seats, opts, seed), spots, seeded(seed)).state), where).not.toThrow();
+        expect(s.blizzards, where).toHaveLength(want);
+        expectPlayable(s, seats, where);
+        for (const [id, t] of Object.entries(spots)) expect(s.territories[t].owner, where).toBe(id);
+        const held = seats.map((id) => count(s, id));
+        expect(Math.max(...held) - Math.min(...held), where).toBeLessThanOrEqual(1);
+      }
+  }, 60_000);
 
   it('max blizzards never split a generated board (2-10 seats, every board size, many seeds), with capitals and auto setup', () => {
     let tables = 0;

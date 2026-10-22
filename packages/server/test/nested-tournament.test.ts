@@ -516,8 +516,7 @@ describe('nested tournaments', () => {
   it('every table of every round plays the owner\'s tournament mode by default: auto setup, capitals, blizzards', () => {
     const clock = new FakeClock();
     const store = new Store(null, {}, { clock });
-    // A fixed seed: the same plan, boards and seating every run (each table's own deal is still random).
-    const t = store.tournaments.create({ format: 'nested', finalMap: 'hexworld', botDelayMs: 2000, seed: 7 });
+    const t = store.tournaments.create({ format: 'nested', finalMap: 'hexworld', botDelayMs: 2000 });
     expect(t.options).toMatchObject({ autoSetup: true, capitals: true });
     expect(t.options.blizzards).toBeUndefined();
     expect(NESTED_DEFAULT_OPTIONS).toEqual({ autoSetup: true, capitals: true });
@@ -530,8 +529,6 @@ describe('nested tournaments', () => {
     store.tournaments.start(t.id);
     const rounds = t.nested!.plan!.rounds.length;
     expect(rounds).toBe(3);
-    let frozen = 0;
-    let tables = 0;
     for (let r = 0; r < rounds; r++) {
       expect(t.rounds).toHaveLength(r + 1);
       for (const m of t.rounds[r].matches) {
@@ -539,11 +536,7 @@ describe('nested tournaments', () => {
         const where = `round ${r + 1} ${m.map}`;
         expect(s.options, where).toMatchObject({ autoSetup: true, capitals: true, blizzards: blizzardsFor(m.map!, 0.1) });
         expect(s.phase, where).not.toBe('setup'); // dealt and placed at once
-        // The engine keeps the count wherever the blizzard rule allows (nest-start.test.ts covers the hard case); a
-        // start-on-spots table may rarely keep fewer, never more.
-        expect(s.blizzards.length, where).toBeLessThanOrEqual(s.options.blizzards);
-        frozen += s.blizzards.length;
-        tables++;
+        expect(s.blizzards.length, where).toBeGreaterThan(0);
         for (const p of s.players.filter((x) => !x.isNeutral)) expect(s.blizzards, where).not.toContain(s.capitals[p.id]);
         if (r === rounds - 1) expect(m.map).toBe('hexworld');
         else expect(m.map, where).toMatch(/^gen1-/);
@@ -551,7 +544,6 @@ describe('nested tournaments', () => {
       // The round's deadline decides whatever is still playing; the next round is seated at once.
       if (r < rounds - 1) clock.advance(30 * 60_000);
     }
-    expect(frozen).toBeGreaterThan(tables); // blizzards are on: well over one per table across the tournament
     store.stopTimers();
     for (const room of store.rooms.values()) room.stopBot();
 

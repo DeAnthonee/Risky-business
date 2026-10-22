@@ -171,10 +171,10 @@ round; the boards nest inside each other's territories (the map side: [maps.md](
   table starts with every winner **on the portal territory it came up through**: the engine's `startOnSpots` deals as
   usual, then swaps each spot (owner and armies) with a territory its player was dealt, so everyone keeps the same
   share; a blizzard on a spot moves to a territory where the blizzard rule allows one (the open territories stay
-  connected and every continent keeps two open), or, when no single territory will do, thaws (and so do the blizzards next to it until
-  the open territories are one network again: a spot ringed by blizzards is never cut off), and as many freeze again
-  elsewhere where the rule allows, taken from the players who gained the thawed ones, so the board keeps its count
-  (fewer only when nothing fits). If that start cannot be built, the table
+  connected and every continent keeps two open), or, when no single territory will do (a spot whose only way out is another blizzard), the
+  whole set is drawn again, as many as before, where the rule allows and never on a spot; each territory that freezes
+  hands its holder and armies to one that thaws, so the count and the deal stay as they were (fewer blizzards only if
+  the board holds no more). If that start cannot be built, the table
   starts normally. The other entrants of a table are **out**: their `you.status` is `out` and `you.match` is `null`, and they
   can watch. The final's winner, or its first place on standing at the deadline, is the champion.
 - **Simulation: `npm run nested:sim`** (`scripts/nested-sim.mjs`, after `npm run build`). It plays a whole nested

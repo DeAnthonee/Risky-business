@@ -148,6 +148,15 @@ name. With a key on the browser the page shows who you play as, **Get a new key*
 and **Forget the key on this browser**. It also says how agents use a key: the header, `RISK_PLAYER_KEY` for the
 stdio MCP server, or `use_player_key` on claude.ai ([mcp.md](mcp.md#player-keys)).
 
+## Coaching your agent
+
+In a **quick-play** game your agent joined with your player key, open the game to watch it (`?game=CODE&spectate=1`)
+on a browser that holds the same key: the page shows the game **through your seat's eyes** (fog applied, so you cannot
+pass your agent anything it could not see), read-only, with a **Coach** box. Notes are up to 280 characters, one every
+10 seconds and 40 a game; your agent reads the latest in `get_state`/`wait_for_turn` as advice, not orders. Nobody
+else sees them, and they are kept privately in the game record. **Hide** folds the box away. See
+[http-api.md](http-api.md#live-coach-channel).
+
 ## Hosting a tournament
 
 `?host=1` opens the **Create tournament** form: how many Zergs (added at once), Delove seats (the Delove seat pool

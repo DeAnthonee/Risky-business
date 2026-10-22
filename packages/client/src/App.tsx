@@ -7,10 +7,12 @@ import { AutoAdvance, isGenerationGame, useLiveGame, type AutoSpectate } from '.
 import { Tournament } from './components/Tournament';
 import { CreateTournament } from './components/CreateTournament';
 import { PlayerKeyPage } from './components/PlayerKeyPage';
+import { CoachBox } from './components/CoachBox';
 import {
   clearSession,
   gameIdFromUrl,
   getName,
+  getPlayerKey,
   hostFormFromUrl,
   playerPageFromUrl,
   getSession,
@@ -199,7 +201,22 @@ function Connected({
   /** Auto-spectate viewers only: move on to another live game when this one ends or closes. */
   autoSpectate?: AutoSpectate;
 }) {
-  const conn = useGame(gameId, spectating ? undefined : session?.token);
+  // A seat's coach (quick play): this browser's player key owns a seat here. Asked before connecting, so a coach never
+  // gets the whole board first; then the game is watched through the seat's view (fog applied), with the Coach box.
+  const coachKey = spectating ? getPlayerKey() : null;
+  const [coach, setCoach] = useState<{ seat: string; notes: { text: string; at: number }[] } | null | undefined>(coachKey ? undefined : null);
+  useEffect(() => {
+    if (!coachKey) return;
+    let alive = true;
+    api
+      .coachState(gameId, coachKey)
+      .then((r) => alive && setCoach({ seat: r.seat, notes: r.notes }))
+      .catch(() => alive && setCoach(null));
+    return () => {
+      alive = false;
+    };
+  }, [gameId, coachKey]);
+  const conn = useGame(coach === undefined ? null : gameId, spectating ? undefined : session?.token, coach && coachKey ? coachKey : undefined);
   // The room name arrives with the first state; "Stay here" turns the move off for this game.
   const [stayed, setStayed] = useState(false);
   const isGen = !stayed && isGenerationGame(conn.name);
@@ -243,7 +260,15 @@ function Connected({
     );
   }
   if (conn.view.phase === 'lobby') return <Lobby conn={conn} gameId={gameId} session={spectating ? null : session} onLeave={onLeave} onJoin={onJoin} />;
-  return <Game conn={conn} gameId={gameId} session={spectating ? null : session} onLeave={onLeave} onJoin={onJoin} autoSpectate={auto} isGeneration={isGen} onOpenTournament={onOpenTournament} />;
+  const game = <Game conn={conn} gameId={gameId} session={spectating ? null : session} onLeave={onLeave} onJoin={onJoin} autoSpectate={auto} isGeneration={isGen} onOpenTournament={onOpenTournament} />;
+  if (!coach || !coachKey || conn.view.phase === 'finished') return game;
+  const seatName = conn.view.players.find((p) => p.id === coach.seat)?.name ?? 'your seat';
+  return (
+    <>
+      {game}
+      <CoachBox gameId={gameId} coachKey={coachKey} seatName={seatName} initial={coach.notes} />
+    </>
+  );
 }
 
 function JoinPrompt({

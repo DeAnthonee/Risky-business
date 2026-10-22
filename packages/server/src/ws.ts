@@ -37,13 +37,19 @@ interface ClientMsg {
   to?: string;
   /** action: the seat's private decision note for this move. */
   note?: unknown;
+  /**
+   * subscribe, as a seat's coach (quick play): the player key that owns a seat in the game. The socket then gets that
+   * seat's view (fog applied) instead of the spectator view, and still cannot act (`you` stays null).
+   */
+  coachKey?: string;
 }
 
 let socketSeq = 0;
 
 /**
  * WebSocket protocol (JSON):
- *  client -> {type:'subscribe', gameId, token?}
+ *  client -> {type:'subscribe', gameId, token?, coachKey?}   (coachKey: a player key that owns a quick-play seat here:
+ *                                              the socket sees that seat's fogged view, read-only)
  *  server -> {type:'state', state, events, version}
  *  server -> {type:'chat', message}
  *  client -> {type:'action', reqId, action}  server -> {type:'ack', reqId, ok, error?}
@@ -182,9 +188,13 @@ export function attachWebSocket(server: Server, store: Store, commit: () => stri
             if (!r || r.closed) return send({ type: 'closed', reason: 'gone', reqId: msg.reqId });
             room = r;
             playerId = r.playerForToken(msg.token);
+            // A seat's coach watches through the seat's eyes (fog applied): the whole board would let them pass hidden
+            // information to their agent. Read-only: `you` stays null, so the socket cannot act.
+            const coachOf = playerId ? null : store.coachSeat(r, msg.coachKey);
+            const viewer = playerId ?? coachOf;
             onChange = (m) =>
-              playerId
-                ? send({ type: 'state', state: r.view(playerId), events: redactEvents(m.state, playerId, m.events), version: m.version, host: r.hostId, name: r.name, you: playerId, commit: commit() })
+              viewer
+                ? send({ type: 'state', state: r.view(viewer), events: redactEvents(m.state, viewer, m.events), version: m.version, host: r.hostId, name: r.name, you: playerId, commit: commit(), ...(coachOf ? { coaching: coachOf } : {}) })
                 : sendRaw(spectatorFrame(r, m, commit()));
             onChat = (m) => {
               if (r.canReadChat(m, playerId)) send({ type: 'chat', message: m });
@@ -195,7 +205,7 @@ export function attachWebSocket(server: Server, store: Store, commit: () => stri
             r.on('presence', onPresence);
             // Big-move pop-ups only to a socket whose view shows the whole board (fog: spectators and the eliminated).
             onBigMove = (m) => {
-              if (seesWholeBoard(r.state, playerId)) send(m);
+              if (seesWholeBoard(r.state, viewer)) send(m);
             };
             r.on('big_move', onBigMove);
             onClosed = (reason) => {
@@ -206,7 +216,7 @@ export function attachWebSocket(server: Server, store: Store, commit: () => stri
             enter(r, playerId);
             // The first state says which tournament table this is, if any (the in-game banner); it never changes.
             const table = r.tournamentId ? store.tournaments.tableOf(r.tournamentId, r.id) : null;
-            send({ type: 'state', state: playerId ? r.view(playerId) : r.spectatorView(), events: [], version: r.state.version, host: r.hostId, name: r.name, you: playerId, commit: commit(), reqId: msg.reqId, ...(table ? { tournament: table } : {}) });
+            send({ type: 'state', state: viewer ? r.view(viewer) : r.spectatorView(), events: [], version: r.state.version, host: r.hostId, name: r.name, you: playerId, commit: commit(), reqId: msg.reqId, ...(table ? { tournament: table } : {}), ...(coachOf ? { coaching: coachOf } : {}) });
             send({ type: 'chat_history', messages: r.chatFor(playerId).slice(-100) });
             return;
           }

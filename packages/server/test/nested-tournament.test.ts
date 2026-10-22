@@ -85,7 +85,7 @@ describe('nested tournaments', () => {
       expect(ok.status).toBe(201);
       expect(ok.body.tournament).toMatchObject({ format: 'nested', map: 'nested', maxEntrants: 128, nested: { finalMap: 'world', territoriesPerSeat: 5, roundMinutes: 30, finishShare: 0.51, botDelayMs: 300, plan: null } });
       // Tables run on a per-move turn timer by default.
-      expect(ok.body.tournament.options).toMatchObject({ turnTimer: 'move', turnTimerSeconds: 30 });
+      expect(ok.body.tournament.options).toMatchObject({ turnTimer: 'move', turnTimerSeconds: 15 });
       expect(await bad({ botDelayMs: 5000 })).toBe(400);
     } finally {
       await risk.shutdown('test');
@@ -128,6 +128,15 @@ describe('nested tournaments', () => {
       expect(r1.matches).toHaveLength(10);
       expect(r1.matches.every((m: any) => m.status === 'playing' && /^gen1-s\d+-p4-t20$/.test(m.map))).toBe(true);
       expect(new Set(r1.matches.map((m: any) => m.map)).size).toBe(10);
+      // The whole board tree is public from the start: the final's board holds the ten round-1 boards in its portals.
+      const nodes = started.body.tournament.nested.nodes;
+      expect(nodes).toHaveLength(11);
+      expect(nodes[0]).toMatchObject({ depth: 0, parent: null, seats: 10 });
+      expect(nodes[0].portals).toHaveLength(10);
+      for (const m of r1.matches) {
+        expect(nodes[m.node]).toMatchObject({ map: m.map, parent: 0, depth: 1 });
+        expect(nodes[0].portals).toContain(nodes[m.node].portal);
+      }
       const humanTables = r1.matches.filter((m: any) => m.players.some((p: any) => !p.name.startsWith('Bot ')));
       expect(humanTables).toHaveLength(3);
       expect(r1.deadline).toBe(clock.now() + 20 * 60_000);

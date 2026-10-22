@@ -37,7 +37,7 @@ round; the boards nest inside each other's territories (the map side: [maps.md](
   1-240, default 30), `finishShare` (default 0.51), `options` (every table's game settings except the map; they are
   checked at create on every table size from 2 to 10 seats), `maxEntrants` (default 128), `botDelayMs` (the bots' pace
   at the tables, 0-2000 ms between moves, default 300). `groupSize` and `fillBots` do not apply.
-- **Turn timer on by default.** Unless `options` set `turnTimer`, the tables run a per-move timer of 30 s, so a
+- **Turn timer on by default.** Unless `options` set `turnTimer`, the tables run a per-move timer of 15 s (the owner's default), so a
   stalled seat cannot hold a round (on timeout the seat is skipped: see [playing.md](playing.md)). Bots and models
   move well inside it.
 - **Start.** The engine's `planNest` plans the rounds for the entrants: tables of 3-6, uneven by at most one in a

@@ -118,21 +118,20 @@ game at a time. Results already there stay; new tables no longer add to it.
   the number of rounds:
   - placement: out in round `r` before the final = `3 × (r − 1)`; place `p` of `F` in the final =
     `3 × (L − 1) + 2 × (F − p)`; the champion gets **+6** on top;
-  - **+2 per table won**, every round including the final (**+1** when a table is decided on standing at a nested
-    round's deadline: status `decided`, its standing order is the table's order; knockouts are always played out);
+  - **+2 per table won**, every round including the final (**+1** when a table is decided on standing rather than
+    played out; nested tournaments only, knockouts are always played out);
   - **+1 per player eliminated** at your tables (surrenders and forfeits credit nobody).
 
   Example: 4 entrants at tables of 2 (`L = 2`, a final of 2): the champion scores 3 + 2 + 6 = 11 for placement plus 2
   tables × 2 = 15 before kills; the runner-up 3 + 2 = 5; round-1 exits 0 plus kills.
-- **Who is on it:** people only (owner's decision). No server bot gets a row, neither built-in fill bots nor Zergs
-  (planner fillers or added by the host with `POST /tournaments/:id/bots`). Bots are still scored: their results stay
-  in `rankings-tournament.json` flagged `bot` (with `kind` "zerg" or "bot") for bot stats. It is keyed off the entrant
-  being a server bot, never its name, so a person called "Bot 1" ranks. The public board's live Zerg seats are not
-  affected.
+- **Who is on it:** people and Zerg entrants. Built-in fill bots (round 1's `fillBots`) never get a row (owner's
+  decision); that is keyed off the entrant's kind, not its "Bot N" name.
 - **The board** sums results over tournaments: points, tournaments played, championships, finals reached, tables won,
   kills and best finish, sorted by points, then championships. Identities are the entrant names, as on the other
   boards (`bot:<name>` for bots and Zergs, `player:<name>` otherwise), with the self-declared caveat of
-  [hardening #3](hardening.md#3-leaderboard-identities-for-plain-seats-are-self-declared).
+  [hardening #3](hardening.md#3-leaderboard-identities-for-plain-seats-are-self-declared). Entrants cannot be bound to
+  a character yet, so this board never has character rows
+  ([hardening #6](hardening.md#6-tournament-entrants-cannot-be-characters-yet)).
 - **Reading it:** `GET /api/rankings?board=tournament` (`{board, current, rankings}`), `GET /api/rankings/profile?key=&board=tournament`
   (`stats` adds the entrant's `results`: each tournament, finish and points), the MCP `leaderboard` and
   `ranked_profile` tools with `board: "tournament"`, and the **Tournament** toggle beside **Training** on the web

@@ -377,8 +377,8 @@ npm run delove:horde -- --candidate delove@10 --tables classic:4:3,classic:6:3 -
 ```
 
 - Tables are `map:players:zergs`; the default is `classic:3:2,classic:4:3,classic:4:2,classic:6:3,classic:6:2`. At a
-  solo table (no fillers) the Zergs hunt only the candidate. Once it is out the alliance ends and the Zergs fight each
-  other to a winner (docs/zergs.md), so the gate measures the candidate's survival as the last round it made a decision
+  solo table (no fillers) the Zergs hunt only the candidate. Once it is out the weaker Zergs surrender to the strongest
+  (`strongestZergOf`, #176), who wins (docs/zergs.md), so the gate measures the candidate's survival as the last round it made a decision
   in. `game` reports the whole games' length.
 - `hold` (the default `--metric`): at a solo table, 1 for a win, else rounds survived / 30 (capped at 0.99); with
   fillers, the candidate's place among the non-Zerg seats (1 = best, 0 = first out). Also reported: `win`, `place`,
@@ -395,8 +395,12 @@ npm run delove:horde -- --candidate delove@10 --tables classic:4:3,classic:6:3 -
     identical.
   - Solo-table hold reads lower (4p vs 3 Zergs: 0.186, was 0.233) because survival is now the candidate's last round,
     not the game's length. Compare only results from #169 on.
-  - The games run on after the candidate falls: 13.7 rounds against its 7.4, and the gate takes about 3x longer. Neither survives a solo rush often: delove@10 wins about 1% of solo tables
-  (Jacob 0%) and 7-20% of the tables with fillers.
+  - With the strongest-keeps-the-table ending and the walled-in sacrifice back on (#176): 0.459 vs 0.342, diff +0.118
+    (+0.083 to +0.152), unchanged.
+    - Games are shorter: 9.8 rounds, against 15.7 under #169's fight; Delove's own is 7.4.
+    - Turn limits: 4 in 500 (3 at 4p vs 3 Zergs), against 10 with the sacrifice off.
+  - Neither survives a solo rush often: delove@10 wins 0-1% of solo tables (Jacob 0%) and 5-18% of the tables with
+    fillers.
 - For scenarios or training data, the agents play in any self-play command:
   `npm run delove -- play --agents delove@10,zerg@1,zerg@1,zerg@1`. `scripts/cycles/horde.jobs` is a ready job file
   for `generate.sh` (about 4,000 games, the branch seat against 2-3 Zergs with Jacob fillers, league settings), not
@@ -405,11 +409,13 @@ npm run delove:horde -- --candidate delove@10 --tables classic:4:3,classic:6:3 -
   back to the teacher's pick, never an attack on a fellow Zerg), so the search sees the gang-up coming. The plain
   branch seat imagines the Zergs as its teacher.
   - The file caps games at 250 turns (`#@max-turns 250`, read by `generate.sh`; `MAX_TURNS=N` overrides it, and files
-    without the line keep the 500-turn default). The Zergs fight on after the branch seat falls and a turtling seat can
-    stall the horde. In a 400-game check no finished game ran past 235 turns.
-  - CPU time with the cycle-13 branch settings (`range-horde`, falling-out, the cap): about 5.6 process-seconds a game
-    at 8 parallel processes (200 games in 254 s wall on the i7-14700F). All 4,000 games take about 85 min on 8
-    processes, or roughly 30-40 min on 14.
+    without the line keep the 500-turn default). A turtling seat can now and then stall the horde. In
+    a 400-game check no finished game ran past 235 turns.
+  - CPU time with the cycle-13 branch settings (`range-horde`, the cap, #176's ending with the sacrifice on): about
+    5.1 process-seconds a game at 8 parallel processes (200 games in 258 s wall on the i7-14700F; mean game 29 turns).
+    All 4,000 games take about 85 min on 8 processes, or roughly 30-40 min on 14.
+  - Earlier rules measured 5.6-5.9 s. The game-length changes barely move the CPU: the turns they cut are cheap
+    Zerg-only ones, after the branch seat is out.
   - The plain `range` seat took 1.3 s a game before the falling-out; `range-horde`'s rollouts play the horde bot,
     which costs more per move.
 
@@ -418,8 +424,9 @@ npm run delove:horde -- --candidate delove@10 --tables classic:4:3,classic:6:3 -
 Branch and score for the horde (src/zerg-branch.ts): the Zerg's own move and up to 3 alternatives (never an attack on a
 fellow Zerg) are each played on 8 copies of the board with common dice, 2 rounds forward, Zergs playing `zerg@1` and the
 prey modelled by Jacob Sensei 2, and scored for the horde: prey knocked out × kill weight + the horde's share of the
-alive players' armies and income. It is the teacher for a trained Zerg network (docs/zergs.md). Its numbers come from
-`ZERG_BRANCH_OPTIONS`, `_ROLLOUTS`, `_HORIZON`, `_KILL_WEIGHT` and `_MARGIN`. A Zerg agent's id must start with `zerg`:
+alive players' armies and income + `selfWeight` (default 0.5) × my standing (my share of the horde's strength; once
+the prey is gone, 1 if I am the strongest Zerg). It is the teacher for a trained Zerg network (docs/zergs.md). Its
+numbers come from `ZERG_BRANCH_OPTIONS`, `_ROLLOUTS`, `_HORIZON`, `_KILL_WEIGHT`, `_MARGIN` and `_SELF_WEIGHT`. A Zerg agent's id must start with `zerg`:
 self-play seats named so are one horde.
 
 First result (2026-10-21, delove@10 as the candidate, `--base-zerg zerg@1`, same games): **no gain yet**. Defaults
@@ -431,7 +438,7 @@ give the search a network's alternatives.
 ### Tuning the Zerg (`npm run delove:zerg-tune`)
 
 `zerg@1`'s judgement numbers are `ZERG_1_PARAMS` in packages/engine/src/zerg.ts (attack odds per kind of target, the
-knock-out bonus, the target rule's weights, occupation share, staging pull, the sacrifice switch, 0 in `zerg@1` since #169: no surrenders). Four later
+knock-out bonus, the target rule's weights, occupation share, staging pull, the sacrifice switch, 1 in `zerg@1` since #176; it was 0 from #169 to #176). Four later
 behaviours are terms that are 0 (off) in `ZERG_1_PARAMS`, so `zerg@1` plays exactly as recorded (a golden test guards it):
 
 - `strikeRatio`: synchronised strike. The horde holds its attacks on the target until its border armies reach that

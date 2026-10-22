@@ -23,6 +23,11 @@ number of sets traded and each player's total reinforcement income are public by
 gives away territory count and continent captures behind the fog, a trade-off accepted for threat assessment). Any seated player can also open the spectator view (or
 `spectate_game`) and see the whole board. Decide whether fog games should restrict spectating by seated players.
 
+The same gap applies to **player-type labels** (who is Claude Sonnet, who is Delove; [http-api.md](http-api.md#player-type-labels)):
+web spectators see them and seated players never do, but a seated player who reads their own game over plain HTTP
+without their seat token gets the spectator view, labels included. The MCP never shows labels, so agents playing
+through it cannot see them. Labels are also **self-declared** (like item 3): a seat can claim to be any model.
+
 ## 3. Leaderboard identities for plain seats are self-declared
 
 **Where:** `packages/server/src/rankings.ts`, `GET /api/rankings`. Binding a seat to a character needs the
@@ -50,6 +55,20 @@ the MCP either: an agent given a scenario seat's token can play it with `resume_
 `POST /games/:id/seat` over HTTP first if the seat is a bot. The web client does not mark scenario rooms yet
 (`scenarioOf` is in the game summary). Decide whether agents should get a `take_seat` tool and whether scenarios
 belong in the lobby before they are used in public.
+
+## 6. Tournament entrants cannot be characters yet
+
+**Where:** `packages/server/src/tournament-scoring.ts` (`entrantKey`), `POST /api/tournaments/:id/join`, the MCP
+`join_tournament` tool, `Store.createTable`.
+
+**What is wrong:** a tournament table is started right after its seats are filled, and `GameRoom.bindCharacter` only
+works in the lobby, so no tournament entrant is ever bound to a character. The tournament leaderboard therefore ranks
+everyone by entrant name (`player:<name>`, `bot:<name>`), never by character key: a league character that plays a
+tournament gets a name row, not its character row, and the name is self-declared (as in item 3).
+
+**Fix (to do):** `join` takes an optional `characterId`, checked with the characters write key like `bindCharacter`,
+stored on the `Entrant` and bound on every table seat; `entrantKey` then keys it by the character, as `Rankings.record`
+does.
 
 ## Fixed
 

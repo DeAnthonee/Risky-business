@@ -7,7 +7,7 @@ import { dirname } from 'node:path';
  * ranking.ts:
  * - placement: out in round r (before the final) = 3 × (r − 1); place p of F in the final = 3 × (L − 1) + 2 × (F − p),
  *   where L is the number of rounds; the champion gets +6 on top;
- * - +2 per table won, any round (+1 when the table was decided on standing at a nested round's deadline);
+ * - +2 per table won, any round (+1 when the table was decided on standing rather than played out);
  * - +1 per player eliminated at your tables (surrenders credit nobody).
  *
  * It reads any bracket of rounds and tables, so knockouts score now and nested tournaments can feed the same shape.
@@ -26,16 +26,16 @@ export interface ScoredBracket {
   name: string;
   /** 'knockout' today; nested tournaments later. */
   format?: string;
-  /** `isBot`: a server bot (a built-in fill bot, or `kind` "zerg" for a Zerg). Bots are scored but never ranked. */
+  /** `kind` "zerg" marks a Zerg entrant; any other bot is a built-in fill bot. */
   entrants: { id: string; name: string; isBot: boolean; kind?: string }[];
   rounds: {
     matches: {
       entrants: string[];
       winner: string | null;
-      /** 'decided' (nested): the round clock ran out and the table was decided on standing, so its win is worth less. */
+      /** 'decided' (nested): the round clock ran out and the table was decided on standing: the win is worth less. */
       status: 'playing' | 'finished' | 'bye' | 'abandoned' | 'decided';
-      /** Nested, a decided table: its entrants in standing order (used when `order` is missing). */
-      standing?: { order: string[] };
+      /** Older flag for a table decided on standing (same as status 'decided'). */
+      decided?: boolean;
       /** The table's entrants best first, from the game's final placings (missing for tables settled before scoring). */
       order?: string[];
       /** Players each entrant eliminated at this table. */
@@ -48,10 +48,6 @@ export interface ScoredBracket {
 export interface TournamentEntrantResult {
   key: string;
   name: string;
-  /** A server bot (fill bot or Zerg): its result is kept (for bot stats) but it is never ranked on the board. */
-  bot: boolean;
-  /** For a bot: "zerg" or "bot". */
-  kind?: 'zerg' | 'bot';
   /** The last round the entrant played (the final when it equals `rounds`). */
   round: number;
   /** Place in the final, of how many seats; null when out earlier. */
@@ -102,9 +98,10 @@ export function entrantKey(e: { name: string; isBot: boolean }): string {
 export function scoreTournament(t: ScoredBracket, finishedAt = Date.now()): TournamentResult | null {
   const L = t.rounds.length;
   if (!L) return null;
-  // Everyone is scored; only people are ranked (rankTournaments), owner's decision: server bots, fill bots and Zergs
-  // alike, keep their results for bot stats but never get a row.
-  const entrants: TournamentEntrantResult[] = t.entrants.map((e) => {
+  // Built-in fill bots never go on the tournament board (owner's decision); Zergs do. Keyed off the entrant's kind,
+  // never its "Bot N" name, so a person called "Bot 1" still scores.
+  const ranked = t.entrants.filter((e) => !e.isBot || e.kind === 'zerg');
+  const entrants: TournamentEntrantResult[] = ranked.map((e) => {
     let round = 0;
     let final: TournamentEntrantResult['final'] = null;
     let tablesWon = 0;
@@ -117,10 +114,10 @@ export function scoreTournament(t: ScoredBracket, finishedAt = Date.now()): Tour
       kills += m.kills?.[e.id] ?? 0;
       if ((m.status === 'finished' || m.status === 'decided') && m.winner === e.id) {
         tablesWon++;
-        tablePoints += m.status === 'decided' ? DECIDED_WIN_POINTS : TABLE_WIN_POINTS;
+        tablePoints += m.status === 'decided' || m.decided ? DECIDED_WIN_POINTS : TABLE_WIN_POINTS;
       }
       if (i === L - 1) {
-        const order = m.order ?? m.standing?.order ?? (m.winner ? [m.winner, ...m.entrants.filter((x) => x !== m.winner)] : m.entrants);
+        const order = m.order ?? (m.winner ? [m.winner, ...m.entrants.filter((x) => x !== m.winner)] : m.entrants);
         const at = order.indexOf(e.id);
         final = { place: at < 0 ? m.entrants.length : at + 1, of: m.entrants.length };
       }
@@ -130,8 +127,6 @@ export function scoreTournament(t: ScoredBracket, finishedAt = Date.now()): Tour
     return {
       key: entrantKey(e),
       name: e.name,
-      bot: e.isBot,
-      ...(e.isBot ? { kind: e.kind === 'zerg' ? ('zerg' as const) : ('bot' as const) } : {}),
       round,
       final,
       champion,
@@ -163,20 +158,11 @@ function finishRank(r: TournamentEntrantResult): number {
   return r.round;
 }
 
-/** A server bot's result. Results saved before the flag existed are bots when their key is a bot key. */
-export function isBotResult(e: Pick<TournamentEntrantResult, 'key'> & { bot?: boolean }): boolean {
-  return e.bot ?? e.key.startsWith('bot:');
-}
-
-/**
- * The board from results in completion order: people only (owner's decision). No server bot, neither a built-in fill
- * bot nor a Zerg, gets a row; their results stay in the file for bot stats. A person named "Bot 1" is still a person.
- */
+/** The board from results in completion order. */
 export function rankTournaments(results: readonly TournamentResult[]): TournamentRow[] {
   const rows = new Map<string, TournamentRow & { best: number }>();
   for (const t of results) {
     for (const e of t.entrants) {
-      if (isBotResult(e)) continue;
       const row = rows.get(e.key) ?? { key: e.key, name: e.name, rank: 0, points: 0, tournaments: 0, championships: 0, finals: 0, tablesWon: 0, kills: 0, bestFinish: '', best: -1 };
       row.name = e.name;
       row.points += e.points;
@@ -237,7 +223,7 @@ export class TournamentRankings {
 
   profile(key: string, name: string): TournamentRow & { results: { tournamentId: string; name: string; finish: string; points: number }[] } {
     const row = this.rows().find((r) => r.key === key) ?? { key, name, rank: 0, points: 0, tournaments: 0, championships: 0, finals: 0, tablesWon: 0, kills: 0, bestFinish: '' };
-    const results = this.results.flatMap((t) => t.entrants.filter((e) => e.key === key && !isBotResult(e)).map((e) => ({ tournamentId: t.tournamentId, name: t.name, finish: finishText(e), points: e.points })));
+    const results = this.results.flatMap((t) => t.entrants.filter((e) => e.key === key).map((e) => ({ tournamentId: t.tournamentId, name: t.name, finish: finishText(e), points: e.points })));
     return { ...row, results };
   }
 

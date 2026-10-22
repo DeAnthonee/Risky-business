@@ -117,7 +117,10 @@ Order, by the owner's direction (the Zerg model and training come first; game-mo
   high `DELOVE_BRANCH_KILL_WEIGHT`) and a team reward, gated with large mirrored matches (`scripts/sprt.mjs`).
   Status (in PR 1 so far):
   - `zerg-branch@1` (branch and score for the horde) is no stronger than `zerg@1` yet.
-  - `npm run delove:zerg-tune` hill-climbs `zerg@1`'s numbers (`ZERG_1_PARAMS`) towards a `zerg@2`.
+  - `npm run delove:zerg-tune` hill-climbs `zerg@1`'s numbers (`ZERG_1_PARAMS`); a tuned set would be `zerg@3` or later
+    (`zerg@2` is the live seats' version, #198).
+  - Training moved to `zerg@2` in #201: `horde.jobs` seats `zerg@2`, and the horde-aware rollouts play each Zerg seat's own
+    version. The horde gate keeps `zerg@1` as its default for comparability; `--zerg zerg@2` picks the live version.
   - The network needs ally inputs, which Delove's encoder lacks. The plan is a separate, unmirrored Zerg encoder:
     Delove's encoding plus one ally flag per seat, with zero-initialised weights, warm-started from delove@10. That
     avoids an `ENCODER_VERSION` bump.
@@ -174,8 +177,8 @@ delove@10 that learns a horde objective from a stronger teacher.
      target adds "was I the strongest Zerg when the prey fell" to the horde's `rush`. There is no Zerg-vs-Zerg fight to
      learn. `zerg-branch@1` already scores this way (`ZERG_BRANCH_SELF_WEIGHT`, default 0.5).
 5. **Gate.** `npm run delove:horde -- --candidate delove@10 --zerg zergnet@N --base-zerg zerg@1` (`rush` and `hold`,
-   500+ games per table, fixed seeds). A stronger Zerg lowers delove@10's `hold`. `zerg@1` stays the fixed reference. A passing network becomes `zerg@2`
-   alongside it.
+   500+ games per table, fixed seeds). A stronger Zerg lowers delove@10's `hold`. `zerg@1` stays the fixed reference. A passing network becomes the next
+   free `zerg@N` (3 or later) alongside it.
 6. **Costs and owners.**
    - Training is a short home-GPU run (minutes to an hour), booked through the captain and the Lord of Resources.
    - No engine or server change; game-side work goes to the Lord of Game Development first.

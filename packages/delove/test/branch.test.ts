@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { KILL_POINTS, placementPoints, type GameState } from '@risk/engine';
 import { getMap } from '@risk/engine';
 import { playGame, type Agent, type StepContext } from '@risk/selfplay';
-import { branchAgent, decisionScore, DEFAULT_BRANCH, killCredit, pointsScore, positionScore, threatDeflection } from '../src/branch.js';
+import { branchAgent, decisionScore, DEFAULT_BRANCH, gumbel, gumbelSchedule, killCredit, pointsScore, positionScore, threatDeflection } from '../src/branch.js';
 import { DEFAULT_TEACHER_PARAMS, NetScorer, teacher, teacherPickWith } from '../src/index.js';
 
 /** A 4-player World position from the middle of a teacher game. */
@@ -149,4 +149,50 @@ describe('branch and score with network rollouts (DELOVE_BRANCH_ROLLOUT)', () =>
       else expect(a.calls.others).toBe(0);
     });
   }
+});
+
+describe('Gumbel root (root: gumbel)', () => {
+  it('halves the others each round within the budget, the teacher move in every round', () => {
+    expect(gumbelSchedule(8, 30)).toEqual([
+      { size: 8, copies: 1 },
+      { size: 5, copies: 1 },
+      { size: 3, copies: 2 },
+      { size: 2, copies: 3 },
+    ]);
+    expect(gumbelSchedule(2, 30)).toEqual([{ size: 2, copies: 15 }]);
+    expect(gumbelSchedule(3, 30)).toEqual([
+      { size: 3, copies: 5 },
+      { size: 2, copies: 7 },
+    ]);
+    for (const [m, b] of [[8, 30], [5, 30], [16, 30], [8, 72]]) {
+      const plan = gumbelSchedule(m, b);
+      expect(plan.at(-1)!.size).toBe(2);
+      // the copies spent stay within the budget once every candidate has its first copy
+      const spent = plan.reduce((a, r) => a + r.size * r.copies, 0);
+      expect(spent).toBeLessThanOrEqual(Math.max(b, m + plan.slice(1).reduce((a, r) => a + r.size * r.copies, 0)));
+    }
+  });
+
+  it('draws standard Gumbel noise', () => {
+    expect(gumbel(Math.exp(-1))).toBeCloseTo(0, 12);
+    expect(gumbel(0.5)).toBeCloseTo(0.36651292, 7);
+    expect(gumbel(0)).toBe(-Infinity);
+  });
+
+  const TINY = fileURLToPath(new URL('./fixtures/tiny.onnx', import.meta.url));
+  it('plays legally and deterministically, searching more candidates than the top options', () => {
+    const play = () => {
+      const opts = { ...DEFAULT_BRANCH, root: 'gumbel' as const, gumbelK: 6, options: 3, rollouts: 2, horizon: 1, margin: 0.01 };
+      const agent = branchAgent('b', teacherPickWith(DEFAULT_TEACHER_PARAMS), new NetScorer(TINY), opts);
+      const g = playGame({ seed: 7, seats: [{ agent }, { agent: teacher }, { agent: teacher }], maxTurns: 4, record: true, onIllegal: 'throw' });
+      return g.records!.map((r) => r.choice);
+    };
+    const a = play();
+    expect(a.length).toBeGreaterThan(0);
+    expect(play()).toEqual(a);
+  });
+
+  it('refuses the value blend', () => {
+    expect(() => branchAgent('b', teacherPickWith(DEFAULT_TEACHER_PARAMS), null, { ...DEFAULT_BRANCH, root: 'gumbel', valueWeight: 0.5 })).toThrow();
+  });
 });

@@ -14,7 +14,7 @@ import { Chat } from './Chat';
 import { DicePanel, type BattleEvent } from './Dice';
 import { Log } from './Log';
 import { BlitzPlanner } from './BlitzPlanner';
-import { GameMap, territoryName, type FloatAnim, type Highlight, type MoveAnim, type SweepAnim } from './Map';
+import { GameMap, POUR_MS, territoryName, type FloatAnim, type Highlight, type MoveAnim, type SweepAnim } from './Map';
 
 type Mode = 'idle' | 'capital' | 'place' | 'attack' | 'fortify';
 
@@ -1053,7 +1053,7 @@ function useAnimations(
           case 'conquered':
             lastQueued.current = null;
             flashes[e.to] = Date.now();
-            sweeps.push({ id: ++ids.current, territory: e.to, from: e.from, color: colorOf(e.player) });
+            sweeps.push({ id: ++ids.current, territory: e.to, from: e.from, color: colorOf(e.player), prevColor: colorOf(e.previousOwner) });
             break;
           case 'moved':
             moves.push({ id: ++ids.current, from: e.from, to: e.to, armies: e.armies, color: colorOf(e.player) });
@@ -1099,7 +1099,7 @@ function useAnimations(
           floats: s.floats.filter((f) => !floats.includes(f)),
           sweeps: s.sweeps.filter((f) => !sweeps.includes(f)),
         }));
-      }, Math.max(1600, floatMs + 200));
+      }, Math.max(1600, POUR_MS + 900, floatMs + 200));
     }
     if (newBattles) pumpBattles();
     if (newCards.length) {

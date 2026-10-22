@@ -1,7 +1,7 @@
 import type { Server } from 'node:http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { RuleError, redactEvents, type Action } from '@risk/engine';
-import type { ChangeMessage, ChatMessage, GameRoom, Store } from './store.js';
+import { parseDecisionNote, type ChangeMessage, type ChatMessage, type GameRoom, type Store } from './store.js';
 
 /**
  * Every spectator socket of a room gets the same state message for a commit, so it is built and stringified once
@@ -27,6 +27,8 @@ interface ClientMsg {
   name?: string;
   /** Whisper recipient (player id or name). */
   to?: string;
+  /** action: the seat's private decision note for this move. */
+  note?: unknown;
 }
 
 let socketSeq = 0;
@@ -155,7 +157,7 @@ export function attachWebSocket(server: Server, store: Store, commit: () => stri
           case 'action': {
             if (!room || !playerId) return send({ type: 'ack', reqId: msg.reqId, ok: false, error: 'Not subscribed as a player' });
             if (!msg.action || typeof msg.action.type !== 'string') return send({ type: 'ack', reqId: msg.reqId, ok: false, error: 'Missing action' });
-            room.act(playerId, msg.action);
+            room.act(playerId, msg.action, parseDecisionNote(msg.note));
             return send({ type: 'ack', reqId: msg.reqId, ok: true });
           }
           case 'chat': {

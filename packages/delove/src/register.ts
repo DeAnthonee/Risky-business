@@ -59,9 +59,10 @@ registerAgent(
   }),
 );
 
-// Tuned Zergs (src/zerg-tune.ts): models/delove/zerg@N.json, N >= 2 (zerg@1 is fixed in the engine, the reference horde).
+// Tuned Zergs (src/zerg-tune.ts): models/delove/zerg@N.json, N >= 3 (zerg@1, the reference horde, and zerg@2, the live
+// seats' version, are fixed in the engine; a file with their name is ignored).
 if (existsSync(dir)) {
-  for (const f of readdirSync(dir).filter((f) => /^zerg@\d+\.json$/.test(f) && f !== 'zerg@1.json')) {
+  for (const f of readdirSync(dir).filter((f) => /^zerg@\d+\.json$/.test(f) && f !== 'zerg@1.json' && f !== 'zerg@2.json')) {
     registerAgent(makeZergAgent(f.slice(0, -'.json'.length), JSON.parse(readFileSync(join(dir, f), 'utf8')).params));
   }
 }

@@ -58,6 +58,9 @@ class BranchConfig:
     close_horizon: int = 2
     # who plays the rollouts (branch.ts rolloutNet): 'teacher', or GpuBranch's roll_net in 'all' seats or the decider's ('self')
     rollout: str = "teacher"
+    root: str = "top"  # 'top' or 'gumbel' (branch.ts BranchOptions.root, gumbelRoot)
+    gumbel_k: int = 8  # 'gumbel': candidates, the teacher's move included
+    copies: int = 0  # 'gumbel': rollout copies per decision; 0 = options x the decision's rollouts
 
     def decision(self, alive: int) -> tuple[int, int, int]:
         """decisionScore in branch.ts: (kernel mode, rollouts, horizon) of a decision with `alive` players alive."""
@@ -85,7 +88,8 @@ def default_branch() -> BranchConfig:
     score = re.search(r"\bscore:\s*'(\w+)'", body).group(1)
     return BranchConfig(int(num("options")), int(num("rollouts")), int(num("horizon")), num("margin"), skip,
                         {k: float(w[k]) for k in WEIGHT_KEYS}, score, num("killWeight"), num("threat"), int(num("closeRollouts")),
-                        int(num("closeHorizon")))
+                        int(num("closeHorizon")), root=re.search(r"\broot:\s*'(\w+)'", body).group(1), gumbel_k=int(num("gumbelK")),
+                        copies=int(num("copies")))
 
 
 BRANCH_BODY = r"""
@@ -210,6 +214,80 @@ __device__ void position_score(S& s, int me, const double* w, int mode, const do
     }
     out[0] = points_score(s, me, place, at);
   }
+}
+
+// Math.log as V8 computes it (src/base/ieee754.cc: FreeBSD's fdlibm e_log.c), operation for operation (as log1p_fd).
+__device__ double log_fd(double x) {
+  const double ln2_hi = 6.93147180369123816490e-01, ln2_lo = 1.90821492927058770002e-10, two54 = 1.80143985094819840000e+16,
+               Lg1 = 6.666666666666735130e-01, Lg2 = 3.999999999940941908e-01, Lg3 = 2.857142874366239149e-01,
+               Lg4 = 2.222219843214978396e-01, Lg5 = 1.818357216161805012e-01, Lg6 = 1.531383769920937332e-01,
+               Lg7 = 1.479819860511658591e-01;
+  double hfsq, f, s, z, R, w, t1, t2, dk;
+  int k, hx, i, j;
+  unsigned int lx;
+  hx = __double2hiint(x);
+  lx = (unsigned int)__double2loint(x);
+  k = 0;
+  if (hx < 0x00100000) {                       // x < 2**-1022
+    if (((hx & 0x7fffffff) | lx) == 0) return -DINF;
+    if (hx < 0) return (x - x) / 0.0;          // log(-#) = NaN
+    k -= 54;
+    x *= two54;                                // subnormal: scale up
+    hx = __double2hiint(x);
+  }
+  if (hx >= 0x7ff00000) return x + x;
+  k += (hx >> 20) - 1023;
+  hx &= 0x000fffff;
+  i = (hx + 0x95f64) & 0x100000;
+  x = __hiloint2double(hx | (i ^ 0x3ff00000), __double2loint(x));  // normalize x or x/2
+  k += (i >> 20);
+  f = x - 1.0;
+  if ((0x000fffff & (2 + hx)) < 3) {           // -2**-20 <= f < 2**-20
+    if (f == 0.0) {
+      if (k == 0) return 0.0;
+      dk = (double)k;
+      return dk * ln2_hi + dk * ln2_lo;
+    }
+    R = f * f * (0.5 - 0.33333333333333333 * f);
+    if (k == 0) return f - R;
+    dk = (double)k;
+    return dk * ln2_hi - ((R - dk * ln2_lo) - f);
+  }
+  s = f / (2.0 + f);
+  dk = (double)k;
+  z = s * s;
+  i = hx - 0x6147a;
+  w = z * z;
+  j = 0x6b851 - hx;
+  t1 = w * (Lg2 + w * (Lg4 + w * Lg6));
+  t2 = z * (Lg1 + w * (Lg3 + w * (Lg5 + w * Lg7)));
+  i |= j;
+  R = t2 + t1;
+  if (i > 0) {
+    hfsq = 0.5 * f * f;
+    if (k == 0) return f - (hfsq - s * (hfsq + R));
+    return dk * ln2_hi - ((hfsq - (s * (hfsq + R) + dk * ln2_lo)) - f);
+  }
+  if (k == 0) return f - s * (f - R);
+  return dk * ln2_hi - ((s * (f - R) - dk * ln2_lo) - f);
+}
+
+// log_fd for the tests (against Node's Math.log).
+extern "C" __global__ void k_log_fd(const double* x, double* out, int n) {
+  int i = blockIdx.x * blockDim.x + threadIdx.x;
+  if (i < n) out[i] = log_fd(x[i]);
+}
+
+// The Gumbel root's noise (branch.ts gumbelRoot): counts[i] draws -log(-log(u)) from the decider's stream of main game
+// games[i], one per candidate in candidate order, after the teacher's pick and before k_branch_prep.
+extern "C" __global__ void k_branch_gumbel(STATE_ARGS, i64* arng, int rstride, const i64* games, const i64* counts, double* out,
+                                           int maxc, int ng) {
+  int i = blockIdx.x * blockDim.x + threadIdx.x;
+  if (i >= ng) return;
+  int b = (int)games[i];
+  MAKE_S(b);
+  i64* rng = agent_rng(arng, rstride, b, cur(s));
+  for (int c = 0; c < counts[i]; c++) out[(i64)i * maxc + c] = -log_fd(-log_fd(rnd(rng)));
 }
 
 // Complete each game's options (a fortify_from gets the teacher's fortify_to, on the decider's stream, in option
@@ -341,7 +419,7 @@ extern "C" __global__ void k_branch_score(STATE_ARGS, const i64* a1, const i64* 
 
 """
 
-BRANCH_KERNELS = ("k_branch_prep", "k_branch_sim", "k_branch_start", "k_branch_roll", "k_branch_score")
+BRANCH_KERNELS = ("k_branch_prep", "k_branch_sim", "k_branch_start", "k_branch_roll", "k_branch_score", "k_log_fd", "k_branch_gumbel")
 ROLL_TEACHER, ROLL_ALL, ROLL_SELF = 0, 1, 2  # who plays the rollouts: the teacher; a network in every seat; in the decider's
 SIM_LANES = 16  # lanes per rollout copy (k_branch_sim): see "Big tables: lane groups" in the README
 
@@ -361,6 +439,13 @@ class BranchEngine(TeacherEngine):
             raise ValueError(f"sim_lanes {sim_lanes}: want a power of two up to 32")
         self.sim_lanes = sim_lanes
         super().__init__(B, cfg, extra_source=branch_defs(sim_lanes) + BRANCH_BODY, extra_kernels=BRANCH_KERNELS, **kw)
+
+    def log(self, x: torch.Tensor) -> torch.Tensor:
+        """log_fd (V8's Math.log) of a float64 tensor, for tests/log1p_check.py."""
+        x = x.to(self.dev, torch.float64).contiguous()
+        out = torch.empty_like(x)
+        self._launch_t("k_log_fd", x.numel(), x, out, x.numel())
+        return out
 
     def branch_sim(self, n: int, *args):
         """k_branch_sim over n copies (sim_lanes lanes each)."""
@@ -400,6 +485,7 @@ class Decision:
     moves: int  # rollout moves played
     rollouts: torch.Tensor  # copies per option of each branched decision (0 where not branched)
     scores: torch.Tensor | None = None  # [n, OPT, max rollouts] each copy's score (nan where not branched or past R), for the tests
+    copies: torch.Tensor | None = None  # 'gumbel': [n, K] copies each candidate got (the 'top' root: rollouts each)
 
 
 ROLLOUT_MODES = {"teacher": ROLL_TEACHER, "all": ROLL_ALL, "self": ROLL_SELF}
@@ -420,6 +506,8 @@ class GpuBranch:
         self.w = torch.tensor([cfg.weights[k] for k in WEIGHT_KEYS], dtype=torch.float64, device=main.dev)
         if cfg.score not in SCORES:
             raise ValueError(f"branch score {cfg.score!r}: one of {SCORES}")
+        if cfg.root not in ("top", "gumbel"):
+            raise ValueError(f"branch root {cfg.root!r}: 'top' or 'gumbel'")
         # per decision (players alive 2..10): kernel mode, rollouts, horizon (BranchConfig.decision)
         self.by_alive = {a: cfg.decision(a) for a in range(2, main.n + 1)}
         self.max_r = max(r for _, r, _ in self.by_alive.values())
@@ -459,6 +547,8 @@ class GpuBranch:
     def decide(self, games: torch.Tensor, mask: torch.Tensor, tact: torch.Tensor) -> Decision:
         """games: main slots where the branching player decides now; tact: the teacher's pick there (already drawn
         from the decider's stream, as branchAgent's first teacher() call)."""
+        if self.cfg.root == "gumbel":
+            return self._decide_gumbel(games, mask, tact)
         e, cfg, dev = self.e, self.cfg, self.e.dev
         n, OPT = games.numel(), cfg.options
         imp = self.important(games, mask, tact)
@@ -544,6 +634,170 @@ class GpuBranch:
         act2_out[ig] = act2[ig].gather(1, bi[:, None]).squeeze(1)
         return int(mv.sum())
 
+    def _copies(self, src, a1, a2, sd, me, mode: int, H: int):
+        """Play and score copies (one per entry: main-game slot, option's first and second step, seed, decider) with one
+        objective, in chunks that fit the copy pool. Returns (out [S, 8], moves played)."""
+        dev, S = self.e.dev, src.numel()
+        out = torch.empty(S, 8, dtype=torch.float64, device=dev)
+        moves = 0
+        cap = self.sims.capacity
+        for lo in range(0, S, cap):
+            hi = min(S, lo + cap)
+            self.sims.load(src[lo:hi])
+            o = torch.empty(hi - lo, 8, dtype=torch.float64, device=dev)
+            mv = torch.empty(hi - lo, dtype=torch.long, device=dev)
+            args = (sd[lo:hi].contiguous(), a1[lo:hi].contiguous(), a2[lo:hi].contiguous(), me[lo:hi].contiguous())
+            if self.roll == ROLL_TEACHER:
+                self.sims.e.branch_sim(hi - lo, *args, self.w, mode, self.place, self.rw, H, o, mv)
+            else:
+                self._net_rollouts(hi - lo, *args, o, mv, mode, H)
+            out[lo:hi] = o
+            moves += int(mv.sum())
+        return out, moves
+
+    def _decide_gumbel(self, games: torch.Tensor, mask: torch.Tensor, tact: torch.Tensor) -> Decision:
+        """branch.ts gumbelRoot for the games deciding now: Gumbel draws per candidate (k_branch_gumbel), the teacher's
+        move and the K - 1 best of g + logit, k_branch_prep's completions and seeds, then sequential halving
+        (gumbelSchedule) over common-random-number copies, all games at once round by round: copy sums added seed by
+        seed (as the TypeScript adds them), priorities g + logit + (C_VISIT + most copies) * C_SCALE * mean, the
+        others halved after each round, the final pick and the margin rule against the teacher's move."""
+        e, cfg, dev = self.e, self.cfg, self.e.dev
+        n, K = games.numel(), cfg.gumbel_k
+        imp = self.important(games, mask, tact)
+        opts = torch.full((n, K), -1, dtype=torch.long, device=dev)
+        opts[:, 0] = tact[games]
+        ig = imp.nonzero(as_tuple=True)[0]
+        k = ig.numel()
+        A = mask.shape[1]
+        co = self.cpu_order
+        keyopt = torch.full((k, K), float("-inf"), dtype=torch.float64, device=dev)
+        if k:
+            lg = self.ranker(games[ig], mask)  # [k, A], -inf where illegal
+            legal = torch.isfinite(lg)[:, co]  # in candidate order
+            cnt = legal.sum(1)
+            maxc = max(1, int(cnt.max()))
+            draws = torch.empty(k, maxc, dtype=torch.float64, device=dev)
+            e._launch_t("k_branch_gumbel", k, *e._state(), e.arng, e.n, games[ig].contiguous(), cnt.contiguous(), draws, maxc, k)
+            pos = (torch.cumsum(legal.long(), 1) - 1).clamp(min=0, max=maxc - 1)
+            g_co = torch.where(legal, draws.gather(1, pos), float("-inf"))
+            key_co = g_co + lg[:, co].double()  # g + logit, candidate order
+            t = tact[games[ig]]
+            ok = legal & (co[None, :] != t[:, None])
+            order = torch.sort(-key_co, dim=1, stable=True).indices  # g + logit descending, ties in candidate order
+            oks = ok.gather(1, order)
+            rank = torch.cumsum(oks.long(), 1)
+            for j in range(1, K):
+                hit = oks & (rank == j)
+                col = torch.where(hit.any(1), co[order.gather(1, hit.long().argmax(1, keepdim=True)).squeeze(1)], -1)
+                opts[ig, j] = col
+            key_act = torch.empty_like(key_co)
+            key_act[:, co] = key_co  # back to action order
+            keyopt = torch.where(opts[ig] >= 0, key_act.gather(1, opts[ig].clamp(min=0)), float("-inf"))
+        # the decision's objective (score, rollouts, horizon) by the players alive, its budget and halving plan
+        alive = e.alive[games, : e.n].long().sum(1).clamp(min=2)
+        keys = sorted(set(self.by_alive.values()))
+        gkey = torch.zeros(n, dtype=torch.long, device=dev)
+        for a, kk in self.by_alive.items():
+            gkey[alive == a] = keys.index(kk)
+        m = (opts >= 0).sum(1)
+        mk, gk = m[ig].tolist(), gkey[ig].tolist()
+        plans, plan_of = {}, []
+        for mi, ki in zip(mk, gk):
+            budget = cfg.copies if cfg.copies > 0 else cfg.options * keys[ki][1]
+            pk = (mi, budget)
+            if pk not in plans:
+                plans[pk] = gumbel_schedule(mi, budget)
+            plan_of.append(plans[pk])
+        rmax = max((len(p) for p in plan_of), default=0)
+        sizes = torch.zeros(k, max(1, rmax), dtype=torch.long, device=dev)
+        per = torch.zeros(k, max(1, rmax), dtype=torch.long, device=dev)
+        for i, p in enumerate(plan_of):
+            sizes[i, : len(p)] = torch.tensor([r[0] for r in p])
+            per[i, : len(p)] = torch.tensor([r[1] for r in p])
+        total = per.sum(1)
+        nseeds = torch.zeros(n, dtype=torch.long, device=dev)
+        if k:
+            nseeds[ig] = total
+        maxs = max(1, int(nseeds.max()))
+        act2 = torch.full((n, K), -1, dtype=torch.long, device=dev)
+        seeds = torch.zeros(n, maxs, dtype=torch.long, device=dev)
+        e._launch_t("k_branch_prep", n, *e._state(), *e._tp(), e.arng, e.n, games.contiguous(), opts.contiguous(), act2,
+                    nseeds.contiguous(), seeds, K, maxs, n)
+        act1_out = opts[:, 0].clone()
+        act2_out = act2[:, 0].clone()
+        means = torch.full((n, K, 8), float("nan"), dtype=torch.float64, device=dev)
+        scores = torch.full((n, K, maxs), float("nan"), dtype=torch.float64, device=dev)
+        copies = torch.zeros(n, K, dtype=torch.long, device=dev)
+        best = torch.zeros(n, dtype=torch.long, device=dev)
+        moves = 0
+        if k:
+            sums = torch.zeros(k, K, 8, dtype=torch.float64, device=dev)
+            got = torch.zeros(k, K, dtype=torch.long, device=dev)  # copies so far
+            live = opts[ig] >= 0
+            cols = torch.arange(K, device=dev)
+            gm, me_all = games[ig], e.cur[games[ig]]
+            sc_k = torch.full((k, K, maxs), float("nan"), dtype=torch.float64, device=dev)
+
+            def priority():
+                mean = sums[:, :, 0] / got.clamp(min=1).double()
+                most = got.max(1).values.double()
+                return keyopt + ((GUMBEL_C_VISIT + most) * GUMBEL_C_SCALE)[:, None] * mean
+
+            for r in range(rmax):
+                c_r = per[:, r]
+                gi, oi = (live & (c_r > 0)[:, None]).nonzero(as_tuple=True)  # (game row, option) pairs this round
+                if gi.numel():
+                    reps = c_r[gi]
+                    pg, po = gi.repeat_interleave(reps), oi.repeat_interleave(reps)
+                    first = torch.cumsum(reps, 0) - reps
+                    pc = torch.arange(pg.numel(), device=dev) - first.repeat_interleave(reps)  # copy within this round
+                    ps = got[pg, po] + pc  # seed index
+                    out = torch.empty(pg.numel(), 8, dtype=torch.float64, device=dev)
+                    for ki, (mode, R, H) in enumerate(keys):
+                        sel = (gkey[ig][pg] == ki).nonzero(as_tuple=True)[0]
+                        if sel.numel() == 0:
+                            continue
+                        o, mv = self._copies(gm[pg[sel]], opts[ig][pg[sel], po[sel]], act2[ig][pg[sel], po[sel]],
+                                             seeds[ig][pg[sel], ps[sel]], me_all[pg[sel]], mode, H)
+                        out[sel] = o
+                        moves += mv
+                    sc_k[pg, po, ps] = out[:, 0]
+                    for c in range(int(reps.max())):  # sums[k] += sc[k], seed by seed (the TypeScript's order)
+                        at = (pc == c).nonzero(as_tuple=True)[0]
+                        sums[pg[at], po[at]] = sums[pg[at], po[at]] + out[at]
+                    got[gi, oi] += c_r[gi]
+                # halve the others of games with a next round (the teacher's move always stays)
+                if r + 1 < rmax:
+                    nxt = sizes[:, r + 1]
+                    go = nxt > 0
+                    pr = priority()
+                    others = live & (cols[None, :] > 0)
+                    prm = torch.where(others, pr, float("-inf"))
+                    ordr = torch.sort(-prm, dim=1, stable=True).indices  # priority descending, ties by option index
+                    os_ = others.gather(1, ordr)
+                    rk = torch.cumsum(os_.long(), 1)
+                    keep = os_ & (rk <= (nxt - 1)[:, None])
+                    newlive = torch.zeros_like(live)
+                    newlive.scatter_(1, ordr, keep)
+                    newlive[:, 0] = live[:, 0]
+                    live = torch.where(go[:, None], newlive, live)
+            pr = priority()
+            mean = sums / got.clamp(min=1).double()[:, :, None]  # true division, as JavaScript's
+            mean[:, :, 0] = torch.where(got > 0, mean[:, :, 0], float("nan"))
+            bi = torch.zeros(k, dtype=torch.long, device=dev)
+            for j in range(1, K):  # the first live candidate with the highest priority
+                better = live[:, j] & (pr[:, j] > pr.gather(1, bi[:, None]).squeeze(1))
+                bi = torch.where(better, j, bi)
+            gain = mean[:, :, 0].gather(1, bi[:, None]).squeeze(1) - mean[:, 0, 0]
+            bi = torch.where((bi != 0) & (gain < cfg.margin), 0, bi)
+            means[ig] = torch.where((got > 0)[:, :, None], mean, float("nan"))
+            scores[ig] = sc_k
+            copies[ig] = got
+            best[ig] = bi
+            act1_out[ig] = opts[ig].gather(1, bi[:, None]).squeeze(1)
+            act2_out[ig] = act2[ig].gather(1, bi[:, None]).squeeze(1)
+        return Decision(games, act1_out, act2_out, imp, imp & (best != 0), opts, means, best, moves, nseeds, scores, copies)
+
     @torch.inference_mode()
     def _net_rollouts(self, S: int, sd, a1, a2, me, out, mv, mode: int, horizon: int, max_rows: int = 262_144):
         """k_branch_sim with the network playing its seats: the copies start (k_branch_start), then, in lockstep, the
@@ -590,6 +844,20 @@ class GpuBranch:
             se.k["k_step"](grid=grid, block=block, args=[*se._state(), act, S, BIG_TURNS])
             self.roll_steps += 1
         se._launch_t("k_branch_score", S, *se._state(), a1, me, self.w, mode, self.place, self.rw, out, S)
+
+
+GUMBEL_C_VISIT, GUMBEL_C_SCALE = 50.0, 1.0  # branch.ts GUMBEL_C_VISIT / GUMBEL_C_SCALE
+
+
+def gumbel_schedule(m: int, budget: int) -> list[tuple[int, int]]:
+    """branch.ts gumbelSchedule: per round (candidates searched, new copies each) for m candidates within `budget`."""
+    sizes, others = [], m - 1
+    while True:
+        sizes.append(1 + others)
+        if others <= 1:
+            break
+        others = -(-others // 2)
+    return [(sz, max(1, budget // (len(sizes) * sz))) for sz in sizes]
 
 
 def cpu_order(L, device) -> torch.Tensor:

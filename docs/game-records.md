@@ -39,6 +39,39 @@ With `RISK_ADMIN_TOKEN` (as `Authorization: Bearer <token>`):
 
 Or copy `RISK_DATA_DIR/archive/` off the host.
 
+**Read-only, with the records key** (`RISK_RECORDS_KEY`, set by the owner and kept private; header
+`x-records-key`; the admin token also works): `GET /api/records/:id` (the whole record) and
+`GET /api/records/:id/playbyplay`. Without the key set on the server those routes are off (403).
+
+## Play-by-play
+
+`narrate(record)` (`packages/server/src/playbyplay.ts`, pure) tells a recorded game turn by turn:
+- a header: room, map, players, winner;
+- setup totals;
+- each turn's reinforcements, placements, card trades, attacks, occupations, fortifies, capital picks, knockouts,
+  surrenders and timeouts, with lines such as "Bob attacks Glacier Bay (Cat) from Stormwatch, 5 vs 1: 1 roll, loses
+  0, kills 1, conquers";
+- the game's end.
+
+A step's decision note (`step.note`: a string or any JSON the seat sent, no schema enforced) is shown inline under its
+step. A string is shown as is. An object is rendered from these keys when present:
+- `text`;
+- `chose` or `chosen`;
+- `score`;
+- `alternatives` or `top`: candidates as strings, or as objects with a label (`label`, `move` or `name`) and a score
+  (`score`, `p` or `q`);
+- `value`;
+- `model` and `preset`.
+
+Any other keys follow as compact JSON, and a note with none of these keys is shown as JSON. For example: "↳ Delove
+(delove@11, js2-range) chose Peru (.62) over Chile (.58), value .41". `narrate(record, { summary })`
+takes extra header lines, for the Zerg report once that lands.
+
+- **Over HTTP**, with the records key: `GET /api/records/:id/playbyplay` as text, or `?format=json` for the lines.
+- **From the command line:** `npm run records:playbyplay -- <record.json>` narrates a local record file, and
+  `npm run records:playbyplay -- <record id>` fetches it from `RISK_SERVER_URL` with `RISK_RECORDS_KEY` from the
+  environment, never printed. Both need the built server (`npm run build`).
+
 ## The format (`RECORD_VERSION` 1)
 
 Boards are compact. `territories` lists the territory ids once; a board is an array in that order with one
@@ -74,7 +107,9 @@ A training game ([training leaderboard](character-league.md#training-leaderboard
       "board": [[0, 3], [1, 2]],                 // the truth just before the action
       "seen": [[0, 3], null],                    // fog only: what the acting player saw when choosing it
       "hand": [{ "id": 4, "kind": "cavalry", "territory": "peru" }],
-      "events": [{ "type": "battle", "attackerDice": [6, 5, 2], "defenderDice": [4, 3], "...": "..." }] }
+      "events": [{ "type": "battle", "attackerDice": [6, 5, 2], "defenderDice": [4, 3], "...": "..." }],
+      "note": { "why": "take the weak border before Kamchatka reinforces" } }  // only if the player sent one (act's
+                                                // `note`, at most 2 KB): their own reasoning, never shown during the game
     // A move the server made because the turn timer ran out has "timeout": true, and the first of them
     // starts its events with { "type": "timeout", "player": "p_ab12", "scope": "turn" }. It replays like any move.
   ],

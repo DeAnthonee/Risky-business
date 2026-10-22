@@ -364,6 +364,30 @@ Smoke run, `delove@4` (candidate, in every stage) against `delove@5` (base), 48 
 - Not on the GPU mirror yet: `delove_gpu.generate` / `ladder` would need a per-decision model choice by players alive in
   their network seats.
 
+## The Zerg-horde gate (`npm run delove:horde`)
+
+Can a seat survive being ganged up on? One candidate against 2-3 coordinated Zergs (`zerg@1`, the engine's
+hand-coded horde bot, [docs/zergs.md](../../docs/zergs.md)), the other seats filled by `--filler` (default
+`jacob-sensei@2`). With `--base`, both play the same games (same seed, table and seat layout) and the paired
+difference decides:
+
+```bash
+npm run delove:horde -- --candidate delove@10 --base jacob-sensei@2 --games 100
+npm run delove:horde -- --candidate delove@10 --tables classic:4:3,classic:6:3 --options '{"fogOfWar":true}'
+```
+
+- Tables are `map:players:zergs`; the default is `classic:3:2,classic:4:3,classic:4:2,classic:6:3,classic:6:2`. A
+  solo table (no fillers) ends as soon as the candidate is out, since the last Zergs step aside.
+- `hold` (the default `--metric`): at a solo table, 1 for a win, else rounds survived / 30 (capped at 0.99); with
+  fillers, the candidate's place among the non-Zerg seats (1 = best, 0 = first out). Also reported: `win`, `place`,
+  `rounds`, `kills`.
+- Worker threads (`--procs`, default all cores but one): 1000 games in about 17 s for delove@10.
+- First result (2026-10-21, 100 games per table): delove@10 vs jacob-sensei@2, pooled hold 0.477 vs 0.361, diff
+  +0.115 (95% +0.081 to +0.150), better. Neither survives a solo rush often: delove@10 wins about 1% of solo tables
+  (Jacob 0%) and 7-20% of the tables with fillers.
+- For scenarios or training data, the agents play in any self-play command:
+  `npm run delove -- play --agents delove@10,zerg@1,zerg@1,zerg@1`.
+
 ## Jacob Sensei (`jacob-sensei@1`): a teacher that doesn't stall
 
 Sensei 2 (`delove-teacher@2`) was tuned on 2- and 4-player Classic and stalls on big boards and big tables: with

@@ -106,6 +106,7 @@ Every documentation file in the repo, what it covers and when to read it.
 | [docs/delove-status.md](docs/delove-status.md) | Delove's current state, strategy, what was tried, open work, coordination brief | **first** when coordinating Delove training |
 | [docs/game-settings.md](docs/game-settings.md) | the settings Gen 5 league games sample (fog, blizzards, capitals, card modes), the map pool, and the ready-made option files in `packages/delove/configs/` | testing Delove on league settings |
 | [docs/delove-fog.md](docs/delove-fog.md) | the plan for fog-of-war play: seat-view encoder, fog dropout, determinized branch teacher, GPU mirror, gates | planning Delove's fog work |
+| [docs/zergs.md](docs/zergs.md) | Zerg hordes: the design (open mode with a faction flag, stealth mode learned from chat), the hand-coded `zerg@1` horde bot, the Zerg-horde gate for Delove (`npm run delove:horde`), the open product questions | working on Zergs, or testing Delove against a rush |
 | [docs/delove-yardstick.md](docs/delove-yardstick.md) | the live yardstick: Delove at live tables against Claude Haiku/Sonnet/Opus seats, results per game, how to rerun it for a new model | measuring a Delove model against LLM players |
 | [packages/delove/README.md](packages/delove/README.md) | running, training and playing Delove; Stage 2 self-play rounds | working on `packages/delove` |
 | [packages/delove/CYCLES.md](packages/delove/CYCLES.md) | per-cycle training tables (appended by training runs) | reading or recording cycle results |

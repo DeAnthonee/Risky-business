@@ -7,7 +7,7 @@ Mac mini.
 
 ```bash
 npm ci && npm run build        # builds the engine and this package (dist/cli.js)
-npm run selfplay -- agents     # risky@1 (the live server's bot), random@1
+npm run selfplay -- agents     # risky@1 (the live server's bot), random@1, zerg@1 (the Zerg horde bot, docs/zergs.md)
 ```
 
 ## Play (step 1) and log (step 3)

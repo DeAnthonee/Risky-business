@@ -117,3 +117,65 @@
 .inception-demo h1 {
   margin: 0;
 }
+
+/* The nested tournament page around the view. */
+.nested-tournament {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.round-clock {
+  margin: 0;
+}
+.nested-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.nested-tabs button.active {
+  font-weight: 800;
+  box-shadow: inset 0 -3px 0 var(--red);
+}
+.nested-board-link {
+  margin-left: auto;
+  font-weight: 700;
+}
+.follow-switch {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  text-align: left;
+  gap: 6px;
+  font-weight: 700;
+}
+.follow-switch input {
+  width: auto;
+  margin: 0;
+}
+.inception-follow {
+  margin-left: 12px;
+  font-weight: 600;
+  color: var(--red);
+}
+.live-tables {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.live-tables li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.live-tables li button {
+  margin-left: auto;
+}
+.nested-bracket h3 {
+  margin: 12px 0 6px;
+}

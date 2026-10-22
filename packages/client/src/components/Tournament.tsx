@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { MAPS } from '@risk/engine';
 import { api, ApiError, type TournamentView } from '../api';
 import { getEntrantToken, saveEntrantToken, type Session } from '../session';
+import { NestedTournament } from './NestedTournament';
 
 const STATUS_LABEL: Record<TournamentView['status'], string> = {
   registering: 'Registration open',
@@ -91,6 +92,7 @@ export function Tournament({
   const you = t.you;
   const mapName = MAPS[t.map as keyof typeof MAPS]?.name ?? t.map;
   const nameOf = (eid: string) => t.entrants.find((e) => e.id === eid)?.name ?? '?';
+  const nested = t.format === 'nested';
 
   return (
     <div className="home tournament">
@@ -99,7 +101,8 @@ export function Tournament({
           <span className="dice">🏆</span> {t.name}
         </h1>
         <p className="muted">
-          <code>{t.id}</code> · {STATUS_LABEL[t.status]} · {mapName} · tables of up to {t.groupSize} · {t.entrants.length}/{t.maxEntrants} entrants
+          <code>{t.id}</code> · {STATUS_LABEL[t.status]} ·{' '}
+          {nested ? 'boards inside boards (tables of 3 to 6, a final of 6 to 10)' : `${mapName} · tables of up to ${t.groupSize}`} · {t.entrants.length}/{t.maxEntrants} entrants
         </p>
       </header>
 
@@ -131,7 +134,11 @@ export function Tournament({
               <button className="primary" disabled={busy || !name.trim() || t.entrants.length >= t.maxEntrants} onClick={join}>
                 Join as {name.trim() || '…'}
               </button>
-              <p className="muted small">Knockout: each table's winner moves on to the next round until one champion is left.</p>
+              <p className="muted small">
+                {nested
+                  ? "Boards inside boards: each table's winner takes their board up into the next round, until the final."
+                  : "Knockout: each table's winner moves on to the next round until one champion is left."}
+              </p>
             </>
           ) : (
             <>
@@ -160,7 +167,9 @@ export function Tournament({
           </ul>
         </section>
 
-        {t.rounds
+        {nested && <NestedTournament t={t} onWatch={onWatch} />}
+
+        {!nested && t.rounds
           .slice()
           .reverse()
           .map((r) => (

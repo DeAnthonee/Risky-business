@@ -35,6 +35,11 @@ second), then a white rim flash, a small pop and a ripple from the army badge lo
 motion only the rim flash plays; Fast-forward skips it. Under fog, when you can see the attacker but not the captured
 territory, only the drops crossing the border show.
 
+### Features that move a spectator
+
+README hard rule 10: the client moves a spectator to another game only when they turned that on, and never moves a
+player; the one exception is runner generation training matches. These are the features that move a spectator:
+
 **Auto-spectate** is a hands-off live stream: press **Auto-Spectate Live Stream** above the game list (shown while a
 game is being played) or open `/?spectate=1` with no game. It tunes into a game in progress and, when that game ends
 or its room closes, shows a countdown to the next live game, with **Stay here** to keep watching where you are (which
@@ -42,11 +47,16 @@ ends auto-spectate). It is opt-in: a game you opened yourself (from the list, a 
 moves you on, players are never moved, and tournament tables are never picked. While waiting it polls the game list
 every 2 s, backing off to 10 s. The URL stays `/?spectate=1`, so a reload picks up whatever is live.
 
-**Generation training matches** are the exception to "opt-in" (#95): the runner names its rooms
+**Generation training matches** are the rule's one exception: automatic, with no switch (#95; the owner's call,
+2026-10-22). The runner names its rooms
 `Generation <tag> Match <n>` (e.g. `Generation 5 Match 3`), and when one ends or closes, every spectator gets a 4 s
 countdown to the next one, a running match first, otherwise its lobby (watch it fill and start), with **Stay here** to
 remain. Only that exact name counts (a room a person names that way counts too), tournament tables are never picked,
 and players are never moved.
+
+**Follow the action** on a nested tournament's page (see [Watching a nested tournament](#watching-a-nested-tournament)):
+an opt-in switch, off by default, that moves the view between that tournament's tables by itself, inside the tournament page only (it never opens another page). It is never
+offered to someone holding a seat in the tournament.
 
 Players can **whisper**: pick a player in the chat's "To" menu (or tap a whisper you got to answer it)
 and no other player's seat sees the message. Spectators see every whisper, highlighted in purple (so would a player who
@@ -84,6 +94,21 @@ players' armies + 30% of territories + 30% of income (bars add up to 100%; the N
 those three parts; hover a bar for the numbers. Each row also shows the player's card count (yellow at 3, a set is
 possible; orange at 4+). Card counts are public, so under fog of war a seated player still gets the card-count list.
 In a progressive-cards game the top bar shows what the **next set** is worth (hover for the next three values).
+
+## Watching a nested tournament
+
+A nested ("Inception") tournament's page (`?tournament=CODE`) shows the round clock ("Round 1 · 9 of 17 tables needed ·
+14:20 left": a round ends when enough tables finish or the time runs out, and the tables still playing are then
+decided on standing) and three tabs:
+- **Map:** the final's board with every table's board drawn inside its territory, boards inside boards. Click a board
+  to zoom in, Esc, **Zoom out** or the breadcrumb to zoom out, and **Watch table** to open a table as a spectator.
+- **Bracket:** every round from the final down; a table decided on standing lists its order and the tie-break dice.
+- **Live tables:** the tables being played, the most exciting first.
+
+**Follow the action** (Map tab) is an opt-in switch, off by default. While it is on, the view moves by itself to the
+most exciting table, with a caption saying why. Any zoom by hand turns it off. It needs the server's live tournament
+feed, and it is never offered to someone holding a seat in the tournament. The page also links to the tournament
+leaderboard.
 
 ## Rules implemented
 

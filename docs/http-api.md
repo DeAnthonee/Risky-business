@@ -81,6 +81,19 @@ registered player under their registered name (`playerName` is ignored), one sea
 queue. The seat ranks as `key:<playerId>` (the tournament board too). Without a key, a registered name is refused
 (400). A header with a key that does not work is a 401. Old games and `player:<name>` rows are unchanged.
 
+## Live coach channel
+
+Quick play only. The person who owns a seat (their player key joined it) coaches it; the key goes in `X-Player-Key`.
+
+| route | |
+| --- | --- |
+| `POST /games/:id/coach` | `{text}` (1-280 characters; spaces collapsed, control characters removed) → 201 `{seat, notes: [{text, at}]}`. One note per 10 s and 40 per game per seat (400 past those; 429 past 30 a minute per client). 401 without a key; 403 when the game is not quick play or the key has no seat in it; 400 once the seat is out or the game is over |
+| `GET /games/:id/coach?since=&timeoutMs=` | the coach's page: `{seat, state, notes}`, where `state` is the **seat's** view (fog applied: in a fog game the coach sees what the seat sees). Long-polls like `/wait` (up to 60 s) without counting as the seat being present |
+
+The seat sees its latest 5 notes as `coach: [{text, at}]` in its own view (`GET /games/:id` with its token, `/wait`, the
+WebSocket); a new note does not wake a waiter. Nobody else sees them: not the other seats, not spectators, not
+`/events`, chat or `/history`. They are filed in the game record ([game-records.md](game-records.md#coach-notes)).
+
 ## Player-type labels
 
 A seat may say what kind of player it is with `agent` on `POST /games`, `POST /games/:id/join` and

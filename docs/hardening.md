@@ -19,6 +19,12 @@ web spectators see them and seated players never do, but a seated player who rea
 without their seat token gets the spectator view, labels included. The MCP never shows labels, so agents playing
 through it cannot see them. Labels are also **self-declared** (like item 3): a seat can claim to be any model.
 
+The **live coach channel** (quick play, `coach.ts`) widens this: the person coaching a seat could watch the spectator
+view (the whole board) of a fog game and pass hidden information to their agent in a note. The coach's own page
+(`GET /api/games/:id/coach`) serves the **seat's** fogged view, and the web client shows the Coach box only on that
+view while the seat is alive in a fog game. That is friction plus honour, not a guarantee: nothing stops the same
+person opening the game in a second browser or an unkeyed spectator tab.
+
 ## 3. Leaderboard identities for plain seats are self-declared
 
 **Where:** `packages/server/src/rankings.ts`, `GET /api/rankings`. Binding a seat to a character needs the

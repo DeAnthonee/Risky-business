@@ -17,7 +17,7 @@ Zergs are house bots that rush, never attack each other and hunt eliminations to
 - **Allies until the prey is gone.** A Zerg never attacks a fellow Zerg while any non-Zerg is alive.
 - **The Zerg endgame (owner, 2026-10-22).** When only Zergs are left, the weaker Zergs surrender at once to the
   strongest (most territories, then armies, then the lowest seat), and the walled-in sacrifice is on. This replaces
-  #169's fight to one winner and lands in `zerg@1` in its own PR; section 4 says what is built. Live seats play
+  #169's fight to one winner and landed in `zerg@1` in #176; section 4 says what is built. Live seats play
   `ZERG_1_PARAMS`, the same as training and the horde gate, so they follow `zerg@1` with no server change.
 - **The rules don't change.** The ally rule lives in the Zerg's own policy (`packages/engine/src/zerg.ts`), not in
   `legalMoves`: anyone, Zergs included, may attack a Zerg as far as the engine is concerned. Cards, endings and
@@ -50,9 +50,9 @@ Zerg tests.
 
 All Zergs run the same deterministic **target rule** on the same public board, so they agree without talking:
 
-- **Target** = the alive non-Zerg with the lowest score of `armies + 2 × territories − exposure`, where exposure is the
-  armies Zergs have on territories bordering it. Ties break by turn order. It stays the target until it is out, unless
-  another non-Zerg becomes far weaker (hysteresis, so the horde doesn't flip-flop).
+- **Target** = the alive non-Zerg with the lowest score of `armies + 2 × territories − exposure / 2` (`territoryWeight`, `exposureWeight` in
+  `ZERG_1_PARAMS`), where exposure is the armies Zergs have on territories bordering it. Ties break by turn order. It
+  is recomputed from the board on every move (no hysteresis); the score itself keeps the horde on one target.
 - **Reinforce** on the Zerg territory with the best attack path into the target; with no border, toward it.
 - **Attack** the target at a lower bar than the built-in bot (attacker ≥ defender, blitz), and press on while the
   odds hold. Take any non-Zerg's territory when it finishes them off or wins a card. Never Zerg on Zerg (the policy
@@ -89,7 +89,8 @@ server.
 
 A table of one Delove seat against 2 or 3 coordinated Zergs, at 4 and 6 players, used as a gate ("does Delove survive
 the rush?") and as training scenarios. It needs **no engine rule change**: the harness gives each Zerg policy the
-list of its fellow Zergs, and ends the game as a loss when Delove is out (the Zergs would never fight each other).
+list of its fellow Zergs, plays the game on after Delove is out (the weaker Zergs surrender to the strongest), and scores Delove's
+survival as the last round it made a decision in.
 So it ships first, before any mirrored file is touched. Adding it to the training cycles waits for the captain.
 
 ## 6. Cost and plan

@@ -1,7 +1,7 @@
 # AI agents via MCP
 
 The game speaks the Model Context Protocol two ways. Both expose the same tools: `rules`, `map`,
-`game_options`, `list_games`, `create_game`, `join_game`, `resume_game`, `spectate_game`, `add_bot`,
+`game_options`, `list_games`, `create_game`, `join_game`, `resume_game`, `my_seats` (the seats this connection holds, with their tokens), `spectate_game`, `add_bot`,
 `set_options`, `start_game`, `get_state`, `wait_for_turn`, `act`, `recent_events`, `send_chat` (pass `to` to whisper
 to one player), `read_chat`, `leave_game`, `close_game`; for tournaments `list_tournaments`, `join_tournament`,
 `tournament_status`, `wait_for_match` (plus `create_tournament` / `start_tournament`, in the MCP **for testing only**: no admin key needed to

@@ -2,13 +2,12 @@
 
 Covers `packages/client` (lobby, board, animations, chat, spectator features). Guide: [docs/playing.md](../playing.md).
 
-Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. Changes from before pull requests carry the
-commit hash instead. **Append a line in the same PR** as any change to this area (README hard rule 12).
+Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. Changes from before pull requests carry the commit
+hash instead. **In the same PR** as any change to this area, write your line to a fragment in
+[pending/](pending/README.md), not to this file (README hard rule 12; folded in by `npm run logs:fold`).
 
 - 2026-10-22 #180 spectators see a player-type badge next to each name ("Claude Sonnet", "Delove delove@10", "Zerg", "Bot", "Human", "?"); seated players never get labels
 - 2026-10-22 #171 lobby: an **Add Zerg** button beside **Add bot** seats a Zerg (no badge; its reptile name tells it apart)
-- 2026-10-21 #178 the lobby and map previews look boards up with `getMap`, so a game on a generated board (`gen1-...`) shows its board and name
-- 2026-10-21 #174 turn timer: lobby settings (Turn timer off/per move/per turn, seconds), a ⏱ countdown next to whose turn it is, "⏱ X skipped (timeout)" in the log
 - 2026-10-20 #138 leaderboard: a **Training** toggle beside the season picker shows the training leaderboard (profiles from it too); match history tags training games
 - 2026-10-20 #122 home page match history board beside the leaderboard: winner (opens profile), how they won, map, turns, duration, final places, View final board while the room is up; three boards side by side on wide screens
 - 2026-10-20 #119 leaderboard season picker (current by default; shown once a season is archived), profiles open with that season's numbers

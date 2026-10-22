@@ -9,7 +9,7 @@
 >    named after its agent id (`zerg@1`), which is how a horde recognises itself there.
 > 3. **The strongest Zerg keeps the table.** Once no non-Zerg is left, the weaker Zergs surrender at once and the
 >    strongest (most territories, then armies, then the lowest seat index) wins: "Zerg has its own agenda", and it
->    ends games quickly. This replaced #169's fight to one winner (#PR). No Zerg surrenders before that (`sacrifice` is
+>    ends games quickly. This replaced #169's fight to one winner (#176). No Zerg surrenders before that (`sacrifice` is
 >    0 in `zerg@1`, until the owner decides otherwise). A trained Zerg wants to be the strongest when the prey falls
 >    (section 6a).
 
@@ -98,7 +98,7 @@ All Zergs run the same deterministic **target rule** on the same public board, s
   most territories, then most armies, then the lowest seat index) surrenders on its turn, and the strongest wins. It
   keeps playing as an ally until it stands alone, so no Zerg attacks another.
   - The history: until #169 all but the first Zerg in turn order surrendered; #169 had them fight to one winner;
-    #PR is this rule.
+    #176 is this rule.
   - Each change updated the golden test on purpose, with the alliance phase's moves pinned as unchanged.
 - **Later behaviours**, tunable and off in `zerg@1`:
   - a synchronised strike on the target once the horde has massed;

@@ -395,7 +395,7 @@ npm run delove:horde -- --candidate delove@10 --tables classic:4:3,classic:6:3 -
     identical.
   - Solo-table hold reads lower (4p vs 3 Zergs: 0.186, was 0.233) because survival is now the candidate's last round,
     not the game's length. Compare only results from #169 on.
-  - With the strongest-keeps-the-table ending (#PR) the verdict is unchanged (+0.119), and the games are shorter
+  - With the strongest-keeps-the-table ending (#176) the verdict is unchanged (+0.119), and the games are shorter
     (10.9 rounds against 15.7 under #169's fight, Delove's own 8.4). The 10 turn limits in 500 games are turtle stalls
     while Delove still stands.
   - Neither survives a solo rush often: delove@10 wins 0-1% of solo tables (Jacob 0%) and 5-18% of the tables with
@@ -413,7 +413,7 @@ npm run delove:horde -- --candidate delove@10 --tables classic:4:3,classic:6:3 -
   - CPU time with the cycle-13 branch settings (`range-horde`, the cap): about 5.6-5.9 process-seconds a game at 8
     parallel processes (200 games in 254-311 s wall on the i7-14700F). All 4,000 games take about 85 min on 8
     processes, or roughly 30-40 min on 14.
-  - The shorter ending (#PR) cut the mean game from about 39 to 31 turns. It didn't move the CPU: the turns it cut were
+  - The shorter ending (#176) cut the mean game from about 39 to 31 turns. It didn't move the CPU: the turns it cut were
     cheap Zerg-only ones, after the branch seat was out.
   - The plain `range` seat took 1.3 s a game before the falling-out; `range-horde`'s rollouts play the horde bot,
     which costs more per move.

@@ -23,6 +23,7 @@ import {
   type NestPlan,
 } from '@risk/engine';
 import type { GameRoom, Store } from './store.js';
+import type { CommitInfo } from './archive.js';
 import { freeZergName, type BotKind } from './bot.js';
 
 /**
@@ -96,6 +97,25 @@ export interface TournamentMatch {
   order?: string[];
   /** Set when the table settles: players each entrant eliminated there (surrenders credit nobody). */
   kills?: Record<string, number>;
+  /** Fun numbers per entrant, gathered while the table is played (for the house-bot panel; nothing is ranked on them). */
+  stats?: Record<string, TableStats>;
+}
+
+/**
+ * One entrant's numbers at one table. Collected from the table's moves as they happen, so a table already being
+ * played when the server restarts counts only from the restart on.
+ */
+export interface TableStats {
+  /** Armies this entrant lost in battles, attacking or defending. */
+  lost: number;
+  /** Enemy armies this entrant destroyed in battles. */
+  destroyed: number;
+  /** Territories this entrant conquered. */
+  conquests: number;
+  /** Most armies this entrant held on the board at once. */
+  peak: number;
+  /** The turn this entrant was knocked out on, or the table's last turn if it was still in. */
+  turns: number;
 }
 
 export interface TournamentRound {
@@ -760,11 +780,54 @@ export class TournamentManager extends EventEmitter {
     };
     room.on('change', settle);
     room.on('closed', settle);
+    this.collectStats(m, room);
     settle();
+  }
+
+  /** Stop listeners per table (stats collection), removed when the table is scored. */
+  private collectors = new WeakMap<TournamentMatch, () => void>();
+
+  /** Gather each entrant's fun numbers (TableStats) from the table's moves while it is played. */
+  private collectStats(m: TournamentMatch, room: GameRoom) {
+    if (this.collectors.has(m)) return;
+    const byPlayer = new Map(Object.entries(m.seats).map(([eid, s]) => [s.playerId, eid]));
+    const stats = (m.stats ??= {});
+    const of = (eid: string) => (stats[eid] ??= { lost: 0, destroyed: 0, conquests: 0, peak: 0, turns: 0 });
+    for (const eid of byPlayer.values()) of(eid);
+    const collect = ({ next, events }: CommitInfo) => {
+      for (const e of events) {
+        if (e.type === 'battle') {
+          const a = byPlayer.get(e.attacker);
+          const d = byPlayer.get(e.defender);
+          if (a) (of(a).lost += e.attackerLosses), (of(a).destroyed += e.defenderLosses);
+          if (d) (of(d).lost += e.defenderLosses), (of(d).destroyed += e.attackerLosses);
+        } else if (e.type === 'conquered') {
+          const p = byPlayer.get(e.player);
+          if (p) of(p).conquests++;
+        } else if (e.type === 'eliminated') {
+          const p = byPlayer.get(e.player);
+          if (p) of(p).turns = next.turnNumber;
+        }
+      }
+      const armies = new Map<string, number>();
+      for (const t of Object.values(next.territories)) if (t.owner) armies.set(t.owner, (armies.get(t.owner) ?? 0) + t.armies);
+      for (const [pid, eid] of byPlayer) of(eid).peak = Math.max(of(eid).peak, armies.get(pid) ?? 0);
+    };
+    room.on('commit', collect);
+    this.collectors.set(m, () => room.off('commit', collect));
   }
 
   /** The table's final placings and kills, by entrant, for the tournament leaderboard. */
   private scoreTable(m: TournamentMatch, room: GameRoom) {
+    this.collectors.get(m)?.();
+    this.collectors.delete(m);
+    // Still in at the end: they survived every turn the table lasted.
+    const byPlayer = new Map(Object.entries(m.seats).map(([eid, s]) => [s.playerId, eid]));
+    for (const p of room.state.players) {
+      const eid = byPlayer.get(p.id);
+      const st = eid ? m.stats?.[eid] : undefined;
+      if (st && p.alive) st.turns = room.state.turnNumber;
+    }
     const entrantOf = new Map(Object.entries(m.seats).map(([eid, s]) => [s.playerId, eid]));
     const placings = finalPlacements(room.state, room.eliminationOrder).filter((p) => entrantOf.has(p.id));
     m.order = placings.map((p) => entrantOf.get(p.id)!);

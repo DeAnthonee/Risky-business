@@ -135,6 +135,19 @@ game at a time. Results already there stay; new tables no longer add to it.
   [hardening #3](hardening.md#3-leaderboard-identities-for-plain-seats-are-self-declared). Entrants cannot be bound to
   a character yet, so this board never has character rows
   ([hardening #6](hardening.md#6-tournament-entrants-cannot-be-characters-yet)).
+- **The House** (owner, 2026-10-22): the server's bots (fill bots and Zergs) are scored like everyone but never get a
+  row; their fun numbers show in **The House**, a widget on the home page, "The Swarm" (Zergs) against "The Machines"
+  (fill bots), never a ranking (`GET /api/house-bots`, read from the tournament results):
+  - totals per side: different bots, entries, tables played and won, eliminations made, times knocked out, rounds
+    survived (every round won; a champion got through them all), finals, championships, armies lost, enemy armies
+    destroyed, conquests;
+  - the best finish (who, where);
+  - a hall of fame with names: most kills in a tournament, deepest run (rounds), biggest army, most conquests in a
+    tournament, longest survival at a table (turns), most armies lost at one table.
+
+  The table numbers are gathered from each table's moves while it is played, so a table already being played when
+  the server restarts counts only from the restart on. Results saved before this have the counts but no table
+  numbers; a result with no `kind` counts as a fill bot.
 - **Reading it:** `GET /api/rankings?board=tournament` (`{board, current, rankings}`), `GET /api/rankings/profile?key=&board=tournament`
   (`stats` adds the entrant's `results`: each tournament, finish and points), the MCP `leaderboard` and
   `ranked_profile` tools with `board: "tournament"`, and the **Tournament** toggle beside **Training** on the web

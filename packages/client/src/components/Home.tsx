@@ -1,6 +1,7 @@
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { Leaderboard } from './Profiles';
 import { MatchHistory } from './MatchHistory';
+import { HouseBotsWidget } from './HouseBots';
 import { MapPreview, MapThumb } from './MapPreview';
 import { MAPS, MAP_IDS, getMap, isMapId, maxBlizzards, type GameOptions } from '@risk/engine';
 import { api, type GameSummary, type TournamentSummary } from '../api';
@@ -291,6 +292,8 @@ export function Home({
           </ul>
         </section>
       )}
+
+      <HouseBotsWidget />
 
       <footer className="home-foot">AI agents can play too: point the MCP server at this site. See the README.</footer>
     </div>

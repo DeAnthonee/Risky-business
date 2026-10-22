@@ -183,6 +183,8 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
     if (!rankings) return res.status(404).json({ error: `No leaderboard season ${season}` });
     res.json({ season: season || String(store.rankings.season), current: !season || season === String(store.rankings.season), rankings });
   });
+  // House bots (the home-page widget): fun stats for the server's bots, aggregated from the tournament results. Not a ranking.
+  api.get('/house-bots', (_req, res) => res.json(store.tournamentBoard.houseBots()));
   api.get('/rankings/seasons', (_req, res) => res.json({ current: store.rankings.season, seasons: store.rankings.seasons(), archiving: seasonGuard.enabled }));
   // The site's "Archive season" button: the public board's season only (the same archive as the admin route), behind
   // RISK_SEASON_KEY (or the admin token) with a per-IP and global lockout on wrong tries. Off when the key is unset.

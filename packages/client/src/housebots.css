@@ -1,0 +1,283 @@
+/* "The House" on the home page (components/HouseBots.tsx): the server's own bots, a show piece. It carries its own
+   colours (an ink card, cream text), so it reads the same on the cream page and in any colour scheme. */
+.house {
+  --house-ink: #0d0d10;
+  --house-cream: #fff3e0;
+  --house-swarm: #18c29c;
+  --house-machines: #ffb31a;
+  --house-red: #e8231b;
+  margin: 18px 0 8px;
+  padding: 16px 18px 14px;
+  background: var(--house-ink);
+  color: var(--house-cream);
+  border: 3px solid #000;
+  border-radius: 6px;
+  box-shadow: 8px 8px 0 var(--house-red);
+  overflow: hidden;
+  position: relative;
+}
+.house::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(-45deg, rgba(255, 255, 255, 0.03) 0 12px, transparent 12px 24px);
+  pointer-events: none;
+}
+.house-head {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 14px;
+  margin-bottom: 12px;
+}
+.house-head h2 {
+  margin: 0;
+  padding: 2px 14px;
+  background: var(--house-red);
+  color: #fff;
+  font-family: var(--display, 'Arial Black', sans-serif);
+  font-size: 1.6em;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  transform: skew(-10deg) rotate(-2deg);
+}
+.house-head p {
+  margin: 0;
+  opacity: 0.8;
+}
+.house-teams {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 12px;
+  align-items: stretch;
+}
+.house-vs {
+  align-self: center;
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--house-red);
+  color: #fff;
+  font-family: var(--display, 'Arial Black', sans-serif);
+  font-size: 1.3em;
+  border: 3px solid #000;
+  box-shadow: 0 0 0 3px var(--house-cream);
+  animation: house-pulse 2.4s ease-in-out infinite;
+}
+.house-team {
+  padding: 12px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 2px solid var(--team);
+  box-shadow: inset 0 0 24px color-mix(in srgb, var(--team) 25%, transparent);
+}
+.house-swarm {
+  --team: var(--house-swarm);
+}
+.house-machines {
+  --team: var(--house-machines);
+}
+.house-team-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+}
+.house-team-head h3 {
+  margin: 0;
+  color: var(--team);
+  font-family: var(--display, 'Arial Black', sans-serif);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.house-emoji {
+  font-size: 1.8em;
+  display: inline-block;
+  animation: house-bob 3s ease-in-out infinite;
+}
+.house-machines .house-emoji {
+  animation-delay: -1.5s;
+}
+.house-count {
+  font-size: 0.85em;
+  opacity: 0.7;
+}
+.house-big {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 6px 0 4px;
+}
+.house-big strong {
+  font-family: var(--display, 'Arial Black', sans-serif);
+  font-size: 2.6em;
+  line-height: 1;
+  color: var(--team);
+  font-variant-numeric: tabular-nums;
+}
+.house-big span {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 0.8em;
+  opacity: 0.8;
+}
+.house-stats {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(78px, 1fr));
+  gap: 6px;
+}
+.house-stats li {
+  display: flex;
+  flex-direction: column;
+  padding: 4px 6px;
+  border-left: 3px solid var(--team);
+  background: rgba(255, 255, 255, 0.05);
+}
+.house-stats strong {
+  font-size: 1.15em;
+  font-variant-numeric: tabular-nums;
+}
+.house-stats span {
+  font-size: 0.75em;
+  opacity: 0.75;
+}
+.house-best {
+  margin: 8px 0 0;
+  font-size: 0.9em;
+}
+.house-best span {
+  opacity: 0.65;
+}
+.house-meter {
+  position: relative;
+  display: flex;
+  height: 14px;
+  margin: 14px 0 4px;
+  border: 2px solid #000;
+  border-radius: 999px;
+  overflow: hidden;
+  background: #222;
+}
+.house-meter-swarm {
+  background: var(--house-swarm);
+  transition: width 0.9s ease;
+}
+.house-meter-machines {
+  background: var(--house-machines);
+  transition: width 0.9s ease;
+}
+.house-meter-label {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 0.65em;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: #fff;
+  text-shadow: 0 0 3px #000, 0 0 2px #000;
+}
+.house-hall {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  margin-top: 10px;
+  min-height: 2.4em;
+}
+.house-hall-label {
+  padding: 1px 8px;
+  background: var(--house-cream);
+  color: var(--house-ink);
+  font-weight: 800;
+  text-transform: uppercase;
+  font-size: 0.75em;
+  letter-spacing: 0.08em;
+  transform: skew(-10deg);
+}
+.house-hall-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex: 1 1 260px;
+}
+.house-record {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  animation: house-in 0.45s ease-out;
+}
+.house-record-icon {
+  font-size: 1.3em;
+}
+.house-record strong {
+  color: var(--team);
+}
+.house-record em {
+  opacity: 0.6;
+  font-style: normal;
+}
+.house-dots {
+  display: flex;
+  gap: 5px;
+}
+.house-dots button {
+  width: 9px;
+  height: 9px;
+  min-height: 0;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--house-cream);
+  background: transparent;
+  cursor: pointer;
+  box-shadow: none;
+}
+.house-dots button[aria-selected='true'] {
+  background: var(--house-cream);
+}
+@keyframes house-in {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+}
+@keyframes house-bob {
+  50% {
+    transform: translateY(-4px) rotate(-6deg);
+  }
+}
+@keyframes house-pulse {
+  50% {
+    transform: scale(1.08);
+  }
+}
+@media (max-width: 720px) {
+  .house-teams {
+    grid-template-columns: 1fr;
+  }
+  .house-vs {
+    justify-self: center;
+    width: 44px;
+    height: 44px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .house-vs,
+  .house-emoji,
+  .house-record {
+    animation: none;
+  }
+  .house-meter-swarm,
+  .house-meter-machines {
+    transition: none;
+  }
+}

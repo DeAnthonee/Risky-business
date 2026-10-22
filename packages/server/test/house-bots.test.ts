@@ -1,6 +1,6 @@
 import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { houseBotStats, scoreTournament, type ScoredBracket } from '../src/tournament-scoring.js';
+import { houseBotStats, rankTournaments, scoreTournament, type ScoredBracket } from '../src/tournament-scoring.js';
 
 // Bots move without the 700 ms pause, so a whole tournament plays out in the test. Set before the store module loads.
 vi.hoisted(() => {
@@ -53,7 +53,8 @@ describe('house bots (owner, 2026-10-22)', () => {
     // Rounds got through: only the champion (Bot 3) got through any, both of them.
     expect(h.bots.roundsSurvived).toBe(2);
     expect(h.bots.records.deepestRun).toEqual({ name: 'Bot 3', value: 2, tournament: 'Bot Cup' });
-    // The Zerg is reported apart (and stays on the ranked board).
+    // The Zerg is reported apart, and like every server bot it has no row on the ranked board (only people do).
+    expect(rankTournaments([scoreTournament(bracket)!]).map((r) => r.name)).toEqual(['Ann']);
     expect(h.zergs).toMatchObject({ bots: 1, entries: 1, tables: 1, kills: 0, knockedOut: 1, armiesLost: 30 });
     expect(h.zergs.records.biggestArmy).toEqual({ name: 'Komodo', value: 41, tournament: 'Bot Cup' });
     expect(h.zergs.records.mostKills).toBeNull();

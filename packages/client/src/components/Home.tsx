@@ -6,7 +6,7 @@ import { NextTournamentCard } from './NextTournament';
 import { MapPreview, MapThumb } from './MapPreview';
 import { MAPS, MAP_IDS, getMap, isMapId, maxBlizzards, type GameOptions } from '@risk/engine';
 import { api, tableBadge, type GameSummary, type TournamentSummary } from '../api';
-import type { Session } from '../session';
+import { getPlayerKey, type Session } from '../session';
 import { pickLiveGame } from './AutoAdvance';
 import { QuickPlay } from './QuickPlay';
 
@@ -182,6 +182,8 @@ export function Home({
     });
 
   const hasName = !!name.trim();
+  // A key saved on this browser: the button opens it ("Your player key") instead of offering a new one.
+  const hasPlayerKey = !!getPlayerKey();
   const openTournaments = tournaments
     .filter((t) => t.status !== 'finished')
     .sort((a, b) => (a.status === b.status ? (a.startsAt ?? Infinity) - (b.startsAt ?? Infinity) || b.updatedAt - a.updatedAt : a.status === 'registering' ? -1 : 1));
@@ -266,6 +268,9 @@ export function Home({
           </button>
           <button onClick={findTournament} title="Tournaments open for sign-up or being played">
             Find a tournament{openTournaments.length ? ` (${openTournaments.length})` : ''}
+          </button>
+          <button onClick={() => window.location.assign('?player=1')} title="A player key keeps your name and record across games and tournaments">
+            🔑 {hasPlayerKey ? 'Your player key' : 'Get a player key'}
           </button>
         </div>
         <NextTournamentCard onOpen={onOpenTournament} />

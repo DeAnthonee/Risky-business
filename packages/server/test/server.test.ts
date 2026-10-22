@@ -50,6 +50,8 @@ describe('healthz', () => {
     expect(h.playing).toBe(0);
     expect(h.games).toBe(0);
     expect(typeof h.connections).toBe('number');
+    expect(typeof h.loopLagMs).toBe('number');
+    expect(h.loopLagMs).toBeGreaterThanOrEqual(0);
   });
 
   it('never shows the data dir path, only whether games are saved', async () => {

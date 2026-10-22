@@ -9,6 +9,7 @@ export * from './options.js';
 export * from './odds.js';
 export * from './bot.js';
 export * from './zerg.js';
+export * from './standing.js';
 export * from './ranking.js';
 export * from './board-names.js';
 export * from './record.js';

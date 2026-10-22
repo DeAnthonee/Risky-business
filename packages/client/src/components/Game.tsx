@@ -4,6 +4,7 @@ import { api } from '../api';
 import { AutoAdvance, type AutoSpectate } from './AutoAdvance';
 import { CARD_FX_MS, CardFxPanel, type CardFx } from './CardFx';
 import { CharacterName, type Whisper } from './Profiles';
+import { AgentBadge } from './AgentBadge';
 import { PlayerCard } from './PlayerCard';
 import { ScoreChart } from './ScoreChart';
 import { spectateLink, type Session } from '../session';
@@ -406,6 +407,7 @@ export function Game({
                 {p.isNeutral ? p.name : <CharacterName name={p.name} gameId={gameId} playerId={p.id} whisper={whisperTo(p.id)} />}
                 {p.isBot && ' 🤖'}
                 {p.id === you && ' (you)'}
+                {spectator && !p.isNeutral && <AgentBadge agent={p.agent} />}
                 {!p.isBot && !p.isNeutral && <span className={`online-dot ${conn.presence.online.includes(p.id) ? 'on' : ''}`} title={conn.presence.online.includes(p.id) ? 'online' : 'offline'} />}
               </span>
               <span className="pstats" title="territories · armies · cards">

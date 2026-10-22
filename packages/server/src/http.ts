@@ -646,6 +646,7 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
     '/tournaments/:id',
     wrap((req, res) => {
       if (!store.tournaments.get(String(req.params.id))) return res.status(404).json({ error: 'Tournament not found' });
+      store.tournaments.checkIn(String(req.params.id), tokenOf(req));
       res.json({ tournament: store.tournaments.view(String(req.params.id), tokenOf(req)) });
     }),
   );
@@ -653,7 +654,8 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
     '/tournaments/:id/join',
     wrap((req, res) => {
       if (!store.tournaments.get(String(req.params.id))) return res.status(404).json({ error: 'Tournament not found' });
-      const { entrantId, token } = store.tournaments.join(String(req.params.id), req.body?.playerName ?? req.body?.name, parseAgent(req.body?.agent));
+      // The joiner (this IP) is counted against the pre-registration cap of scheduled tournaments.
+      const { entrantId, token } = store.tournaments.join(String(req.params.id), req.body?.playerName ?? req.body?.name, parseAgent(req.body?.agent), `ip:${req.ip ?? 'unknown'}`);
       res.status(201).json({ entrantId, token, tournament: store.tournaments.view(String(req.params.id), token) });
     }),
   );
@@ -664,6 +666,8 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
       if (!store.tournaments.get(id)) return res.status(404).json({ error: 'Tournament not found' });
       const timeoutMs = Math.min(Math.max(Number(req.query.timeoutMs ?? 30000), 0), 120_000);
       const since = req.query.since !== undefined ? Number(req.query.since) : undefined;
+      // Polling with an entrant token inside a scheduled tournament's check-in window checks that entrant in.
+      store.tournaments.checkIn(id, tokenOf(req));
       const reason = await store.tournaments.waitFor(id, since, timeoutMs);
       if (!store.tournaments.get(id)) return res.status(404).json({ error: 'Tournament not found' });
       res.json({ reason, tournament: store.tournaments.view(id, tokenOf(req)) });

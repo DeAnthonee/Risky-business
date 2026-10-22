@@ -7,15 +7,17 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from '
 import { dirname } from 'node:path';
 import { RuleError } from '@risk/engine';
 import { parseTournamentSpec } from './http.js';
-import type { CreateTournamentSpec, TournamentManager } from './tournaments.js';
+import { DEFAULT_CHECKIN_MINUTES, type CreateTournamentSpec, type TournamentManager } from './tournaments.js';
 
 /** One schedule entry as the owner writes it. */
 export interface ScheduleEntryInput {
   /** "HH:MM" every day, or "Mon,Thu HH:MM" on those days; UTC. */
   at: string;
   name?: string;
-  /** Sign-up opens this many minutes before the start (1-1440, default 60). */
+  /** Sign-up opens this many minutes before the start (1-10080, i.e. up to 7 days ahead; default 60). */
   signupMinutes?: number;
+  /** The check-in window, the last this-many minutes before the start (1-60, at most signupMinutes; default 10). */
+  checkinMinutes?: number;
   /** Fewer people or agents than this at the start calls the slot off (2-256, default 2: a nested tournament needs 2). */
   minEntrants?: number;
   /** Any nested tournament setting: finalMap, maxEntrants, roundMinutes, territoriesPerSeat, finishShare, botDelayMs, options. */
@@ -29,12 +31,13 @@ export interface ScheduleEntry {
   days: number[] | null;
   minuteOfDay: number;
   signupMinutes: number;
+  checkinMinutes: number;
   minEntrants: number;
   spec: CreateTournamentSpec;
 }
 
 const DAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
-const ENTRY_KEYS = new Set(['at', 'name', 'signupMinutes', 'minEntrants', 'finalMap', 'maxEntrants', 'roundMinutes', 'territoriesPerSeat', 'finishShare', 'botDelayMs', 'options']);
+const ENTRY_KEYS = new Set(['at', 'name', 'signupMinutes', 'checkinMinutes', 'minEntrants', 'finalMap', 'maxEntrants', 'roundMinutes', 'territoriesPerSeat', 'finishShare', 'botDelayMs', 'options']);
 export const CANCEL_NOT_ENOUGH = 'not enough entrants';
 export const CANCEL_MISSED = 'missed: the server was down at the start';
 export const CANCEL_CHANGED = 'the schedule changed';
@@ -88,13 +91,16 @@ export function parseSchedule(raw: unknown, tournaments: Pick<TournamentManager,
         if (typeof v !== 'number' || !Number.isInteger(v) || v < lo || v > hi) throw new RuleError(`${name} must be a whole number from ${lo} to ${hi}`);
         return v;
       };
-      const signupMinutes = whole(e.signupMinutes, 'signupMinutes', 1, 1440, 60);
+      const signupMinutes = whole(e.signupMinutes, 'signupMinutes', 1, 10080, 60);
+      const checkinMinutes = whole(e.checkinMinutes, 'checkinMinutes', 1, Math.min(60, signupMinutes), Math.min(DEFAULT_CHECKIN_MINUTES, signupMinutes));
       const minEntrants = whole(e.minEntrants, 'minEntrants', 2, 256, 2);
+      // The key keeps its #234 shape (checkinMinutes only when the entry sets it), so a deploy restarts no open slot.
       const { at: _at, signupMinutes: _s, minEntrants: _m, ...rest } = e;
-      const spec: CreateTournamentSpec = { ...parseTournamentSpec({ ...rest, format: 'nested' }), name: String(e.name ?? 'Scheduled tournament') };
+      const { checkinMinutes: _c, ...specRest } = rest;
+      const spec: CreateTournamentSpec = { ...parseTournamentSpec({ ...specRest, format: 'nested' }), name: String(e.name ?? 'Scheduled tournament') };
       tournaments.checkNested(spec);
       const key = JSON.stringify({ at: e.at, signupMinutes, minEntrants, ...rest });
-      return { key, at: String(e.at), days, minuteOfDay, signupMinutes, minEntrants, spec };
+      return { key, at: String(e.at), days, minuteOfDay, signupMinutes, checkinMinutes, minEntrants, spec };
     } catch (err) {
       throw new RuleError(`${where}: ${(err as Error).message}`);
     }
@@ -119,7 +125,19 @@ interface Slot {
 /** What the home page's card and the MCP tool show (GET /api/tournaments/next). */
 export interface NextTournament {
   /** The next scheduled tournament: open for sign-up (id set) or not yet open (id null). */
-  next: { id: string | null; name: string; startsAt: number; opensAt: number; entrants: number; maxEntrants: number | null; minEntrants: number } | null;
+  next: {
+    id: string | null;
+    name: string;
+    startsAt: number;
+    opensAt: number;
+    /** The check-in window opens (ms); people who have not checked in by the start are swapped for Zergs. */
+    checkinOpensAt: number;
+    entrants: number;
+    /** Once check-in is open: how many of `entrants` have checked in. */
+    checkedIn?: number;
+    maxEntrants: number | null;
+    minEntrants: number;
+  } | null;
   /** A scheduled tournament being played now. */
   running: { id: string; name: string; startsAt: number; round: number } | null;
   /** The latest scheduled tournament that was called off, when no later one has started. */
@@ -200,7 +218,7 @@ export class TournamentScheduler {
       const retry = this.retryAt.get(e.key);
       if (retry !== undefined && now < retry) return retry;
       try {
-        const t = this.tournaments.create({ ...e.spec, scheduled: { startsAt: slot.startsAt } });
+        const t = this.tournaments.create({ ...e.spec, scheduled: { startsAt: slot.startsAt, checkinMinutes: e.checkinMinutes } });
         slot.tournamentId = t.id;
         this.retryAt.delete(e.key);
         console.log(`tournament schedule: ${t.id} "${t.name}" open for sign-up, starts ${new Date(slot.startsAt).toISOString()}`);
@@ -214,13 +232,14 @@ export class TournamentScheduler {
     }
     if (now < slot.startsAt) return slot.startsAt;
     const t = this.tournaments.get(slot.tournamentId!)!;
-    const people = t.entrants.filter((x) => !x.isBot).length;
+    // Only people who checked in count; the rest are no-shows, swapped for Zergs at the start.
+    const people = t.entrants.filter((x) => !x.isBot && x.checkedInAt).length;
     // Late by more than a round (the server was down at the start): call it off rather than start at a surprise time.
     const grace = (e.spec.roundMinutes ?? 30) * 60_000;
     if (now > slot.startsAt + grace) this.tournaments.cancel(t.id, CANCEL_MISSED);
     else if (people < e.minEntrants) this.tournaments.cancel(t.id, CANCEL_NOT_ENOUGH);
-    else this.tournaments.start(t.id);
-    console.log(`tournament schedule: ${t.id} ${t.scheduled?.cancelled ? `called off (${t.scheduled.cancelled})` : `started with ${people} entrant(s)`}`);
+    else this.tournaments.startScheduled(t.id);
+    console.log(`tournament schedule: ${t.id} ${t.scheduled?.cancelled ? `called off (${t.scheduled.cancelled})` : `started with ${people} checked-in entrant(s), ${t.scheduled?.noShows ?? 0} no-show(s) swapped for Zergs`}`);
     slot.done = true;
     // On to the entry's next start (strictly later, so this ends).
     return this.step(e);
@@ -252,8 +271,10 @@ export class TournamentScheduler {
         name: t?.name ?? e.spec.name ?? 'Scheduled tournament',
         startsAt: slot.startsAt,
         opensAt: slot.startsAt - e.signupMinutes * 60_000,
+        checkinOpensAt: slot.startsAt - e.checkinMinutes * 60_000,
         // People and agents only, the count minEntrants is checked against (an admin may have added bots).
         entrants: t ? t.entrants.filter((x) => !x.isBot).length : 0,
+        ...(t && this.tournaments.checkinOpen(t) ? { checkedIn: t.entrants.filter((x) => !x.isBot && x.checkedInAt).length } : {}),
         maxEntrants: t ? t.maxEntrants : (e.spec.maxEntrants ?? null),
         minEntrants: e.minEntrants,
       };

@@ -129,7 +129,14 @@ export function Tournament({
               <h2 id="tourney-you" className="p5-tag">
                 You: {you.name}
               </h2>
-              <p>{youLine(you.status, t.status)}</p>
+              <p>{youLine(you.status, t.status, !!t.scheduled)}</p>
+              {t.status === 'registering' && t.scheduled && you.checkedIn !== undefined && (
+                <p className={you.checkedIn ? 'tourney-checkin done' : 'tourney-checkin'}>
+                  {you.checkedIn
+                    ? "✔ You're checked in. Your table appears here at the start."
+                    : `Check-in opens ${new Date(t.scheduled.startsAt - (t.scheduled.checkinMinutes ?? 10) * 60_000).toLocaleString(undefined, { weekday: 'short', hour: '2-digit', minute: '2-digit' })}, ${t.scheduled.checkinMinutes ?? 10} minutes before the start. Have this page open then (it checks you in), or your seat goes to a Zerg.`}
+                </p>
+              )}
               {you.match && (
                 <button className="primary" onClick={() => onPlay({ gameId: you.match!.gameId, playerId: you.match!.playerId, token: you.match!.token, name: you.name })}>
                   ⚔ Play your table (round {you.match.round})
@@ -239,8 +246,9 @@ export function Tournament({
   );
 }
 
-function youLine(status: string, t: TournamentView['status']): string {
-  if (status === 'registered') return t === 'registering' ? "You're in. Your table appears here when the host starts the tournament." : 'Waiting for the bracket.';
+function youLine(status: string, t: TournamentView['status'], scheduled = false): string {
+  if (status === 'registered')
+    return t === 'registering' ? (scheduled ? "You're in. It starts by itself at its time." : "You're in. Your table appears here when the host starts the tournament.") : 'Waiting for the bracket.';
   if (status === 'playing') return 'Your table is being played.';
   if (status === 'waiting') return 'You won your table! Waiting for the other tables to finish.';
   if (status === 'champion') return 'You won the tournament!';

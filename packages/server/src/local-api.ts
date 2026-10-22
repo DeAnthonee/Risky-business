@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { RULES_TEXT, RuleError, getMap, redactEvents, type Action, type GameOptions } from '@risk/engine';
 import type { CharacterUpdate, DiaryInput, QuickPlaySpec, RelationshipInput, RiskApi } from '@risk/mcp';
 import { RiskHttpError } from '@risk/mcp';
@@ -18,6 +19,12 @@ export class LocalRiskApi implements RiskApi {
     /** The connection's client (IP address) for per-client limits (quick play); null = not limited. */
     private client: string | null = null,
   ) {}
+
+  /**
+   * This MCP session, the joiner counted by the pre-registration cap of scheduled tournaments. Not the IP: claude.ai
+   * connectors share a few addresses, so a per-IP cap would lock out unrelated agents.
+   */
+  private readonly session = `mcp:${randomUUID()}`;
 
   private room(gameId: string): GameRoom {
     const r = this.store.get(gameId);
@@ -199,15 +206,18 @@ export class LocalRiskApi implements RiskApi {
   }
   async getTournament(tournamentId: string, token?: string) {
     const t = this.tournament(tournamentId);
+    this.store.tournaments.checkIn(t.id, token);
     return { tournament: this.store.tournaments.view(t.id, token) };
   }
   async joinTournament(tournamentId: string, playerName: string, agent?: string) {
     const t = this.tournament(tournamentId);
-    const { entrantId, token } = this.store.tournaments.join(t.id, playerName, parseAgent(agent));
+    const { entrantId, token } = this.store.tournaments.join(t.id, playerName, parseAgent(agent), this.client !== null ? this.session : null);
     return { entrantId, token, tournament: this.store.tournaments.view(t.id, token) };
   }
   async waitTournament(tournamentId: string, token: string | undefined, since: number | undefined, timeoutMs: number) {
     const t = this.tournament(tournamentId);
+    // wait_for_match inside a scheduled tournament's check-in window checks the entrant in.
+    this.store.tournaments.checkIn(t.id, token);
     const reason = await this.store.tournaments.waitFor(t.id, since, Math.min(Math.max(timeoutMs, 0), 120_000));
     return { reason, tournament: this.store.tournaments.view(this.tournament(t.id).id, token) };
   }

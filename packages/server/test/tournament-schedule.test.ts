@@ -93,8 +93,8 @@ describe('scheduled nested tournaments', () => {
     risk = createRiskServer(store, { clientDir: null, sweepIntervalMs: 0, tournamentSchedule: schedule ? parseSchedule(schedule, store.tournaments) : null });
     await new Promise<void>((resolve) => risk!.server.listen(0, '127.0.0.1', resolve));
     const base = `http://127.0.0.1:${(risk.server.address() as AddressInfo).port}`;
-    const call = async (path: string, init: RequestInit = {}) => {
-      const res = await fetch(`${base}/api${path}`, { ...init, headers: { 'content-type': 'application/json' } });
+    const call = async (path: string, init: RequestInit = {}, token?: string) => {
+      const res = await fetch(`${base}/api${path}`, { ...init, headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) } });
       return { status: res.status, body: (await res.json()) as any };
     };
     return { base, call };
@@ -136,18 +136,37 @@ describe('scheduled nested tournaments', () => {
 
     const joined = await call(`/tournaments/${id}/join`, post({ playerName: 'Ann' }));
     expect(joined.status).toBe(201);
-    await call(`/tournaments/${id}/join`, post({ playerName: 'Bob' }));
-    expect((await call('/tournaments/next')).body.next).toMatchObject({ id, entrants: 2 });
+    const ann = joined.body.token as string;
+    const bob = (await call(`/tournaments/${id}/join`, post({ playerName: 'Bob' }))).body.token as string;
+    const cat = (await call(`/tournaments/${id}/join`, post({ playerName: 'Cat' }))).body.token as string;
+    next = (await call('/tournaments/next')).body;
+    expect(next.next).toMatchObject({ id, entrants: 3, checkinOpensAt: start - 10 * 60_000 });
+    expect(next.next).not.toHaveProperty('checkedIn');
 
-    // 13:59: still registering. 14:00: started, and the planner's Zergs fill the empty seats.
-    clock.advance(H - 60_000);
+    // 13:49: polling does not check in yet; the window opens at 13:50.
+    clock.advance(49 * 60_000);
+    expect((await call(`/tournaments/${id}/wait?timeoutMs=0`, {}, ann)).body.tournament.you).toMatchObject({ checkedIn: false });
+    // 13:55: Ann's wait_for_match and Bob's bracket view check them in; Cat never comes back.
+    clock.advance(6 * 60_000);
+    expect((await call(`/tournaments/${id}/wait?timeoutMs=0`, {}, ann)).body.tournament.you).toMatchObject({ checkedIn: true });
+    expect((await call(`/tournaments/${id}`, {}, bob)).body.tournament.scheduled).toMatchObject({ checkinMinutes: 10, checkedIn: 2 });
+    expect((await call('/tournaments/next')).body.next).toMatchObject({ entrants: 3, checkedIn: 2 });
+
+    // 13:59: still registering. 14:00: started; Cat, a no-show, became a Zerg, and the planner's Zergs fill the rest.
+    clock.advance(4 * 60_000);
     expect(store.tournaments.get(id)!.status).toBe('registering');
     clock.advance(60_000);
     const t = store.tournaments.get(id)!;
     expect(t.status).toBe('running');
+    expect(t.scheduled).toMatchObject({ noShows: 1 });
+    expect(t.entrants.filter((e) => e.missed).map((e) => e.missed!.name)).toEqual(['Cat']);
+    expect(t.entrants.filter((e) => !e.isBot).map((e) => e.name).sort()).toEqual(['Ann', 'Bob']);
     const zergs = t.entrants.filter((e) => e.isBot && e.kind === 'zerg').length;
-    expect(zergs).toBe(t.nested!.plan!.zergs);
-    expect(zergs).toBeGreaterThan(0);
+    expect(zergs).toBe(t.nested!.plan!.zergs + 1);
+    expect(zergs).toBeGreaterThan(1);
+    const missed = await call(`/tournaments/${id}`, {}, cat);
+    expect(missed.status).toBe(400);
+    expect(missed.body.error).toMatch(/^Cat missed check-in for this tournament: the seat went to a Zerg/);
     expect(t.rounds[0].matches.every((m) => m.gameId)).toBe(true);
 
     // The card: this one is being played; the next is tomorrow's, not open yet.
@@ -181,8 +200,8 @@ describe('scheduled nested tournaments', () => {
     const entries = parseSchedule(DAILY, store.tournaments);
     const first = new TournamentScheduler(store.tournaments, entries, state);
     const [id] = [...store.tournaments.tournaments.keys()];
-    expect(store.tournaments.join(id, 'Ann').entrantId).toBeTruthy();
-    store.tournaments.join(id, 'Bob');
+    const ann = store.tournaments.join(id, 'Ann').token;
+    const bob = store.tournaments.join(id, 'Bob').token;
     first.stop();
     store.save();
     store.stopTimers();
@@ -192,8 +211,13 @@ describe('scheduled nested tournaments', () => {
     const again = new Store(file, {}, { clock: clock2 });
     const second = new TournamentScheduler(again.tournaments, parseSchedule(DAILY, again.tournaments), state);
     expect([...again.tournaments.tournaments.keys()]).toEqual([id]);
-    clock2.advance(0.5 * H);
+    // Both check in at 13:55 (the saved entrants keep their tokens); it starts at 14:00.
+    clock2.advance(25 * 60_000);
+    again.tournaments.checkIn(id, ann);
+    again.tournaments.checkIn(id, bob);
+    clock2.advance(5 * 60_000);
     expect(again.tournaments.get(id)!.status).toBe('running');
+    expect(again.tournaments.get(id)!.scheduled).toMatchObject({ noShows: 0 });
     second.stop();
     again.stopTimers();
 
@@ -244,6 +268,31 @@ describe('scheduled nested tournaments', () => {
     expect(sc2.next().next).toMatchObject({ id, entrants: 1 });
     sc2.stop();
     s2.stopTimers();
+  });
+
+  it('pre-registration days ahead: no code, but one joiner holds at most 4 open registrations; checks of the window', async () => {
+    const t = new Store(null).tournaments;
+    expect(parseSchedule({ at: '14:00', signupMinutes: 7 * 24 * 60 }, t)[0]).toMatchObject({ signupMinutes: 10080, checkinMinutes: 10 });
+    expect(() => parseSchedule({ at: '14:00', signupMinutes: 10081 }, t)).toThrow(/signupMinutes must be a whole number from 1 to 10080/);
+    expect(() => parseSchedule({ at: '14:00', signupMinutes: 5, checkinMinutes: 6 }, t)).toThrow(/checkinMinutes must be a whole number from 1 to 5/);
+    expect(parseSchedule({ at: '14:00', signupMinutes: 5 }, t)[0].checkinMinutes).toBe(5);
+    // The key keeps its #234 shape, so a deploy does not call off a slot opened before check-in existed.
+    expect(parseSchedule(DAILY, t)[0].key).toBe(JSON.stringify({ at: '14:00', signupMinutes: 60, minEntrants: 2, name: 'Daily Nest', roundMinutes: 20, botDelayMs: 2000 }));
+
+    // Sign-up three days ahead: open at once.
+    const clock = new FakeClock();
+    const store = new Store(null, {}, { clock });
+    const { call } = await serve(store, { ...DAILY, signupMinutes: 3 * 24 * 60 });
+    const id = (await call('/tournaments/next')).body.next.id as string;
+    expect(id).toMatch(/^T/);
+    for (const n of ['A1', 'A2', 'A3', 'A4']) expect((await call(`/tournaments/${id}/join`, post({ playerName: n }))).status).toBe(201);
+    const fifth = await call(`/tournaments/${id}/join`, post({ playerName: 'A5' }));
+    expect(fifth.status).toBe(400);
+    expect(fifth.body.error).toMatch(/You already hold 4 open registrations/);
+    // Another joiner (another IP or MCP session) is not counted; a host-made tournament is never capped.
+    expect(store.tournaments.join(id, 'B1', undefined, 'ip:10.0.0.2').token).toBeTruthy();
+    const open = store.tournaments.create({ name: 'Host made', format: 'nested' });
+    for (let i = 1; i <= 6; i++) store.tournaments.join(open.id, `H${i}`, undefined, 'ip:127.0.0.1');
   });
 
   it('agents find and join it over MCP: next_tournament, list_tournaments, join_tournament', async () => {

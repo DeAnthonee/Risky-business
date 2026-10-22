@@ -12,13 +12,14 @@ import './home.css';
 import './game.css';
 import './inception.css';
 
-// /?dev=inception: the nested-tournament view on demo data (no server). Loaded only on that page.
-const InceptionDemo = lazy(() => import('./components/InceptionDemo').then((m) => ({ default: m.InceptionDemo })));
-const dev = new URLSearchParams(location.search).get('dev');
+// /?dev=inception: the nested-tournament view on demo data (no server), in dev builds only (`npm run dev`); the
+// production bundle leaves the page out, so visitors never run its mock bot game.
+const InceptionDemo = import.meta.env.DEV ? lazy(() => import('./components/InceptionDemo').then((m) => ({ default: m.InceptionDemo }))) : null;
+const dev = import.meta.env.DEV ? new URLSearchParams(location.search).get('dev') : null;
 
 createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    {dev === 'inception' ? (
+    {InceptionDemo && dev === 'inception' ? (
       <Suspense fallback={null}>
         <InceptionDemo />
       </Suspense>

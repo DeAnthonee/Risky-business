@@ -20,6 +20,7 @@ import { narrate, playByPlayText } from './playbyplay.js';
 import type { CharacterStore } from './characters.js';
 import type { CreateTournamentSpec } from './tournaments.js';
 import { SeasonKeyGuard } from './season-key.js';
+import { QuickPlayBusyError } from './quick-play.js';
 
 /** Constant-time check of an admin token. 'disabled' when the server has none configured. */
 export function checkAdmin(adminToken: string | null | undefined, given: string | undefined): 'ok' | 'bad' | 'disabled' {
@@ -598,6 +599,33 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
     }),
   );
 
+  // ---- quick play: a queue that seats waiting entrants in a fresh room, the empty seats filled with Zergs ----
+  api.get('/queue', (_req, res) => res.json({ waiting: store.quickPlay.list(), waitSeconds: store.quickPlay.config.waitMs / 1000 }));
+  api.post(
+    '/queue',
+    wrap((req, res) => {
+      const b = req.body ?? {};
+      const { token, ticket } = store.quickPlay.join({ playerName: b.playerName ?? b.name, agent: parseAgent(b.agent), map: b.map, seats: b.seats, fog: b.fog }, req.ip ?? null);
+      res.status(201).json({ token, ticket });
+    }),
+  );
+  api.get(
+    '/queue/:ticket',
+    wrap(async (req, res) => {
+      const timeoutMs = Math.min(Math.max(Number(req.query.timeoutMs ?? 0) || 0, 0), 120_000);
+      const ticket = await store.quickPlay.wait(String(req.params.ticket), tokenOf(req), timeoutMs);
+      if (!ticket) return res.status(404).json({ error: 'Ticket not found (or not yours): join the queue again' });
+      res.json({ ticket });
+    }),
+  );
+  api.delete(
+    '/queue/:ticket',
+    wrap((req, res) => {
+      if (!store.quickPlay.leave(String(req.params.ticket), tokenOf(req))) return res.status(404).json({ error: 'Ticket not found (or not yours)' });
+      res.json({ ok: true });
+    }),
+  );
+
   api.get('/tournaments', (_req, res) => res.json({ tournaments: store.tournaments.list() }));
   // The next scheduled tournament (the home page's card, the MCP next_tournament tool); all null with no schedule.
   api.get('/tournaments/next', (_req, res) => res.json({ scheduled: !!store.schedule, ...(store.schedule?.next() ?? { next: null, running: null, cancelled: null }) }));
@@ -782,6 +810,7 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
   // ---- error handling ----
   api.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
     if (err instanceof RuleError) return res.status(400).json({ error: err.message });
+    if (err instanceof QuickPlayBusyError) return res.status(err.status).json({ error: err.message });
     if (err instanceof RiskHttpError) return res.status(err.status).json({ error: err.message });
     if (err instanceof SyntaxError) return res.status(400).json({ error: 'Invalid JSON' });
     console.error(err);

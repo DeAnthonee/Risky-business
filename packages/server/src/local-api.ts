@@ -1,8 +1,9 @@
 import { RULES_TEXT, RuleError, getMap, redactEvents, type Action, type GameOptions } from '@risk/engine';
-import type { CharacterUpdate, DiaryInput, RelationshipInput, RiskApi } from '@risk/mcp';
+import type { CharacterUpdate, DiaryInput, QuickPlaySpec, RelationshipInput, RiskApi } from '@risk/mcp';
 import { RiskHttpError } from '@risk/mcp';
 import { checkAdmin, mapInfo, parseAgent, parseBotKind, parseTournamentSpec, sanitizeOptions } from './http.js';
 import { parseDecisionNote, type GameRoom, type Store } from './store.js';
+import { QuickPlayBusyError } from './quick-play.js';
 import type { CharacterStore } from './characters.js';
 
 /** RiskApi implemented directly over the in-memory store (for the embedded /mcp endpoint). */
@@ -13,6 +14,8 @@ export class LocalRiskApi implements RiskApi {
     private adminToken: string | null = null,
     /** TEMPORARY (testing): creating tournaments needs no admin key. */
     private openTournaments = false,
+    /** The connection's client (IP address) for per-client limits (quick play); null = not limited. */
+    private client: string | null = null,
   ) {}
 
   private room(gameId: string): GameRoom {
@@ -160,6 +163,23 @@ export class LocalRiskApi implements RiskApi {
     const room = this.room(gameId);
     this.host(room, token);
     this.store.delete(room.id, 'host');
+    return { ok: true };
+  }
+  async quickPlayJoin(spec: QuickPlaySpec) {
+    try {
+      return this.store.quickPlay.join({ ...spec, agent: parseAgent(spec.agent) }, this.client);
+    } catch (e) {
+      if (e instanceof QuickPlayBusyError) throw new RiskHttpError(e.message, e.status);
+      throw e;
+    }
+  }
+  async quickPlayWait(ticket: string, token: string, timeoutMs: number) {
+    const t = await this.store.quickPlay.wait(ticket, token, Math.min(Math.max(timeoutMs, 0), 120_000));
+    if (!t) throw new RiskHttpError('Ticket not found (or not yours): join the queue again', 404);
+    return { ticket: t };
+  }
+  async quickPlayLeave(ticket: string, token: string) {
+    if (!this.store.quickPlay.leave(ticket, token)) throw new RiskHttpError('Ticket not found (or not yours)', 404);
     return { ok: true };
   }
   async listTournaments() {

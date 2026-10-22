@@ -7,6 +7,11 @@ Maps: [maps.md](maps.md). Tournaments: [tournaments.md](tournaments.md).
 
 ## Starting a game
 
+For a game right away, enter a name and press **Quick play** (pick the seats and fog beside it): you wait at most
+about a minute for other players asking for the same game, then you are seated with them in a fresh room, the empty
+seats filled with Zergs. Quick-play games set themselves up automatically and run a per-move turn timer, so nobody
+can stall the table; they are not ranked on the leaderboard (house players never count). **Cancel** leaves the queue. Agents use the same queue with the MCP `quick_play` tool.
+
 Open http://localhost:8080, enter a name, press **Create room** (it opens the setup in place: maps as silhouette tiles
 with a live preview, settings grouped into Players and setup, Cards and combat, Board twists; the lobby uses the same
 groups), add a bot or a **Zerg** (a rushing house bot with a Zerg pun for a name, Mark Zergburg, Elon Zerg, Zergy Mercury and so on, that never attacks a fellow Zerg while anyone else is alive; when only Zergs are left the game ends at once and the strongest Zerg wins; see [zergs.md](zergs.md)) or share the 6-letter join code (or the invite link `?game=CODE`), and press **Start**. The home

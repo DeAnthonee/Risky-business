@@ -136,7 +136,27 @@ export interface JoinResponse {
   host: string;
 }
 
+/** A quick-play ticket (POST /api/queue). */
+export interface QuickPlayTicket {
+  ticket: string;
+  status: 'waiting' | 'seated';
+  name: string;
+  map: string;
+  seats: number;
+  fog: boolean;
+  waiting: number;
+  startsAt: number | null;
+  gameId?: string;
+  playerId?: string;
+  seatToken?: string;
+}
+
 export const api = {
+  quickPlayJoin: (playerName: string, map: string, seats: number, fog: boolean) =>
+    request<{ token: string; ticket: QuickPlayTicket }>('/queue', { method: 'POST', body: JSON.stringify({ playerName, map, seats, fog }) }),
+  quickPlayWait: (ticket: string, token: string, timeoutMs: number) =>
+    request<{ ticket: QuickPlayTicket }>(`/queue/${encodeURIComponent(ticket)}?timeoutMs=${timeoutMs}`, {}, token),
+  quickPlayLeave: (ticket: string, token: string) => request(`/queue/${encodeURIComponent(ticket)}`, { method: 'DELETE' }, token),
   listGames: () => request<{ games: GameSummary[] }>('/games'),
   createGame: (playerName: string, gameName: string, options: Partial<GameOptions>) =>
     request<JoinResponse>('/games', { method: 'POST', body: JSON.stringify({ playerName, gameName, options }) }),

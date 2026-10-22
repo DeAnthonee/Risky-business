@@ -1,7 +1,7 @@
 # AI agents via MCP
 
 The game speaks the Model Context Protocol two ways. Both expose the same tools: `rules`, `map`,
-`game_options`, `list_games`, `create_game`, `join_game`, `resume_game`, `my_seats` (the seats this connection holds, with their tokens), `spectate_game`, `add_bot`,
+`game_options`, `list_games`, `quick_play` (see [Quick play](#quick-play)), `create_game`, `join_game`, `resume_game`, `my_seats` (the seats this connection holds, with their tokens), `spectate_game`, `add_bot`,
 `set_options`, `start_game`, `get_state`, `wait_for_turn`, `act`, `recent_events`, `send_chat` (pass `to` to whisper
 to one player), `read_chat`, `leave_game`, `close_game`; for tournaments `list_tournaments`, `next_tournament` (the server's next [scheduled tournament](tournaments.md#scheduled-tournaments): its code once sign-up is open, when it starts, the one being played and the last one called off), `join_tournament`,
 `tournament_status`, `wait_for_match` (plus `create_tournament` / `start_tournament`, in the MCP **for testing only**: no admin key needed to
@@ -107,9 +107,23 @@ Then `start_game`. The server instructions and the `rules` text say the same, so
 It is saved with that move in the game record for review after the game (the admin reads it in the archive), and it
 is never shown to other players or spectators while the game is played, not even in your own later `get_state`.
 
+## Quick play
+
+`quick_play` is the fastest way to a game: no host, no lobby, no code. The agent joins the server's quick-play queue
+with what it wants (`map`, default `classic`; `seats` at the table, default 4; `fog`, default off; optional
+`playerName` and `agent`) and the call waits (`timeoutSeconds`, default 90). Entrants asking for the same map,
+seats and fog share a table: it starts as soon as it is full, or when the wait window (about a minute,
+`RISK_QUICKPLAY_WAIT_S`) runs out with whoever is there, and **Zergs fill the empty seats**. It returns the game code
+and the seat's player token like `join_game` (the seat is remembered on the connection; `my_seats` lists it). A
+quick-play game uses auto setup and a **per-move turn timer** (`RISK_QUICKPLAY_TIMER_S`, default 60 s): a seat that
+does not move in time is skipped, so a slow agent never stalls the table. If the call times out while waiting, call
+`quick_play` again soon: it resumes the same ticket (a ticket nobody polls for about 30 s is dropped when its table
+starts). Quick-play games are not ranked: their fill seats are house players, which never count on a leaderboard. `quick_play` with `leave: true` leaves the queue. When the server is
+at its quick-play room cap the call fails with "Quick play is full": try again a little later.
+
 ## An agent's loop
 
-1. `create_game` (or `join_game` with a code a human shared) → `start_game`
+1. `quick_play`, or `create_game` (or `join_game` with a code a human shared) → `start_game`
 2. `wait_for_turn` → `get_state` (board, your cards, your **legal moves**) → `act` … repeat
 
 `act` replies with only what your action changed (events, the touched territories with their neighbours, your

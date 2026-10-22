@@ -39,6 +39,29 @@ With `RISK_ADMIN_TOKEN` (as `Authorization: Bearer <token>`):
 
 Or copy `RISK_DATA_DIR/archive/` off the host.
 
+**Read-only, with the records key** (`RISK_RECORDS_KEY`, set by the owner and kept private; header
+`x-records-key`; the admin token also works): `GET /api/records/:id` (the whole record) and
+`GET /api/records/:id/playbyplay`. Without the key set on the server those routes are off (403).
+
+## Play-by-play
+
+`narrate(record)` (`packages/server/src/playbyplay.ts`, pure) tells a recorded game turn by turn:
+- a header: room, map, players, winner;
+- setup totals;
+- each turn's reinforcements, placements, card trades, attacks, occupations, fortifies, capital picks, knockouts,
+  surrenders and timeouts, with lines such as "Bob attacks Glacier Bay (Cat) from Stormwatch, 5 vs 1: 1 roll, loses
+  0, kills 1, conquers";
+- the game's end.
+
+A step's decision note (`step.note`, from the G1 decision notes; the shape is tolerant until G1 fixes it) is shown
+inline under its step ("↳ Delove chose Peru (.62) over Chile (.58), value .41"). `narrate(record, { summary })`
+takes extra header lines, for the Zerg report once that lands.
+
+- **Over HTTP**, with the records key: `GET /api/records/:id/playbyplay` as text, or `?format=json` for the lines.
+- **From the command line:** `npm run records:playbyplay -- <record.json>` narrates a local record file, and
+  `npm run records:playbyplay -- <record id>` fetches it from `RISK_SERVER_URL` with `RISK_RECORDS_KEY` from the
+  environment, never printed. Both need the built server (`npm run build`).
+
 ## The format (`RECORD_VERSION` 1)
 
 Boards are compact. `territories` lists the territory ids once; a board is an array in that order with one

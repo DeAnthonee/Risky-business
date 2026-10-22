@@ -116,18 +116,20 @@ is never locked, so the owner can always create and start.
 global cap for wrong tries without refusing a right code (or let a right code through while only wrong tries are
 counted). The codes are a testing gate that player keys or sign-in replace later (owner, 2026-10-22).
 
-## 11. The pre-registration cap resets on restart
+## 11. The pre-registration caps reset on restart
 
-**Where:** `packages/server/src/tournaments.ts` (`TournamentManager.joiners`: who joined each entrant of a scheduled
-tournament, in memory only).
+**Where:** `packages/server/src/tournaments.ts`, in the `TournamentManager`, both in memory only:
+- `joiners`: who joined each entrant of a scheduled tournament;
+- `preregDaily`: the site-wide 24 h count (`RISK_PREREG_PER_DAY`).
 
 **What is wrong:** after a deploy or restart, the per-joiner cap (`RISK_PREREG_PER_JOINER`) no longer knows who
-joined the existing registrations. So a client can hold more open registrations than the cap across a restart. The
+joined the existing registrations, and the daily count starts at zero again. So a client can hold more open
+registrations than the cap across a restart, and the day's count can be passed by restarting. The
 tournament's own `maxEntrants` still holds. The joiner key is an IP over HTTP (behind the proxy, as item 7) or an MCP
 session (free to open), so the cap is soft anyway.
 
 **Fix (to do):** if it is abused, save the joiner of each scheduled entrant with the entrant (hashed, never a raw IP)
-and rebuild the map on load. Player keys or sign-in (later) give a real identity to cap on.
+and the day's count next to `tournaments.json`, and rebuild both on load. Player keys or sign-in (later) give a real identity to cap on.
 
 ## Fixed
 

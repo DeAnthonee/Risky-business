@@ -24,6 +24,7 @@ import {
   type TerritoryState,
   type TradeAction,
 } from './types.js';
+import { checkStall, noteCapture, validateStallOptions } from './stall.js';
 
 export const PLAYER_COLORS = ['#e63946', '#2a9d8f', '#457bd9', '#f4a261', '#9b5de5', '#f9c74f', '#06d6a0', '#ff70a6', '#b5651d', '#00b4d8'];
 export const NEUTRAL_COLOR = '#8d8d8d';
@@ -92,8 +93,7 @@ export function validateOptions(o: GameOptions): void {
     throw new RuleError('neutralArmies must be an integer between 1 and 10');
   if (!Number.isInteger(o.maxPlayers) || o.maxPlayers < 2 || o.maxPlayers > map.maxPlayers)
     throw new RuleError(`maxPlayers must be between 2 and ${map.maxPlayers} on the ${map.name} map`);
-  const stall = o.stallFogLift ?? 0;
-  if (!Number.isInteger(stall) || stall < 0 || stall > 20) throw new RuleError('stallFogLift must be an integer between 0 and 20');
+  validateStallOptions(o);
 }
 
 export function setOptions(state: GameState, options: Partial<GameOptions>): GameState {
@@ -919,7 +919,7 @@ function doAttack(state: GameState, playerId: PlayerId, action: AttackAction, ev
     to.owner = playerId;
     player.conqueredThisTurn = true;
     events.push({ type: 'conquered', player: playerId, from: action.from, to: action.to, previousOwner: defenderId });
-    state.lastCaptureRound = state.round;
+    noteCapture(state);
     const minArmies = Math.min(lastAttackerDice, from.armies - 1);
     const maxArmies = from.armies - 1;
     state.pendingConquest = { from: action.from, to: action.to, minArmies: Math.max(1, minArmies), maxArmies };
@@ -1048,7 +1048,7 @@ function nextTurn(state: GameState, fromPlayer: PlayerId, events: GameEvent[]): 
     if (playerOf(state, cand).alive) {
       if (j <= idx) {
         state.round += 1;
-        checkStallFogLift(state, events);
+        checkStall(state, events);
       }
       beginTurn(state, cand, events);
       return;
@@ -1056,20 +1056,6 @@ function nextTurn(state: GameState, fromPlayer: PlayerId, events: GameEvent[]): 
   }
   // Should be unreachable (victory is detected on elimination).
   checkVictory(state, fromPlayer, events);
-}
-
-/**
- * The stall breaker (stallFogLift): when a round ends in a fog game and that many full rounds in a row passed with no
- * territory captured by anyone, the fog lifts for the rest of the game. Rounds are counted after the round of the last
- * capture (from the start if none), so a capture resets the count.
- */
-function checkStallFogLift(state: GameState, events: GameEvent[]): void {
-  const n = state.options.stallFogLift ?? 0;
-  if (!state.options.fogOfWar || n <= 0 || state.fogLifted) return;
-  const stalled = state.round - 1 - (state.lastCaptureRound ?? 0);
-  if (stalled < n) return;
-  state.fogLifted = true;
-  events.push({ type: 'fog_lifted', rounds: stalled });
 }
 
 function surrender(state: GameState, playerId: PlayerId): ActionResult {

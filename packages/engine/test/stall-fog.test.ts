@@ -79,11 +79,12 @@ describe('stall breaker: the fog lifts after N full rounds with no capture (stal
     s = passTurn(s, events);
     s = passTurn(s, events);
     s = passTurn(s, events);
-    expect(s.lastCaptureRound).toBe(2);
+    expect(s.stall).toEqual({ lastCaptureRound: 2 });
     s = passRound(s, events); // round 3: 1 full round after the capture
     expect(s.fogLifted).toBeFalsy();
     s = passRound(s, events); // round 4: 2
     expect(s.fogLifted).toBe(true);
+    expect(s.stall).toEqual({ lastCaptureRound: 2, fogLiftedRound: 5 }); // when the reliever kicked in, for later steps
   });
 
   it('does nothing without fog, or with 0 (the default for normal games)', () => {
@@ -94,7 +95,21 @@ describe('stall breaker: the fog lifts after N full rounds with no capture (stal
       expect(s.fogLifted, JSON.stringify(opts)).toBeFalsy();
       expect(events.some((e) => e.type === 'fog_lifted')).toBe(false);
     }
-    expect(createGame('x', {}).options.stallFogLift).toBe(0);
+    expect('stallFogLift' in createGame('x', {}).options).toBe(false);
+  });
+
+  it('with the option off the state is bit-identical to before: no stall keys anywhere, even after captures (self-play, GPU)', () => {
+    for (const opts of [{ fogOfWar: true }, { fogOfWar: false }, { fogOfWar: false, stallFogLift: 3 }, { fogOfWar: true, stallFogLift: 0 }]) {
+      let s = game(opts);
+      s = conquer(s);
+      s = passTurn(s);
+      s = passTurn(s);
+      for (let r = 0; r < 4; r++) s = passRound(s);
+      expect('stall' in s, JSON.stringify(opts)).toBe(false);
+      expect('fogLifted' in s, JSON.stringify(opts)).toBe(false);
+      expect('lastCaptureRound' in s).toBe(false);
+    }
+    expect('stallFogLift' in game({ fogOfWar: true }).options).toBe(false);
   });
 
   it('is a validated setting, described in the rules summary of fog games', () => {

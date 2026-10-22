@@ -1,0 +1,1 @@
+engine: - 2026-10-22 #296 `zerg.test.ts`: the "never attacks a fellow Zerg while a non-Zerg is alive" check counted `attack` events, which don't exist (the fight event is `battle`), so it could never fail; it now counts `battle` events and still passes

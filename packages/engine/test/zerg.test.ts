@@ -47,7 +47,7 @@ function hordeGame(seed: number, seats: string[], map: 'classic' | 'skirmish' = 
     const r = applyAction(s, me, action);
     s = r.state;
     events.push(...r.events);
-    for (const e of r.events) if (preyAlive && e.type === 'attack' && horde.has(e.attacker) && horde.has(e.defender)) allyHits++;
+    for (const e of r.events) if (preyAlive && e.type === 'battle' && horde.has(e.attacker) && horde.has(e.defender)) allyHits++;
     if (preyAlive && !s.players.some((p) => p.alive && !p.isNeutral && !horde.has(p.id))) keeper = strongestZergOf(s, horde);
   }
   return { state: s, events, actions, horde, allyHits, keeper };

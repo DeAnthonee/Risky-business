@@ -1,1 +1,1 @@
-engine: - 2026-10-22 #PR `startOnSpots` throws a RuleError instead of looping if no blizzard borders a cut-off spot (review nit on #241; only a board that is not one network could reach it, and the nested start then falls back to a normal start)
+engine: - 2026-10-22 #244 `startOnSpots` throws a RuleError instead of looping if no blizzard borders a cut-off spot (review nit on #241; only a board that is not one network could reach it, and the nested start then falls back to a normal start)

@@ -156,6 +156,7 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
       instructions: [
         'You can play the board game Risk (classic world domination rules) against humans, bots and other agents.',
         'Typical flow: rules -> game_options (see every setting) -> create_game with the settings you want (or join_game with a code a human shared) -> optionally set_options / add_bot -> start_game -> loop { wait_for_turn -> get_state -> act }.',
+        'SWARM GAME (play against the Zergs): create_game with zergs: 3-5 and options {capitals: true, blizzards: 4, autoSetup: true} (the swarm settings: Capital Conquest, frozen territories, no setup phase), then start_game.',
         'Tournaments: join_tournament with a code, then wait_for_match -> play your table like any game -> wait_for_match again until you are out or the champion.',
         'get_state returns your legal moves; act takes one JSON action. Attacking with blitz:true and occupy:"max" resolves a whole battle in one call. Under fog of war leave out occupy: a conquest reveals what lies beyond it, and you then choose how many armies to move in.',
         'IMPORTANT: create_game and join_game return a player token. Remember it and pass it as the "token" argument on every later call for that game: it is what identifies YOUR seat (several chats or agents can sit at the same table, each with its own token).',
@@ -218,7 +219,7 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
     'map',
     {
       description: 'Return a static map: territories, continents with bonuses, and adjacency (which territories border which). Pass the map a game uses (get_state shows options.map).',
-      inputSchema: { map: mapIdSchema().optional().describe(`Default classic. One of: ${MAP_IDS.join(', ')} (fantasy = Realms of Halvaren, an original fantasy world; skirmish = Four Crowns, a small fast 4-player board; bohemia = Bohemia, a 42-territory inland kingdom whose regions meet only at river fords; nine_realms = The Nine Realms, a 58-territory north-south continent whose regions meet only at narrow passes, up to 8), or a generated board's id such as gen1-s42-p4-t20 (a hex board built from seed 42 for up to 4 players, 20 territories; tournament tables use these)`) },
+      inputSchema: { map: mapIdSchema().optional().describe(`Default classic. One of: ${MAP_IDS.join(', ')} (fantasy = Realms of Halvaren, an original fantasy world; skirmish = Four Crowns, a small fast 4-player board; bohemia = Bohemia, a 42-territory inland kingdom whose regions meet only at river fords; nine_realms = The Nine Realms, a 58-territory north-south continent whose regions meet only at narrow passes, up to 8; hexworld = Hex Earth, the real world on a hexagon globe, 80 territories, up to 10), or a generated board's id such as gen1-s42-p4-t20 (a hex board built from seed 42 for up to 4 players, 20 territories; tournament tables use these)`) },
     },
     async ({ map }) => {
     try {
@@ -242,7 +243,8 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
     'create_game',
     {
       description:
-        'Create a new game and take a seat as its host. Pass any game settings in "options" (map, seats, setup, cards, fog of war, Capital Conquest, neutrals, blizzards, turn timer...); call game_options to see them all with defaults and limits. Returns the game code to share and your player token.',
+        'Create a new game and take a seat as its host. Pass any game settings in "options" (map, seats, setup, cards, fog of war, Capital Conquest, neutrals, blizzards, turn timer...); call game_options to see them all with defaults and limits. Returns the game code to share and your player token. ' +
+        'Pass zergs: N to seat N Zergs (rushing house bots that never attack each other while anyone else is alive) right away. For a swarm game use the swarm settings: zergs 3-5 and options {"capitals": true, "blizzards": 4, "autoSetup": true}, then start_game.',
       inputSchema: {
         playerName: z.string().max(24).optional().describe(`Your display name (default "${DEFAULT_NAME}")`),
         gameName: z.string().max(40).optional(),
@@ -253,17 +255,23 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
           .describe('"training": a model-vs-model yardstick game, ranked on the separate training leaderboard (never the public one). Needs the characters write key in "key". Omit for a normal public game.'),
         key: z.string().max(200).optional().describe('The characters write key, needed only with board "training" (the local stdio server reads it from RISK_CHARACTERS_KEY).'),
         agent: agentSchema,
+        zergs: z.number().int().min(1).max(9).optional().describe('Seat this many Zergs right after creating (at most the free seats: maxPlayers minus you; default maxPlayers is 6)'),
       },
     },
-    async ({ playerName, gameName, options, board, key, agent }) => {
+    async ({ playerName, gameName, options, board, key, agent, zergs }) => {
       try {
         const name = playerName ?? DEFAULT_NAME;
         const r = await api.createGame(name, gameName, options, board, key, agentOf(agent));
         const seat = { gameId: r.gameId, playerId: r.playerId, token: r.token, name };
         identities.set(seat);
+        let swarm = '';
+        if (zergs) {
+          const z = await api.addBot(r.gameId, r.token, undefined, 'zerg', zergs);
+          swarm = `Seated ${zergs} Zerg${zergs === 1 ? '' : 's'}: ${(z.added ?? [{ name: z.name ?? z.playerId }]).map((x) => x.name).join(', ')}. Call start_game when ready.\n`;
+        }
         return text(
-          `Created game ${r.gameId}. You are the host.\n${seatLine(seat)}\n` +
-            `Share the code ${r.gameId} so others can join (humans use the website, other chats/agents use join_game), add bots with add_bot, then start_game.\n\n${formatState(r.state)}`,
+          `Created game ${r.gameId}. You are the host.\n${seatLine(seat)}\n${swarm}` +
+            `Share the code ${r.gameId} so others can join (humans use the website, other chats/agents use join_game), add bots with add_bot, then start_game.\n\n${zergs ? await stateText(r.gameId, r.token) : formatState(r.state)}`,
         );
       } catch (e) {
         return errorText(e);
@@ -324,21 +332,24 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
     'add_bot',
     {
       description:
-        'Add a computer player to a game you host (lobby only). kind "bot" (default) is the built-in bot. kind "zerg" is a Zerg: a rushing house bot that never attacks a fellow Zerg while anyone else is alive. Each Zerg gets a reptile name (Godzilla, Cobra, Komodo, ...), so leave name out. Zergs are regular players and rank like any seat.',
+        'Add computer players to a game you host (lobby only); count (1-9, default 1) adds several of the same kind in one call, all or none, up to the free seats. kind "bot" (default) is the built-in bot. kind "zerg" is a Zerg: a rushing house bot that never attacks a fellow Zerg while anyone else is alive. Each Zerg gets a Zerg pun for a name (Mark Zergburg, Elon Zerg, Zergy Mercury, ...), so leave name out. Zergs are regular players and rank like any seat.',
       inputSchema: {
         gameId: gameIdSchema,
-        name: z.string().max(24).optional(),
+        name: z.string().max(24).optional().describe('Only for a single built-in bot'),
         kind: z.enum(['bot', 'zerg']).optional().describe('"bot" (default) or "zerg"'),
+        count: z.number().int().min(1).max(9).optional().describe('How many to add (default 1)'),
         token: tokenSchema,
         as: asSchema,
       },
     },
-    async ({ gameId, name, kind, token, as }) => {
+    async ({ gameId, name, kind, count, token, as }) => {
       try {
         const id = gameId.toUpperCase();
         const t = requireToken(id, token, as);
-        const r = await api.addBot(id, t, name, kind);
-        return text(`Added ${kind === 'zerg' ? 'Zerg' : 'bot'} ${r.name ? `${r.name} (${r.playerId})` : r.playerId}.\n\n${await stateText(id, t)}`);
+        const r = await api.addBot(id, t, name, kind, count);
+        const added = r.added ?? [{ playerId: r.playerId, name: r.name ?? r.playerId }];
+        const what = kind === 'zerg' ? (added.length === 1 ? 'Zerg' : 'Zergs') : added.length === 1 ? 'bot' : 'bots';
+        return text(`Added ${added.length} ${what}: ${added.map((x) => `${x.name} (${x.playerId})`).join(', ')}.\n\n${await stateText(id, t)}`);
       } catch (e) {
         return errorText(e);
       }
@@ -495,12 +506,16 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
         token: tokenSchema,
         as: asSchema,
         full: z.boolean().optional().describe('true: return the whole board instead of just what your action changed'),
+        note: z
+          .union([z.string().max(2000), z.record(z.string(), z.unknown())])
+          .optional()
+          .describe('Optional private note on why you made this move (a string or a JSON object, at most 2 KB). It is saved with the move in the game record for review after the game and is never shown to other players or spectators during it.'),
       },
     },
-    async ({ gameId, action, token, as, full }) => {
+    async ({ gameId, action, token, as, full, note }) => {
       try {
         const id = gameId.toUpperCase();
-        const r = await api.act(id, requireToken(id, token, as), action as Action);
+        const r = await api.act(id, requireToken(id, token, as), action as Action, note);
         if (full) {
           const ev = formatEvents(r.events, r.state);
           return text(`OK.${ev ? `\nEvents:\n${ev}` : ''}\n\n${formatState(r.state)}`);

@@ -189,14 +189,17 @@ def main() -> int:
         nb = max(20, g // 5)
         for name, h, mg, rt in [("branch-default", None, None, teacher_id), ("branch-cycle", "1", "0.01", teacher_id),
                                 ("branch-jacob", "1", "0.01", JACOB), ("branch-points", "1", "0.01", teacher_id),
-                                ("branch-kills", "1", "0.01", teacher_id), ("branch-range", "1", "0.01", JACOB)]:
+                                ("branch-kills", "1", "0.01", teacher_id), ("branch-range", "1", "0.01", JACOB),
+                                ("branch-gumbel", "1", "0.01", JACOB)]:
             # branch-points / branch-kills / branch-range: DELOVE_BRANCH_SCORE at four seats, where places and kills count
             # (range: long at 4 alive, then mid and close as players fall)
             score = name.split("-")[1] if name in ("branch-points", "branch-kills", "branch-range") else None
-            logs[name] = (",".join(["delove-branch@1"] + [rt] * (3 if score else 1)), nb)
+            gumbel = name == "branch-gumbel"  # the Gumbel root (DELOVE_BRANCH_ROOT=gumbel, 8 candidates within 5 x 6 copies)
+            logs[name] = (",".join(["delove-branch@1"] + [rt] * (3 if score or gumbel else 1)), nb)
             extra_env[name] = {"DELOVE_BRANCH_RANKER": args.ranker, "DELOVE_BRANCH_TRACE": str(out / f"trace-{name}.jsonl"),
                                "DELOVE_BRANCH_TEACHER": rt, **({"DELOVE_BRANCH_HORIZON": h, "DELOVE_BRANCH_MARGIN": mg} if h else {}),
-                               **({"DELOVE_BRANCH_SCORE": score} if score else {})}
+                               **({"DELOVE_BRANCH_SCORE": score} if score else {}),
+                               **({"DELOVE_BRANCH_ROOT": "gumbel", "DELOVE_BRANCH_K": "8", "DELOVE_BRANCH_OPTIONS": "5"} if gumbel else {})}
         # network rollouts (DELOVE_BRANCH_ROLLOUT, the ranker playing them): every seat at two seats, the decider's at
         # four (Jacob in the others); slower on the CPU (one ONNX call per rollout move), so fewer games
         for name, seats, n_seats in [("branch-netroll", "", 1), ("branch-netself", ":self", 3)]:
@@ -287,7 +290,8 @@ def main() -> int:
                                 ("branch-kills", ["--horizon", "1", "--margin", "0.01", "--score", "kills"], teacher_id),
                                 ("branch-range", ["--horizon", "1", "--margin", "0.01", "--score", "range"], JACOB),
                                 ("branch-netroll", ["--horizon", "1", "--margin", "0.01", "--rollout", args.ranker], JACOB),
-                                ("branch-netself", ["--horizon", "1", "--margin", "0.01", "--rollout", args.ranker + ":self"], JACOB)]:
+                                ("branch-netself", ["--horizon", "1", "--margin", "0.01", "--rollout", args.ranker + ":self"], JACOB),
+                                ("branch-gumbel", ["--horizon", "1", "--margin", "0.01", "--root", "gumbel", "--gumbel-k", "8", "--options", "5"], JACOB)]:
             jobs.append(("branch", [str(tests / "branch_replay.py"), str(out / name), "--trace", str(out / f"trace-{name}.jsonl"), "--models",
                                     str(models), "--ranker", args.ranker, "--teacher", rt, *extra],
                          r"(\d+) games, (\d+) branch-player decisions .*means identical on \d+, different on 0;", 2))

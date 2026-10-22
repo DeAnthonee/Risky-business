@@ -9,8 +9,8 @@ Maps: [maps.md](maps.md). Tournaments: [tournaments.md](tournaments.md).
 
 Open http://localhost:8080, enter a name, press **Create room** (it opens the setup in place: maps as silhouette tiles
 with a live preview, settings grouped into Players and setup, Cards and combat, Board twists; the lobby uses the same
-groups), add a bot or a **Zerg** (a rushing house bot with a reptile name, Godzilla, Cobra, Komodo and so on, that never attacks a fellow Zerg while anyone else is alive; see [zergs.md](zergs.md)) or share the 6-letter join code (or the invite link `?game=CODE`), and press **Start**. The home
-page lists open games as tickets (joinable rooms first, then live and finished ones) next to the leaderboard (once a season has been archived, a season picker above it shows past seasons; the current one is the default; the **Training** toggle beside it switches to the training leaderboard of model-vs-model yardstick games, and the **Tournament** toggle to the tournament leaderboard of finished tournaments; neither counts on the public one) and the **match history**: the most recent finished games, newest first, each with its winner (click the name for their profile), how they won, the room, map, turns, how long it took and every seat's final place. While a finished room is still on the server, **View final board** opens it to watch. Wide screens show the three boards side by side; narrower ones stack the leaderboard and match history beside the open games. Anyone can **watch** a game without playing:
+groups), add a bot or a **Zerg** (a rushing house bot with a Zerg pun for a name, Mark Zergburg, Elon Zerg, Zergy Mercury and so on, that never attacks a fellow Zerg while anyone else is alive; when only Zergs are left the game ends at once and the strongest Zerg wins; see [zergs.md](zergs.md)) or share the 6-letter join code (or the invite link `?game=CODE`), and press **Start**. The home
+page lists open games as tickets (joinable rooms first, then live and finished ones) next to the leaderboard (once a season has been archived, a season picker above it shows past seasons; the current one is the default; when the host has set a season password, an **Archive season** button there archives the season after a password and a confirm; the **Training** toggle beside it switches to the training leaderboard of model-vs-model yardstick games, and the **Tournament** toggle to the tournament leaderboard of finished tournaments; neither counts on the public one) and the **match history**: the most recent finished games, newest first, each with its winner (click the name for their profile), how they won, the room, map, turns, how long it took and every seat's final place. While a finished room is still on the server, **View final board** opens it to watch. Wide screens show the three boards side by side; narrower ones stack the leaderboard and match history beside the open games. Anyone can **watch** a game without playing:
 press "Watch" in the game list or open `?game=CODE&spectate=1`. Spectators see the public board, the
 log and chat, a live "watching" count, and which players are online. Next to each player's name a small badge shows
 what kind of player it is ("Claude Sonnet", "Delove delove@10", "Zerg", "Bot", "Human", or "?" when the seat did not
@@ -26,9 +26,14 @@ The board sits on animated water: a lit sea that darkens toward the edges, small
 and fade in and out, and a soft surf glow that swells along every coast. It is ambient decoration (Fast-forward
 does not touch it) and holds still when the system asks for reduced motion.
 
-The territories of the player whose turn it is sit slightly raised: a little larger, with a light rim and a drop
-shadow, rocking gently so you can see at a glance what they hold. Under fog only the land you can see is raised;
-with reduced motion they stay raised but still.
+The territories of the player whose turn it is get a still, glassy sheen (lit from the top, a little darker at the
+bottom) so you can see at a glance what they hold. Under fog only the land you can see gets it.
+
+A **capture** pours in like liquid: drops of the new owner's colour run across the border from the attacking
+territory, a rippling front fills the captured territory from that side and pushes the old colour out (about a
+second), then a white rim flash, a small pop and a ripple from the army badge lock the new colour in. With reduced
+motion only the rim flash plays; Fast-forward skips it. Under fog, when you can see the attacker but not the captured
+territory, only the drops crossing the border show.
 
 **Auto-spectate** is a hands-off live stream: press **Auto-Spectate Live Stream** above the game list (shown while a
 game is being played) or open `/?spectate=1` with no game. It tunes into a game in progress and, when that game ends
@@ -81,8 +86,8 @@ Host-selectable options:
 
 | option        | values                        | default     |
 | ------------- | ----------------------------- | ----------- |
-| `map`         | `classic` \| `world` \| `world_large` \| `europe` \| `greater_europe` \| `europe_classic` \| `usa` \| `asia` \| `fantasy` \| `skirmish` \| `bohemia` \| `nine_realms`, or a generated board's id such as `gen1-s42-p4-t20` (API and MCP only; see [maps.md](maps.md#generated-boards)) | `classic` |
-| `maxPlayers`  | 2–4 (skirmish) / 2–6 (classic, europe_classic, bohemia) / 2–8 (europe, asia, nine_realms) / 2–10 (world, world_large, greater_europe, usa, fantasy) | 6 |
+| `map`         | `classic` \| `world` \| `world_large` \| `europe` \| `greater_europe` \| `europe_classic` \| `usa` \| `asia` \| `fantasy` \| `skirmish` \| `bohemia` \| `nine_realms` \| `hexworld`, or a generated board's id such as `gen1-s42-p4-t20` (API and MCP only; see [maps.md](maps.md#generated-boards)) | `classic` |
+| `maxPlayers`  | 2–4 (skirmish) / 2–6 (classic, europe_classic, bohemia) / 2–8 (europe, asia, nine_realms) / 2–10 (world, world_large, greater_europe, usa, fantasy, hexworld) | 6 |
 | `setupBatch`  | armies placed per setup turn  | 1 (classic) |
 | `fortifyMode` | `connected` \| `adjacent`     | `connected` |
 | `randomDeal`  | `true` (deal) \| `false` (claim one by one) | `true` |

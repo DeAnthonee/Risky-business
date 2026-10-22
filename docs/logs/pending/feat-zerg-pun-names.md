@@ -1,0 +1,1 @@
+server: - 2026-10-22 #199 Zerg names are good-natured puns on "Zerg" (Mark Zergburg, Elon Zerg, Zergy Mercury, ... 40 in `ZERG_NAMES`, each with "Zerg" in it, at most 21 characters) instead of reptiles, for live seats and tournament entrants; past the list a random name gets " 2", " 3"; saved games keep their names

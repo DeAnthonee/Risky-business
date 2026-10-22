@@ -42,7 +42,7 @@ def rules_suite(scale: float) -> list[tuple]:
     g = lambda n: max(4, int(n * scale))  # noqa: E731
     maps = {"classic": 6, "world": 10, "world_large": 10, "europe": 8, "greater_europe": 10, "europe_classic": 6, "usa": 10,
             "asia": 8, "fantasy": 10, "skirmish": 4,
-            "bohemia": 6, "nine_realms": 8}
+            "bohemia": 6, "nine_realms": 8, "hexworld": 10}
     cases = []
     for m, mx in maps.items():
         sizes = sorted({2, (2 + mx + 1) // 2, mx})
@@ -126,6 +126,12 @@ def branch_suite(scale: float) -> list[tuple]:
         ("br-skirmish-3p-mid-settings-branch", "skirmish", 3, f"{BR},{T2},{NETP}", g(100), {"neutrals": 3, "fortifyMode": "adjacent"}),
         ("br-classic-4p-long-branch", "classic", 4, f"{BR},{T2},{NETP},{T1}", g(100), {}),
         ("br-skirmish-2p-close-branch", "skirmish", 2, f"{BR},{NETP}", g(100), {}),
+        # the Gumbel root (DELOVE_BRANCH_ROOT=gumbel: 8 candidates, sequential halving within options x rollouts copies)
+        ("br-classic-2p-gumbel-branch", "classic", 2, f"{BR},{T2}", g(100), {}),
+        ("br-classic-4p-gumbel-branch", "classic", 4, f"{BR},{T2},{NETP},{T1}", g(100), {}),
+        ("br-world-6p-gumbel-branch", "world", 6, seats(6, BR, T2, NETP), g(30), {}),
+        ("br-greater_europe-10p-gumbel-branch", "greater_europe", 10, seats(10, BR, T2, T1, NETP), g(12), {}),
+        ("br-skirmish-3p-range-gumbel-settings-branch", "skirmish", 3, f"{BR},{T2},{NETP}", g(100), {"neutrals": 3, "capitals": True}),
     ]
 
 
@@ -146,7 +152,7 @@ def net_suite(scale: float) -> list[tuple]:
 # mixed with Sensei 2 and risky@1 (several teacher versions in one game); every setting; and branch and score with
 # Jacob as the rollout teacher (cases named jb-*: DELOVE_BRANCH_TEACHER on the CPU, --teacher on the GPU).
 MAPS = {"classic": 6, "world": 10, "world_large": 10, "europe": 8, "greater_europe": 10, "europe_classic": 6, "usa": 10,
-        "asia": 8, "fantasy": 10, "skirmish": 4, "bohemia": 6, "nine_realms": 8}
+        "asia": 8, "fantasy": 10, "skirmish": 4, "bohemia": 6, "nine_realms": 8, "hexworld": 10}
 
 
 def jacob_suite(scale: float) -> list[tuple]:
@@ -210,6 +216,11 @@ def branch_score(name: str) -> str | None:
     return next((sc for sc in ("points", "kills", "range", "long", "mid", "close") if f"-{sc}-" in name), None)
 
 
+def branch_root(name: str) -> str | None:
+    """DELOVE_BRANCH_ROOT=gumbel for a case named ...-gumbel-... (None: the top options)."""
+    return "gumbel" if "-gumbel-" in name else None
+
+
 def rollout_teacher(name: str) -> str:
     return J if name.startswith("jb-") else J2 if name.startswith("j2b-") else T2
 
@@ -224,6 +235,8 @@ def node_play(agents: str, games: int, start: int, seed: int, options: dict, log
         env["DELOVE_BRANCH_TEACHER"] = teacher
         if branch_score(log.parent.name):
             env["DELOVE_BRANCH_SCORE"] = branch_score(log.parent.name)
+        if branch_root(log.parent.name):
+            env["DELOVE_BRANCH_ROOT"] = branch_root(log.parent.name)
         env["DELOVE_BRANCH_TRACE"] = str(log.parent / f"trace-{log.name}-x.jsonl")
     cmd = ["node", "--import", "./packages/delove/dist/register.js", "packages/selfplay/dist/cli.js", "play", "--agents", agents,
            "--games", str(games), "--start", str(start), "--seed", str(seed), "--options", json.dumps(options), "--log", str(log)]
@@ -291,7 +304,7 @@ def replay_case(name: str, d: Path, args) -> dict:
     if name.endswith("-branch") and args.models:
         cmd = [PYTHON, str(HERE / "branch_replay.py"), *logs, "--trace", str(d / "trace-*.jsonl"), "--models", args.models,
                "--ranker", NETP, "--teacher", rollout_teacher(name), "--horizon", BRANCH_ENV["DELOVE_BRANCH_HORIZON"], "--margin", BRANCH_ENV["DELOVE_BRANCH_MARGIN"],
-               "--batch", str(args.batch)] + (["--score", branch_score(name)] if branch_score(name) else [])
+               "--batch", str(args.batch)] + (["--score", branch_score(name)] if branch_score(name) else [])               + (["--root", branch_root(name)] if branch_root(name) else [])
         r = subprocess.run(cmd, capture_output=True, text=True)
         res["rules"] += " | branch: " + (r.stdout.strip().splitlines()[0] if r.stdout.strip() else r.stderr[-500:])
         res["rules_ok"] = res["rules_ok"] and r.returncode == 0

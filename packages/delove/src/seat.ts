@@ -4,6 +4,7 @@ import { legalMoves, type Action, type GameView, type PlayerId } from '@risk/eng
 import { RiskHttpError, type RiskApi } from '@risk/mcp';
 import { candidates, makeTraits, stateFromView, type Agent } from '@risk/selfplay';
 import { modelsDir, seatOrder } from './net-agent.js';
+import type { Noter } from './notes.js';
 import { DEFAULT_TEACHER_PARAMS, makeTeacher, teacher, type TeacherParams } from './teacher.js';
 
 /**
@@ -59,6 +60,10 @@ export interface SeatOptions {
   paceMs: number;
   log: (line: string) => void;
   random?: () => number;
+  /** Called with the milliseconds each move took to choose (tournament runner: latency against a turn timer). */
+  onDecision?: (ms: number) => void;
+  /** Decision notes: each move goes with a note on what Delove saw in it (notes.ts); none without. */
+  notes?: Noter | null;
 }
 
 const WAIT_MS = 25_000;
@@ -112,10 +117,15 @@ export async function playSeat(o: SeatOptions): Promise<GameView | null> {
     }
     // Our turn: keep acting on the fresh view each action returns until the turn passes.
     while (view.phase !== 'finished' && view.currentPlayer === o.playerId) {
+      o.notes?.begin(o.agent);
+      const t0 = performance.now();
       const action = chooseFromView(o.agent, view, o.playerId, random);
+      o.onDecision?.(performance.now() - t0);
       if (!action) break;
+      const seat = view.players.filter((p) => !p.isNeutral).findIndex((p) => p.id === o.playerId);
+      const note = o.notes?.note(o.agent, view, seat);
       try {
-        const res = await o.api.act(o.gameId, o.token, action);
+        const res = await o.api.act(o.gameId, o.token, action, note);
         view = res.state;
         since = view.version;
         o.log(`${o.name}: ${describe(action)}`);

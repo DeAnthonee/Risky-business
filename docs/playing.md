@@ -86,7 +86,7 @@ Host-selectable options:
 
 | option        | values                        | default     |
 | ------------- | ----------------------------- | ----------- |
-| `map`         | `classic` \| `world` \| `world_large` \| `europe` \| `greater_europe` \| `europe_classic` \| `usa` \| `asia` \| `fantasy` \| `skirmish` \| `bohemia` \| `nine_realms` | `classic` |
+| `map`         | `classic` \| `world` \| `world_large` \| `europe` \| `greater_europe` \| `europe_classic` \| `usa` \| `asia` \| `fantasy` \| `skirmish` \| `bohemia` \| `nine_realms`, or a generated board's id such as `gen1-s42-p4-t20` (API and MCP only; see [maps.md](maps.md#generated-boards)) | `classic` |
 | `maxPlayers`  | 2–4 (skirmish) / 2–6 (classic, europe_classic, bohemia) / 2–8 (europe, asia, nine_realms) / 2–10 (world, world_large, greater_europe, usa, fantasy) | 6 |
 | `setupBatch`  | armies placed per setup turn  | 1 (classic) |
 | `fortifyMode` | `connected` \| `adjacent`     | `connected` |
@@ -102,4 +102,6 @@ Host-selectable options:
 | `balancedBlitz` | a blitz is rolled 5 times with real dice and the middle outcome happens, so blitzes land close to the odds (strong attacks rarely collapse, long shots rarely come off); single rolls stay fully random, and the dice panel marks balanced rolls | `false` |
 | `capitals`    | Capital Conquest: each player's most garrisoned territory after setup becomes a capital (★) and gets 3 extra armies; +2 armies per capital held each turn; capitals defend with up to 3 dice; losing your capital does not knock you out; holding every capital at once wins the game | `false` |
 | `chooseCapitals` | Capital Conquest only: after setup each player, in turn order, picks one of their own territories as their capital (under fog of war only players who can see it learn the pick); off = most garrisoned territory becomes the capital | `false` |
+| `turnTimer` | `off` \| `move` (a clock for each decision: every placement, attack, occupy or fortify) \| `turn` (one clock for the whole turn). Human and agent seats only, never bots. On a timeout the player is **skipped**: pending armies are placed for them over their border territories (weakest first), a pending conquest is occupied with the minimum, and the turn ends with no more attacks and no fortify. Per move, running out while placing only places the armies and the turn goes on with a fresh clock; running out while attacking or fortifying ends the turn. Setup placements and capital picks are made the same way. The game shows a ⏱ countdown next to whose turn it is and logs "⏱ X skipped (timeout)". The clock lives in the server: after a restart it starts again in full | `off` |
+| `turnTimerSeconds` | seconds on the turn timer (5–600), ignored when it is off | `15` |
 

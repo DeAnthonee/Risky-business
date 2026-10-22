@@ -1,13 +1,13 @@
 import { memo, useState } from 'react';
-import { MAPS, type MapId } from '@risk/engine';
+import { MAPS, getMap, isMapId, type GameOptions } from '@risk/engine';
 import { continentColor } from './Map';
 
 /**
  * A small, static picture of a board for choosing one: every territory in its region's colour, sea links
  * dashed, and a legend of regions with their bonuses. Hover a region in the legend to pick it out on the map.
  */
-export const MapPreview = memo(function MapPreview({ mapId, players }: { mapId: MapId; players?: number }) {
-  const map = MAPS[mapId] ?? MAPS.classic;
+export const MapPreview = memo(function MapPreview({ mapId, players }: { mapId: GameOptions['map']; players?: number }) {
+  const map = isMapId(mapId) ? getMap(mapId) : MAPS.classic;
   const [focus, setFocus] = useState<string | null>(null);
   const [W, H] = map.viewBox;
   const seats = Math.max(2, Math.min(players ?? map.maxPlayers, map.maxPlayers));
@@ -76,8 +76,8 @@ export const MapPreview = memo(function MapPreview({ mapId, players }: { mapId: 
 });
 
 /** A board's silhouette for a map picker: every territory in one ink, no labels or links. */
-export const MapThumb = memo(function MapThumb({ mapId }: { mapId: MapId }) {
-  const map = MAPS[mapId] ?? MAPS.classic;
+export const MapThumb = memo(function MapThumb({ mapId }: { mapId: GameOptions['map'] }) {
+  const map = isMapId(mapId) ? getMap(mapId) : MAPS.classic;
   const [W, H] = map.viewBox;
   return (
     <svg className="map-thumb" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid meet" aria-hidden="true">

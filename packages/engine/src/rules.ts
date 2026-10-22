@@ -130,6 +130,15 @@ each player in turn order picks one of their own territories with {"type":"choos
 The chosen capital gets 3 extra armies on the spot (1 army becomes 4). Picks are public, except under fog of war,
 where you only learn of capitals you can see. Then turn 1 begins.
 
+OPTION: TURN TIMER
+"turnTimer" ("off" by default, "move" or "turn") with "turnTimerSeconds" (5-600, default 15): human and agent seats
+(never bots) get that many seconds for each decision ("move": every placement, attack, occupy or fortify) or for
+the whole turn ("turn"). The game state shows the deadline and the seconds left (timer.secondsLeft); act quickly.
+On a timeout you are skipped: pending armies are placed for you over your border territories (weakest first), a
+pending conquest is occupied with the minimum, and your turn ends (no more attacks, no fortify). Per move, running
+out while placing only places your armies and the turn goes on with a fresh clock. Setup placements and capital
+picks are made for you the same way. The log shows "skipped (timeout)".
+
 SWARM GAMES (Zergs)
 Zergs are house bots that rush and never attack a fellow Zerg while anyone else is alive. To play against the swarm:
 create_game with "zergs" (3-5) and the swarm settings {"capitals": true, "blizzards": 4, "autoSetup": true}, then

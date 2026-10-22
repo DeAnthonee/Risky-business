@@ -341,6 +341,16 @@ footer {
   display: inline-flex;
   align-items: center;
 }
+.turn-timer {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+.turn-timer.urgent {
+  color: #e63946;
+}
 .map-wrap {
   position: relative;
   flex: 1;

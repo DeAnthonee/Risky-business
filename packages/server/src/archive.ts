@@ -23,6 +23,8 @@ export interface CommitInfo {
   playerId: PlayerId | null;
   action: Action | { type: 'start' } | { type: 'system'; note: string };
   at: number;
+  /** The turn timer ran out and the server made this move for the player. */
+  timeout?: true;
   /** The acting seat's private decision note for this move, if it sent one. */
   note?: unknown;
 }
@@ -118,7 +120,10 @@ export class GameArchive {
         return;
       }
       const header = this.header(room.recordId);
-      const entries: RecordEntry[] = [recordStep(header, c.before, c.playerId, c.action, c.events, c.at, c.note === undefined ? {} : { note: c.note })];
+      const entries: RecordEntry[] = [recordStep(header, c.before, c.playerId, c.action, c.events, c.at, {
+        ...(c.note === undefined ? {} : { note: c.note }),
+        ...(c.timeout ? { timeout: true } : {}),
+      })];
       const turn = recordTurnStart(header, c.next, c.events, c.at);
       if (turn) entries.push(turn);
       appendFileSync(file, entries.map((e) => JSON.stringify(e) + '\n').join(''));

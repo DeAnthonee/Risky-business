@@ -36,9 +36,35 @@ Voronoi partition of per-territory sites with wiggly shared borders (`scripts/au
 Its land adjacency comes from shared borders, plus the `seaLanes` it lists. An authored map can also set `walls: {width, passWidth, passes}`: every land border between territories of different regions is then cut by a water channel, except the listed `passes`, which keep a narrow land bridge, so regions meet only at chokepoints (The Nine Realms uses this).
 
 A map with `kind: 'hexglobe'` tiles the whole sphere with hexagons over real land for the client's rotatable 3D globe
-(`scripts/hex-globe.mjs`; [map-making.md](map-making.md#8-hex-globe-maps)). Hex Earth (`hexworld`: 80 territories,
+(`scripts/hex-globe.mjs`; [map-making.md](map-making.md#9-hex-globe-maps)). Hex Earth (`hexworld`: 80 territories,
 14 regions, 25 sea links, 2–10 players) is generated but not registered yet: it waits for the owner's approval and
 is not offered for games.
+
+## Generated boards
+
+Besides the twelve boards, a game can be played on a **generated board**: a hex board built by the seeded generator
+in `packages/engine/src/procgen.ts` from its id alone, for nested ("Inception") tournaments and anywhere a fresh board
+is wanted. `gen1-s42-p4-t20` is the board made from seed 42 for up to 4 players with 20 territories; `-r<n>` sets the
+number of regions (default about one per 5 territories) and `-c2` gives two passes between linked regions (default
+one). `genMapId({ seed, seats, territoriesPerSeat })` makes the id; the default is **5 territories per seat** (4 to 6
+allowed): 15 for 3 players, 20 for 4, 30 for 6, 50 for a 10-player final.
+
+- `getMap(id)` builds the board on first use (a few milliseconds; the last 64 are cached). Nothing is stored: the
+  same id is the same board on every machine and in every browser, so saved games and records reload it. Ids are
+  canonical (defaults are never written out), and a malformed or out-of-range id is a `RuleError`.
+- Generated boards are not in `MAP_IDS`: the lobby does not offer them and `GET /api/maps` does not list them. Pass
+  the id as the `map` setting over the API or MCP; `GET /api/map?map=<id>` and the MCP `map` tool return the board.
+- How a board is made: a land blob grown from the middle of a hex grid, split into regions, a one-cell water channel
+  cut along every border between regions except one land pass per linked pair (two for a region with one neighbour,
+  or with `-c2`), then territories grown inside each region. Every board passes checks before it is returned (the
+  board and each region connected, 1-3 entry territories for a region of up to 5, up to 5 for a bigger one, few dead
+  ends, bonuses from the same formula `npm run build:map` suggests); an attempt that fails is retried from a derived
+  seed, so the result is still fixed by the id.
+- `pickStartSpots(map, n, seed)` picks n start territories, one per region in n different regions, spread as far apart
+  as possible, on a generated or an existing board (the portals of a nested board).
+- **gen1 is frozen.** Golden hashes in `packages/engine/test/procgen.test.ts` fail on any change to a gen1 board. A
+  better or different generator is a new version (`gen2-...`) beside it, so every gen1 id ever saved keeps loading.
+  Making boards and previewing them: [map-making.md](map-making.md#8-procedural-boards).
 
 How to add or change a map (data in `scripts/maps/*.mjs`, `npm run build:map`): [conventions.md](conventions.md#maps) and
 [CONTRIBUTING.md](../CONTRIBUTING.md#5-maps).

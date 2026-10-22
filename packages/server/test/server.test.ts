@@ -950,6 +950,33 @@ describe('new boards over HTTP', () => {
     });
   }
 
+  it('plays a generated board from its id, and the board comes back after a restart', async () => {
+    const id = 'gen1-s42-p4-t20';
+    const map = await api(`/map?map=${id}`);
+    expect(map.status).toBe(200);
+    expect(map.body.territories).toHaveLength(20);
+    expect((await api('/maps')).body.maps.map((m: any) => m.id)).not.toContain(id);
+    expect((await api('/games', { method: 'POST', body: JSON.stringify({ playerName: 'H', options: { map: 'gen1-s42-p4-t20-r4' } }) })).status).toBe(400);
+    expect((await api('/games', { method: 'POST', body: JSON.stringify({ playerName: 'H', options: { map: id, maxPlayers: 5 } }) })).status).toBe(400);
+    const created = await api('/games', { method: 'POST', body: JSON.stringify({ playerName: 'Host', options: { map: id, maxPlayers: 4, autoSetup: true } }) });
+    expect(created.status).toBe(201);
+    const { gameId, token } = created.body;
+    for (let i = 1; i < 4; i++) expect((await api(`/games/${gameId}/bots`, { method: 'POST', body: '{}' }, token)).status).toBe(201);
+    const started = await api(`/games/${gameId}/start`, { method: 'POST', body: '{}' }, token);
+    expect(started.status).toBe(200);
+    const owners = Object.fromEntries(Object.entries(started.body.state.territories as Record<string, { owner: string }>).map(([t, s]) => [t, s.owner]));
+    expect(Object.keys(owners).sort()).toEqual(map.body.territories.map((t: any) => t.id).sort());
+    risk.store.save();
+    const second = await startServer(join(dir, 'games.json'));
+    try {
+      const room = second.risk.store.get(gameId)!;
+      expect(room.state.options.map).toBe(id);
+      expect(Object.fromEntries(Object.entries(room.state.territories).map(([t, s]) => [t, s.owner]))).toEqual(owners);
+    } finally {
+      await second.risk.shutdown('test');
+    }
+  });
+
   it('rejects too many seats for a board', async () => {
     const r = await api('/games', { method: 'POST', body: JSON.stringify({ playerName: 'H', options: { map: 'europe', maxPlayers: 9 } }) });
     expect(r.status).toBe(400);

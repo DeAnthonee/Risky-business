@@ -49,7 +49,7 @@ bonus near the generator's suggestion. Build them with `walls` (water on every b
 listed `passes`, as `nine_realms.mjs` does), or with one landmass per region joined at fords, as `bohemia.mjs` does.
 Hex-globe maps (`kind: 'hexglobe'`, `hexworld.mjs`) tile the whole sphere with hexagons over real land: territory
 sites + `seaLanes`, land adjacency from touching hexes; the build also writes the globe geometry the client draws in
-3D (`packages/client/src/generated/<id>.globe.json`). See [map-making.md](map-making.md#8-hex-globe-maps).
+3D (`packages/client/src/generated/<id>.globe.json`). See [map-making.md](map-making.md#9-hex-globe-maps).
 `npm run maps:status` shows every board's registration and GPU verification. The whole process (design rules,
 tracing a picture, chokepoint techniques, previews, the registration checklist, owner approval, review and the map
 status tracker) is in [map-making.md](map-making.md). More in

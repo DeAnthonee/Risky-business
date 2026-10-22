@@ -213,6 +213,15 @@ at a table (`delove-teacher@N`, `jacob-sensei@N`, any mix) plays its own version
   rollout copies; branch-env.ts registers the same ids on the CPU; a score token combines with the rollout and option tokens below, e.g. `delove-branch@1:range:o4`) for a jobs line with its own score or for comparing
   scores head to head (`scripts/score_compare.py h2h-jobs`, now with 2- and 3-seat tables, `--net` / `--other` for
   the field and a top-2 column; results in packages/delove/README.md).
+- **Gumbel root** (`--root gumbel`, `DELOVE_BRANCH_ROOT` in branch.ts `gumbelRoot`): `k_branch_gumbel` draws one
+  Gumbel value per legal candidate, in candidate order (`cpu_order`), from the decider's stream. `log_fd` is V8's
+  fdlibm `Math.log` ported operation for operation, like `log1p_fd`; `tests/log1p_check.py` checks it, and the
+  Gumbel transform, against Node. Python picks the teacher's move and the K - 1 best of g + logit (a stable sort,
+  ties in candidate order), and `k_branch_prep` completes them and draws each decision's own number of seeds.
+  `GpuBranch._decide_gumbel` then runs the halving rounds for every deciding game at once. Each round's copies go
+  through `_copies` (chunked to the copy pool; teacher or network rollouts) grouped by objective. The sums are added
+  copy by copy in seed order, never with atomics, so the doubles are the TypeScript's, and the halving and the pick
+  use the same priorities in the same order. `Decision.copies` holds each candidate's copies.
 - **Network rollouts** (`--rollout MODEL[:self]`, `DELOVE_BRANCH_ROLLOUT` in branch.ts): a Delove network plays the
   rollouts instead of the teacher, its top move (ties to the first candidate, as `delove@N` plays) in every seat, or in
   the decider's seat only with the rollout teacher in the others (`:self`). `k_branch_sim` splits into three kernels:

@@ -239,6 +239,8 @@ export const api = {
   previewTournament: (spec: CreateTournamentRequest) => request<{ preview: TournamentPreview }>('/tournaments/preview', { method: 'POST', body: JSON.stringify(spec) }),
   createTournament: (spec: CreateTournamentRequest) => request<{ hostToken: string; tournament: TournamentView }>('/tournaments', { method: 'POST', body: JSON.stringify(spec) }),
   startTournament: (id: string, hostToken: string) => request<{ tournament: TournamentView }>(`/tournaments/${id}/start`, { method: 'POST', body: '{}' }, hostToken),
+  /** Start with a hosting code instead of the host token (the admin code starts any; the limited code its own and open-mode ones). */
+  startTournamentWithCode: (id: string, code: string) => request<{ tournament: TournamentView }>(`/tournaments/${id}/start`, { method: 'POST', body: JSON.stringify({ code }) }),
   quickPlayJoin: (playerName: string, map: string, seats: number, fog: boolean) =>
     request<{ token: string; ticket: QuickPlayTicket }>('/queue', { method: 'POST', headers: keyed(), body: JSON.stringify({ playerName, map, seats, fog }) }),
   quickPlayWait: (ticket: string, token: string, timeoutMs: number) =>

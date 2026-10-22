@@ -46,13 +46,15 @@ Environment variables:
 | `RISK_ARCHIVE`             | `0` turns off game records (on by default whenever `RISK_DATA_DIR` persists; see [game records](game-records.md)) |
 | `RISK_ARCHIVE_KEEP`        | how many finished game records to keep, newest first (default 1000; `0` keeps them all). Older records and their index lines are deleted as new games are filed |
 | `RISK_TOURNEY_ADMIN_CODE`  | the owner's **admin hosting code**: creates tournaments without a daily limit and starts any tournament ([tournaments.md](tournaments.md#hosting-codes-and-caps)). The owner sets the value; no session writes, prints or logs it. Setting it (or the limited code) makes creating need a code |
-| `RISK_TOURNEY_LIMITED_CODE` | the owner's **limited hosting code**: `RISK_TOURNEY_LIMITED_PER_DAY` creates per UTC day, starts only the tournaments made with it. Same secrecy as the admin code |
-| `RISK_TOURNEY_LIMITED_PER_DAY` | creates per UTC day with the limited code (default 5) |
-| `RISK_TOURNEY_CREATES_PER_DAY` | creates per UTC day, site-wide, by code or open mode (default 20) |
-| `RISK_TOURNEY_MAX_ACTIVE`  | tournaments registering or running at once, site-wide, for a create by code or open mode (default 2; every tournament counts toward it) |
-| `RISK_TOURNEY_MAX_ACTIVE_LIMITED` | of those, at most this many made with the limited code or in open mode at once (default 1) |
+| `RISK_TOURNEY_LIMITED_CODE` | the owner's **limited hosting code**: `RISK_TOURNEY_LIMITED_PER_DAY` creates per UTC day; starts the tournaments made with it, in open mode, or before the codes. Same secrecy as the admin code |
+| `RISK_TOURNEY_STRICT`      | `1` = the launch levers (the caps' strict defaults below and the wrong-code lockout). Unset or anything else = **testing mode** (the default for now): no wrong-code lockout, and the defaults below in brackets [testing]. Each variable below wins in either mode |
+| `RISK_TOURNEY_ATTEMPTS_PER_IP` / `RISK_TOURNEY_ATTEMPTS_GLOBAL` | wrong hosting codes before a lockout: per IP within 15 minutes (then 1 h), and from anyone within an hour (defaults 5 / 50 strict, 0 / 0 testing; `0` = that lockout off) |
+| `RISK_TOURNEY_LIMITED_PER_DAY` | creates per UTC day with the limited code (default 5 [testing 50]) |
+| `RISK_TOURNEY_CREATES_PER_DAY` | creates per UTC day, site-wide, by code or open mode (default 20 [testing 200]) |
+| `RISK_TOURNEY_MAX_ACTIVE`  | tournaments registering or running at once, site-wide, for a create by code or open mode (default 2 [testing 10]; every tournament counts toward it) |
+| `RISK_TOURNEY_MAX_ACTIVE_LIMITED` | of those, at most this many made with the limited code or in open mode at once (default 1 [testing 5]) |
 | `RISK_TOURNEY_SEATS_ADMIN` / `RISK_TOURNEY_SEATS_LIMITED` | most entrants per tournament with the admin code (default 128) / the limited code or open mode (default 64) |
-| `RISK_TOURNEY_MAX_LIVE_SEATS` | most entrant seats (`maxEntrants`) reserved by all tournaments registering or running (default 200) |
+| `RISK_TOURNEY_MAX_LIVE_SEATS` | most entrant seats (`maxEntrants`) reserved by all tournaments registering or running (default 200 [testing 1000]) |
 | `RISK_TOURNEY_DELOVE_ADMIN` / `RISK_TOURNEY_DELOVE_LIMITED` / `RISK_TOURNEY_DELOVE_AT_ONCE` | Delove seats per tournament with the admin code or key / the limited code or open mode, and held by open seat requests at once (defaults 40 / 16 / 48; `0` = no cap) |
 | `RISK_TOURNEY_DELOVE_SEARCH_AT_ONCE` | of those, how many may run search at once (fog-off tables only; default 20); the rest play the bare network |
 | `RISK_SEAT_POOL_KEY`       | the Delove seat-pool daemon's key for `/api/seat-requests` (header `x-seat-pool-key`; [tournaments.md](tournaments.md#delove-seats-on-request)). The owner sets the value; no session writes, prints or logs it. Unset = Delove seats on request off. The requests and the wrong-key lockout are saved as `seat-requests.json` and `seat-pool-lockout.json` under `RISK_DATA_DIR` |

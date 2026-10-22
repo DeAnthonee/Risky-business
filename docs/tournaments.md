@@ -75,16 +75,28 @@ log): an **admin code**, `RISK_TOURNEY_ADMIN_CODE`, with unlimited creates, and 
 `RISK_TOURNEY_LIMITED_CODE`, with `RISK_TOURNEY_LIMITED_PER_DAY` creates per UTC day (default 5). The codes are a
 testing gate (owner, 2026-10-22); player keys or sign-in replace them later. The code is `server/src/tournament-access.ts`.
 
+- **Testing mode** (owner, 2026-10-22: "those extra safety levers are blocking us testing it"). Unless
+  `RISK_TOURNEY_STRICT=1`, the server runs with **no wrong-code lockout** (lockouts saved by a strict run are cleared
+  at start) and **looser caps**: 10 tournaments at once, 5 per limited code, 200 creates a day, 50 per limited code,
+  1000 seats reserved. The codes, the seat and Delove caps, expiry and the lag brake stay. `RISK_TOURNEY_STRICT=1`
+  restores the launch levers listed below. Each lever's own variable wins in either mode. The startup log says
+  `[tourney] codes: admin set|unset, limited set|unset, strict on|off` (never a value).
+- **No codes on the server**: a code sent to a server with neither code set answers **400** "No tournament codes are
+  set on this server", and it isn't counted as a wrong try.
+
 - **Creating** (`POST /api/tournaments`, MCP `create_tournament`): once either code is set, a create needs `code` in
   the body (or the admin key on `/api/admin/tournaments`). Open mode, `RISK_TOURNAMENTS_OPEN`, lets anyone create with
   no code; it defaults **off** once a code is set and on while none is. Codes are compared in constant time.
 - **Starting** (`POST /api/tournaments/:id/start`, MCP `start_tournament`): the host token, the admin key, or a code
-  in the body: the admin code starts any tournament, the limited code only those made with it.
-- **Wrong codes**: 5 wrong per IP within 15 minutes lock that IP out for an hour (even the right code is refused,
+  in the body. The admin code starts any tournament; the limited code starts those made with it, those made in open
+  mode, and those made before the codes (no record). On the site, the tournament page has a **Host** box while it
+  registers: **Start now** in the browser that created it (its saved host token), or a hosting code to start it from
+  anywhere.
+- **Wrong codes** (strict mode): 5 wrong per IP within 15 minutes lock that IP out for an hour (even the right code is refused,
   429), and 50 wrong from anyone within an hour lock everyone out until the hour passes. The answer is always
   "Wrong tournament code": it never says which code was close. The counts survive restarts
   (`RISK_DATA_DIR/tournament-access.json`, which holds no code).
-- **Caps** (resources' defaults, owner-approved; each is an env var, `0` = no cap; the names are in
+- **Caps** (strict mode: resources' defaults, owner-approved; each is an env var, `0` = no cap; the names are in
   [hosting.md](hosting.md)). They apply to every create made with a code or in open mode; the admin key and the
   schedule skip them, but their tournaments count toward the at-once caps:
   - **2 tournaments** registering or running at once, site-wide; at most **1** made with the limited code (or in open

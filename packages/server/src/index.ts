@@ -7,7 +7,7 @@ import { DEFAULT_AI_DIR, createRiskServer } from './app.js';
 import { CharacterStore } from './characters.js';
 import { buildInfo } from './build-info.js';
 import { parseSchedule, scheduleFromEnv, type ScheduleEntry } from './tournament-schedule.js';
-import { openModeFromEnv, tourneyAccessFromEnv } from './tournament-access.js';
+import { describeTourneyAccess, openModeFromEnv, tourneyAccessFromEnv } from './tournament-access.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -89,6 +89,7 @@ risk.server.listen(PORT, HOST, () => {
   console.log(`  characters: ${risk.characters.writable ? 'saves need the write key' : 'read-only (set RISK_CHARACTERS_KEY to allow saves)'}`);
   console.log(`  schedule:  ${scheduleNote}`);
   console.log(`  hosting:   ${tourneyAccess.adminCode || tourneyAccess.limitedCode ? 'creating tournaments needs a hosting code' : 'no hosting codes set'}`);
+  console.log(describeTourneyAccess(tourneyAccess));
   console.log(`  seat pool: ${process.env.RISK_SEAT_POOL_KEY ? 'Delove seats on request are on (the pool needs its key)' : 'off (set RISK_SEAT_POOL_KEY)'}`);
   console.log(`  client:    ${CLIENT_DIR}`);
 });

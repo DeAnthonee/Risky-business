@@ -22,6 +22,11 @@ export type HostTier = 'admin' | 'limited' | 'open';
 export interface TourneyAccessConfig {
   adminCode: string | null;
   limitedCode: string | null;
+  /**
+   * RISK_TOURNEY_STRICT=1: the launch levers (resources' RS2 caps and the wrong-code lockout). Off (the default while
+   * the owner tests): looser caps and no lockout; the codes stay the gate and the lag brake stays.
+   */
+  strict: boolean;
   // Every cap below: 0 = no cap.
   /** Creates per UTC day with the limited code. */
   limitedPerDay: number;
@@ -48,7 +53,10 @@ export interface TourneyAccessConfig {
   expireMs: number;
   /** A scheduled tournament still registering this long after its start is called off, ms. */
   scheduledExpireMs: number;
-  /** Wrong-code limits: per IP within `windowMs`, then locked out for `lockMs`; site-wide within `globalWindowMs`. */
+  /**
+   * Wrong-code limits: per IP within `windowMs`, then locked out for `lockMs`; site-wide within `globalWindowMs`.
+   * `perIp` / `global` 0 = that lockout is off.
+   */
   attempts: { perIp: number; windowMs: number; lockMs: number; global: number; globalWindowMs: number };
 }
 
@@ -57,6 +65,7 @@ const H = 3600_000;
 export const DEFAULT_TOURNEY_ACCESS: TourneyAccessConfig = {
   adminCode: null,
   limitedCode: null,
+  strict: true,
   limitedPerDay: 5,
   createsPerDay: 20,
   maxActive: 2,
@@ -72,6 +81,22 @@ export const DEFAULT_TOURNEY_ACCESS: TourneyAccessConfig = {
   expireMs: 24 * H,
   scheduledExpireMs: 2 * H,
   attempts: { perIp: 5, windowMs: 15 * 60_000, lockMs: H, global: 50, globalWindowMs: H },
+};
+
+/**
+ * Testing mode (RISK_TOURNEY_STRICT unset or not "1"; owner, 2026-10-22: "those extra safety levers are blocking us
+ * testing it"): looser caps and no wrong-code lockout. The codes, the seat and Delove caps, expiry and the lag brake
+ * stay. Every lever can still be set by its own env var.
+ */
+export const TESTING_TOURNEY_ACCESS: TourneyAccessConfig = {
+  ...DEFAULT_TOURNEY_ACCESS,
+  strict: false,
+  maxActive: 10,
+  maxActiveLimited: 5,
+  createsPerDay: 200,
+  limitedPerDay: 50,
+  maxLiveSeats: 1000,
+  attempts: { ...DEFAULT_TOURNEY_ACCESS.attempts, perIp: 0, global: 0 },
 };
 
 /**
@@ -98,9 +123,13 @@ export const NO_TOURNEY_CAPS: Partial<TourneyAccessConfig> = {
 /** Why an expired tournament was called off (its `scheduled.cancelled`). */
 export const CANCEL_EXPIRED = 'expired: never started';
 
-/** The config from the environment (docs/hosting.md lists every name). Bad numbers fall back to the default. */
+/**
+ * The config from the environment (docs/hosting.md lists every name). RISK_TOURNEY_STRICT=1 starts from the launch
+ * defaults, anything else from the testing ones; each lever's own variable wins either way. Bad numbers fall back.
+ */
 export function tourneyAccessFromEnv(env: NodeJS.ProcessEnv): TourneyAccessConfig {
-  const d = DEFAULT_TOURNEY_ACCESS;
+  const strict = env.RISK_TOURNEY_STRICT === '1';
+  const d = strict ? DEFAULT_TOURNEY_ACCESS : TESTING_TOURNEY_ACCESS;
   const int = (name: string, fallback: number) => {
     const raw = env[name];
     if (raw === undefined || raw === '') return fallback;
@@ -111,6 +140,7 @@ export function tourneyAccessFromEnv(env: NodeJS.ProcessEnv): TourneyAccessConfi
     ...d,
     adminCode: env.RISK_TOURNEY_ADMIN_CODE || null,
     limitedCode: env.RISK_TOURNEY_LIMITED_CODE || null,
+    strict,
     limitedPerDay: int('RISK_TOURNEY_LIMITED_PER_DAY', d.limitedPerDay),
     createsPerDay: int('RISK_TOURNEY_CREATES_PER_DAY', d.createsPerDay),
     maxActive: int('RISK_TOURNEY_MAX_ACTIVE', d.maxActive),
@@ -125,7 +155,13 @@ export function tourneyAccessFromEnv(env: NodeJS.ProcessEnv): TourneyAccessConfi
     lagBrakeMs: int('RISK_TOURNEY_LAG_BRAKE_MS', d.lagBrakeMs),
     expireMs: int('RISK_TOURNEY_EXPIRE_HOURS', d.expireMs / H) * H,
     scheduledExpireMs: int('RISK_TOURNEY_SCHEDULED_EXPIRE_HOURS', d.scheduledExpireMs / H) * H,
+    attempts: { ...d.attempts, perIp: int('RISK_TOURNEY_ATTEMPTS_PER_IP', d.attempts.perIp), global: int('RISK_TOURNEY_ATTEMPTS_GLOBAL', d.attempts.global) },
   };
+}
+
+/** The startup line (index.ts): which codes are set and the mode, never the values. */
+export function describeTourneyAccess(c: Pick<TourneyAccessConfig, 'adminCode' | 'limitedCode' | 'strict'>): string {
+  return `[tourney] codes: admin ${c.adminCode ? 'set' : 'unset'}, limited ${c.limitedCode ? 'set' : 'unset'}, strict ${c.strict ? 'on' : 'off'}`;
 }
 
 /** Open mode (RISK_TOURNAMENTS_OPEN): "0" off, anything else on; unset, on only while no hosting code is set. */
@@ -166,6 +202,11 @@ export class TournamentAccess {
         console.error('[tourney] could not read the access file:', (err as Error).message);
       }
     }
+    // With the lockouts off (testing mode), wrong tries saved by a stricter run are dropped, so nobody stays locked out.
+    if (this.config.attempts.perIp === 0 && this.config.attempts.global === 0 && (Object.keys(this.saved.byIp).length || this.saved.globalFails.length)) {
+      this.saved = { ...this.saved, byIp: {}, globalFails: [] };
+      this.save();
+    }
   }
 
   /** True when either code is set: creating then needs a code. */
@@ -200,10 +241,12 @@ export class TournamentAccess {
   }
 
   /**
-   * Which code `code` is, or throws: 429 while this IP (or the whole site) is locked out, 403 for a wrong code. The
-   * message never says which code was close. A right code clears its IP's wrong tries.
+   * Which code `code` is, or throws: 400 when the server has no codes at all (not a wrong try), 429 while this IP (or
+   * the whole site) is locked out, 403 for a wrong code. The message never says which code was close. A right code
+   * clears its IP's wrong tries. With a lockout off (attempts 0), wrong tries are not counted for it.
    */
   checkCode(ip: string, code: unknown): 'admin' | 'limited' {
+    if (!this.codesSet) throw new RiskHttpError('No tournament codes are set on this server (RISK_TOURNEY_ADMIN_CODE / RISK_TOURNEY_LIMITED_CODE)', 400);
     const { attempts } = this.config;
     const t = this.now();
     this.saved.globalFails = this.saved.globalFails.filter((at) => t - at < attempts.globalWindowMs);
@@ -212,8 +255,8 @@ export class TournamentAccess {
       if (e.until <= t && e.fails.length === 0) delete this.saved.byIp[k];
     }
     const mine = this.saved.byIp[ip];
-    if (mine && mine.until > t) throw this.locked(mine.until - t);
-    if (this.saved.globalFails.length >= attempts.global) throw this.locked(attempts.globalWindowMs - (t - this.saved.globalFails[0]));
+    if (attempts.perIp > 0 && mine && mine.until > t) throw this.locked(mine.until - t);
+    if (attempts.global > 0 && this.saved.globalFails.length >= attempts.global) throw this.locked(attempts.globalWindowMs - (t - this.saved.globalFails[0]));
     const given = typeof code === 'string' && code.length > 0 && code.length <= 200 ? code : null;
     // Both codes are always compared, so the time taken does not say which one matched.
     const admin = given !== null && !!this.config.adminCode && sameSecret(given, this.config.adminCode);
@@ -225,15 +268,16 @@ export class TournamentAccess {
       }
       return admin ? 'admin' : 'limited';
     }
+    console.warn(`[tourney] wrong tournament code from ${ip}`);
+    if (attempts.perIp === 0 && attempts.global === 0) return this.wrong();
     const e = (this.saved.byIp[ip] ??= { fails: [], until: 0 });
-    e.fails.push(t);
-    this.saved.globalFails.push(t);
-    if (e.fails.length >= attempts.perIp) {
+    if (attempts.perIp > 0) e.fails.push(t);
+    if (attempts.global > 0) this.saved.globalFails.push(t);
+    if (attempts.perIp > 0 && e.fails.length >= attempts.perIp) {
       e.until = t + attempts.lockMs;
       e.fails = [];
     }
     this.save();
-    console.warn(`[tourney] wrong tournament code from ${ip}`);
     if (e.until > t) throw this.locked(e.until - t);
     return this.wrong();
   }
@@ -252,6 +296,8 @@ export class TournamentAccess {
    * RISK_TOURNAMENTS_OPEN (off by default once a code is set).
    */
   hostTier(ip: string, code: unknown, open: boolean): HostTier {
+    // No codes on this server and open mode on: a code typed into the form is ignored, not a 400 (owner's testing).
+    if (!this.codesSet && open) return 'open';
     if (code !== undefined && code !== null && code !== '') return this.checkCode(ip, code);
     if (open) return 'open';
     if (this.codesSet) throw new RiskHttpError('Creating a tournament needs a tournament code', 401);
@@ -294,10 +340,15 @@ export class TournamentAccess {
     this.save();
   }
 
-  /** Whether `code` may start tournament `id`: the admin code starts any, the limited code those made with it. */
+  /**
+   * Whether `code` may start tournament `id`: the admin code starts any; the limited code those made with it or in open
+   * mode, and those with no record (made before the codes), so tournaments from before the codes can be started.
+   */
   canStart(ip: string, code: unknown, id: string): boolean {
     const tier = this.checkCode(ip, code);
-    return tier === 'admin' || this.saved.tiers[id.toUpperCase()] === 'limited';
+    if (tier === 'admin') return true;
+    const made = this.saved.tiers[id.toUpperCase()];
+    return made === undefined || made === 'limited' || made === 'open';
   }
 
   /** Call off tournaments left registering: never started `expireMs` after creation, or `scheduledExpireMs` past their start. */

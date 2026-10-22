@@ -27,7 +27,8 @@ export function sameSecret(given: string, expected: string): boolean {
 }
 
 export class SeasonKeyGuard {
-  private byIp = new Map<string, { fails: number; until: number }>();
+  /** Per IP: wrong tries, lockout end (0 = not locked) and the last wrong try (for pruning). */
+  private byIp = new Map<string, { fails: number; until: number; at?: number }>();
   private globalFails: number[] = [];
 
   constructor(
@@ -67,6 +68,7 @@ export class SeasonKeyGuard {
     if (!this.key) return { ok: false, status: 403, error: 'Archiving seasons from the site is off (RISK_SEASON_KEY is not set)' };
     const t = this.now();
     this.globalFails = this.globalFails.filter((at) => t - at < this.limits.lockMs);
+    this.prune(t);
     const mine = this.byIp.get(ip);
     if (mine && mine.until > t) return this.locked(mine.until - t);
     if (this.globalFails.length >= this.limits.global) return this.locked(this.limits.lockMs - (t - this.globalFails[0]));
@@ -75,12 +77,30 @@ export class SeasonKeyGuard {
       return { ok: true };
     }
     const fails = (mine && mine.until <= t && mine.fails >= this.limits.perIp ? 0 : (mine?.fails ?? 0)) + 1;
-    this.byIp.set(ip, { fails, until: fails >= this.limits.perIp ? t + this.limits.lockMs : 0 });
+    this.byIp.set(ip, { fails, until: fails >= this.limits.perIp ? t + this.limits.lockMs : 0, at: t });
     this.globalFails.push(t);
     this.save();
     console.warn(`[season] wrong archive password from ${ip} (${fails}/${this.limits.perIp})`);
     if (fails >= this.limits.perIp) return this.locked(this.limits.lockMs);
     return { ok: false, status: 403, error: 'Wrong password' };
+  }
+
+  /** Forget IPs whose lockout is over and whose last wrong try is older than the window (in memory and in the file). */
+  private prune(t: number) {
+    let pruned = false;
+    for (const [ip, e] of this.byIp) {
+      const last = e.at ?? e.until;
+      if (e.until <= t && t - last >= this.limits.lockMs) {
+        this.byIp.delete(ip);
+        pruned = true;
+      }
+    }
+    if (pruned) this.save();
+  }
+
+  /** IPs currently tracked (tests). */
+  get tracked(): number {
+    return this.byIp.size;
   }
 
   private locked(ms: number): SeasonKeyCheck {

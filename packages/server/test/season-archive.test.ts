@@ -100,6 +100,22 @@ describe('archive the season from the site (RISK_SEASON_KEY)', () => {
     expect(readFileSync(file, 'utf8')).not.toMatch(/nope|test-season-key/);
   });
 
+  it('forgets IPs once their window has passed (memory and file)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'risk-season-prune-'));
+    dirs.push(dir);
+    const file = join(dir, 'season-key-lockout.json');
+    let now = 0;
+    const guard = new SeasonKeyGuard(KEY, { perIp: 3, global: 100, lockMs: 60_000 }, () => now, file);
+    guard.check('10.2.0.1', 'nope');
+    for (let i = 0; i < 3; i++) guard.check('10.2.0.2', 'nope');
+    expect(guard.tracked).toBe(2);
+    now += 60_001;
+    guard.check('10.2.0.3', 'nope');
+    expect(guard.tracked).toBe(1);
+    expect(readFileSync(file, 'utf8')).not.toMatch(/10\.2\.0\.1|10\.2\.0\.2/);
+    expect(new SeasonKeyGuard(KEY, undefined, () => now, file).tracked).toBe(1);
+  });
+
   it('locks everyone out after too many wrong tries in total', () => {
     let now = 0;
     const guard = new SeasonKeyGuard(KEY, { perIp: 5, global: 6, lockMs: 60_000 }, () => now);

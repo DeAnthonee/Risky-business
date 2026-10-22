@@ -190,6 +190,12 @@ export class SeatRequests {
     return r;
   }
 
+  /** The entrants the Delove seat pool joined for this tournament's requests (any status). */
+  boundEntrants(tournamentId: string): Set<string> {
+    const id = tournamentId.toUpperCase();
+    return new Set(this.saved.requests.filter((r) => r.tournamentId === id).flatMap((r) => r.bound ?? []));
+  }
+
   /** After a pool join: the entrant is this request's. */
   bind(r: SeatRequest, entrantId: string) {
     r.bound = [...(r.bound ?? []), entrantId];

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { MAP_IDS, getMap } from '@risk/engine';
 import { api, type TournamentPreview } from '../api';
 import { saveHostToken } from '../session';
+import { HostEntrants } from './HostEntrants';
 import './create-tournament.css';
 
 /** Boards that can hold a final: 6+ seats with a region per seat (the server checks too). */
@@ -145,6 +146,7 @@ export function CreateTournament({ onOpen, onBack }: { onOpen: (id: string) => v
             <button onClick={onBack}>Back to games</button>
           </div>
         </section>
+        <HostEntrants id={created.id} hostToken={created.hostToken} />
       </div>
     );
   }

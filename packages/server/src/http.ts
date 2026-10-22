@@ -662,6 +662,15 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
       res.json({ tournament: store.tournaments.view(t.id) });
     }),
   );
+  // The host's live list of entrants: kinds, agent labels and join times, with counts (never an entrant token).
+  api.get(
+    '/tournaments/:id/entrants',
+    requireTournamentHost,
+    wrap((req, res) => {
+      const id = String(req.params.id);
+      res.json(store.tournaments.hostEntrants(id, seatReqs.boundEntrants(id)));
+    }),
+  );
   // The host adds server bots while registering: { kind: "bot" | "zerg" (default "bot"), count (default 1) }.
   api.post(
     '/tournaments/:id/bots',

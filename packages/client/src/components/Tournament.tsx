@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { MAPS } from '@risk/engine';
 import { api, ApiError, type TournamentView } from '../api';
 import { getEntrantToken, getHostToken, saveEntrantToken, type Session } from '../session';
+import { HostEntrants } from './HostEntrants';
 import { NestedTournament } from './NestedTournament';
 import { ShareButton } from './Share';
 
@@ -188,9 +189,12 @@ export function Tournament({
             <div className="tourney-host">
               <h3>Host</h3>
               {hostToken ? (
-                <button className="primary" disabled={busy} onClick={start}>
-                  Start now
-                </button>
+                <>
+                  <button className="primary" disabled={busy} onClick={start}>
+                    Start now
+                  </button>
+                  <HostEntrants id={id} hostToken={hostToken} />
+                </>
               ) : (
                 <>
                   <label className="ct-code">

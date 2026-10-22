@@ -31,6 +31,7 @@ import { timeoutSteps, timerOf } from '@risk/engine';
 import { chooseSeatAction, isZergSeat, seatIdPrefix, zergName, type BotKind } from './bot.js';
 import { DEFAULT_TOURNAMENT_LIMITS, TournamentManager, type TournamentClock } from './tournaments.js';
 import { TournamentRankings } from './tournament-scoring.js';
+import type { TournamentScheduler } from './tournament-schedule.js';
 import { SwarmSum, ZergTally, zergReport, type SwarmTotal, type ZergReport } from './zerg-report.js';
 import { Rankings } from './rankings.js';
 import { DEFAULT_KEEP, GameArchive, type CommitInfo } from './archive.js';
@@ -884,6 +885,8 @@ export class GameRoom extends EventEmitter {
 export class Store {
   rooms = new Map<string, GameRoom>();
   tournaments: TournamentManager;
+  /** Scheduled nested tournaments (RISK_TOURNAMENT_SCHEDULE); null = no schedule (the default). */
+  schedule: TournamentScheduler | null = null;
   rankings: Rankings;
   /** The training leaderboard: model-vs-model yardstick games (rooms with board "training"), same scoring, no seasons. */
   training: Rankings;
@@ -1237,6 +1240,7 @@ export class Store {
     }
     for (const room of this.rooms.values()) room.stopBot();
     this.tournaments.stopTimers();
+    this.schedule?.stop();
   }
 
   /** Why a room would be swept right now, or null to keep it. */

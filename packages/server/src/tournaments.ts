@@ -173,6 +173,14 @@ export interface TournamentSnapshot {
   /** Absent on tournaments saved before formats existed: a knockout. */
   format?: TournamentFormat;
   nested?: NestedSettings;
+  /** Made by the server's schedule (RISK_TOURNAMENT_SCHEDULE): when it starts, and why it was called off, if it was. */
+  scheduled?: TournamentScheduleInfo;
+}
+
+/** A scheduled tournament's start (ms) and, if it never ran, why ("not enough entrants"). */
+export interface TournamentScheduleInfo {
+  startsAt: number;
+  cancelled?: string;
 }
 
 /** How many tournaments the server keeps. */
@@ -205,6 +213,8 @@ export interface CreateTournamentSpec {
   botDelayMs?: number;
   /** Nested: fix the seed of the boards, seating and tie-break dice (replays and simulations); default random. */
   seed?: number;
+  /** Set by the server's schedule only (never parsed from a request): the planned start. */
+  scheduled?: { startsAt: number };
 }
 
 /** Public view; `you` is filled in when the caller passed their entrant token. */
@@ -249,6 +259,8 @@ export interface TournamentView {
     /** The board tree from the start (null before): each table's board, seats, portals, parent board and portal. */
     nodes: NestNode[] | null;
   };
+  /** Made by the server's schedule: its start and, if it never ran, why. */
+  scheduled?: TournamentScheduleInfo;
   createdAt: number;
   updatedAt: number;
   version: number;
@@ -270,6 +282,9 @@ export interface TournamentSummary {
   maxEntrants: number;
   round: number;
   champion: string | null;
+  /** Scheduled: when it starts (ms), and why it was called off, if it was. */
+  startsAt?: number;
+  cancelled?: string;
   updatedAt: number;
 }
 
@@ -329,7 +344,7 @@ export class TournamentManager extends EventEmitter {
     private store: Store,
     private file: string | null,
     limits: Partial<TournamentLimits> = {},
-    private clock: TournamentClock = REAL_CLOCK,
+    readonly clock: TournamentClock = REAL_CLOCK,
   ) {
     super();
     this.limits = { ...DEFAULT_TOURNAMENT_LIMITS, ...limits };
@@ -409,8 +424,15 @@ export class TournamentManager extends EventEmitter {
     return t;
   }
 
+  /** Check a nested tournament's settings without creating it (the schedule, at startup). Throws on bad settings. */
+  checkNested(spec: CreateTournamentSpec): void {
+    this.createNested(spec, true);
+  }
+
   /** A nested tournament: the boards come from the plan at start, so the settings are checked on every table size. */
-  private createNested(spec: CreateTournamentSpec): TournamentSnapshot {
+  private createNested(spec: CreateTournamentSpec, dryRun: true): null;
+  private createNested(spec: CreateTournamentSpec, dryRun?: false): TournamentSnapshot;
+  private createNested(spec: CreateTournamentSpec, dryRun = false): TournamentSnapshot | null {
     const options: Partial<GameOptions> = { ...(spec.options ?? {}) };
     delete options.maxPlayers; // set per table
     delete options.map; // every table plays its own board
@@ -439,6 +461,7 @@ export class TournamentManager extends EventEmitter {
     // The settings must work at every table size the plan can make, on generated boards and on the final's board.
     for (let seats = 2; seats <= NESTED_FINAL.max; seats++) createGame('CHECK', { ...options, map: genMapId({ seed: 1, seats, territoriesPerSeat: tps }), maxPlayers: seats });
     if (finalMap) for (let seats = NESTED_FINAL.min; seats <= this.maxFinal(finalMap); seats++) createGame('CHECK', { ...options, map: finalMap as GameOptions['map'], maxPlayers: seats });
+    if (dryRun) return null;
     let id = code();
     while (this.tournaments.has(id)) id = code();
     const now = Date.now();
@@ -459,6 +482,7 @@ export class TournamentManager extends EventEmitter {
       version: 1,
       format: 'nested',
       nested: { finalMap, territoriesPerSeat: tps, roundMinutes, finishShare, botDelayMs, ...(spec.seed !== undefined ? { fixedSeed: spec.seed } : {}) },
+      ...(spec.scheduled ? { scheduled: { startsAt: spec.scheduled.startsAt } } : {}),
     };
     this.tournaments.set(id, t);
     this.changed(t);
@@ -495,6 +519,19 @@ export class TournamentManager extends EventEmitter {
     const room = this.store.get(m.gameId);
     if (!room) throw new RuleError('That table no longer exists');
     room.act(m.seats[entrantId].playerId, { type: 'surrender' });
+    return t;
+  }
+
+  /**
+   * Call off a tournament that is still registering (a scheduled one nobody came to): it is finished with no rounds
+   * and no champion, so it never reaches the tournament board, and `scheduled.cancelled` says why.
+   */
+  cancel(id: string, reason: string): TournamentSnapshot {
+    const t = this.require(id);
+    if (t.status !== 'registering') throw new RuleError('This tournament has already started');
+    t.status = 'finished';
+    t.scheduled = { startsAt: t.scheduled?.startsAt ?? this.clock.now(), cancelled: reason };
+    this.changed(t);
     return t;
   }
 
@@ -571,6 +608,7 @@ export class TournamentManager extends EventEmitter {
         maxEntrants: t.maxEntrants,
         round: t.rounds.length,
         champion: t.champion ? (this.entrant(t, t.champion)?.name ?? null) : null,
+        ...(t.scheduled ? { startsAt: t.scheduled.startsAt, ...(t.scheduled.cancelled ? { cancelled: t.scheduled.cancelled } : {}) } : {}),
         updatedAt: t.updatedAt,
       }))
       .sort((a, b) => b.updatedAt - a.updatedAt);
@@ -620,6 +658,7 @@ export class TournamentManager extends EventEmitter {
             },
           }
         : {}),
+      ...(t.scheduled ? { scheduled: { ...t.scheduled } } : {}),
       createdAt: t.createdAt,
       updatedAt: t.updatedAt,
       version: t.version,

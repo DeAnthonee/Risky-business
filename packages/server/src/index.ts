@@ -6,6 +6,7 @@ import { Store } from './store.js';
 import { DEFAULT_AI_DIR, createRiskServer } from './app.js';
 import { CharacterStore } from './characters.js';
 import { buildInfo } from './build-info.js';
+import { parseSchedule, scheduleFromEnv, type ScheduleEntry } from './tournament-schedule.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -34,6 +35,19 @@ for (const [key, env] of [['finishedClose', 'RISK_FINISHED_CLOSE_MIN'], ['abando
   if (v !== undefined && Number.isFinite(v) && v >= 0) (retention as Record<string, number>)[key] = v;
 }
 const store = new Store(DATA_DIR ? join(DATA_DIR, 'games.json') : null, retention);
+// Scheduled nested tournaments: off unless the owner sets a schedule. A bad schedule is logged and stays off.
+let schedule: ScheduleEntry[] | null = null;
+let scheduleNote = 'off (set RISK_TOURNAMENT_SCHEDULE or RISK_TOURNAMENT_SCHEDULE_FILE)';
+try {
+  const found = scheduleFromEnv(process.env);
+  if (found) {
+    schedule = parseSchedule(found.raw, store.tournaments);
+    scheduleNote = `${schedule.length} entr${schedule.length === 1 ? 'y' : 'ies'} from ${found.source} (UTC): ${schedule.map((e) => e.at).join('; ')}`;
+  }
+} catch (err) {
+  scheduleNote = `OFF: the schedule is invalid: ${(err as Error).message}`;
+  console.error(`tournament schedule: ${scheduleNote}`);
+}
 const risk = createRiskServer(store, {
   clientDir: CLIENT_DIR,
   mcpLabel: process.env.RISK_PUBLIC_URL ?? 'Risky Business',
@@ -51,6 +65,8 @@ const risk = createRiskServer(store, {
   seasonKey: process.env.RISK_SEASON_KEY || null,
   // Wrong-try counts and lockouts survive restarts.
   seasonLockFile: DATA_DIR ? join(DATA_DIR, 'season-key-lockout.json') : null,
+  tournamentSchedule: schedule,
+  scheduleFile: DATA_DIR ? join(DATA_DIR, 'tournament-schedule.json') : null,
 });
 
 risk.server.listen(PORT, HOST, () => {
@@ -63,6 +79,7 @@ risk.server.listen(PORT, HOST, () => {
   console.log(`  archive:   ${store.archive.describe()}`);
   console.log(`  records:   ${process.env.RISK_RECORDS_KEY ? 'full records need the records key' : 'off (set RISK_RECORDS_KEY to read full records)'}`);
   console.log(`  characters: ${risk.characters.writable ? 'saves need the write key' : 'read-only (set RISK_CHARACTERS_KEY to allow saves)'}`);
+  console.log(`  schedule:  ${scheduleNote}`);
   console.log(`  client:    ${CLIENT_DIR}`);
 });
 

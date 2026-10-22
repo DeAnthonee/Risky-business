@@ -29,7 +29,7 @@ export interface FogSamplerOptions {
   repairPasses: number;
 }
 
-export const DEFAULT_FOG_SAMPLER: FogSamplerOptions = { keep: 0.85, keepNeutral: 0.97, frontShare: 0.5, repairPasses: 3 };
+export const DEFAULT_FOG_SAMPLER: FogSamplerOptions = { keep: 0.85, keepNeutral: 0.97, frontShare: 0.25, repairPasses: 3 };
 
 interface Seen {
   owner: PlayerId | null;

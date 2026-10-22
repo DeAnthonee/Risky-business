@@ -1,0 +1,2 @@
+delove: - 2026-10-22 #PR determinized fog search for branch and score, opt-in (`DELOVE_BRANCH_FOG=determinize`, seat `delove-branch@1:fog`): `src/fog-sampler.ts` samples full boards from a seat's view and memory, the same boards for every option; CPU measurement in docs/delove-fog.md
+selfplay: - 2026-10-22 #PR `publicIncomes(state)` exports the public income totals of a view-rebuilt state (for the fog sampler)

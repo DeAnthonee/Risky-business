@@ -78,6 +78,39 @@ Order and costs are in [section 8](#8-order-of-steps-and-costs).
 
 ---
 
+## Status: fog search (determinized branch and score, CPU, opt-in)
+
+Section 4.2 built on the CPU path (`packages/delove`), off by default:
+
+- **The sampler** (`src/fog-sampler.ts`, `sampleBoard`): from a seat's view (a `stateFromView` state) and its memory,
+  one plausible full board, deterministic from the random source it is given. Visible territories, the seat's hand and
+  every public count are exact. A hidden territory seen before keeps its last-seen owner and armies with probability
+  0.85 per round since (0.97 for the Neutral); the rest are drawn among the opponents still alive by how many
+  territories each lacks against an estimate (players: from the public income; the Neutral: its visible count scaled
+  by the share of the board in sight), favouring owners already next to it. A repair pass gives every opponent alive a
+  territory and moves hidden territories toward each opponent's public income; half of each opponent's income goes
+  as extra armies on its hidden fronts; capitals out of sight are put back (the remembered one, else the opponent's
+  strongest hidden territory); hidden cards, deck and discard are redealt from every card not in the seat's hand at
+  their public sizes (the #143 pool).
+- **The memory** (`FogTracker`): per game and seat, each territory's last sighting (owner, armies, round) and the
+  capitals seen, updated on each of the seat's decisions; a game whose turn number goes back starts fresh.
+- **The search** (`branchAgent`'s `fog`, `src/branch.ts`): in a fog game each rollout seed gets one sampled board,
+  the same boards for every option (common random numbers), at least `DELOVE_BRANCH_FOG_SAMPLES` (default 8) per
+  option; the decider's score is taken on each sample's end position. The option to beat by the margin is the
+  ranker's top move (what the seat plays without fog search), the teacher's pick on the view is the second; decisions
+  that aren't branched are the ranker's top move. Rollouts are Jacob Sensei playing the sampled board with full sight
+  (strategy fusion, accepted in 4.2).
+- **Switch:** `DELOVE_BRANCH_FOG=determinize` (default `off`: `fogSafe`, the ranker's top move); self-play also
+  registers `delove-branch@1:fog`, the same seat with fog search on. Tests: `test/fog-search.test.ts` (consistency
+  with the view and card counts, memory, determinism, one set of boards shared by every option).
+
+**Measured** (2026-10-22, home CPU while cycle 15's gates ran, below-normal priority; `configs/gen5-randomfog.json`
+on Classic; the `js2-range` preset with ranker delove@11; mirrored pairs, points per seat, fog search minus bare
+delove@11, 95% interval over pairs). The fog fallback (`fogSafe`) plays move for move like bare delove@11 (its
+ranker's top move; a mirrored check gives exactly 0), so the one ladder answers both comparisons.
+
+MEASUREMENT_TABLE
+
 ## 1. What a seat sees under fog (the engine's rules)
 
 From `packages/engine/src/view.ts` (`visibleTerritories`, `boardFor`, `viewFor`, `redactEvents`). Fog changes only

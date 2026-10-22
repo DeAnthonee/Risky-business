@@ -417,14 +417,34 @@ give the search a network's alternatives.
 ### Tuning the Zerg (`npm run delove:zerg-tune`)
 
 `zerg@1`'s judgement numbers are `ZERG_1_PARAMS` in packages/engine/src/zerg.ts (attack odds per kind of target, the
-knock-out bonus, the target rule's weights, occupation share, staging pull, the sacrifice switch). The tuner hill-climbs
-from them: each generation perturbs two numbers and plays the candidate horde and the current best on the same fresh
-games against each `--prey` (default delove@10 and jacob-sensei@2, on the default horde tables). A candidate that lowers
-the prey's `hold` by more than 0.01 is confirmed on a second set of fresh games and accepted when the pooled 95%
-interval is below 0.
+knock-out bonus, the target rule's weights, occupation share, staging pull, the sacrifice switch). Four later
+behaviours are terms that are 0 (off) in `ZERG_1_PARAMS`, so `zerg@1` plays exactly as recorded (a golden test guards it):
+
+- `strikeRatio`: synchronised strike. The horde holds its attacks on the target until its border armies reach that
+  multiple of the target's armies, then all Zergs hit it.
+- `cardHoard` / `hoardFinish`: trade only when forced until the target is down to `hoardFinish` territories next to me,
+  then cash in to finish it.
+- `capitalBonus`: snipe prey capitals under Capital Conquest.
+- `wallWeight`: don't stage reinforcements against big stacks.
+
+The tuner can switch them on. The tuner climbs from
+them with joint moves. Each generation makes `--children` candidates (default 8), each moving `--knobs` numbers at once
+(default 3), and plays every child and the current best on the same fresh games against each `--prey` (default
+delove@10) on the default horde tables. The best child goes to confirmation on `--confirm-games` fresh games per table
+(default 80), and replaces the best when that 95% interval clears 0. Confirmation uses fresh games only, since the first
+set picked the winner.
+
+- Fitness `--fitness rush` (the default) is the horde's own goal per game: 1 if the prey was knocked out, up to +0.5
+  for doing it fast (by 40 rounds), -1 at the turn limit. The gate reports it as `rush` too.
+- `--fitness hold` (the prey's survival) saturates: a first run of 15 single-pair generations on it found nothing
+  beyond ±0.02.
+- `--knob-set new` moves only the later behaviours' knobs.
+- Run 2 (2026-10-21, rush fitness, the 12 original numbers): 6 generations of 8 joint children, nothing confirmed. On
+  fresh games every best child landed within ±0.04 of `zerg@1`, so re-tuning the existing numbers is at a ceiling and
+  new behaviour is the lever (as Jacob Sensei 2's new terms were for Jacob).
 
 ```bash
-npm run delove:zerg-tune -- --out models/delove/zerg-tune-run1.json --generations 30 --games 40
+npm run delove:zerg-tune -- --out models/delove/zerg-tune-run2.json --generations 15
 ```
 
 The file holds the numbers and every generation's result; it stays on the training PC. Once the result passes a gate

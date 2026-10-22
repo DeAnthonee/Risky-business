@@ -80,6 +80,11 @@ All Zergs run the same deterministic **target rule** on the same public board, s
   (seen in testing: a Delove turtle in Australia stalled 3 Zergs for 500 turns). Zergs take neutral land at good odds,
   so the front Zerg eats that land for cards and continents.
 - **Ending.** When only Zergs are left, all but the first in turn order surrender, so the game ends without a stall.
+- **Later behaviours**, tunable and off in `zerg@1`:
+  - a synchronised strike on the target once the horde has massed;
+  - hoarding cards for the kill;
+  - capital sniping;
+  - staging away from walls.
 
 **Built (PR 1):** `chooseZergAction` / `zergTarget` in `packages/engine/src/zerg.ts` (the horde passed in as an
 argument), the self-play agent `zerg@1` (its horde is every seat named `zerg@...`, which only the harness sets), and

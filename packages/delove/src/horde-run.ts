@@ -36,7 +36,8 @@ export async function runHordeParallel(job: HordeJob, procs: number): Promise<Ho
       (chunk) =>
         new Promise<HordeGame[]>((resolve, reject) => {
           const w = new Worker(new URL(import.meta.url), { workerData: chunk });
-          w.once('message', resolve);
+          // Terminate as soon as it reports: a loaded network can keep a worker alive, and a tuner spawns hundreds.
+          w.once('message', (games: HordeGame[]) => void w.terminate().then(() => resolve(games)));
           w.once('error', reject);
         }),
     ),

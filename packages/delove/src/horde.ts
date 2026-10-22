@@ -55,8 +55,16 @@ export interface HordeGame {
    * With fillers: the non-Zerg place score.
    */
   hold: number;
+  /**
+   * The horde's side (the Zerg tuner's fitness): 1 if the candidate was knocked out, plus up to 0.5 for doing it fast
+   * (0.5 × (1 − rounds / RUSH_ROUNDS), floored at 0), minus 1 at the turn limit. Higher = a stronger horde.
+   */
+  rush: number;
   turnLimit: number;
 }
+
+/** Rounds after which knocking the candidate out earns no speed credit in `rush`. */
+export const RUSH_ROUNDS = 40;
 
 /** The seats of one game: the candidate at `shift % players`, then the Zergs, then fillers, wrapping around. */
 export function hordeSeats(candidate: Agent, filler: Agent, table: HordeTable, shift: number, zerg: Agent = zergBot): { seats: Seat[]; me: number; zergSeats: number[] } {
@@ -87,13 +95,16 @@ export function playHordeGame(candidate: Agent, filler: Agent, table: HordeTable
   const better = nonZerg.filter((i) => i !== me && r.placement[i] < r.placement[me]).length;
   const place = solo ? win : 1 - better / (nonZerg.length - 1);
   const hold = solo ? (win ? 1 : Math.min(0.99, r.rounds / HOLD_ROUNDS)) : place;
-  return { table: tableName(table), seed, win, survived, rounds: r.rounds, place, kills: r.kills[me], points: r.points[me], hold, turnLimit: Number(r.winner === null) };
+  const turnLimit = Number(r.winner === null);
+  const knocked = r.territories[me] === 0 ? 1 : 0;
+  const rush = knocked + (knocked ? 0.5 * Math.max(0, 1 - r.rounds / RUSH_ROUNDS) : 0) - turnLimit;
+  return { table: tableName(table), seed, win, survived, rounds: r.rounds, place, kills: r.kills[me], points: r.points[me], hold, rush, turnLimit };
 }
 
-export type HordeMetric = 'hold' | 'win' | 'place' | 'rounds' | 'kills' | 'points';
-export const HORDE_METRICS: HordeMetric[] = ['hold', 'win', 'place', 'rounds', 'kills', 'points'];
+export type HordeMetric = 'hold' | 'win' | 'place' | 'rounds' | 'kills' | 'points' | 'rush';
+export const HORDE_METRICS: HordeMetric[] = ['hold', 'win', 'place', 'rounds', 'kills', 'points', 'rush'];
 /** Metrics on an open scale: no variance floor (the floor keeps a few identical 0/1 results from reading as certain). */
-const unbounded = (m: HordeMetric) => m === 'rounds' || m === 'kills' || m === 'points';
+const unbounded = (m: HordeMetric) => m === 'rounds' || m === 'kills' || m === 'points' || m === 'rush';
 
 export interface HordeSummary {
   games: number;

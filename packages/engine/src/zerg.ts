@@ -31,6 +31,23 @@ export interface ZergParams {
   stagingDistance: number;
   /** 1: a walled-in Zerg (not the strongest) surrenders to feed the swarm; 0: never. */
   sacrifice: number;
+  // Later behaviours, each 0 = off (as in zerg@1), so zerg@1 plays exactly as before:
+  /**
+   * Synchronised strike: the horde holds its attacks on the target (knock-outs aside) until its armies bordering the
+   * target reach strikeRatio × the target's armies, then every Zerg hits it. Every Zerg reads the same board, so they
+   * strike together. 0 = attack whenever the odds allow.
+   */
+  strikeRatio: number;
+  /**
+   * Card timing: 1 = hoard cards (trade only when forced) until the target is down to `hoardFinish` territories or
+   * fewer and I border it, then trade to finish it: the prey's cards are the prize. 0 = trade at once.
+   */
+  cardHoard: number;
+  hoardFinish: number;
+  /** Capital sniping (Capital Conquest): a prey's capital is attacked at the target's odds with this score bonus. 0 = off. */
+  capitalBonus: number;
+  /** Walls: reinforcement staging is pulled away from fronts facing big stacks, by this much per enemy army. 0 = off. */
+  wallWeight: number;
 }
 
 export const ZERG_1_PARAMS: ZergParams = {
@@ -46,6 +63,11 @@ export const ZERG_1_PARAMS: ZergParams = {
   occupyShare: 0.7,
   stagingDistance: 10,
   sacrifice: 1,
+  strikeRatio: 0,
+  cardHoard: 0,
+  hoardFinish: 3,
+  capitalBonus: 0,
+  wallWeight: 0,
 };
 
 /**
@@ -97,7 +119,9 @@ export function chooseZergAction(
     return { type: 'occupy', armies: Math.max(pc.minArmies, Math.min(pc.maxArmies, n)) };
   }
 
-  if (lm.tradeableSets.length > 0) return { type: 'trade', cardIds: lm.tradeableSets[0] };
+  if (lm.tradeableSets.length > 0 && (lm.mustTrade || params.cardHoard <= 0 || finishing(state, me, horde, target, params))) {
+    return { type: 'trade', cardIds: lm.tradeableSets[0] };
+  }
 
   if (lm.canPlaceOn.length > 0 && lm.placeLimit > 0) {
     return { type: 'place', placements: { [stagingTerritory(state, me, horde, lm.canPlaceOn, d, random, params)]: lm.placeLimit } };
@@ -114,6 +138,27 @@ export function chooseZergAction(
     return { type: 'end_turn' };
   }
   return null;
+}
+
+/** Card timing: the target is down to `hoardFinish` territories or fewer and I border it, so cards now can finish it. */
+function finishing(state: GameState, me: PlayerId, horde: ReadonlySet<PlayerId>, target: PlayerId | null, params: ZergParams): boolean {
+  if (!target) return true;
+  const owned = territoriesOf(state, target);
+  if (owned.length > params.hoardFinish) return false;
+  const adjacency = getMap(state.options.map).adjacency;
+  return owned.some((t) => adjacency[t].some((n) => state.territories[n].owner === me));
+}
+
+/** Synchronised strike: the horde's armies bordering the target, against the target's armies. */
+function strikeReady(state: GameState, horde: ReadonlySet<PlayerId>, target: PlayerId, params: ZergParams): boolean {
+  if (params.strikeRatio <= 0) return true;
+  const adjacency = getMap(state.options.map).adjacency;
+  const owned = territoriesOf(state, target);
+  const armies = owned.reduce((n, t) => n + state.territories[t].armies, 0);
+  const borders = new Set<TerritoryId>();
+  for (const t of owned) for (const n of adjacency[t]) if (horde.has(state.territories[n].owner ?? '') && !isBlizzard(state, n)) borders.add(n);
+  const massed = [...borders].reduce((n, t) => n + state.territories[t].armies, 0);
+  return massed >= params.strikeRatio * armies;
 }
 
 /** Alive players the horde hunts: everyone but the horde and the Neutral. */
@@ -214,7 +259,8 @@ function stagingTerritory(
     const enemies = hostileNeighbours(state, me, horde, t);
     if (enemies.length === 0) continue;
     const dt = d(t);
-    const score = (Number.isFinite(dt) ? -params.stagingDistance * dt : -1000) + state.territories[t].armies + random();
+    const wall = params.wallWeight > 0 ? params.wallWeight * Math.max(...enemies.map((e) => state.territories[e].armies)) : 0;
+    const score = (Number.isFinite(dt) ? -params.stagingDistance * dt : -1000) + state.territories[t].armies - wall + random();
     if (score > bestScore) {
       bestScore = score;
       best = t;
@@ -234,6 +280,8 @@ function bestAttack(
   params: ZergParams,
 ) {
   const conquered = state.players.find((p) => p.id === me)!.conqueredThisTurn;
+  const ready = target === null || strikeReady(state, horde, target, params);
+  const capitals = params.capitalBonus > 0 && state.options.capitals ? new Set(Object.values(state.capitals)) : null;
   let best: { from: TerritoryId; to: TerritoryId } | null = null;
   let bestScore = 0;
   for (const a of attacks) {
@@ -246,9 +294,14 @@ function bestAttack(
     const victim = state.players.find((x) => x.id === defender)!;
     const lastTerritory = !victim.isNeutral && territoriesOf(state, defender).length === 1;
     let score: number;
+    const capital = capitals !== null && capitals.has(a.to) && !victim.isNeutral;
     if (defender === target) {
+      // Synchronised strike: hold back until the horde has massed, unless this finishes the target.
+      if (p < params.targetOdds || (!ready && !lastTerritory)) continue;
+      score = 3 + p + (capital ? params.capitalBonus : 0);
+    } else if (capital) {
       if (p < params.targetOdds) continue;
-      score = 3 + p;
+      score = 2 + p + params.capitalBonus;
     } else if (victim.isNeutral) {
       // To clear the road to the target, or for a card and land when the odds are good.
       const onRoad = d(a.to) < d(a.from);

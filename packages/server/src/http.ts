@@ -20,6 +20,7 @@ import { narrate, playByPlayText } from './playbyplay.js';
 import type { CharacterStore } from './characters.js';
 import type { CreateTournamentSpec } from './tournaments.js';
 import { NO_TOURNEY_CAPS, TournamentAccess } from './tournament-access.js';
+import { NO_SEAT_CAPS, SeatRequests } from './seat-requests.js';
 import { SeasonKeyGuard } from './season-key.js';
 import { RateLimitedError } from './rate-limit.js';
 import { PLAYER_KEY_HEADER, PlayerKeyLimitError, type PlayerAccount } from './player-keys.js';
@@ -79,6 +80,8 @@ export interface ApiOptions {
   openTournaments?: boolean;
   /** Hosting codes, caps and expiry (tournament-access.ts); defaults to no codes and the default caps. */
   tourneyAccess?: TournamentAccess;
+  /** Delove seats on request (seat-requests.ts); unset = no pool (the routes answer 404). */
+  seatRequests?: SeatRequests;
   /** RISK_SEASON_KEY: the password that archives the public leaderboard's season from the site (unset = off). */
   seasonKey?: string | null;
   /** Where the season-key lockout is saved (under RISK_DATA_DIR), so a restart does not reset it. */
@@ -92,6 +95,7 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
   api.use(express.json({ limit: '64kb' }));
   const seasonGuard = opts.seasonGuard ?? new SeasonKeyGuard(opts.seasonKey, undefined, undefined, opts.seasonLockFile ?? null);
   const access = opts.tourneyAccess ?? new TournamentAccess(store.tournaments, NO_TOURNEY_CAPS);
+  const seatReqs = opts.seatRequests ?? new SeatRequests(store.tournaments, NO_SEAT_CAPS);
 
   const wrap =
     (fn: (req: Req, res: Response) => Promise<unknown> | unknown) => (req: Request, res: Response, next: NextFunction) => {
@@ -550,7 +554,13 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
   api.post(
     '/admin/tournaments',
     requireAdmin,
-    wrap((req, res) => created(res, store.tournaments.create(parseTournamentSpec(req.body ?? {}, true)))),
+    wrap((req, res) => {
+      const spec = parseTournamentSpec(req.body ?? {}, true);
+      seatReqs.checkCreate('key', spec.delove);
+      const t = store.tournaments.create(spec);
+      seatReqs.openFor(t);
+      created(res, t);
+    }),
   );
   api.post(
     '/admin/tournaments/:id/start',
@@ -583,11 +593,43 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
     wrap((req, res) => {
       const { code, ...body } = (req.body ?? {}) as Record<string, unknown>;
       const tier = access.hostTier(req.ip ?? '', code, !!opts.openTournaments);
-      const t = store.tournaments.create(access.checkCreate(tier, parseTournamentSpec(body)));
+      const spec = access.checkCreate(tier, parseTournamentSpec(body));
+      seatReqs.checkCreate(tier, spec.delove);
+      const t = store.tournaments.create(spec);
       access.recordCreate(tier, t.id);
+      seatReqs.openFor(t);
       created(res, t);
     }),
   );
+
+  // ---- Delove seats on request: the seat-pool daemon (RISK_SEAT_POOL_KEY in x-seat-pool-key) polls, claims, reports ----
+  const pool = (req: Request) => seatReqs.authorize(req.ip ?? '', req.headers['x-seat-pool-key']);
+  const num = (v: unknown) => (typeof v === 'string' && v !== '' ? Number(v) : undefined);
+  // Each poll carries the pool's free capacity (?free=&freeSearch=); it answers the open requests and the pool as kept.
+  api.get(
+    '/seat-requests',
+    wrap((req, res) => {
+      pool(req);
+      if (req.query.free !== undefined || req.query.freeSearch !== undefined) seatReqs.report(num(req.query.free), num(req.query.freeSearch));
+      res.json({ requests: seatReqs.list(typeof req.query.kind === 'string' ? req.query.kind : undefined), pool: seatReqs.pool() });
+    }),
+  );
+  api.post(
+    '/seat-requests/:id/claim',
+    wrap((req, res) => {
+      pool(req);
+      res.json(seatReqs.claim(String(req.params.id), (req.body as { n?: unknown } | undefined)?.n));
+    }),
+  );
+  for (const outcome of ['done', 'failed'] as const)
+    api.post(
+      `/seat-requests/:id/${outcome}`,
+      wrap((req, res) => {
+        pool(req);
+        const body = (req.body ?? {}) as { joined?: unknown; reason?: unknown };
+        res.json({ request: seatReqs.finish(String(req.params.id), outcome, body.joined, body.reason) });
+      }),
+    );
 
   // The tournament's own host: its host token, or the admin key. Tournaments saved before host tokens are admin-only.
   function requireTournamentHost(req: Request, res: Response, next: NextFunction) {

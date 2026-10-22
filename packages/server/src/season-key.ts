@@ -36,6 +36,8 @@ export class SeasonKeyGuard {
     private limits: SeasonKeyLimits = DEFAULT_SEASON_KEY_LIMITS,
     private now: () => number = Date.now,
     private file: string | null = null,
+    /** The log label (another key guarded the same way, e.g. the seat pool's). */
+    private label = 'season',
   ) {
     if (file && existsSync(file)) {
       try {
@@ -43,7 +45,7 @@ export class SeasonKeyGuard {
         this.byIp = new Map(Object.entries(saved.byIp ?? {}));
         this.globalFails = (saved.globalFails ?? []).filter((n) => typeof n === 'number');
       } catch (err) {
-        console.error('[season] could not read the lockout file:', (err as Error).message);
+        console.error(`[${this.label}] could not read the lockout file:`, (err as Error).message);
       }
     }
   }
@@ -56,7 +58,7 @@ export class SeasonKeyGuard {
       writeFileSync(tmp, JSON.stringify({ byIp: Object.fromEntries(this.byIp), globalFails: this.globalFails }));
       renameSync(tmp, this.file);
     } catch (err) {
-      console.error('[season] could not save the lockout file:', (err as Error).message);
+      console.error(`[${this.label}] could not save the lockout file:`, (err as Error).message);
     }
   }
 
@@ -80,7 +82,7 @@ export class SeasonKeyGuard {
     this.byIp.set(ip, { fails, until: fails >= this.limits.perIp ? t + this.limits.lockMs : 0, at: t });
     this.globalFails.push(t);
     this.save();
-    console.warn(`[season] wrong archive password from ${ip} (${fails}/${this.limits.perIp})`);
+    console.warn(`[${this.label}] wrong key from ${ip} (${fails}/${this.limits.perIp})`);
     if (fails >= this.limits.perIp) return this.locked(this.limits.lockMs);
     return { ok: false, status: 403, error: 'Wrong password' };
   }

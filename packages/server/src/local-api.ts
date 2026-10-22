@@ -7,6 +7,7 @@ import { QuickPlayBusyError } from './quick-play.js';
 import { RateLimitedError } from './rate-limit.js';
 import type { CharacterStore } from './characters.js';
 import { NO_TOURNEY_CAPS, TournamentAccess } from './tournament-access.js';
+import type { SeatRequests } from './seat-requests.js';
 
 /** RiskApi implemented directly over the in-memory store (for the embedded /mcp endpoint). */
 export class LocalRiskApi implements RiskApi {
@@ -22,6 +23,8 @@ export class LocalRiskApi implements RiskApi {
     private access: TournamentAccess = new TournamentAccess(store.tournaments, NO_TOURNEY_CAPS),
     /** The X-Player-Key header the MCP connection was opened with, if any: its seats play as that registered player. */
     private playerKey: string | null = null,
+    /** Delove seats on request (shared with the HTTP API): a create with Delove seats opens a request. */
+    private seatRequests: SeatRequests | null = null,
   ) {}
 
   /** The registered player of this connection's key, or null without one. A key that does not work is a 401. */
@@ -235,12 +238,18 @@ export class LocalRiskApi implements RiskApi {
     const { code, ...rest } = spec;
     if (adminKey) {
       this.admin(adminKey);
-      const t = this.store.tournaments.create(parseTournamentSpec(rest));
+      const parsed = parseTournamentSpec(rest);
+      this.seatRequests?.checkCreate('key', parsed.delove);
+      const t = this.store.tournaments.create(parsed);
+      this.seatRequests?.openFor(t);
       return { hostToken: t.hostToken!, tournament: this.store.tournaments.view(t.id) };
     }
     const tier = this.access.hostTier(this.client ?? '', code, this.openTournaments);
-    const t = this.store.tournaments.create(this.access.checkCreate(tier, parseTournamentSpec(rest)));
+    const spec2 = this.access.checkCreate(tier, parseTournamentSpec(rest));
+    this.seatRequests?.checkCreate(tier, spec2.delove);
+    const t = this.store.tournaments.create(spec2);
     this.access.recordCreate(tier, t.id);
+    this.seatRequests?.openFor(t);
     return { hostToken: t.hostToken!, tournament: this.store.tournaments.view(t.id) };
   }
   /** `key`: the tournament's host token or the admin key (tournaments saved before host tokens: the admin key only). */

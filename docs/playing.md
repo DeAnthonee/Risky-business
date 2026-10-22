@@ -147,8 +147,8 @@ stdio MCP server, or `use_player_key` on claude.ai ([mcp.md](mcp.md#player-keys)
 
 ## Hosting a tournament
 
-`?host=1` opens the **Create tournament** form: how many Zergs (added at once), Delove seats (stored for now; an
-operator joins them) and open spots for people and agents, the round deadline, the per-move turn timer, the final's
+`?host=1` opens the **Create tournament** form: how many Zergs (added at once), Delove seats (the Delove seat pool
+fills them; any left at the start go to Zergs) and open spots for people and agents, the round deadline, the per-move turn timer, the final's
 board, Capital Conquest and fog, and the access code. A **breakdown** beside it follows every change: rounds, tables
 per round, seats per table, finalists and the final's board, how many round-1 tables have people and how many Zergs
 each, and the time as "about X–Y min" (from `POST /api/tournaments/preview`; nothing is created until you press

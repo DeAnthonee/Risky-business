@@ -1,0 +1,4 @@
+server: - 2026-10-22 #PR Delove seats on request (seat-requests.ts, hosting P3): a create with `delove: N` opens a seat request; the seat-pool daemon (RISK_SEAT_POOL_KEY in x-seat-pool-key, wrong-key lockout) polls GET /api/seat-requests with its free capacity (stale after 2 min), claims seats (search only fog-off, 20 at once), joins them over the normal route and reports done/failed; unfilled seats become Zergs at the start; caps 40/16 per tournament and 48 at once; the preview shows the pool
+mcp: - 2026-10-22 #PR create_tournament / preview_tournament: the Delove note says the seat pool fills Delove seats and Zergs take any left at the start
+client: - 2026-10-22 #PR create form: the Delove seats hint says the seat pool fills them
+docs: - 2026-10-22 #PR tournaments.md "Delove seats on request", http-api.md (seat-request routes, preview delovePool), hosting.md (RISK_SEAT_POOL_KEY, RISK_TOURNEY_DELOVE_SEARCH_AT_ONCE), mcp.md, playing.md

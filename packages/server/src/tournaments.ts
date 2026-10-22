@@ -395,6 +395,10 @@ export class TournamentManager extends EventEmitter {
   tournaments = new Map<string, TournamentSnapshot>();
   /** Called once when a tournament finishes (the store records it on the tournament leaderboard). */
   onFinished: ((t: TournamentSnapshot) => void) | null = null;
+  /** Called first thing when a tournament starts, still registering (seat-requests.ts: unfilled Delove seats become Zergs). */
+  beforeStart: ((t: TournamentSnapshot) => void) | null = null;
+  /** The Delove seat pool's free capacity, for the preview (seat-requests.ts); null = no pool configured. */
+  delovePool: (() => { online: boolean; free: number; freeSearch: number }) | null = null;
 
   limits: TournamentLimits;
 
@@ -537,7 +541,12 @@ export class TournamentManager extends EventEmitter {
     const options = { ...NESTED_DEFAULT_OPTIONS, ...(spec.options ?? {}) };
     const timer = options.turnTimer === undefined ? { mode: 'move', seconds: NESTED_TURN_TIMER_SECONDS } : options.turnTimer === 'off' ? null : { mode: options.turnTimer, seconds: options.turnTimerSeconds ?? 15 };
     const warnings: string[] = [];
-    if (counts.delove) warnings.push(`The ${counts.delove} Delove seats are stored with the tournament; until the Delove seat pool joins on request, an operator joins them (npm run delove-seat).`);
+    const pool = this.delovePool?.() ?? null;
+    if (counts.delove) {
+      if (!pool) warnings.push(`The ${counts.delove} Delove seats are stored with the tournament; no Delove seat pool is set up here, so an operator joins them (npm run delove-seat) or Zergs take them at the start.`);
+      else if (!pool.online) warnings.push(`Delove seat pool offline: the ${counts.delove} Delove seats go to Zergs at the start unless it comes back before then.`);
+      else warnings.push(`Delove: ${pool.free} seats available now${pool.free < counts.delove ? `, fewer than the ${counts.delove} asked for (the rest go to Zergs at the start)` : ''}.`);
+    }
     if (plan.zergs) warnings.push(`The plan adds ${plan.zergs} Zergs so the numbers fit a bracket.`);
     const allBots = firstRound.filter((t) => t.people === 0).length;
     if (allBots) warnings.push(`${allBots} round-1 tables would be server bots only (fewer people than tables).`);
@@ -556,6 +565,7 @@ export class TournamentManager extends EventEmitter {
       firstRound,
       timer,
       minutes: { low: roundsLow.reduce((a, b) => a + b, 0), high: plan.rounds.length * roundMinutes, perRound: roundMinutes },
+      delovePool: pool,
       warnings,
     };
   }
@@ -637,6 +647,7 @@ export class TournamentManager extends EventEmitter {
   start(id: string): TournamentSnapshot {
     const t = this.require(id);
     if (t.status !== 'registering') throw new RuleError('This tournament has already started');
+    this.beforeStart?.(t);
     if (!t.entrants.length) throw new RuleError('Nobody has joined yet');
     if (t.format === 'nested') return this.startNested(t);
     if (t.fillBots) {
@@ -1305,6 +1316,8 @@ export interface TournamentPreview {
   timer: { mode: string; seconds: number } | null;
   /** About how long, in minutes: low at bot pace, high with every round running to its deadline. */
   minutes: { low: number; high: number; perRound: number };
+  /** The Delove seat pool now (seat-requests.ts): null when none is set up, else online (reported in the last 2 min) and its free seats. */
+  delovePool: { online: boolean; free: number; freeSearch: number } | null;
   warnings: string[];
 }
 

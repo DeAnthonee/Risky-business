@@ -93,13 +93,38 @@ testing gate (owner, 2026-10-22); player keys or sign-in replace them later. The
     becomes the smaller of that and the format's default); at most **200** seats reserved (the sum of `maxEntrants`)
     by all tournaments registering or running;
   - **20 creates** a UTC day, site-wide;
-  - **Delove seats**: 40 per admin tournament, 16 per limited one, 48 at once. These numbers are stored now; Delove
-    seats on request (P3) will enforce them.
+  - **Delove seats**: 40 per tournament with the admin code (or the admin key), 16 with the limited code or in open
+    mode, 48 held by open requests at once, and of those at most 20 searching at once
+    ([Delove seats on request](#delove-seats-on-request)). These apply to the admin key too: they guard the CPU box.
 - **Lag brake**: while the event loop's p99 lag over the last full minute (the `/healthz` `loopLagMs`) is above
   100 ms, creates answer **503** "The server is busy right now".
 - **Expiry**: a tournament never started is called off 24 h after it was made, and a scheduled one still registering
   2 h after its start (the schedule normally decides at the start). It ends with no rounds and no champion, and
   `scheduled.cancelled` says `expired: never started`. The server checks every 5 minutes.
+
+## Delove seats on request
+
+A tournament created with `delove: N` (the create form, `POST /api/tournaments`, MCP `create_tournament`) opens a
+**seat request** that training's seat-pool daemon fills. The daemon runs outside the server (README hard rule 10) and
+talks to it with its own key, `RISK_SEAT_POOL_KEY`, sent as the `x-seat-pool-key` header. Unset, Delove seats on
+request are off: the count is only stored, and an operator joins the seats (`npm run delove-seat`). The code is
+`server/src/seat-requests.ts`; the routes are in [http-api.md](http-api.md).
+
+- **A request** is `{id, kind: "delove", tournamentId, n, claimed, joined, labelPrefix: "Delove", fog, searchAllowed,
+  search, expiresAt, status}`. `searchAllowed` is true only with fog off (Delove's search is fog-off only), and
+  `expiresAt` is the scheduled start (null for a host-started tournament).
+- **Polling.** The daemon polls `GET /api/seat-requests?kind=delove&free=F&freeSearch=S`, sending its free capacity.
+  The server keeps the last report with its time; it's **stale after 2 minutes** ("pool offline").
+- **Claiming.** `POST /api/seat-requests/:id/claim {n}` answers `{tournamentId, n, search, labelPrefix, firstLabel,
+  options}`. `search` is how many of the claimed seats may run search (fog off, within 20 at once). The daemon joins
+  its seats with the ordinary join route as "Delove <firstLabel>", "Delove <firstLabel + 1>" and so on, then reports
+  `POST …/done {joined}` or `POST …/failed {joined, reason}`. A failed claim's unjoined seats go back to the request.
+- **At the start**, the request closes. Delove seats not filled by then (counted by the entrants named "Delove <k>")
+  become **Zerg entrants**, so the bracket holds.
+- **The preview** (`POST /api/tournaments/preview`, MCP `preview_tournament`, the create form) adds `delovePool:
+  {online, free, freeSearch}` (null with no pool) and a line: "Delove: K seats available now", or "Delove seat pool
+  offline".
+- **Wrong pool keys** are limited as the hosting codes are: 5 per IP, 50 from anyone, then an hour's lockout.
 
 ## Nested ("Inception") tournaments
 
@@ -112,8 +137,8 @@ round; the boards nest inside each other's territories (the map side: [maps.md](
   checked at create on every table size from 2 to 10 seats), `maxEntrants` (default 128), `botDelayMs` (the bots' pace
   at the tables, 0-2000 ms between moves, default 300). `groupSize` and `fillBots` do not apply.
 - **Seat counts** (create, any format): `zergs` (Zerg entrants, added in the same call), `delove` (Delove seats asked
-  for: **stored only** as `requested` on the tournament until the Delove seat pool joins on request; for now an
-  operator joins them with `npm run delove-seat`) and `open` (spots for people and agents). With any count,
+  for, kept as `requested`: they open a [seat request](#delove-seats-on-request) the Delove seat pool fills, and any
+  left at the start go to Zergs; with no pool set up, an operator joins them with `npm run delove-seat`) and `open` (spots for people and agents). With any count,
   `maxEntrants` defaults to their sum (a smaller `maxEntrants` is a 400). The tournament view shows `requested`.
 - **Preview** (`POST /api/tournaments/preview`, MCP `preview_tournament`): the same counts and nested settings, and
   **nothing is created**. It runs the planner and returns the rounds, tables and seats per round, the finalists (plus

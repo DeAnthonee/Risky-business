@@ -130,6 +130,8 @@ export interface TournamentPreviewInfo {
   firstRound: { seats: number; people: number; zergs: number }[];
   timer: { mode: string; seconds: number } | null;
   minutes: { low: number; high: number; perRound: number };
+  /** The Delove seat pool now: null when none is set up. */
+  delovePool?: { online: boolean; free: number; freeSearch: number } | null;
   warnings: string[];
 }
 

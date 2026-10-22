@@ -1,0 +1,4 @@
+server: - 2026-10-22 #206 decision notes: `POST /games/:id/actions` and the WebSocket `action` take an optional `note` (string or JSON, at most 2 KB, else 400), stored as `decisionNote` on the room's history entry and as `note` on the record step; `eventsSince` strips it, so no live output (views, events, chat, WS, MCP) ever shows it; the admin reads it in `/admin/archive/:id`
+mcp: - 2026-10-22 #206 `act` takes an optional `note` (private decision note, at most 2 KB); `RiskApi.act(gameId, token, action, note?)`
+engine: - 2026-10-22 #206 `record.ts`: optional `note` on a record step (`recordStep` takes `{note}`); optional field, so `RECORD_VERSION` stays 1 and old records load and verify unchanged
+docs: - 2026-10-22 #206 game-records-roadmap.md: decision notes (G1) in the Done table

@@ -83,6 +83,11 @@ export interface RecordStep {
   hand: Card[];
   /** What the action caused, unredacted (dice, losses, conquests, eliminations...). */
   events: GameEvent[];
+  /**
+   * The acting player's own decision note for this move (`act` with `note`): a string or JSON, at most 2 KB. Never
+   * shown during the game; optional, so records without it are unchanged.
+   */
+  note?: unknown;
 }
 
 /** The start of one player's turn. */
@@ -187,7 +192,7 @@ export function recordHeader(
 }
 
 /** The journal entry for one action: `before` is the state it was taken in. */
-export function recordStep(header: RecordHeader, before: GameState, player: PlayerId, action: Action, events: GameEvent[], at: number): RecordEntry {
+export function recordStep(header: RecordHeader, before: GameState, player: PlayerId, action: Action, events: GameEvent[], at: number, extra: { note?: unknown } = {}): RecordEntry {
   return {
     kind: 'step',
     step: {
@@ -201,6 +206,7 @@ export function recordStep(header: RecordHeader, before: GameState, player: Play
       ...(header.fog ? { seen: seenBoardOf(before, player, header) } : {}),
       hand: before.players.find((p) => p.id === player)?.cards ?? [],
       events,
+      ...(extra.note !== undefined ? { note: extra.note } : {}),
     },
   };
 }

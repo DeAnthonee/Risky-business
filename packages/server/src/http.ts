@@ -29,8 +29,12 @@ export function checkAdmin(adminToken: string | null | undefined, given: string 
   return a.length === b.length && timingSafeEqual(a, b) ? 'ok' : 'bad';
 }
 
-/** Tournament settings from an untrusted body. Game settings go through the same strict parser as games. */
-export function parseTournamentSpec(body: Record<string, unknown>): CreateTournamentSpec {
+/**
+ * Tournament settings from an untrusted body. Game settings go through the same strict parser as games. A fixed nested
+ * `seed` decides the boards, seating and tie-break dice before anyone joins, so only the admin may set it (`admin`).
+ */
+export function parseTournamentSpec(body: Record<string, unknown>, admin = false): CreateTournamentSpec {
+  if (body.seed !== undefined && !admin) throw new RiskHttpError('Only the admin key can fix a tournament seed', 403);
   const int = (v: unknown, key: string) => {
     if (v === undefined || v === null) return undefined;
     if (typeof v !== 'number' || !Number.isInteger(v)) throw new RuleError(`${key} must be a whole number`);
@@ -52,6 +56,7 @@ export function parseTournamentSpec(body: Record<string, unknown>): CreateTourna
     roundMinutes: int(body.roundMinutes, 'roundMinutes'),
     finishShare: body.finishShare as number | undefined,
     botDelayMs: int(body.botDelayMs, 'botDelayMs'),
+    ...(admin ? { seed: int(body.seed, 'seed') } : {}),
   };
 }
 
@@ -509,7 +514,7 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
   api.post(
     '/admin/tournaments',
     requireAdmin,
-    wrap((req, res) => created(res, store.tournaments.create(parseTournamentSpec(req.body ?? {})))),
+    wrap((req, res) => created(res, store.tournaments.create(parseTournamentSpec(req.body ?? {}, true)))),
   );
   api.post(
     '/admin/tournaments/:id/start',

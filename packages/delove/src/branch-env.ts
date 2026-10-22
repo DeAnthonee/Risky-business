@@ -1,7 +1,8 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { stepAgent, type Agent, type StepContext } from '@risk/selfplay';
-import { BRANCH_SCORES, branchAgent, DEFAULT_BRANCH, type BranchOptions, type BranchScore, type RolloutNet } from './branch.js';
+import { BRANCH_SCORES, branchAgent, DEFAULT_BRANCH, type BranchOptions, type BranchScore, type FogSearch, type RolloutNet } from './branch.js';
+import { FogTracker, sampleBoard } from './fog-sampler.js';
 import { modelsDir, NetScorer, setScorer } from './net-agent.js';
 import {
   DEFAULT_JACOB_PARAMS,
@@ -66,6 +67,16 @@ function rolloutNet(v: string | undefined, models: string, ranker: NetScorer | n
   return { net: ranker && ranker.modelPath === path ? ranker : new NetScorer(path), seats };
 }
 
+/** How branch and score plays fog games: 'off' (fogSafe: the ranker's top move) or 'determinize' (FogSearch). */
+export const BRANCH_FOG_MODES = ['off', 'determinize'] as const;
+export type BranchFogMode = (typeof BRANCH_FOG_MODES)[number];
+
+function branchFog(v: string | undefined): BranchFogMode {
+  if (v === undefined || v === '') return 'off';
+  if (!(BRANCH_FOG_MODES as readonly string[]).includes(v)) throw new Error(`DELOVE_BRANCH_FOG must be one of ${BRANCH_FOG_MODES.join(', ')}, not ${v}`);
+  return v as BranchFogMode;
+}
+
 /**
  * delove-branch@1 (branch and score, src/branch.ts) configured from the environment, the same way for self-play
  * (register.ts) and real games (seat-cli.ts). DELOVE_BRANCH_TEACHER picks the rollout teacher (default: the newest
@@ -82,6 +93,9 @@ function rolloutNet(v: string | undefined, models: string, ranker: NetScorer | n
  * candidates (default 8) within DELOVE_BRANCH_COPIES rollout copies (default 0: options x rollouts).
  * DELOVE_BRANCH_ROLLOUT=<model> has that network (e.g. delove@5) play the rollouts in every seat instead of the teacher,
  * <model>:self in the decider's seat only (unset: the teacher).
+ * DELOVE_BRANCH_FOG=determinize searches fog games too, on boards sampled from the seat's view and memory
+ * (fogSearch, src/fog-sampler.ts; DELOVE_BRANCH_FOG_SAMPLES boards per option, default 8); unset or `off`: fogSafe's
+ * fallback. `fog` replaces DELOVE_BRANCH_FOG.
  */
 export function branchFromEnv(
   dir = modelsDir(),
@@ -89,6 +103,7 @@ export function branchFromEnv(
   score?: BranchScore,
   /** Wraps the rollout teacher's pick (e.g. horde-branch.ts: Zerg seats play the horde bot) for a seat with its own id. */
   variant?: { id: string; rolloutPick: (pick: (ctx: StepContext) => number) => (ctx: StepContext) => number },
+  fog?: BranchFogMode,
 ): Agent {
   const tuned = tunedParams(dir);
   const teacherId = env.DELOVE_BRANCH_TEACHER ?? [...tuned.sensei.keys()].pop() ?? 'delove-teacher@1';
@@ -101,6 +116,16 @@ export function branchFromEnv(
   const valuePath = rankerPath.slice(0, -'.onnx'.length) + '.value.onnx';
   const valuer = existsSync(rankerPath) && existsSync(valuePath) ? new NetScorer(rankerPath, valuePath) : null;
   const num = (k: string, d: number) => (env[k] === undefined ? d : Number(env[k]));
+  const fogMode = fog ?? branchFog(env.DELOVE_BRANCH_FOG);
+  const tracker = new FogTracker();
+  const fogSearch: FogSearch | null =
+    fogMode === 'determinize'
+      ? {
+          anchor: rankerTop(ranker, rolloutPick),
+          sample: (state, me, random) => sampleBoard(state, me, random, tracker.observe(state, me)),
+          samples: num('DELOVE_BRANCH_FOG_SAMPLES', 8),
+        }
+      : null;
   const opts: BranchOptions = {
     ...DEFAULT_BRANCH,
     options: num('DELOVE_BRANCH_OPTIONS', DEFAULT_BRANCH.options),
@@ -126,8 +151,19 @@ export function branchFromEnv(
     opts,
     valuer,
     rolloutNet(env.DELOVE_BRANCH_ROLLOUT, dir, ranker),
+    fogSearch,
   );
-  const agent = fogSafe(search, ranker, rolloutPick);
+  // Fog search: remember what each fog decision shows (the sampler reads it), then search.
+  const agent: Agent = !fogSearch
+    ? fogSafe(search, ranker, rolloutPick)
+    : {
+        ...search,
+        choose: (ctx) => {
+          if (ctx.state.options.fogOfWar) tracker.observe(ctx.state, ctx.me);
+          return search.choose(ctx);
+        },
+        ...(ranker?.fogInputs ? { fogInputs: ranker.fogInputs } : {}),
+      };
   if (ranker) setScorer(agent, ranker);
   searches.set(agent, opts);
   return agent;
@@ -139,20 +175,25 @@ export function searchOf(agent: Agent): BranchOptions | undefined {
   return searches.get(agent);
 }
 
-/**
- * Branch and score never searches under fog of war (no determinized teacher yet, docs/delove-fog.md section 4): its
- * rollouts would play out a rebuilt board whose hidden territories are blank. In a fog game it plays its ranker's top
- * move on the seat view instead (the rollout teacher's pick without a ranker), and it takes fog seats only when the
- * ranker was trained for fog (its `fogInputs`).
- */
-export function fogSafe(search: Agent, ranker: NetScorer | null, teacherPick: (ctx: StepContext) => number): Agent {
-  const bare = stepAgent(search.id, (ctx) => {
+/** The ranker's top move (ties: the first candidate), or the teacher's pick without a ranker or with one candidate. */
+function rankerTop(ranker: NetScorer | null, teacherPick: (ctx: StepContext) => number): (ctx: StepContext) => number {
+  return (ctx) => {
     if (ctx.candidates.length === 1 || !ranker) return teacherPick(ctx);
     const { logits } = ranker.score(ctx);
     let best = 0;
     for (let i = 1; i < logits.length; i++) if (logits[i] > logits[best]) best = i;
     return best;
-  });
+  };
+}
+
+/**
+ * Branch and score without fog search (DELOVE_BRANCH_FOG unset or `off`) never searches under fog of war: its
+ * rollouts would play out a rebuilt board whose hidden territories are blank. In a fog game it plays its ranker's top
+ * move on the seat view instead (the rollout teacher's pick without a ranker), and it takes fog seats only when the
+ * ranker was trained for fog (its `fogInputs`).
+ */
+export function fogSafe(search: Agent, ranker: NetScorer | null, teacherPick: (ctx: StepContext) => number): Agent {
+  const bare = stepAgent(search.id, rankerTop(ranker, teacherPick));
   return {
     ...search,
     choose: (ctx) => (ctx.state.options.fogOfWar ? bare.choose(ctx) : search.choose(ctx)),

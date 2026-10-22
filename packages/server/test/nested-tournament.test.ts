@@ -87,6 +87,15 @@ describe('nested tournaments', () => {
       // Tables run on a per-move turn timer by default.
       expect(ok.body.tournament.options).toMatchObject({ turnTimer: 'move', turnTimerSeconds: 90 });
       expect(await bad({ botDelayMs: 5000 })).toBe(400);
+      // A fixed seed decides the draw before anyone joins: admin only, and nested only.
+      expect((await call('/tournaments', post({ format: 'nested', seed: 5 }))).status).toBe(403);
+      expect((await call('/tournaments', post({ format: 'nested' }))).status).toBe(201);
+      expect((await call('/admin/tournaments', post({ seed: 5 }), ADMIN)).status).toBe(400); // a knockout
+      const seeded = await call('/admin/tournaments', post({ format: 'nested', seed: 5 }), ADMIN);
+      expect(seeded.status).toBe(201);
+      for (let i = 1; i <= 6; i++) await call(`/tournaments/${seeded.body.tournament.id}/join`, post({ playerName: `S${i}` }));
+      await call(`/tournaments/${seeded.body.tournament.id}/start`, post(), seeded.body.hostToken);
+      expect(risk.store.tournaments.get(seeded.body.tournament.id)!.nested!.seed).toBe(5);
     } finally {
       await risk.shutdown('test');
     }
@@ -331,6 +340,25 @@ describe('nested tournaments', () => {
     expect(t3.rounds[1].matches[0].entrants).toHaveLength(6);
     expect(late.timers).toHaveLength(1); // the final's deadline
     third.stopTimers();
+  });
+
+  it('replays the same boards and seating from a fixed seed, and stepBot drives a table headless', () => {
+    const run = () => {
+      const store = new Store(null, {}, { clock: new FakeClock() });
+      const t = store.tournaments.create({ format: 'nested', seed: 42, botDelayMs: 2000, options: { turnTimer: 'off', autoSetup: true } });
+      for (let i = 1; i <= 30; i++) t.entrants.push({ id: `e_${i}`, name: `B${i}`, isBot: true, joinedAt: 0 });
+      store.tournaments.start(t.id);
+      const out = { seed: t.nested!.seed, boards: t.nested!.boards, seating: t.rounds[0].matches.map((m) => m.entrants) };
+      const room = store.get(t.rounds[0].matches[0].gameId!)!;
+      const v = room.state.version;
+      expect(room.stepBot()).toBe(true);
+      expect(room.state.version).toBeGreaterThan(v);
+      store.stopTimers();
+      return out;
+    };
+    const a = run();
+    expect(a.seed).toBe(42);
+    expect(run()).toEqual(a);
   });
 
   it('seats Zerg entrants as Zergs at every table, round 2 included', async () => {

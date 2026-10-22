@@ -43,7 +43,7 @@ cards are hidden).
 | `GET  /admin/archive`, `GET /admin/archive/:id`, `GET /admin/archive/:id/steps/:step?viewer=` | admin: recorded games (index; one whole record; one moment rebuilt by replay, through a player's eyes under fog). See [game records](game-records.md) |
 | `POST /admin/scenarios`            | admin: `{recordId, step, seats?: {<playerId>: "bot" \| "open"}, keepDice?, name?}` → `{gameId, scenarioOf, seats: [{playerId, bot, token}]}`: a new live game from one moment of a recorded game (see [game records](game-records.md#scenarios-playing-a-recorded-moment-out-again)) |
 | `POST /games/:id/seat`             | scenario seat token: `{bot?: false}` takes the seat over from its bot; `{bot: true}` hands it back |
-| `POST /admin/tournaments`          | admin: `{name?, options?, groupSize?, maxEntrants?, fillBots?}`, or for a nested tournament `{format: "nested", name?, options?, maxEntrants?, finalMap?, territoriesPerSeat?, roundMinutes?, finishShare?, botDelayMs?}` → `{hostToken, tournament}` (see [Tournaments](tournaments.md)). 400 past `RISK_MAX_ACTIVE_TOURNAMENTS` |
+| `POST /admin/tournaments`          | admin: `{name?, options?, groupSize?, maxEntrants?, fillBots?}`, or for a nested tournament `{format: "nested", name?, options?, maxEntrants?, finalMap?, territoriesPerSeat?, roundMinutes?, finishShare?, botDelayMs?, seed?}` (`seed`: admin route only) → `{hostToken, tournament}` (see [Tournaments](tournaments.md)). 400 past `RISK_MAX_ACTIVE_TOURNAMENTS` |
 | `POST /admin/tournaments/:id/start`, `POST /admin/tournaments/:id/forfeit` `{entrantId}`, `DELETE /admin/tournaments/:id` | admin: seat round 1; concede for a no-show; delete (closes tables still playing) |
 | `POST /tournaments`                | **temporary, for testing**: the same as `POST /admin/tournaments` but without the admin token, while `RISK_TOURNAMENTS_OPEN` is on (403 when it is off) → `{hostToken, tournament}` |
 | `POST /tournaments/:id/start`, `POST /tournaments/:id/forfeit` `{entrantId}`, `DELETE /tournaments/:id` | the tournament's host: `Authorization: Bearer <hostToken>` (from create) or the admin key; 401 without one, 403 with another token. Same as the admin routes. Tournaments saved before host tokens take the admin key only |
@@ -79,6 +79,29 @@ Spectators chat with `{"type":"chat","message":"…","name":"Your name"}` (add `
 Every spectator socket of a room gets the same message for a change, built once per change (players get their own view).
 Send `{"type":"action","reqId":"1","action":{…},"note":…}` (`note` optional, as on `POST /games/:id/actions`) and receive `{"type":"ack","reqId":"1","ok":true}`
 or `{"ok":false,"error":"…"}`.
+
+**Tournament feed** (for watchers of a tournament page). Send `{"type":"subscribe_tournament","id":"TAB12C"}`
+(`tournamentId` works too; no token: a socket that passes one of the tournament's entrant tokens is refused, since
+entrants follow their own table; the check is cosmetic, see [hardening #2](hardening.md#2-per-player-totals-under-fog-of-war)).
+A socket with more than 1 MB queued skips feed updates; once it has drained, the next update it gets is the whole feed
+again (`tournament` and a `tournament_tables` with `full: true`), so no table is lost. The reply is an ack, then `{"type":"tournament", tournamentId, tournament}` (the
+bracket, as `GET /tournaments/:id`, sent again whenever it changes) and
+`{"type":"tournament_tables", tournamentId, version, full, round, tables, follow}`: every current table first
+(`full: true`), then only the tables that changed, **each at most every 500 ms** (a burst is coalesced and its last
+change always arrives); merge them by `node` (nested) or `gameId`.
+- `round`: `{n, deadline, finished, needed}`, the round clock: tables finished so far, how many the round needs before
+  the rest are decided on standing (every table in a knockout), and its deadline (nested; null otherwise).
+- a table: `{node, gameId, version, round, status: "waiting"|"playing"|"finished"|"decided", players: [{name, color,
+  alive}], owners, leader, final, excitement: {score, why, signals}}`. `node` is the table's index in
+  `resolveNest(spec)` order (null for a knockout); `owners` gives each territory's owner, in
+  `getMap(map).territoryIds` order, as an index into `players` (null: nobody or a blizzard); `leader` is the winner
+  once finished or decided, else the leader (territories, then armies). From the public spectator view only: names,
+  no cards, tokens or player-type labels. `excitement.score` is the 0-100 "Follow the action" score.
+- `follow`: `{node, gameId, caption}` or null, the one table every watcher with "Follow the action" on is shown
+  (picked by the server: it stays 20 s and switches only for a table 15 or more ahead, or when its table ends).
+
+`{"type":"unsubscribe_tournament"}` leaves the feed; a socket can hold one tournament feed and one game subscription
+at once.
 
 ## Actions
 

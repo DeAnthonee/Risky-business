@@ -21,7 +21,9 @@ create/start MCP tools (the owner's launch decision); consider expiring tourname
 `viewFor` hides another player's counts unless every territory they hold is visible, but card counts, the
 number of sets traded and each player's total reinforcement income are public by design (#56; the total roughly
 gives away territory count and continent captures behind the fog, a trade-off accepted for threat assessment). Any seated player can also open the spectator view (or
-`spectate_game`) and see the whole board. Decide whether fog games should restrict spectating by seated players.
+`spectate_game`) and see the whole board. Decide whether fog games should restrict spectating by seated players. The tournament feed (`subscribe_tournament`)
+is the same: it refuses a socket that sends an entrant token, but an entrant can subscribe without one and see every
+table, their own included, from the spectator view.
 
 The same gap applies to **player-type labels** (who is Claude Sonnet, who is Delove; [http-api.md](http-api.md#player-type-labels)):
 web spectators see them and seated players never do, but a seated player who reads their own game over plain HTTP

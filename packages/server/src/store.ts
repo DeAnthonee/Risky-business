@@ -840,6 +840,19 @@ export class GameRoom extends EventEmitter {
     }, delay);
   }
 
+  /**
+   * Make the current bot's move now, if a bot is to move (headless runs, e.g. scripts/nested-sim.mjs, drive the bots
+   * themselves instead of waiting for the timer). Returns false when it is not a bot's turn or the table is frozen.
+   */
+  stepBot(): boolean {
+    const cur = this.state.currentPlayer;
+    if (this.closed || this.decidedAt !== null || !cur || this.state.phase === 'finished' || this.state.phase === 'lobby') return false;
+    if (!this.state.players.find((x) => x.id === cur)?.isBot) return false;
+    const before = this.state.version;
+    this.runBotStep();
+    return this.state.version !== before;
+  }
+
   private runBotStep() {
     const cur = this.state.currentPlayer;
     if (!cur) return;

@@ -32,8 +32,8 @@ already has.
   for the two columns, so it starts as exactly the same player. Validation reports the same decisions all fogged too.
 - **Playing fog games:** every network plays a fog game on its seat view (a model without fog inputs gets the seat view
   without the two columns); `delove-seat` sits a model at a fog table only when it has fog inputs, others still sit
-  fog games out. Branch and score never searches under fog: there it plays its ranker's top move (`fogSafe`,
-  `branch-env.ts`). The ladder and `play` take `{"fogOfWar": true}` games, fair for every seat; a cycle's fog gates stay
+  fog games out. Branch and score doesn't search under fog by default: there it plays its ranker's top move
+  (`fogSafe`, `branch-env.ts`; the opt-in fog search is below). The ladder and `play` take `{"fogOfWar": true}` games, fair for every seat; a cycle's fog gates stay
   on the CPU (`cycle.sh`).
 - **Measured (2026-10-21, home RTX 4060 + CPU ladders):** `delove@8` fine-tuned on cycle 9's arrays (14 maps, 15% of
   each per epoch, 1 epoch, lr 2e-4, points target, branch weights) with `--fog-dropout 0.25`, against the same
@@ -59,6 +59,7 @@ already has.
 - **Not built yet (next):** the seat's memory (section 2.2: last-seen owners and armies, income bounds), which needs
   logged fog games or a tracker in self-play; the determinized branch teacher (section 4); fog in the GPU mirror
   (section 5). Fog dropout teaches "act on what you see"; the memory and a fair fog teacher come next.
+  (Update: the determinized teacher and a simple memory for it are built, below, and measured not to help yet.)
 
 
 **Does the current path help or hinder?** It helps, if fog is planned for early. Everything Delove learns about
@@ -77,6 +78,56 @@ a fogged seat can't see. So the plan is:
 Order and costs are in [section 8](#8-order-of-steps-and-costs).
 
 ---
+
+## Status: fog search (determinized branch and score, CPU, opt-in)
+
+Section 4.2 built on the CPU path (`packages/delove`), off by default:
+
+- **The sampler** (`src/fog-sampler.ts`, `sampleBoard`): from a seat's view (a `stateFromView` state) and its memory,
+  one plausible full board, deterministic from the random source it is given. Visible territories, the seat's hand and
+  every public count are exact. A hidden territory seen before keeps its last-seen owner and armies with probability
+  0.85 per round since (0.97 for the Neutral); the rest are drawn among the opponents still alive by how many
+  territories each lacks against an estimate (players: from the public income; the Neutral: its visible count scaled
+  by the share of the board in sight), favouring owners already next to it. A repair pass gives every opponent alive a
+  territory and moves hidden territories toward each opponent's public income; half of each opponent's income goes
+  as extra armies on its hidden fronts; capitals out of sight are put back (the remembered one, else the opponent's
+  strongest hidden territory); hidden cards, deck and discard are redealt from every card not in the seat's hand at
+  their public sizes (the #143 pool).
+- **The memory** (`FogTracker`): per game and seat, each territory's last sighting (owner, armies, round) and the
+  capitals seen, updated on each of the seat's decisions; a game whose turn number goes back starts fresh.
+- **The search** (`branchAgent`'s `fog`, `src/branch.ts`): in a fog game each rollout seed gets one sampled board,
+  the same boards for every option (common random numbers), at least `DELOVE_BRANCH_FOG_SAMPLES` (default 8) per
+  option; the decider's score is taken on each sample's end position. The option to beat by the margin is the
+  ranker's top move (what the seat plays without fog search), the teacher's pick on the view is the second; decisions
+  that aren't branched are the ranker's top move. Rollouts are Jacob Sensei playing the sampled board with full sight
+  (strategy fusion, accepted in 4.2).
+- **Switch:** `DELOVE_BRANCH_FOG=determinize` (default `off`: `fogSafe`, the ranker's top move); self-play also
+  registers `delove-branch@1:fog`, the same seat with fog search on. Tests: `test/fog-search.test.ts` (consistency
+  with the view and card counts, memory, determinism, one set of boards shared by every option).
+
+**Measured** (2026-10-22, home CPU while cycle 15's gates ran, 6 processes at below-normal priority;
+`configs/gen5-randomfog.json` on Classic; the `js2-range` preset (Jacob Sensei 2 rollouts, 5 options, range score,
+horizon 2, margin 0.02); mirrored pairs; points per seat, fog search minus the bare ranker, 95% interval over pairs;
+time per decision on the busy machine). The fog fallback (`fogSafe`) plays move for move like its bare ranker (its top
+move; a mirrored check gives exactly 0), so each table answers "fog search vs today's fallback" and "vs the bare
+network" at once.
+
+| ranker | sampler front share | Classic 2p | Classic 4p | Classic 6p | ms per decision, search / bare |
+| --- | --- | --- | --- | --- | --- |
+| delove@11 (no fog inputs) | 0.5 | -0.14 (-0.31 to +0.04), 400 games | -0.26 (-0.63 to +0.11), 100 | -0.24 (-0.68 to +0.20), 100 | 604 / 106 (2p), 237 / 15 (4p), 231 / 16 (6p) |
+| **delove@12** (fog-trained, c15) | 0.25 | **-0.26 (-0.45 to -0.07)**, 400 | **-0.92 (-1.24 to -0.61)**, 200 | **-0.56 (-0.90 to -0.21)**, 200 | 174 / 5, 186 / 5, 260 / 5 |
+
+**Sampler accuracy** (10 fog games each, Jacob Sensei 2 in every seat, one sample per checked moment): the hidden
+territory's owner is right 62% of the time at 4p and 38% at 6p, against 35% and 26% for a uniform guess among the
+opponents alive. Armies: with front share 0.5 the sampled hidden territories averaged 2.5 armies against 2.0 on the
+true board (0.25 is about unbiased, and is the default since); a flat guess of 1.5 has a lower mean absolute error (1.1
+against 1.3-1.6), as most hidden territories hold 1 army and a few hold large stacks.
+
+**Reading:** determinized search does not help under fog with these settings; with the fog-trained delove@12 it
+clearly hurts at every table size. Decision (Lord of training, 2026-10-22): the GPU-mirror part of fog search
+(section 5's sampler) is **parked**; the switch stays opt-in and off. The next lever is better guesses of the hidden
+board (the learned fog model, [game-records-roadmap.md](game-records-roadmap.md) step 2) rather than more search on
+today's sampler. Section 8 step 4's "done when" is not met.
 
 ## 1. What a seat sees under fog (the engine's rules)
 

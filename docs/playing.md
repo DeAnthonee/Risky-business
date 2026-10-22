@@ -78,6 +78,17 @@ On a **phone** the board fills the screen and the sidebar becomes a tab bar (Boa
 On desktop, drag the divider under the scoreboard to give the log/chat more or less room (double-click resets). Hovering any territory highlights all the attackable territories from that spot (pulsing red along land borders and active sea links) for both players and spectators, making attack routes and board connectivity clear at a glance. The log shows each attack as one entry: who took (or failed to take) which territory, each side's armies at the start and end with the losses, the number of rolls and the armies moved in; hover it for the individual dice rolls. Runs of fogged events collapse into one line with a count. When you pick an attack, a **commit slider** sets how many armies to throw at it (the rest stay home; the blitz stops there) and shows the exact chance to take the territory with random dice and with balanced blitz, the average losses on each side, and one-click buttons for the commitment a 50%, 75%, 90% or 99% chance needs. Agents get the same as `stopAt` and a win chance next to each attack in their legal moves.
 Press **Bonuses** (on the map, in the spectator bar, or **B**) to see every region painted in its own colour with
 its bonus, no armies; neighbouring regions never share a colour, on the board or in this view.
+
+**Hex Earth** (`hexworld`) is shown as a **globe** you can spin: drag to turn it, wheel or pinch (or **+** / **−**) to
+zoom, **⟲** to go back to the start view. Its hexes are raised by army count, so big stacks stand out as plateaus, in
+the owner's colour; army badges float over each territory (hover one for its name), sea links are arcs over the
+oceans and the attack in progress is a red arc. The globe **follows the action** (it turns to each attack, capture and
+troop move, and spins slowly when nothing happens) until you grab it, then waits about 10 seconds before following
+again; **◎** turns following off. It never spins while you have a move to make, and with reduced motion it jumps
+instead of turning and never spins. **Flat** switches to the flat map of the same board (and **Globe** back; the
+choice is remembered in this browser); browsers without WebGL always get the flat map. The globe code (three.js)
+loads only when a globe is shown (`packages/client/src/components/GlobeMap.tsx`; the board data is in
+`packages/client/src/generated/hexworld.globe.json`, see [map-making.md](map-making.md#8-hex-globe-maps)).
 Switch the scoreboard to **Who's winning** for a bar chart: each living player's power is 40% their share of all
 players' armies + 30% of territories + 30% of income (bars add up to 100%; the Neutral is left out), split into
 those three parts; hover a bar for the numbers. Each row also shows the player's card count (yellow at 3, a set is

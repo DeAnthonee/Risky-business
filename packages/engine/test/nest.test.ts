@@ -149,4 +149,32 @@ describe('planToNest', () => {
     expect(boards[1][0]).toMatchObject({ map: 'world', seats: 10 });
     expect(boards[0].every((n) => getMap(n.map).maxPlayers === 4)).toBe(true);
   });
+
+  it('can play the final on Hex Earth: one portal per region at every final size', () => {
+    const finals = new Set<number>();
+    for (const players of [12, 21, 24, 27, 30, 64, 100, 128]) {
+      const plan = planNest(players);
+      const R = plan.rounds.length;
+      const { boards, nodes } = planToNest(plan, { seed: players, final: { map: 'hexworld' } });
+      const final = boards[R - 1][0];
+      expect(final).toMatchObject({ map: 'hexworld', seats: plan.rounds[R - 1][0].seats, depth: 0 });
+      const regions = final.portals.map((t) => MAPS.hexworld.territoryById[t].continent);
+      expect(new Set(regions).size).toBe(final.portals.length);
+      finals.add(final.seats);
+      // Every other table plays on a generated board inside a portal.
+      for (const n of nodes.slice(1)) expect(n.map.startsWith('gen1-')).toBe(true);
+    }
+    expect([...finals].sort((a, b) => a - b)).toEqual([6, 7, 8, 9, 10]);
+  });
+
+  it('nests boards in Hex Earth at 2 to 10 seats, and Hex Earth inside other boards', () => {
+    for (let seats = 2; seats <= 10; seats++) {
+      const [outer, ...kids] = resolveNest({ v: 1, seed: seats, board: { map: 'hexworld', seats }, inside: { gen: { seats: 4 } } });
+      expect(outer.portals).toHaveLength(seats);
+      expect(new Set(outer.portals.map((t) => MAPS.hexworld.territoryById[t].continent)).size).toBe(seats);
+      expect(kids.map((k) => k.portal)).toEqual(outer.portals);
+    }
+    const inner = resolveNest({ v: 1, seed: 3, board: { gen: { seats: 4 } }, inside: { map: 'hexworld', seats: 6 } });
+    expect(inner.slice(1).map((n) => [n.map, n.seats])).toEqual(Array(4).fill(['hexworld', 6]));
+  });
 });

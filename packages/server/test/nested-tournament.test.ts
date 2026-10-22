@@ -84,6 +84,15 @@ describe('nested tournaments', () => {
       const ok = await call('/admin/tournaments', post({ format: 'nested', name: 'Inception', finalMap: 'world' }), ADMIN);
       expect(ok.status).toBe(201);
       expect(ok.body.tournament).toMatchObject({ format: 'nested', map: 'nested', maxEntrants: 128, nested: { finalMap: 'world', territoriesPerSeat: 5, roundMinutes: 30, finishShare: 0.51, botDelayMs: 300, plan: null } });
+      // Hex Earth seats a final of 6-10 with a region per seat.
+      const hex = await call('/admin/tournaments', post({ format: 'nested', name: 'Hex final', finalMap: 'hexworld', seed: 11 }), ADMIN);
+      expect(hex.status).toBe(201);
+      expect(hex.body.tournament.nested).toMatchObject({ finalMap: 'hexworld' });
+      for (let i = 1; i <= 12; i++) await call(`/tournaments/${hex.body.tournament.id}/join`, post({ playerName: `H${i}` }));
+      expect((await call(`/tournaments/${hex.body.tournament.id}/start`, post(), hex.body.hostToken)).status).toBe(200);
+      const hexNodes = risk.store.tournaments.get(hex.body.tournament.id)!.nested!.nodes!;
+      expect(hexNodes[0]).toMatchObject({ map: 'hexworld', depth: 0 });
+      expect(hexNodes.slice(1).every((n) => n.map.startsWith('gen1-') && n.portal !== null)).toBe(true);
       // Tables run on a per-move turn timer by default.
       expect(ok.body.tournament.options).toMatchObject({ turnTimer: 'move', turnTimerSeconds: 90 });
       expect(await bad({ botDelayMs: 5000 })).toBe(400);

@@ -324,6 +324,20 @@ export interface RolloutNet {
   seats: 'all' | 'self';
 }
 
+/**
+ * Determinized search under fog of war (branchAgent's `fog`, DELOVE_BRANCH_FOG=determinize; docs/delove-fog.md
+ * section 4.2). In a fog game each rollout copy starts from a board `sample` draws from the seat's view (one board per
+ * rollout seed, the same boards for every option, so options still differ only in the decision), and there are at
+ * least `samples` copies per option. `anchor` makes the decisions that aren't branched and gives the option to beat by
+ * the margin (the ranker's top move, what the seat plays without fog search); the teacher's own pick on the view is
+ * the second option.
+ */
+export interface FogSearch {
+  anchor: StepPick;
+  sample: (state: GameState, me: PlayerId, random: () => number) => GameState;
+  samples: number;
+}
+
 /** The best logit's index and its gap to the second best (Infinity with one candidate). */
 function topGap(logits: Float32Array): { best: number; gap: number } {
   let best = 0;
@@ -400,6 +414,8 @@ export function branchAgent(
   /** Rates branch end positions when opts.valueWeight > 0 (a NetScorer with its .value.onnx). */
   valuer: NetScorer | null = null,
   rolloutNet: RolloutNet | null = null,
+  /** Determinized rollouts in fog games (FogSearch); without it, the copies are of the state as given. */
+  fog: FogSearch | null = null,
 ): Agent {
   return {
     id,
@@ -407,11 +423,17 @@ export function branchAgent(
       if (dctx.candidates.length === 0) return null;
       const base: StepContext = { ...dctx, fortifyFrom: null };
       branchStats.decisions++;
-      const teacherIndex = teacher(base);
-      if (!isImportant(dctx) || opts.skip.includes(dctx.candidates[teacherIndex][0])) return completeAction(base, teacherIndex, teacher);
+      const fogged = fog !== null && !!dctx.state.options.fogOfWar;
+      const lead = fogged ? fog.anchor : teacher;
+      const teacherIndex = lead(base);
+      if (!isImportant(dctx) || opts.skip.includes(dctx.candidates[teacherIndex][0])) return completeAction(base, teacherIndex, lead);
 
-      // Options: the teacher's move first, then the network's favourites.
+      // Options: the teacher's move first (under fog search: the anchor's, then the teacher's), then the network's favourites.
       const order: number[] = [teacherIndex];
+      if (fogged) {
+        const t = teacher(base);
+        if (!order.includes(t)) order.push(t);
+      }
       if (ranker) {
         const { logits } = ranker.score(base);
         const ranked = [...logits.keys()].sort((a, b) => logits[b] - logits[a]);
@@ -422,7 +444,7 @@ export function branchAgent(
       const actions: Action[] = [];
       const keys = new Set<string>();
       for (const i of order) {
-        const a = completeAction(base, i, teacher);
+        const a = completeAction(base, i, lead);
         const k = JSON.stringify(a);
         if (!keys.has(k)) (keys.add(k), actions.push(a));
       }
@@ -432,7 +454,9 @@ export function branchAgent(
       const kind = dctx.candidates[teacherIndex][0];
       branchStats.branchedByKind[kind] = (branchStats.branchedByKind[kind] ?? 0) + 1;
       const ds = decisionScore(opts, dctx.state.players.filter((p) => p.alive && !p.isNeutral).length);
-      const seeds = Array.from({ length: ds.rollouts }, () => Math.floor(dctx.random() * 0xffffffff) >>> 0);
+      const seeds = Array.from({ length: fogged ? Math.max(ds.rollouts, fog.samples) : ds.rollouts }, () => Math.floor(dctx.random() * 0xffffffff) >>> 0);
+      // Under fog search: one sampled board per seed, shared by every option (common random numbers).
+      const boards = fogged ? seeds.map((seed) => fog.sample(dctx.state, dctx.me, seededRandom(seed ^ 0x2545f491))) : null;
       const useValue = opts.valueWeight > 0 && valuer !== null;
       const ends: { option: number; state: GameState }[] = [];
       // with a rollout network: each copy's score and smallest logit gap, option by option (for the trace)
@@ -441,8 +465,10 @@ export function branchAgent(
         const parts: Score = { score: 0, armies: 0, income: 0, territories: 0, cards: 0, continents: 0, won: 0, lost: 0 };
         const mine: { score: number; gap: number }[] = [];
         copies.push(mine);
-        for (const seed of seeds) {
-          const copy: GameState = { ...dctx.state, rngState: seed, deck: shuffle(createRng(seed ^ 0x5bd1e995), dctx.state.deck) };
+        for (const [n, seed] of seeds.entries()) {
+          const copy: GameState = boards
+            ? { ...boards[n], rngState: seed }
+            : { ...dctx.state, rngState: seed, deck: shuffle(createRng(seed ^ 0x5bd1e995), dctx.state.deck) };
           let after: GameState;
           try {
             after = applyAction(copy, dctx.me, action).state;

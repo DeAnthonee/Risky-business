@@ -266,6 +266,31 @@ load, the wrapper's inputs against `packages/delove/python/fog.py` (`fogged=Fals
 ONNX seat replayed on the GPU (20/20 games, 4,752/4,752 top moves the same on the RTX 4060). `verify.py --model` with a
 fog model replays such games too.
 
+### T2: network incumbent and opponent styles
+
+`--incumbent net` and `--styles net:0.4,aggr:0.2,turtle:0.2,zerg:0.2` (with `--rollout MODEL`) mirror branch.ts's
+`incumbent` and `styles` (packages/delove/README.md, "T2, the bootstrapped teacher").
+
+- **Incumbent:** the ranker's top move becomes option 0 (the margin rule's), the teacher's move option 1, then the
+  ranker's next favourites.
+- **Styles:** each copy's seats get a code from `copy_styles` (the same mulberry32 draws as `styles.ts` `copyStyles`):
+  255 for the network (the decider's seat always), else a teacher row.
+  - The style rows are the rollout teacher's row 0 with `STYLE_SCALES` applied to both halves, appended to the copies'
+    rows.
+  - `k_branch_roll` (mode 3) plays each teacher seat with its row (`seat_tp`) on the copy's one stream, and stops at
+    network seats, which `_net_rollouts` plays in lockstep as for `netself`.
+- **Proof:**
+  - `tests/styles_check.py` (CPU): 3 mixes × 3,000 copies at 2-10 seats, every seat the same style; the 9 style
+    teachers' numbers equal `styleParams` exactly.
+  - `tests/branch_replay.py --incumbent net --styles ...` (verify.py log `branch-t2`), on the RTX 4060: 12 Classic 4p
+    games (delove-branch@1 against three Jacob Sensei seats, ranker and rollout network `delove@2`).
+    - 2,260 of 2,261 decisions the same pick, and all 1,234 branched decisions with the CPU's options had identical
+      mean scores.
+    - Of 22,212 rollout copies, 22,211 were identical; 1 was a rollout near-tie.
+    - One decision ordered its options differently: two attacks' ranker logits are 9e-7 apart (an ONNX vs PyTorch
+      near-tie). The network incumbent makes such ties matter at the top too. The replay now prints the GPU logits of
+      the options that differ.
+
 ### Proof that they match the TypeScript
 
 ```bash

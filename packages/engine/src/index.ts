@@ -13,3 +13,4 @@ export * from './standing.js';
 export * from './ranking.js';
 export * from './board-names.js';
 export * from './record.js';
+export * from './nest-start.js';

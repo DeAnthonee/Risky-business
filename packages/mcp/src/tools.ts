@@ -901,20 +901,24 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
     },
   );
 
-  // TEMPORARY (testing): create/start in the MCP, and no admin key needed to create while the server has tournaments open.
-  // Before launch: remove these two tools (and turn RISK_TOURNAMENTS_OPEN off) so only the host creates tournaments.
+  // Create/start, locked behind the owner's hosting codes (owner, 2026-10-22): the server checks the code, its caps and
+  // its wrong-try limits (server tournament-access.ts).
   /** Host tokens of the tournaments this connection created, by tournament id: start_tournament uses them. */
   const hosted = new Map<string, string>();
-  const adminKeySchema = z
+  const adminKeySchema = z.string().min(1).optional().describe("The server's admin key (RISK_ADMIN_TOKEN), which only the site's owner has. Hosts use a code instead.");
+  const codeSchema = z
     .string()
     .min(1)
+    .max(200)
     .optional()
-    .describe("Not needed while tournaments are open for testing. Otherwise the server's admin key (RISK_ADMIN_TOKEN), which only the host has.");
+    .describe('A hosting code from the site owner (needed once the server has codes set). Wrong codes are limited per address, then locked out for an hour.');
   server.registerTool(
     'create_tournament',
     {
-      description: 'Create a tournament that players and agents can join (open to anyone while tournaments are being tested; later host only). Settings: map and other game options for every table, seats per table (groupSize), entrant cap, and whether to fill round 1 with bots. Seat counts: zergs (added at once), delove and open; with counts, the entrant cap defaults to their sum. preview_tournament shows the breakdown first. ' + DELOVE_SEATS_NOTE,
+      description:
+        "Create a tournament that players and agents can join. Needs a hosting code from the site owner (`code`) unless the server is in open mode. The server caps how many tournaments run at once, seats per tournament and in total, and creates per day, and pauses creates while it is busy. Settings: map and other game options for every table, seats per table (groupSize), entrant cap, and whether to fill round 1 with bots. Seat counts: zergs (added at once), delove and open; with counts, the entrant cap defaults to their sum. preview_tournament shows the breakdown first. " + DELOVE_SEATS_NOTE,
       inputSchema: {
+        code: codeSchema,
         adminKey: adminKeySchema,
         name: z.string().max(60).optional(),
         options: optionsSchema,
@@ -930,9 +934,9 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
         ...seatCountsSchema,
       },
     },
-    async ({ adminKey, name, options, groupSize, maxEntrants, fillBots, format, finalMap, territoriesPerSeat, roundMinutes, finishShare, botDelayMs, zergs, delove, open }) => {
+    async ({ code, adminKey, name, options, groupSize, maxEntrants, fillBots, format, finalMap, territoriesPerSeat, roundMinutes, finishShare, botDelayMs, zergs, delove, open }) => {
       try {
-        const { hostToken, tournament } = await api.createTournament(adminKey, { name, options: options as Partial<GameOptions> | undefined, groupSize, maxEntrants, fillBots, format, finalMap, territoriesPerSeat, roundMinutes, finishShare, botDelayMs, zergs, delove, open });
+        const { hostToken, tournament } = await api.createTournament(adminKey, { name, options: options as Partial<GameOptions> | undefined, groupSize, maxEntrants, fillBots, format, finalMap, territoriesPerSeat, roundMinutes, finishShare, botDelayMs, zergs, delove, open, ...(code ? { code } : {}) });
         hosted.set(tournament.id, hostToken);
         return text(
           `Created tournament ${tournament.id}. HOST TOKEN: ${hostToken}  <- keep it secret: only it (or the admin key) starts this tournament. start_tournament remembers it on this connection; pass it as "hostToken" from another one.\n` +
@@ -970,17 +974,20 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
   server.registerTool(
     'start_tournament',
     {
-      description: "Close registration and seat round 1 of a tournament. Only its host can: the host token create_tournament returned (remembered on the connection that created it), or the server's admin key.",
+      description:
+        "Close registration and seat round 1 of a tournament. Only its host can: the host token create_tournament returned (remembered on the connection that created it), a hosting code (the admin code starts any tournament, the limited code those made with it), or the server's admin key.",
       inputSchema: {
+        code: codeSchema,
         adminKey: adminKeySchema,
         tournamentId: tournamentIdSchema,
         hostToken: z.string().min(1).optional().describe('The host token create_tournament returned. Not needed on the connection that created the tournament.'),
       },
     },
-    async ({ adminKey, tournamentId, hostToken }) => {
+    async ({ code, adminKey, tournamentId, hostToken }) => {
       try {
         const id = tournamentId.toUpperCase();
-        const { tournament } = await api.startTournament(adminKey ?? hostToken ?? hosted.get(id), id);
+        const key = adminKey ?? hostToken ?? hosted.get(id);
+        const { tournament } = await api.startTournament(key, id, key ? undefined : code);
         return text(`Tournament started.\n\n${formatTournament(tournament)}`);
       } catch (e) {
         return errorText(e);

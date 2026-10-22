@@ -333,3 +333,20 @@ describe('scheduled nested tournaments', () => {
     await client.close();
   });
 });
+
+describe('a slot whose tournament is gone', () => {
+  it('moves on when its tournament was called off or deleted before the start (expiry, the admin)', () => {
+    for (const end of ['cancel', 'delete'] as const) {
+      const clock = new FakeClock(NOON + H); // 13:00: sign-up opens at once
+      const store = new Store(null, {}, { clock });
+      const sched = new TournamentScheduler(store.tournaments, parseSchedule(DAILY, store.tournaments), null);
+      const [id] = [...store.tournaments.tournaments.keys()];
+      if (end === 'cancel') store.tournaments.cancel(id, 'expired: never started');
+      else store.tournaments.delete(id);
+      expect(() => clock.advance(H)).not.toThrow(); // 14:00, the start
+      expect(sched.next().next).toMatchObject({ startsAt: Date.UTC(2026, 9, 23, 14, 0) });
+      sched.stop();
+      store.stopTimers();
+    }
+  });
+});

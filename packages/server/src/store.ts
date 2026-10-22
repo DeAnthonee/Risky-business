@@ -30,7 +30,7 @@ import {
 import { timeoutSteps, timerOf, type RecordDecision } from '@risk/engine';
 import { BigMoveTracker, ReactionPacer, bigMoveMessage } from './reactions.js';
 import { chooseSeatAction, isZergSeat, seatIdPrefix, zergName, type BotKind } from './bot.js';
-import { DEFAULT_TOURNAMENT_LIMITS, TournamentManager, type TournamentClock } from './tournaments.js';
+import { DEFAULT_TOURNAMENT_LIMITS, TournamentManager, type TournamentClock, type TournamentTableRef } from './tournaments.js';
 import { QuickPlayQueue, quickPlayConfigFromEnv } from './quick-play.js';
 import { TournamentRankings } from './tournament-scoring.js';
 import type { TournamentScheduler } from './tournament-schedule.js';
@@ -176,6 +176,8 @@ export interface GameSummary {
   scenarioOf?: ScenarioRef;
   /** Set on a tournament table: the tournament it belongs to. */
   tournamentId?: string;
+  /** A tournament table in the games list: which tournament, round and table (the lobby badge). */
+  tournament?: TournamentTableRef;
   /** A nested-tournament table decided on standing at its round's end (ms): the game will not go on. */
   decidedAt?: number;
   /** "training": a yardstick game ranked on the training leaderboard. Absent = public. */
@@ -1224,7 +1226,11 @@ export class Store {
 
   list(): GameSummary[] {
     return [...this.rooms.values()]
-      .map((r) => r.summary())
+      .map((r) => {
+        const s = r.summary();
+        const table = r.tournamentId ? this.tournaments.tableOf(r.tournamentId, r.id) : null;
+        return table ? { ...s, tournament: table } : s;
+      })
       .sort((a, b) => b.updatedAt - a.updatedAt);
   }
 

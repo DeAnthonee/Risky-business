@@ -5,14 +5,17 @@ import { Lobby } from './components/Lobby';
 import { Game } from './components/Game';
 import { AutoAdvance, isGenerationGame, useLiveGame, type AutoSpectate } from './components/AutoAdvance';
 import { Tournament } from './components/Tournament';
+import { CreateTournament } from './components/CreateTournament';
 import {
   clearSession,
   gameIdFromUrl,
   getName,
+  hostFormFromUrl,
   getSession,
   saveSession,
   setGameInUrl,
   setName as persistName,
+  setHostFormInUrl,
   setTournamentInUrl,
   spectateFromUrl,
   tournamentIdFromUrl,
@@ -31,6 +34,8 @@ export function App() {
   const [name, setNameState] = useState(getName());
   // The tournament being followed: leaving one of its games comes back to its bracket.
   const [tournamentId, setTournamentId] = useState<string | null>(() => tournamentIdFromUrl());
+  // ?host=1: the Create tournament form (links to it come from the home page).
+  const [hosting, setHosting] = useState(() => hostFormFromUrl());
 
   useEffect(() => {
     // The stream keeps its URL (`?spectate=1`), so a reload tunes back into whatever is live.
@@ -40,6 +45,9 @@ export function App() {
   useEffect(() => {
     setTournamentInUrl(tournamentId);
   }, [tournamentId]);
+  useEffect(() => {
+    setHostFormInUrl(hosting);
+  }, [hosting]);
 
   const firstLive = useLiveGame(autoSpectate && !gameId, null);
   useEffect(() => {
@@ -73,6 +81,14 @@ export function App() {
     setAutoSpectate(false);
   };
 
+  // A tournament table's banner: to its bracket. The seat's session is kept, so "Play your table" brings you back.
+  const openTournament = (id: string) => {
+    setTournamentId(id);
+    setGameId(null);
+    setSpectating(false);
+    setAutoSpectate(false);
+  };
+
   const startAutoSpectate = () => {
     setGameId(null);
     setSpectating(true);
@@ -81,6 +97,18 @@ export function App() {
 
   // Stable, so the countdown's effects do not restart on every render. Staying ends auto-spectate for good.
   const auto = useMemo<AutoSpectate>(() => ({ advance: (id) => setGameId(id), stay: () => setAutoSpectate(false) }), []);
+
+  if (!gameId && !tournamentId && hosting) {
+    return (
+      <CreateTournament
+        onOpen={(id) => {
+          setHosting(false);
+          setTournamentId(id);
+        }}
+        onBack={() => setHosting(false)}
+      />
+    );
+  }
 
   if (!gameId && tournamentId) {
     return <Tournament id={tournamentId} name={name} setName={setName} onPlay={enter} onWatch={watch} onBack={() => setTournamentId(null)} />;
@@ -117,6 +145,7 @@ export function App() {
           setAutoSpectate(false);
         }}
         onWatch={watch}
+        onOpenTournament={openTournament}
         autoSpectate={autoSpectate ? auto : undefined}
       />
     );
@@ -135,7 +164,7 @@ export function App() {
     );
   }
 
-  return <Connected gameId={gameId} session={session} onLeave={leaveToHome} />;
+  return <Connected gameId={gameId} session={session} onLeave={leaveToHome} onOpenTournament={openTournament} />;
 }
 
 function Connected({
@@ -145,6 +174,7 @@ function Connected({
   onLeave,
   onJoin,
   onWatch,
+  onOpenTournament,
   autoSpectate,
 }: {
   gameId: string;
@@ -153,6 +183,7 @@ function Connected({
   onLeave: () => void;
   onJoin?: () => void;
   onWatch?: (id: string) => void;
+  onOpenTournament?: (id: string) => void;
   /** Auto-spectate viewers only: move on to another live game when this one ends or closes. */
   autoSpectate?: AutoSpectate;
 }) {
@@ -200,7 +231,7 @@ function Connected({
     );
   }
   if (conn.view.phase === 'lobby') return <Lobby conn={conn} gameId={gameId} session={spectating ? null : session} onLeave={onLeave} onJoin={onJoin} />;
-  return <Game conn={conn} gameId={gameId} session={spectating ? null : session} onLeave={onLeave} onJoin={onJoin} autoSpectate={auto} isGeneration={isGen} />;
+  return <Game conn={conn} gameId={gameId} session={spectating ? null : session} onLeave={onLeave} onJoin={onJoin} autoSpectate={auto} isGeneration={isGen} onOpenTournament={onOpenTournament} />;
 }
 
 function JoinPrompt({

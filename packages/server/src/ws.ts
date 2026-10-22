@@ -204,7 +204,9 @@ export function attachWebSocket(server: Server, store: Store, commit: () => stri
             };
             r.on('closed', onClosed);
             enter(r, playerId);
-            send({ type: 'state', state: playerId ? r.view(playerId) : r.spectatorView(), events: [], version: r.state.version, host: r.hostId, name: r.name, you: playerId, commit: commit(), reqId: msg.reqId });
+            // The first state says which tournament table this is, if any (the in-game banner); it never changes.
+            const table = r.tournamentId ? store.tournaments.tableOf(r.tournamentId, r.id) : null;
+            send({ type: 'state', state: playerId ? r.view(playerId) : r.spectatorView(), events: [], version: r.state.version, host: r.hostId, name: r.name, you: playerId, commit: commit(), reqId: msg.reqId, ...(table ? { tournament: table } : {}) });
             send({ type: 'chat_history', messages: r.chatFor(playerId).slice(-100) });
             return;
           }

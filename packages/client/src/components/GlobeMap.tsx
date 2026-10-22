@@ -683,201 +683,6 @@ export default function GlobeMap(props: Props) {
 }
 
 /**
- * A light globe for the Inception view of a nested tournament: one hex-globe board coloured by `fill` (the table's
- * holders, or regions before the deal), its portal territories raised in gold. Click a portal to zoom into the board
- * inside it (the flat sub-board); drag to spin, wheel or pinch to zoom. It spins slowly by itself unless the viewer
- * prefers reduced motion. No game state: the Inception view hands it colours only.
- */
-export function InceptionGlobe({
-  globe,
-  fill,
-  portals,
-  labelOf,
-  onPortal,
-}: {
-  globe: GlobeData;
-  /** Colour of each territory (by id). */
-  fill: (territory: string) => string;
-  portals: string[];
-  labelOf: (territory: string) => string;
-  onPortal: (territory: string) => void;
-}) {
-  const shape = useMemo(() => buildShape(globe), [globe]);
-  const wrapRef = useRef<HTMLDivElement>(null);
-  const [hover, setHover] = useState<string | null>(null);
-  const live = useRef({ fill, portals, onPortal });
-  live.current = { fill, portals, onPortal };
-  const repaint = useRef<() => void>(() => undefined);
-
-  useEffect(() => {
-    const wrap = wrapRef.current;
-    if (!wrap) return;
-    let renderer: THREE.WebGLRenderer;
-    try {
-      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    } catch {
-      return;
-    }
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-    renderer.domElement.className = 'globe-canvas';
-    wrap.prepend(renderer.domElement);
-    const scn = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(35, 1, 0.05, 50);
-    scn.add(new THREE.AmbientLight(0xffffff, 0.85));
-    const sun = new THREE.DirectionalLight(0xffffff, 1.4);
-    sun.position.set(2, 3, 4);
-    camera.add(sun);
-    scn.add(camera);
-    const controls = new OrbitControls(camera, renderer.domElement);
-    controls.enableDamping = true;
-    controls.enablePan = false;
-    controls.minDistance = 1.45;
-    controls.maxDistance = 4.6;
-    controls.autoRotateSpeed = 0.35;
-    controls.autoRotate = !reducedMotion();
-    // Start facing the portals.
-    const facing = live.current.portals.map((t) => shape.badgeDir.get(t)?.clone()).filter(Boolean) as THREE.Vector3[];
-    const home = facing.reduce((s, v) => s.add(v), new THREE.Vector3());
-    camera.position.copy(home.lengthSq() > 1e-6 ? home.normalize() : lonLatToVec(10, 20)).multiplyScalar(4);
-    controls.update();
-
-    const disposables: { dispose: () => void }[] = [];
-    const keep = <T extends { dispose: () => void }>(x: T) => (disposables.push(x), x);
-    scn.add(new THREE.Mesh(keep(new THREE.SphereGeometry(0.997, 64, 48)), keep(new THREE.MeshStandardMaterial({ color: 0x2c6e8a, roughness: 1 }))));
-    const geo = keep(new THREE.BufferGeometry());
-    const mesh = new THREE.Mesh(geo, keep(new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.8, side: THREE.DoubleSide })));
-    scn.add(mesh);
-    const lines = keep(new THREE.BufferGeometry());
-    scn.add(new THREE.LineSegments(lines, keep(new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.45 }))));
-    let triCell: number[] = [];
-
-    const paint = () => {
-      const { fill: colour, portals: gates } = live.current;
-      const portalSet = new Set(gates);
-      const pos: number[] = [];
-      const col: number[] = [];
-      triCell = [];
-      const c = new THREE.Color();
-      const heightOf = (t: number) => (t >= 0 ? (portalSet.has(globe.territories[t]) ? LAND + 0.03 : LAND) : t === -2 ? ICE : 1);
-      globe.cells.forEach((cell, ci) => {
-        const id = cell.t >= 0 ? globe.territories[cell.t] : null;
-        const h = heightOf(cell.t);
-        if (id && portalSet.has(id)) c.set('#f2c14e');
-        else if (id) c.set(colour(id));
-        else c.set(cell.t === -2 ? '#e6edf5' : '#3b86a8');
-        c.offsetHSL(0, 0, (((ci * 7) % 5) - 2) * 0.01);
-        const side = c.clone().multiplyScalar(0.6);
-        const ctr = shape.centres[ci].clone().multiplyScalar(h);
-        const ring = cell.v.map((k) => shape.corners[k].clone().multiplyScalar(h));
-        const base = cell.v.map((k) => shape.corners[k].clone().multiplyScalar(0.999));
-        const put = (p: THREE.Vector3, k: THREE.Color) => {
-          pos.push(p.x, p.y, p.z);
-          col.push(k.r, k.g, k.b);
-        };
-        for (let j = 0; j < ring.length; j++) {
-          const n = (j + 1) % ring.length;
-          put(ctr, c), put(ring[n].clone().lerp(ctr, 0.035), c), put(ring[j].clone().lerp(ctr, 0.035), c);
-          triCell.push(ci);
-          if (h > 1) {
-            put(ring[j], side), put(ring[n], side), put(base[j], side);
-            put(ring[n], side), put(base[n], side), put(base[j], side);
-            triCell.push(ci, ci);
-          }
-        }
-      });
-      geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-      geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
-      geo.computeBoundingSphere();
-      const seg: number[] = [];
-      for (const [p, q, a, b] of shape.borders) {
-        const r = Math.max(heightOf(globe.cells[a].t), heightOf(globe.cells[b].t)) + 0.0008;
-        const [A, B] = [shape.corners[p].clone().multiplyScalar(r), shape.corners[q].clone().multiplyScalar(r)];
-        seg.push(A.x, A.y, A.z, B.x, B.y, B.z);
-      }
-      lines.setAttribute('position', new THREE.Float32BufferAttribute(seg, 3));
-    };
-    paint();
-    repaint.current = paint;
-
-    const ray = new THREE.Raycaster();
-    const ndc = new THREE.Vector2();
-    const pick = (e: PointerEvent): string | null => {
-      const r = renderer.domElement.getBoundingClientRect();
-      ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
-      ray.setFromCamera(ndc, camera);
-      const hit = ray.intersectObject(mesh, false)[0];
-      if (!hit || hit.faceIndex == null) return null;
-      const t = globe.cells[triCell[hit.faceIndex]]?.t ?? -1;
-      return t >= 0 ? globe.territories[t] : null;
-    };
-    const isPortal = (id: string | null): id is string => !!id && live.current.portals.includes(id);
-    let down: { x: number; y: number } | null = null;
-    const el = renderer.domElement;
-    const onDown = (e: PointerEvent) => {
-      down = { x: e.clientX, y: e.clientY };
-      controls.autoRotate = false; // grabbed: stop spinning for good
-    };
-    const onUp = (e: PointerEvent) => {
-      if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) < 6) {
-        const id = pick(e);
-        if (isPortal(id)) live.current.onPortal(id);
-      }
-      down = null;
-    };
-    const onMove = (e: PointerEvent) => {
-      if (e.buttons) return;
-      const id = pick(e);
-      setHover(isPortal(id) ? id : null);
-      el.style.cursor = isPortal(id) ? 'pointer' : '';
-    };
-    el.addEventListener('pointerdown', onDown);
-    el.addEventListener('pointerup', onUp);
-    el.addEventListener('pointermove', onMove);
-    const resize = () => {
-      const w = wrap.clientWidth || 1;
-      const h = wrap.clientHeight || 1;
-      renderer.setSize(w, h, false);
-      camera.aspect = w / h;
-      camera.fov = w >= h ? 35 : Math.min(70, 2 * Math.atan(Math.tan((35 * Math.PI) / 360) / camera.aspect) * (180 / Math.PI));
-      camera.updateProjectionMatrix();
-    };
-    const ro = new ResizeObserver(resize);
-    ro.observe(wrap);
-    resize();
-    let raf = 0;
-    const frame = () => {
-      raf = requestAnimationFrame(frame);
-      controls.update();
-      renderer.render(scn, camera);
-    };
-    raf = requestAnimationFrame(frame);
-    return () => {
-      cancelAnimationFrame(raf);
-      ro.disconnect();
-      el.removeEventListener('pointerdown', onDown);
-      el.removeEventListener('pointerup', onUp);
-      el.removeEventListener('pointermove', onMove);
-      controls.dispose();
-      for (const d of disposables) d.dispose();
-      renderer.dispose();
-      el.remove();
-      repaint.current = () => undefined;
-    };
-  }, [globe, shape]);
-
-  // New holders or portals: repaint the hexes.
-  useEffect(() => {
-    repaint.current();
-  }, [fill, portals]);
-
-  return (
-    <div ref={wrapRef} className="inception-globe">
-      {hover && <div className="globe-hover-name">Zoom into {labelOf(hover)}</div>}
-    </div>
-  );
-}
-
-/**
  * The live globe of a nested tournament: the boards of the round in play tile the sphere (globeLayout.ts), each drawn
  * as a patch in its holders' colours and repainted as the tournament feed changes. Click a patch to focus its table
  * (the side panel offers Watch table); the camera turns to the focused table. Spins slowly until grabbed, never with
@@ -895,6 +700,7 @@ export function LiveGlobe({
   labelOf,
   onPick,
   version,
+  globe,
 }: {
   nodes: readonly NestNode[];
   /** The depth of the round in play: its boards are drawn. */
@@ -911,12 +717,14 @@ export function LiveGlobe({
   onPick: (node: number) => void;
   /** Changes whenever the colours may have changed (the feed): the patches are repainted. */
   version: unknown;
+  /** The final's board as a globe, when the round in play is a final on a hex-globe board (Hex Earth). */
+  globe?: GlobeData | null;
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const labelRefs = useRef(new Map<number, HTMLDivElement>());
   const patches = useMemo(() => livePatches(nodes, depth, mapOf), [nodes, depth, mapOf]);
-  const live = useRef({ fill, armiesOf, attackOf, focus, onPick, patches, nodes, mapOf, depth });
-  live.current = { fill, armiesOf, attackOf, focus, onPick, patches, nodes, mapOf, depth };
+  const live = useRef({ fill, armiesOf, attackOf, focus, onPick, patches, nodes, mapOf, depth, globe });
+  live.current = { fill, armiesOf, attackOf, focus, onPick, patches, nodes, mapOf, depth, globe };
   const api = useRef<{ repaint: () => void; focusOn: (i: number) => void; show: () => void } | null>(null);
   const [hover, setHover] = useState<number | null>(null);
 
@@ -1014,9 +822,11 @@ export function LiveGlobe({
     // A new set of boards: the old round shrinks into its portals on the new boards (a round advanced), or is
     // simply replaced (first draw, a jump, reduced motion).
     const show = () => {
-      const { patches: next, nodes: tree, mapOf: boardOf } = live.current;
+      const { patches: laid, nodes: tree, mapOf: boardOf, depth: level, globe: final } = live.current;
       const old = layer;
-      layer = buildLayer(next, tree, boardOf);
+      const onGlobe = level === 0 && !!final;
+      layer = onGlobe ? buildGlobeLayer(final!, tree) : buildLayer(laid, tree, boardOf);
+      const next = layer.patches;
       layer.paint(live.current.fill);
       layer.setHeights(live.current.armiesOf);
       scn.add(layer.group);
@@ -1029,7 +839,9 @@ export function LiveGlobe({
         const advanced = old.order.length > 0 && old.order.every((i) => tree[i]?.parent !== null && next.has(tree[i].parent!));
         if (advanced && !reducedMotion()) {
           const from = new Map(old.order.map((i) => [i, old.patches.get(i)!]));
-          const to = new Map(old.order.map((i) => [i, shrinkTarget(tree, boardOf, i, next.get(tree[i].parent!)!, old.patches.get(i)!)]));
+          const to = new Map(
+            old.order.map((i) => [i, onGlobe ? shrinkToGlobe(final!, tree, boardOf, i, old.patches.get(i)!) : shrinkTarget(tree, boardOf, i, next.get(tree[i].parent!)!, old.patches.get(i)!)]),
+          );
           leaving = { layer: old, from, to, t0: performance.now() };
           layer.setOpacity(0);
         } else {
@@ -1047,7 +859,7 @@ export function LiveGlobe({
     let turn: { from: THREE.Vector3; to: THREE.Vector3; dist: number; t0: number } | null = null;
     const focusOn = (i: number) => {
       showFocus();
-      const p = live.current.patches.get(i);
+      const p = layer?.patches.get(i);
       if (!p) return;
       const to = new THREE.Vector3(...p.centre);
       const dist = camera.position.length();
@@ -1154,7 +966,7 @@ export function LiveGlobe({
       const rect = el.getBoundingClientRect();
       camDir.copy(camera.position).normalize();
       for (const [i, node] of labelRefs.current) {
-        const p = live.current.patches.get(i);
+        const p = layer?.patches.get(i);
         if (!p || leaving) {
           node.style.opacity = '0';
           continue;
@@ -1190,7 +1002,7 @@ export function LiveGlobe({
 
   useEffect(() => {
     api.current?.show();
-  }, [patches]);
+  }, [patches, globe]);
   useEffect(() => {
     api.current?.repaint();
   }, [version, fill]);
@@ -1410,3 +1222,130 @@ function lerpPatch(a: Patch, b: Patch, t: number): Patch {
   const c: Vec3 = [centre[0] / l, centre[1] / l, centre[2] / l];
   return { ...a, centre: c, ...frameAt(c), k: a.k * (b.k / a.k) ** t };
 }
+
+/**
+ * The round in play when it is a final on a hex-globe board (Hex Earth): the whole globe is that board, its hexes in
+ * the final table's colours (portals show the arriving winners before the deal), raised with their armies. It is a
+ * layer like a round of patches, so the previous round shrinks into it. Its one "patch" is the final itself, centred
+ * between its portals (for the camera and the label).
+ */
+function buildGlobeLayer(globe: GlobeData, nodes: readonly NestNode[]): Layer {
+  const shape = buildShape(globe);
+  const root = nodes.findIndex((n) => n.parent === null);
+  const portals = nodes[root]?.portals ?? [];
+  // A portal hex picks the board inside it (zoom into the flat sub-board); any other hex picks the final.
+  const insideOf = new Map(portals.map((t) => [t, nodes.findIndex((n) => n.parent === root && n.portal === t)]));
+  const between = new THREE.Vector3();
+  for (const t of portals) {
+    const d = shape.badgeDir.get(t);
+    if (d) between.add(d);
+  }
+  const centre: Vec3 = between.lengthSq() > 1e-6 ? (between.normalize().toArray() as Vec3) : [0, 0, 1];
+  const patches = new Map<number, Patch>([[root, { centre, ...frameAt(centre), k: 0, cu: 0, cv: 0 }]]);
+
+  const group = new THREE.Group();
+  const geo = new THREE.BufferGeometry();
+  const mat = new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.8, side: THREE.DoubleSide, transparent: true });
+  const mesh = new THREE.Mesh(geo, mat);
+  group.add(mesh);
+  const lines = new THREE.BufferGeometry();
+  const lineMat = new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.45 });
+  group.add(new THREE.LineSegments(lines, lineMat));
+  const triNode: number[] = [];
+  let fillOf: (node: number, territory: string) => string = () => '#888';
+  let armiesOf: (node: number, territory: string) => number | null = () => null;
+
+  const build = () => {
+    const pos: number[] = [];
+    const col: number[] = [];
+    triNode.length = 0;
+    const c = new THREE.Color();
+    const heights = new Map<string, number>();
+    const heightOf = (t: number) => {
+      if (t < 0) return t === -2 ? ICE : 1;
+      const id = globe.territories[t];
+      if (!heights.has(id)) heights.set(id, heightFor(armiesOf(root, id) ?? 0));
+      return heights.get(id)!;
+    };
+    globe.cells.forEach((cell, ci) => {
+      const id = cell.t >= 0 ? globe.territories[cell.t] : null;
+      const h = heightOf(cell.t);
+      if (id) c.set(fillOf(root, id));
+      else c.set(cell.t === -2 ? '#e6edf5' : '#3b86a8');
+      c.offsetHSL(0, 0, (((ci * 7) % 5) - 2) * 0.01);
+      const side = c.clone().multiplyScalar(0.6);
+      const ctr = shape.centres[ci].clone().multiplyScalar(h);
+      const ring = cell.v.map((k) => shape.corners[k].clone().multiplyScalar(h));
+      const base = cell.v.map((k) => shape.corners[k].clone().multiplyScalar(0.999));
+      const pick = id && insideOf.has(id) && insideOf.get(id)! >= 0 ? insideOf.get(id)! : root;
+      const put = (p: THREE.Vector3, k: THREE.Color) => {
+        pos.push(p.x, p.y, p.z);
+        col.push(k.r, k.g, k.b);
+      };
+      for (let j = 0; j < ring.length; j++) {
+        const n = (j + 1) % ring.length;
+        put(ctr, c), put(ring[n].clone().lerp(ctr, 0.035), c), put(ring[j].clone().lerp(ctr, 0.035), c);
+        triNode.push(pick);
+        if (h > 1) {
+          put(ring[j], side), put(ring[n], side), put(base[j], side);
+          put(ring[n], side), put(base[n], side), put(base[j], side);
+          triNode.push(pick, pick);
+        }
+      }
+    });
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    geo.computeBoundingSphere();
+    const seg: number[] = [];
+    for (const [p, q, a, b] of shape.borders) {
+      const r = Math.max(heightOf(globe.cells[a].t), heightOf(globe.cells[b].t)) + 0.0008;
+      const [A, B] = [shape.corners[p].clone().multiplyScalar(r), shape.corners[q].clone().multiplyScalar(r)];
+      seg.push(A.x, A.y, A.z, B.x, B.y, B.z);
+    }
+    lines.setAttribute('position', new THREE.Float32BufferAttribute(seg, 3));
+  };
+  build();
+
+  return {
+    group,
+    mesh,
+    triNode,
+    order: [root],
+    patches,
+    frames: [],
+    paint(fill) {
+      fillOf = fill;
+      build();
+    },
+    setHeights(armies) {
+      armiesOf = armies;
+      build();
+    },
+    place() {
+      // The globe never moves.
+    },
+    setOpacity(o) {
+      mat.opacity = o;
+      lineMat.opacity = 0.45 * o;
+      group.visible = o > 0.001;
+    },
+    dispose() {
+      for (const x of [geo, lines, mat, lineMat]) x.dispose();
+    },
+  };
+}
+
+/** Where a board ends up when the final is a hex-globe board: on its portal's hexes, shrunk to that territory's size. */
+function shrinkToGlobe(globe: GlobeData, nodes: readonly NestNode[], mapOf: (id: string) => MapDef, node: number, from: Patch): Patch {
+  const shape = globeShapes.get(globe) ?? globeShapes.set(globe, buildShape(globe)).get(globe)!;
+  const dir = shape.badgeDir.get(nodes[node].portal ?? '');
+  if (!dir) return { ...from, k: from.k * 0.05 };
+  const centre = dir.toArray() as Vec3;
+  const t = globe.territories.indexOf(nodes[node].portal!);
+  const cells = globe.cells.filter((c) => c.t === t).length || 1;
+  // A hex is about 0.1 rad across at frequency 12: a territory of n hexes is about 0.05 * sqrt(n) rad in radius.
+  const radius = (0.6 / globe.frequency) * Math.sqrt(cells);
+  const [x0, y0, x1, y1] = landBox(mapOf(nodes[node].map));
+  return { ...from, centre, ...frameAt(centre), k: radius / (Math.hypot(x1 - x0, y1 - y0) / 2) };
+}
+const globeShapes = new WeakMap<GlobeData, Shape>();

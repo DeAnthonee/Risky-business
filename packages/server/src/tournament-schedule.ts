@@ -231,7 +231,12 @@ export class TournamentScheduler {
       }
     }
     if (now < slot.startsAt) return slot.startsAt;
-    const t = this.tournaments.get(slot.tournamentId!)!;
+    const t = this.tournaments.get(slot.tournamentId!);
+    // Deleted, or called off already (expired: tournament-access.ts): nothing to start.
+    if (!t || t.status !== 'registering') {
+      slot.done = true;
+      return this.step(e);
+    }
     // Only people who checked in count; the rest are no-shows, swapped for Zergs at the start.
     const people = t.entrants.filter((x) => !x.isBot && x.checkedInAt).length;
     // Late by more than a round (the server was down at the start): call it off rather than start at a surprise time.

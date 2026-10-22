@@ -7,6 +7,7 @@ import { parseDecisionNote, type GameRoom, type Store } from './store.js';
 import { QuickPlayBusyError } from './quick-play.js';
 import { RateLimitedError } from './rate-limit.js';
 import type { CharacterStore } from './characters.js';
+import { NO_TOURNEY_CAPS, TournamentAccess } from './tournament-access.js';
 
 /** RiskApi implemented directly over the in-memory store (for the embedded /mcp endpoint). */
 export class LocalRiskApi implements RiskApi {
@@ -14,10 +15,12 @@ export class LocalRiskApi implements RiskApi {
     private store: Store,
     private characters: CharacterStore,
     private adminToken: string | null = null,
-    /** TEMPORARY (testing): creating tournaments needs no admin key. */
+    /** Open mode (RISK_TOURNAMENTS_OPEN): creating tournaments needs no code. */
     private openTournaments = false,
-    /** The connection's client (IP address) for per-client limits (quick play); null = not limited. */
+    /** The connection's client (IP address) for per-client limits (quick play, wrong hosting codes); null = not limited. */
     private client: string | null = null,
+    /** Hosting codes, caps and expiry (shared with the HTTP API). */
+    private access: TournamentAccess = new TournamentAccess(store.tournaments, NO_TOURNEY_CAPS),
   ) {}
 
   /**
@@ -35,12 +38,6 @@ export class LocalRiskApi implements RiskApi {
     const p = room.playerForToken(token);
     if (!p) throw new RiskHttpError('A valid player token is required', 401);
     return p;
-  }
-  /** Tournament creation: open to anyone while testing (openTournaments), otherwise the admin key. */
-  private tournamentHost(key: string | undefined) {
-    if (this.openTournaments) return;
-    if (!key) throw new RiskHttpError('Creating tournaments needs the admin key', 401);
-    this.admin(key);
   }
   private admin(key: string) {
     const check = checkAdmin(this.adminToken, key);
@@ -221,14 +218,25 @@ export class LocalRiskApi implements RiskApi {
     const reason = await this.store.tournaments.waitFor(t.id, since, Math.min(Math.max(timeoutMs, 0), 120_000));
     return { reason, tournament: this.store.tournaments.view(this.tournament(t.id).id, token) };
   }
+  /** As POST /tournaments: a hosting code (`spec.code`) or open mode, within the caps; the admin key skips both. */
   async createTournament(adminKey: string | undefined, spec: Record<string, unknown>) {
-    this.tournamentHost(adminKey);
-    const t = this.store.tournaments.create(parseTournamentSpec(spec));
+    const { code, ...rest } = spec;
+    if (adminKey) {
+      this.admin(adminKey);
+      const t = this.store.tournaments.create(parseTournamentSpec(rest));
+      return { hostToken: t.hostToken!, tournament: this.store.tournaments.view(t.id) };
+    }
+    const tier = this.access.hostTier(this.client ?? '', code, this.openTournaments);
+    const t = this.store.tournaments.create(this.access.checkCreate(tier, parseTournamentSpec(rest)));
+    this.access.recordCreate(tier, t.id);
     return { hostToken: t.hostToken!, tournament: this.store.tournaments.view(t.id) };
   }
   /** `key`: the tournament's host token or the admin key (tournaments saved before host tokens: the admin key only). */
-  async startTournament(key: string | undefined, tournamentId: string) {
-    const id = this.tournamentHostOf(key, tournamentId, 'Starting a tournament', 'start it');
+  async startTournament(key: string | undefined, tournamentId: string, code?: string) {
+    const id = code
+      ? this.tournament(tournamentId).id
+      : this.tournamentHostOf(key, tournamentId, 'Starting a tournament', 'start it');
+    if (code && !this.access.canStart(this.client ?? '', code, id)) throw new RiskHttpError("Only this tournament's host can start it", 403);
     const t = this.store.tournaments.start(id);
     return { tournament: this.store.tournaments.view(t.id) };
   }

@@ -276,9 +276,11 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
       const room = req.room!;
       const kind = parseBotKind(req.body?.kind);
       const name = req.body?.name == null ? undefined : String(req.body.name);
-      const { playerId } = room.addBot(kind, name);
-      const seat = room.state.players.find((p) => p.id === playerId)!;
-      res.status(201).json({ playerId, name: seat.name, state: room.view(req.playerId!) });
+      const count = req.body?.count == null ? 1 : req.body.count;
+      if (typeof count !== 'number') throw new RuleError('count must be a whole number');
+      // `count` seats several at once (all or none); the first one is also given as playerId/name, as before.
+      const added = room.addBots(kind, count, name);
+      res.status(201).json({ playerId: added[0].playerId, name: added[0].name, added, state: room.view(req.playerId!) });
     }),
   );
 

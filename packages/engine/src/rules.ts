@@ -129,4 +129,9 @@ With "chooseCapitals" on, there is a short capitals phase after setup (whatever 
 each player in turn order picks one of their own territories with {"type":"choose_capital","territory":"<id>"}.
 The chosen capital gets 3 extra armies on the spot (1 army becomes 4). Picks are public, except under fog of war,
 where you only learn of capitals you can see. Then turn 1 begins.
+
+SWARM GAMES (Zergs)
+Zergs are house bots that rush and never attack a fellow Zerg while anyone else is alive. To play against the swarm:
+create_game with "zergs" (3-5) and the swarm settings {"capitals": true, "blizzards": 4, "autoSetup": true}, then
+start_game. add_bot with kind "zerg" and "count" adds more in one call (up to the free seats).
 `.trim();

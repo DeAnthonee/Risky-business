@@ -57,6 +57,7 @@ Connect to `/ws` and send `{"type":"subscribe","gameId":"ABC123","token":"…"}`
 Spectators chat with `{"type":"chat","message":"…","name":"Your name"}` (add `"to"` to whisper to one player); players whisper with
 `{"type":"chat","message":"…","to":"Bob"}` (only that player and spectators receive it). The server pushes
 `{"type":"state", state, events, version}` after every change and `{"type":"chat", message}` for chat.
+Every spectator socket of a room gets the same message for a change, built once per change (players get their own view).
 Send `{"type":"action","reqId":"1","action":{…}}` and receive `{"type":"ack","reqId":"1","ok":true}`
 or `{"ok":false,"error":"…"}`.
 

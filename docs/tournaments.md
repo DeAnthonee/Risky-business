@@ -11,6 +11,10 @@ join on the website (the Tournaments list on the home page, or `?tournament=CODE
   another fails until one finishes or is deleted. Only the newest `RISK_TOURNAMENTS_KEEP` (default 100) finished
   tournaments are kept; older ones are pruned from `tournaments.json`.
 
+- **Server bots.** While registering, the host adds built-in bots or **Zergs** as entrants
+  (`POST /api/tournaments/:id/bots {kind: "bot" | "zerg", count}`, host token). A Zerg entrant has a reptile name
+  unique in the tournament and plays as a Zerg at every table it sits at: the Zergs at one table are one horde, in
+  every round (docs/zergs.md). Bots and Zergs are entrants like anyone else and can win.
 - **Tables.** Each round seats the remaining entrants at tables of up to `groupSize` (default 4, on Four Crowns by
   default), split as evenly as possible; a lone entrant gets a bye. With `fillBots` (default on) round 1 is topped up
   with bots so every table is full. Bots are entrants like anyone else and can win.
@@ -34,9 +38,15 @@ with a "Following: Table 7 (capital under threat)" caption. The tournament feed 
 Tournaments are saved to `tournaments.json` in `RISK_DATA_DIR` and pick up their tables again after a restart;
 tables a tournament is still waiting on are not swept as idle, except past the hard limit (`RISK_MAX_IDLE`, 7 days).
 
-**Coming: nested ("Inception") tournaments.** Their rounds end when 51% of the tables finish or a deadline passes;
-a table still playing is then decided on standing by the engine's `rankByStanding` (`packages/engine/src/standing.ts`):
-players still in by territories, then armies, then dice (the tied players roll one die each, and those still tied
-roll again), then the players already out, the last one out first. Built so far: that function; the rounds come next.
+**Coming: nested ("Inception") tournaments.** A table of a later round seats the winners of the tables inside its
+territories, each starting on their own territory (their "portal"). The engine's `startOnSpots`
+(`packages/engine/src/nest-start.ts`) builds that start: the normal start and random deal, then each spot is swapped
+(owner and armies together) with a territory its player was dealt elsewhere, so every player keeps the same number of
+territories and armies. A blizzard on a spot moves to a territory where the blizzard rule allows one (the open
+territories stay connected and every continent keeps two open), or, with none left, thaws. Rounds end when 51% of the
+tables finish or a deadline passes; a table still playing is then decided on standing by the engine's `rankByStanding`
+(`packages/engine/src/standing.ts`): players still in by territories, then armies, then dice (the tied players roll one
+die each, and those still tied roll again), then the players already out, the last one out first. Built so far: those
+two functions; the rounds come next.
 
 HTTP routes: [http-api.md](http-api.md). Open items (anyone can create while testing): [hardening.md](hardening.md#1-anyone-can-create-tournaments-while-testing).

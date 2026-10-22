@@ -888,12 +888,13 @@ export class Store {
    * A tournament table: a room nobody hosts (so no seat can close it, kick or add players), seated with
    * the given players in order and started at once. Returns each player's seat in the same order.
    */
-  createTable(name: string, options: Partial<GameOptions>, players: { name: string; isBot: boolean; agent?: string }[], tournamentId: string): { room: GameRoom; seats: { playerId: PlayerId; token: string }[] } {
+  createTable(name: string, options: Partial<GameOptions>, players: { name: string; isBot: boolean; kind?: BotKind; agent?: string }[], tournamentId: string): { room: GameRoom; seats: { playerId: PlayerId; token: string }[] } {
     let id = joinCode();
     while (this.rooms.has(id)) id = joinCode();
     const room = new GameRoom({ id, name, hostId: '', state: createGame(id, options), tokens: {}, chat: [], history: [], updatedAt: Date.now(), tournamentId });
     this.attach(room);
-    const seats = players.map((p) => room.join(p.name, p.isBot, 'bot', p.agent));
+    // A Zerg entrant keeps its tournament name (a reptile name, unique in the tournament, so unique at the table).
+    const seats = players.map((p) => room.join(p.name, p.isBot, p.kind ?? 'bot', p.agent));
     room.start();
     this.scheduleSave();
     return { room, seats };

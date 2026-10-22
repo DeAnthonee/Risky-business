@@ -1,7 +1,7 @@
 import { RULES_TEXT, RuleError, getMap, redactEvents, type Action, type GameOptions } from '@risk/engine';
 import type { CharacterUpdate, DiaryInput, RelationshipInput, RiskApi } from '@risk/mcp';
 import { RiskHttpError } from '@risk/mcp';
-import { checkAdmin, mapInfo, parseTournamentSpec, sanitizeOptions } from './http.js';
+import { checkAdmin, mapInfo, parseBotKind, parseTournamentSpec, sanitizeOptions } from './http.js';
 import type { GameRoom, Store } from './store.js';
 import type { CharacterStore } from './characters.js';
 
@@ -93,12 +93,12 @@ export class LocalRiskApi implements RiskApi {
     const { playerId, token } = room.join(playerName);
     return { gameId: room.id, playerId, token, state: room.view(playerId) };
   }
-  async addBot(gameId: string, token: string, name?: string) {
+  async addBot(gameId: string, token: string, name?: string, kind?: 'bot' | 'zerg') {
     const room = this.room(gameId);
     this.host(room, token);
-    const n = room.state.players.filter((p) => p.isBot).length + 1;
-    const { playerId } = room.join(name ?? `Bot ${n}`, true);
-    return { playerId };
+    const { playerId } = room.addBot(parseBotKind(kind), name);
+    const p = room.state.players.find((x) => x.id === playerId)!;
+    return { playerId, name: p.name };
   }
   async setOptions(gameId: string, token: string, options: Partial<GameOptions>) {
     const room = this.room(gameId);

@@ -157,8 +157,9 @@ decided on standing) and three tabs:
   focus that table (the camera turns to it, **Watch table** opens it). When a round ends, each table's patch shrinks into
   its portal (its winner's starting territory, shown in the winner's colour) on the next round's board while those boards
   fade in, and the camera turns to the focused table (or to the final); with reduced motion the new round just appears. When the
-  round in play is a final on Hex Earth (`finalMap: 'hexworld'`), the globe is Hex Earth itself with its portal
-  territories raised in gold (click one to zoom into the flat board inside). The choice is remembered like the game
+  round in play is a final on Hex Earth (`finalMap: 'hexworld'`), the last round's boards shrink into their winners'
+  starting territories on Hex Earth itself, which then shows the final live: hexes in their holders' colours, raised
+  with their armies, the latest battle as an arc (click a portal territory to zoom into the flat board inside). The choice is remembered like the game
   view's, and browsers without WebGL keep the flat view. Dev builds preview it at `/?dev=inception&players=100`
   (32 tables; **Next round** plays the demo forward) and `/?dev=inception&players=40&final=hexworld`.
 - **Bracket:** every round from the final down; a table decided on standing lists its order and the tie-break dice.

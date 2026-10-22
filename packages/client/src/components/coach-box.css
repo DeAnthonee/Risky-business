@@ -41,3 +41,43 @@
 .coach-box .error {
   margin: 0;
 }
+.coach-head-buttons {
+  display: flex;
+  gap: 6px;
+}
+.coach-mic.listening {
+  outline: 2px solid var(--red, var(--danger));
+}
+/* Panel mode: a right-hand column on wide screens, a bottom sheet on phones (the board stays visible above it). */
+.coach-box.coach-panel {
+  left: auto;
+  right: 16px;
+  top: 16px;
+  bottom: 16px;
+  width: min(380px, calc(100vw - 32px));
+  grid-template-rows: auto auto 1fr auto auto;
+  font-size: 1.05em;
+}
+.coach-panel .coach-notes {
+  max-height: none;
+  overflow-y: auto;
+}
+@media (max-width: 760px) {
+  .coach-box.coach-panel {
+    left: 0;
+    right: 0;
+    top: auto;
+    bottom: 0;
+    width: 100%;
+    height: 60vh;
+    box-shadow: 0 -4px 0 var(--ink, #000);
+  }
+}
+.coach-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}

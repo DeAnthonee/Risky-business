@@ -32,7 +32,8 @@ export function App() {
   const [gameId, setGameId] = useState<string | null>(() => gameIdFromUrl());
   const [session, setSession] = useState<Session | null>(() => (gameId ? getSession(gameId) : null));
   // ?spectate=1 opens a game as a spectator even when a session exists for it.
-  const [spectating, setSpectating] = useState(() => !!gameId && spectateFromUrl());
+  // ?coach=panel (a coach's bookmark) watches too; the coach probe in Connected runs before any socket opens.
+  const [spectating, setSpectating] = useState(() => !!gameId && (spectateFromUrl() || new URL(window.location.href).searchParams.get('coach') === 'panel'));
   // ?spectate=1 without a game is the opt-in auto-spectate live stream: watch a live game, then move on to the next.
   // Only this mode ever moves the viewer; a game opened on purpose (link, list, tournament bracket) stays put.
   const [autoSpectate, setAutoSpectate] = useState(() => !gameId && spectateFromUrl());

@@ -27,6 +27,9 @@ Zergs are house bots that rush, never attack each other and hunt eliminations to
 
 - **Seating.** `POST /api/games/:id/bots` with `{kind: "zerg"}` (host only, lobby only), the MCP `add_bot` tool with
   `kind: "zerg"`, or **Add Zerg** in the web lobby. A custom `name` is refused: the reptile list names every Zerg.
+- **Tournaments.** The host adds Zerg entrants with `POST /api/tournaments/:id/bots {kind: "zerg", count}`; each
+  keeps a reptile name unique in the tournament ("Komodo", then "Komodo 2") and is seated as a Zerg at its tables.
+  The Zergs at one table are one horde, in every round (owner, 2026-10-22).
 - **Who is a Zerg.** The seat id starts with `zerg_` (built-in bots are `bot_...`, people `p_...`). The server mints
   every id, so nobody can join as a Zerg or turn a seat into one (a person can still take a reptile name), and saved
   rooms need no new field: old snapshots load as before, and a restored Zerg seat is still a Zerg. (In self-play a

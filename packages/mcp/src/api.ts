@@ -278,6 +278,8 @@ export interface RiskApi {
   createTournament(adminKey: string | undefined, spec: TournamentSpec): Promise<{ hostToken: string; tournament: TournamentInfo }>;
   /** `key`: the tournament's host token or the admin key. */
   startTournament(key: string | undefined, tournamentId: string): Promise<{ tournament: TournamentInfo }>;
+  /** Seat server bots as entrants while registering (`key`: the host token or the admin key). */
+  addTournamentBots(key: string | undefined, tournamentId: string, kind: 'bot' | 'zerg', count: number): Promise<{ added: { entrantId: string; name: string }[]; tournament: TournamentInfo }>;
 }
 
 /** Seats held by one agent connection. Several seats per game are allowed (one chat can run two players). */
@@ -528,6 +530,9 @@ export class HttpRiskApi implements RiskApi {
   }
   startTournament(key: string | undefined, tournamentId: string) {
     return this.request<{ tournament: TournamentInfo }>(`/tournaments/${tournamentId}/start`, { method: 'POST', body: '{}' }, key);
+  }
+  addTournamentBots(key: string | undefined, tournamentId: string, kind: 'bot' | 'zerg', count: number) {
+    return this.request<{ added: { entrantId: string; name: string }[]; tournament: TournamentInfo }>(`/tournaments/${tournamentId}/bots`, { method: 'POST', body: JSON.stringify({ kind, count }) }, key);
   }
 }
 

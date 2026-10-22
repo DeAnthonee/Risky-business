@@ -107,6 +107,8 @@ In a progressive-cards game the top bar shows what the **next set** is worth (ho
 Tournaments come first on the home page. Right under the masthead (the name box) sit, in this order:
 - **🏆 Host a tournament**, which opens the create form (`?host=1`);
 - **Find a tournament (N)**, which scrolls to the Tournaments list (N counts the open ones);
+- **🔑 Get a player key** (**Your player key** once this browser holds one), which opens the player key page
+  (`?player=1`);
 - the **Next tournament** card;
 - **The House**;
 - the **Tournaments** list: open ones first (sign-ups, the soonest start first, then the ones being played, each

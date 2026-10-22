@@ -6,16 +6,19 @@ import { Game } from './components/Game';
 import { AutoAdvance, isGenerationGame, useLiveGame, type AutoSpectate } from './components/AutoAdvance';
 import { Tournament } from './components/Tournament';
 import { CreateTournament } from './components/CreateTournament';
+import { PlayerKeyPage } from './components/PlayerKeyPage';
 import {
   clearSession,
   gameIdFromUrl,
   getName,
   hostFormFromUrl,
+  playerPageFromUrl,
   getSession,
   saveSession,
   setGameInUrl,
   setName as persistName,
   setHostFormInUrl,
+  setPlayerPageInUrl,
   setTournamentInUrl,
   spectateFromUrl,
   tournamentIdFromUrl,
@@ -36,6 +39,8 @@ export function App() {
   const [tournamentId, setTournamentId] = useState<string | null>(() => tournamentIdFromUrl());
   // ?host=1: the Create tournament form (links to it come from the home page).
   const [hosting, setHosting] = useState(() => hostFormFromUrl());
+  // ?player=1: the player key page (links to it come from the home page).
+  const [playerPage, setPlayerPage] = useState(() => playerPageFromUrl());
 
   useEffect(() => {
     // The stream keeps its URL (`?spectate=1`), so a reload tunes back into whatever is live.
@@ -48,6 +53,9 @@ export function App() {
   useEffect(() => {
     setHostFormInUrl(hosting);
   }, [hosting]);
+  useEffect(() => {
+    setPlayerPageInUrl(playerPage);
+  }, [playerPage]);
 
   const firstLive = useLiveGame(autoSpectate && !gameId, null);
   useEffect(() => {
@@ -97,6 +105,10 @@ export function App() {
 
   // Stable, so the countdown's effects do not restart on every render. Staying ends auto-spectate for good.
   const auto = useMemo<AutoSpectate>(() => ({ advance: (id) => setGameId(id), stay: () => setAutoSpectate(false) }), []);
+
+  if (!gameId && !tournamentId && playerPage) {
+    return <PlayerKeyPage onBack={() => setPlayerPage(false)} />;
+  }
 
   if (!gameId && !tournamentId && hosting) {
     return (

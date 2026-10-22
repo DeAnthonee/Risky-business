@@ -210,7 +210,8 @@ export function optionCatalogue() {
     defaults: DEFAULT_OPTIONS,
     options: OPTION_KEYS.map((key) => {
       const spec = OPTION_SPECS[key];
-      const base = { key, label: spec.label, kind: spec.kind, default: DEFAULT_OPTIONS[key], description: spec.description };
+      // Optional settings (stallFogLift) are absent from DEFAULT_OPTIONS: their default is off (0).
+      const base = { key, label: spec.label, kind: spec.kind, default: DEFAULT_OPTIONS[key] ?? 0, description: spec.description };
       if (spec.kind === 'enum') return { ...base, values: spec.values, valueLabels: spec.valueLabels };
       if (spec.kind === 'int') return { ...base, min: spec.min, max: globalMax(key) };
       return base;
@@ -289,7 +290,7 @@ export function describeOptions(o: GameOptions, tradeCount = 0): string[] {
     `Capital Conquest: ${o.capitals ? `on (+2 per capital held, capitals defend with 3 dice, hold every capital to win; ${o.chooseCapitals ? 'players choose their capitals before turn 1' : 'capital = most garrisoned territory after setup'})` : 'off'}`,
     `Neutral territories: ${o.neutrals > 0 ? `${o.neutrals} with ${o.neutralArmies} arm${o.neutralArmies === 1 ? 'y' : 'ies'} each (games of 3+ players)` : 'off'}`,
     `Blizzards: ${o.blizzards > 0 ? `${o.blizzards} frozen territories (max ${maxBlizzards(map)} on this map)` : 'off'}`,
-    ...(o.fogOfWar ? [`Stall breaker: ${o.stallFogLift > 0 ? `the fog lifts for good after ${o.stallFogLift} full round${o.stallFogLift === 1 ? '' : 's'} with no territory captured` : 'off'}`] : []),
+    ...(o.fogOfWar ? [`Stall breaker: ${(o.stallFogLift ?? 0) > 0 ? `the fog lifts for good after ${o.stallFogLift} full round${o.stallFogLift === 1 ? '' : 's'} with no territory captured` : 'off'}`] : []),
     `Turn timer: ${timerOf(o) ? `${timerOf(o)!.seconds}s per ${timerOf(o)!.mode} for human and agent seats; on a timeout the player is skipped (armies placed for them, no attacks, no fortify)` : 'off'}`,
   ];
   return lines;

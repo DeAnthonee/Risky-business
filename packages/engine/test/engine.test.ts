@@ -1464,7 +1464,8 @@ describe('hexworld map (Hex Earth)', () => {
 describe('game settings catalogue', () => {
   it('has a spec for every option and parses untrusted input strictly', async () => {
     const { OPTION_KEYS, OPTION_SPECS, DEFAULT_OPTIONS, parseOptions, describeOptions, optionCatalogue, optionLimits } = await import('../src/index.js');
-    expect([...OPTION_KEYS].sort()).toEqual(Object.keys(DEFAULT_OPTIONS).sort());
+    // Every option has a default, except the optional ones absent by default so games without them stay unchanged.
+    expect([...OPTION_KEYS].sort()).toEqual([...Object.keys(DEFAULT_OPTIONS), 'stallFogLift'].sort());
     for (const k of OPTION_KEYS) expect(OPTION_SPECS[k].description.length).toBeGreaterThan(20);
     // coercion of form/query style values
     expect(parseOptions({ fogOfWar: 'true', capitals: 1, blizzards: '3', map: 'world' })).toEqual({ fogOfWar: true, capitals: true, blizzards: 3, map: 'world' });

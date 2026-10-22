@@ -82,9 +82,9 @@ export interface GameOptions {
   turnTimerSeconds: number;
   /**
    * Stall breaker (fog games): after this many full rounds in a row with no territory captured by anyone, the fog of
-   * war lifts for the rest of the game (0 = off).
+   * war lifts for the rest of the game (0 or absent = off). Absent by default, so games without it are unchanged.
    */
-  stallFogLift: number;
+  stallFogLift?: number;
 }
 
 /** Reinforcements per capital held when the capitals option is on. */
@@ -120,7 +120,6 @@ export const DEFAULT_OPTIONS: GameOptions = {
   blizzards: 0,
   turnTimer: 'off',
   turnTimerSeconds: 15,
-  stallFogLift: 0,
 };
 
 export interface PendingConquest {
@@ -156,8 +155,11 @@ export interface GameState {
   blizzards: TerritoryId[];
   /** Set once the player has fortified this turn. */
   fortifiedThisTurn: boolean;
-  /** The round of the last territory captured by anyone (0 = none yet). Absent in games saved before the stall breaker. */
-  lastCaptureRound?: number;
+  /**
+   * Stall relievers' counter (stall.ts), present only while a reliever is on: the round of the last territory captured
+   * by anyone (0 = none yet), and the round each reliever kicked in.
+   */
+  stall?: { lastCaptureRound: number; fogLiftedRound?: number };
   /** The stall breaker lifted the fog of war (stallFogLift): every view sees the whole board for the rest of the game. */
   fogLifted?: boolean;
   winner: PlayerId | null;

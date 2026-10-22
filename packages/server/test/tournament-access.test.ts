@@ -132,13 +132,29 @@ describe('hosting codes', () => {
 describe('testing mode (RISK_TOURNEY_STRICT off)', () => {
   it('loosens the caps and turns the lockout off; each lever still has its own variable', () => {
     const t = tourneyAccessFromEnv({});
-    expect(t).toMatchObject({ strict: false, maxActive: 10, maxActiveLimited: 5, createsPerDay: 200, limitedPerDay: 50, maxLiveSeats: 1000, lagBrakeMs: 100, seatsLimited: 64, attempts: { perIp: 0, global: 0 } });
+    expect(t).toMatchObject({ strict: false, maxActive: 10, maxActiveLimited: 5, createsPerDay: 200, limitedPerDay: 50, maxLiveSeats: 1000, lagBrakeMs: 100, seatsAdmin: 256, seatsLimited: 256, deloveAdmin: 256, deloveLimited: 256, deloveAtOnce: 1000, deloveSearchAtOnce: 20, attempts: { perIp: 0, global: 0 } });
+    expect(tourneyAccessFromEnv({ RISK_TOURNEY_STRICT: '1' })).toMatchObject({ seatsAdmin: 128, seatsLimited: 64, maxLiveSeats: 200, deloveLimited: 16, deloveAtOnce: 48 });
     expect(tourneyAccessFromEnv({ RISK_TOURNEY_MAX_ACTIVE: '3', RISK_TOURNEY_ATTEMPTS_PER_IP: '5' })).toMatchObject({ strict: false, maxActive: 3, attempts: { perIp: 5, global: 0 } });
     expect(tourneyAccessFromEnv({ RISK_TOURNEY_STRICT: '1' }).attempts).toMatchObject({ perIp: 5, global: 50 });
     // The startup line names what is set, never a value.
     const line = describeTourneyAccess({ ...t, adminCode: ADMIN_CODE });
     expect(line).toBe('[tourney] codes: admin set, limited unset, strict off');
     expect(line).not.toContain(ADMIN_CODE);
+  });
+
+  it("fits the owner's 30 Zergs + 50 Delove + 10 open (90 seats) in open mode", async () => {
+    const store = new Store(null, {}, { clock: new FakeClock() });
+    const access = new TournamentAccess(store.tournaments, { ...TESTING_TOURNEY_ACCESS });
+    const { SeatRequests } = await import('../src/seat-requests.js');
+    const seats = new SeatRequests(store.tournaments, TESTING_TOURNEY_ACCESS, 'test-pool-key');
+    const tier = access.hostTier('1.1.1.1', undefined, true);
+    const spec = access.checkCreate(tier, { format: 'nested', name: 'Owner test', zergs: 30, delove: 50, open: 10 });
+    seats.checkCreate(tier, spec.delove);
+    const t = store.tournaments.create(spec);
+    expect(t.maxEntrants).toBe(90);
+    expect(seats.openFor(t)).toMatchObject({ n: 50 });
+    expect(t.entrants.filter((e) => e.kind === 'zerg')).toHaveLength(30);
+    store.stopTimers();
   });
 
   it('never locks anyone out, and drops lockouts saved by a strict run', () => {

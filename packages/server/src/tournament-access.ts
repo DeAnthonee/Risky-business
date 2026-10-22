@@ -85,8 +85,8 @@ export const DEFAULT_TOURNEY_ACCESS: TourneyAccessConfig = {
 
 /**
  * Testing mode (RISK_TOURNEY_STRICT unset or not "1"; owner, 2026-10-22: "those extra safety levers are blocking us
- * testing it"): looser caps and no wrong-code lockout. The codes, the seat and Delove caps, expiry and the lag brake
- * stay. Every lever can still be set by its own env var.
+ * testing it"): looser caps (tournaments, creates, seats and Delove seats) and no wrong-code lockout. The codes,
+ * expiry, the search-seat cap and the lag brake stay. Every lever can still be set by its own env var.
  */
 export const TESTING_TOURNEY_ACCESS: TourneyAccessConfig = {
   ...DEFAULT_TOURNEY_ACCESS,
@@ -96,6 +96,13 @@ export const TESTING_TOURNEY_ACCESS: TourneyAccessConfig = {
   createsPerDay: 200,
   limitedPerDay: 50,
   maxLiveSeats: 1000,
+  // Seats up to the tournament maximum (256) for any code or open mode, and Delove seats as many as fit (owner,
+  // 2026-10-22: "30 zerg, 50 deloves, and 10 open slots"). Search seats at once stay capped: they guard the CPU box.
+  seatsAdmin: 256,
+  seatsLimited: 256,
+  deloveAdmin: 256,
+  deloveLimited: 256,
+  deloveAtOnce: 1000,
   attempts: { ...DEFAULT_TOURNEY_ACCESS.attempts, perIp: 0, global: 0 },
 };
 

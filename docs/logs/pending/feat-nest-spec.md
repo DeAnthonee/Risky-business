@@ -1,2 +1,0 @@
-engine: - 2026-10-21 #181 new unmirrored `nest.ts` exported from the engine: the nested-tournament planner and nested board specs, with engine tests (worked examples, every field 2-400 players, trees of existing and generated boards)
-maps: - 2026-10-21 #181 Nested boards (`packages/engine/src/nest.ts`): `planNest` (rounds and tables for N players: tables 3-6, final 6-10, Zergs only for 11-17 and under 6), `NestSpec`/`resolveNest` (boards inside portals, existing or generated, seeds from the root seed and path), `planToNest`

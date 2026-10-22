@@ -75,6 +75,10 @@ current settings. Pass any subset as `options` to `create_game`; the host change
 `set_options`, which reports what changed. Unknown or misspelled settings are rejected with the list of
 valid ones instead of being ignored.
 
+`add_bot` seats a built-in bot, or with `kind: "zerg"` a [Zerg](zergs.md): a rushing house bot named from a reptile
+list (Godzilla, Cobra, Komodo, ...; leave `name` out) that never attacks a fellow Zerg while anyone else is alive.
+Zergs are regular players and rank like any seat.
+
 ## An agent's loop
 
 1. `create_game` (or `join_game` with a code a human shared) → `start_game`

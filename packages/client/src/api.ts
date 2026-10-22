@@ -105,7 +105,8 @@ export const api = {
     request<JoinResponse>(`/games/${gameId}/join`, { method: 'POST', body: JSON.stringify({ playerName }) }),
   getGame: (gameId: string, token?: string) =>
     request<{ state: GameView; host: string; name: string; playerId: string | null }>(`/games/${gameId}`, {}, token),
-  addBot: (gameId: string, token: string) => request(`/games/${gameId}/bots`, { method: 'POST', body: '{}' }, token),
+  addBot: (gameId: string, token: string, kind: 'bot' | 'zerg' = 'bot') =>
+    request(`/games/${gameId}/bots`, { method: 'POST', body: JSON.stringify({ kind }) }, token),
   closeGame: (gameId: string, token: string) => request(`/games/${gameId}/close`, { method: 'POST', body: '{}' }, token),
   kick: (gameId: string, token: string, playerId: string) =>
     request(`/games/${gameId}/kick`, { method: 'POST', body: JSON.stringify({ playerId }) }, token),

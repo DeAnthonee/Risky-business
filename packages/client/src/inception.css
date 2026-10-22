@@ -142,10 +142,17 @@
   font-weight: 700;
 }
 .follow-switch {
-  display: inline-flex;
+  display: flex;
+  flex-direction: row;
   align-items: center;
+  justify-content: flex-start;
+  text-align: left;
   gap: 6px;
   font-weight: 700;
+}
+.follow-switch input {
+  width: auto;
+  margin: 0;
 }
 .inception-follow {
   margin-left: 12px;

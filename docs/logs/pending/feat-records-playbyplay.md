@@ -1,0 +1,3 @@
+server: - 2026-10-22 #PR records key and play-by-play (G2): `RISK_RECORDS_KEY` (read-only, `x-records-key`, constant-time check; the admin token also works; unset = 403) opens `GET /api/records/:id` and `/api/records/:id/playbyplay` (text or `?format=json`); `narrate(record)` (`playbyplay.ts`) tells a game turn by turn with decision notes inline; `npm run records:playbyplay <file|id>`
+hosting: - 2026-10-22 #PR new env var `RISK_RECORDS_KEY`: read-only access to full game records; the owner sets it and keeps it private
+docs: - 2026-10-22 #PR game-records.md (play-by-play, records key) and the roadmap (G2)

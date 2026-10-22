@@ -38,6 +38,8 @@ const risk = createRiskServer(store, {
   clientDir: CLIENT_DIR,
   mcpLabel: process.env.RISK_PUBLIC_URL ?? 'Risky Business',
   adminToken: process.env.RISK_ADMIN_TOKEN || null,
+  // Read-only access to full game records (hidden hands, notes): the owner sets it; it is never printed.
+  recordsKey: process.env.RISK_RECORDS_KEY || null,
   // Starting profiles come from the repo; saved versions live under RISK_DATA_DIR so they survive deploys.
   characters: new CharacterStore(resolve(process.env.RISK_AI_DIR ?? DEFAULT_AI_DIR), DATA_DIR ? join(DATA_DIR, 'characters') : null, [
     process.env.RISK_CHARACTERS_KEY,
@@ -55,6 +57,7 @@ risk.server.listen(PORT, HOST, () => {
   console.log(`  mcp:       http://localhost:${PORT}/mcp (Streamable HTTP)`);
   console.log(`  data dir:  ${DATA_DIR ?? '(persistence disabled)'}`);
   console.log(`  archive:   ${store.archive.describe()}`);
+  console.log(`  records:   ${process.env.RISK_RECORDS_KEY ? 'full records need the records key' : 'off (set RISK_RECORDS_KEY to read full records)'}`);
   console.log(`  characters: ${risk.characters.writable ? 'saves need the write key' : 'read-only (set RISK_CHARACTERS_KEY to allow saves)'}`);
   console.log(`  client:    ${CLIENT_DIR}`);
 });

@@ -4,20 +4,21 @@
 // start the game with the host token (seats[0]). See docs/delove-yardstick.md.
 // Delove sits under a neutral name like the others (`deloveName`, "<Tier> Garen"), so the LLM seats can't tell which
 // seat is the trained model. Join order doesn't decide who moves first: the engine shuffles the turn order at start.
-// usage: node packages/delove/scripts/yardstick/setup.mjs <server> <Tier> <label>
+// usage: node packages/delove/scripts/yardstick/setup.mjs <server> <Tier> <label> [fog]
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-const [server, tier, label] = process.argv.slice(2);
-if (!server || !tier) throw new Error('usage: setup.mjs <server> <Tier> <label>');
+const [server, tier, label, fog] = process.argv.slice(2);
+if (!server || !tier) throw new Error('usage: setup.mjs <server> <Tier> <label> [fog]');
 const dir = process.env.YARDSTICK_DIR || join(homedir(), 'risk-yardstick');
 mkdirSync(dir, { recursive: true });
 const CHARACTERS = ['Shen', 'Jinx', 'Thresh', 'Leona', 'Teemo'];
-// The fixed yardstick settings: Classic, 6 seats, random deal and armies, capitals, 8 blizzards, progressive cards, no fog.
+// The fixed yardstick settings: Classic, 6 seats, random deal and armies, capitals, 8 blizzards, progressive cards; fog
+// of war only with the fourth argument `fog` (baseline 4 on).
 const options = {
   map: 'classic', maxPlayers: 6, autoSetup: true, randomDeal: true, balancedBlitz: true, firstRoundBonus: true,
-  fortifyMode: 'connected', fogOfWar: false, cardValues: 'progressive', spectatorChat: true,
+  fortifyMode: 'connected', fogOfWar: fog === 'fog', cardValues: 'progressive', spectatorChat: true,
   capitals: true, chooseCapitals: true, blizzards: 8,
 };
 // The training board takes the characters write key; without it the room is public (it is closed, so never ranked,

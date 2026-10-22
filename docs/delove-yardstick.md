@@ -19,7 +19,7 @@ below is the record.
 | server | https://risky.deanthoneeking.com (live) |
 | table | 6 seats: Delove + five LLM seats named `<Tier> <Character>`: Shen, Jinx, Thresh, Leona, Teemo (`league/*` profiles). Since #157 Delove sits as `<Tier> Garen`, a name like the others; before, it sat as `delove@6` / "Delove Search" |
 | map | Classic |
-| settings | fog **off** (the Delove seat refused fog games then; since #155 it seats fog-trained models, `fogInputs`), territories and armies dealt at random (`autoSetup`, `randomDeal`), **capitals on** (each picks one), **8 blizzards**, progressive cards, balanced blitz, first-round bonus, connected fortify |
+| settings | fog **off** in games 1-21 (the Delove seat refused fog games then; since #155 it seats fog-trained models, `fogInputs`), fog **on** in baseline 4 (games 22-27; `setup.mjs ... fog`), territories and armies dealt at random (`autoSetup`, `randomDeal`), **capitals on** (each picks one), **8 blizzards**, progressive cards, balanced blitz, first-round bonus, connected fortify |
 | seat order | the five LLM seats join in character order and Delove joins last, but the **turn order is shuffled by the engine at the start** (`startGame`, "highest roll goes first"), so Delove doesn't always move last |
 | LLM seat brief | [`packages/delove/scripts/yardstick/seat-prompt.md`](../packages/delove/scripts/yardstick/seat-prompt.md). **Neutral since #157**: it doesn't say which seat is the trained model, and the room name doesn't either. Games 1-12 used a brief naming "one trained bot", and the LLM seats focused that seat in rounds 1-2, so those rows aren't comparable with neutral rows |
 | games per model | **2 games per tier** (Haiku, Sonnet, Opus) for each model or preset measured, 6 games in all; report each model's mean points and place per tier |
@@ -152,7 +152,57 @@ seats. "Attacked early" is from the server's event log.
   not Delove's play alone that draws it.
 - Two games: a control for the gang-up question, not a strength measurement.
 
-## Rerun it for a new model (delove@11, the range specialists)
+### Baseline 4: delove@12 under fog (games 21-27)
+
+Played 2026-10-22 under the neutral protocol (#157): Delove sits as "<Tier> Garen" and the brief doesn't say which seat
+is the trained model. The seat is the default live seat (`js2-range`) with `delove@12` ranking the moves (pinned with
+`DELOVE_BRANCH_RANKER=delove@12`), the first live model trained with fog inputs. The setup is the fixed one (capitals and
+8 blizzards) with **fog of war on** (`setup.mjs ... fog`), and the seat brief adds the fog lines from
+[`seat-prompt.md`](../packages/delove/scripts/yardstick/seat-prompt.md)'s header. Under fog the seat plays its
+ranker's top move without search (`fogSafe`, `branch-env.ts`; fog search, `DELOVE_BRANCH_FOG=determinize`, was off),
+so the fog rows measure the **bare `delove@12` network**, while baseline 3 measured delove@10 **with search, no fog**:
+both the model and the fog setting changed. "Attacked early" comes from the server's event log (`monitor.mjs`), and
+the monitor now also saves the whole event stream as `ev-<gameId>.json` next to `results.jsonl`, since a closed room
+has no archive record. Every room was public. Games that finished (21, 23, 24, 25) count on public season 4, which was
+the owner's call.
+
+Game 21 was played first with fog off, before the fog-on decision. It is an extra no-fog data point (delove@12 with
+search) and is not counted in the baseline-4 means.
+
+| # | game | opponents | fog | Delove place | points | kills | out (round) | knocked out by / winner | attacked early | length | tokens per LLM seat |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 21 | VXWGMU | 5 × Claude Haiku | off | **1st (won)** | +6 | 3 | won, round 11 | - | 2 | 21 min | 184k-247k, mean 219k |
+| 22 | KDQZTY | 5 × Claude Haiku | on | 6th | -3 | 0 | 8 | Haiku Shen | 2 | 25 min | 196k-244k, mean 218k |
+| 23 | KA6LZJ | 5 × Claude Haiku | on | **1st (won)** | +6 | 3 | won, round 11 | - | 1 | 26 min | 160k-269k, mean 207k |
+| 24 | PGZSSX | 5 × Claude Sonnet | on | 3rd | +1 | 0 | alive at the end, round 17 | Sonnet Leona won | 0 | 26 min | 140k-383k, mean 241k |
+| 25 | DECAAS | 5 × Claude Sonnet | on | 3rd | +1 | 0 | alive at the end, round 11 | Sonnet Shen won | 1 | 33 min | 209k-329k, mean 241k |
+| 26 | DKVVF3 | 5 × Claude Opus | on | 5th | -2 | 0 | 5 | Opus Jinx | 1 | 11 min | 125k-174k, mean 150k |
+| 27 | 6XTVBX | 5 × Claude Opus | on | 4th | -1 | 0 | 6 | Opus Thresh | 0 | 15 min | 123k-180k, mean 159k |
+
+**By tier** (fog games 22-27 only):
+
+| tier | baseline 3 (delove@10 + search, no fog) | baseline 4 (bare delove@12, fog on) |
+| --- | --- | --- |
+| Haiku | mean +3.0, place 3.0, 5 kills | mean +1.5, place 3.5, 3 kills |
+| Sonnet | mean +2.5, place 3.0, 4 kills | mean +1.0, place 3.0, 0 kills |
+| Opus | mean -3.0, place 6.0, 0 kills | mean -1.5, place 4.5, 0 kills |
+| all six games | mean +0.83, place 4.0, 9 kills | mean +0.33, place 3.67, 3 kills |
+
+- Fog cut the early gang-up. In baseline 3, two or three LLM seats hit Delove in rounds 1-2 of every game. Under fog
+  it was 0-2 seats (mean 0.8), and two games had none. The LLM seats can't see a strong seat they don't border.
+- Delove survives longer under fog but converts less. Its mean place is a little better (3.67 against 4.0), with two
+  third places against Sonnet, but it scored only 3 kills, all in its one win. Against Sonnet and Opus it never
+  eliminated a seat.
+- Opus is still the hardest tier, though it improved from two last places to 5th and 4th. Haiku split: one last place
+  and one win.
+- Two games per tier, and two variables changed (the model, and search off under fog). Read this as the fog baseline
+  for later models, not as delove@12 against delove@10. No fog-search set was played: on the self-play ladder the same
+  night, determinized fog search scored below bare delove@12 under fog (-0.26, -0.92 and -0.56 at 2, 4 and 6 seats),
+  so the next fog set waits for a stronger model.
+- Opus seats used fewer tokens (mean 150k-159k) than Haiku and Sonnet (207k-241k), because Opus games ended sooner
+  once Delove was out.
+
+## Rerun it for a new model
 
 Same lineup, settings and stop rule, so the new rows compare with the ones above. Runtime files go to
 `$YARDSTICK_DIR` (default `~/risk-yardstick`), never into the repo.
@@ -160,31 +210,35 @@ Same lineup, settings and stop rule, so the new rows compare with the ones above
 1. Create the lobby and the five LLM seats (prints the game id and each seat's token):
 
    ```bash
-   node packages/delove/scripts/yardstick/setup.mjs https://risky.deanthoneeking.com Sonnet my-label
+   node packages/delove/scripts/yardstick/setup.mjs https://risky.deanthoneeking.com Sonnet my-label fog
    ```
 
-   It uses the fixed settings (capitals and 8 blizzards). For the pilot row's settings, create the room with
+   The last argument `fog` turns fog of war on, as in baseline 4, the setup to compare fog models against. Leave it
+   out for the no-fog setup of baselines 1-3. It uses the fixed settings (capitals and 8 blizzards). For the pilot row's settings, create the room with
    `capitals: false, chooseCapitals: false, blizzards: 0` instead (a copy of the script with those three values).
    With `RISK_CHARACTERS_KEY` in the environment the room goes on the training board (#138); without it the room is
-   public, and it is still never ranked because it is closed when Delove is out.
+   public: it is ranked only when it finishes with Delove still in, since the monitor closes it when Delove is out.
 2. Seat Delove (it waits for the start). Since #154 the seat searches by default; since #164 the default preset is
    `js2-range`, baseline 2's settings (`--preset measured` for #142's). Pin the ranker so a promotion mid-run doesn't change
-   the model, and use `--agents delove@N` for the bare network:
+   the model, and use `--agents delove@N` for the bare network. A fog game needs a ranker trained with fog inputs
+   (`fogInputs`, delove@12 on); under fog the seat plays the ranker's top move unless `DELOVE_BRANCH_FOG=determinize`
+   turns fog search on (baseline 4 ran without it):
 
    ```bash
-   DELOVE_MODELS=<models folder> DELOVE_BRANCH_RANKER=delove@11 npm run delove-seat -- --server https://risky.deanthoneeking.com --join <gameId> --preset js2-range --names "<Tier> Garen" --pace 400
+   DELOVE_MODELS=<models folder> DELOVE_BRANCH_RANKER=delove@N npm run delove-seat -- --server https://risky.deanthoneeking.com --join <gameId> --preset js2-range --names "<Tier> Garen" --pace 400
    ```
 
 3. Start one agent per LLM seat on the tier's model (Haiku, Sonnet, Opus, Fable), each with
-   [`seat-prompt.md`](../packages/delove/scripts/yardstick/seat-prompt.md) filled in from step 1. Don't tell the
-   agents which seat is Delove.
+   [`seat-prompt.md`](../packages/delove/scripts/yardstick/seat-prompt.md) filled in from step 1 (with its header's
+   fog lines for a fog game). Don't tell the agents which seat is Delove.
 4. Start the game with the host token (seat 1 from step 1):
 
    ```bash
    curl -X POST -H "Authorization: Bearer <host token>" https://risky.deanthoneeking.com/api/games/<gameId>/start
    ```
 
-5. Run the monitor until it exits. It appends the result to `results.jsonl` and closes the room once Delove is out:
+5. Run the monitor until it exits. It appends the result to `results.jsonl`, saves the event stream as
+   `ev-<gameId>.json` and closes the room once Delove is out:
 
    ```bash
    node packages/delove/scripts/yardstick/monitor.mjs https://risky.deanthoneeking.com <gameId> "<Tier> Garen" my-label

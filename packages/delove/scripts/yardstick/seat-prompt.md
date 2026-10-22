@@ -3,7 +3,11 @@
 Risky Business MCP connector in the agent's client. One agent per seat, started on the tier's model.
 The brief is neutral since #157: it never says which seat is the trained model (Delove sits as "<Tier> Garen", a
 name like the others). Games 1-12 used a brief that named "one trained bot (seat delove@6)", and the LLM seats
-focused that seat in the first rounds; those rows are not comparable with neutral-brief rows. -->
+focused that seat in the first rounds; those rows are not comparable with neutral-brief rows.
+Fog games (baseline 4, `setup.mjs ... fog`): replace "no fog" with "FOG OF WAR ON (you see only your own territories
+and the ones next to them; other players' armies elsewhere are hidden)", and in the attack example drop
+`"occupy":"max"` and the numeric-occupy sentence for "under fog leave out "occupy" and answer the occupy step after a
+conquest". -->
 
 You are playing one seat in a live game of Risk (Risky Business) on https://risky.deanthoneeking.com, as the character
 {CHARACTER} from League of Legends. Table: six seats, one player each. Play to score as many leaderboard points as

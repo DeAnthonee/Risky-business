@@ -2,9 +2,9 @@
 // line to $YARDSTICK_DIR/results.jsonl: Delove's place, leaderboard points (placement table + 1 per kill, as in
 // packages/engine/src/ranking.ts), kills, the round, minutes, who knocked it out. If the game is still running it then
 // closes the room with the host token (a closed room is never ranked), so the remaining seats stop. It also lists the
-// seats that attacked Delove in rounds 1-2 (attackersRounds1to2).
+// seats that attacked Delove in rounds 1-2 (attackersRounds1to2) and saves the event stream as ev-<gameId>.json.
 // usage: node packages/delove/scripts/yardstick/monitor.mjs <server> <gameId> <deloveSeatName> <label>
-import { appendFileSync, readFileSync } from 'node:fs';
+import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
@@ -69,6 +69,8 @@ for (;;) {
       opponents: state.players.filter((p) => p.id !== delove.id).map((p) => p.name),
     };
     appendFileSync(join(dir, 'results.jsonl'), JSON.stringify(result) + '\n');
+    // The whole event stream, for review play by play: a room closed here never gets an archive record.
+    writeFileSync(join(dir, `ev-${gameId}.json`), JSON.stringify({ entries }));
     console.log('RESULT', JSON.stringify(result));
     if (!finished) {
       const res = await fetch(`${server}/api/games/${gameId}/close`, { method: 'POST', headers: { Authorization: `Bearer ${hostToken}` } });

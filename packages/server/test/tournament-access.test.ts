@@ -166,6 +166,12 @@ describe('testing mode (RISK_TOURNEY_STRICT off)', () => {
     for (let i = 0; i < 10; i++) expect(status(() => access.checkCode('5.5.5.5', 'anything'))).toBe(400); // never 429
   });
 
+  it('with no codes set and open mode on, a typed code is ignored and the create is open', () => {
+    const { access } = setup({ adminCode: null, limitedCode: null });
+    expect(access.hostTier('5.5.5.5', 'whatever the form sent', true)).toBe('open');
+    expect(access.hostTier('5.5.5.5', undefined, true)).toBe('open');
+  });
+
   it('the limited code starts its own tournaments, open-mode ones and ones made before the codes; not the admin code\'s', () => {
     const { store, access, create } = setup({ maxActive: 0, maxActiveLimited: 0 });
     const own = create(LIMITED_CODE, { maxEntrants: 4 });

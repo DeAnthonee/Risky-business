@@ -296,6 +296,8 @@ export class TournamentAccess {
    * RISK_TOURNAMENTS_OPEN (off by default once a code is set).
    */
   hostTier(ip: string, code: unknown, open: boolean): HostTier {
+    // No codes on this server and open mode on: a code typed into the form is ignored, not a 400 (owner's testing).
+    if (!this.codesSet && open) return 'open';
     if (code !== undefined && code !== null && code !== '') return this.checkCode(ip, code);
     if (open) return 'open';
     if (this.codesSet) throw new RiskHttpError('Creating a tournament needs a tournament code', 401);

@@ -37,6 +37,7 @@ const DAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
 const ENTRY_KEYS = new Set(['at', 'name', 'signupMinutes', 'minEntrants', 'finalMap', 'maxEntrants', 'roundMinutes', 'territoriesPerSeat', 'finishShare', 'botDelayMs', 'options']);
 export const CANCEL_NOT_ENOUGH = 'not enough entrants';
 export const CANCEL_MISSED = 'missed: the server was down at the start';
+export const CANCEL_CHANGED = 'the schedule changed';
 
 /** Parse `at`: "HH:MM" (daily) or "Mon,Thu HH:MM". */
 export function parseAt(at: unknown): { days: number[] | null; minuteOfDay: number } {
@@ -140,6 +141,16 @@ export class TournamentScheduler {
       try {
         const saved = JSON.parse(readFileSync(file, 'utf8')) as { slots?: Record<string, Slot> };
         for (const e of entries) if (saved.slots?.[e.key]) this.slots.set(e.key, saved.slots[e.key]);
+        // An entry the owner changed or removed has a new key (or none): its open tournament would never start, so it
+        // is called off rather than left registering, holding a maxActive place and its entrants.
+        const keys = new Set(entries.map((e) => e.key));
+        for (const [key, slot] of Object.entries(saved.slots ?? {})) {
+          if (keys.has(key) || slot.done || !slot.tournamentId) continue;
+          if (this.tournaments.get(slot.tournamentId)?.status === 'registering') {
+            this.tournaments.cancel(slot.tournamentId, CANCEL_CHANGED);
+            console.log(`tournament schedule: ${slot.tournamentId} called off (${CANCEL_CHANGED})`);
+          }
+        }
       } catch (err) {
         console.error('Failed to load the tournament schedule state:', err);
       }
@@ -241,7 +252,8 @@ export class TournamentScheduler {
         name: t?.name ?? e.spec.name ?? 'Scheduled tournament',
         startsAt: slot.startsAt,
         opensAt: slot.startsAt - e.signupMinutes * 60_000,
-        entrants: t ? t.entrants.length : 0,
+        // People and agents only, the count minEntrants is checked against (an admin may have added bots).
+        entrants: t ? t.entrants.filter((x) => !x.isBot).length : 0,
         maxEntrants: t ? t.maxEntrants : (e.spec.maxEntrants ?? null),
         minEntrants: e.minEntrants,
       };

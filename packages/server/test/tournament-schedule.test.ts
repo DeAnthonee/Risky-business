@@ -6,7 +6,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { Store } from '../src/store.js';
 import { createRiskServer, type RiskServer } from '../src/app.js';
 import type { TournamentClock } from '../src/tournaments.js';
-import { CANCEL_MISSED, CANCEL_NOT_ENOUGH, TournamentScheduler, nextStart, parseAt, parseSchedule, scheduleFromEnv } from '../src/tournament-schedule.js';
+import { CANCEL_CHANGED, CANCEL_MISSED, CANCEL_NOT_ENOUGH, TournamentScheduler, nextStart, parseAt, parseSchedule, scheduleFromEnv } from '../src/tournament-schedule.js';
 
 const H = 60 * 60_000;
 /** Thursday 2026-10-22, 12:00 UTC. */
@@ -210,6 +210,37 @@ describe('scheduled nested tournaments', () => {
     expect(third.next().cancelled).toMatchObject({ id: id3, reason: CANCEL_MISSED });
     third.stop();
     late.stopTimers();
+  });
+
+  it('an entry changed while its tournament is registering: that tournament is called off on load, not left open', () => {
+    const file = join(dir, 'changed', 'games.json');
+    const state = join(dir, 'changed', 'tournament-schedule.json');
+    const store = new Store(file, {}, { clock: new FakeClock(NOON + H) });
+    new TournamentScheduler(store.tournaments, parseSchedule(DAILY, store.tournaments), state).stop();
+    const [old] = [...store.tournaments.tournaments.keys()];
+    store.tournaments.join(old, 'Ann');
+    // An admin-added bot does not count as an entrant on the card.
+    store.tournaments.addBots(old, 'zerg', 1);
+    store.save();
+    store.stopTimers();
+
+    const again = new Store(file, {}, { clock: new FakeClock(NOON + 1.5 * H) });
+    const sched = new TournamentScheduler(again.tournaments, parseSchedule({ ...DAILY, at: '15:00' }, again.tournaments), state);
+    expect(again.tournaments.get(old)!.scheduled).toMatchObject({ cancelled: CANCEL_CHANGED });
+    // The changed entry opened its own slot (15:00, sign-up from 14:00) once its time came.
+    expect(sched.next().next).toMatchObject({ id: null, startsAt: Date.UTC(2026, 9, 22, 15, 0) });
+    sched.stop();
+    again.stopTimers();
+
+    // The card counts people and agents only.
+    const s2 = new Store(null, {}, { clock: new FakeClock(NOON + H) });
+    const sc2 = new TournamentScheduler(s2.tournaments, parseSchedule(DAILY, s2.tournaments), null);
+    const [id] = [...s2.tournaments.tournaments.keys()];
+    s2.tournaments.join(id, 'Ann');
+    s2.tournaments.addBots(id, 'zerg', 2);
+    expect(sc2.next().next).toMatchObject({ id, entrants: 1 });
+    sc2.stop();
+    s2.stopTimers();
   });
 
   it('agents find and join it over MCP: next_tournament, list_tournaments, join_tournament', async () => {

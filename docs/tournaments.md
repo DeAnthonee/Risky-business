@@ -167,11 +167,12 @@ The server can run nested tournaments on a timetable by itself (`packages/server
   - a tournament that is still registering more than one round (`roundMinutes`) past its start is called off as
     `"missed: the server was down at the start"`, rather than started at a time nobody expected.
 
-  Changing an entry starts it afresh.
+  Changing or removing an entry starts it afresh. If its tournament is still registering, that tournament is called
+  off on the next start-up as `"the schedule changed"`, so it never stays open forever.
 - **CPU.** One timer, set to the next sign-up or start; nothing polls.
 - **`GET /api/tournaments/next`** returns `{scheduled, next, running, cancelled}`:
   - `next`: the soonest slot, with its `id` once sign-up is open (`null` before), `name`, `startsAt`, `opensAt`,
-    `entrants`, `maxEntrants`, `minEntrants`;
+    `entrants` (people and agents, the count `minEntrants` is checked against), `maxEntrants`, `minEntrants`;
   - `running`: a scheduled tournament being played;
   - `cancelled`: the latest one called off, until a later one starts.
 

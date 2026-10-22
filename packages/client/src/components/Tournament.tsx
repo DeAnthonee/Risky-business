@@ -3,6 +3,7 @@ import { MAPS } from '@risk/engine';
 import { api, ApiError, type TournamentView } from '../api';
 import { getEntrantToken, saveEntrantToken, type Session } from '../session';
 import { NestedTournament } from './NestedTournament';
+import { ShareButton } from './Share';
 
 const STATUS_LABEL: Record<TournamentView['status'], string> = {
   registering: 'Registration open',
@@ -104,6 +105,7 @@ export function Tournament({
           <code>{t.id}</code> · {STATUS_LABEL[t.status]} ·{' '}
           {nested ? 'boards inside boards (tables of 3 to 6, a final of 6 to 10)' : `${mapName} · tables of up to ${t.groupSize}`} · {t.entrants.length}/{t.maxEntrants} entrants
         </p>
+        <ShareButton url={`${window.location.origin}${window.location.pathname}?tournament=${t.id}`} title={`${t.name} · Risky Business tournament`} />
       </header>
 
       {t.champion && (

@@ -13,6 +13,7 @@ import { CardsPanel } from './Cards';
 import { Chat } from './Chat';
 import { DicePanel, type BattleEvent } from './Dice';
 import { Log } from './Log';
+import { ShareButton } from './Share';
 import { BlitzPlanner } from './BlitzPlanner';
 import { GameMap, POUR_MS, territoryName, type FloatAnim, type Highlight, type MoveAnim, type SweepAnim } from './Map';
 
@@ -81,7 +82,6 @@ export function Game({
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [banner, setBanner] = useState<{ text: string; color: string } | null>(null);
-  const [copiedWatch, setCopiedWatch] = useState(false);
   // Scoreboard: player list, or a "who's winning" chart (remembered in this browser).
   const [scoreView, setScoreView] = useState<'list' | 'chart'>(() => {
     try {
@@ -184,15 +184,6 @@ export function Game({
     } else {
       setFollowTurn(false);
       setFogPin(pid);
-    }
-  };
-  const copyWatchLink = async () => {
-    try {
-      await navigator.clipboard.writeText(spectateLink(gameId));
-      setCopiedWatch(true);
-      setTimeout(() => setCopiedWatch(false), 1500);
-    } catch {
-      /* ignore */
     }
   };
 
@@ -575,9 +566,7 @@ export function Game({
                 {bonusView ? 'Back to board' : 'Bonuses'} <kbd>B</kbd>
               </button>
               <span className="spacer" />
-              <button className="small" onClick={copyWatchLink}>
-                {copiedWatch ? 'Copied!' : 'Copy watch link'}
-              </button>
+              <ShareButton url={spectateLink(gameId)} title={`${conn.name || 'A game'} · Risky Business`} />
               {view.phase === 'lobby' && onJoin && (
                 <button className="small primary" onClick={onJoin}>
                   Join

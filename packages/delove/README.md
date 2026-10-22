@@ -521,6 +521,58 @@ npm run delove:horde -- --candidate delove@10 --tables classic:4:3,classic:6:3 -
   - The plain `range` seat took 1.3 s a game before the falling-out; `range-horde`'s rollouts play the horde bot,
     which costs more per move.
 
+### The learned Zerg, stages 0-1 (`npm run delove:talk`)
+
+The first steps of the learned Zerg (docs/zergs.md §7: chat and deduction, no shared secret, hidden roles):
+
+- **Talking tables** (src/talk/game.ts): a self-play loop with table chat, separate from the GPU-mirrored game.ts.
+  - Each seat has a hidden role (`zerg`, `impostor`, `plain`) and may say one message per turn from the v0
+    vocabulary (src/talk/vocab.ts), public or whispered.
+  - It sees only the messages it may see and the public battles.
+  - The game ends by standing once only true Zergs are left (the owner's rule).
+- **Scripted roles** (src/talk/roles.ts):
+  - talking and quiet Zergs that act (zerg@2's policy) on a *belief* about who their allies are;
+  - impostors: `claimer` talks like a Zerg and attacks anyone; the held-out `mimic` acts like a Zerg for 4 rounds,
+    then betrays;
+  - plain seats, some of them accusing whoever hit them.
+- **The listener v0** (src/talk/listener.ts, features in src/talk/features.ts): logistic regression on what a seat said
+  and how it fought (toward me, toward self-declared Zergs, toward others; totals and the last two rounds), trained on
+  the true roles.
+- **Training data:** iteration 0's Zergs act on the true allies (teacher forcing), so their behaviour is a real
+  signal. Later iterations add games where they act on the previous listener (`--iterations`).
+
+```bash
+npm run delove:talk -- --train-games 600 --test-games 300 --play-games 300 --iterations 3 --out models/delove/listener@0.json
+```
+
+First results (2026-10-22, classic 4-5p, 2 Zergs, 300 games per arm, single process, a few minutes):
+
+| belief the Zergs act on | horde wins | infighting | hits on the impostor | turn limits |
+| --- | --- | --- | --- | --- |
+| rule: "claimed and hasn't hit me or a claimer" | 76% | 23% | 38% | 0/300 |
+| listener v0 (teacher forcing, 3 iterations) | 90% | 20% | 62% | 6/300 |
+| second-order listener (stacked) | 86% | 19% | 47% | 4/300 |
+| the true roles (upper bound) | 99% | 0% | 46% | 0/300 |
+
+Recognition, Zerg vs the held-out `mimic` impostor (AUC; 0.5 = chance, gate ≥ 0.75 by round 5):
+
+| scored on | rounds 1-2 | rounds 3-5 | round 6+ | all |
+| --- | --- | --- | --- | --- |
+| on-policy: games where the Zergs act on that listener | 0.63 | 0.83 | 0.94 | 0.87 |
+| teacher-forced: games where the Zergs act on the true roles | 0.60 | 0.90 | 1.00 | 0.93 |
+| second-order listener, on-policy | 0.57 | 0.72 | 0.90 | 0.78 |
+
+- The listener v0 passes the recognition gate on-policy: 0.83 by rounds 3-5, 0.94 from round 6, against an impostor
+  it never trained on. Rounds 1-2 can't be much better, since the mimic acts exactly like a Zerg until round 4.
+- Score a listener on-policy (or teacher-forced), not on games where the Zergs act on the rule. There, a Zerg that
+  rightly attacks a claiming impostor looks like a traitor to its fellow Zerg, the rule makes them fight each other
+  (23% infighting), and true Zergs end up behaving like impostors: that test gave about 0.47 for every listener.
+- The second-order listener (battles split by the first listener's belief) is no better, so the listener v0 stays
+  the default.
+- Still open: infighting is 20%, above the owner's 5-15% band. Next: the recurrent head, then the learned speaking
+  head and the team-spirit reward (stage 2 on T4's league, #297).
+- The model file stays local (hard rule 13).
+
 ### The searching Zerg (`zerg-branch@1`)
 
 Branch and score for the horde (src/zerg-branch.ts): the Zerg's own move and up to 3 alternatives (never an attack on a

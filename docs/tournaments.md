@@ -78,7 +78,8 @@ testing gate (owner, 2026-10-22); player keys or sign-in replace them later. The
 - **Testing mode** (owner, 2026-10-22: "those extra safety levers are blocking us testing it"). Unless
   `RISK_TOURNEY_STRICT=1`, the server runs with **no wrong-code lockout** (lockouts saved by a strict run are cleared
   at start) and **looser caps**: 10 tournaments at once, 5 per limited code, 200 creates a day, 50 per limited code,
-  1000 seats reserved. The codes, the seat and Delove caps, expiry and the lag brake stay. `RISK_TOURNEY_STRICT=1`
+  1000 seats reserved, up to 256 entrants per tournament with any code or open mode, and Delove seats up to 256 per
+  tournament and 1000 at once. The codes, expiry, the search-seat cap (20) and the lag brake stay. `RISK_TOURNEY_STRICT=1`
   restores the launch levers listed below. Each lever's own variable wins in either mode. The startup log says
   `[tourney] codes: admin set|unset, limited set|unset, strict on|off` (never a value).
 - **No codes on the server** (owner: "I dont care to have some code block our testing right now"): with neither code
@@ -153,7 +154,8 @@ round; the boards nest inside each other's territories (the map side: [maps.md](
 
 - **Settings** (create): `finalMap` (an existing board for the final, seating 6+ with a region per seat, e.g. `world` or
   `hexworld`, whose 6-10 finalists start in different regions of the globe; default a generated one), `territoriesPerSeat` (generated boards' size, 4-6, default 5), `roundMinutes` (a round's deadline,
-  1-240, default 30), `finishShare` (default 0.51), `options` (every table's game settings except the map; they are
+  1-240, default 15: `NESTED_ROUND_MINUTES`), `finishShare` (still accepted, 0.1-1, and stored, but ignored since
+  2026-10-22: a round no longer closes early), `options` (every table's game settings except the map; they are
   checked at create on every table size from 2 to 10 seats), `maxEntrants` (default 128), `botDelayMs` (the bots' pace
   at the tables, 0-2000 ms between moves, default 300). `groupSize` and `fillBots` do not apply.
 - **Seat counts** (create, any format): `zergs` (Zerg entrants, added in the same call), `delove` (Delove seats asked
@@ -165,7 +167,7 @@ round; the boards nest inside each other's territories (the map side: [maps.md](
   any Zergs the plan adds to fit a bracket), the final's board, round 1 as #240's seating would fill it (people and
   Zergs per table, every open spot taken; Delove counts as people), the turn timer, and the time as a **range**: low =
   every round's biggest table at bot pace (75 moves per seat × `botDelayMs`, at least a minute, at most the round's
-  deadline), high = rounds × `roundMinutes` (agents on a 90 s/move timer usually run close to it). A formula, never a
+  deadline), high = rounds × `roundMinutes`, before any last laps (agents on a 90 s/move timer usually run close to it). A formula, never a
   simulation, and at most 30 previews per minute per client (429 past that).
 - **Who joined** (the host only, `GET /api/tournaments/:id/entrants` with the host token or the admin key): every
   entrant's kind (Zerg, built-in bot, Delove: joined by the seat pool or labelled `delove@…`, another agent, human),
@@ -203,16 +205,26 @@ round; the boards nest inside each other's territories (the map side: [maps.md](
   least as many guests and house AI as tables, and the Zergs at tables of one size differ by at most one. Filler Zergs
   move up like any entrant when they win. Later rounds seat each
   table's winner at its parent table (its portal), so a parent table can still be all Zergs when Zergs won every
-  child table under it; the round clock below keeps such tables from closing a round. **Every round-1 table starts at
+  child table under it. **Every round-1 table starts at
   once.**
-- **The round clock.** A round ends at the first of: no table left playing; the round's deadline (`roundMinutes`
-  after it started; stored as an absolute time); or early, once `ceil(finishShare × tables)` of the tables **with a
-  guest** (a person or an outside agent; with no guest table left, the tables with house AI) are finished by a win (byes count; tables decided on standing do not) **and** every such table
-  still playing has played at least `ROUND_MIN_TURNS` (3) full rounds of turns. Tables of server bots only do not
-  count (they finish in seconds and used to close a round while the people's tables were still in setup, TTBQAH
-  2026-10-22), and while any table has a guest, neither do tables of house AI and bots only (Delove plays fast and
-  would hurry a round past the guests); they are decided with the rest when the round ends. A round of server bots only counts all its tables
-  and has no turn rule. A one-table round (the final) therefore ends only by its win or its deadline.
+- **The round clock** (owner, 2026-10-22: "get rid of the 51 percent cut off for now and just have a maximum of 15
+  minutes per round, and the cut off will be at the end of the turn order so all players have the same amount of turns
+  taken"). A round never closes early on a share of its tables. It ends when no table is left playing, or after its
+  deadline (`roundMinutes` after it started, stored as an absolute time) and a **last lap**:
+  - At the deadline (`lastLapAt` in the bracket), each table still playing records the go-around of the turn order it
+    is on (`lapRound`, the engine's `GameState.round`) and plays on.
+  - A table's last lap is over when the turn passes the last seat in turn order (the engine's `round` moves on;
+    eliminated seats are skipped, so a start seat knocked out changes nothing). Every player still at that table has
+    then taken the same number of turns.
+  - When every table still playing has finished its last lap (or finished outright), the round ends and those tables
+    are decided on standing (below). The per-move turn timer (90 s by default) bounds each turn of the lap.
+  - A **backstop** ends the last lap anyway one more `roundMinutes` after the deadline. It only matters when the move
+    timer is off (`turnTimer: 'off'`): with the default 90 s per-move timer a stalled seat is skipped and the lap ends on
+    its own, while with no timer a seat that never moves could otherwise hold the tournament forever.
+  - Every table counts, whoever sits at it: a fast table of house AI or Zergs never hurries a round past the guests',
+    since the round waits for every table (or the deadline).
+  - Tables that finished by a win still move on as usual. A restart keeps the clock: a deadline passed while the server
+    was down starts the last lap on load, and a passed backstop ends the round on load.
 - **Decided on standing.** When a round ends, every table still playing is frozen (bots and the turn timer stop,
   every move is refused with "This table was decided at the round's end") and ranked by the engine's
   `rankByStanding` (`packages/engine/src/standing.ts`): players still in by territories, then armies, then dice (the

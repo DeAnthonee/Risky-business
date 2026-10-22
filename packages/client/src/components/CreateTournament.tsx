@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { MAP_IDS, getMap } from '@risk/engine';
-import { api, type TournamentPreview } from '../api';
+import { api, type HostEntrantsView, type TournamentPreview } from '../api';
 import { saveHostToken } from '../session';
 import { HostEntrants } from './HostEntrants';
+import { StartButton } from './StartButton';
 import './create-tournament.css';
 
 /** Boards that can hold a final: 6+ seats with a region per seat (the server checks too). */
@@ -22,7 +23,7 @@ interface Form {
   code: string;
 }
 
-const START: Form = { name: '', zergs: 20, delove: 0, open: 12, roundMinutes: 30, finalMap: '', timer: 90, capitals: true, fog: false, code: '' };
+const START: Form = { name: '', zergs: 20, delove: 0, open: 12, roundMinutes: 15, finalMap: '', timer: 90, capitals: true, fog: false, code: '' };
 
 /** The request both the preview and create send (nested format; unset settings keep the server's tournament defaults). */
 function specOf(f: Form) {
@@ -52,7 +53,9 @@ export function CreateTournament({ onOpen, onBack }: { onOpen: (id: string) => v
   const [previewErr, setPreviewErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [created, setCreated] = useState<{ id: string; hostToken: string; started: boolean } | null>(null);
+  const [created, setCreated] = useState<{ id: string; hostToken: string; started: boolean; maxEntrants: number; delove: number } | null>(null);
+  // Who joined so far (HostEntrants shares its live view), for the seat count and the confirm beside Start now.
+  const [hostView, setHostView] = useState<HostEntrantsView | null>(null);
   const set = <K extends keyof Form>(key: K, value: Form[K]) => setForm((f) => ({ ...f, [key]: value }));
 
   // The breakdown follows the form, a moment after the last change (the preview is rate-limited per client).
@@ -86,7 +89,7 @@ export function CreateTournament({ onOpen, onBack }: { onOpen: (id: string) => v
     try {
       const r = await api.createTournament({ ...specOf(form), ...(form.code.trim() ? { code: form.code.trim() } : {}) });
       saveHostToken(r.tournament.id, r.hostToken);
-      setCreated({ id: r.tournament.id, hostToken: r.hostToken, started: false });
+      setCreated({ id: r.tournament.id, hostToken: r.hostToken, started: false, maxEntrants: r.tournament.maxEntrants, delove: r.tournament.requested?.delove ?? form.delove });
     } catch (e) {
       setErr((e as Error).message);
     } finally {
@@ -134,19 +137,24 @@ export function CreateTournament({ onOpen, onBack }: { onOpen: (id: string) => v
               {err}
             </p>
           )}
+          {!created.started && (
+            <StartButton
+              joined={hostView?.entrants.length ?? 0}
+              max={hostView?.maxEntrants ?? created.maxEntrants}
+              deloveAsked={created.delove}
+              deloveJoined={hostView?.counts.delove ?? 0}
+              busy={busy}
+              onStart={() => void start()}
+            />
+          )}
           <div className="row">
-            {!created.started && (
-              <button className="primary" disabled={busy} onClick={() => void start()}>
-                Start now
-              </button>
-            )}
             <button className="watch" onClick={() => onOpen(created.id)}>
               Open the bracket
             </button>
             <button onClick={onBack}>Back to games</button>
           </div>
         </section>
-        <HostEntrants id={created.id} hostToken={created.hostToken} />
+        <HostEntrants id={created.id} hostToken={created.hostToken} onView={setHostView} />
       </div>
     );
   }

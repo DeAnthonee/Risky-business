@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * A whole nested ("Inception") tournament without the website: plan, boards, every table played by server bots, the
- * 51% round ends (people's tables only, after 3 full rounds; all-bot rounds count every table), tables decided on standing, winners on their portals, the champion. Reads the built server and engine
+ * round ends (every table finished, or the deadline and a last lap to the end of each table's go-around of turns), tables decided on standing, winners on their portals, the champion. Reads the built server and engine
  * (run `npm run build` first); never selfplay or Delove. Nothing is written to the repo.
  *
  * Headless (default): one process, no network, a fake clock that jumps to a round's deadline when no table can move,
@@ -139,7 +139,7 @@ function headless(run) {
       decided: r.matches.filter((m) => m.status === 'decided').length,
       byes: r.matches.filter((m) => m.status === 'bye').length,
       steps: r.matches.map((m) => steps.get(m.gameId) ?? 0),
-      by: r.endedAt >= r.deadline ? 'its deadline' : `the ${Math.round(t.nested.finishShare * 100)}% rule`,
+      by: r.lastLapAt !== undefined ? 'its deadline and last lap' : 'every table finished',
     }));
     const bracket = t.rounds.map((r) => r.matches.map((m) => ({ map: m.map, seats: m.entrants.map(name), status: m.status, winner: m.winner && name(m.winner), standing: m.standing?.order.map(name) })));
     const digest = createHash('sha256').update(JSON.stringify({ bracket, champion: name(t.champion) })).digest('hex').slice(0, 16);

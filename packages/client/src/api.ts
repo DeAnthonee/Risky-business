@@ -136,6 +136,8 @@ export interface TournamentView {
   name: string;
   /** The server is in open mode (testing, no hosting codes): anyone may start it, so the host controls show for all. */
   openMode?: boolean;
+  /** The host's seat counts at create (Zergs, Delove asked for, open spots), when it was made with them. */
+  requested?: { zergs: number; delove: number; open: number };
   status: TournamentSummary['status'];
   map: string;
   groupSize: number;
@@ -144,8 +146,9 @@ export interface TournamentView {
   entrants: { id: string; name: string; isBot: boolean; status: EntrantStatus }[];
   rounds: {
     round: number;
-    /** Nested: the round's deadline and end (ms since the epoch). */
+    /** Nested: the round's deadline, the start of its last lap (the deadline passed) and its end (ms since the epoch). */
     deadline?: number;
+    lastLapAt?: number;
     endedAt?: number;
     matches: {
       gameId: string | null;
@@ -166,6 +169,7 @@ export interface TournamentView {
     finalMap: string | null;
     territoriesPerSeat: number;
     roundMinutes: number;
+    /** Unused (a round no longer closes early on a share of tables). */
     finishShare: number;
     plan: number[][] | null;
     zergs: number;

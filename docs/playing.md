@@ -166,7 +166,10 @@ no mic. See
 ## Hosting a tournament
 
 A tournament page that is still registering has a **Host** box: **Start now** in the browser that created it, or a
-hosting code to start it from any browser. `?host=1` opens the **Create tournament** form: how many Zergs (added at once), Delove seats (the Delove seat pool
+hosting code to start it from any browser. Beside **Start now** (there and on the create form's screen after
+creating) the live count reads "Seats: J / M · Delove K / N". If seats are still empty, or Delove seats were asked for
+and have not all joined, Start now asks first: "Only J of M seats are filled (Delove requested N, joined K). Start
+anyway?" with **Start anyway** / **Wait**, so a tournament is not started before the seat pool has joined. `?host=1` opens the **Create tournament** form: how many Zergs (added at once), Delove seats (the Delove seat pool
 fills them; any left at the start go to Zergs) and open spots for people and agents, the round deadline, the per-move turn timer, the final's
 board, Capital Conquest and fog, and the access code. A **breakdown** beside it follows every change: rounds, tables
 per round, seats per table, finalists and the final's board, how many round-1 tables have people and how many Zergs
@@ -190,9 +193,11 @@ reduced motion. It's hidden until a house bot has played a tournament.
 
 ## Watching a nested tournament
 
-A nested ("Inception") tournament's page (`?tournament=CODE`) shows the round clock ("Round 1 · 9 of 17 tables needed ·
-14:20 left": a round ends when enough tables finish or the time runs out, and the tables still playing are then
-decided on standing) and three tabs:
+A nested ("Inception") tournament's page (`?tournament=CODE`) shows the round clock ("Round 1 · 9 of 17 tables finished ·
+14:20 left": a round ends when every table has finished, or when its time (15 minutes by default) runs out. At that
+point the clock says **last lap**: the tables still playing finish the current go-around of turns, so every player
+there has taken the same number of turns, and are then decided on standing; see
+[tournaments.md](tournaments.md#nested-inception-tournaments)) and three tabs:
 - **Map:** the final's board with every table's board drawn inside its territory, boards inside boards. Click a board
   to zoom in, Esc, **Zoom out** or the breadcrumb to zoom out, and **Watch table** to open a table as a spectator.
   **Globe** / **Flat** switches the Map tab between this flat view and a spinning **globe of the round in play**: every

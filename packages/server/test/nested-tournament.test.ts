@@ -12,7 +12,7 @@ vi.hoisted(() => {
 const { Store } = await import('../src/store.js');
 const { createRiskServer } = await import('../src/app.js');
 type TournamentClock = import('../src/tournaments.js').TournamentClock;
-const { NESTED_BLIZZARD_SHARE, NESTED_DEFAULT_OPTIONS, ROUND_MIN_TURNS, blizzardsFor, isHouseAi, seatNestedRound } = await import('../src/tournaments.js');
+const { NESTED_BLIZZARD_SHARE, NESTED_DEFAULT_OPTIONS, blizzardsFor, isHouseAi, seatNestedRound } = await import('../src/tournaments.js');
 const { createRng, genMapId, nestSeed } = await import('@risk/engine');
 
 /** A clock the test moves by hand: round deadlines fire only when it is advanced past them. */
@@ -28,12 +28,17 @@ class FakeClock implements TournamentClock {
   clearTimeout = (h: unknown) => {
     this.timers = this.timers.filter((x) => x !== h);
   };
+  /** Move on by `ms`, firing every timer due by then in order, including ones armed by a timer that fired. */
   advance(ms: number) {
-    this.t += ms;
-    for (const h of this.timers.filter((x) => x.at <= this.t)) {
-      this.timers = this.timers.filter((x) => x !== h);
-      h.fn();
+    const end = this.t + ms;
+    for (;;) {
+      const due = this.timers.filter((x) => x.at <= end).sort((a, b) => a.at - b.at)[0];
+      if (!due) break;
+      this.timers = this.timers.filter((x) => x !== due);
+      this.t = Math.max(this.t, due.at);
+      due.fn();
     }
+    this.t = end;
   }
 }
 
@@ -85,7 +90,7 @@ describe('nested tournaments', () => {
       expect(await bad({ options: { neutrals: 4 } })).toBe(400); // too many for the smallest board
       const ok = await call('/admin/tournaments', post({ format: 'nested', name: 'Inception', finalMap: 'world' }), ADMIN);
       expect(ok.status).toBe(201);
-      expect(ok.body.tournament).toMatchObject({ format: 'nested', map: 'nested', maxEntrants: 128, nested: { finalMap: 'world', territoriesPerSeat: 5, roundMinutes: 30, finishShare: 0.51, botDelayMs: 300, plan: null } });
+      expect(ok.body.tournament).toMatchObject({ format: 'nested', map: 'nested', maxEntrants: 128, nested: { finalMap: 'world', territoriesPerSeat: 5, roundMinutes: 15, finishShare: 0.51, botDelayMs: 300, plan: null } });
       // Hex Earth seats a final of 6-10 with a region per seat.
       const hex = await call('/admin/tournaments', post({ format: 'nested', name: 'Hex final', finalMap: 'hexworld', seed: 11 }), ADMIN);
       expect(hex.status).toBe(201);
@@ -176,12 +181,18 @@ describe('nested tournaments', () => {
       expect(waited.text).toMatch(/YOUR TABLE: game [A-Z0-9]+ \(round 1\)\. Seat token: \S+/);
       const claudeGame = /YOUR TABLE: game ([A-Z0-9]+)/.exec(waited.text)![1];
 
-      // Nobody human moves, so their three tables wait; the seven bot tables play out. Bot tables do not count toward
-      // the 51% rule (they would close the round while people are still setting up), so the round waits for its
-      // deadline: then the people's tables are decided on standing, and the final is seated at once.
+      // Nobody human moves, so their three tables wait; the seven bot tables play out. A round never closes early, so
+      // it waits for its deadline. Then the people's tables get a last lap (to the end of their go-around of turns);
+      // nobody moves there with no turn timer, so the backstop (one more round's time) decides them on standing, and
+      // the final is seated at once.
       const botTables = r1.matches.filter((m: any) => !humanTables.includes(m)).map((m: any) => m.gameId);
       await until(() => t.rounds[0].matches.filter((m) => botTables.includes(m.gameId) && m.status === 'finished').length === 7, 120_000);
       expect(t.rounds).toHaveLength(1);
+      clock.advance(20 * 60_000);
+      expect(t.rounds).toHaveLength(1);
+      expect(t.rounds[0].lastLapAt).toBe(clock.now());
+      expect((await call(`/tournaments/${id}`)).body.tournament.rounds[0].lastLapAt).toBe(clock.now());
+      for (const m of t.rounds[0].matches.filter((x) => x.status === 'playing')) expect(m.lapRound).toBe(store.get(m.gameId!)!.state.round);
       clock.advance(20 * 60_000);
       expect(t.rounds).toHaveLength(2);
       const ended = t.rounds[0];
@@ -225,8 +236,8 @@ describe('nested tournaments', () => {
         else expect(me).toMatchObject({ status: 'out', match: null });
       }
 
-      // The final has a single table: only its own end or the deadline ends it. Let the clock run out.
-      if (t.status === 'running') clock.advance(20 * 60_000);
+      // The final has a single table: only its own end or the deadline (and its last lap) ends it. Let the clock run out.
+      if (t.status === 'running') clock.advance(40 * 60_000);
       expect(t.status).toBe('finished');
       expect(t.champion).toBe(final.winner);
       const view = (await call(`/tournaments/${id}`)).body.tournament;
@@ -322,7 +333,7 @@ describe('nested tournaments', () => {
     }
   }, 180_000);
 
-  it('survives a restart: the round clock re-arms from the saved deadline, and a passed deadline ends the round', async () => {
+  it('survives a restart: the round clock re-arms from the saved deadline, and a passed deadline starts the last lap', async () => {
     const file = join(dir, 'restart.json');
     const clock = new FakeClock();
     const store = new Store(file, {}, { clock });
@@ -341,14 +352,29 @@ describe('nested tournaments', () => {
     const t2 = again.tournaments.get(t.id)!;
     expect(t2.rounds).toHaveLength(1);
     expect(early.timers.map((x) => x.at)).toEqual([deadline]);
+    // The deadline starts the last lap (nobody moves: no turn timer), and its backstop, a round's time on, ends it.
     early.advance(60_000);
+    expect(t2.rounds).toHaveLength(1);
+    expect(t2.rounds[0].lastLapAt).toBe(deadline);
+    expect(early.timers.map((x) => x.at)).toEqual([deadline + 10 * 60_000]);
+    early.advance(10 * 60_000);
     expect(t2.rounds).toHaveLength(2);
     expect(t2.rounds[0].matches.every((m) => m.status === 'decided')).toBe(true);
     again.stopTimers();
 
-    // Back after the deadline: the round ends on load, from the saved tables.
+    // Back after the deadline: the last lap starts on load, with its backstop armed.
     const late = new FakeClock();
     late.t = deadline + 1;
+    const lap = new Store(file, {}, { clock: late });
+    const tl = lap.tournaments.get(t.id)!;
+    expect(tl.rounds).toHaveLength(1);
+    expect(tl.rounds[0].lastLapAt).toBe(deadline + 1);
+    expect(late.timers.map((x) => x.at)).toEqual([deadline + 10 * 60_000]);
+    lap.stopTimers();
+
+    // Back after the backstop too: the round ends on load, from the saved tables.
+    late.timers = [];
+    late.t = deadline + 10 * 60_000;
     const third = new Store(file, {}, { clock: late });
     const t3 = third.tournaments.get(t.id)!;
     expect(t3.rounds).toHaveLength(2);
@@ -384,7 +410,7 @@ describe('nested tournaments', () => {
     store.tournaments.start(t.id);
     const zergSeats = (gameId: string) => store.get(gameId)!.state.players.filter((p) => !p.isNeutral).every((p) => p.isBot && p.id.startsWith('zerg_'));
     expect(t.rounds[0].matches.every((m) => zergSeats(m.gameId!))).toBe(true);
-    // An all-Zerg table ends fast (the weaker Zergs give way to the strongest); the 51% rule then seats the final.
+    // An all-Zerg table ends fast (the weaker Zergs give way to the strongest); once every table is over, the final is seated.
     await until(() => t.rounds.length === 2, 120_000);
     const final = t.rounds[1].matches[0];
     expect(final.entrants.every((eid) => t.entrants.find((e) => e.id === eid)!.kind === 'zerg')).toBe(true);
@@ -458,59 +484,76 @@ describe('nested tournaments', () => {
     for (const room of store.rooms.values()) room.stopBot();
   });
 
-  it('bot-only tables do not count toward the 51% rule, and a round never closes early before the people\'s tables have played ROUND_MIN_TURNS rounds', () => {
-    // 2 people + 16 Zergs: six tables of 3, so four tables are Zergs only (unavoidable) and end right after the deal.
+  it('never closes a round early: it ends when every table has finished, or after the deadline once the last lap has given every player the same number of turns', () => {
+    // 8 people + 10 Zergs: six tables of 3, each with a person. The round deadline defaults to 15 minutes (owner).
     const clock = new FakeClock();
     const store = new Store(null, {}, { clock });
-    const t = store.tournaments.create({ format: 'nested', roundMinutes: 20, botDelayMs: 2000, options: { turnTimer: 'off', autoSetup: true } });
-    store.tournaments.join(t.id, 'Ada');
-    store.tournaments.join(t.id, 'Grace');
-    store.tournaments.addBots(t.id, 'zerg', 16);
+    const t = store.tournaments.create({ format: 'nested', botDelayMs: 2000, options: { turnTimer: 'off', autoSetup: true } });
+    expect(t.nested!.roundMinutes).toBe(15);
+    for (let i = 1; i <= 8; i++) store.tournaments.join(t.id, `P${i}`);
+    store.tournaments.addBots(t.id, 'zerg', 10);
     store.tournaments.start(t.id);
-    const isPerson = (eid: string) => t.entrants.find((e) => e.id === eid)!.isBot === false;
     const r1 = t.rounds[0];
-    const zergTables = r1.matches.filter((m) => !m.entrants.some(isPerson));
-    expect(zergTables).toHaveLength(4);
-    expect(zergTables.every((m) => m.status === 'finished')).toBe(true);
-    // Four of six tables are over (old rule: round over), but neither people's table is: the round goes on.
-    expect(r1.endedAt).toBeUndefined();
+    expect(r1.deadline).toBe(clock.now() + 15 * 60_000);
+    const m = r1.matches;
+    expect(m).toHaveLength(6);
+    const check = () => (store.tournaments as any).checkRound(t) as boolean;
+    // Five of six tables are over (the old 51% rule closed the round at four): the round goes on.
+    for (const x of m.slice(0, 5)) {
+      x.status = 'finished';
+      x.winner = x.entrants[0];
+    }
+    expect(check()).toBe(false);
     expect(t.rounds).toHaveLength(1);
-    // ... until its deadline, which still ends it.
-    clock.advance(20 * 60_000);
+    expect(r1.lastLapAt).toBeUndefined();
+    // The deadline starts the last lap: the table still playing plays on from the go-around it is on.
+    const last = m[5];
+    const room = store.get(last.gameId!)!;
+    const lap = room.state.round;
+    clock.advance(15 * 60_000);
+    expect(r1.lastLapAt).toBe(clock.now());
+    expect(last.lapRound).toBe(lap);
+    expect(last.status).toBe('playing');
+    expect(t.rounds).toHaveLength(1);
+    // Turns taken inside the go-around do not end it ...
+    room.state = { ...room.state, turnNumber: room.state.turnNumber + 1 };
+    expect(check()).toBe(false);
+    // ... the turn passing the last seat in turn order does (GameState.round moves on, eliminated seats skipped by the
+    // engine): every player still there has then taken the same number of turns, and the table is decided on standing.
+    room.state = { ...room.state, round: lap + 1 };
+    expect(check()).toBe(true);
     expect(r1.endedAt).toBe(clock.now());
-    expect(r1.matches.filter((m) => m.entrants.some(isPerson)).every((m) => m.status === 'decided')).toBe(true);
+    expect(last.status).toBe('decided');
+    expect(room.decidedAt).not.toBeNull();
+    // The finished tables still move on: all six winners sit at the final.
     expect(t.rounds).toHaveLength(2);
+    expect([...t.rounds[1].matches[0].entrants].sort()).toEqual(m.map((x) => x.winner!).sort());
     store.stopTimers();
-    for (const room of store.rooms.values()) room.stopBot();
+    for (const r of store.rooms.values()) r.stopBot();
 
-    // 8 people + 10 Zergs: every table has a person. When 51% of them are over, the others must still have played
-    // ROUND_MIN_TURNS full rounds before the round can close early.
+    // Every table finished before the deadline: the round ends at once, with no last lap.
     const clock2 = new FakeClock();
     const store2 = new Store(null, {}, { clock: clock2 });
-    const t2 = store2.tournaments.create({ format: 'nested', roundMinutes: 20, botDelayMs: 2000, options: { turnTimer: 'off', autoSetup: true } });
-    for (let i = 1; i <= 8; i++) store2.tournaments.join(t2.id, `P${i}`);
-    store2.tournaments.addBots(t2.id, 'zerg', 10);
+    const t2 = store2.tournaments.create({ format: 'nested', botDelayMs: 2000, finishShare: 0.3, options: { turnTimer: 'off', autoSetup: true } });
+    for (let i = 1; i <= 18; i++) store2.tournaments.join(t2.id, `Q${i}`);
     store2.tournaments.start(t2.id);
+    const check2 = () => (store2.tournaments as any).checkRound(t2) as boolean;
     const m2 = t2.rounds[0].matches;
-    expect(m2).toHaveLength(6);
-    const share = Math.ceil(t2.nested!.finishShare * m2.length);
-    // The first `share` tables end (as if played out); the rest are still in their first rounds.
-    for (const m of m2.slice(0, share)) {
-      m.status = 'finished';
-      m.winner = m.entrants[0];
+    // finishShare is still accepted (old callers) and ignored: two of six finished does not close the round.
+    for (const x of m2.slice(0, 2)) {
+      x.status = 'finished';
+      x.winner = x.entrants[0];
     }
-    const check = () => (store2.tournaments as any).checkRound(t2) as boolean;
-    expect(check()).toBe(false);
-    expect(t2.rounds).toHaveLength(1);
-    const rest = m2.slice(share).map((m) => store2.get(m.gameId!)!);
-    rest[0].state = { ...rest[0].state, round: ROUND_MIN_TURNS };
-    expect(check()).toBe(false);
-    for (const room of rest) room.state = { ...room.state, round: ROUND_MIN_TURNS };
-    expect(check()).toBe(true);
-    expect(t2.rounds[0].endedAt).toBe(clock2.now());
+    expect(check2()).toBe(false);
+    for (const x of m2) {
+      x.status = 'finished';
+      x.winner = x.entrants[0];
+    }
+    expect(check2()).toBe(true);
+    expect(t2.rounds[0].lastLapAt).toBeUndefined();
     expect(t2.rounds).toHaveLength(2);
     store2.stopTimers();
-    for (const room of store2.rooms.values()) room.stopBot();
+    for (const r of store2.rooms.values()) r.stopBot();
   });
 
   it('every table of every round plays the owner\'s tournament mode by default: auto setup, capitals, blizzards', () => {
@@ -578,7 +621,7 @@ describe('nested tournaments', () => {
     for (const room of store.rooms.values()) room.stopBot();
   });
 
-  it('house-AI-only tables do not count toward the early close while guest tables play', () => {
+  it('finished house-AI-only tables never close a round while guest tables play', () => {
     // 2 guests + 16 Delove: six tables of 3, two with a guest, four Delove only.
     const clock = new FakeClock();
     const store = new Store(null, {}, { clock });
@@ -593,15 +636,15 @@ describe('nested tournaments', () => {
     const houseTables = m1.filter((m) => !m.entrants.some(isGuest));
     expect(guestTables).toHaveLength(2);
     expect(houseTables).toHaveLength(4);
-    // Every Delove-only table is over (4 of 6, past 51%), and the guests' tables have played enough turns: the old rule
-    // (house AI counted as people) would close the round now. It must not: only the guests' tables count.
+    // Every Delove-only table is over (4 of 6, past the old 51% rule), and the guests' tables have played many turns.
+    // The round must not close: it waits for every table (or its deadline and last lap, #289).
     for (const m of houseTables) {
       m.status = 'finished';
       m.winner = m.entrants[0];
     }
     for (const m of guestTables) {
       const room = store.get(m.gameId!)!;
-      room.state = { ...room.state, round: ROUND_MIN_TURNS };
+      room.state = { ...room.state, round: 10 };
     }
     const check = () => (store.tournaments as any).checkRound(t) as boolean;
     expect(check()).toBe(false);

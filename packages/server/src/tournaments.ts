@@ -40,8 +40,9 @@ import { RateLimitedError, RateLimiter } from './rate-limit.js';
  *
  * The `nested` format (docs/tournaments.md) plans its rounds with the engine's planNest (tables of 3-6, a final of
  * 6-10, bots only when the count fits no plan) and plays every table on its own board from planToNest. A round ends
- * when enough of its tables have finished (`finishShare`, 51% by default) or at its deadline; the tables still
- * playing are then frozen and decided on standing (the engine's rankByStanding: territories, armies, dice).
+ * when every table has finished, or after its deadline (15 minutes by default): the tables still playing then get a
+ * last lap, to the end of the current go-around of the turn order so every player there has taken the same number of
+ * turns, and are then decided on standing (the engine's rankByStanding: territories, armies, dice).
  */
 
 /** Wall clock for round deadlines; tests pass a fake one. */
@@ -111,6 +112,11 @@ export interface TournamentMatch {
   kills?: Record<string, number>;
   /** Fun numbers per entrant, gathered while the table is played (for the house-bot panel; nothing is ranked on them). */
   stats?: Record<string, TableStats>;
+  /**
+   * Nested, set at the round's deadline on a table still playing: the game's round then (GameState.round). The table is
+   * decided once that round is over (the turn passed the last seat in turn order), so everyone there has had as many turns.
+   */
+  lapRound?: number;
 }
 
 /**
@@ -133,8 +139,9 @@ export interface TableStats {
 export interface TournamentRound {
   round: number;
   matches: TournamentMatch[];
-  /** Nested: when the round ends at the latest (absolute ms), and when it did end. */
+  /** Nested: the round's deadline (absolute ms), when its last lap began (the deadline passed), and when it ended. */
   deadline?: number;
+  lastLapAt?: number;
   endedAt?: number;
 }
 
@@ -144,7 +151,7 @@ export interface NestedSettings {
   finalMap: string | null;
   territoriesPerSeat: number;
   roundMinutes: number;
-  /** Share of a round's tables that must finish before the rest are decided on standing. */
+  /** Unused since 2026-10-22 (a round no longer closes early); kept so saved tournaments and old clients still load. */
   finishShare: number;
   /** Bots' pace at this tournament's tables, ms between moves. Absent on tournaments saved before it: the server default. */
   botDelayMs?: number;
@@ -237,7 +244,7 @@ export interface CreateTournamentSpec {
   territoriesPerSeat?: number;
   /** Nested: a round's deadline in minutes (1-240, default 30). */
   roundMinutes?: number;
-  /** Nested: share of a round's tables that must finish before the rest are decided (0.1-1, default 0.51). */
+  /** Nested: accepted (0.1-1) for old callers and ignored: a round no longer closes early. */
   finishShare?: number;
   /** Nested: bots' pace at the tables, ms between moves (0-2000, default 300). */
   botDelayMs?: number;
@@ -275,8 +282,9 @@ export interface TournamentView {
   entrants: { id: string; name: string; isBot: boolean; status: 'registered' | 'playing' | 'waiting' | 'out' | 'champion' }[];
   rounds: {
     round: number;
-    /** Nested: the round's deadline and end (ms). */
+    /** Nested: the round's deadline, the start of its last lap and its end (ms). */
     deadline?: number;
+    lastLapAt?: number;
     endedAt?: number;
     matches: {
       gameId: string | null;
@@ -363,6 +371,8 @@ const DEFAULT_MAX_NESTED_ENTRANTS = 128;
 /** Nested (and so scheduled) tournaments' table settings when the host leaves them out (owner, 2026-10-22). */
 /** A nested table's per-move turn timer when the host sets none (the owner's default). */
 export const NESTED_TURN_TIMER_SECONDS = 90;
+/** A nested (and so scheduled) round's deadline when the host sets none, in minutes (owner, 2026-10-22). */
+export const NESTED_ROUND_MINUTES = 15;
 export const NESTED_DEFAULT_OPTIONS: Partial<GameOptions> = { autoSetup: true, capitals: true };
 /** Unless the host sets a blizzard count, each nested table freezes this share of its own board's territories. */
 export const NESTED_BLIZZARD_SHARE = 0.1;
@@ -458,11 +468,11 @@ export class TournamentManager extends EventEmitter {
         else m.status = 'abandoned';
       }
       this.advance(t);
-      // Nested: the round clock starts again from its saved deadline (a deadline passed while down ends the round now).
+      // Nested: the round clock starts again from its saved deadline (a deadline passed while down starts the last lap now).
       if (t.format === 'nested' && t.status === 'running') {
         const round = this.currentRound(t);
         if (round && !round.endedAt && round.deadline !== undefined && this.clock.now() >= round.deadline) {
-          this.endRound(t);
+          this.lastLap(t);
           this.changed(t);
         } else this.armRound(t);
       }
@@ -547,7 +557,7 @@ export class TournamentManager extends EventEmitter {
     const total = counts.zergs + counts.delove + counts.open;
     this.createNested({ ...spec, format: 'nested', maxEntrants: spec.maxEntrants ?? Math.max(2, total) }, true);
     const tps = spec.territoriesPerSeat ?? 5;
-    const roundMinutes = spec.roundMinutes ?? 30;
+    const roundMinutes = spec.roundMinutes ?? NESTED_ROUND_MINUTES;
     const botDelayMs = spec.botDelayMs ?? 300;
     const finalMax = spec.finalMap ? this.maxFinal(spec.finalMap) : NESTED_FINAL.max;
     const plan = planNest(total, { maxFinal: finalMax });
@@ -611,7 +621,7 @@ export class TournamentManager extends EventEmitter {
     delete options.map; // every table plays its own board
     const tps = spec.territoriesPerSeat ?? 5;
     if (!Number.isInteger(tps) || tps < 4 || tps > 6) throw new RuleError('territoriesPerSeat must be a whole number from 4 to 6');
-    const roundMinutes = spec.roundMinutes ?? 30;
+    const roundMinutes = spec.roundMinutes ?? NESTED_ROUND_MINUTES;
     if (!Number.isInteger(roundMinutes) || roundMinutes < 1 || roundMinutes > 240) throw new RuleError('roundMinutes must be a whole number from 1 to 240');
     const finishShare = spec.finishShare ?? 0.51;
     if (typeof finishShare !== 'number' || !(finishShare >= 0.1 && finishShare <= 1)) throw new RuleError('finishShare must be a number from 0.1 to 1');
@@ -926,6 +936,7 @@ export class TournamentManager extends EventEmitter {
       rounds: t.rounds.map((r) => ({
         round: r.round,
         ...(r.deadline !== undefined ? { deadline: r.deadline } : {}),
+        ...(r.lastLapAt !== undefined ? { lastLapAt: r.lastLapAt } : {}),
         ...(r.endedAt !== undefined ? { endedAt: r.endedAt } : {}),
         matches: r.matches.map((m) => ({
           gameId: m.gameId,
@@ -1116,7 +1127,7 @@ export class TournamentManager extends EventEmitter {
     const settle = () => {
       if (m.status !== 'playing') return;
       if (t.format === 'nested' && room.state.phase !== 'finished' && !room.closed) {
-        // A nested round waiting on the turn rule (checkRound) may be able to end once this table has played on.
+        // A round in its last lap (checkRound) may be able to end once this table has finished its go-around.
         if (room.state.round === roundsSeen) return;
         roundsSeen = room.state.round;
         if (this.tournaments.get(t.id) === t && this.checkRound(t)) this.changed(t);
@@ -1287,37 +1298,46 @@ export class TournamentManager extends EventEmitter {
   }
 
   /**
-   * End the current round early once enough tables have finished (or none is left playing); its deadline ends it
-   * otherwise. Only tables with a person or agent count (a table of server bots finishes in seconds and would close the
-   * round while the people's tables are still setting up), and a round never closes early before every such table
-   * still playing has played ROUND_MIN_TURNS full rounds of turns. Returns true when it ended the round.
+   * End the current round once no table is playing, or, in its last lap (after the deadline), once every table still
+   * playing has finished the go-around it was on at the deadline (GameState.round moved past its lapRound): every
+   * surviving player there has then taken the same number of turns. No early close on a share of tables (owner,
+   * 2026-10-22). Returns true when it ended the round.
    */
   private checkRound(t: TournamentSnapshot): boolean {
     const round = this.currentRound(t);
     if (t.status !== 'running' || !round || round.endedAt) return false;
     const playing = round.matches.filter((m) => m.status === 'playing');
-    if (playing.length === 0) {
-      this.endRound(t);
-      return true;
-    }
-    // The tables that count: those with a guest (a person or an outside agent); else, with none left, those with house
-    // AI (Delove, which plays fast, so its tables never hurry a round past the guests'); else every table.
-    const house = this.houseAiIds(t);
-    const withGuest = round.matches.filter((m) => m.entrants.some((eid) => this.entrant(t, eid)?.isBot === false && !house.has(eid)));
-    const counted = withGuest.length ? withGuest : round.matches.filter((m) => m.entrants.some((eid) => this.entrant(t, eid)?.isBot === false));
-    // Only server bots this round (unavoidable once people are out): every table counts.
-    const tables = counted.length ? counted : round.matches;
-    const finished = tables.filter((m) => m.status === 'finished' || m.status === 'bye').length;
-    if (finished < Math.ceil(t.nested!.finishShare * tables.length)) return false;
-    // The turn rule is for people's tables; a round of server bots alone closes on the share as before.
-    const settled = !counted.length || tables.every((m) => {
-      if (m.status !== 'playing') return true;
+    // Every table counts (a guest's, house AI's or bots'): a fast Delove or Zerg table can never hurry a round past the
+    // guests', since the round waits for every table or its deadline.
+    const lapDone = (m: TournamentMatch) => {
       const room = m.gameId ? this.store.get(m.gameId) : undefined;
-      return !room || room.closed || room.state.round >= ROUND_MIN_TURNS;
-    });
-    if (!settled) return false;
+      return !room || room.closed || m.lapRound === undefined || room.state.round > m.lapRound;
+    };
+    if (playing.length > 0 && (round.lastLapAt === undefined || !playing.every(lapDone))) return false;
     this.endRound(t);
     return true;
+  }
+
+  /**
+   * The round's deadline passed: every table still playing plays on to the end of its current go-around of the turn
+   * order (its move timer bounds each turn), then the round ends (checkRound). Server-side only, from the engine's state.
+   * A backstop ends the last lap anyway one more round's time after the deadline (lapEnd), so a table with no move timer,
+   * or a seat that keeps moving, cannot hold the tournament forever.
+   */
+  private lastLap(t: TournamentSnapshot) {
+    const round = this.currentRound(t);
+    if (t.status !== 'running' || !round || round.endedAt) return;
+    this.clearRoundTimer(t.id);
+    if (round.lastLapAt === undefined) {
+      round.lastLapAt = this.clock.now();
+      for (const m of round.matches) {
+        if (m.status !== 'playing' || m.lapRound !== undefined) continue;
+        const room = m.gameId ? this.store.get(m.gameId) : undefined;
+        if (room && !room.closed) m.lapRound = room.state.round;
+      }
+    }
+    if (this.clock.now() >= lapEnd(t, round)) this.endRound(t);
+    else if (!this.checkRound(t)) this.armRound(t);
   }
 
   /** Decide every table still playing on standing, then seat the next round or crown the champion. */
@@ -1367,17 +1387,19 @@ export class TournamentManager extends EventEmitter {
     this.buildNestedRound(t, r + 1, groups);
   }
 
-  /** (Re)arm the current round's deadline timer. */
+  /** (Re)arm the current round's timer: its deadline (starts the last lap), or in the last lap its backstop (lapEnd). */
   private armRound(t: TournamentSnapshot) {
     this.clearRoundTimer(t.id);
     const round = this.currentRound(t);
     if (t.status !== 'running' || !round || round.endedAt || round.deadline === undefined) return;
+    const lap = round.lastLapAt !== undefined;
     const handle = this.clock.setTimeout(() => {
       this.roundTimers.delete(t.id);
       if (this.tournaments.get(t.id) !== t || this.currentRound(t) !== round) return;
-      this.endRound(t);
+      if (lap) this.endRound(t);
+      else this.lastLap(t);
       this.changed(t);
-    }, Math.max(0, round.deadline - this.clock.now()));
+    }, Math.max(0, (lap ? lapEnd(t, round) : round.deadline) - this.clock.now()));
     this.roundTimers.set(t.id, handle);
   }
 
@@ -1393,11 +1415,10 @@ export class TournamentManager extends EventEmitter {
   }
 }
 
-/**
- * A nested round closes early (finishShare) only once every person's or agent's table still playing has played this
- * many full rounds of turns (GameState.round), so a table is never decided on standing during its setup.
- */
-export const ROUND_MIN_TURNS = 3;
+/** When a nested round's last lap ends at the latest: one more round's time after its deadline (the backstop). */
+function lapEnd(t: TournamentSnapshot, round: TournamentRound): number {
+  return round.deadline! + t.nested!.roundMinutes * 60_000;
+}
 
 /**
  * Seat nested round 1 (owner, 2026-10-22: "Zergs spread out between all rooms approximately evenly; no Zerg-only
@@ -1505,7 +1526,7 @@ export interface HostEntrants {
 export const HOUSE_AI_AGENT = /^(delove|jacob-sensei)@/i;
 
 /**
- * Is this entrant house AI (nested seating and round close)? Joined by the Delove seat pool (`bound`), or labelled
+ * Is this entrant house AI (nested seating)? Joined by the Delove seat pool (`bound`), or labelled
  * `delove@…` / `jacob-sensei@…`. Server bots never are (they have their own tier).
  */
 export function isHouseAi(e: { id: string; isBot: boolean; agent?: string }, bound: ReadonlySet<string> = new Set()): boolean {

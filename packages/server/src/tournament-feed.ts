@@ -135,7 +135,8 @@ function roundClock(t: TournamentSnapshot): FeedRound | null {
   if (!r) return null;
   const tables = r.matches.filter((m) => m.gameId);
   const finished = r.matches.filter((m) => m.status === 'finished' || m.status === 'bye').length;
-  const needed = t.nested ? Math.ceil(t.nested.finishShare * r.matches.length) : r.matches.length;
+  // Every table must finish (or be decided after the deadline's last lap): no early close on a share since 2026-10-22.
+  const needed = r.matches.length;
   return { n: r.round, deadline: r.deadline ?? null, finished: Math.min(finished, r.matches.length), needed: tables.length ? needed : 0 };
 }
 

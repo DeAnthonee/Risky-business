@@ -181,9 +181,19 @@ describe('the storm and the end are off by default and leave other games bit-ide
       for (let r = 0; r < 12; r++) s = passRound(s, events);
       return { s, events };
     };
+    // Off (fog or not): none of the three stall options is a key, and no stall state appears.
+    for (const opts of [{}, { fogOfWar: true }]) {
+      const { s } = run(opts);
+      for (const key of ['stallFogLift', 'stallStorm', 'stallEnd']) expect(s.options, key).not.toHaveProperty(key);
+      expect(s).not.toHaveProperty('stall');
+      expect(s).not.toHaveProperty('fogLifted');
+    }
+    // A capture with only stallEnd on is recorded (the counter runs for any reliever).
+    let only = game({ stallEnd: 3 });
+    only = passRound(only);
+    only = conquer(only);
+    expect(stallOf(only)).toEqual({ lastCaptureRound: 2 });
     const off = run({});
-    expect(off.s.options).not.toHaveProperty('stallStorm');
-    expect(off.s.options).not.toHaveProperty('stallEnd');
     expect(off.s).not.toHaveProperty('stall');
     expect(stalemateDue(off.s)).toBe(false);
     expect((off.events as AnyGameEvent[]).some((e) => e.type === 'storm' || e.type === 'stalemate')).toBe(false);

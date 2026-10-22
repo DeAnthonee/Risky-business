@@ -199,7 +199,7 @@ export function formatEvents(events: GameEvent[], view: GameView): string {
     const se = e as AnyGameEvent;
     if (se.type === 'storm') {
       const hit = Object.entries(se.losses);
-      out.push(`Storm: no territory captured for ${se.rounds} rounds, so every stack of more than 10 armies loses a fifth: ${hit.length ? hit.map(([x, n]) => `${t(x)} -${n}`).join(', ') : 'none hit'}. It repeats every round until someone captures`);
+      out.push(`Storm: no territory captured for ${se.rounds} rounds, so all big stacks (every stack of more than 10 armies) lose a fifth: ${hit.length ? hit.map(([x, n]) => `${t(x)} -${n}`).join(', ') : 'none hit'}. It repeats every round until someone captures`);
       continue;
     }
     if (se.type === 'stalemate') {

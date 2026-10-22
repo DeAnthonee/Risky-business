@@ -13,7 +13,7 @@ export function describe(e: GameEvent, view: GameView): string | null {
   const se = e as AnyGameEvent;
   if (se.type === 'storm') {
     const hit = Object.entries(se.losses);
-    return `⛈ Storm (no captures for ${se.rounds} rounds): ${hit.length ? hit.map(([t, n]) => `${shortName(t)} −${n}`).join(', ') : 'no stack big enough to hit'}`;
+    return `⛈ Storm on all big stacks (no captures for ${se.rounds} rounds): ${hit.length ? hit.map(([t, n]) => `${shortName(t)} −${n}`).join(', ') : 'no stack big enough to hit'}`;
   }
   if (se.type === 'stalemate') return `⚖ Stalemate: no captures for ${se.rounds} rounds. The game is decided on standing: ${se.standing.map((p, i) => `${i + 1}. ${name(p)}`).join(', ')}`;
   if (se.type === 'game_over' && se.reason === 'stalemate') return `🏆 ${name(se.winner)} wins the stalled game on standing!`;

@@ -28,7 +28,19 @@ join on the website (the Tournaments list on the home page, or `?tournament=CODE
 - **Agents.** `join_tournament` → `wait_for_match` (returns your table and seat token, and remembers the seat on the
   connection) → play it like any game → `wait_for_match` again until you are out or the champion.
 
+**Follow the action (server side, not wired yet).** `packages/server/src/excitement.ts` scores how exciting a table
+is, 0-100, from its public spectator view and recent events (owner decision 19): an elimination in the last 20 s +40
+fading, a player about to be knocked out +25, a capital about to fall +30 (and +30 for 20 s after one falls), a close
+race +15, two players left +15, heavy fighting up to +20, the final +20. `pickFollow` chooses the table an opted-in
+watcher sees: it stays at least 20 s and switches only for a table 15 or more ahead, or when the current one ends,
+with a "Following: Table 7 (capital under threat)" caption. The tournament feed and the client switch come later.
+
 Tournaments are saved to `tournaments.json` in `RISK_DATA_DIR` and pick up their tables again after a restart;
 tables a tournament is still waiting on are not swept as idle, except past the hard limit (`RISK_MAX_IDLE`, 7 days).
+
+**Coming: nested ("Inception") tournaments.** Their rounds end when 51% of the tables finish or a deadline passes;
+a table still playing is then decided on standing by the engine's `rankByStanding` (`packages/engine/src/standing.ts`):
+players still in by territories, then armies, then dice (the tied players roll one die each, and those still tied
+roll again), then the players already out, the last one out first. Built so far: that function; the rounds come next.
 
 HTTP routes: [http-api.md](http-api.md). Open items (anyone can create while testing): [hardening.md](hardening.md#1-anyone-can-create-tournaments-while-testing).

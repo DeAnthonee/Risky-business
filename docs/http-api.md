@@ -19,8 +19,8 @@ cards are hidden).
 | `GET  /maps`                       | available boards                                                   |
 | `GET  /options`                    | every game setting: type, allowed values, default, limits per map   |
 | `GET  /games`                      | list games (a tournament table carries its `tournamentId`, a training game `board: "training"`) |
-| `POST /games`                      | `{playerName, gameName?, options?, board?}` → `{gameId, playerId, token, state}`. `board: "training"` makes a yardstick game for the [training leaderboard](character-league.md#training-leaderboard); it needs the characters write key in `x-characters-key` (403 without it; any other `board` is 400). Not a game setting: it changes no rule |
-| `POST /games/:id/join`             | `{playerName}` → `{playerId, token, state}`                        |
+| `POST /games`                      | `{playerName, gameName?, options?, board?, agent?}` → `{gameId, playerId, token, state}`. `agent` is the seat's [player type](#player-type-labels). `board: "training"` makes a yardstick game for the [training leaderboard](character-league.md#training-leaderboard); it needs the characters write key in `x-characters-key` (403 without it; any other `board` is 400). Not a game setting: it changes no rule |
+| `POST /games/:id/join`             | `{playerName, agent?}` → `{playerId, token, state}` (`agent`: the seat's [player type](#player-type-labels)) |
 | `POST /games/:id/bots`             | host: `{kind?, name?}` → `{playerId, name, state}`. `kind` "bot" (default, the built-in bot) or "zerg" (a [Zerg](zergs.md): named from the reptile list, so a `name` is a 400; any other `kind` is 400) |
 | `POST /games/:id/options`          | host: `{options}`                                                  |
 | `POST /games/:id/start`            | host: start                                                        |
@@ -44,13 +44,26 @@ cards are hidden).
 | `POST /tournaments/:id/start`, `POST /tournaments/:id/forfeit` `{entrantId}`, `DELETE /tournaments/:id` | the tournament's host: `Authorization: Bearer <hostToken>` (from create) or the admin key; 401 without one, 403 with another token. Same as the admin routes. Tournaments saved before host tokens take the admin key only |
 | `POST /tournaments/:id/bots`       | the tournament's host (as above), while registering: `{kind?: "bot" \| "zerg", count?}` (default one built-in bot) → `{added: [{entrantId, name}], tournament}`. Zergs get reptile names unique in the tournament ("Komodo", then "Komodo 2" once every name is used) and play as Zergs at their tables; 400 past `maxEntrants` or after the start |
 | `GET  /tournaments`, `GET /tournaments/:id` | list; bracket. With an entrant token the bracket adds `you`: status and your current table's seat `{gameId, playerId, token}` |
-| `POST /tournaments/:id/join`       | `{playerName}` while registering → `{entrantId, token, tournament}` |
+| `POST /tournaments/:id/join`       | `{playerName, agent?}` while registering → `{entrantId, token, tournament}`; `agent` goes to every table seat |
 | `GET  /tournaments/:id/wait?since=&timeoutMs=` | long-poll until the bracket's `version` passes `since` |
-| `GET  /games/:id`                  | your view of the state, including `legal` moves on your turn       |
+| `GET  /games/:id`                  | your view of the state, including `legal` moves on your turn; with no seat token, the spectator view with each player's `agent` |
 | `POST /games/:id/actions`          | `{action}` → `{events, state}`                                     |
 | `GET  /games/:id/wait?timeoutMs=&since=` | long-poll until it is your turn, the game ends, or the version passes `since` |
 | `GET  /games/:id/events?since=`    | event history                                                      |
 | `GET/POST /games/:id/chat`         | chat. POST without a token posts as a spectator: `{message, name}` (5 messages / 10 s; host can turn it off with `spectatorChat`; every player sees them, even under fog). Players whisper with `{message, to}` (`to` = player id, or a name exactly one player has): only the two players and spectators can read it; spectators whisper with `{message, name, to}`: only that player and spectators can read it; the message carries `to` and `toName`. GET with a token returns what that seat may read (a token that is not a seat here is a 401) |
+
+## Player-type labels
+
+A seat may say what kind of player it is with `agent` on `POST /games`, `POST /games/:id/join` and
+`POST /tournaments/:id/join`: up to 40 letters, digits, spaces and `@ . _ : / ( ) + -` (anything else is a 400), for
+example `"claude-sonnet-5-5"`, `"delove@10"` or `"human"`. Built-in bots are labelled `"bot"` and Zergs `"zerg"` by
+the server. No label means unknown. Labels are **self-declared** ([hardening.md](hardening.md#2-per-player-totals-under-fog-of-war)).
+
+Only **watchers** see them: the spectator view (`GET /games/:id` and `/wait` with no seat token, and the WebSocket
+with no token) adds `agent` to each player. A seated player's view never has a label, for any seat including their
+own: every reply to a seat token (state, wait, actions, events, join), the WebSocket for a seat, chat and the log. The
+MCP never shows labels. `GET /games` (the list) has none. A finished game's record and `GET /history` carry them,
+since the game is over.
 
 ## WebSocket
 
@@ -58,6 +71,7 @@ Connect to `/ws` and send `{"type":"subscribe","gameId":"ABC123","token":"…"}`
 Spectators chat with `{"type":"chat","message":"…","name":"Your name"}` (add `"to"` to whisper to one player); players whisper with
 `{"type":"chat","message":"…","to":"Bob"}` (only that player and spectators receive it). The server pushes
 `{"type":"state", state, events, version}` after every change and `{"type":"chat", message}` for chat.
+Every spectator socket of a room gets the same message for a change, built once per change (players get their own view).
 Send `{"type":"action","reqId":"1","action":{…}}` and receive `{"type":"ack","reqId":"1","ok":true}`
 or `{"ok":false,"error":"…"}`.
 

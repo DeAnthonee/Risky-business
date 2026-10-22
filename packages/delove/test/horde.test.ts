@@ -93,10 +93,9 @@ describe('horde-aware rollouts (horde-branch)', () => {
       else {
         zergPicks++;
         if (i0 !== 0) offBase++;
-        // While the prey lives, a Zerg's pick is never an attack on a fellow Zerg (after it, the alliance is over).
+        // A Zerg's pick is never an attack on a fellow Zerg (once the prey is gone the weaker Zergs surrender instead).
         const c = cands[i0];
-        const preyAlive = s.players.some((p) => p.id === 'a' && p.alive);
-        if (preyAlive && c[0] === 'attack') expect(['z1', 'z2']).not.toContain(s.territories[getMap('skirmish').territoryIds[c[2]]].owner);
+        if (c[0] === 'attack') expect(['z1', 'z2']).not.toContain(s.territories[getMap('skirmish').territoryIds[c[2]]].owner);
       }
       const c = cands[i0];
       const map = getMap('skirmish');

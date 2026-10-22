@@ -80,12 +80,14 @@ export function Tournament({
 
   if (!t) {
     return (
-      <div className="center">
-        <div className="card">
-          <h2>Tournament {id}</h2>
+      <div className="home p5 tournament-page">
+        <section className="home-actions tourney-panel">
+          <h2 className="p5-tag">Tournament {id}</h2>
           <p className={err ? 'error' : 'muted'}>{err ?? 'Loading…'}</p>
-          <button onClick={onBack}>Back</button>
-        </div>
+          <div>
+            <button onClick={onBack}>Back to games</button>
+          </div>
+        </section>
       </div>
     );
   }
@@ -96,30 +98,38 @@ export function Tournament({
   const nested = t.format === 'nested';
 
   return (
-    <div className="home tournament">
-      <header className="hero">
-        <h1>
-          <span className="dice">🏆</span> {t.name}
+    <div className="home p5 tournament-page">
+      <header className="tourney-top">
+        <div className="tourney-bar">
+          <button className="small" onClick={onBack}>
+            ← Back to games
+          </button>
+          <ShareButton url={`${window.location.origin}${window.location.pathname}?tournament=${t.id}`} title={`${t.name} · Risky Business tournament`} />
+        </div>
+        <h1 className="tourney-title">
+          <span>{t.name}</span>
         </h1>
-        <p className="muted">
-          <code>{t.id}</code> · {STATUS_LABEL[t.status]} ·{' '}
+        <p className="home-tag tourney-tag">
+          <code>{t.id}</code> {STATUS_LABEL[t.status]} ·{' '}
           {nested ? 'boards inside boards (tables of 3 to 6, a final of 6 to 10)' : `${mapName} · tables of up to ${t.groupSize}`} · {t.entrants.length}/{t.maxEntrants} entrants
         </p>
-        <ShareButton url={`${window.location.origin}${window.location.pathname}?tournament=${t.id}`} title={`${t.name} · Risky Business tournament`} />
       </header>
 
       {t.champion && (
-        <section className="card wide champion">
-          <h2>👑 Champion: {t.champion.name}</h2>
+        <section className="tourney-champion" aria-label="Champion">
+          <span className="ticket-stamp">Champion</span>
+          <strong>👑 {t.champion.name}</strong>
         </section>
       )}
 
-      <div className="home-grid">
-        <section className="card">
+      <div className="tourney-grid">
+        <section className="home-actions tourney-panel" aria-labelledby="tourney-you">
           {you ? (
             <>
-              <h2>You: {you.name}</h2>
-              <p className="muted">{youLine(you.status, t.status)}</p>
+              <h2 id="tourney-you" className="p5-tag">
+                You: {you.name}
+              </h2>
+              <p>{youLine(you.status, t.status)}</p>
               {you.match && (
                 <button className="primary" onClick={() => onPlay({ gameId: you.match!.gameId, playerId: you.match!.playerId, token: you.match!.token, name: you.name })}>
                   ⚔ Play your table (round {you.match.round})
@@ -128,15 +138,17 @@ export function Tournament({
             </>
           ) : t.status === 'registering' ? (
             <>
-              <h2>Join this tournament</h2>
-              <label>
-                Your player name
+              <h2 id="tourney-you" className="p5-tag">
+                Join this tournament
+              </h2>
+              <label className="callsign">
+                Your name
                 <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Dean" maxLength={24} />
               </label>
-              <button className="primary" disabled={busy || !name.trim() || t.entrants.length >= t.maxEntrants} onClick={join}>
+              <button className="primary tourney-join" disabled={busy || !name.trim() || t.entrants.length >= t.maxEntrants} onClick={join}>
                 Join as {name.trim() || '…'}
               </button>
-              <p className="muted small">
+              <p className="muted">
                 {nested
                   ? "Boards inside boards: each table's winner takes their board up into the next round, until the final."
                   : "Knockout: each table's winner moves on to the next round until one champion is left."}
@@ -144,67 +156,85 @@ export function Tournament({
             </>
           ) : (
             <>
-              <h2>Watching</h2>
-              <p className="muted">Registration is closed. Watch any table below.</p>
+              <h2 id="tourney-you" className="p5-tag">
+                Watching
+              </h2>
+              <p>Registration is closed. Watch any table below.</p>
             </>
           )}
           {err && <p className="error">{err}</p>}
-          <div className="row">
-            <button onClick={onBack}>Back to games</button>
+        </section>
+
+        <section className="board tourney-entrants" aria-labelledby="tourney-entrants">
+          <div className="board-head">
+            <h2 id="tourney-entrants">Entrants</h2>
+            <p className="board-count">
+              <span>
+                {t.entrants.length} of {t.maxEntrants}
+              </span>
+            </p>
           </div>
+          {t.entrants.length === 0 ? (
+            <div className="board-empty">
+              <p>Nobody yet. Be the first.</p>
+            </div>
+          ) : (
+            <ul className="ticket-seats tourney-seats">
+              {t.entrants.map((e) => (
+                <li key={e.id} className={e.status}>
+                  {e.status === 'champion' ? '👑 ' : ''}
+                  {e.name}
+                  {e.isBot && <span className="bot-tag">BOT</span>}
+                  {you?.entrantId === e.id ? ' (you)' : ''}
+                </li>
+              ))}
+            </ul>
+          )}
         </section>
+      </div>
 
-        <section className="card">
-          <h2>Entrants</h2>
-          {t.entrants.length === 0 && <p className="muted">Nobody yet.</p>}
-          <ul className="entrants">
-            {t.entrants.map((e) => (
-              <li key={e.id} className={`entrant ${e.status}`}>
-                {e.status === 'champion' ? '👑 ' : ''}
-                {e.name}
-                {e.isBot ? ' 🤖' : ''}
-                {you?.entrantId === e.id ? ' (you)' : ''}
-              </li>
-            ))}
-          </ul>
-        </section>
+      {nested && <NestedTournament t={t} onWatch={onWatch} />}
 
-        {nested && <NestedTournament t={t} onWatch={onWatch} />}
-
-        {!nested && t.rounds
+      {!nested &&
+        t.rounds
           .slice()
           .reverse()
           .map((r) => (
-            <section key={r.round} className="card wide">
-              <h2>{r.matches.length === 1 && r.round > 1 ? `Round ${r.round}: the final` : `Round ${r.round}`}</h2>
-              <div className="tables">
-                {r.matches.map((m, i) => (
-                  <div key={m.gameId ?? `bye-${i}`} className={`table-card ${m.status}`}>
-                    <div className="table-head">
-                      <strong>{m.gameId ? `Table ${i + 1}` : 'Bye'}</strong>
-                      {m.gameId && <code>{m.gameId}</code>}
-                      <span className="muted small">{m.status === 'playing' ? 'playing' : m.status === 'abandoned' ? 'abandoned' : m.status === 'bye' ? 'moves on' : 'decided'}</span>
-                    </div>
-                    <ul>
-                      {m.players.map((p) => (
-                        <li key={p.entrantId} className={m.winner === p.entrantId ? 'winner' : m.winner || m.status === 'abandoned' ? 'out' : ''}>
-                          {m.winner === p.entrantId ? '🏅 ' : ''}
-                          {p.name}
-                          {you?.entrantId === p.entrantId ? ' (you)' : ''}
-                        </li>
-                      ))}
-                    </ul>
-                    {m.gameId && (
-                      <button onClick={() => onWatch(m.gameId!)} title={`Watch ${m.players.map((p) => nameOf(p.entrantId)).join(' vs ')}`}>
-                        👁 Watch
-                      </button>
-                    )}
-                  </div>
-                ))}
+            <section key={r.round} className="board tourney-round" aria-label={`Round ${r.round}`}>
+              <div className="board-head">
+                <h2>{r.matches.length === 1 && r.round > 1 ? `Round ${r.round}: the final` : `Round ${r.round}`}</h2>
               </div>
+              <ul className="tickets tourney-tables">
+                {r.matches.map((m, i) => (
+                  <li key={m.gameId ?? `bye-${i}`} className={`ticket ticket-${m.status === 'playing' ? 'live' : m.status === 'bye' ? 'lobby' : 'finished'}`}>
+                    <span className="ticket-stamp">{m.gameId ? `Table ${i + 1}` : 'Bye'}</span>
+                    <div className="ticket-main">
+                      <div className="ticket-title">
+                        {m.gameId && <code>{m.gameId}</code>}
+                        <span className="ticket-meta">{m.status === 'playing' ? 'playing' : m.status === 'abandoned' ? 'abandoned' : m.status === 'bye' ? 'moves on' : 'decided'}</span>
+                      </div>
+                      <ul className="ticket-seats">
+                        {m.players.map((p) => (
+                          <li key={p.entrantId} className={m.winner === p.entrantId ? 'won' : m.winner || m.status === 'abandoned' ? 'out' : ''}>
+                            {m.winner === p.entrantId ? '🏅 ' : ''}
+                            {p.name}
+                            {you?.entrantId === p.entrantId ? ' (you)' : ''}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                    {m.gameId && (
+                      <div className="ticket-actions">
+                        <button className="watch" onClick={() => onWatch(m.gameId!)} title={`Watch ${m.players.map((p) => nameOf(p.entrantId)).join(' vs ')}`}>
+                          Watch
+                        </button>
+                      </div>
+                    )}
+                  </li>
+                ))}
+              </ul>
             </section>
           ))}
-      </div>
     </div>
   );
 }

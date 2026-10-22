@@ -1,0 +1,185 @@
+/* The tournament page (components/Tournament.tsx): the home page's look, the `p5` theme on `.home.p5`, with the
+   home's own pieces (the cut-paper panel `.home-actions`, `.board` with its slanted title, `.tickets`,
+   `.ticket-seats`, `.p5-tag`). Only the page's layout and a few states are set here. It loads after inception.css,
+   so the nested view's panels and tables come out in the same cut paper. */
+
+.tourney-top {
+  display: grid;
+  justify-items: start;
+  gap: 14px;
+  margin-bottom: 24px;
+}
+.tourney-bar {
+  justify-self: stretch;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 10px;
+}
+.tourney-title {
+  margin: 4px 0 0;
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: clamp(2rem, 7vw, 3.8rem);
+  line-height: 1.12;
+  transform: rotate(-1.5deg);
+}
+.tourney-title span {
+  background: #fff;
+  color: var(--ink);
+  padding: 0.02em 0.28em 0.06em;
+  outline: 3px solid var(--ink);
+  outline-offset: -3px;
+  box-shadow: 0.09em 0.09em 0 var(--red);
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  overflow-wrap: anywhere;
+}
+.tourney-tag {
+  margin: 0;
+}
+/* The code reads on the black strip. */
+.p5 .tourney-tag code {
+  background: var(--sun);
+  color: var(--ink);
+  margin-right: 4px;
+}
+
+.tourney-champion {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin-bottom: 26px;
+  padding: 14px 18px;
+  background: var(--sun);
+  border: 3px solid var(--ink);
+  box-shadow: 6px 6px 0 var(--ink);
+}
+.tourney-champion .ticket-stamp {
+  background: var(--red);
+}
+.tourney-champion strong {
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: 1.6em;
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+}
+
+.tourney-grid {
+  display: grid;
+  gap: 28px;
+  align-items: start;
+  margin-bottom: 30px;
+}
+/* The join panel stacks its pieces (the home's panel lays them out in two columns from 720px). */
+.home-actions.tourney-panel {
+  grid-template-columns: 1fr;
+  justify-items: start;
+}
+.tourney-panel > * {
+  margin: 0;
+}
+.tourney-panel .p5-tag {
+  font-size: 1.15em;
+}
+.tourney-panel .callsign,
+.tourney-panel .error {
+  justify-self: stretch;
+}
+.tourney-panel .callsign input {
+  width: 100%;
+}
+
+/* Entrants: name chips, the same as a game ticket's seats. */
+.tourney-seats li.playing,
+.tourney-seats li.waiting {
+  --seat: var(--red);
+}
+.tourney-seats li.champion,
+.ticket-seats li.won {
+  --seat: var(--red);
+  background: var(--sun);
+  font-weight: 800;
+}
+
+.tourney-round {
+  margin-bottom: 30px;
+}
+.tourney-tables .ticket-title code {
+  font-size: 0.95em;
+}
+
+/* The nested view (NestedTournament / Inception): its panel, tabs and tables in cut paper. */
+.tournament-page .nested-tournament {
+  max-width: none;
+  background: var(--paper);
+  border: 3px solid var(--ink);
+  border-radius: 0;
+  box-shadow: 6px 6px 0 var(--ink);
+  padding: 16px;
+}
+.p5 .nested-tabs button.active:not(:disabled) {
+  background: var(--ink);
+  color: #fff;
+  box-shadow: 3px 3px 0 var(--red);
+}
+.tournament-page .nested-board-link {
+  color: var(--red);
+}
+.tournament-page .table-card {
+  background: #fff;
+  border: 2px solid var(--ink);
+  border-radius: 0;
+  box-shadow: 4px 4px 0 var(--ink);
+}
+.tournament-page .table-card.playing {
+  border-left: 7px solid var(--red);
+}
+.tournament-page .table-card li.winner {
+  color: var(--ink);
+  background: var(--sun);
+  font-weight: 800;
+  padding: 0 4px;
+}
+.tournament-page .table-card li.out {
+  color: var(--brown);
+  text-decoration: line-through;
+}
+.tournament-page .inception-side {
+  background: #fff;
+  border-radius: 0;
+  box-shadow: 4px 4px 0 var(--ink);
+}
+.tournament-page .inception-svg,
+.tournament-page .inception-globe {
+  border-radius: 0;
+  box-shadow: 4px 4px 0 var(--ink);
+}
+/* The Inception trail's links stay plain links (the theme's buttons are cut-paper boxes). */
+.p5 .inception-trail button:not(.inception-out) {
+  background: none;
+  border: 0;
+  box-shadow: none;
+  transform: none;
+  padding: 0;
+  font-style: normal;
+  text-transform: none;
+  color: var(--red);
+  text-decoration: underline;
+}
+
+@media (min-width: 720px) {
+  .tourney-panel .p5-tag {
+    font-size: 1.35em;
+  }
+  .tourney-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
+  }
+}
+@media (min-width: 1000px) {
+  .tourney-tables {
+    grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  }
+}

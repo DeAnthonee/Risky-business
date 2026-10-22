@@ -13,6 +13,7 @@ import './game.css';
 import './housebots.css';
 import './next-tournament.css';
 import './inception.css';
+import './tournament.css';
 
 // /?dev=inception: the nested-tournament view on demo data (no server), in dev builds only (`npm run dev`); the
 // production bundle leaves the page out, so visitors never run its mock bot game.

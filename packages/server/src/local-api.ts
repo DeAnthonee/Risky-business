@@ -11,7 +11,7 @@ export class LocalRiskApi implements RiskApi {
     private store: Store,
     private characters: CharacterStore,
     private adminToken: string | null = null,
-    /** TEMPORARY (testing): creating/starting tournaments needs no admin key. */
+    /** TEMPORARY (testing): creating tournaments needs no admin key. */
     private openTournaments = false,
   ) {}
 
@@ -177,11 +177,14 @@ export class LocalRiskApi implements RiskApi {
   async createTournament(adminKey: string | undefined, spec: Record<string, unknown>) {
     this.tournamentHost(adminKey);
     const t = this.store.tournaments.create(parseTournamentSpec(spec));
-    return { tournament: this.store.tournaments.view(t.id) };
+    return { hostToken: t.hostToken!, tournament: this.store.tournaments.view(t.id) };
   }
-  async startTournament(adminKey: string | undefined, tournamentId: string) {
-    this.tournamentHost(adminKey);
-    const t = this.store.tournaments.start(this.tournament(tournamentId).id);
+  /** `key`: the tournament's host token or the admin key (tournaments saved before host tokens: the admin key only). */
+  async startTournament(key: string | undefined, tournamentId: string) {
+    const id = this.tournament(tournamentId).id;
+    if (!key) throw new RiskHttpError("Starting a tournament needs its host token (from create_tournament) or the admin key", 401);
+    if (!this.store.tournaments.isHost(id, key) && checkAdmin(this.adminToken, key) !== 'ok') throw new RiskHttpError("Only this tournament's host can start it", 403);
+    const t = this.store.tournaments.start(id);
     return { tournament: this.store.tournaments.view(t.id) };
   }
   async leave(gameId: string, token: string) {

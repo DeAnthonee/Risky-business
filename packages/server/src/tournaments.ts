@@ -1,13 +1,13 @@
 import { EventEmitter } from 'node:events';
-import { randomBytes, randomInt } from 'node:crypto';
+import { randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { RuleError, createGame, getMap, type GameOptions } from '@risk/engine';
 import type { GameRoom, Store } from './store.js';
 
 /**
- * Knockout tournaments. The host (admin) creates one; players and agents join while it is registering;
- * the admin starts it. Every round splits the remaining entrants into tables of about `groupSize`
+ * Knockout tournaments. The host creates one and gets its host token; players and agents join while it is
+ * registering; the host (the host token or the admin key) starts it. Every round splits the remaining entrants into tables of about `groupSize`
  * (filled with bots in round 1 when `fillBots` is on), each table is an ordinary game room that nobody
  * hosts, and each table's winner moves on. The last one standing is the champion.
  *
@@ -54,10 +54,25 @@ export interface TournamentSnapshot {
   entrants: Entrant[];
   rounds: TournamentRound[];
   champion: string | null;
+  /**
+   * Secret returned once by create: it (or the admin key) starts, forfeits for and deletes this tournament.
+   * Tournaments saved before host tokens existed have none and are admin-only.
+   */
+  hostToken?: string;
   createdAt: number;
   updatedAt: number;
   version: number;
 }
+
+/** How many tournaments the server keeps. */
+export interface TournamentLimits {
+  /** Most tournaments registering or running at once; creating another fails (0 = no cap). */
+  maxActive: number;
+  /** Finished tournaments kept (newest first); older ones are pruned from memory and tournaments.json. */
+  keepFinished: number;
+}
+
+export const DEFAULT_TOURNAMENT_LIMITS: TournamentLimits = { maxActive: 20, keepFinished: 100 };
 
 export interface CreateTournamentSpec {
   name?: string;
@@ -140,11 +155,15 @@ export function tableSizes(n: number, size: number): number[] {
 export class TournamentManager extends EventEmitter {
   tournaments = new Map<string, TournamentSnapshot>();
 
+  limits: TournamentLimits;
+
   constructor(
     private store: Store,
     private file: string | null,
+    limits: Partial<TournamentLimits> = {},
   ) {
     super();
+    this.limits = { ...DEFAULT_TOURNAMENT_LIMITS, ...limits };
     this.setMaxListeners(500);
     if (file && existsSync(file)) {
       try {
@@ -166,11 +185,16 @@ export class TournamentManager extends EventEmitter {
       }
       this.advance(t);
     }
+    this.prune();
   }
 
-  // ---- admin ----
+  // ---- host ----
 
+  /** Create a tournament. The snapshot carries its `hostToken`: hand it to the creator only. */
   create(spec: CreateTournamentSpec): TournamentSnapshot {
+    const { maxActive } = this.limits;
+    if (maxActive > 0 && [...this.tournaments.values()].filter((x) => x.status !== 'finished').length >= maxActive)
+      throw new RuleError(`Too many tournaments are open right now (${maxActive}); try again when one has finished`);
     const options: Partial<GameOptions> = { map: 'skirmish', ...(spec.options ?? {}) };
     delete options.maxPlayers; // set per table
     const map = getMap(options.map);
@@ -195,6 +219,7 @@ export class TournamentManager extends EventEmitter {
       entrants: [],
       rounds: [],
       champion: null,
+      hostToken: newId(24),
       createdAt: now,
       updatedAt: now,
       version: 1,
@@ -239,6 +264,15 @@ export class TournamentManager extends EventEmitter {
     this.emit('change', t.id);
     this.store.requestSave();
     return true;
+  }
+
+  /** True when `token` is this tournament's host token (constant time). Tournaments without one have no host but the admin. */
+  isHost(id: string, token: string | undefined): boolean {
+    const t = this.get(String(id));
+    if (!t?.hostToken || !token) return false;
+    const a = Buffer.from(token);
+    const b = Buffer.from(t.hostToken);
+    return a.length === b.length && timingSafeEqual(a, b);
   }
 
   // ---- players ----
@@ -397,7 +431,18 @@ export class TournamentManager extends EventEmitter {
     t.version++;
     t.updatedAt = Date.now();
     this.emit('change', t.id);
+    if (t.status === 'finished') this.prune();
     this.store.requestSave();
+  }
+
+  /** Keep only the newest `keepFinished` finished tournaments (their tables are already decided). */
+  private prune() {
+    // Newest first; ties (same millisecond) go to the one created later.
+    const finished = [...this.tournaments.values()].reverse().filter((t) => t.status === 'finished').sort((a, b) => b.updatedAt - a.updatedAt);
+    for (const t of finished.slice(Math.max(1, this.limits.keepFinished))) {
+      this.tournaments.delete(t.id);
+      this.emit('change', t.id);
+    }
   }
 
   private buildRound(t: TournamentSnapshot, ids: string[]) {

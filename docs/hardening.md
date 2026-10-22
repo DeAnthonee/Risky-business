@@ -4,18 +4,17 @@ Known gaps that are **deliberately left open for now** (decided by the maintaine
 the features they belong to are treated as production-ready. Remove an item only when it is fixed, in the
 same PR as the fix.
 
-## 1. Tournaments can be run by anyone
+## 1. Anyone can create tournaments while testing
 
-**Where:** `packages/server/src/tournaments.ts`, `POST /api/tournaments*` in `packages/server/src/http.ts`, the MCP
-`create_tournament` / `start_tournament` tools; `RISK_TOURNAMENTS_OPEN` defaults on (`packages/server/src/index.ts`).
+**Where:** `POST /api/tournaments` in `packages/server/src/http.ts`, the MCP `create_tournament` / `start_tournament`
+tools; `RISK_TOURNAMENTS_OPEN` defaults on (`packages/server/src/index.ts`).
 
-**What is wrong:** with open mode on, anyone can create and start tournaments; creators get no host token, so a
-visitor can start someone else's tournament; only the admin key can forfeit a no-show (games have no turn timer);
-there is no cap on tournaments and no pruning, so `tournaments.json` grows forever.
+**What is wrong:** with open mode on, anyone can create a tournament (and run it with the host token they get back).
+The cap (`RISK_MAX_ACTIVE_TOURNAMENTS`) stops them piling up, but a visitor can fill it with tournaments that never
+start, and nothing expires a tournament stuck registering: the admin has to delete them.
 
-**Fix (to do):** return a host token from create and require it (or the admin key) for start, forfeit and delete;
-cap active tournaments and prune finished ones; set `RISK_TOURNAMENTS_OPEN=0` on the production server before
-launch and remove the temporary create/start MCP tools.
+**Fix (to do):** set `RISK_TOURNAMENTS_OPEN=0` on the production server before launch and remove the temporary
+create/start MCP tools (the owner's launch decision); consider expiring tournaments left registering.
 
 ## 2. Per-player totals under fog of war
 
@@ -53,6 +52,11 @@ the MCP either: an agent given a scenario seat's token can play it with `resume_
 belong in the lobby before they are used in public.
 
 ## Fixed
+
+- **Anyone could start, forfeit for or delete someone else's tournament, and `tournaments.json` grew forever.**
+  Create now returns a host token; start, forfeit and delete need it or the admin key (tournaments saved before
+  then are admin-only). At most `RISK_MAX_ACTIVE_TOURNAMENTS` (default 20) register or run at once, and only the
+  newest `RISK_TOURNAMENTS_KEEP` (default 100) finished ones are kept. Opening creation to anyone is still item 1.
 
 - **The live leaderboard was seeded from results played off the site.** `rankings-seed.ts` is gone; the board
   now holds only games finished on the site, and `RANKINGS_SEASON` wipes it on purpose (the old board is archived

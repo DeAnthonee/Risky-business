@@ -25,7 +25,7 @@ import {
   type ScenarioSeat,
 } from '@risk/engine';
 import { chooseBotAction } from './bot.js';
-import { TournamentManager } from './tournaments.js';
+import { DEFAULT_TOURNAMENT_LIMITS, TournamentManager } from './tournaments.js';
 import { Rankings } from './rankings.js';
 import { DEFAULT_KEEP, GameArchive, type CommitInfo } from './archive.js';
 
@@ -667,7 +667,14 @@ export class Store {
       }
     }
     // Tournaments are saved next to the games (tournaments.json) and re-attach to their tables.
-    this.tournaments = new TournamentManager(this, file ? join(dirname(file), 'tournaments.json') : null);
+    const envInt = (name: string, fallback: number, min: number) => {
+      const v = Number(process.env[name] || fallback);
+      return Number.isInteger(v) && v >= min ? v : fallback;
+    };
+    this.tournaments = new TournamentManager(this, file ? join(dirname(file), 'tournaments.json') : null, {
+      maxActive: envInt('RISK_MAX_ACTIVE_TOURNAMENTS', DEFAULT_TOURNAMENT_LIMITS.maxActive, 0),
+      keepFinished: envInt('RISK_TOURNAMENTS_KEEP', DEFAULT_TOURNAMENT_LIMITS.keepFinished, 1),
+    });
     for (const room of this.rooms.values()) room.scheduleBot();
   }
 

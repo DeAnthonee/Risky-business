@@ -49,7 +49,7 @@ export interface ApiOptions {
   /** Enables /api/admin/* when set (Authorization: Bearer <token>). */
   adminToken?: string | null;
   characters?: CharacterStore;
-  /** TEMPORARY (testing): POST /tournaments and /tournaments/:id/start work without the admin token. */
+  /** TEMPORARY (testing): POST /tournaments creates a tournament without the admin token. */
   openTournaments?: boolean;
 }
 
@@ -415,14 +415,14 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
     }),
   );
 
-  // ---- tournaments: the admin creates and runs them; anyone can join, follow and watch ----
+  // ---- tournaments: the host creates and runs them (host token or admin key); anyone can join, follow and watch ----
+  // Create answers with the host token, once: it starts, forfeits for and deletes that tournament.
+  const created = (res: Response, t: { id: string; hostToken?: string }) =>
+    res.status(201).json({ hostToken: t.hostToken, tournament: store.tournaments.view(t.id) });
   api.post(
     '/admin/tournaments',
     requireAdmin,
-    wrap((req, res) => {
-      const t = store.tournaments.create(parseTournamentSpec(req.body ?? {}));
-      res.status(201).json({ tournament: store.tournaments.view(t.id) });
-    }),
+    wrap((req, res) => created(res, store.tournaments.create(parseTournamentSpec(req.body ?? {})))),
   );
   api.post(
     '/admin/tournaments/:id/start',
@@ -449,27 +449,49 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
     }),
   );
 
-  // TEMPORARY (testing): while tournaments are open, anyone can create and start one here, no admin token.
-  // With openTournaments off these answer 403 and only the /admin routes above work.
+  // TEMPORARY (testing): while tournaments are open, anyone can create one here, no admin token.
+  // With openTournaments off this answers 403 and only POST /admin/tournaments creates.
   function requireOpenTournaments(_req: Request, res: Response, next: NextFunction) {
-    if (!opts.openTournaments) return res.status(403).json({ error: 'Only the host can create or start tournaments' });
+    if (!opts.openTournaments) return res.status(403).json({ error: 'Only the host can create tournaments' });
     next();
   }
   api.post(
     '/tournaments',
     requireOpenTournaments,
+    wrap((req, res) => created(res, store.tournaments.create(parseTournamentSpec(req.body ?? {})))),
+  );
+
+  // The tournament's own host: its host token, or the admin key. Tournaments saved before host tokens are admin-only.
+  function requireTournamentHost(req: Request, res: Response, next: NextFunction) {
+    const id = String(req.params.id);
+    if (!store.tournaments.get(id)) return res.status(404).json({ error: 'Tournament not found' });
+    const key = tokenOf(req);
+    if (!key) return res.status(401).json({ error: "The tournament's host token (or the admin key) is required" });
+    if (store.tournaments.isHost(id, key) || checkAdmin(adminToken, key) === 'ok') return next();
+    res.status(403).json({ error: "Only this tournament's host can do that" });
+  }
+  api.post(
+    '/tournaments/:id/start',
+    requireTournamentHost,
     wrap((req, res) => {
-      const t = store.tournaments.create(parseTournamentSpec(req.body ?? {}));
-      res.status(201).json({ tournament: store.tournaments.view(t.id) });
+      const t = store.tournaments.start(String(req.params.id));
+      res.json({ tournament: store.tournaments.view(t.id) });
     }),
   );
   api.post(
-    '/tournaments/:id/start',
-    requireOpenTournaments,
+    '/tournaments/:id/forfeit',
+    requireTournamentHost,
     wrap((req, res) => {
-      if (!store.tournaments.get(String(req.params.id))) return res.status(404).json({ error: 'Tournament not found' });
-      const t = store.tournaments.start(String(req.params.id));
+      const t = store.tournaments.forfeit(String(req.params.id), String(req.body?.entrantId ?? ''));
       res.json({ tournament: store.tournaments.view(t.id) });
+    }),
+  );
+  api.delete(
+    '/tournaments/:id',
+    requireTournamentHost,
+    wrap((req, res) => {
+      store.tournaments.delete(String(req.params.id));
+      res.json({ ok: true });
     }),
   );
 

@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
 import { Store } from '../src/store.js';
 import { createRiskServer, type RiskServer } from '../src/app.js';
+import { NO_TOURNEY_CAPS } from '../src/tournament-access.js';
 
 // Every test server binds 127.0.0.1 on a random high port (port 0).
 let dir: string;
@@ -14,7 +15,8 @@ let base: string;
 
 async function startServer(file: string | null, clientDir?: string, adminToken?: string) {
   const store = new Store(file);
-  const r = createRiskServer(store, { clientDir: clientDir ?? null, adminToken, sweepIntervalMs: 0 });
+  // A fake hosting code, so start keeps its host-token gating here (with no codes set, open mode lets anyone start).
+  const r = createRiskServer(store, { clientDir: clientDir ?? null, adminToken, sweepIntervalMs: 0, tourneyAccess: { ...NO_TOURNEY_CAPS, adminCode: 'server-test-admin-code' } });
   await new Promise<void>((resolve) => r.server.listen(0, '127.0.0.1', resolve));
   const { port } = r.server.address() as AddressInfo;
   return { risk: r, base: `http://127.0.0.1:${port}` };

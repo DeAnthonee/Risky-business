@@ -161,9 +161,17 @@ export function Inception({
       const board = getMap(nodes[node].map);
       const snap = tables[node];
       const owner = snap?.owners?.[t];
-      return owner === undefined ? continentColor(board, board.territoryById[t]?.continent ?? '') : owner === null ? '#cfc6b8' : (snap!.players[owner]?.color ?? '#999');
+      if (owner === undefined) {
+        // Not dealt yet: a portal shows the colour of the winner (or leader) of the table inside it, so a round's
+        // winners are seen arriving at their starting territories on the next boards.
+        const inside = children[node].find((c) => nodes[c].portal === t);
+        const below = inside !== undefined ? tables[inside] : undefined;
+        if (below?.leader !== undefined && (below.status === 'finished' || below.status === 'decided')) return below.players[below.leader]?.color ?? '#999';
+        return continentColor(board, board.territoryById[t]?.continent ?? '');
+      }
+      return owner === null ? '#cfc6b8' : (snap!.players[owner]?.color ?? '#999');
     },
-    [nodes, tables],
+    [nodes, tables, children],
   );
   const rootFill = useCallback((t: string) => colourIn(0, t), [colourIn]);
   const mode = !webgl || flat ? 'flat' : finalOnGlobe ? (globe?.id === rootMap ? 'hexglobe' : 'flat') : ready === nodes.length ? 'live' : 'flat';

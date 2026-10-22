@@ -94,6 +94,33 @@ function useLiveTable(node: NestNode | undefined, seed: number): TableSnapshot |
   }, [state]);
 }
 
+/**
+ * The demo after `rounds` more rounds: every table deeper than the round in play has finished (its leader won), and
+ * the round in play is dealt and being played (mock owners). 0 leaves the mock tables as they are.
+ */
+function advanceRounds(nodes: NestNode[], base: Record<number, TableSnapshot>, rounds: number, seed: number): Record<number, TableSnapshot> {
+  if (rounds <= 0) return base;
+  const deepest = Math.max(...nodes.map((n) => n.depth));
+  const playing = Math.max(0, deepest - rounds);
+  const rng = createRng(seed + rounds);
+  const out: Record<number, TableSnapshot> = { ...base };
+  nodes.forEach((n, i) => {
+    const t = base[i];
+    if (!t) return;
+    if (n.depth > playing) {
+      const leader = t.leader ?? 0;
+      const owners: Record<string, number> = {};
+      for (const id of getMap(n.map).territoryIds) owners[id] = leader;
+      out[i] = { ...t, owners, leader, status: 'finished', players: t.players.map((p, k) => ({ ...p, alive: k === leader })) };
+    } else if (n.depth === playing) {
+      const owners: Record<string, number> = {};
+      for (const id of getMap(n.map).territoryIds) owners[id] = Math.floor(nextFloat(rng) * n.seats);
+      out[i] = { ...t, owners, leader: 0, status: 'playing', gameId: 'DEMO00' };
+    } else out[i] = { ...t, owners: undefined, status: 'waiting' };
+  });
+  return out;
+}
+
 export function InceptionDemo() {
   const params = new URLSearchParams(location.search);
   const players = Math.max(6, Math.min(400, Number(params.get('players')) || 100));
@@ -104,7 +131,12 @@ export function InceptionDemo() {
   const base = useMemo(() => mockTables(nodes, seed), [nodes, seed]);
   const liveIndex = nodes.length - 1;
   const live = useLiveTable(nodes[liveIndex], seed);
-  const tables = useMemo(() => (live ? { ...base, [liveIndex]: live } : base), [base, live, liveIndex]);
+  // "Next round" plays the demo forward a round at a time (the live globe shows the round change).
+  const [rounds, setRounds] = useState(0);
+  const tables = useMemo(() => {
+    const now = live && rounds === 0 ? { ...base, [liveIndex]: live } : base;
+    return advanceRounds(nodes, now, rounds, seed);
+  }, [base, live, liveIndex, nodes, rounds, seed]);
   const [renderMs, setRenderMs] = useState<number | null>(null);
   // Ready time: from the start of navigation to the first frame after the boards are drawn.
   useEffect(() => {
@@ -118,7 +150,8 @@ export function InceptionDemo() {
         <p className="muted">
           {players} players · {nodes.length} boards ({nodes.filter((n) => n.portals.length === 0).length} first-round tables) · mock tables, one live bot game
           (the last board) · drawn {renderMs ?? '…'} ms after load started · <a href="?dev=inception&players=40">40</a> · <a href="?dev=inception&players=100">100</a> ·{' '}
-          <a href="?dev=inception&players=250">250</a> · <a href="?dev=inception&players=40&final=hexworld">Hex Earth final</a>
+          <a href="?dev=inception&players=250">250</a> · <a href="?dev=inception&players=40&final=hexworld">Hex Earth final</a> ·{' '}
+          <button onClick={() => setRounds((n) => n + 1)}>Next round</button> <button onClick={() => setRounds(0)}>Reset</button>
         </p>
       </header>
       <Inception nodes={nodes} tables={tables} onWatch={(id) => alert(`Would open /?game=${id}&spectate=1`)} />

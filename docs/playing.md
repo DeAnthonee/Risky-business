@@ -133,11 +133,13 @@ decided on standing) and three tabs:
   to zoom in, Esc, **Zoom out** or the breadcrumb to zoom out, and **Watch table** to open a table as a spectator.
   **Globe** / **Flat** switches the Map tab between this flat view and a spinning **globe of the round in play**: every
   live table's board is a patch of the sphere in its holders' colours, updated from the live feed. Click a patch to
-  focus that table (the camera turns to it, **Watch table** opens it); a new round redraws the next boards. When the
+  focus that table (the camera turns to it, **Watch table** opens it). When a round ends, each table's patch shrinks into
+  its portal (its winner's starting territory, shown in the winner's colour) on the next round's board while those boards
+  fade in, and the camera turns to the focused table (or to the final); with reduced motion the new round just appears. When the
   round in play is a final on Hex Earth (`finalMap: 'hexworld'`), the globe is Hex Earth itself with its portal
   territories raised in gold (click one to zoom into the flat board inside). The choice is remembered like the game
   view's, and browsers without WebGL keep the flat view. Dev builds preview it at `/?dev=inception&players=100`
-  (32 tables) and `/?dev=inception&players=40&final=hexworld`.
+  (32 tables; **Next round** plays the demo forward) and `/?dev=inception&players=40&final=hexworld`.
 - **Bracket:** every round from the final down; a table decided on standing lists its order and the tie-break dice.
 - **Live tables:** the tables being played, the most exciting first.
 

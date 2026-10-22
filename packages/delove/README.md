@@ -1002,7 +1002,29 @@ value blend (`DELOVE_BRANCH_VALUE`) does not work with gumbel. GPU: `delove_gpu.
 `delove-branch@1:range:gumbel`). The trace lists every searched candidate with its mean and copies, and
 `branch_q.npy` keeps every searched candidate's mean.
 
-GUMBEL_RESULTS_PLACEHOLDER
+**Measured** (2026-10-21; RunPod RTX 4090, 0.96 pod-hours, $0.85): head to head at the same tables, a
+`delove-branch@1:range:gumbel` seat (8 candidates) against a `delove-branch@1:range:o5` seat (the teacher's move
+plus the ranker's top 4). Both use 30 copies per decision (Gumbel: 25 in its 8-candidate plan), the range score,
+ranker `delove@10`, Jacob Sensei 2 rollouts, horizon 1, margin 0.01, seed 16 (`scripts/score_compare.py h2h-jobs
+--variants range:o5,range:gumbel --net delove@10 --other jacob-sensei@2`, run with `--options 5`). The field is
+`delove@10` plus one Jacob Sensei 2; both seats rotate through every seat. Leaderboard points per game, Gumbel minus
+5 options, 95% intervals, paired by game; 1,892 games:
+
+| table | games | Gumbel − 5 options | wins Gumbel / 5 options | kills per game |
+| --- | --- | --- | --- | --- |
+| Classic 2p | 400 | **+0.33 ± 0.29** | 0.555 / 0.445 | 0.56 / 0.45 |
+| Classic 4p | 296 | +0.03 ± 0.52 | 0.341 / 0.318 | 1.06 / 1.02 |
+| World 4p | 296 | **+0.64 ± 0.53** | 0.429 / 0.291 | 1.23 / 0.94 |
+| Classic 6p | 300 | −0.20 ± 0.72 | 0.293 / 0.280 | 1.41 / 1.47 |
+| World 6p | 300 | −0.41 ± 0.80 | 0.333 / 0.343 | 1.65 / 1.79 |
+| World 10p | 300 | +0.38 ± 1.19 | 0.317 / 0.260 | 2.60 / 2.28 |
+| **4-10p pooled** | 1,492 | +0.09 ± 0.36 | | +0.09 ± 0.18 kills |
+
+The Gumbel root wins clearly in the duel and at World 4p, and is even pooled over 4-10p, where 6p leans the other
+way. So it is at least as good as 5 options for the same copies, and better at 2 players, which is where Close
+Range lives. The first cycle to try it is 16 (`DELOVE_BRANCH_ROOT=gumbel`, or `:gumbel` seats on Close Range's
+stage jobs). One failed launch before this run cost $0.12 (a branch_q column bug, fixed and covered by
+`tests/gumbel_check.py`).
 
 ### Rollouts played by Delove (`DELOVE_BRANCH_ROLLOUT`): tried, not better; more options are
 

@@ -15,8 +15,9 @@ export interface FeedTable {
   players: { name: string; color: string; alive: boolean }[];
   /** Owner of each territory, in `getMap(node.map).territoryIds` order, as an index into `players` (null: nobody). */
   owners: (number | null)[] | null;
-  leader?: number;
-  excitement?: { score: number; why?: string };
+  /** The server sends null for "no leader yet" and "no reason". */
+  leader?: number | null;
+  excitement?: { score: number; why?: string | null };
 }
 
 export interface TournamentFeed {
@@ -31,6 +32,9 @@ const POLL_MS = 5000;
 const MAX_POLLED = 40;
 /** How long to wait for the live feed before polling instead. */
 const FEED_WAIT_MS = 4000;
+/** Reconnect backoff after the socket drops (a deploy restart, a network blip): 1 s, 2 s, 4 s ... up to 30 s. */
+const RECONNECT_MIN_MS = 1000;
+const RECONNECT_MAX_MS = 30_000;
 
 export function useTournamentFeed(t: TournamentView | null): TournamentFeed {
   const [feed, setFeed] = useState<TournamentFeed>({ tables: {}, follow: null, live: false });
@@ -44,20 +48,53 @@ export function useTournamentFeed(t: TournamentView | null): TournamentFeed {
     let alive = true;
     let live = false;
     let pollTimer = 0;
-    const ws = new WebSocket(WS_URL);
-    ws.onopen = () => ws.send(JSON.stringify({ type: 'subscribe_tournament', id }));
-    ws.onmessage = (e) => {
-      const m = JSON.parse(String(e.data)) as { type: string; full?: boolean; tables?: FeedTable[]; follow?: TournamentFeed['follow'] };
-      if (m.type !== 'tournament_tables' || !alive) return;
-      live = true;
+    let retryTimer = 0;
+    let retryMs = RECONNECT_MIN_MS;
+    let ws: WebSocket | null = null;
+    // The tournament is gone: no feed to wait for, no reconnecting; the bracket's long-poll says what happened.
+    let closed = false;
+
+    const startPolling = (delay: number) => {
       window.clearTimeout(pollTimer);
-      setFeed((f) => {
-        // The first message (and any resync) has every table; later ones only the tables that changed.
-        const tables = m.full ? {} : { ...f.tables };
-        for (const x of m.tables ?? []) if (x.node !== null && x.node !== undefined) tables[x.node] = x;
-        return { tables, follow: m.follow ?? null, live: true };
-      });
+      pollTimer = window.setTimeout(poll, delay);
     };
+    const connect = () => {
+      const socket = new WebSocket(WS_URL);
+      ws = socket;
+      socket.onopen = () => socket.send(JSON.stringify({ type: 'subscribe_tournament', id }));
+      socket.onmessage = (e) => {
+        const m = JSON.parse(String(e.data)) as { type: string; full?: boolean; tables?: FeedTable[]; follow?: TournamentFeed['follow'] };
+        if (!alive) return;
+        if (m.type === 'tournament_closed') {
+          closed = true;
+          live = false;
+          setFeed((f) => ({ ...f, follow: null, live: false }));
+          socket.close();
+          return;
+        }
+        if (m.type !== 'tournament_tables') return;
+        live = true;
+        retryMs = RECONNECT_MIN_MS;
+        window.clearTimeout(pollTimer);
+        setFeed((f) => {
+          // The first message (and any resync) has every table; later ones only the tables that changed.
+          const tables = m.full ? {} : { ...f.tables };
+          for (const x of m.tables ?? []) if (x.node !== null && x.node !== undefined) tables[x.node] = x;
+          return { tables, follow: m.follow ?? null, live: true };
+        });
+      };
+      // The socket dropped: stop trusting the feed (follow off), poll meanwhile, and reconnect with backoff.
+      socket.onclose = () => {
+        if (!alive || ws !== socket) return;
+        live = false;
+        setFeed((f) => ({ ...f, follow: null, live: false }));
+        if (closed) return;
+        startPolling(0);
+        retryTimer = window.setTimeout(connect, retryMs);
+        retryMs = Math.min(RECONNECT_MAX_MS, retryMs * 2);
+      };
+    };
+    connect();
 
     // No live feed on this server: poll the tables being played, a few at a time.
     const poll = async () => {
@@ -77,14 +114,15 @@ export function useTournamentFeed(t: TournamentView | null): TournamentFeed {
         if (!alive || live) return;
       }
       setFeed({ tables, follow: null, live: false });
-      pollTimer = window.setTimeout(poll, POLL_MS);
+      if (!closed) pollTimer = window.setTimeout(poll, POLL_MS);
     };
-    pollTimer = window.setTimeout(poll, FEED_WAIT_MS);
+    startPolling(FEED_WAIT_MS);
 
     return () => {
       alive = false;
       window.clearTimeout(pollTimer);
-      ws.close();
+      window.clearTimeout(retryTimer);
+      ws?.close();
     };
   }, [id, nested]);
 
@@ -133,5 +171,11 @@ function fromState(node: number, gameId: string, s: GameView): FeedTable {
 export function toSnapshot(table: FeedTable, mapId: string): TableSnapshot {
   const territories = getMap(mapId).territories;
   const owners = table.owners ? Object.fromEntries(territories.map((t, i) => [t.id, table.owners![i] ?? null])) : undefined;
-  return { players: table.players, status: table.status, ...(owners ? { owners } : {}), ...(table.gameId ? { gameId: table.gameId } : {}), ...(table.leader !== undefined ? { leader: table.leader } : {}) };
+  return {
+    players: table.players,
+    status: table.status,
+    ...(owners ? { owners } : {}),
+    ...(table.gameId ? { gameId: table.gameId } : {}),
+    ...(table.leader !== undefined && table.leader !== null ? { leader: table.leader } : {}),
+  };
 }

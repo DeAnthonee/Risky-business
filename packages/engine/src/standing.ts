@@ -1,0 +1,51 @@
+import type { RandomSource } from './bot.js';
+import { armiesOf, territoriesOf } from './engine.js';
+import type { GameState, PlayerId } from './types.js';
+
+/** The order a game stopped before its end is decided in, and the dice rolled to break ties (each roll is 1-6). */
+export interface Standing {
+  order: PlayerId[];
+  rolls: Record<PlayerId, number[]>;
+}
+
+/**
+ * Rank the players of an unfinished game (a tournament table stopped at its round's end, docs/tournaments.md):
+ * players still in, by territories, then armies, then dice; then players already out, the last one out first.
+ *
+ * Dice: every tied player rolls one die and the higher roll ranks first. Players still tied roll again, only among
+ * themselves, until the order is total. `eliminated` is the order players went out in (earliest first); players out
+ * but missing from it rank last, in turn order. Neutrals are never ranked. Pure apart from `random`.
+ */
+export function rankByStanding(state: GameState, random: RandomSource = Math.random, eliminated: readonly PlayerId[] = []): Standing {
+  const rolls: Record<PlayerId, number[]> = {};
+  const seated = state.turnOrder.length > 0 ? state.turnOrder : state.players.map((p) => p.id);
+  const players = seated.map((id) => state.players.find((p) => p.id === id)!).filter((p) => p && !p.isNeutral);
+  const alive = players.filter((p) => p.alive).map((p) => ({ id: p.id, territories: territoriesOf(state, p.id).length, armies: armiesOf(state, p.id) }));
+
+  alive.sort((a, b) => b.territories - a.territories || b.armies - a.armies);
+  const order: PlayerId[] = [];
+  for (let i = 0; i < alive.length; ) {
+    let j = i + 1;
+    while (j < alive.length && alive[j].territories === alive[i].territories && alive[j].armies === alive[i].armies) j++;
+    order.push(...breakTie(alive.slice(i, j).map((p) => p.id), random, rolls));
+    i = j;
+  }
+
+  const out = players.filter((p) => !p.alive).map((p) => p.id);
+  const known = [...eliminated].reverse().filter((id) => out.includes(id));
+  order.push(...known, ...out.filter((id) => !known.includes(id)));
+  return { order, rolls };
+}
+
+/** Order tied players by dice: one die each, the higher first; ties roll again among themselves. */
+function breakTie(ids: PlayerId[], random: RandomSource, rolls: Record<PlayerId, number[]>): PlayerId[] {
+  if (ids.length <= 1) return ids;
+  const roll = new Map<PlayerId, number>();
+  for (const id of ids) {
+    const die = 1 + Math.floor(random() * 6);
+    roll.set(id, die);
+    (rolls[id] ??= []).push(die);
+  }
+  const faces = [...new Set(roll.values())].sort((a, b) => b - a);
+  return faces.flatMap((f) => breakTie(ids.filter((id) => roll.get(id) === f), random, rolls));
+}

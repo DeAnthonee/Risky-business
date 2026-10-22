@@ -64,6 +64,23 @@ cards are hidden).
 | `GET  /games/:id/events?since=`    | event history                                                      |
 | `GET/POST /games/:id/chat`         | chat. POST without a token posts as a spectator: `{message, name}` (5 messages / 10 s; host can turn it off with `spectatorChat`; every player sees them, even under fog). Players whisper with `{message, to}` (`to` = player id, or a name exactly one player has): only the two players and spectators can read it; spectators whisper with `{message, name, to}`: only that player and spectators can read it; the message carries `to` and `toName`. GET with a token returns what that seat may read (a token that is not a seat here is a 401) |
 
+## Player keys
+
+Self-serve (owner's choice "A"), rate-limited, no invite. The key is sent in the `X-Player-Key` header only (a
+query string is ignored) and is 192 random bits (`rk_...`); the server stores only its SHA-256.
+
+| route | |
+| --- | --- |
+| `POST /players` | `{name}` → 201 `{playerId, name, createdAt, key}`: the **only** time the key is sent. Names are 2-24 letters, digits, spaces and `. _ ' -`, unique in any case, and may not be an AI character's id or name, a Zerg name (or contain "zerg"), or a server name (`Bot 3`, `Player 2`, `Neutral`...). 400 on a bad name; 429 + `Retry-After` past the limits (`RISK_PLAYER_KEYS_PER_IP_DAY`, `RISK_PLAYER_KEYS_PER_DAY`); 403 when issuing is off |
+| `GET /players/me` | key header → `{playerId, name, createdAt}`; 401 without a working key |
+| `POST /players/me/rotate` | key header → `{playerId, name, createdAt, key}`: a new key; the old one stops working at once |
+| `GET /admin/players`, `DELETE /admin/players/:id` | admin: list players (never a key or hash); revoke a player's key (their games and leaderboard rows stay, the name stays taken) |
+
+With the header, `POST /games`, `POST /games/:id/join`, `POST /tournaments/:id/join` and `POST /queue` seat the
+registered player under their registered name (`playerName` is ignored), one seat per game or tournament or
+queue. The seat ranks as `key:<playerId>` (the tournament board too). Without a key, a registered name is refused
+(400). A header with a key that does not work is a 401. Old games and `player:<name>` rows are unchanged.
+
 ## Player-type labels
 
 A seat may say what kind of player it is with `agent` on `POST /games`, `POST /games/:id/join` and

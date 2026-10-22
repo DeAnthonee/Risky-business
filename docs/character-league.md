@@ -131,7 +131,8 @@ game at a time. Results already there stay; new tables no longer add to it.
   affected.
 - **The board** sums results over tournaments: points, tournaments played, championships, finals reached, tables won,
   kills and best finish, sorted by points, then championships. Identities are the entrant names, as on the other
-  boards (`bot:<name>` for bots and Zergs, `player:<name>` otherwise), with the self-declared caveat of
+  boards (`key:<playerId>` for an entrant who joined with a player key, `bot:<name>` for bots and Zergs,
+  `player:<name>` otherwise), with the self-declared caveat for keyless entrants of
   [hardening #3](hardening.md#3-leaderboard-identities-for-plain-seats-are-self-declared). Entrants cannot be bound to
   a character yet, so this board never has character rows
   ([hardening #6](hardening.md#6-tournament-entrants-cannot-be-characters-yet)).

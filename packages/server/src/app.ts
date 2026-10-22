@@ -116,6 +116,11 @@ export function createRiskServer(store: Store, opts: AppOptions = {}): RiskServe
       .catch(next);
   });
   const characters = opts.characters ?? new CharacterStore(DEFAULT_AI_DIR, null);
+  // Nobody may register an AI character's id or name as a player name (player-keys.ts).
+  store.playerKeys.reserved = (name) => {
+    const n = name.trim().toLowerCase();
+    return characters.list().some((c) => c.id.toLowerCase() === n || c.name.toLowerCase() === n || c.id.split('/').pop()!.toLowerCase() === n) ? 'that is an AI character' : null;
+  };
   // Hosting codes, caps and expiry: one instance for the HTTP API and the MCP. Creates pause while the loop lags.
   // The brake reads only a finished minute's p99, so it acts on lag that stayed high, not on a start-up blip.
   const tourneyAccess = new TournamentAccess(store.tournaments, opts.tourneyAccess ?? NO_TOURNEY_CAPS, opts.tourneyAccessFile ?? null, () => lastMinuteLagMs ?? 0);

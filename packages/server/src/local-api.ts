@@ -20,7 +20,17 @@ export class LocalRiskApi implements RiskApi {
     private client: string | null = null,
     /** Hosting codes, caps and expiry (shared with the HTTP API). */
     private access: TournamentAccess = new TournamentAccess(store.tournaments, NO_TOURNEY_CAPS),
+    /** The X-Player-Key header the MCP connection was opened with, if any: its seats play as that registered player. */
+    private playerKey: string | null = null,
   ) {}
+
+  /** The registered player of this connection's key, or null without one. A key that does not work is a 401. */
+  private keyedPlayer() {
+    if (this.playerKey === null) return null;
+    const p = this.store.playerKeys.verify(this.playerKey);
+    if (!p) throw new RiskHttpError('Unknown or revoked player key (X-Player-Key on the MCP connection)', 401);
+    return p;
+  }
 
   private room(gameId: string): GameRoom {
     const r = this.store.get(gameId);
@@ -92,12 +102,14 @@ export class LocalRiskApi implements RiskApi {
         throw new RiskHttpError('A training-board game needs the characters write key ("key")', 403);
       }
     }
-    const { room, playerId, token } = this.store.create(gameName ?? '', sanitizeOptions(options), playerName, false, board, parseAgent(agent));
+    const player = this.keyedPlayer();
+    const { room, playerId, token } = this.store.create(gameName ?? '', sanitizeOptions(options), this.store.playerKeys.seatName(playerName, player), false, board, parseAgent(agent), player?.id);
     return { gameId: room.id, playerId, token, state: room.view(playerId) };
   }
   async joinGame(gameId: string, playerName: string, agent?: string) {
     const room = this.room(gameId);
-    const { playerId, token } = room.join(playerName, false, 'bot', parseAgent(agent));
+    const player = this.keyedPlayer();
+    const { playerId, token } = room.join(this.store.playerKeys.seatName(playerName, player), false, 'bot', parseAgent(agent), player?.id);
     return { gameId: room.id, playerId, token, state: room.view(playerId) };
   }
   async addBot(gameId: string, token: string, name?: string, kind?: 'bot' | 'zerg', count?: number) {
@@ -165,7 +177,8 @@ export class LocalRiskApi implements RiskApi {
   }
   async quickPlayJoin(spec: QuickPlaySpec) {
     try {
-      return this.store.quickPlay.join({ ...spec, agent: parseAgent(spec.agent) }, this.client);
+      const player = this.keyedPlayer();
+      return this.store.quickPlay.join({ ...spec, playerName: this.store.playerKeys.seatName(spec.playerName ?? '', player), agent: parseAgent(spec.agent), ...(player ? { playerKey: player.id } : {}) }, this.client);
     } catch (e) {
       if (e instanceof QuickPlayBusyError) throw new RiskHttpError(e.message, e.status);
       throw e;
@@ -175,6 +188,14 @@ export class LocalRiskApi implements RiskApi {
     const t = await this.store.quickPlay.wait(ticket, token, Math.min(Math.max(timeoutMs, 0), 120_000));
     if (!t) throw new RiskHttpError('Ticket not found (or not yours): join the queue again', 404);
     return { ticket: t };
+  }
+  /** Bind a key to this connection (use_player_key): limited per client like a code, the key never echoed. */
+  async usePlayerKey(key: string) {
+    if (!this.store.playerKeys.tryLimiter.take(this.client ?? 'mcp')) throw new RiskHttpError('Too many player-key tries: wait a few minutes', 429);
+    const p = this.store.playerKeys.verify(key);
+    if (!p) throw new RiskHttpError('That player key does not work (unknown, rotated or revoked)', 401);
+    this.playerKey = key;
+    return { playerId: p.id, name: p.name };
   }
   async quickPlayLeave(ticket: string, token: string) {
     if (!this.store.quickPlay.leave(ticket, token)) throw new RiskHttpError('Ticket not found (or not yours)', 404);
@@ -200,7 +221,8 @@ export class LocalRiskApi implements RiskApi {
   }
   async joinTournament(tournamentId: string, playerName: string, agent?: string) {
     const t = this.tournament(tournamentId);
-    const { entrantId, token } = this.store.tournaments.join(t.id, playerName, parseAgent(agent));
+    const player = this.keyedPlayer();
+    const { entrantId, token } = this.store.tournaments.join(t.id, this.store.playerKeys.seatName(playerName, player), parseAgent(agent), player ? { id: player.id, name: player.name } : undefined);
     return { entrantId, token, tournament: this.store.tournaments.view(t.id, token) };
   }
   async waitTournament(tournamentId: string, token: string | undefined, since: number | undefined, timeoutMs: number) {

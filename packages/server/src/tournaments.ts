@@ -75,6 +75,8 @@ export interface Entrant {
   kind?: BotKind;
   /** Self-declared player type, passed to every table seat; spectators see it, no view of the tournament does. */
   agent?: string;
+  /** The registered player (player key) this entrant plays as: its seats and the tournament board rank as `key:<id>`. */
+  playerKey?: string;
   joinedAt: number;
 }
 
@@ -717,14 +719,16 @@ export class TournamentManager extends EventEmitter {
     return added;
   }
 
-  join(id: string, rawName: unknown, agent?: string): { entrantId: string; token: string } {
+  /** `player`: the registered player (from its key) joining: they enter under the registered name, once per tournament. */
+  join(id: string, rawName: unknown, agent?: string, player?: { id: string; name: string }): { entrantId: string; token: string } {
     const t = this.require(id);
     if (t.status !== 'registering') throw new RuleError('Registration is closed: this tournament has started');
     if (t.entrants.length >= t.maxEntrants) throw new RuleError('This tournament is full');
-    const name = String(rawName ?? '').replace(/\s+/g, ' ').trim().slice(0, MAX_NAME);
+    const name = (player ? player.name : String(rawName ?? '')).replace(/\s+/g, ' ').trim().slice(0, MAX_NAME);
     if (!name) throw new RuleError('A name is required');
+    if (player && t.entrants.some((e) => e.playerKey === player.id)) throw new RuleError('This player has already joined this tournament');
     if (t.entrants.some((e) => e.name.toLowerCase() === name.toLowerCase())) throw new RuleError(`The name "${name}" is taken in this tournament`);
-    const entrant: Entrant = { id: `e_${newId(6)}`, name, isBot: false, token: newId(24), joinedAt: Date.now(), ...(agent ? { agent } : {}) };
+    const entrant: Entrant = { id: `e_${newId(6)}`, name, isBot: false, token: newId(24), joinedAt: Date.now(), ...(agent ? { agent } : {}), ...(player ? { playerKey: player.id } : {}) };
     t.entrants.push(entrant);
     this.changed(t);
     return { entrantId: entrant.id, token: entrant.token! };
@@ -944,7 +948,7 @@ export class TournamentManager extends EventEmitter {
       const players = entrants.map((eid) => this.entrant(t, eid)!);
       const tables = tableSizes(order.length, t.groupSize).length;
       const label = tables === 1 ? (round === 1 ? 'Table 1' : 'Final') : `Table ${i + 1}`;
-      const { room, seats } = this.store.createTable(`${t.name} · R${round} ${label}`.slice(0, 40), { ...t.options, maxPlayers: entrants.length }, players.map((p) => ({ name: p.name, isBot: p.isBot, ...(p.kind ? { kind: p.kind } : {}), agent: p.agent })), t.id);
+      const { room, seats } = this.store.createTable(`${t.name} · R${round} ${label}`.slice(0, 40), { ...t.options, maxPlayers: entrants.length }, players.map((p) => ({ name: p.name, isBot: p.isBot, ...(p.kind ? { kind: p.kind } : {}), agent: p.agent, ...(p.playerKey ? { playerKey: p.playerKey } : {}) })), t.id);
       const match: TournamentMatch = { gameId: room.id, entrants, seats: Object.fromEntries(entrants.map((eid, k) => [eid, seats[k]])), winner: null, status: 'playing' };
       matches.push(match);
     }
@@ -1097,7 +1101,7 @@ export class TournamentManager extends EventEmitter {
       const { room, seats } = this.store.createTable(
         `${t.name} · R${r + 1} ${label}`.slice(0, 40),
         { ...t.options, ...(n.blizzardShare !== undefined ? { blizzards: blizzardsFor(map, n.blizzardShare) } : {}), map: map as GameOptions['map'], maxPlayers: entrants.length },
-        players.map((p) => ({ name: p.name, isBot: p.isBot, ...(p.kind ? { kind: p.kind } : {}), agent: p.agent })),
+        players.map((p) => ({ name: p.name, isBot: p.isBot, ...(p.kind ? { kind: p.kind } : {}), agent: p.agent, ...(p.playerKey ? { playerKey: p.playerKey } : {}) })),
         t.id,
         {
           ...(n.botDelayMs !== undefined ? { botDelayMs: n.botDelayMs } : {}),

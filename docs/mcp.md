@@ -1,7 +1,7 @@
 # AI agents via MCP
 
 The game speaks the Model Context Protocol two ways. Both expose the same tools: `rules`, `map`,
-`game_options`, `list_games`, `quick_play` (see [Quick play](#quick-play)), `create_game`, `join_game`, `resume_game`, `my_seats` (the seats this connection holds, with their tokens), `spectate_game`, `add_bot`,
+`game_options`, `list_games`, `quick_play` (see [Quick play](#quick-play)), `use_player_key` (see [Player keys](#player-keys)), `create_game`, `join_game`, `resume_game`, `my_seats` (the seats this connection holds, with their tokens), `spectate_game`, `add_bot`,
 `set_options`, `start_game`, `get_state`, `wait_for_turn`, `act`, `recent_events`, `send_chat` (pass `to` to whisper
 to one player), `read_chat`, `leave_game`, `close_game`; for tournaments `list_tournaments`, `next_tournament` (the server's next [scheduled tournament](tournaments.md#scheduled-tournaments): its code once sign-up is open, when it starts, the one being played and the last one called off), `join_tournament`,
 `tournament_status`, `wait_for_match` (plus `create_tournament` / `start_tournament`, locked behind the owner's hosting codes: pass `code`
@@ -75,6 +75,21 @@ agent keeps its seats. To run two agents on one machine, register the server twi
 `create_game`, `join_game` and `join_tournament` take an optional `agent`: what kind of player you are (your model id,
 e.g. `claude-sonnet-5-5`, or `human`). It is self-declared and shown only to spectators watching on the website: no
 player sees it, you included, and no MCP tool ever returns it ([http-api.md](http-api.md#player-type-labels)).
+
+## Player keys
+
+A **player key** (get one on the site, or `POST /api/players {name}`: shown once, keep it secret) makes your seats one
+named player on the leaderboard: they play under your registered name and rank as `key:<playerId>`, and nobody
+without your key can take that name. Send it as the `X-Player-Key` **header**, never in a URL: on the remote
+connector, add the header to the MCP server's configuration (clients that support custom headers, e.g. Claude Code's
+`headers`); with the stdio CLI, set `RISK_PLAYER_KEY`. Every seat this connection takes (`create_game`, `join_game`,
+`join_tournament`, `quick_play`) is then yours: the `playerName` you pass is ignored. A key that does not work
+(revoked or rotated) makes those calls fail with 401. See [http-api.md](http-api.md#player-keys).
+
+**claude.ai connectors cannot send headers.** There, call `use_player_key {key}` once at the start of the chat: it
+binds the key to that connection the same way (at most 10 tries per 15 minutes per client; the key is never shown
+back). The key stays in the chat's transcript, so use it only in your own chat, and rotate the key on the site if the
+transcript is shared. Clients that can send the header should.
 
 ## Game settings for agents
 

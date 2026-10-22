@@ -12,7 +12,7 @@ vi.hoisted(() => {
 const { Store } = await import('../src/store.js');
 const { createRiskServer } = await import('../src/app.js');
 type TournamentClock = import('../src/tournaments.js').TournamentClock;
-const { NESTED_BLIZZARD_SHARE, NESTED_DEFAULT_OPTIONS, blizzardsFor, seatNestedRound } = await import('../src/tournaments.js');
+const { NESTED_BLIZZARD_SHARE, NESTED_DEFAULT_OPTIONS, blizzardsFor, isHouseAi, seatNestedRound } = await import('../src/tournaments.js');
 const { createRng, genMapId, nestSeed } = await import('@risk/engine');
 
 /** A clock the test moves by hand: round deadlines fire only when it is advanced past them. */
@@ -598,6 +598,63 @@ describe('nested tournaments', () => {
     for (let i = 1; i <= 18; i++) six.entrants.push({ id: `s_${i}`, name: `S${i}`, isBot: true, joinedAt: 0 });
     store.tournaments.start(six.id);
     for (const m of six.rounds[0].matches) expect(store.get(m.gameId!)!.state.options.blizzards).toBe(6);
+    store.stopTimers();
+    for (const room of store.rooms.values()) room.stopBot();
+  });
+
+  it('seats house AI (Delove) as its own tier: 50 Delove + 10 guest agents over 10 tables puts one guest at every table', () => {
+    const store = new Store(null, {}, { clock: new FakeClock() });
+    const t = store.tournaments.create({ format: 'nested', maxEntrants: 60, botDelayMs: 2000, options: { turnTimer: 'off', autoSetup: true } });
+    for (let i = 1; i <= 10; i++) store.tournaments.join(t.id, `Guest ${i}`, i % 2 ? 'claude-sonnet-5-5' : undefined);
+    for (let i = 1; i <= 50; i++) store.tournaments.join(t.id, `Delove ${i}`, 'delove@12');
+    store.tournaments.start(t.id);
+    const r1 = t.rounds[0].matches;
+    expect(r1).toHaveLength(10);
+    const guests = (m: (typeof r1)[number]) => m.entrants.filter((eid) => t.entrants.find((e) => e.id === eid)!.name.startsWith('Guest')).length;
+    expect(r1.map(guests)).toEqual(new Array(10).fill(1));
+    // Who is house AI: the label, or a seat the Delove pool joined; never a server bot.
+    expect(isHouseAi({ id: 'a', isBot: false, agent: 'jacob-sensei@2' })).toBe(true);
+    expect(isHouseAi({ id: 'a', isBot: false, agent: 'claude-opus-5-5' })).toBe(false);
+    expect(isHouseAi({ id: 'a', isBot: false }, new Set(['a']))).toBe(true);
+    expect(isHouseAi({ id: 'a', isBot: true, agent: 'delove@12' })).toBe(false);
+    store.stopTimers();
+    for (const room of store.rooms.values()) room.stopBot();
+  });
+
+  it('finished house-AI-only tables never close a round while guest tables play', () => {
+    // 2 guests + 16 Delove: six tables of 3, two with a guest, four Delove only.
+    const clock = new FakeClock();
+    const store = new Store(null, {}, { clock });
+    const t = store.tournaments.create({ format: 'nested', roundMinutes: 20, botDelayMs: 2000, options: { turnTimer: 'off', autoSetup: true } });
+    store.tournaments.join(t.id, 'Ada', 'claude-sonnet-5-5');
+    store.tournaments.join(t.id, 'Grace');
+    for (let i = 1; i <= 16; i++) store.tournaments.join(t.id, `Delove ${i}`, 'delove@12');
+    store.tournaments.start(t.id);
+    const isGuest = (eid: string) => ['Ada', 'Grace'].includes(t.entrants.find((e) => e.id === eid)!.name);
+    const m1 = t.rounds[0].matches;
+    const guestTables = m1.filter((m) => m.entrants.some(isGuest));
+    const houseTables = m1.filter((m) => !m.entrants.some(isGuest));
+    expect(guestTables).toHaveLength(2);
+    expect(houseTables).toHaveLength(4);
+    // Every Delove-only table is over (4 of 6, past the old 51% rule), and the guests' tables have played many turns.
+    // The round must not close: it waits for every table (or its deadline and last lap, #289).
+    for (const m of houseTables) {
+      m.status = 'finished';
+      m.winner = m.entrants[0];
+    }
+    for (const m of guestTables) {
+      const room = store.get(m.gameId!)!;
+      room.state = { ...room.state, round: 10 };
+    }
+    const check = () => (store.tournaments as any).checkRound(t) as boolean;
+    expect(check()).toBe(false);
+    // Both guest tables over: the round closes.
+    for (const m of guestTables) {
+      m.status = 'finished';
+      m.winner = m.entrants[0];
+    }
+    expect(check()).toBe(true);
+    expect(t.rounds).toHaveLength(2);
     store.stopTimers();
     for (const room of store.rooms.values()) room.stopBot();
   });

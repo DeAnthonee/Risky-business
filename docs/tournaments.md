@@ -194,12 +194,16 @@ round; the boards nest inside each other's territories (the map side: [maps.md](
   round, and a final of 6-10. Zerg entrants are added only when the count fits no plan (11-17 entrants fill to 18; under 6 fill
   the final to 6). A random seed, saved with the tournament, fixes every board (`planToNest`, generated gen1 boards
   sized for each table) and the seating (`seatNestedRound` in `packages/server/src/tournaments.ts`; owner,
-  2026-10-22: "Zergs spread out between all rooms approximately evenly; no Zerg-only lobbies"): people and agents
-  first, one per table in turn (the table with the fewest, then the parent group with the fewest, so they spread over
-  the whole bracket), then the server bots: Zergs (the host's and the planner's fillers) each to the table with the
-  fewest server bots, then the built-in bots the same way. So no table is all server bots while there are at least as
-  many people as tables, and the Zergs at tables of one size differ by at most one. Delove seats join over HTTP like
-  any agent and count as people here. Filler Zergs move up like any entrant when they win. Later rounds seat each
+  2026-10-22: "Zergs spread out between all rooms approximately evenly; no Zerg-only lobbies") in three tiers:
+  **guests** (people and outside agents) first, one per table in turn (the table with the fewest, then the parent group
+  with the fewest, so they spread over the whole bracket); then the **house AI** evenly (each to the table with the
+  fewest); then the server bots: Zergs (the host's and the planner's fillers) each to the table with the fewest server
+  bots, then the built-in bots the same way. House AI is our own models, which join over HTTP like guests: an entrant
+  the Delove seat pool joined (seat requests), or one whose agent label starts with `delove@` or `jacob-sensei@`
+  (`HOUSE_AI_AGENT`, `isHouseAi`). So guests are never crowded out by Delove (TF6723: 50 Delove + 10 guests over 10
+  tables seated the guests 2,0,2,1,2,0,0,0,1,2; now one per table), no table is all server bots while there are at
+  least as many guests and house AI as tables, and the Zergs at tables of one size differ by at most one. Filler Zergs
+  move up like any entrant when they win. Later rounds seat each
   table's winner at its parent table (its portal), so a parent table can still be all Zergs when Zergs won every
   child table under it. **Every round-1 table starts at
   once.**
@@ -217,6 +221,8 @@ round; the boards nest inside each other's territories (the map side: [maps.md](
   - A **backstop** ends the last lap anyway one more `roundMinutes` after the deadline. It only matters when the move
     timer is off (`turnTimer: 'off'`): with the default 90 s per-move timer a stalled seat is skipped and the lap ends on
     its own, while with no timer a seat that never moves could otherwise hold the tournament forever.
+  - Every table counts, whoever sits at it: a fast table of house AI or Zergs never hurries a round past the guests',
+    since the round waits for every table (or the deadline).
   - Tables that finished by a win still move on as usual. A restart keeps the clock: a deadline passed while the server
     was down starts the last lap on load, and a passed backstop ends the round on load.
 - **Decided on standing.** When a round ends, every table still playing is frozen (bots and the turn timer stop,

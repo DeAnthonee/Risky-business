@@ -561,13 +561,14 @@ export class TournamentManager extends EventEmitter {
     const botDelayMs = spec.botDelayMs ?? 300;
     const finalMax = spec.finalMap ? this.maxFinal(spec.finalMap) : NESTED_FINAL.max;
     const plan = planNest(total, { maxFinal: finalMax });
-    // Round 1 as #240 seats it: open spots and Delove seats are people (Delove joins over HTTP like any agent).
+    // Round 1 as it would be seated: open spots are guests, Delove seats house AI (seated after the guests), then Zergs.
     const entrants = [
-      ...Array.from({ length: counts.open + counts.delove }, (_, i) => ({ id: `p${i}`, isBot: false })),
+      ...Array.from({ length: counts.open }, (_, i) => ({ id: `p${i}`, isBot: false })),
+      ...Array.from({ length: counts.delove }, (_, i) => ({ id: `d${i}`, isBot: false })),
       ...Array.from({ length: counts.zergs + plan.zergs }, (_, i) => ({ id: `z${i}`, isBot: true, kind: 'zerg' as const })),
     ];
-    const seated = seatNestedRound(plan.rounds[0], entrants, createRng(1));
-    const firstRound = seated.map((ids, j) => ({ seats: plan.rounds[0][j].seats, people: ids.filter((id) => id.startsWith('p')).length, zergs: ids.filter((id) => id.startsWith('z')).length }));
+    const seated = seatNestedRound(plan.rounds[0], entrants, createRng(1), new Set(entrants.filter((e) => e.id.startsWith('d')).map((e) => e.id)));
+    const firstRound = seated.map((ids, j) => ({ seats: plan.rounds[0][j].seats, people: ids.filter((id) => id.startsWith('p') || id.startsWith('d')).length, zergs: ids.filter((id) => id.startsWith('z')).length }));
     // Time: low = every table at bot pace (moves grow with seats), high = every round to its deadline.
     const roundsLow = plan.rounds.map((r) => {
       const biggest = Math.max(...r.map((x) => x.seats));
@@ -861,6 +862,15 @@ export class TournamentManager extends EventEmitter {
       return { id: t.id, name: t.name, round: r.round, table: i + 1, tables: r.matches.length, final };
     }
     return null;
+  }
+
+  /** The entrants the Delove seat pool joined for a tournament (app.ts wires SeatRequests.boundEntrants); null: none. */
+  houseAiEntrants: ((tournamentId: string) => ReadonlySet<string>) | null = null;
+
+  /** The tournament's house AI entrants (isHouseAi): seat-pool joined, or labelled delove@ / jacob-sensei@. */
+  private houseAiIds(t: TournamentSnapshot): Set<string> {
+    const bound = this.houseAiEntrants?.(t.id) ?? new Set<string>();
+    return new Set(t.entrants.filter((e) => isHouseAi(e, bound)).map((e) => e.id));
   }
 
   /**
@@ -1228,7 +1238,7 @@ export class TournamentManager extends EventEmitter {
     n.nodes = nodes;
     n.nodeOf = index;
     t.status = 'running';
-    const tables = seatNestedRound(plan.rounds[0], t.entrants, createRng(nestSeed(n.seed, 'seats')));
+    const tables = seatNestedRound(plan.rounds[0], t.entrants, createRng(nestSeed(n.seed, 'seats')), this.houseAiIds(t));
     this.buildNestedRound(t, 0, tables.map((g) => g.map((entrant) => ({ entrant, portal: null }))));
     this.changed(t);
     return t;
@@ -1297,6 +1307,8 @@ export class TournamentManager extends EventEmitter {
     const round = this.currentRound(t);
     if (t.status !== 'running' || !round || round.endedAt) return false;
     const playing = round.matches.filter((m) => m.status === 'playing');
+    // Every table counts (a guest's, house AI's or bots'): a fast Delove or Zerg table can never hurry a round past the
+    // guests', since the round waits for every table or its deadline.
     const lapDone = (m: TournamentMatch) => {
       const room = m.gameId ? this.store.get(m.gameId) : undefined;
       return !room || room.closed || m.lapRound === undefined || room.state.round > m.lapRound;
@@ -1419,9 +1431,12 @@ export function seatNestedRound(
   tables: readonly { seats: number; parent?: number | null }[],
   entrants: readonly { id: string; isBot: boolean; kind?: BotKind }[],
   rng: Rng,
+  /** House AI entrants (isHouseAi): seated after the guests, evenly, before the server bots. */
+  house: ReadonlySet<string> = new Set(),
 ): string[][] {
   const seated = tables.map(() => [] as string[]);
   const people = new Array(tables.length).fill(0);
+  const housed = new Array(tables.length).fill(0);
   const bots = new Array(tables.length).fill(0);
   const groupPeople = new Map<number | null | undefined, number>();
   const free = (j: number) => tables[j].seats - seated[j].length;
@@ -1432,7 +1447,8 @@ export function seatNestedRound(
     seated[best].push(eid);
     return best;
   };
-  for (const eid of seededShuffle(rng, entrants.filter((e) => !e.isBot).map((e) => e.id))) {
+  // Guests (people and outside agents) first, one per table in turn, so house AI never crowds them out of a table.
+  for (const eid of seededShuffle(rng, entrants.filter((e) => !e.isBot && !house.has(e.id)).map((e) => e.id))) {
     const j = place(eid, (a, b) => {
       if (people[a] !== people[b]) return people[a] < people[b];
       const ga = groupPeople.get(tables[a].parent) ?? 0;
@@ -1443,6 +1459,9 @@ export function seatNestedRound(
     people[j]++;
     groupPeople.set(tables[j].parent, (groupPeople.get(tables[j].parent) ?? 0) + 1);
   }
+  // Then the house AI (Delove, Jacob Sensei), evenly over the tables.
+  const fewestHouse = (a: number, b: number) => (housed[a] !== housed[b] ? housed[a] < housed[b] : free(a) > free(b));
+  for (const eid of seededShuffle(rng, entrants.filter((e) => !e.isBot && house.has(e.id)).map((e) => e.id))) housed[place(eid, fewestHouse)]++;
   const fewestBots = (a: number, b: number) => (bots[a] !== bots[b] ? bots[a] < bots[b] : free(a) > free(b));
   for (const zerg of [true, false]) {
     for (const eid of seededShuffle(rng, entrants.filter((e) => e.isBot && (e.kind === 'zerg') === zerg).map((e) => e.id))) bots[place(eid, fewestBots)]++;
@@ -1501,4 +1520,15 @@ export interface HostEntrants {
   version: number;
   counts: { zergs: number; delove: number; agents: number; humans: number; bots: number; open: number };
   entrants: { id: string; name: string; kind: HostEntrantKind; agent?: string; joinedAt: number }[];
+}
+
+/** Agent labels of the house AI: our own models, which join over HTTP like guests but are seated as their own tier. */
+export const HOUSE_AI_AGENT = /^(delove|jacob-sensei)@/i;
+
+/**
+ * Is this entrant house AI (nested seating)? Joined by the Delove seat pool (`bound`), or labelled
+ * `delove@…` / `jacob-sensei@…`. Server bots never are (they have their own tier).
+ */
+export function isHouseAi(e: { id: string; isBot: boolean; agent?: string }, bound: ReadonlySet<string> = new Set()): boolean {
+  return !e.isBot && (bound.has(e.id) || HOUSE_AI_AGENT.test(e.agent ?? ''));
 }

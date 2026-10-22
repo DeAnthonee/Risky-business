@@ -135,6 +135,8 @@ export function createRiskServer(store: Store, opts: AppOptions = {}): RiskServe
   // Delove seats on request: the pool claims seats; unfilled ones become Zergs at the start; the preview shows the pool.
   const seatRequests = new SeatRequests(store.tournaments, tourneyAccess.config, opts.seatPoolKey ?? null, opts.seatRequestsFile ?? null, opts.seatPoolLockFile ?? null);
   store.tournaments.beforeStart = (t) => seatRequests.onStart(t);
+  // House AI (nested seating and round close): the seats the Delove seat pool joined.
+  store.tournaments.houseAiEntrants = (id) => seatRequests.boundEntrants(id);
   store.tournaments.delovePool = seatRequests.enabled ? () => seatRequests.pool() : null;
   app.use('/api', createApi(store, { adminToken: opts.adminToken, recordsKey: opts.recordsKey, openTournaments: opts.openTournaments ?? true, tourneyAccess, seatRequests, characters, seasonKey: opts.seasonKey, seasonGuard: opts.seasonGuard, seasonLockFile: opts.seasonLockFile }));
   if (opts.sweepIntervalMs !== 0) store.startSweeper(opts.sweepIntervalMs ?? 30_000);

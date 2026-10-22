@@ -55,7 +55,9 @@ export function startOnSpots(lobby: GameState, spots: Record<PlayerId, Territory
         const thawed = [spot];
         while (!playable(map, new Set(state.blizzards))) {
           const patch = reach(map, spot, new Set(state.blizzards));
-          const next = state.blizzards.find((b) => map.adjacency[b].some((n) => patch.has(n)))!;
+          const next = state.blizzards.find((b) => map.adjacency[b].some((n) => patch.has(n)));
+          // Only a board whose territories are not one network could get here; never loop on it.
+          if (next === undefined) throw new RuleError(`${state.options.map}: the open territories cannot be joined around ${spot}`);
           state.blizzards = state.blizzards.filter((t) => t !== next);
           thawed.push(next);
         }

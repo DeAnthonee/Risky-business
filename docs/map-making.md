@@ -195,3 +195,27 @@ offered map that is not GPU-verified, next to the GPU fingerprint warning.
 
 Where it fits: after registration a new map shows `offered`, `RULE_FILES` yes, matrix yes, GPU-verified no. After the
 batched `verify.py` run and its fingerprint PR it shows GPU-verified yes, and the New map issue can be closed.
+
+## 8. Hex-globe maps
+
+A board with `kind: 'hexglobe'` is the whole world on a sphere tiled by hexagons, for the client's rotatable 3D
+globe (Hex Earth, `scripts/maps/hexworld.mjs`; the generator is `scripts/hex-globe.mjs`). It follows the design
+rules, the workflow and the registration checklist above; only the way it is drawn differs.
+
+- **The grid.** A Goldberg sphere of `frequency` n has 10n²+2 cells (n = 12: 1442 cells, about 700 km across). All
+  are hexagons except 12 pentagons: two sit on the poles under the ice and `spin` (degrees about the polar axis)
+  parks the other ten in open ocean.
+- **Land.** A cell is land when at least half of its sample points fall on Natural Earth 1:50m land. A strait or
+  isthmus narrower than a hex comes out wrong (Panama vanished; the Red Sea, the Black Sea and the Caspian filled
+  in), so check the region entries (section 3) and fix single cells with `land`, `sea` or `ice` points ([lon, lat];
+  the nearest cell changes). Land beyond `iceLat` and everything beyond `seaIceLat` is ice: drawn, never played.
+- **Territories.** Each territory has a `site` [lon, lat]; every land cell goes to the nearest site over land, so a
+  territory never jumps the sea. Size territories by hex count, not by the countries: a real-geography layout gives
+  Europe one hex per country and Australia a dozen. Islands too small for a hex set `island: true` (their site's
+  cell becomes land) and are reached by `seaLanes`. The build warns about land no site reaches and about a
+  territory split into pieces.
+- **Two outputs.** `npm run build:map -- <id>` writes the usual engine JSON (the flat view: each territory's hexes
+  projected like the World map, with army badges on hex centres, spread apart where they crowd) and
+  `packages/client/src/generated/<id>.globe.json` (the cells' corners, which territory owns each cell, the badge
+  cells), which only the client loads. Commit both. `npm run maps:test` (`scripts/hex-globe.test.mjs`, part of
+  `npm test`) checks the grid and that the two files agree.

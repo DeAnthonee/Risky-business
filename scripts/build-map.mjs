@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 /**
  * Generates packages/engine/src/generated/<map>.json from real-world geography, or, for definitions
- * with `kind: 'authored'` (fictional worlds), from hand-drawn landmasses (see authored-map.mjs).
+ * with `kind: 'authored'` (fictional worlds), from hand-drawn landmasses (see authored-map.mjs), or,
+ * with `kind: 'hexglobe'`, from a hex-tiled sphere (see hex-globe.mjs; it also writes the globe
+ * geometry the client draws in 3D to packages/client/src/generated/<map>.globe.json).
  *
  * Territories are unions of features from a geodata source, optionally clipped to lon/lat boxes,
  * projected (Natural Earth I by default) and emitted as SVG path data plus a label anchor. The
@@ -37,6 +39,7 @@ import { geoPath, geoArea, geoContains, geoNaturalEarth1, geoConicEqualArea, geo
 import pc from 'polygon-clipping';
 import polylabel from 'polylabel';
 import { buildAuthored } from './authored-map.mjs';
+import { buildHexGlobe, toLonLat } from './hex-globe.mjs';
 
 const require = createRequire(import.meta.url);
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -352,7 +355,153 @@ function buildAuthoredMap(def) {
   const edges = [...g.landEdges, ...(def.seaLanes ?? []).filter(([a, b]) => !landKeys.has([a, b].sort().join('|')))];
   const out = finish({ ...def, edges }, g);
   for (const w of g.warnings) console.log(`  WARNING ${w}`);
-  // Suggested bonus (classic logic: grows with size and with the number of border entry points).
+  suggestBonuses(def, edges);
+  return out;
+}
+
+/**
+ * Hex-globe map: the sphere's land hexes grouped into territories (hex-globe.mjs). Land adjacency
+ * is any two touching cells of different territories; `seaLanes` add the overseas connectors. The
+ * flat view projects each territory's hexes (Natural Earth I, like the World map); the globe
+ * geometry goes to a separate file that only the client loads.
+ */
+function buildHexGlobeMap(def) {
+  const topo = JSON.parse(readFileSync(require.resolve(def.landSource ?? 'world-atlas/land-50m.json'), 'utf8'));
+  const land = feature(topo, topo.objects.land);
+  const { cells, warnings } = buildHexGlobe(def, land);
+  const ids = def.territories.map((t) => t.id);
+  const tIndex = new Map(ids.map((id, i) => [id, i]));
+
+  // Land edges between territories, from touching cells.
+  const landKeys = new Set();
+  for (const c of cells) {
+    if (!c.territory) continue;
+    for (const j of c.neighbors) {
+      const o = cells[j].territory;
+      if (o && o !== c.territory) landKeys.add([c.territory, o].sort().join('|'));
+    }
+  }
+  for (const [a, b] of def.seaLanes ?? []) if (landKeys.has([a, b].sort().join('|'))) warnings.push(`sea lane ${a}~${b} is redundant: they already share a border`);
+  const edges = [...[...landKeys].map((k) => k.split('|')), ...(def.seaLanes ?? []).filter(([a, b]) => !landKeys.has([a, b].sort().join('|')))];
+  const touches = (a, b) => landKeys.has([a, b].sort().join('|'));
+  touches.pairs = () => [];
+
+  // Flat view: each territory is the union of its cells, unwrapped around the projection's centre
+  // so a territory on the seam stays one piece until d3 clips it there.
+  const centre = -(def.projection?.rotate ?? [-10, 0])[0];
+  const ring = (c) => {
+    const base = ((toLonLat(c.center)[0] - centre + 540) % 360) - 180 + centre;
+    const pts = c.corners.map((v) => {
+      let [lon, lat] = toLonLat(v);
+      while (lon - base > 180) lon -= 360;
+      while (lon - base < -180) lon += 360;
+      return [lon, lat];
+    });
+    return [...pts, pts[0]];
+  };
+  const geoms = new Map();
+  for (const id of ids) {
+    const mine = cells.filter((c) => c.territory === id);
+    if (!mine.length) throw new Error(`${def.id}: ${id} has no cells`);
+    geoms.set(id, { type: 'MultiPolygon', coordinates: rewind(pc.union(...mine.map((c) => [[ring(c)]]))) });
+  }
+  const fc = { type: 'FeatureCollection', features: ids.map((id) => ({ type: 'Feature', id, geometry: geoms.get(id) })) };
+  const PAD = 14;
+  const projection = makeProjection(def.projection).fitWidth(WIDTH - 2 * PAD, fc);
+  const [[, y0], [, y1]] = geoPath(projection).bounds(fc);
+  const height = Math.ceil(y1 - y0 + 2 * PAD);
+  const [tx, ty] = projection.translate();
+  projection.translate([tx + PAD, ty - y0 + PAD]);
+  const path = geoPath(projection).digits(1);
+  const r = (v) => Math.round(v * 10) / 10;
+  // Badge cell: the territory's cell nearest its `anchor` (or its site). Both views put the army
+  // badge on that cell's centre. Where two badges on the flat view are closer than the client's
+  // ring needs (24 units above 50 territories, else 32), the one with a free choice moves to the
+  // cell of its territory farthest from the other badges (territories with an explicit `anchor`
+  // stay put).
+  const cellsOf = new Map(ids.map((id) => [id, cells.map((c, i) => i).filter((i) => cells[i].territory === id)]));
+  const xy = (i) => projection(toLonLat(cells[i].center));
+  const badge = new Map(def.territories.map((t) => {
+    const p = t.anchor ?? t.site;
+    const d = (i) => Math.hypot(...toLonLat(cells[i].center).map((v, k) => v - p[k]));
+    return [t.id, cellsOf.get(t.id).slice().sort((a, b) => d(a) - d(b))[0]];
+  }));
+  const minGap = ids.length > 50 ? 24 : 32;
+  const gapTo = (id, i) => Math.min(...ids.filter((o) => o !== id).map((o) => Math.hypot(...xy(i).map((v, k) => v - xy(badge.get(o))[k]))));
+  for (let pass = 0; pass < 3; pass++)
+    for (const t of def.territories) {
+      if (t.anchor || gapTo(t.id, badge.get(t.id)) >= minGap) continue;
+      const best = cellsOf.get(t.id).slice().sort((a, b) => gapTo(t.id, b) - gapTo(t.id, a))[0];
+      if (gapTo(t.id, best) > gapTo(t.id, badge.get(t.id))) badge.set(t.id, best);
+    }
+  // Single-hex neighbours can still be too close: push their flat-view badges apart along the
+  // line between them, as far as each stays inside its own territory.
+  const at = new Map(ids.map((id) => [id, xy(badge.get(id))]));
+  for (let a = 0; a < ids.length; a++)
+    for (let b = a + 1; b < ids.length; b++) {
+      const [pa, pb] = [at.get(ids[a]), at.get(ids[b])];
+      const d = Math.hypot(pb[0] - pa[0], pb[1] - pa[1]);
+      if (d >= minGap) continue;
+      const [ux, uy] = [(pb[0] - pa[0]) / d, (pb[1] - pa[1]) / d];
+      const push = (id, p, s) => {
+        for (let k = (minGap - d) / 2 + 0.5; k > 0; k -= 0.5) {
+          const q = [p[0] + s * ux * k, p[1] + s * uy * k];
+          if (geoContains(geoms.get(id), projection.invert(q))) return at.set(id, q);
+        }
+      };
+      push(ids[a], pa, -1);
+      push(ids[b], pb, 1);
+    }
+  const territories = def.territories.map((t) => {
+    const g = geoms.get(t.id);
+    const [x, y] = at.get(t.id);
+    const [[bx0, by0], [bx1, by1]] = path.bounds(g);
+    return { id: t.id, name: t.name, continent: t.continent, x: r(x), y: r(y), path: path(g), bbox: [r(bx0), r(by0), r(bx1 - bx0), r(by1 - by0)] };
+  });
+  const continents = def.continents.map((c) => {
+    const members = def.territories.filter((t) => t.continent === c.id).map((t) => t.id);
+    if (!members.length) throw new Error(`${def.id}: continent ${c.id} has no territories`);
+    const union = rewind(pc.union(...members.map((id) => rewind(geoms.get(id).coordinates))));
+    const { label, ...rest } = c;
+    const [lx, ly] = label ? projection(label) : [NaN, NaN];
+    return { ...rest, territories: members, outline: path({ type: 'MultiPolygon', coordinates: union }), ...(label ? { labelX: r(lx), labelY: r(ly) } : {}) };
+  });
+
+  const out = finish({ ...def, edges }, { viewBox: [WIDTH, height], territories, continents, touches });
+  for (const w of warnings) console.log(`  WARNING ${w}`);
+  suggestBonuses(def, edges);
+
+  // Globe geometry for the client: shared corners as a flat [lon, lat, ...] list; per cell its
+  // corner indices and what it is (a territory index, -1 sea, -2 ice); per territory (in the
+  // engine map's order) its badge cell.
+  const cornerIndex = new Map();
+  const corners = [];
+  const ll = (v) => toLonLat(v).map((x) => Math.round(x * 100) / 100);
+  const cid = (v) => {
+    const k = v.map((x) => x.toFixed(6)).join(',');
+    if (!cornerIndex.has(k)) cornerIndex.set(k, corners.push(...ll(v)) / 2 - 1);
+    return cornerIndex.get(k);
+  };
+  const globe = {
+    id: def.id,
+    frequency: def.frequency,
+    spin: def.spin ?? 0,
+    territories: ids,
+    badges: ids.map((id) => badge.get(id)),
+    corners,
+    cells: cells.map((c) => ({ v: c.corners.map(cid), t: c.kind === 'land' ? tIndex.get(c.territory) : c.kind === 'ice' ? -2 : -1 })),
+  };
+  const gfile = join(root, 'packages/client/src/generated', `${def.id}.globe.json`);
+  mkdirSync(dirname(gfile), { recursive: true });
+  writeFileSync(gfile, JSON.stringify(globe));
+  const count = (k) => cells.filter((c) => c.kind === k).length;
+  const sizes = ids.map((id) => cells.filter((c) => c.territory === id).length);
+  console.log(`  globe: ${cells.length} cells (${count('land')} land, ${count('ice')} ice, ${count('sea')} sea), ${Math.min(...sizes)}-${Math.max(...sizes)} cells per territory, ${(JSON.stringify(globe).length / 1024).toFixed(0)} KB -> ${gfile}`);
+  return out;
+}
+
+/** Prints each region's size, entry points and the suggested bonus (classic logic: grows with size and entry points). */
+function suggestBonuses(def, edges) {
   const adj = new Map(def.territories.map((t) => [t.id, new Set()]));
   for (const [a, b] of edges) adj.get(a).add(b), adj.get(b).add(a);
   const cont = new Map(def.territories.map((t) => [t.id, t.continent]));
@@ -363,7 +512,6 @@ function buildAuthoredMap(def) {
     const note = Math.abs(suggested - c.bonus) > 1 ? '  <- check' : '';
     console.log(`  ${c.id}: ${members.length} territories, ${entries} entry points, bonus ${c.bonus} (suggested ${suggested})${note}`);
   }
-  return out;
 }
 
 /** Shared tail: validate edges, derive sea links, warn about suspicious borders and badges, write the JSON. */
@@ -432,11 +580,12 @@ function finish(def, { viewBox, territories, continents, touches, anchorWarnings
   return out;
 }
 
-const MAP_NAMES = ['classic', 'world', 'world_large', 'europe', 'europe_advanced', 'greater_europe', 'europe_classic', 'usa', 'asia', 'fantasy', 'skirmish', 'bohemia', 'nine_realms'];
+const MAP_NAMES = ['classic', 'world', 'world_large', 'europe', 'europe_advanced', 'greater_europe', 'europe_classic', 'usa', 'asia', 'fantasy', 'skirmish', 'bohemia', 'nine_realms', 'hexworld'];
 const wanted = process.argv.slice(2);
 for (const name of MAP_NAMES) {
   if (wanted.length && !wanted.includes(name)) continue;
   const def = (await import(`./maps/${name}.mjs`)).default;
   if (def.kind === 'authored') buildAuthoredMap(def);
+  else if (def.kind === 'hexglobe') buildHexGlobeMap(def);
   else build(def);
 }

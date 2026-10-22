@@ -1,0 +1,2 @@
+maps: - 2026-10-22 #PR Hex-globe maps (`kind: 'hexglobe'`, `scripts/hex-globe.mjs`): a Goldberg hex sphere over Natural Earth land, territories grown from sites over land, sea lanes, a flat-view JSON plus a client globe file; Hex Earth (`hexworld`, 80 territories, 14 regions) generated for the owner's review, not registered yet
+docs: - 2026-10-22 #PR map-making.md section 8 (hex-globe maps), conventions.md and maps.md on the new map kind; `npm run maps:test` in `npm test`

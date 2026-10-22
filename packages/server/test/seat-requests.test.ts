@@ -165,6 +165,31 @@ describe('Delove seats on request', () => {
     }
   });
 
+  it('nobody can register a pool name, and a seat a squatter tried to take is still the pool\'s (one fewer Zerg only for a bound join)', async () => {
+    const { risk, store, call, asPool } = await serve();
+    try {
+      for (const name of ['Delove', 'Delove 3', 'delove 12']) {
+        const r = await call('POST', '/players', { name });
+        expect(r.status, name).toBe(400);
+        expect(r.body.error).toMatch(/Delove seat pool/);
+      }
+      expect((await call('POST', '/players', { name: 'Delovely' })).status).toBe(201); // only the pool's names
+      const id = (await call('POST', '/tournaments', { format: 'nested', name: 'Squat', delove: 2, zergs: 4, code: ADMIN_CODE })).body.tournament.id;
+      expect((await call('POST', `/tournaments/${id}/join`, { playerName: 'Delove 1' })).status).toBe(400);
+      const req = (await call('GET', '/seat-requests', undefined, asPool)).body.requests[0];
+      await call('POST', `/seat-requests/${req.id}/claim`, { n: 1 }, asPool);
+      // The pool's own "Delove 1" still joins, bound; the second seat stays empty and becomes a Zerg.
+      expect((await call('POST', `/tournaments/${id}/join`, { playerName: 'Delove 1', seatRequestId: req.id }, asPool)).status).toBe(201);
+      store.tournaments.start(id);
+      const t = store.tournaments.get(id)!;
+      expect(t.entrants.filter((e) => e.kind === 'zerg')).toHaveLength(5); // 4 + the unfilled Delove seat (6 seats: no planner Zergs)
+      store.stopTimers();
+      for (const room of store.rooms.values()) room.stopBot();
+    } finally {
+      await risk.shutdown('test');
+    }
+  });
+
   it('an MCP create with Delove seats opens a request too', async () => {
     const { risk, call, asPool, base } = await serve();
     const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');

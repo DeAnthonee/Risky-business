@@ -3,3 +3,4 @@ mcp: - 2026-10-22 #271 create_tournament / preview_tournament: the Delove note s
 client: - 2026-10-22 #271 create form: the Delove seats hint says the seat pool fills them
 docs: - 2026-10-22 #271 tournaments.md "Delove seats on request", http-api.md (seat-request routes, preview delovePool), hosting.md (RISK_SEAT_POOL_KEY, RISK_TOURNEY_DELOVE_SEARCH_AT_ONCE), mcp.md, playing.md
 docs: - 2026-10-22 #271 hardening.md item 14: anyone can lock the Delove seat pool out for an hour with wrong keys (as item 10 for the hosting codes)
+server: - 2026-10-22 #271 player keys: "Delove" and "Delove <n>" are reserved names (the seat pool's seats)

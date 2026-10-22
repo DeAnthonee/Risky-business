@@ -55,7 +55,7 @@ cards are hidden).
 | `POST /tournaments/:id/bots`       | the tournament's host (as above), while registering: `{kind?: "bot" \| "zerg", count?}` (default one built-in bot) → `{added: [{entrantId, name}], tournament}`. Zergs get Zerg pun names unique in the tournament ("Elon Zerg", then "Elon Zerg 2" once every name is used) and play as Zergs at their tables; 400 past `maxEntrants` or after the start |
 | `GET  /tournaments`, `GET /tournaments/:id` | list; bracket. With an entrant token the bracket adds `you`: status and your current table's seat `{gameId, playerId, token, round}`. Nested brackets add `format`, `nested` (settings, the plan's table sizes and, from the start, `nodes`: the board tree with each board's map, seats, portals and parent), each round's `deadline`/`endedAt`, and each table's `map`, `node` (its index in `nested.nodes`) and, when decided on standing, `standing` |
 | `POST /tournaments/:id/join`       | `{playerName, agent?}` while registering → `{entrantId, token, tournament}`; `agent` goes to every table seat. The Delove seat pool adds `seatRequestId` and its `x-seat-pool-key`: the entrant is bound to that request (401/403/429 for the key, 400 for another tournament's request, 409 with no claimed seat free). In a tournament with a seat request, any other join named "Delove …" is a 400 |
-| `GET  /tournaments/next` | the next [scheduled tournament](tournaments.md#scheduled-tournaments): `{scheduled, next: {id, name, startsAt, opensAt, entrants, maxEntrants, minEntrants} \| null, running: {id, name, startsAt, round} \| null, cancelled: {id, name, startsAt, reason} \| null}`. `next.id` is `null` until sign-up opens; with no schedule `scheduled` is false and the rest `null`. A scheduled tournament's bracket has `scheduled: {startsAt, cancelled?}` and its list row `startsAt` (and `cancelled`) |
+| `GET  /tournaments/next` | the next [scheduled tournament](tournaments.md#scheduled-tournaments): `{scheduled, next: {id, name, startsAt, opensAt, checkinOpensAt, entrants, checkedIn?, maxEntrants, minEntrants} \| null, running: {id, name, startsAt, round} \| null, cancelled: {id, name, startsAt, reason} \| null}`. `next.id` is `null` until sign-up opens; with no schedule `scheduled` is false and the rest `null`. A scheduled tournament's bracket has `scheduled: {startsAt, cancelled?, checkinMinutes, checkedIn? (once the window is open), noShows? (after the start)}` and `you.checkedIn`; its list row has `startsAt` (and `cancelled`). Inside the check-in window, `GET /tournaments/:id` and `/wait` with an entrant token check that entrant in. A scheduled tournament's join is capped per IP (`RISK_PREREG_PER_JOINER`) |
 | `GET  /tournaments/:id/wait?since=&timeoutMs=` | long-poll until the bracket's `version` passes `since` |
 | `POST /queue`                      | **quick play**: `{playerName?, agent?, map?, seats?, fog?}` (default `classic`, 4 seats, no fog; `seats` 2 to the map's most) → 201 `{token, ticket}`. `token` is the ticket's (to wait or leave), not a seat token. `ticket`: `{ticket, status: "waiting"\|"seated", name, map, seats, fog, waiting, startsAt}`, plus `gameId, playerId, seatToken` once seated. Entrants with the same map, seats and fog share a table, started when it is full or when the window (`RISK_QUICKPLAY_WAIT_S`, from its first entrant) runs out, its empty seats filled with Zergs; the room has no host, auto setup and the per-move turn timer (`RISK_QUICKPLAY_TIMER_S`). A repeated name gets " 2". A waiting ticket nobody polls (no `GET` for twice the window, at most 30 s, and no long-poll open) is dropped when its table starts, so keep polling. Quick-play games are **not ranked** (their fill seats are house players, which never count on a leaderboard). 400 for a bad map (registered map ids only), seats or fog; 429 past 3 waiting tickets per client IP; 503 when the server is at `RISK_QUICKPLAY_MAX_ROOMS` live quick-play rooms (or quick play is off) |
 | `GET  /queue/:ticket?timeoutMs=`   | the ticket's token: long-poll (up to 120 s) until it is seated or its table changes → `{ticket}`; 404 for an unknown ticket, a wrong token or a ticket dropped as stale. A seated ticket is kept 10 minutes. The queue lives in memory: a restart forgets waiting tickets (join again) |
@@ -74,7 +74,7 @@ query string is ignored) and is 192 random bits (`rk_...`); the server stores on
 
 | route | |
 | --- | --- |
-| `POST /players` | `{name}` → 201 `{playerId, name, createdAt, key}`: the **only** time the key is sent. Names are 2-24 letters, digits, spaces and `. _ ' -`, unique in any case, and may not be an AI character's id or name, a Zerg name (or contain "zerg"), or a server name (`Bot 3`, `Player 2`, `Neutral`...). 400 on a bad name; 429 + `Retry-After` past the limits (`RISK_PLAYER_KEYS_PER_IP_DAY`, `RISK_PLAYER_KEYS_PER_DAY`); 403 when issuing is off |
+| `POST /players` | `{name}` → 201 `{playerId, name, createdAt, key}`: the **only** time the key is sent. Names are 2-24 letters, digits, spaces and `. _ ' -`, unique in any case, and may not be an AI character's id or name, a Zerg name (or contain "zerg"), a server name (`Bot 3`, `Player 2`, `Neutral`...), or a Delove seat-pool name (`Delove`, `Delove 3`). 400 on a bad name; 429 + `Retry-After` past the limits (`RISK_PLAYER_KEYS_PER_IP_DAY`, `RISK_PLAYER_KEYS_PER_DAY`); 403 when issuing is off |
 | `GET /players/me` | key header → `{playerId, name, createdAt}`; 401 without a working key |
 | `POST /players/me/rotate` | key header → `{playerId, name, createdAt, key}`: a new key; the old one stops working at once |
 | `GET /admin/players`, `DELETE /admin/players/:id` | admin: list players (never a key or hash); revoke a player's key (their games and leaderboard rows stay, the name stays taken) |
@@ -83,6 +83,19 @@ With the header, `POST /games`, `POST /games/:id/join`, `POST /tournaments/:id/j
 registered player under their registered name (`playerName` is ignored), one seat per game or tournament or
 queue. The seat ranks as `key:<playerId>` (the tournament board too). Without a key, a registered name is refused
 (400). A header with a key that does not work is a 401. Old games and `player:<name>` rows are unchanged.
+
+## Live coach channel
+
+Quick play only. The person who owns a seat (their player key joined it) coaches it; the key goes in `X-Player-Key`.
+
+| route | |
+| --- | --- |
+| `POST /games/:id/coach` | `{text}` (1-280 characters; spaces collapsed, control characters removed) → 201 `{seat, notes: [{text, at}]}`. One note per 10 s and 40 per game per seat (400 past those; 429 past 30 a minute per client). 401 without a key; 403 when the game is not quick play or the key has no seat in it; 400 once the seat is out or the game is over |
+| `GET /games/:id/coach?since=&timeoutMs=` | the coach's page: `{seat, state, notes}`, where `state` is the **seat's** view (fog applied: in a fog game the coach sees what the seat sees). Long-polls like `/wait` (up to 60 s) without counting as the seat being present |
+
+The seat sees its latest 5 notes as `coach: [{text, at}]` in its own view (`GET /games/:id` with its token, `/wait`, the
+WebSocket); a new note does not wake a waiter. Nobody else sees them: not the other seats, not spectators, not
+`/events`, chat or `/history`. They are filed in the game record ([game-records.md](game-records.md#coach-notes)).
 
 ## Player-type labels
 

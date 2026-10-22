@@ -45,6 +45,8 @@ export interface ArchivedRoom {
   scenarioOf?: ScenarioRef;
   /** "training": a yardstick game, kept apart from public games (and from Delove's training pool). */
   board?: 'training';
+  /** Live coach notes (quick play): filed with the record as private notes. */
+  coach?: { notes: import('@risk/engine').RecordCoachNote[] };
 }
 
 /** One line of index.jsonl: a game at a glance, without opening its record. */
@@ -178,6 +180,7 @@ export class GameArchive {
       if (Object.keys(room.agents).length) header.room = { ...header.room, agents: { ...room.agents } };
       const entries = lines.slice(1).map((l) => JSON.parse(l) as RecordEntry);
       const record = assembleRecord(header, entries, room.state, Date.now(), endedBecause, decided);
+      if (room.coach?.notes.length) record.coach = room.coach.notes.map((n) => ({ ...n }));
       const month = new Date(record.startedAt).toISOString().slice(0, 7);
       const rel = `games/${month}/${id}.json`;
       mkdirSync(join(this.dir, 'games', month), { recursive: true });

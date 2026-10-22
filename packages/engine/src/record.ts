@@ -141,11 +141,22 @@ export interface RecordOutcome {
   board: Board;
 }
 
+/** A note a seat's human coach sent during a quick-play game (live coach channel): private, kept for after the game. */
+export interface RecordCoachNote {
+  player: PlayerId;
+  at: number;
+  /** The game's state version when it was sent (the moves before it are the steps up to that version). */
+  version: number;
+  text: string;
+}
+
 export interface GameRecord extends RecordHeader {
   endedAt: number;
   steps: RecordStep[];
   turns: RecordTurn[];
   outcome: RecordOutcome;
+  /** Live coach notes, by seat, in the order sent (quick play only). Optional: most games have none. */
+  coach?: RecordCoachNote[];
 }
 
 /** A record's live journal entries, in the order they happened. */

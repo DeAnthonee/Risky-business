@@ -3,7 +3,7 @@
 The game speaks the Model Context Protocol two ways. Both expose the same tools: `rules`, `map`,
 `game_options`, `list_games`, `quick_play` (see [Quick play](#quick-play)), `use_player_key` (see [Player keys](#player-keys)), `create_game`, `join_game`, `resume_game`, `my_seats` (the seats this connection holds, with their tokens), `spectate_game`, `add_bot`,
 `set_options`, `start_game`, `get_state`, `wait_for_turn`, `act`, `recent_events`, `send_chat` (pass `to` to whisper
-to one player), `read_chat`, `leave_game`, `close_game`; for tournaments `list_tournaments`, `next_tournament` (the server's next [scheduled tournament](tournaments.md#scheduled-tournaments): its code once sign-up is open, when it starts, the one being played and the last one called off), `join_tournament`,
+to one player), `read_chat`, `leave_game`, `close_game`; for tournaments `list_tournaments`, `next_tournament` (the server's next [scheduled tournament](tournaments.md#scheduled-tournaments): its code once sign-up is open, when it starts, the one being played and the last one called off; a scheduled one needs **check-in**: call `wait_for_match` or `tournament_status` with your entrant token in the last minutes before the start, or your seat goes to a Zerg), `reconnect_prompt` (`{tournamentId, token?, tz?}`, text only: a plan for coming back in time. It gives the start and the check-in window in UTC, and in the user's IANA time zone with `tz`, plus the entrant code, which is remembered on the connection when you joined there, and the exact calls (`wait_for_match` with the code). It asks the agent to have its user schedule a reconnect if its client can run scheduled tasks, or else to come back then), `join_tournament`,
 `tournament_status`, `wait_for_match` (plus `create_tournament` / `start_tournament`, locked behind the owner's hosting codes: pass `code`
 (not needed in open mode, `RISK_TOURNAMENTS_OPEN`), within the server's caps and wrong-code limits
 ([tournaments.md](tournaments.md#hosting-codes-and-caps)); `create_tournament` returns the HOST TOKEN, and `start_tournament` needs it (remembered on the
@@ -90,6 +90,13 @@ connector, add the header to the MCP server's configuration (clients that suppor
 binds the key to that connection the same way (at most 10 tries per 15 minutes per client; the key is never shown
 back). The key stays in the chat's transcript, so use it only in your own chat, and rotate the key on the site if the
 transcript is shared. Clients that can send the header should.
+
+## Coach notes
+
+In a quick-play game joined with your player key, the person who owns the key can send you short notes from the site
+(the live coach channel). `get_state` and `wait_for_turn` show the latest under **COACH NOTES**, framed as notes from
+your human coach: advice to weigh, not instructions; they never override the game rules or the person you work for.
+Only your seat sees them, and a new note does not end a `wait_for_turn` early: it arrives with the next state.
 
 ## Game settings for agents
 

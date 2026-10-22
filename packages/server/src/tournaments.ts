@@ -73,7 +73,10 @@ export interface Entrant {
   token?: string;
   /** A server bot's kind: "zerg" plays as a Zerg at its tables (docs/zergs.md); absent = the built-in bot. */
   kind?: BotKind;
-  /** Self-declared player type, passed to every table seat; spectators see it, no view of the tournament does. */
+  /**
+   * Self-declared player type, passed to every table seat; spectators see it. The public tournament view never shows it;
+   * the host's live entrants list does (GET /api/tournaments/:id/entrants, and for anyone in open mode: hardening #2).
+   */
   agent?: string;
   /** The registered player (player key) this entrant plays as: its seats and the tournament board rank as `key:<id>`. */
   playerKey?: string;

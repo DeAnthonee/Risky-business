@@ -108,6 +108,58 @@ describe('player-type labels', () => {
     noLabels((await api('/games')).raw);
   });
 
+  // The guard for the neutral yardstick protocol: a model at the table must not learn who the others are.
+  it('a seated player never gets an agent field anywhere: HTTP GET/wait/events/chat, its WebSocket stream (state and chat), MCP get_state/wait_for_turn', async () => {
+    // Every chat message, from a seat and from a watcher, goes through the seat's channels too.
+    expect((await api(`/games/${gameId}/chat`, { method: 'POST', body: JSON.stringify({ message: 'gl hf' }) }, hostToken)).status).toBe(201);
+    expect((await api(`/games/${gameId}/chat`, { method: 'POST', body: JSON.stringify({ message: 'go Sonnet', name: 'Watcher' }) })).status).toBe(201);
+
+    const seen: string[] = [];
+    seen.push((await api(`/games/${gameId}`, {}, sonnetToken)).raw);
+    seen.push((await api(`/games/${gameId}/wait?timeoutMs=0&since=0`, {}, sonnetToken)).raw);
+    seen.push((await api(`/games/${gameId}/events?since=0`, {}, sonnetToken)).raw);
+    seen.push((await api(`/games/${gameId}/chat?since=0`, {}, sonnetToken)).raw);
+
+    // The seat's WebSocket: everything it receives after subscribing, including chat history and a live chat line.
+    const frames: string[] = await new Promise((resolve, reject) => {
+      const got: string[] = [];
+      const ws = new WebSocket(`${base.replace('http', 'ws')}/ws`);
+      ws.on('message', (data) => got.push(String(data)));
+      ws.on('error', reject);
+      ws.on('open', () => {
+        ws.send(JSON.stringify({ type: 'subscribe', gameId, token: sonnetToken, reqId: 's' }));
+        setTimeout(() => ws.send(JSON.stringify({ type: 'chat', message: 'my move soon' })), 150);
+        setTimeout(() => {
+          ws.close();
+          resolve(got);
+        }, 400);
+      });
+    });
+    expect(frames.some((f) => f.includes('"type":"state"'))).toBe(true);
+    expect(frames.some((f) => f.includes('"type":"chat_history"'))).toBe(true);
+    expect(frames.some((f) => f.includes('my move soon'))).toBe(true);
+    seen.push(...frames);
+
+    const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+    const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
+    const mcp = new Client({ name: 'seat', version: '0' });
+    await mcp.connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`)));
+    const call = async (name: string, args: Record<string, unknown>) => {
+      const r = (await mcp.callTool({ name, arguments: args })) as { content: { text: string }[] };
+      return r.content.map((x) => x.text).join('\n');
+    };
+    try {
+      seen.push(await call('get_state', { gameId, token: sonnetToken, format: 'json' }));
+      seen.push(await call('get_state', { gameId, token: sonnetToken }));
+      seen.push(await call('wait_for_turn', { gameId, token: sonnetToken, timeoutSeconds: 1 }));
+      seen.push(await call('read_chat', { gameId, token: sonnetToken }));
+    } finally {
+      await mcp.close();
+    }
+    expect(seen.join('\n')).toContain('gl hf');
+    for (const out of seen) noLabels(out);
+  });
+
   it('the MCP never shows a label, not even to a spectator', async () => {
     const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
     const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');

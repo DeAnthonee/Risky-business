@@ -1,4 +1,4 @@
-import { chooseBotAction, getMap, type Action, type GameState, type LegalMoves, type PlayerId, type RandomSource } from '@risk/engine';
+import { chooseBotAction, chooseZergAction, getMap, type Action, type GameState, type LegalMoves, type PlayerId, type RandomSource } from '@risk/engine';
 import { candidates, candidateToAction, type Candidate } from './actions.js';
 import type { Traits } from './traits.js';
 
@@ -35,6 +35,21 @@ export const riskyBot: Agent = {
   choose: (ctx) => chooseBotAction(ctx.state, ctx.me, ctx.random),
 };
 
+/**
+ * A Zerg (docs/zergs.md): the engine's hand-coded horde bot. Its horde is every seat this harness sat a Zerg agent in:
+ * self-play names each player after its agent id (game.ts), which no seat can change, so `zerg@...` names are the
+ * horde. The live server will use a seat's faction instead.
+ */
+export const ZERG_PREFIX = 'zerg@';
+export const zergBot: Agent = {
+  id: 'zerg@1',
+  choose: (ctx) => {
+    const horde = new Set(ctx.state.players.filter((p) => p.name.startsWith(ZERG_PREFIX)).map((p) => p.id));
+    horde.add(ctx.me);
+    return chooseZergAction(ctx.state, ctx.me, horde, ctx.random);
+  },
+};
+
 /** One step of a decision: `candidates` are this step's choices; a fortify_to step carries its source. */
 export interface StepContext extends DecisionContext {
   fortifyFrom: number | null;
@@ -67,7 +82,7 @@ export function stepAgent(id: string, pick: (ctx: StepContext) => number): Agent
 /** Uniformly random legal candidate at every step. A floor for the ladder, not a real opponent. */
 export const randomAgent: Agent = stepAgent('random@1', (ctx) => Math.floor(ctx.random() * ctx.candidates.length));
 
-const REGISTRY = new Map<string, Agent>([riskyBot, randomAgent].map((a) => [a.id, a]));
+const REGISTRY = new Map<string, Agent>([riskyBot, randomAgent, zergBot].map((a) => [a.id, a]));
 
 /** Make an agent available by id (e.g. a trained network loaded from disk). */
 export function registerAgent(agent: Agent): void {

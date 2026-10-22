@@ -25,6 +25,7 @@ import {
   type ScenarioSeat,
 } from '@risk/engine';
 import { chooseSeatAction, seatIdPrefix, zergName, type BotKind } from './bot.js';
+import { timeoutSteps, timerOf } from '@risk/engine';
 import { DEFAULT_TOURNAMENT_LIMITS, TournamentManager } from './tournaments.js';
 import { Rankings } from './rankings.js';
 import { DEFAULT_KEEP, GameArchive, type CommitInfo } from './archive.js';
@@ -53,6 +54,20 @@ export interface HistoryEntry {
   playerId: PlayerId | null;
   action: Action | { type: 'start' } | { type: 'system'; note: string };
   events: GameEvent[];
+  /** The turn timer ran out and the server made this move for the player. */
+  timeout?: true;
+}
+
+/** The turn timer as a game's state shows it (null when the game has none). */
+export interface TurnTimerInfo {
+  mode: 'move' | 'turn';
+  seconds: number;
+  /** Whose clock is running, or null between turns, in the lobby, for bots and once the game is over. */
+  player: PlayerId | null;
+  /** When the running clock runs out (epoch ms), or null. */
+  deadline: number | null;
+  /** Whole seconds left on the running clock, or null. */
+  secondsLeft: number | null;
 }
 
 export interface RoomSnapshot {
@@ -190,6 +205,11 @@ export class GameRoom extends EventEmitter {
   /** "training": ranked on the training leaderboard. Absent = public. */
   board?: RankingBoard;
   private botTimer: NodeJS.Timeout | null = null;
+  /** The turn timer (turnTimer option): when the current human or agent decision runs out. In memory only. */
+  private turnTimer: NodeJS.Timeout | null = null;
+  turnDeadline: number | null = null;
+  /** What the running clock is for: per move the state version, per turn the player and turn. */
+  private turnTimerKey: string | null = null;
   private waiters = new Set<() => void>();
 
   constructor(snapshot: RoomSnapshot) {
@@ -318,11 +338,24 @@ export class GameRoom extends EventEmitter {
     return id;
   }
 
-  view(playerId: PlayerId | null): GameView {
-    return viewFor(this.state, playerId);
+  view(playerId: PlayerId | null): GameView & { timer: TurnTimerInfo | null } {
+    return { ...viewFor(this.state, playerId), timer: this.timerInfo() };
   }
 
-  private commit(next: GameState, events: GameEvent[], playerId: PlayerId | null, action: HistoryEntry['action']) {
+  timerInfo(now = Date.now()): TurnTimerInfo | null {
+    const t = timerOf(this.state.options);
+    if (!t) return null;
+    const running = this.turnDeadline !== null;
+    return {
+      mode: t.mode,
+      seconds: t.seconds,
+      player: running ? this.state.currentPlayer : null,
+      deadline: this.turnDeadline,
+      secondsLeft: running ? Math.max(0, Math.ceil((this.turnDeadline! - now) / 1000)) : null,
+    };
+  }
+
+  private commit(next: GameState, events: GameEvent[], playerId: PlayerId | null, action: HistoryEntry['action'], timeout = false) {
     for (const player of this.state.players) {
       if (!player.isNeutral && player.alive && next.players.some(p => p.id === player.id && !p.alive) && !this.eliminationOrder.includes(player.id)) this.eliminationOrder.push(player.id);
     }
@@ -330,11 +363,13 @@ export class GameRoom extends EventEmitter {
     this.state = next;
     this.updatedAt = Date.now();
     if (next.phase === 'finished' && this.finishedAt === null) this.finishedAt = this.updatedAt;
-    this.history.push({ version: next.version, at: this.updatedAt, playerId, action, events });
+    this.history.push({ version: next.version, at: this.updatedAt, playerId, action, events, ...(timeout ? { timeout: true as const } : {}) });
     if (this.history.length > MAX_HISTORY) this.history.splice(0, this.history.length - MAX_HISTORY);
     // The game archive listens here: every move, in full, before anything else reacts to it.
-    const info: CommitInfo = { before, next, events, playerId, action, at: this.updatedAt };
+    const info: CommitInfo = { before, next, events, playerId, action, at: this.updatedAt, ...(timeout ? { timeout: true as const } : {}) };
     this.emit('commit', info);
+    // The clock is set before anyone hears of the change, so the state they read carries the new deadline.
+    this.armTurnTimer();
     const msg: ChangeMessage = { state: next, events, version: next.version, playerId };
     this.emit('change', msg);
     this.scheduleBot();
@@ -573,10 +608,60 @@ export class GameRoom extends EventEmitter {
     for (const w of [...this.waiters]) w();
   }
 
+  /** Stop the bot and the turn timer (close, shutdown). */
   stopBot() {
     if (this.botTimer) {
       clearTimeout(this.botTimer);
       this.botTimer = null;
+    }
+    this.clearTurnTimer();
+  }
+
+  // ---- turn timer ----
+
+  private clearTurnTimer() {
+    if (this.turnTimer) clearTimeout(this.turnTimer);
+    this.turnTimer = null;
+    this.turnDeadline = null;
+    this.turnTimerKey = null;
+  }
+
+  /**
+   * Start, keep or stop the turn timer after a change. It runs only for a living human or agent seat whose decision
+   * it is. Per move every change restarts it; per turn it restarts when the player or the turn changes (each setup
+   * placement and capital pick counts as a turn). The clock lives here, never in the engine.
+   */
+  armTurnTimer() {
+    const t = timerOf(this.state.options);
+    const s = this.state;
+    const cur = s.currentPlayer;
+    const p = cur ? s.players.find((x) => x.id === cur) : undefined;
+    if (!t || this.closed || !p || p.isBot || !p.alive || s.phase === 'lobby' || s.phase === 'finished') return this.clearTurnTimer();
+    const key = t.mode === 'move' || s.phase === 'setup' || s.phase === 'capitals' ? `v${s.version}` : `${cur}:${s.turnNumber}`;
+    if (key === this.turnTimerKey && this.turnTimer) return;
+    this.clearTurnTimer();
+    this.turnTimerKey = key;
+    this.turnDeadline = Date.now() + t.seconds * 1000;
+    this.turnTimer = setTimeout(() => {
+      this.turnTimer = null;
+      this.expireTurn();
+    }, t.seconds * 1000);
+    this.turnTimer.unref?.();
+  }
+
+  /**
+   * The current player ran out of time: make the moves timeoutSteps picks for them (engine rules), each one
+   * committed like any other move and flagged `timeout` in the history and the game record.
+   */
+  expireTurn() {
+    const t = timerOf(this.state.options);
+    const cur = this.state.currentPlayer;
+    this.clearTurnTimer();
+    if (!t || !cur || this.closed) return;
+    try {
+      for (const step of timeoutSteps(this.state, cur, t.mode)) this.commit(step.state, step.events, cur, step.action, true);
+    } catch (err) {
+      console.error(`[timer ${this.id}] skipping ${cur} failed:`, err);
     }
   }
 
@@ -668,6 +753,9 @@ export class Store {
           if (snap.state.options.firstRoundBonus === undefined) snap.state.options.firstRoundBonus = false;
           // Balanced blitz arrived later; off by default.
           if (snap.state.options.balancedBlitz === undefined) snap.state.options.balancedBlitz = false;
+          // The turn timer arrived later: off for games already saved.
+          if (snap.state.options.turnTimer === undefined) snap.state.options.turnTimer = 'off';
+          if (snap.state.options.turnTimerSeconds === undefined) snap.state.options.turnTimerSeconds = 15;
           const room = new GameRoom(snap);
           this.attach(room);
         }
@@ -685,7 +773,11 @@ export class Store {
       maxActive: envInt('RISK_MAX_ACTIVE_TOURNAMENTS', DEFAULT_TOURNAMENT_LIMITS.maxActive, 0),
       keepFinished: envInt('RISK_TOURNAMENTS_KEEP', DEFAULT_TOURNAMENT_LIMITS.keepFinished, 1),
     });
-    for (const room of this.rooms.values()) room.scheduleBot();
+    // A restored game's clock starts again in full (deadlines are not saved).
+    for (const room of this.rooms.values()) {
+      room.scheduleBot();
+      room.armTurnTimer();
+    }
   }
 
   private attach(room: GameRoom) {
@@ -809,6 +901,7 @@ export class Store {
     this.attach(room);
     this.archive.begin(room, state, [], at);
     room.scheduleBot();
+    room.armTurnTimer();
     this.scheduleSave();
     return { room, seats };
   }

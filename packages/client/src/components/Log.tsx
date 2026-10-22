@@ -50,6 +50,8 @@ export function describe(e: GameEvent, view: GameView): string | null {
       return e.by ? `☠ ${name(e.player)} was eliminated by ${name(e.by)}` : `☠ ${name(e.player)} surrendered`;
     case 'turn_ended':
       return null;
+    case 'timeout':
+      return `⏱ ${name(e.player)} skipped (timeout)`;
     case 'phase':
       return null;
     case 'game_over':

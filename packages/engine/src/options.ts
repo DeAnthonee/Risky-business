@@ -10,6 +10,7 @@
 import { getMap, MAP_IDS, type MapDef } from './maps.js';
 import { maxBlizzards } from './engine.js';
 import { tradeBonus } from './cards.js';
+import { timerOf } from './timeout.js';
 import { DEFAULT_OPTIONS, RuleError, type GameOptions } from './types.js';
 
 interface BaseSpec {
@@ -145,6 +146,25 @@ export const OPTION_SPECS: { [K in OptionKey]: OptionSpec } = {
     max: (m) => maxBlizzards(m),
     description: 'This many random territories are frozen for the whole game (0 = off; up to 8, or a sixth of the map on bigger boards): nobody owns, attacks, enters or crosses them, and continents count only their open territories. Visible to everyone, even under fog.',
   },
+  turnTimer: {
+    kind: 'enum',
+    label: 'Turn timer',
+    values: ['off', 'move', 'turn'],
+    valueLabels: {
+      off: 'no timer',
+      move: 'per move: turnTimerSeconds for each decision (placing, each attack, occupying, fortifying)',
+      turn: 'per turn: turnTimerSeconds for the whole turn',
+    },
+    description:
+      'A clock for human and agent seats (bots are never timed). When it runs out the player is skipped: pending armies are placed for them over their border territories (weakest first), a pending conquest is occupied with the minimum, and the turn ends with no more attacks and no fortify. Per move, running out while placing only places the armies and the turn goes on with a fresh clock. Setup and capital picks are made for you too. Agents: act fast; get_state and wait_for_turn show the seconds left.',
+  },
+  turnTimerSeconds: {
+    kind: 'int',
+    label: 'Seconds on the timer',
+    min: 5,
+    max: () => 600,
+    description: 'Seconds per move or per turn when turnTimer is on (5-600, default 15). Ignored when turnTimer is off.',
+  },
 };
 
 export const OPTION_KEYS = Object.keys(OPTION_SPECS) as OptionKey[];
@@ -154,6 +174,14 @@ export function globalMax(key: OptionKey): number {
   const spec = OPTION_SPECS[key];
   if (spec.kind !== 'int') throw new Error(`${key} is not an int option`);
   return Math.max(...MAP_IDS.map((id) => spec.max(getMap(id))));
+}
+
+/** An int option's upper bound when it is the same on every map, else null. */
+function fixedMax(key: OptionKey): number | null {
+  const spec = OPTION_SPECS[key];
+  if (spec.kind !== 'int') return null;
+  const maxes = new Set(MAP_IDS.map((id) => spec.max(getMap(id))));
+  return maxes.size === 1 ? [...maxes][0] : null;
 }
 
 /** Bounds of every int option on a given map. */
@@ -213,6 +241,8 @@ export function parseOptions(raw: unknown): Partial<GameOptions> {
       const n = typeof value === 'string' && value.trim() !== '' ? Number(value) : value;
       if (typeof n !== 'number' || !Number.isInteger(n)) problems.push(`${key} must be a whole number`);
       else if (n < spec.min) problems.push(`${key} must be at least ${spec.min}`);
+      // A bound that is the same on every map is checked here; map-dependent ones in validateOptions.
+      else if (fixedMax(key as OptionKey) !== null && n > fixedMax(key as OptionKey)!) problems.push(`${key} must be at most ${fixedMax(key as OptionKey)}`);
       else out[key] = n;
     } else {
       if (typeof value !== 'string' || !spec.values.includes(value)) problems.push(`${key} must be one of ${spec.values.map((v) => `"${v}"`).join(', ')}`);
@@ -242,6 +272,7 @@ export function describeOptions(o: GameOptions, tradeCount = 0): string[] {
     `Capital Conquest: ${o.capitals ? `on (+2 per capital held, capitals defend with 3 dice, hold every capital to win; ${o.chooseCapitals ? 'players choose their capitals before turn 1' : 'capital = most garrisoned territory after setup'})` : 'off'}`,
     `Neutral territories: ${o.neutrals > 0 ? `${o.neutrals} with ${o.neutralArmies} arm${o.neutralArmies === 1 ? 'y' : 'ies'} each (games of 3+ players)` : 'off'}`,
     `Blizzards: ${o.blizzards > 0 ? `${o.blizzards} frozen territories (max ${maxBlizzards(map)} on this map)` : 'off'}`,
+    `Turn timer: ${timerOf(o) ? `${timerOf(o)!.seconds}s per ${timerOf(o)!.mode} for human and agent seats; on a timeout the player is skipped (armies placed for them, no attacks, no fortify)` : 'off'}`,
   ];
   return lines;
 }

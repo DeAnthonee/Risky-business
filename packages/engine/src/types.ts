@@ -73,6 +73,13 @@ export interface GameOptions {
   neutralArmies: number;
   /** Blizzards: this many random territories are impassable for the whole game (0 = off). Nobody owns, attacks or crosses them. */
   blizzards: number;
+  /**
+   * Turn timer for human and agent seats (never bots), kept by the server: 'move' = each decision, 'turn' = the whole
+   * turn, 'off' = none. On a timeout the player is skipped (timeoutSteps in timeout.ts). The engine never reads a clock.
+   */
+  turnTimer: 'off' | 'move' | 'turn';
+  /** Seconds on the turn timer (ignored when turnTimer is 'off'). */
+  turnTimerSeconds: number;
 }
 
 /** Reinforcements per capital held when the capitals option is on. */
@@ -106,6 +113,8 @@ export const DEFAULT_OPTIONS: GameOptions = {
   neutrals: 0,
   neutralArmies: 2,
   blizzards: 0,
+  turnTimer: 'off',
+  turnTimerSeconds: 15,
 };
 
 export interface PendingConquest {
@@ -277,6 +286,8 @@ export type GameEvent =
   /** A fogged-out event the viewer is not allowed to see in detail. */
   | { type: 'fogged'; kind: GameEvent['type'] }
   | { type: 'turn_ended'; player: PlayerId }
+  /** The turn timer ran out: the moves in this step and the ones after it were made for the player (see timeout.ts). */
+  | { type: 'timeout'; player: PlayerId; scope: 'move' | 'turn' }
   /** reason: 'domination' = last player standing; 'capitals' = held every capital (Capital Conquest). Older logs omit it. */
   | { type: 'game_over'; winner: PlayerId; reason?: 'domination' | 'capitals' };
 

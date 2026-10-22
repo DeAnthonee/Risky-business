@@ -82,6 +82,8 @@ export interface RecordStep {
   hand: Card[];
   /** What the action caused, unredacted (dice, losses, conquests, eliminations...). */
   events: GameEvent[];
+  /** The turn timer ran out: the server made this move for the player (see timeout.ts). Absent otherwise. */
+  timeout?: true;
 }
 
 /** The start of one player's turn. */
@@ -186,7 +188,7 @@ export function recordHeader(
 }
 
 /** The journal entry for one action: `before` is the state it was taken in. */
-export function recordStep(header: RecordHeader, before: GameState, player: PlayerId, action: Action, events: GameEvent[], at: number): RecordEntry {
+export function recordStep(header: RecordHeader, before: GameState, player: PlayerId, action: Action, events: GameEvent[], at: number, timeout = false): RecordEntry {
   return {
     kind: 'step',
     step: {
@@ -200,6 +202,7 @@ export function recordStep(header: RecordHeader, before: GameState, player: Play
       ...(header.fog ? { seen: seenBoardOf(before, player, header) } : {}),
       hand: before.players.find((p) => p.id === player)?.cards ?? [],
       events,
+      ...(timeout ? { timeout: true as const } : {}),
     },
   };
 }

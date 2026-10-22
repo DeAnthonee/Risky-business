@@ -14,10 +14,12 @@ export function mapInfo(m: MapDef) {
   };
 }
 import { CHARACTER_DATA_NOTICE, RiskHttpError } from '@risk/mcp';
-import type { GameRoom, RankingBoard, Store } from './store.js';
+import { parseDecisionNote, type GameRoom, type RankingBoard, type Store } from './store.js';
 import { BOT_KINDS, type BotKind } from './bot.js';
+import { narrate, playByPlayText } from './playbyplay.js';
 import type { CharacterStore } from './characters.js';
 import type { CreateTournamentSpec } from './tournaments.js';
+import { SeasonKeyGuard } from './season-key.js';
 
 /** Constant-time check of an admin token. 'disabled' when the server has none configured. */
 export function checkAdmin(adminToken: string | null | undefined, given: string | undefined): 'ok' | 'bad' | 'disabled' {
@@ -58,14 +60,23 @@ type Req = Request & { room?: GameRoom; playerId?: string | null };
 export interface ApiOptions {
   /** Enables /api/admin/* when set (Authorization: Bearer <token>). */
   adminToken?: string | null;
+  /** Read-only key for /api/records/* (x-records-key); unset turns those routes off. The admin token also works. */
+  recordsKey?: string | null;
   characters?: CharacterStore;
   /** TEMPORARY (testing): POST /tournaments creates a tournament without the admin token. */
   openTournaments?: boolean;
+  /** RISK_SEASON_KEY: the password that archives the public leaderboard's season from the site (unset = off). */
+  seasonKey?: string | null;
+  /** Where the season-key lockout is saved (under RISK_DATA_DIR), so a restart does not reset it. */
+  seasonLockFile?: string | null;
+  /** Tests: the season-key guard to use (limits and clock). */
+  seasonGuard?: SeasonKeyGuard;
 }
 
 export function createApi(store: Store, opts: ApiOptions = {}) {
   const api = express.Router();
   api.use(express.json({ limit: '64kb' }));
+  const seasonGuard = opts.seasonGuard ?? new SeasonKeyGuard(opts.seasonKey, undefined, undefined, opts.seasonLockFile ?? null);
 
   const wrap =
     (fn: (req: Req, res: Response) => Promise<unknown> | unknown) => (req: Request, res: Response, next: NextFunction) => {
@@ -169,7 +180,26 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
   });
   // House bots (the home-page widget): fun stats for the server's bots, aggregated from the tournament results. Not a ranking.
   api.get('/house-bots', (_req, res) => res.json({ ...store.tournamentBoard.houseBots(), swarm: store.swarmReport() }));
-  api.get('/rankings/seasons', (_req, res) => res.json({ current: store.rankings.season, seasons: store.rankings.seasons() }));
+  api.get('/rankings/seasons', (_req, res) => res.json({ current: store.rankings.season, seasons: store.rankings.seasons(), archiving: seasonGuard.enabled }));
+  // The site's "Archive season" button: the public board's season only (the same archive as the admin route), behind
+  // RISK_SEASON_KEY (or the admin token) with a per-IP and global lockout on wrong tries. Off when the key is unset.
+  api.post(
+    '/rankings/new-season',
+    wrap((req, res) => {
+      if (checkAdmin(opts.adminToken, tokenOf(req)) !== 'ok') {
+        const verdict = seasonGuard.check(req.ip ?? 'unknown', req.body?.password);
+        if (!verdict.ok) {
+          if (verdict.retryAfterSec) res.setHeader('Retry-After', String(verdict.retryAfterSec));
+          return res.status(verdict.status).json({ error: verdict.error });
+        }
+      }
+      try {
+        res.json(store.rankings.newSeason());
+      } catch (e) {
+        res.status(500).json({ error: (e as Error).message });
+      }
+    }),
+  );
   // Match history for the home page: finished games from the archive index, newest first. Only the public outcome
   // (seats, places, winner, turns), never a board, so fog games are safe to list. Empty when records are off.
   // ?board=training lists only training games (board "training"), ?board=tournament only tournament tables, ?board=public
@@ -287,9 +317,11 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
       const room = req.room!;
       const kind = parseBotKind(req.body?.kind);
       const name = req.body?.name == null ? undefined : String(req.body.name);
-      const { playerId } = room.addBot(kind, name);
-      const seat = room.state.players.find((p) => p.id === playerId)!;
-      res.status(201).json({ playerId, name: seat.name, state: room.view(req.playerId!) });
+      const count = req.body?.count == null ? 1 : req.body.count;
+      if (typeof count !== 'number') throw new RuleError('count must be a whole number');
+      // `count` seats several at once (all or none); the first one is also given as playerId/name, as before.
+      const added = room.addBots(kind, count, name);
+      res.status(201).json({ playerId: added[0].playerId, name: added[0].name, added, state: room.view(req.playerId!) });
     }),
   );
 
@@ -305,6 +337,36 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
 
   // ---- admin (only when RISK_ADMIN_TOKEN is configured) ----
   const adminToken = opts.adminToken || null;
+  // ---- full game records: read-only, behind the records key (or the admin token); they hold hidden hands ----
+  const recordsKey = opts.recordsKey || null;
+  function requireRecordsKey(req: Request, res: Response, next: NextFunction) {
+    if (!recordsKey) return res.status(403).json({ error: 'Full records are off on this server' });
+    const given = req.headers['x-records-key'];
+    const key = typeof given === 'string' ? given : undefined;
+    if (checkAdmin(recordsKey, key) === 'ok' || checkAdmin(adminToken, tokenOf(req)) === 'ok') return next();
+    res.status(403).json({ error: 'A valid records key is required (x-records-key)' });
+  }
+  api.get(
+    '/records/:id',
+    requireRecordsKey,
+    wrap((req, res) => {
+      const record = store.archive.get(String(req.params.id));
+      if (!record) return res.status(404).json({ error: 'No recorded game with that id' });
+      res.json(record);
+    }),
+  );
+  api.get(
+    '/records/:id/playbyplay',
+    requireRecordsKey,
+    wrap((req, res) => {
+      const record = store.archive.get(String(req.params.id));
+      if (!record) return res.status(404).json({ error: 'No recorded game with that id' });
+      const p = narrate(record);
+      if (req.query.format === 'json') return res.json(p);
+      res.type('text/plain; charset=utf-8').send(playByPlayText(p));
+    }),
+  );
+
   function requireAdmin(req: Request, res: Response, next: NextFunction) {
     const check = checkAdmin(adminToken, tokenOf(req));
     if (check === 'disabled') return res.status(404).json({ error: 'Admin API disabled (set RISK_ADMIN_TOKEN)' });
@@ -645,7 +707,9 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
       const action = (req.body?.action ?? req.body) as Action;
       if (!action || typeof action !== 'object' || typeof action.type !== 'string')
         return res.status(400).json({ error: 'Body must be an action object with a "type"' });
-      const { events } = room.act(req.playerId!, action);
+      // An optional private decision note, with {action, note}: stored with the move, never shown during the game.
+      const note = req.body?.action ? parseDecisionNote(req.body.note) : undefined;
+      const { events } = room.act(req.playerId!, action, note);
       res.json({ ok: true, events: redactEvents(room.state, req.playerId!, events), state: room.view(req.playerId!) });
     }),
   );

@@ -358,6 +358,20 @@
   align-items: center;
   gap: 8px 12px;
 }
+/* Archive season: the password and confirm sit inline with the board's controls. */
+.archive-season-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+}
+.archive-season-form p {
+  flex-basis: 100%;
+  margin: 0;
+}
+.archive-season-form input {
+  width: 12em;
+}
 /* Pressed: red like a primary button, so it reads on the dark leaderboard and on hover. */
 .p5 button.board-toggle.on:not(:where(.map-wrap *)):not(:disabled) {
   background: var(--red);

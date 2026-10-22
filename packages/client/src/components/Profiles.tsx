@@ -113,6 +113,49 @@ interface SeasonInfo { id: string; season: number; current: boolean; games: numb
 /** A row of the tournament leaderboard (GET /rankings?board=tournament). */
 interface TournamentRow { key: string; name: string; rank: number; points: number; tournaments: number; championships: number; finals: number; tablesWon: number; kills: number; bestFinish: string }
 
+/**
+ * "Archive season": asks for the season password and a confirmation, then archives the public board's season (the old
+ * season stays viewable in the picker). The password goes to the server only, never stored.
+ */
+function ArchiveSeason({ season, onDone }: { season: number; onDone: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+  const close = () => { setOpen(false); setPassword(''); };
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!password || busy) return;
+    setBusy(true);
+    setMessage('');
+    try {
+      const res = await fetch(`${API}/rankings/new-season`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password }) });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) setMessage(body.error ?? `Failed (${res.status})`);
+      else {
+        setMessage(`Season ${body.archived} archived; season ${body.season} has begun.`);
+        close();
+        onDone();
+      }
+    } catch (err) {
+      setMessage((err as Error).message);
+    } finally {
+      setBusy(false);
+      setPassword('');
+    }
+  };
+  return <span className="archive-season">
+    {!open && <button type="button" className="board-toggle" onClick={() => { setOpen(true); setMessage(''); }} title="Archive this season and start a new one (needs the season password)">Archive season</button>}
+    {open && <form className="archive-season-form" onSubmit={submit}>
+      <p className="small">Archive season {season} and start season {season + 1}? Old seasons stay viewable.</p>
+      <input type="password" autoComplete="off" placeholder="Season password" aria-label="Season password" value={password} onChange={e => setPassword(e.target.value)} autoFocus />
+      <button type="submit" disabled={!password || busy}>{busy ? 'Archiving…' : 'Archive'}</button>
+      <button type="button" onClick={close}>Cancel</button>
+    </form>}
+    {message && <span className="small" role="status"> {message}</span>}
+  </span>;
+}
+
 export function Leaderboard() {
   const [rows, setRows] = useState<RankingRow[]>([]);
   const [tournamentRows, setTournamentRows] = useState<TournamentRow[]>([]);
@@ -122,6 +165,8 @@ export function Leaderboard() {
   // '' is the current season; archived seasons come from /rankings/seasons and never change, so they load once.
   const [season, setSeason] = useState('');
   const [seasons, setSeasons] = useState<SeasonInfo[]>([]);
+  // The server allows archiving the season from here (RISK_SEASON_KEY is set); otherwise the button shows disabled.
+  const [archiving, setArchiving] = useState(false);
   // Other boards, apart from the public one, no seasons: training (model-vs-model yardstick games, Delove against Claude
   // seats) and tournament (one result per entrant per finished tournament; tournament tables never count publicly).
   const [board, setBoard] = useState<'' | 'training' | 'tournament'>('');
@@ -134,12 +179,12 @@ export function Leaderboard() {
     const query = board ? `?board=${board}` : season ? `?season=${encodeURIComponent(season)}` : '';
     const load = () => Promise.all([
       read<{ rankings: RankingRow[] | TournamentRow[] }>(`${API}/rankings${query}`),
-      read<{ seasons: SeasonInfo[] }>(`${API}/rankings/seasons`),
+      read<{ seasons: SeasonInfo[]; archiving?: boolean }>(`${API}/rankings/seasons`),
     ]).then(([r, s]) => {
       if (!alive) return;
       if (board === 'tournament') setTournamentRows(r.rankings as TournamentRow[]);
       else setRows(r.rankings as RankingRow[]);
-      setSeasons(s.seasons); setLoaded(true); setError('');
+      setSeasons(s.seasons); setArchiving(!!s.archiving); setLoaded(true); setError('');
     }).catch(e => { if (alive) setError(e.message); });
     void load();
     const timer = season && !board ? undefined : setInterval(load, 15_000);
@@ -156,6 +201,9 @@ export function Leaderboard() {
             {seasons.filter(s => !s.current).map(s => <option key={s.id} value={s.id}>{s.id} ({s.games} games)</option>)}
           </select>
         </label>}
+        {!board && current && (archiving
+          ? <ArchiveSeason season={current.season} onDone={() => { setSeason(''); setRetry(n => n + 1); }} />
+          : <button type="button" className="board-toggle" disabled title="Archiving seasons from the site is off on this server (its host has not set a season password)">Archive season</button>)}
         <button type="button" className={`board-toggle${training ? ' on' : ''}`} aria-pressed={training} onClick={() => toggle('training')}
           title="Model-vs-model yardstick games, ranked apart from the public leaderboard">Training</button>
         <button type="button" className={`board-toggle${tournament ? ' on' : ''}`} aria-pressed={tournament} onClick={() => toggle('tournament')}

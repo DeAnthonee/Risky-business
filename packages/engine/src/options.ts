@@ -52,14 +52,14 @@ export const OPTION_SPECS: { [K in OptionKey]: OptionSpec } = {
       }),
     ),
     description:
-      'Which board to play on: classic (the Hasbro board), world (finer world), world_large (Grand World, the biggest board, made for 8-10 players), europe, greater_europe (Greater Europe: 116 smaller territories, up to 10 players), europe_classic (Europe Advanced: 84 territories in 14 regions such as the Russian Empire and the Orient, 2-6 players), usa (US states), asia, fantasy (Realms of Halvaren, an original fantasy world), skirmish (Four Crowns: a small, fast 24-territory board for up to 4 players), bohemia (Bohemia: an inland kingdom of 42 territories in 8 regions cut by a river, crossed only at fords, 2-6 players) or nine_realms (The Nine Realms: 58 territories on one long north-south continent whose regions meet only at narrow passes, up to 8 players). A generated board is also accepted by its id, gen1-s<seed>-p<seats>-t<territories> (e.g. gen1-s42-p4-t20: a hex board for up to 4 players with 20 territories, built from seed 42; the same id is always the same board). Changing it clamps maxPlayers, neutrals and blizzards to the new map.',
+      'Which board to play on: classic (the Hasbro board), world (finer world), world_large (Grand World, the biggest board, made for 8-10 players), europe, greater_europe (Greater Europe: 116 smaller territories, up to 10 players), europe_classic (Europe Advanced: 84 territories in 14 regions such as the Russian Empire and the Orient, 2-6 players), usa (US states), asia, fantasy (Realms of Halvaren, an original fantasy world), skirmish (Four Crowns: a small, fast 24-territory board for up to 4 players), bohemia (Bohemia: an inland kingdom of 42 territories in 8 regions cut by a river, crossed only at fords, 2-6 players) nine_realms (The Nine Realms: 58 territories on one long north-south continent whose regions meet only at narrow passes, up to 8 players) or hexworld (Hex Earth: the real world on a rotatable hexagon globe, 80 territories in 14 regions with sea links across every ocean, up to 10 players). A generated board is also accepted by its id, gen1-s<seed>-p<seats>-t<territories> (e.g. gen1-s42-p4-t20: a hex board for up to 4 players with 20 territories, built from seed 42; the same id is always the same board). Changing it clamps maxPlayers, neutrals and blizzards to the new map.',
   },
   maxPlayers: {
     kind: 'int',
     label: 'Seats',
     min: 2,
     max: (m) => m.maxPlayers,
-    description: 'Number of seats, counting bots and agents (skirmish up to 4, classic, europe_classic and bohemia up to 6, europe, asia and nine_realms up to 8, world, world_large, greater_europe, usa and fantasy up to 10).',
+    description: 'Number of seats, counting bots and agents (skirmish up to 4, classic, europe_classic and bohemia up to 6, europe, asia and nine_realms up to 8, world, world_large, greater_europe, usa, fantasy and hexworld up to 10).',
   },
   autoSetup: {
     kind: 'boolean',

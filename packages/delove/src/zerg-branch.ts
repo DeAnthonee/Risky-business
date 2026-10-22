@@ -1,5 +1,5 @@
 import { applyAction, chooseZergAction, createRng, strongestZergOf, getMap, legalMoves, reinforcementsFor, shuffle, type Action, type GameState, type PlayerId } from '@risk/engine';
-import { candidateToAction, candidates, isZergName, makeTraits, seededRandom, type Agent, type Candidate, type DecisionContext } from '@risk/selfplay';
+import { candidateToAction, candidates, isZergName, makeTraits, seededRandom, zergParamsFor, type Agent, type Candidate, type DecisionContext } from '@risk/selfplay';
 import { seatOrder, type NetScorer } from './net-agent.js';
 
 /**
@@ -81,7 +81,7 @@ function rollout(state: GameState, horizon: number, horde: ReadonlySet<PlayerId>
   for (let steps = 0; s.phase !== 'finished' && s.round < stop && steps < MAX_ROLLOUT_STEPS; steps++) {
     const p = s.currentPlayer!;
     let action: Action | null;
-    if (horde.has(p)) action = chooseZergAction(s, p, horde, random);
+    if (horde.has(p)) action = chooseZergAction(s, p, horde, random, zergParamsFor(s.players.find((x) => x.id === p)!.name));
     else {
       const legal = legalMoves(s, p);
       action = opponent.choose({ state: s, me: p, seat: seats.indexOf(p), legal, candidates: candidates(s, p, legal), traits, random });

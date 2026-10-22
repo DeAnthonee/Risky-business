@@ -70,6 +70,19 @@ tournament gets a name row, not its character row, and the name is self-declared
 stored on the `Entrant` and bound on every table seat; `entrantKey` then keys it by the character, as `Rankings.record`
 does.
 
+## 7. Anyone can trip the season-archive lockout
+
+**Where:** `packages/server/src/season-key.ts` (`SeasonKeyGuard`), `POST /api/rankings/new-season`.
+
+**What is wrong:** the guard's global cap (20 wrong tries within 15 minutes from anyone) lets any visitor lock the
+**Archive season** button for everyone for 15 minutes by sending wrong passwords. Also, the per-IP limit trusts the
+client IP behind the proxy (`trust proxy`), so it can be dodged with spoofed forwarding headers; the global cap is
+then the real limit, which is why the key should be long. The admin route (`POST /api/admin/rankings/new-season`,
+admin token) is never locked, so the host can always archive.
+
+**Fix (to do):** if it is ever abused, key the per-IP count on the proxy's real client address only, and make the
+global lockout per-IP-bucket instead of site-wide (or require a session from the admin first).
+
 ## Fixed
 
 - **Anyone could start, forfeit for or delete someone else's tournament, and `tournaments.json` grew forever.**

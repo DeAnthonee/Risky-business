@@ -1,4 +1,0 @@
-delove: - 2026-10-21 #194 delove-status section 9 item 4: the #170 yardstick control (jacob-sensei@2 in Delove's seat drew early attacks too), Zerg docs after #176 (zergs.md: target score `âˆ’ exposure / 2`, no hysteresis, the horde gate plays on after Delove is out, the endgame landed in #176; delove README: the strongest Zerg wins, sacrifice 1, `selfWeight` / `ZERG_BRANCH_SELF_WEIGHT`), from the docs-drift sweep
-hosting: - 2026-10-21 #194 docs drift: hosting.md env table lists `RISK_AI_DIR` and `RISK_MCP_SESSION_IDLE_MS`
-mcp: - 2026-10-21 #194 docs drift: mcp.md's tool list includes `my_seats`
-server: - 2026-10-21 #194 docs drift: http-api.md lists `POST /games/:id/name` (rename your seat in the lobby); tournaments.md's 7-day idle limit is the Store's fixed `max`, not a `RISK_MAX_IDLE` env var

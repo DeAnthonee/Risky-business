@@ -150,6 +150,8 @@ def replay_batch(recs, traces, e_args, ranker_pt, cfg, stats, gcfg=None, roll_pt
                                 stats["mean_diff"] += 1
                                 err = max(abs(x - y) for x, y in zip(gm, t["means"]))
                                 why = f"means differ by up to {err:.3g}: cpu {t['means']} gpu {gm}" + (f" [{real}]" if real else "")
+                            if "copies" in t and d.copies is not None and d.copies[k, : len(gpu_opts)].tolist() != t["copies"]:
+                                why = (why or "") + f" copies: cpu {t['copies']} gpu {d.copies[k, : len(gpu_opts)].tolist()}"
                             if best[k] != t["best"]:
                                 if near_tie:
                                     stats["near_pick"] += 1
@@ -205,11 +207,15 @@ def main():
     ap.add_argument("--score", default=d.score, choices=SCORES, help="as DELOVE_BRANCH_SCORE for the log")
     ap.add_argument("--rollout", default=None, help="as DELOVE_BRANCH_ROLLOUT for the log: MODEL (every seat) or MODEL:self")
     ap.add_argument("--near-tie", type=float, default=1e-4, help="a rollout copy that differs is a near-tie below this logit gap")
+    ap.add_argument("--root", default=d.root, choices=["top", "gumbel"], help="as DELOVE_BRANCH_ROOT for the log")
+    ap.add_argument("--gumbel-k", type=int, default=d.gumbel_k, help="as DELOVE_BRANCH_K")
+    ap.add_argument("--copies", type=int, default=d.copies, help="as DELOVE_BRANCH_COPIES")
     ap.add_argument("--batch", type=int, default=400)
     ap.add_argument("--games", type=int, default=0)
     args = ap.parse_args()
     cfg = d
     cfg.options, cfg.rollouts, cfg.horizon, cfg.margin, cfg.score = args.options, args.rollouts, args.horizon, args.margin, args.score
+    cfg.root, cfg.gumbel_k, cfg.copies = args.root, args.gumbel_k, args.copies
     models = Path(args.models)
     params = agent_params(args.teacher, models)
     ranker_pt = load_delove(models / f"{args.ranker}.pt", "cuda")

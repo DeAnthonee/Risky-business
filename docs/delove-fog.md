@@ -316,6 +316,57 @@ with full sight. The order is therefore:
    (dropout). The value head may be trained with the true board as an extra input during training only
    (a privileged critic) if that helps; the policy never sees it.
 
+### 4.5 A learned fog model for the sampler (design, not built)
+
+**Why:** with today's hand-written sampler, fog search loses to the bare network, but the same search rolling out
+the true board wins (4p: -0.92 against +0.32, "Controls" above). The search works and the board guess is what's
+missing. This is the game-records roadmap's step 2 ([game-records-roadmap.md](game-records-roadmap.md)), used first
+where it pays: as the sampler's guesser.
+
+**What it predicts:** for each hidden territory of a seat's view, a distribution over its owner (the seat slots of
+the opponents alive, plus the Neutral) and over its armies in bins (1, 2, 3-4, 5-8, 9-16, 17+).
+
+**Data, in two phases:**
+
+1. **Current view only, free:** every cycle's full-board arrays already hold (view, truth) pairs. The fog transform
+   (`selfplay/src/fog.ts`, `python/fog.py`, the one fog dropout uses) turns a decision's features into what the seat
+   sees, and the untouched features are the answer. That is millions of examples on 14 maps with no new games and no
+   GPU-mirror change. It knows nothing the seat saw earlier.
+2. **With memory:** the sampler's `FogTracker` adds, per territory, the last-seen owner slot, armies and age. That needs
+   real fog game sequences: self-play fog games on the CPU (the ladder's fog tables, logging each seat's view, memory
+   and the true board at a sampled 1 in 10 of its decisions; a new log record, so a `LOG_VERSION` bump), and later
+   the live fog records (roadmap step 1). Start with phase 1, and add phase 2 only if the memory inputs earn their keep
+   on held-out accuracy.
+
+**Model:** small and separate from Delove: the same territory-graph network family with fog inputs, about 64 hidden,
+3 message-passing rounds, tens of thousands of parameters, two per-territory heads (owner over the slots, masked to
+the opponents alive; army bins). One ONNX call per decision on the seat view, under a millisecond on the CPU, shared
+by all 8 sampled boards. A head on Delove's own trunk would be cheaper to run, but would tie the guesser to every
+cycle's training. Keep it separate until it has proved itself.
+
+**How it plugs in:** `sampleBoard`'s steps 1-2 (last-seen keep, then deficit-weighted draws) become draws from the
+model's per-territory owner and army distributions, with the sample's seeded random source (deterministic, rule 10).
+Steps 3-6 stay: income repair, every opponent alive holds a territory, capitals put back, cards redealt. Independent
+per-territory draws lose holdings' contiguity, so keep the "neighbours of the same owner" boost as a short second
+pass if held-out accuracy says it helps. Opt-in as `DELOVE_FOG_MODEL=<model>`, falling back to today's sampler when
+it is absent.
+
+**How it is measured:**
+
+1. **Guess quality on held-out games:** hidden-owner accuracy and log-loss, army-bin log-loss and mean absolute
+   error, by table size. Compare against today's sampler (owner right 62% at 4p and 38% at 6p), the uniform guess (35% /
+   26%) and the flat 1.5-army guess, the roadmap's "simple baseline".
+2. **Where the gap is, before training anything:** two cheap oracle splits with the existing scripts, true owners with
+   sampled armies, and sampled owners with true armies (fog 4p, 100 games each). They show which head carries the
+   -0.92 to +0.32 gap, so effort goes to the one that matters.
+3. **The oracle gap closed:** fog search with the learned sampler against bare `delove@12` on the same fog tables
+   (Classic 2p/4p/6p, mirrored), reported as the fraction of the sampled-to-oracle gap it closes:
+   (learned - sampled) / (oracle - sampled). The bar for any GPU-mirror work (section 5) is a positive points
+   difference whose 95% interval clears 0 at 4p and 6p.
+
+**Cost:** phase 1 data is free; training is minutes on the home GPU; the measurement is about an hour of CPU like
+2026-10-22's. Phase 2 adds a few hours of CPU fog games. Nothing changes on the GPU mirror until step 3 passes.
+
 ## 5. The GPU mirror
 
 Fog adds **no rules**, only views, so `fused.py` and the rules fingerprint stay as they are. It adds:

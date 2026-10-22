@@ -53,8 +53,18 @@ Or copy `RISK_DATA_DIR/archive/` off the host.
   0, kills 1, conquers";
 - the game's end.
 
-A step's decision note (`step.note`, from the G1 decision notes; the shape is tolerant until G1 fixes it) is shown
-inline under its step ("↳ Delove chose Peru (.62) over Chile (.58), value .41"). `narrate(record, { summary })`
+A step's decision note (`step.note`: a string or any JSON the seat sent, no schema enforced) is shown inline under its
+step. A string is shown as is. An object is rendered from these keys when present:
+- `text`;
+- `chose` or `chosen`;
+- `score`;
+- `alternatives` or `top`: candidates as strings, or as objects with a label (`label`, `move` or `name`) and a score
+  (`score`, `p` or `q`);
+- `value`;
+- `model` and `preset`.
+
+Any other keys follow as compact JSON, and a note with none of these keys is shown as JSON. For example: "↳ Delove
+(delove@11, js2-range) chose Peru (.62) over Chile (.58), value .41". `narrate(record, { summary })`
 takes extra header lines, for the Zerg report once that lands.
 
 - **Over HTTP**, with the records key: `GET /api/records/:id/playbyplay` as text, or `?format=json` for the lines.

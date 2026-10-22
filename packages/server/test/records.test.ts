@@ -74,6 +74,10 @@ describe('narrate (play-by-play)', () => {
     expect(noteLine('Delove', { chose: 'Peru', score: 0.62, alternatives: [{ label: 'Chile', score: 0.58 }], value: 0.41 })).toBe('  ↳ Delove chose Peru (.62) over Chile (.58), value .41');
     expect(noteLine('Delove', 'a plain note')).toBe('  ↳ a plain note');
     expect(noteLine('Delove', { odd: 1 })).toBe('  ↳ {"odd":1}');
+    expect(noteLine('Delove', 7)).toBe('  ↳ 7');
+    // Delove's shape: chosen + top candidates (the chosen one among them) + value, tagged with model and preset.
+    const delove = { chosen: 'X', top: [{ label: 'X', score: 0.62 }, { label: 'Y', score: 0.58 }, { move: 'Z', p: 0.51 }], value: 0.41, model: 'delove@11', preset: 'js2-range', fog: 'fallback' };
+    expect(noteLine('Delove', delove)).toBe('  ↳ Delove (delove@11, js2-range) chose X (.62) over Y (.58), Z (.51), value .41 {"fog":"fallback"}');
   });
 
   it('is stable: the same record always reads the same (snapshot of the opening)', () => {

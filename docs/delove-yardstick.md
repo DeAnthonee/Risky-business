@@ -134,6 +134,24 @@ blizzards). "Attacked early" is from the server's event log (`monitor.mjs`). All
 - Game 16 shows the capitals win: Delove led with 21 territories and 96 armies after taking out four seats, and Sonnet
   Shen won by taking the last capital it was missing.
 
+### Control: jacob-sensei@2 (games 19-20)
+
+Played 2026-10-22 to see whether the early attacks single out Delove's play or hit whoever sits in that seat. The plain
+bot `jacob-sensei@2` (hand-coded, no network, no search; `delove-seat --agents jacob-sensei@2`) took Delove's seat as
+"Sonnet Garen", with baseline 3's neutral setup (neutral name and brief, capitals and 8 blizzards) against five Sonnet
+seats. "Attacked early" is from the server's event log.
+
+| # | game | opponents | Jacob place | points | kills | out (round) | knocked out by / winner | attacked early | length | tokens per LLM seat |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 19 | 8QT8YB | 5 × Claude Sonnet | 6th | -3 | 0 | 3 | Sonnet Thresh | 3 | 7 min | 136k-146k, mean 140k |
+| 20 | FV4JQV | 5 × Claude Sonnet | 3rd | +1 | 0 | alive at the end, round 5 | Sonnet Leona won (every capital) | 1 | 11 min | 155k-176k, mean 163k |
+
+- Against Sonnet, Jacob Sensei 2 averaged -1.0 points (place 4.5, no kills); delove@10 + search averaged +2.5 (place
+  3.0, 4 kills) on the same setup (baseline 3).
+- The plain bot drew early attacks too (3 seats in game 19, 1 in game 20), so the seat itself gets attacked early: it's
+  not Delove's play alone that draws it.
+- Two games: a control for the gang-up question, not a strength measurement.
+
 ## Rerun it for a new model (delove@11, the range specialists)
 
 Same lineup, settings and stop rule, so the new rows compare with the ones above. Runtime files go to

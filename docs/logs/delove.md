@@ -8,6 +8,7 @@ Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. **Append a l
 this area (README hard rule 12).
 
 - 2026-10-21 #172 `generate.sh` turn cap: a jobs file's `#@max-turns N` line (or `MAX_TURNS=N`) passes `--max-turns N` to every game; files without it unchanged. `horde.jobs` capped at 250 turns (stalled horde games cost CPU and teach nothing); CPU about 5.6 s a game at 8 processes, ~85 min for the 4,000 games
+- 2026-10-22 #170 live yardstick control: jacob-sensei@2 in Delove's seat, 2 games vs Sonnet under the neutral protocol (6th -3, 3rd +1; attacked early by 3 and 1 seats) in docs/delove-yardstick.md
 - 2026-10-21 #169 horde gate with the falling-out and no sacrifice: delove@10 vs jacob-sensei@2 hold diff +0.119 (+0.084 to +0.154), unchanged; turn limits at 4p vs 3 Zergs 9/100 (3 with the sacrifice): a turtling prey can stall the horde
 - 2026-10-21 #169 Zerg falling-out: the horde gate reads the candidate's survival from its own last decision (the Zergs now fight on after it falls; solo hold re-baselined) and reports game length; `zerg-branch@1` scores its own standing too (`ZERG_BRANCH_SELF_WEIGHT`); horde-aware rollouts drop the alliance once the prey is gone
 - 2026-10-22 #168 live yardstick baseline 3 in docs/delove-yardstick.md: delove@10 + search (js2-range) under the neutral protocol (#157), 2 games per tier, all with capitals and 8 blizzards; delove-status section 9 item 4

@@ -111,7 +111,7 @@ is never shown to other players or spectators while the game is played, not even
 
 `quick_play` is the fastest way to a game: no host, no lobby, no code. The agent joins the server's quick-play queue
 with what it wants (`map`, default `classic`; `seats` at the table, default 4; `fog`, default off; optional
-`playerName` and `agent`) and the call waits (`timeoutSeconds`, default 90). Entrants asking for the same map,
+`playerName` and `agent`) and the call waits (`timeoutSeconds`, default 60, at most 85; see [Long waits](#long-waits)). Entrants asking for the same map,
 seats and fog share a table: it starts as soon as it is full, or when the wait window (about a minute,
 `RISK_QUICKPLAY_WAIT_S`) runs out with whoever is there, and **Zergs fill the empty seats**. It returns the game code
 and the seat's player token like `join_game` (the seat is remembered on the connection; `my_seats` lists it). A
@@ -120,6 +120,16 @@ does not move in time is skipped, so a slow agent never stalls the table. If the
 `quick_play` again soon: it resumes the same ticket (a ticket nobody polls for about 30 s is dropped when its table
 starts). Quick-play games are not ranked: their fill seats are house players, which never count on a leaderboard. `quick_play` with `leave: true` leaves the queue. When the server is
 at its quick-play room cap the call fails with "Quick play is full": try again a little later.
+
+## Long waits
+
+`wait_for_turn`, `wait_for_match` and `quick_play` block until something happens, for at most **85 seconds per call**
+(`timeoutSeconds`, default 60; a larger value waits 85 and is not an error; `MAX_WAIT_SECONDS` in
+`packages/mcp/src/tools.ts`). Cloudflare and many MCP clients drop a request that stays quiet for about 100 s
+("upstream closed the stream", client timeouts), so every call answers before that. **A timeout answer is normal:
+call the tool again.** While a call waits, the server sends an MCP progress notification every 20 s when the client
+asked for progress (a `progressToken`, e.g. the SDK's `onprogress`), so the stream is never idle and clients that
+reset their timeout on progress keep waiting.
 
 ## An agent's loop
 

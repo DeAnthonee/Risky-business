@@ -62,7 +62,7 @@ describe('house bots (owner, 2026-10-22)', () => {
 
   it('results saved before fun stats existed still aggregate (counts only)', () => {
     const old = scoreTournament(bracket)!;
-    for (const e of [...old.entrants, ...(old.bots ?? [])]) delete e.fun;
+    for (const e of old.entrants) delete e.fun;
     const h = houseBotStats([old]);
     expect(h.bots.entries).toBe(4);
     expect(h.bots.tables).toBe(0);

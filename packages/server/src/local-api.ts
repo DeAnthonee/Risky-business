@@ -1,7 +1,7 @@
 import { RULES_TEXT, RuleError, getMap, redactEvents, type Action, type GameOptions } from '@risk/engine';
 import type { CharacterUpdate, DiaryInput, RelationshipInput, RiskApi } from '@risk/mcp';
 import { RiskHttpError } from '@risk/mcp';
-import { checkAdmin, mapInfo, parseBotKind, parseTournamentSpec, sanitizeOptions } from './http.js';
+import { checkAdmin, mapInfo, parseAgent, parseBotKind, parseTournamentSpec, sanitizeOptions } from './http.js';
 import type { GameRoom, Store } from './store.js';
 import type { CharacterStore } from './characters.js';
 
@@ -83,7 +83,7 @@ export class LocalRiskApi implements RiskApi {
   async listGames() {
     return { games: this.store.list() };
   }
-  async createGame(playerName: string, gameName: string | undefined, options: Partial<GameOptions> | undefined, board?: 'training', key?: string) {
+  async createGame(playerName: string, gameName: string | undefined, options: Partial<GameOptions> | undefined, board?: 'training', key?: string, agent?: string) {
     if (board) {
       try {
         this.characters.checkWrite(key);
@@ -91,12 +91,12 @@ export class LocalRiskApi implements RiskApi {
         throw new RiskHttpError('A training-board game needs the characters write key ("key")', 403);
       }
     }
-    const { room, playerId, token } = this.store.create(gameName ?? '', sanitizeOptions(options), playerName, false, board);
+    const { room, playerId, token } = this.store.create(gameName ?? '', sanitizeOptions(options), playerName, false, board, parseAgent(agent));
     return { gameId: room.id, playerId, token, state: room.view(playerId) };
   }
-  async joinGame(gameId: string, playerName: string) {
+  async joinGame(gameId: string, playerName: string, agent?: string) {
     const room = this.room(gameId);
-    const { playerId, token } = room.join(playerName);
+    const { playerId, token } = room.join(playerName, false, 'bot', parseAgent(agent));
     return { gameId: room.id, playerId, token, state: room.view(playerId) };
   }
   async addBot(gameId: string, token: string, name?: string, kind?: 'bot' | 'zerg') {
@@ -170,9 +170,9 @@ export class LocalRiskApi implements RiskApi {
     const t = this.tournament(tournamentId);
     return { tournament: this.store.tournaments.view(t.id, token) };
   }
-  async joinTournament(tournamentId: string, playerName: string) {
+  async joinTournament(tournamentId: string, playerName: string, agent?: string) {
     const t = this.tournament(tournamentId);
-    const { entrantId, token } = this.store.tournaments.join(t.id, playerName);
+    const { entrantId, token } = this.store.tournaments.join(t.id, playerName, parseAgent(agent));
     return { entrantId, token, tournament: this.store.tournaments.view(t.id, token) };
   }
   async waitTournament(tournamentId: string, token: string | undefined, since: number | undefined, timeoutMs: number) {

@@ -118,19 +118,26 @@ game at a time. Results already there stay; new tables no longer add to it.
   the number of rounds:
   - placement: out in round `r` before the final = `3 × (r − 1)`; place `p` of `F` in the final =
     `3 × (L − 1) + 2 × (F − p)`; the champion gets **+6** on top;
-  - **+2 per table won**, every round including the final (**+1** when a table is decided on standing at a nested
-    round's deadline: status `decided`, its standing order is the table's order; knockouts are always played out);
+  - **+2 per table won**, every round including the final (**+1** when a table is decided on standing rather than
+    played out; nested tournaments only, knockouts are always played out);
   - **+1 per player eliminated** at your tables (surrenders and forfeits credit nobody).
 
   Example: 4 entrants at tables of 2 (`L = 2`, a final of 2): the champion scores 3 + 2 + 6 = 11 for placement plus 2
   tables × 2 = 15 before kills; the runner-up 3 + 2 = 5; round-1 exits 0 plus kills.
+- **Who is on it:** people only (owner's decision). No server bot gets a row, neither built-in fill bots nor Zergs
+  (planner fillers or added by the host with `POST /tournaments/:id/bots`). Bots are still scored: their results stay
+  in `rankings-tournament.json` flagged `bot` (with `kind` "zerg" or "bot") for bot stats. It is keyed off the entrant
+  being a server bot, never its name, so a person called "Bot 1" ranks. The public board's live Zerg seats are not
+  affected.
 - **The board** sums results over tournaments: points, tournaments played, championships, finals reached, tables won,
   kills and best finish, sorted by points, then championships. Identities are the entrant names, as on the other
-  boards (`bot:<name>` for Zergs, `player:<name>` otherwise), with the self-declared caveat of
-  [hardening #3](hardening.md#3-leaderboard-identities-for-plain-seats-are-self-declared).
-- **The House** (owner, 2026-10-22): the server's own bots (built-in fill bots, and Zergs) are left off the ranked rows
-  (#192) but still scored, apart (`bots` on each tournament result). Their fun numbers show in **The House**, a widget
-  on the home page, "The Swarm" (Zergs) against "The Machines" (fill bots), never a ranking (`GET /api/house-bots`):
+  boards (`bot:<name>` for bots and Zergs, `player:<name>` otherwise), with the self-declared caveat of
+  [hardening #3](hardening.md#3-leaderboard-identities-for-plain-seats-are-self-declared). Entrants cannot be bound to
+  a character yet, so this board never has character rows
+  ([hardening #6](hardening.md#6-tournament-entrants-cannot-be-characters-yet)).
+- **The House** (owner, 2026-10-22): the server's bots (fill bots and Zergs) are scored like everyone but never get a
+  row; their fun numbers show in **The House**, a widget on the home page, "The Swarm" (Zergs) against "The Machines"
+  (fill bots), never a ranking (`GET /api/house-bots`, read from the tournament results):
   - totals per side: different bots, entries, tables played and won, eliminations made, times knocked out, rounds
     survived (every round won; a champion got through them all), finals, championships, armies lost, enemy armies
     destroyed, conquests;
@@ -140,49 +147,7 @@ game at a time. Results already there stay; new tables no longer add to it.
 
   The table numbers are gathered from each table's moves while it is played, so a table already being played when
   the server restarts counts only from the restart on. Results saved before this have the counts but no table
-  numbers. A cup of one person plus fill bots is still recorded, so the widget has it.
-- **Reading it:** `GET /api/rankings?board=training`, `GET /api/rankings/profile?key=&board=training`, the MCP
-  `leaderboard` and `ranked_profile` tools with `board: "training"`, and the **Training** toggle beside the season
-  picker on the web leaderboard. Match history (`GET /api/history`) and `GET /api/games` mark these games
-  `board: "training"`; `?board=training` on `/history` lists only them.
-- **Stored** in `$RISK_DATA_DIR/rankings-training.json` (never in `rankings.json`). Its game records carry
-  `room.board: "training"` (and their `index.jsonl` line `board`), so they are never pooled into Delove's training
-  data by mistake.
-
-## Tournament leaderboard
-
-A third board, apart from the public and training ones, for **tournaments** (owner, decisions 16, 18 and 20). A
-tournament table never ranks on the public board (or the training one); when the tournament finishes, every entrant
-gets one result on this board. **This changed in #183:** before it, knockout tables were ranked on the public board one
-game at a time. Results already there stay; new tables no longer add to it.
-
-- **Scoring** (per tournament, `packages/server/src/tournament-scoring.ts`, never the engine's `ranking.ts`), with `L`
-  the number of rounds:
-  - placement: out in round `r` before the final = `3 × (r − 1)`; place `p` of `F` in the final =
-    `3 × (L − 1) + 2 × (F − p)`; the champion gets **+6** on top;
-  - **+2 per table won**, every round including the final (**+1** when a table is decided on standing at a nested
-    round's deadline: status `decided`, its standing order is the table's order; knockouts are always played out);
-  - **+1 per player eliminated** at your tables (surrenders and forfeits credit nobody).
-
-  Example: 4 entrants at tables of 2 (`L = 2`, a final of 2): the champion scores 3 + 2 + 6 = 11 for placement plus 2
-  tables × 2 = 15 before kills; the runner-up 3 + 2 = 5; round-1 exits 0 plus kills.
-- **The board** sums results over tournaments: points, tournaments played, championships, finals reached, tables won,
-  kills and best finish, sorted by points, then championships. Identities are the entrant names, as on the other
-  boards (`bot:<name>` for Zergs, `player:<name>` otherwise), with the self-declared caveat of
-  [hardening #3](hardening.md#3-leaderboard-identities-for-plain-seats-are-self-declared).
-- **Fill bots are not ranked** (owner, 2026-10-22): the built-in bots a tournament adds (or the host adds as
-  `kind: "bot"`) are scored but left out of the rows. **Zergs are regular players and stay ranked.**
-- **House bots panel.** Beside the board, aggregate fun numbers for the server's bots, split into fill bots and
-  Zergs, never a ranking (`houseBots` in `GET /api/rankings?board=tournament`, and in the MCP `leaderboard` reply):
-  - totals: different bots, entries, tables played and won, eliminations made, times knocked out, finals,
-    championships, armies lost, enemy armies destroyed, conquests;
-  - the best finish (who, where);
-  - records with names: most kills in a tournament, most armies lost at one table, longest survival at a table (turns),
-    biggest army, most conquests in a tournament.
-
-  The table numbers are gathered from each table's moves while it is played, so a table already being played when
-  the server restarts counts only from the restart on. Results saved before this have the counts but no table
-  numbers.
+  numbers; a result with no `kind` counts as a fill bot.
 - **Reading it:** `GET /api/rankings?board=tournament` (`{board, current, rankings}`), `GET /api/rankings/profile?key=&board=tournament`
   (`stats` adds the entrant's `results`: each tournament, finish and points), the MCP `leaderboard` and
   `ranked_profile` tools with `board: "tournament"`, and the **Tournament** toggle beside **Training** on the web

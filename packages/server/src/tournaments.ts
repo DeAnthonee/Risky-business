@@ -16,6 +16,7 @@ import {
   planToNest,
   rankByStanding,
   shuffle as seededShuffle,
+  startGame,
   startOnSpots,
   type GameOptions,
   type NestNode,
@@ -23,6 +24,7 @@ import {
 } from '@risk/engine';
 import type { GameRoom, Store } from './store.js';
 import type { CommitInfo } from './archive.js';
+import { freeZergName, type BotKind } from './bot.js';
 
 /**
  * Knockout tournaments. The host creates one and gets its host token; players and agents join while it is
@@ -64,10 +66,12 @@ export interface Entrant {
   id: string;
   name: string;
   isBot: boolean;
-  /** A server bot's kind: "zerg" plays as a Zerg (a regular, ranked player); absent or "bot" is a fill bot. */
-  kind?: 'bot' | 'zerg';
   /** Secret that identifies this entrant (bots have none). */
   token?: string;
+  /** A server bot's kind: "zerg" plays as a Zerg at its tables (docs/zergs.md); absent = the built-in bot. */
+  kind?: BotKind;
+  /** Self-declared player type, passed to every table seat; spectators see it, no view of the tournament does. */
+  agent?: string;
   joinedAt: number;
 }
 
@@ -89,7 +93,7 @@ export interface TournamentMatch {
   node?: number;
   /** Nested, a decided table: every entrant in standing order, and the dice rolled to break ties (by entrant). */
   standing?: { order: string[]; rolls: Record<string, number[]> };
-  /** Set when the table settles: its entrants best first (the game's final placings, or a decided table's standing). */
+  /** Set when the table settles: its entrants best first (the game's final placings, or the standing), for the tournament board. */
   order?: string[];
   /** Set when the table settles: players each entrant eliminated there (surrenders credit nobody). */
   kills?: Record<string, number>;
@@ -292,6 +296,12 @@ function shuffle<T>(list: T[]): T[] {
   return a;
 }
 
+/** The first "Bot <n>" none of `names` uses (any case). */
+function nextBotName(names: readonly string[]): string {
+  const taken = new Set(names.map((n) => n.toLowerCase()));
+  for (let n = 1; ; n++) if (!taken.has(`bot ${n}`)) return `Bot ${n}`;
+}
+
 /** Split `n` entrants into the fewest tables of at most `size`, as even as possible (sizes differ by at most 1). */
 export function tableSizes(n: number, size: number): number[] {
   if (n <= 0) return [];
@@ -342,8 +352,10 @@ export class TournamentManager extends EventEmitter {
       // Nested: the round clock starts again from its saved deadline (a deadline passed while down ends the round now).
       if (t.format === 'nested' && t.status === 'running') {
         const round = this.currentRound(t);
-        if (round && !round.endedAt && round.deadline !== undefined && this.clock.now() >= round.deadline) this.endRound(t);
-        else this.armRound(t);
+        if (round && !round.endedAt && round.deadline !== undefined && this.clock.now() >= round.deadline) {
+          this.endRound(t);
+          this.changed(t);
+        } else this.armRound(t);
       }
     }
     this.prune();
@@ -408,7 +420,7 @@ export class TournamentManager extends EventEmitter {
     // Tables run on a per-move turn timer unless the host says otherwise, so a stalled seat cannot hold a round.
     if (options.turnTimer === undefined) {
       options.turnTimer = 'move';
-      if (options.turnTimerSeconds === undefined) options.turnTimerSeconds = 15;
+      if (options.turnTimerSeconds === undefined) options.turnTimerSeconds = 90;
     }
     const maxEntrants = spec.maxEntrants ?? DEFAULT_MAX_NESTED_ENTRANTS;
     if (!Number.isInteger(maxEntrants) || maxEntrants < 2 || maxEntrants > MAX_ENTRANTS) throw new RuleError(`maxEntrants must be a whole number from 2 to ${MAX_ENTRANTS}`);
@@ -460,7 +472,7 @@ export class TournamentManager extends EventEmitter {
     if (t.format === 'nested') return this.startNested(t);
     if (t.fillBots) {
       const target = Math.max(2, Math.ceil(t.entrants.length / t.groupSize) * t.groupSize);
-      for (let i = 1; t.entrants.length < target; i++) t.entrants.push({ id: `e_${newId(6)}`, name: `Bot ${i}`, isBot: true, joinedAt: Date.now() });
+      while (t.entrants.length < target) t.entrants.push({ id: `e_${newId(6)}`, name: nextBotName(t.entrants.map((e) => e.name)), isBot: true, joinedAt: Date.now() });
     }
     if (t.entrants.length < 2) throw new RuleError('A tournament needs at least 2 entrants (or turn fillBots on)');
     t.status = 'running';
@@ -503,14 +515,35 @@ export class TournamentManager extends EventEmitter {
 
   // ---- players ----
 
-  join(id: string, rawName: unknown): { entrantId: string; token: string } {
+  /**
+   * The host adds server bots while registering: built-in bots ("Bot 3") or Zergs, named from the reptile list
+   * (unique in the tournament: "Komodo", then "Komodo 2" once every name is used). They are entrants like anyone else.
+   */
+  addBots(id: string, kind: BotKind, count: number): { entrantId: string; name: string }[] {
+    const t = this.require(id);
+    if (t.status !== 'registering') throw new RuleError('Registration is closed: this tournament has started');
+    if (!Number.isInteger(count) || count < 1) throw new RuleError('count must be a whole number of at least 1');
+    if (t.entrants.length + count > t.maxEntrants) throw new RuleError(`That would pass the tournament's ${t.maxEntrants} entrants`);
+    const added: { entrantId: string; name: string }[] = [];
+    for (let i = 0; i < count; i++) {
+      const names = t.entrants.map((e) => e.name);
+      const name = kind === 'zerg' ? freeZergName(names) : nextBotName(names);
+      const entrant: Entrant = { id: `e_${newId(6)}`, name, isBot: true, joinedAt: Date.now(), ...(kind === 'zerg' ? { kind } : {}) };
+      t.entrants.push(entrant);
+      added.push({ entrantId: entrant.id, name });
+    }
+    this.changed(t);
+    return added;
+  }
+
+  join(id: string, rawName: unknown, agent?: string): { entrantId: string; token: string } {
     const t = this.require(id);
     if (t.status !== 'registering') throw new RuleError('Registration is closed: this tournament has started');
     if (t.entrants.length >= t.maxEntrants) throw new RuleError('This tournament is full');
     const name = String(rawName ?? '').replace(/\s+/g, ' ').trim().slice(0, MAX_NAME);
     if (!name) throw new RuleError('A name is required');
     if (t.entrants.some((e) => e.name.toLowerCase() === name.toLowerCase())) throw new RuleError(`The name "${name}" is taken in this tournament`);
-    const entrant: Entrant = { id: `e_${newId(6)}`, name, isBot: false, token: newId(24), joinedAt: Date.now() };
+    const entrant: Entrant = { id: `e_${newId(6)}`, name, isBot: false, token: newId(24), joinedAt: Date.now(), ...(agent ? { agent } : {}) };
     t.entrants.push(entrant);
     this.changed(t);
     return { entrantId: entrant.id, token: entrant.token! };
@@ -711,7 +744,7 @@ export class TournamentManager extends EventEmitter {
       const players = entrants.map((eid) => this.entrant(t, eid)!);
       const tables = tableSizes(order.length, t.groupSize).length;
       const label = tables === 1 ? (round === 1 ? 'Table 1' : 'Final') : `Table ${i + 1}`;
-      const { room, seats } = this.store.createTable(`${t.name} · R${round} ${label}`.slice(0, 40), { ...t.options, maxPlayers: entrants.length }, players.map((p) => ({ name: p.name, isBot: p.isBot })), t.id);
+      const { room, seats } = this.store.createTable(`${t.name} · R${round} ${label}`.slice(0, 40), { ...t.options, maxPlayers: entrants.length }, players.map((p) => ({ name: p.name, isBot: p.isBot, ...(p.kind ? { kind: p.kind } : {}), agent: p.agent })), t.id);
       const match: TournamentMatch = { gameId: room.id, entrants, seats: Object.fromEntries(entrants.map((eid, k) => [eid, seats[k]])), winner: null, status: 'playing' };
       matches.push(match);
       this.watch(t, match, room);
@@ -814,7 +847,13 @@ export class TournamentManager extends EventEmitter {
   private startNested(t: TournamentSnapshot): TournamentSnapshot {
     const n = t.nested!;
     const plan = planNest(t.entrants.length, { maxFinal: n.finalMap ? this.maxFinal(n.finalMap) : NESTED_FINAL.max });
-    for (let i = 1; i <= plan.zergs; i++) t.entrants.push({ id: `e_${newId(6)}`, name: `Bot ${i}`, isBot: true, joinedAt: Date.now() });
+    // The bots the plan needs are Zerg entrants (docs/zergs.md), with reptile names unique in the tournament.
+    const fillers: string[] = [];
+    for (let i = 1; i <= plan.zergs; i++) {
+      const entrant: Entrant = { id: `e_${newId(6)}`, name: freeZergName(t.entrants.map((e) => e.name)), isBot: true, kind: 'zerg', joinedAt: Date.now() };
+      t.entrants.push(entrant);
+      fillers.push(entrant.id);
+    }
     n.seed = randomBytes(4).readUInt32LE(0);
     n.plan = plan;
     const { boards, nodes, index } = planToNest(plan, { seed: n.seed, final: n.finalMap ? { map: n.finalMap } : undefined, boards: { territoriesPerSeat: n.territoriesPerSeat } });
@@ -822,12 +861,16 @@ export class TournamentManager extends EventEmitter {
     n.portals = boards.map((round) => round.map((node) => node.portals));
     n.nodes = nodes;
     n.nodeOf = index;
-    // Seating, from the tournament seed: people and agents first, spread over the tables, then bots fill the rest,
-    // so a table is all bots only when there are more tables than people.
+    // Seating, from the tournament seed. The planner's filler Zergs first, spread as the plan shares them out (at most
+    // one more at any table than at another; owner's rule), then people and agents, spread over the free seats, then
+    // the host's own bots fill the rest, so a table is all bots only when there are more tables than people.
     const rng = createRng(nestSeed(n.seed, 'seats'));
+    const filler = new Set(fillers);
     const people = seededShuffle(rng, t.entrants.filter((e) => !e.isBot).map((e) => e.id));
-    const bots = seededShuffle(rng, t.entrants.filter((e) => e.isBot).map((e) => e.id));
+    const bots = seededShuffle(rng, t.entrants.filter((e) => e.isBot && !filler.has(e.id)).map((e) => e.id));
     const tables = plan.rounds[0].map(() => [] as string[]);
+    const spread = seededShuffle(rng, fillers);
+    plan.rounds[0].forEach((table, j) => tables[j].push(...spread.splice(0, table.zergs)));
     for (const eid of [...people, ...bots]) {
       let best = -1;
       for (let j = 0; j < tables.length; j++) {
@@ -863,19 +906,33 @@ export class TournamentManager extends EventEmitter {
       const { room, seats } = this.store.createTable(
         `${t.name} · R${r + 1} ${label}`.slice(0, 40),
         { ...t.options, map: map as GameOptions['map'], maxPlayers: entrants.length },
-        players.map((p) => ({ name: p.name, isBot: p.isBot })),
+        players.map((p) => ({ name: p.name, isBot: p.isBot, ...(p.kind ? { kind: p.kind } : {}), agent: p.agent })),
         t.id,
         {
           ...(n.botDelayMs !== undefined ? { botDelayMs: n.botDelayMs } : {}),
-          // Engine rules: every winner starts on the portal territory it came up through.
-          ...(onPortals ? { prepare: (lobby, seated) => startOnSpots(lobby, Object.fromEntries(seated.map((s, k) => [s.playerId, portals[group[k].portal!]])), () => nextFloat(rng)) } : {}),
+          // Engine rules: every winner starts on the portal territory it came up through. If that start cannot be
+          // built, the table starts as usual rather than leave the tournament stuck between rounds.
+          ...(onPortals
+            ? {
+                prepare: (lobby, seated) => {
+                  try {
+                    return startOnSpots(lobby, Object.fromEntries(seated.map((s, k) => [s.playerId, portals[group[k].portal!]])), () => nextFloat(rng));
+                  } catch (err) {
+                    console.error(`[tournament ${t.id}] start on portals failed, starting normally:`, err);
+                    return startGame(lobby);
+                  }
+                },
+              }
+            : {}),
         },
       );
       return { gameId: room.id, entrants, seats: Object.fromEntries(entrants.map((eid, k) => [eid, seats[k]])), winner: null, status: 'playing', table: j, map, node };
     });
-    t.rounds.push({ round: r + 1, matches, deadline: this.clock.now() + n.roundMinutes * 60_000 });
+    const round: TournamentRound = { round: r + 1, matches, deadline: this.clock.now() + n.roundMinutes * 60_000 };
+    t.rounds.push(round);
     for (const m of matches) if (m.status === 'playing') this.watch(t, m, this.store.get(m.gameId!)!);
-    if (this.currentRound(t)!.matches.length === matches.length && !this.currentRound(t)!.endedAt) {
+    // A table already over (a bye-only round, or a game that ended while being watched) may have ended this round.
+    if (this.currentRound(t) === round && !round.endedAt) {
       this.armRound(t);
       this.checkRound(t);
     }
@@ -912,7 +969,7 @@ export class TournamentManager extends EventEmitter {
       m.standing = { order, rolls: Object.fromEntries(Object.entries(standing.rolls).filter(([pid]) => byPlayer.has(pid)).map(([pid, r]) => [byPlayer.get(pid)!, r])) };
       m.winner = order[0] ?? null;
       m.status = m.winner ? 'decided' : 'abandoned';
-      // For the tournament board: kills from the game so far, and the standing as the table's order.
+      // The tournament board: kills from the game so far, and the standing as the table's order.
       this.scoreTable(m, room);
       m.order = order;
       const names = order.map((eid, i) => `${i + 1}. ${this.entrant(t, eid)?.name ?? '?'}`).join(', ');

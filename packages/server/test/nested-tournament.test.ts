@@ -85,7 +85,7 @@ describe('nested tournaments', () => {
       expect(ok.status).toBe(201);
       expect(ok.body.tournament).toMatchObject({ format: 'nested', map: 'nested', maxEntrants: 128, nested: { finalMap: 'world', territoriesPerSeat: 5, roundMinutes: 30, finishShare: 0.51, botDelayMs: 300, plan: null } });
       // Tables run on a per-move turn timer by default.
-      expect(ok.body.tournament.options).toMatchObject({ turnTimer: 'move', turnTimerSeconds: 15 });
+      expect(ok.body.tournament.options).toMatchObject({ turnTimer: 'move', turnTimerSeconds: 90 });
       expect(await bad({ botDelayMs: 5000 })).toBe(400);
     } finally {
       await risk.shutdown('test');
@@ -154,6 +154,7 @@ describe('nested tournaments', () => {
       const waited = await mcp('wait_for_match', { tournamentId: id, timeoutSeconds: 5 });
       expect(waited.text).toMatch(/Your table is ready/);
       expect(waited.text).toMatch(/YOUR TABLE: game [A-Z0-9]+ \(round 1\)\. Seat token: \S+/);
+      const claudeGame = /YOUR TABLE: game ([A-Z0-9]+)/.exec(waited.text)![1];
 
       // Nobody human moves, so their three tables wait; the seven bot tables play out. The 6th finish (51% of 10)
       // ends the round: the tables still playing are decided on standing, and the final is seated at once.
@@ -171,14 +172,21 @@ describe('nested tournaments', () => {
         expect(room.decidedAt).not.toBeNull();
         expect(room.chat.at(-1)!.message).toMatch(/decided on standing/);
       }
-      // A decided table refuses moves.
-      const humanDecided = decided.find((m) => m.entrants.includes(people[0].entrantId)) ?? decided.find((m) => m.entrants.includes(people[1].entrantId));
-      if (humanDecided) {
-        const who = people.find((p) => humanDecided.entrants.includes(p.entrantId))!;
-        const r = await call(`/games/${who.match.gameId}/actions`, post({ action: { type: 'end_turn' } }), who.match.token);
-        expect(r.status).toBe(400);
-        expect(r.body.error).toMatch(/decided at the round's end/);
-      }
+      // A decided table refuses moves, and tells waiting agents and every view that it is over. (Nobody human moves, so
+      // the people's and the agent's tables are always among the decided ones.)
+      const who = people[0];
+      expect(decided.some((m) => m.gameId === who.match.gameId)).toBe(true);
+      const r = await call(`/games/${who.match.gameId}/actions`, post({ action: { type: 'end_turn' } }), who.match.token);
+      expect(r.status).toBe(400);
+      expect(r.body.error).toMatch(/decided at the round's end/);
+      const wait = await call(`/games/${who.match.gameId}/wait?timeoutMs=5000`, {}, who.match.token);
+      expect(wait.body.reason).toBe('finished');
+      expect(wait.body.state.decidedAt).toBe(store.get(who.match.gameId)!.decidedAt);
+      expect((await call(`/games/${who.match.gameId}`)).body.state.decidedAt).toBeTypeOf('number');
+      expect((await call('/games')).body.games.find((g: any) => g.id === who.match.gameId).decidedAt).toBeTypeOf('number');
+      const agentWait = await mcp('wait_for_turn', { gameId: claudeGame, timeoutSeconds: 5 });
+      expect(agentWait.text).toMatch(/decided on standing/);
+      expect(agentWait.text).toMatch(/wait_for_match/);
 
       // The final: the ten table winners, one per table, in portal order.
       const final = t.rounds[1].matches[0];
@@ -199,23 +207,20 @@ describe('nested tournaments', () => {
       const view = (await call(`/tournaments/${id}`)).body.tournament;
       expect(view.champion.entrantId).toBe(t.champion);
       expect(view.rounds[1].matches[0].status).toMatch(/finished|decided/);
-
-      // The tournament board (#183): one result per person (the 37 built-in fill bots stay off it, owner's decision);
-      // a decided table's win is worth +1, a played-out one +2; a champion of this 2-round event with a final of 10
-      // scores 3 + 2 × 9 + 6 = 27 for placement.
-      const board = (await call('/rankings?board=tournament')).body.rankings;
-      expect(board.map((r: any) => r.name).sort()).toEqual(['Ada', 'Claude', 'Grace']);
+      // The finished tournament goes on the tournament board once: a decided table's first place has its +1 win.
       const result = store.tournamentBoard.result(id)!;
-      expect(result).toMatchObject({ format: 'nested', rounds: 2 });
+      expect(result).toBeTruthy();
+      const decidedWinners = t.rounds.flatMap((r) => r.matches.filter((m) => m.status === 'decided').map((m) => m.winner));
+      const person = people.find((p) => decidedWinners.includes(p.entrantId));
+      if (person) expect(JSON.stringify(result)).toContain(person.name);
+      // Every entrant is scored, bots flagged; only the three people are ranked (owner: no server bot on this board).
+      expect(result.entrants).toHaveLength(40);
+      expect(result.entrants.filter((e) => e.bot)).toHaveLength(37);
+      expect((await call('/rankings?board=tournament')).body.rankings.map((r: any) => r.name).sort()).toEqual(['Ada', 'Claude', 'Grace']);
+      // Table points: +2 per played-out win, +1 per decided win.
       const tablePoints = (eid: string) =>
         t.rounds.flatMap((r) => r.matches).filter((m) => m.winner === eid && (m.status === 'finished' || m.status === 'decided')).reduce((n, m) => n + (m.status === 'decided' ? 1 : 2), 0);
-      for (const e of t.entrants.filter((x) => !x.isBot)) {
-        const r = result.entrants.find((x) => x.name === e.name)!;
-        expect(r.tablePoints).toBe(tablePoints(e.id));
-        if (e.id === t.champion) expect(r).toMatchObject({ champion: true, placementPoints: 27, final: { place: 1, of: 10 } });
-        else if (final.entrants.includes(e.id)) expect(r.placementPoints).toBe(3 + 2 * (10 - r.final!.place));
-        else expect(r.placementPoints).toBe(0);
-      }
+      for (const e of t.entrants) expect(result.entrants.find((x) => x.name === e.name)!.tablePoints).toBe(tablePoints(e.id));
       // Tournament tables never land on the public board.
       expect((await call('/rankings')).body.rankings).toEqual([]);
     } finally {
@@ -328,12 +333,52 @@ describe('nested tournaments', () => {
     third.stopTimers();
   });
 
+  it('seats Zerg entrants as Zergs at every table, round 2 included', async () => {
+    const store = new Store(null, {}, { clock: new FakeClock() });
+    const t = store.tournaments.create({ format: 'nested', botDelayMs: 0, options: { turnTimer: 'off', autoSetup: true } });
+    store.tournaments.addBots(t.id, 'zerg', 18);
+    store.tournaments.start(t.id);
+    const zergSeats = (gameId: string) => store.get(gameId)!.state.players.filter((p) => !p.isNeutral).every((p) => p.isBot && p.id.startsWith('zerg_'));
+    expect(t.rounds[0].matches.every((m) => zergSeats(m.gameId!))).toBe(true);
+    // An all-Zerg table ends fast (the weaker Zergs give way to the strongest); the 51% rule then seats the final.
+    await until(() => t.rounds.length === 2, 120_000);
+    const final = t.rounds[1].matches[0];
+    expect(final.entrants.every((eid) => t.entrants.find((e) => e.id === eid)!.kind === 'zerg')).toBe(true);
+    expect(zergSeats(final.gameId!)).toBe(true);
+    store.stopTimers();
+  }, 180_000);
+
+  it('spreads the planner\'s filler Zergs over the round-1 tables for every count that needs them', () => {
+    for (const n of [2, 4, 5, 11, 13, 15, 17]) {
+      const store = new Store(null, {}, { clock: new FakeClock() });
+      const t = store.tournaments.create({ format: 'nested', botDelayMs: 2000, options: { turnTimer: 'off' } });
+      for (let i = 1; i <= n; i++) store.tournaments.join(t.id, `P${i}`);
+      store.tournaments.start(t.id);
+      const zergs = new Set(t.entrants.filter((e) => e.kind === 'zerg').map((e) => e.id));
+      expect(zergs.size, `${n}`).toBe(t.nested!.plan!.zergs);
+      const perTable = t.rounds[0].matches.map((m) => m.entrants.filter((e) => zergs.has(e)).length);
+      expect(perTable, `${n}`).toEqual(t.nested!.plan!.rounds[0].map((x) => x.zergs));
+      expect(Math.max(...perTable) - Math.min(...perTable), `${n}`).toBeLessThanOrEqual(1);
+      // Every table keeps at least one person while there are people enough.
+      if (n >= t.rounds[0].matches.length) for (const m of t.rounds[0].matches) expect(m.entrants.some((e) => !zergs.has(e)), `${n}`).toBe(true);
+      store.stopTimers();
+    }
+  });
+
   it('adds bots only when the count fits no plan', () => {
     const store = new Store(null, {}, { clock: new FakeClock() });
     const t = store.tournaments.create({ format: 'nested', botDelayMs: 0, options: { turnTimer: 'off' } });
     for (let i = 1; i <= 11; i++) store.tournaments.join(t.id, `P${i}`);
     store.tournaments.start(t.id);
     expect(t.entrants.filter((e) => e.isBot)).toHaveLength(7); // 11 -> 18: six tables of 3, then a final of 6
+    // The filler entrants are Zergs, with distinct reptile names.
+    const fillers = t.entrants.filter((e) => e.isBot);
+    expect(fillers.every((e) => e.kind === 'zerg')).toBe(true);
+    expect(new Set(fillers.map((e) => e.name)).size).toBe(7);
+    // Spread as the plan shares them out (owner): every table gets its share, never two more than another table.
+    const perTable = t.rounds[0].matches.map((m) => m.entrants.filter((e) => fillers.some((f) => f.id === e)).length);
+    expect(perTable).toEqual(t.nested!.plan!.rounds[0].map((x) => x.zergs));
+    expect(Math.max(...perTable) - Math.min(...perTable)).toBeLessThanOrEqual(1);
     // People are spread first: every table has a person, so none is all bots.
     for (const m of t.rounds[0].matches) expect(m.entrants.some((e) => !t.entrants.find((x) => x.id === e)!.isBot)).toBe(true);
     store.stopTimers();

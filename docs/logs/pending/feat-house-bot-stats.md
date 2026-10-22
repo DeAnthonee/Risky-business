@@ -1,3 +1,3 @@
-server: - 2026-10-22 #PR tournament board: fill bots (kind "bot") are scored but not ranked (Zergs stay ranked); each table gathers per-entrant fun numbers from its moves (armies lost and destroyed, conquests, peak armies, turns survived; `TournamentMatch.stats`); `houseBots` in `GET /rankings?board=tournament` aggregates them for fill bots and Zergs (totals, best finish, named records)
-client: - 2026-10-22 #PR a House bots panel under the Tournament leaderboard: fill-bot and Zerg totals, best finish and records, labelled not ranked
-mcp: - 2026-10-22 #PR `leaderboard` with `board: "tournament"` returns `houseBots` too; fill bots are no longer in its rows
+server: - 2026-10-22 #196 tournament board: fill bots (kind "bot") are scored but not ranked (Zergs stay ranked); each table gathers per-entrant fun numbers from its moves (armies lost and destroyed, conquests, peak armies, turns survived; `TournamentMatch.stats`); `houseBots` in `GET /rankings?board=tournament` aggregates them for fill bots and Zergs (totals, best finish, named records)
+client: - 2026-10-22 #196 a House bots panel under the Tournament leaderboard: fill-bot and Zerg totals, best finish and records, labelled not ranked
+mcp: - 2026-10-22 #196 `leaderboard` with `board: "tournament"` returns `houseBots` too; fill bots are no longer in its rows

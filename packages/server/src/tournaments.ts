@@ -2,7 +2,7 @@ import { EventEmitter } from 'node:events';
 import { randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { RuleError, createGame, getMap, type GameOptions } from '@risk/engine';
+import { RuleError, createGame, finalPlacements, getMap, type GameOptions } from '@risk/engine';
 import type { GameRoom, Store } from './store.js';
 
 /**
@@ -35,6 +35,12 @@ export interface TournamentMatch {
   winner: string | null;
   /** 'abandoned': the room was closed before anyone won, so nobody from this table moves on. */
   status: 'playing' | 'finished' | 'bye' | 'abandoned';
+  /** Set when the table settles: its entrants best first (the game's final placings), for the tournament board. */
+  order?: string[];
+  /** Set when the table settles: players each entrant eliminated there (surrenders credit nobody). */
+  kills?: Record<string, number>;
+  /** Decided on standing rather than played out (nested tournaments' round clock); never set for knockouts yet. */
+  decided?: boolean;
 }
 
 export interface TournamentRound {
@@ -154,6 +160,8 @@ export function tableSizes(n: number, size: number): number[] {
 
 export class TournamentManager extends EventEmitter {
   tournaments = new Map<string, TournamentSnapshot>();
+  /** Called once when a tournament finishes (the store records it on the tournament leaderboard). */
+  onFinished: ((t: TournamentSnapshot) => void) | null = null;
 
   limits: TournamentLimits;
 
@@ -478,6 +486,7 @@ export class TournamentManager extends EventEmitter {
       } else if (room.closed) {
         m.status = 'abandoned';
       } else return;
+      this.scoreTable(m, room);
       room.off('change', settle);
       room.off('closed', settle);
       if (this.tournaments.get(t.id) !== t) return; // tournament deleted
@@ -489,6 +498,14 @@ export class TournamentManager extends EventEmitter {
     settle();
   }
 
+  /** The table's final placings and kills, by entrant, for the tournament leaderboard. */
+  private scoreTable(m: TournamentMatch, room: GameRoom) {
+    const entrantOf = new Map(Object.entries(m.seats).map(([eid, s]) => [s.playerId, eid]));
+    const placings = finalPlacements(room.state, room.eliminationOrder).filter((p) => entrantOf.has(p.id));
+    m.order = placings.map((p) => entrantOf.get(p.id)!);
+    m.kills = Object.fromEntries(placings.map((p) => [entrantOf.get(p.id)!, p.killed.filter((v) => entrantOf.has(v)).length]));
+  }
+
   /** When every table of the current round is decided: crown the champion or seat the next round. */
   private advance(t: TournamentSnapshot) {
     if (t.status !== 'running') return;
@@ -498,6 +515,7 @@ export class TournamentManager extends EventEmitter {
     if (winners.length <= 1) {
       t.champion = winners[0] ?? null;
       t.status = 'finished';
+      this.onFinished?.(t);
       return;
     }
     this.buildRound(t, winners);

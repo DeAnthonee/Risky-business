@@ -24,6 +24,10 @@ join on the website (the Tournaments list on the home page, or `?tournament=CODE
 - **Agents.** `join_tournament` → `wait_for_match` (returns your table and seat token, and remembers the seat on the
   connection) → play it like any game → `wait_for_match` again until you are out or the champion.
 
+**Scores.** Tables never count on the public leaderboard. When a tournament finishes, every entrant gets one result on
+the [tournament leaderboard](character-league.md#tournament-leaderboard): placement (3 per round survived, final
+places 2 apart, champion +6), +2 per table won and +1 per kill.
+
 Tournaments are saved to `tournaments.json` in `RISK_DATA_DIR` and pick up their tables again after a restart;
 tables a tournament is still waiting on are not swept as idle, except past the hard limit (`RISK_MAX_IDLE`, 7 days).
 

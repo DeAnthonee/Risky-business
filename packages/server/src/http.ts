@@ -139,19 +139,19 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
     api.get('/model-info', (_req, res) => res.json(characters.modelInfo()));
   }
 
-  const rankedProfile = (key: string, name: string, season?: string, board?: RankingBoard) => {
-    let profile: string | null = null;
-    if (/^[a-z0-9][a-z0-9_-]*\/[a-z0-9][a-z0-9_-]*$/.test(key) && characters) {
-      try { profile = characters.get(key).markdown; } catch { /* historical character may have been removed */ }
-    }
-    return { stats: store.board(board).profile(key, name, season), profile };
+  const characterProfile = (key: string) => {
+    if (!/^[a-z0-9][a-z0-9_-]*\/[a-z0-9][a-z0-9_-]*$/.test(key) || !characters) return null;
+    try { return characters.get(key).markdown; } catch { return null; /* historical character may have been removed */ }
   };
+  const rankedProfile = (key: string, name: string, season?: string, board?: RankingBoard) => ({ stats: store.board(board).profile(key, name, season), profile: characterProfile(key) });
   // ?season=<id> reads an archived season (ids from /rankings/seasons); without it, the current one.
   const seasonOf = (req: Request) => (req.query.season === undefined ? undefined : String(req.query.season).slice(0, 20));
-  // ?board=training reads the training leaderboard (yardstick games; no seasons); ?board=public or none, the public one.
-  const boardOf = (req: Request): RankingBoard | undefined => parseBoard(req.query.board, true);
+  // ?board=training reads the training leaderboard (yardstick games; no seasons), ?board=tournament the tournament one
+  // (its own rows: points, tournaments, championships...); ?board=public or none, the public one.
+  const boardOf = (req: Request): LeaderboardName | undefined => parseLeaderboard(req.query.board, true);
   api.get('/rankings', (req, res) => {
     const board = boardOf(req);
+    if (board === 'tournament') return res.json({ board, current: true, rankings: store.tournamentBoard.rows() });
     if (board) return res.json({ board, season: String(store.training.season), current: true, rankings: store.training.rows() });
     const season = seasonOf(req);
     const rankings = store.rankings.seasonRows(season);
@@ -161,17 +161,19 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
   api.get('/rankings/seasons', (_req, res) => res.json({ current: store.rankings.season, seasons: store.rankings.seasons() }));
   // Match history for the home page: finished games from the archive index, newest first. Only the public outcome
   // (seats, places, winner, turns), never a board, so fog games are safe to list. Empty when records are off.
-  // Training games carry board "training"; ?board=training lists only those, ?board=public only the others.
+  // ?board=training lists only training games (board "training"), ?board=tournament only tournament tables, ?board=public
+  // only the others (the games the public leaderboard ranks).
   api.get(
     '/history',
     wrap((req, res) => {
       const limit = Math.max(1, Math.min(Number(req.query.limit) || 20, 100));
       const filter = req.query.board === undefined ? null : String(req.query.board);
-      if (filter !== null && filter !== 'public') parseBoard(filter, true);
+      if (filter !== null) parseLeaderboard(filter, true);
+      const boardOfGame = (g: { board?: string; tournamentId?: string }) => (g.board === 'training' ? 'training' : g.tournamentId ? 'tournament' : 'public');
       const games = store.archive
         .list(Infinity)
         .filter((g) => g.finished && g.winner)
-        .filter((g) => filter === null || (filter === 'training') === (g.board === 'training'))
+        .filter((g) => filter === null || boardOfGame(g) === filter)
         .slice(0, limit)
         .map((g) => ({
           id: g.id,
@@ -196,6 +198,7 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
     const key = String(req.query.key ?? '').slice(0, 200);
     if (!key) return res.status(400).json({ error: 'Profile key is required' });
     const board = boardOf(req);
+    if (board === 'tournament') return res.json({ stats: store.tournamentBoard.profile(key, key.split(/[/:]/).pop()!), profile: characterProfile(key), board });
     const season = board ? undefined : seasonOf(req);
     if (!store.rankings.seasonRows(season)) return res.status(404).json({ error: `No leaderboard season ${season}` });
     res.json({ ...rankedProfile(key, key.split('/').pop()!, season, board), ...(board ? { board } : {}) });
@@ -690,6 +693,16 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
  * A board name from an untrusted body or query: undefined for none (or "public" where `allowPublic`), "training", or a
  * 400 for anything else.
  */
+/** A leaderboard to read: a room board ("training") or "tournament". */
+export type LeaderboardName = RankingBoard | 'tournament';
+
+/** A leaderboard name from an untrusted query: undefined for the public one, else "training" or "tournament". */
+export function parseLeaderboard(raw: unknown, allowPublic = false): LeaderboardName | undefined {
+  if (raw === 'tournament') return 'tournament';
+  if (raw === undefined || raw === null || (allowPublic && raw === 'public') || raw === 'training') return parseBoard(raw, allowPublic);
+  throw new RiskHttpError(`board must be "training" or "tournament"${allowPublic ? ' or "public"' : ''}`, 400);
+}
+
 export function parseBoard(raw: unknown, allowPublic = false): RankingBoard | undefined {
   if (raw === undefined || raw === null || (allowPublic && raw === 'public')) return undefined;
   if (raw === 'training') return 'training';

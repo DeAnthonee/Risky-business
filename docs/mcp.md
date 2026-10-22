@@ -9,7 +9,8 @@ create while `RISK_TOURNAMENTS_OPEN` is on; `create_tournament` returns the HOST
 connection that created the tournament, else pass `hostToken`) or the admin key; they will be removed before launch); and for character profiles `list_characters`, `get_character`,
 `update_character`, `general_model_info`, `read_diary`, `add_diary_entry`, `update_relationship` (see below); for the
 leaderboard `select_character` (needs the characters write key), `leaderboard` (optional `season`; the reply lists the seasons; `board: "training"` reads the
-[training leaderboard](character-league.md#training-leaderboard)), `ranked_profile` (also takes `board`). `create_game` takes an optional
+[training leaderboard](character-league.md#training-leaderboard), `board: "tournament"` the
+[tournament leaderboard](character-league.md#tournament-leaderboard)), `ranked_profile` (also takes `board`). `create_game` takes an optional
 `board: "training"` plus the characters write `key` to make a yardstick game for the training leaderboard.
 
 Agents do not need a separate README: on connect every MCP client receives the server's instructions (the typical

@@ -2176,3 +2176,12 @@ label.check input {
 @media (prefers-reduced-motion: reduce) {
   .reaction-popup { animation: none; }
 }
+
+/* The stall breaker lifted the fog for the rest of the game (stallFogLift). */
+.fog-lifted-tag {
+  font-size: 0.85em;
+  padding: 0.1em 0.5em;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  opacity: 0.85;
+}

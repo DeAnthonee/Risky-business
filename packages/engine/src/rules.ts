@@ -129,6 +129,9 @@ OPTIONS: FOG OF WAR AND CAPITALS
 "fogOfWar": you only see territories you own and those adjacent to them; everything else shows as hidden
 (owner and armies unknown) and events there are reported as "fogged". Each opponent's card count, sets traded and
 total reinforcement income stay public (not its breakdown). Spectators always see the whole board.
+"stallFogLift" (a number, 0 = off; tournaments use 3): the stall breaker for fog games. After that many full rounds in a
+row in which nobody captures a territory, the fog lifts for the rest of the game (a "fog_lifted" event): everyone
+sees the whole board from then on. Attacking keeps the fog; a long standoff lifts it.
 "capitals" (Capital Conquest): after setup each player's most garrisoned territory becomes their capital (shown with a
 star) and 3 extra armies are placed on it. At the start of your turn you get +2 armies for every capital you hold. A capital defends with up to 3 dice
 instead of 2 (all three pairs are compared). A captured capital becomes

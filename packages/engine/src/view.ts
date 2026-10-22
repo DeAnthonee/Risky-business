@@ -70,7 +70,7 @@ function eventPlayers(e: GameEvent): PlayerId[] {
  * who have been eliminated and everyone once the game is over see the whole board.
  */
 function foggedFor(state: GameState, viewer: PlayerId | null): boolean {
-  if (!state.options.fogOfWar || !viewer || state.phase === 'finished') return false;
+  if (!state.options.fogOfWar || state.fogLifted || !viewer || state.phase === 'finished') return false;
   const p = state.players.find((x) => x.id === viewer);
   return !!p && p.alive;
 }

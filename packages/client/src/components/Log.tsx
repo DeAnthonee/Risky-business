@@ -28,6 +28,8 @@ export function describe(e: GameEvent, view: GameView): string | null {
     }
     case 'blizzards':
       return `❄ Blizzards: ${e.territories.map(shortName).join(', ')} are impassable`;
+    case 'fog_lifted':
+      return `🌫 The fog lifts: no battles for ${e.rounds} round${e.rounds === 1 ? '' : 's'}. Everyone sees the whole board now.`;
     case 'capital_chosen':
       return e.auto ? `★ ${name(e.player)}'s capital is ${shortName(e.territory)} (+${e.armies})` : `★ ${name(e.player)} chose ${shortName(e.territory)} as their capital (+${e.armies})`;
     case 'capitals_assigned':

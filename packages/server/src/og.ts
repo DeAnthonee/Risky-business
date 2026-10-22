@@ -89,7 +89,7 @@ export function boardSvg(view: GameView): string {
   const map = getMap(view.options.map);
   const [vw, vh] = map.viewBox;
   const colour = new Map(view.players.map((p) => [p.id, p.color]));
-  const fog = !!view.options.fogOfWar;
+  const fog = !!view.options.fogOfWar && !view.fogLifted;
   const blizzards = new Set(view.blizzards ?? []);
   const maxArmies = Math.max(1, ...Object.values(view.territories).map((t) => t.armies ?? 0));
   const shapes = map.territories

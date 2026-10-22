@@ -373,7 +373,7 @@ const DEFAULT_MAX_NESTED_ENTRANTS = 128;
 export const NESTED_TURN_TIMER_SECONDS = 90;
 /** A nested (and so scheduled) round's deadline when the host sets none, in minutes (owner, 2026-10-22). */
 export const NESTED_ROUND_MINUTES = 15;
-export const NESTED_DEFAULT_OPTIONS: Partial<GameOptions> = { autoSetup: true, capitals: true };
+export const NESTED_DEFAULT_OPTIONS: Partial<GameOptions> = { autoSetup: true, capitals: true, stallFogLift: 3 };
 /** Unless the host sets a blizzard count, each nested table freezes this share of its own board's territories. */
 export const NESTED_BLIZZARD_SHARE = 0.1;
 

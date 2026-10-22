@@ -33,8 +33,8 @@ Zergs are house bots that rush, never attack each other and hunt eliminations to
 - **Live seats play `zerg@2` (owner, 2026-10-22, #198).** In a live 10-player game, 6 of 8 Zergs surrendered mid-game
   as "walled in" within 2.5 minutes and their land went neutral; the owner called that a bug. `ZERG_2_PARAMS` is
   `zerg@1` with `sacrifice: 0` and `walledInMass: 1`: a Zerg surrenders only when only Zergs are left. Live and
-  tournament Zerg seats play it (`packages/server/src/bot.ts`). Training, self-play and the horde gate stay on
-  `zerg@1`, unchanged, until the Lord of training moves them.
+  tournament Zerg seats play it (`packages/server/src/bot.ts`). Training moved to `zerg@2` in #201 (`horde.jobs`
+  seats it); the horde gate keeps `zerg@1` as its default reference, and `zerg@1` itself is unchanged.
 - **The rules don't change.** The ally rule lives in the Zerg's own policy (`packages/engine/src/zerg.ts`), not in
   `legalMoves`: anyone, Zergs included, may attack a Zerg as far as the engine is concerned. Cards, endings and
   Capital Conquest are as normal, so no mirrored file is touched.

@@ -150,6 +150,8 @@ const BOT_DELAY_MS = Number(process.env.RISK_BOT_DELAY_MS ?? 700);
  */
 const ALL_ZERG_TABLES_END_AT_ONCE = true;
 const MAX_HISTORY = 2000;
+/** Most bots one add-bots call seats (MCP add_bot count, create_game zergs, POST /games/:id/bots count). */
+export const MAX_BOTS_PER_CALL = 9;
 /** A tournament table saves only its newest history entries: the game record already journals the whole game. */
 export const TABLE_SAVED_HISTORY = 500;
 /** Snapshot debounce, and the longer one while many games are being played (each save stringifies every room). */
@@ -409,6 +411,18 @@ export class GameRoom extends EventEmitter {
   // ---- lobby ----
 
   /** Seat a bot (host only, checked by the caller). A Zerg always gets a Zerg name nobody in the room has. */
+  /** Add `count` (1-9) bots of one kind in one go, all or none: fails when the lobby has fewer free seats. */
+  addBots(kind: BotKind, count: number, name?: string): { playerId: PlayerId; name: string }[] {
+    if (!Number.isInteger(count) || count < 1 || count > MAX_BOTS_PER_CALL) throw new RuleError(`count must be a whole number from 1 to ${MAX_BOTS_PER_CALL}`);
+    if (name !== undefined && count > 1) throw new RuleError('A name is only for a single bot; leave it out with count');
+    const free = this.state.options.maxPlayers - this.state.players.length;
+    if (count > free) throw new RuleError(`Only ${free} free seat${free === 1 ? '' : 's'} in this lobby (maxPlayers ${this.state.options.maxPlayers}): add fewer, or raise maxPlayers`);
+    return Array.from({ length: count }, () => {
+      const { playerId } = this.addBot(kind, name);
+      return { playerId, name: this.state.players.find((p) => p.id === playerId)!.name };
+    });
+  }
+
   addBot(kind: BotKind, name?: string): { playerId: PlayerId } {
     if (kind === 'zerg') {
       if (name !== undefined) throw new RuleError('A Zerg is named from the Zerg list; leave the name out');

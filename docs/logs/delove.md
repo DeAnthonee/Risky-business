@@ -7,7 +7,7 @@ numbers go in [packages/delove/CYCLES.md](../../packages/delove/CYCLES.md) and t
 Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. **Append a line in the same PR** as any change to
 this area (README hard rule 12).
 
-- 2026-10-22 #PRNUM live yardstick baseline 3 in docs/delove-yardstick.md: delove@10 + search (js2-range) under the neutral protocol (#157), 2 games per tier, all with capitals and 8 blizzards; delove-status section 9 item 4
+- 2026-10-22 #168 live yardstick baseline 3 in docs/delove-yardstick.md: delove@10 + search (js2-range) under the neutral protocol (#157), 2 games per tier, all with capitals and 8 blizzards; delove-status section 9 item 4
 - 2026-10-21 #167 Zerg horde follow-up to #165: `delove-branch@1:range-horde` (src/horde-branch.ts, rollouts play Zergs with the horde bot) and `scripts/cycles/horde.jobs` (~4,000 games, in no cycle yet); horde gate `--zerg` / `--base-zerg`, points, kills and `rush` with 95% intervals; the searching Zerg `zerg-branch@1` and `npm run delove:zerg-tune` (three tuning runs flat within ±0.04 of zerg@1, docs/zergs.md 6a)
 - 2026-10-21 #165 the Zerg-horde gate `npm run delove:horde` (src/horde.ts): one seat against 2-3 `zerg@1` at 3/4/6p, paired against a base on the same games, `hold` metric
 - 2026-10-21 #164 live seat default preset is now `js2-range` (Jacob Sensei 2, range score, horizon 2): mirrored preset ladder, +2.33 / +1.17 / +0.12 points per seat at World 6p / Classic 4p / 2p vs the bare delove@8 and +1.01 vs `measured` at World 6p

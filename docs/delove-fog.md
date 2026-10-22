@@ -318,9 +318,9 @@ with full sight. The order is therefore:
 
 ### 4.5 A learned fog model for the sampler (design, not built)
 
-**Why:** with today's hand-written sampler, fog search loses to the bare network, but the same search rolling out
-the true board wins (4p: -0.92 against +0.32, "Controls" above). The search works and the board guess is what's
-missing. This is the game-records roadmap's step 2 ([game-records-roadmap.md](game-records-roadmap.md)), used first
+**Why:** with today's hand-written sampler, fog search clearly loses to the bare network (4p: -0.92), while the
+same search rolling out the true board does not lose, and leans positive (+0.32, interval -0.08 to +0.71;
+"Controls" above). The sampler, not the search, is what loses. This is the game-records roadmap's step 2 ([game-records-roadmap.md](game-records-roadmap.md)), used first
 where it pays: as the sampler's guesser.
 
 **What it predicts:** for each hidden territory of a seat's view, a distribution over its owner (the seat slots of

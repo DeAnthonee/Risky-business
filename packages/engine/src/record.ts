@@ -116,12 +116,24 @@ export interface RecordElimination {
   step: number;
 }
 
+/** How a game that was stopped before its end was decided on standing (a nested tournament table at its round's end). */
+export interface RecordDecision {
+  /** Players from first to last as decided (rankByStanding: territories, then armies, then dice; then those out). */
+  standing: PlayerId[];
+  /** The tie-break dice each tied player rolled, by player (absent or empty when nobody was tied). */
+  rolls?: Record<PlayerId, number[]>;
+}
+
 export interface RecordOutcome {
+  /** The game reached its end in the engine. False for a game decided on standing (see `decided`). */
   finished: boolean;
-  /** Set when the game was closed before anyone won (abandoned, swept, closed by its host). */
+  /** Set when the game was closed before anyone won (abandoned, swept, closed by its host), or decided on standing. */
   endedBecause?: string;
   winner: PlayerId | null;
-  reason: 'domination' | 'capitals' | null;
+  /** 'standing': decided on standing (`decided`), not won on the board. */
+  reason: 'domination' | 'capitals' | 'standing' | null;
+  /** Set when the game was stopped and decided on standing: the order used. `winner` is its first, `placings` the order. */
+  decided?: RecordDecision;
   eliminations: RecordElimination[];
   /** Players from first to last (Neutral left out): the winner, the survivors by territories held, then the eliminated, last out first. */
   placings: PlayerId[];
@@ -235,7 +247,8 @@ export function recordTurnStart(header: RecordHeader, state: GameState, events: 
 }
 
 /** Put a record together from its header, its journal and the state it ended in. */
-export function assembleRecord(header: RecordHeader, entries: RecordEntry[], final: GameState, endedAt: number, endedBecause?: string): GameRecord {
+/** `decided`: the game was stopped and decided on standing (outcome reason 'standing', winner and placings from it). */
+export function assembleRecord(header: RecordHeader, entries: RecordEntry[], final: GameState, endedAt: number, endedBecause?: string, decided?: RecordDecision): GameRecord {
   const steps: RecordStep[] = [];
   const turns: RecordTurn[] = [];
   for (const e of entries) {
@@ -263,6 +276,9 @@ export function assembleRecord(header: RecordHeader, entries: RecordEntry[], fin
   // Placings hold real seats only: a neutral can join mid-game (a surrender) and be eliminated too.
   const seats = new Set(final.players.filter((p) => !p.isNeutral).map((p) => p.id));
   const finished = final.phase === 'finished';
+  const placings = [...survivors, ...eliminations.map((e) => e.player).reverse().filter((id) => seats.has(id))];
+  // Decided on standing: the order used is the result (only for a game the engine did not finish itself).
+  const standing = !finished && decided ? decided.standing.filter((id) => seats.has(id)) : null;
   return {
     ...header,
     endedAt,
@@ -270,11 +286,12 @@ export function assembleRecord(header: RecordHeader, entries: RecordEntry[], fin
     turns,
     outcome: {
       finished,
-      ...(finished ? {} : { endedBecause: endedBecause ?? 'closed before the end' }),
-      winner: final.winner,
-      reason: over?.reason ?? (final.winner ? 'domination' : null),
+      ...(finished ? {} : { endedBecause: endedBecause ?? (standing ? 'decided on standing' : 'closed before the end') }),
+      winner: standing ? (standing[0] ?? null) : final.winner,
+      reason: standing ? (standing.length ? 'standing' : null) : (over?.reason ?? (final.winner ? 'domination' : null)),
       eliminations,
-      placings: [...survivors, ...eliminations.map((e) => e.player).reverse().filter((id) => seats.has(id))],
+      placings: standing ? [...standing, ...placings.filter((id) => !standing.includes(id))] : placings,
+      ...(standing ? { decided: { standing, ...(decided!.rolls && Object.keys(decided!.rolls).length ? { rolls: decided!.rolls } : {}) } } : {}),
       board: boardOf(final, header),
     },
   };

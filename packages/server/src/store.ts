@@ -27,7 +27,7 @@ import {
   type ScenarioRef,
   type ScenarioSeat,
 } from '@risk/engine';
-import { timeoutSteps, timerOf } from '@risk/engine';
+import { timeoutSteps, timerOf, type RecordDecision } from '@risk/engine';
 import { BigMoveTracker, ReactionPacer, bigMoveMessage } from './reactions.js';
 import { chooseSeatAction, isZergSeat, seatIdPrefix, zergName, type BotKind } from './bot.js';
 import { DEFAULT_TOURNAMENT_LIMITS, TournamentManager, type TournamentClock } from './tournaments.js';
@@ -346,12 +346,13 @@ export class GameRoom extends EventEmitter {
    * move is refused from now on, and `note` (the standing) is posted to the chat for spectators. The game itself is
    * not finished in the engine (it has no adjudicated ending); the room closes like a finished one.
    */
-  decide(note: string, at = Date.now()) {
+  decide(note: string, at = Date.now(), decision?: RecordDecision) {
     if (this.decidedAt !== null) return;
     this.decidedAt = at;
     this.stopBot();
     this.addChat(null, 'Tournament', note);
-    this.emit('decided');
+    // The archive finishes the game's record here, with the standing it was decided on (outcome reason 'standing').
+    this.emit('decided', decision);
     // Long-polls and sockets hear it as a change: waiters answer 'finished', clients get the view with decidedAt.
     const msg: ChangeMessage = { state: this.state, events: [], version: this.state.version, playerId: null };
     this.emit('change', msg);
@@ -991,6 +992,7 @@ export class Store {
     this.rooms.set(room.id, room);
     this.rank(room);
     room.on('commit', (c: CommitInfo) => this.archive.onCommit(room, c));
+    room.on('decided', (decision?: RecordDecision) => this.archive.finish(room, 'decided on standing at its round\'s end', decision));
     room.on('commit', (c: CommitInfo) => this.tallyZergs(room, c));
     room.on('change', () => {
       this.rank(room);

@@ -4,6 +4,9 @@ import { RuleError, redactEvents, type Action } from '@risk/engine';
 import type { ChangeMessage, ChatMessage, GameRoom, Store } from './store.js';
 import { TournamentFeeds } from './tournament-feed.js';
 
+/** A tournament-feed socket with more than this queued gets no more feed updates until it drains. */
+const FEED_BACKLOG_BYTES = 1_000_000;
+
 interface ClientMsg {
   type: 'subscribe' | 'action' | 'chat' | 'ping' | 'subscribe_tournament' | 'unsubscribe_tournament';
   reqId?: string;
@@ -96,7 +99,8 @@ export function attachWebSocket(server: Server, store: Store, commit: () => stri
     };
 
     let feedId: string | null = null;
-    const feedSocket = { send: (json: string) => ws.readyState === WebSocket.OPEN && ws.send(json) };
+    // A slow socket skips feed updates rather than buffering them without end (the next one carries the latest state).
+    const feedSocket = { send: (json: string) => ws.readyState === WebSocket.OPEN && ws.bufferedAmount < FEED_BACKLOG_BYTES && ws.send(json) };
     const leaveFeed = () => {
       if (feedId) feeds.unsubscribe(feedId, feedSocket);
       feedId = null;

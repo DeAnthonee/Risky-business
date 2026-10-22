@@ -62,7 +62,8 @@ or `{"ok":false,"error":"…"}`.
 
 **Tournament feed** (for watchers of a tournament page). Send `{"type":"subscribe_tournament","id":"TAB12C"}`
 (`tournamentId` works too; no token: a socket that passes one of the tournament's entrant tokens is refused, since
-entrants follow their own table). The reply is an ack, then `{"type":"tournament", tournamentId, tournament}` (the
+entrants follow their own table; the check is cosmetic, see [hardening #2](hardening.md#2-per-player-totals-under-fog-of-war)).
+A socket with more than 1 MB queued skips feed updates until it drains (the next update carries the latest state). The reply is an ack, then `{"type":"tournament", tournamentId, tournament}` (the
 bracket, as `GET /tournaments/:id`, sent again whenever it changes) and
 `{"type":"tournament_tables", tournamentId, version, full, round, tables, follow}`: every current table first
 (`full: true`), then only the tables that changed, **each at most every 500 ms** (a burst is coalesced and its last

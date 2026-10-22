@@ -10,9 +10,10 @@ import { excitementScore, pickFollow, type Excitement, type FollowState } from '
  * score (excitement.ts) and the server's pick of the table to follow, so every watcher who turns "Follow the action"
  * on sees the same table.
  *
- * Spectators only: it is built from each table's public spectator view and carries names but no player-type labels,
- * so a socket holding an entrant token of the tournament is refused (seated players use wait_for_match). One hub per
- * watched tournament builds every message once and writes the same string to each of its sockets.
+ * It is built from each table's public spectator view and carries names but no player-type labels. A socket that
+ * sends an entrant token of the tournament is refused, but that check is cosmetic: an entrant can subscribe without
+ * one and see every table, including their own fog table, as any spectator can (hardening #2). One hub per watched
+ * tournament builds every message once and writes the same string to each of its sockets.
  */
 
 export const FEED_TABLE_MS = 500;
@@ -91,9 +92,12 @@ export function tableSummary(t: TournamentSnapshot, round: number, m: Tournament
   if (leader === null && seats.length)
     leader = seats.map((_, i) => i).sort((a, b) => held(b).length - held(a).length || armies(b) - armies(a) || a - b)[0];
   const status: FeedTable['status'] = m.status === 'decided' ? 'decided' : m.status === 'finished' || m.status === 'abandoned' ? 'finished' : view.phase === 'lobby' ? 'waiting' : 'playing';
-  const ex = excitementScore(view, room.history.filter((h) => now - h.at <= RECENT_MS), now, { final });
+  // The last 30 s of history, walked back from the end (a long game's history is never scanned in full).
+  const recent = [];
+  for (let i = room.history.length - 1; i >= 0 && now - room.history[i].at <= RECENT_MS; i--) recent.push(room.history[i]);
+  const ex = excitementScore(view, recent, now, { final });
   return {
-    node: m.table !== undefined ? (nodes.get(`${round - 1}:${m.table}`) ?? null) : null,
+    node: m.node ?? (m.table !== undefined ? (nodes.get(`${round - 1}:${m.table}`) ?? null) : null),
     gameId: room.id,
     version: view.version,
     round,
@@ -202,6 +206,7 @@ class TournamentHub {
       const room = this.store.get(gameId);
       const w = this.watched.get(gameId);
       if (w) {
+        w.m = m;
         w.summary = tableSummary(t, round, m, w.room, now, nodes); // its status may have changed
         continue;
       }

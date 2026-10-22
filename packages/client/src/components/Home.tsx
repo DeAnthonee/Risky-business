@@ -211,8 +211,6 @@ export function Home({
         </section>
       </header>
 
-      <NextTournamentCard onOpen={onOpenTournament} />
-
       <section id="create-panel" className={`create-panel${creating ? ' open' : ''}`} aria-label="Room setup" inert={!creating}>
         <div className="create-clip">
           <div className="create-body">
@@ -230,6 +228,44 @@ export function Home({
           </div>
         </div>
       </section>
+
+      {/* Tournaments first, owner's request: the next scheduled one, The House, then every tournament. */}
+      <div className="home-headline">
+        <NextTournamentCard onOpen={onOpenTournament} />
+        <HouseBotsWidget />
+        {tournaments.length > 0 && (
+          <section className="board tournaments-board" aria-labelledby="tournaments-title">
+            <div className="board-head">
+              <h2 id="tournaments-title">Tournaments</h2>
+            </div>
+            <ul className="tickets">
+              {tournaments.map((t) => (
+                <li key={t.id} className={`ticket ticket-${t.status === 'registering' ? 'lobby' : t.status === 'running' ? 'live' : 'finished'}`}>
+                  <span className="ticket-stamp">{t.status === 'registering' ? 'Sign-ups' : t.status === 'running' ? `Round ${t.round}` : 'Finished'}</span>
+                  <div className="ticket-main">
+                    <div className="ticket-title">
+                      <strong>{t.name}</strong>
+                      <code>{t.id}</code>
+                    </div>
+                    <div className="ticket-meta">
+                      <span>{MAPS[t.map as keyof typeof MAPS]?.name ?? t.map}</span>
+                      <span>
+                        {t.entrants} of {t.maxEntrants} entrants
+                      </span>
+                      {t.champion && <span>Champion {t.champion}</span>}
+                    </div>
+                  </div>
+                  <div className="ticket-actions">
+                    <button className={t.status === 'registering' ? 'primary' : ''} onClick={() => onOpenTournament(t.id)}>
+                      {t.status === 'registering' ? 'Join or view' : 'View bracket'}
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+      </div>
 
       <div className="home-boards">
         <section className="board games-board" aria-labelledby="open-games-title">
@@ -265,40 +301,6 @@ export function Home({
         <MatchHistory openRooms={finishedRooms} onWatch={onSpectate} />
       </div>
 
-      {tournaments.length > 0 && (
-        <section className="board tournaments-board" aria-labelledby="tournaments-title">
-          <div className="board-head">
-            <h2 id="tournaments-title">Tournaments</h2>
-          </div>
-          <ul className="tickets">
-            {tournaments.map((t) => (
-              <li key={t.id} className={`ticket ticket-${t.status === 'registering' ? 'lobby' : t.status === 'running' ? 'live' : 'finished'}`}>
-                <span className="ticket-stamp">{t.status === 'registering' ? 'Sign-ups' : t.status === 'running' ? `Round ${t.round}` : 'Finished'}</span>
-                <div className="ticket-main">
-                  <div className="ticket-title">
-                    <strong>{t.name}</strong>
-                    <code>{t.id}</code>
-                  </div>
-                  <div className="ticket-meta">
-                    <span>{MAPS[t.map as keyof typeof MAPS]?.name ?? t.map}</span>
-                    <span>
-                      {t.entrants} of {t.maxEntrants} entrants
-                    </span>
-                    {t.champion && <span>Champion {t.champion}</span>}
-                  </div>
-                </div>
-                <div className="ticket-actions">
-                  <button className={t.status === 'registering' ? 'primary' : ''} onClick={() => onOpenTournament(t.id)}>
-                    {t.status === 'registering' ? 'Join or view' : 'View bracket'}
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      <HouseBotsWidget />
 
       <footer className="home-foot">AI agents can play too: point the MCP server at this site. See the README.</footer>
     </div>

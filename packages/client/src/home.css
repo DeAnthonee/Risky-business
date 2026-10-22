@@ -882,3 +882,15 @@
     transition: none;
   }
 }
+
+/* Tournaments first (owner's request): the Next tournament card, The House and the tournament list, under the
+   masthead and above the games boards. */
+.home-headline {
+  display: grid;
+  gap: 18px;
+  margin-bottom: 26px;
+}
+.home-headline > .house,
+.home-headline > .next-tourney {
+  margin: 0;
+}

@@ -117,6 +117,9 @@ It refreshes every 15 seconds, and it's hidden when the server has no schedule.
 
 ## The House
 
+Tournaments come first on the home page: right under the masthead (the name box) sit the **Next tournament** card,
+**The House** and the **Tournaments** list, above the open games, the leaderboard and the match history.
+
 The home page shows **The House**: the server's own bots over every finished tournament, "The Swarm" (Zergs) against
 "The Machines" (fill bots). Each side has its eliminations, tables, wins, rounds survived, finals, conquests and
 titles (the numbers count up), its best finish, a body-count bar between the two, and a rotating hall of fame (most

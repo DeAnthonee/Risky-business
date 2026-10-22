@@ -216,8 +216,23 @@ export interface PresenceMessage {
   online: string[];
 }
 
+/** A big move (server reactions.ts): someone took a lot from someone in one turn, with a canned line and reply. */
+export interface BigMoveMessage {
+  type: 'big_move';
+  gameId: string;
+  version: number;
+  kind: 'sweep' | 'knockout' | 'capital';
+  attacker: { id: string; name: string };
+  victim: { id: string; name: string };
+  taken: number;
+  anchor: string;
+  line: string;
+  reply: string;
+}
+
 type Listener = {
   onState: (m: StateMessage) => void;
+  onBigMove?: (m: BigMoveMessage) => void;
   onChat: (m: ChatMessage) => void;
   onChatHistory: (m: ChatMessage[]) => void;
   onPresence: (m: PresenceMessage) => void;
@@ -264,6 +279,9 @@ export class GameSocket {
           break;
         case 'presence':
           this.listener.onPresence({ spectators: msg.spectators, online: msg.online });
+          break;
+        case 'big_move':
+          this.listener.onBigMove?.(msg);
           break;
         case 'closed':
           // The room is gone for good: stop reconnecting.

@@ -34,6 +34,13 @@ export interface Excitement {
   signals: Signal[];
 }
 
+/**
+ * What counts as a big move for the reaction pop-ups (reactions.ts): in one turn, an attacker takes at least
+ * `minTerritories` from one victim AND at least `minShare` of what that victim held when the turn began; or knocks
+ * them out; or takes their capital. The one place to tune it. Pop-ups are at most one per `minGapMs` per game.
+ */
+export const BIG_MOVE = { minTerritories: 3, minShare: 0.25, minGapMs: 5_000, queue: 3 } as const;
+
 export const EXCITEMENT = {
   elimination: 40,
   eliminationWindowMs: 20_000,

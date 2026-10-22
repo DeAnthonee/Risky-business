@@ -2169,3 +2169,41 @@ label.check input {
   .globe-badge .globe-badge-body { animation: none !important; }
   .globe-float { animation-name: fadeout; }
 }
+/* Big-move reactions: a short pop-up over the top of the map (Reactions.tsx). */
+.reaction-popup {
+  position: absolute;
+  top: 56px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 30;
+  max-width: min(520px, 90vw);
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: rgba(13, 17, 23, 0.92);
+  color: #f2f2f2;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+  animation: reaction-in 4.5s ease forwards;
+}
+.reaction-title {
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+.reaction-line {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  font-size: 0.92em;
+}
+.reaction-line .swatch {
+  flex: none;
+}
+@keyframes reaction-in {
+  0% { opacity: 0; transform: translate(-50%, -6px); }
+  8% { opacity: 1; transform: translate(-50%, 0); }
+  85% { opacity: 1; }
+  100% { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .reaction-popup { animation: none; }
+}

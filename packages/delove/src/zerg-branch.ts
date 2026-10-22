@@ -1,4 +1,4 @@
-import { applyAction, chooseZergAction, createRng, getMap, legalMoves, reinforcementsFor, shuffle, type Action, type GameState, type PlayerId } from '@risk/engine';
+import { applyAction, chooseZergAction, createRng, strongestZergOf, getMap, legalMoves, reinforcementsFor, shuffle, type Action, type GameState, type PlayerId } from '@risk/engine';
 import { candidateToAction, candidates, isZergName, makeTraits, seededRandom, type Agent, type Candidate, type DecisionContext } from '@risk/selfplay';
 import { seatOrder, type NetScorer } from './net-agent.js';
 
@@ -10,11 +10,13 @@ import { seatOrder, type NetScorer } from './net-agent.js';
  * **horde**, not the seat:
  *
  *   killWeight × prey knocked out since the decision + the horde's share of the alive players' armies and income
- *   + selfWeight × my own standing (my share of the horde's strength; a finished game: 1 if I won)
+ *   + selfWeight × my own standing: while prey is left, my share of the horde's strength; once it is gone, 1 if I am
+ *   the strongest Zerg (`strongestZergOf`, who keeps the table), else 0; a finished game: 1 if I won
  *   (a finished game: killWeight × prey out + 1 if the horde won, else + 0, plus the self term).
  *
- * The self term is the owner's rule that the alliance ends with the prey: the Zergs then fight each other to a single
- * winner, so each Zerg must come out of the hunt well placed and not spend itself for the horde.
+ * The self term follows the owner's rule for the end of the hunt: once the prey is gone the strongest Zerg keeps the
+ * table and the others surrender. So each Zerg wants to be the strongest when the last prey falls, not spend itself
+ * for the horde.
  *
  * Alternatives never attack a fellow Zerg. They come from `ranker` (a Delove network's favourite candidates, ally
  * attacks removed) or, without one, from the best-odds attacks on prey plus ending the attack. Only attack-phase
@@ -28,7 +30,7 @@ export interface ZergBranchOptions {
   killWeight: number;
   /** The Zerg's own move is kept unless another beats it by this much. */
   margin: number;
-  /** Weight of my own standing (the falling-out after the prey is gone). */
+  /** Weight of my own standing (being the strongest Zerg, who keeps the table, when the prey falls). */
   selfWeight: number;
 }
 
@@ -61,7 +63,8 @@ export function hordeScore(s: GameState, horde: ReadonlySet<PlayerId>, preyAtSta
     if (horde.has(p.id)) hordeStrength += strength;
     if (p.id === me) mine = strength;
   }
-  const team = prey.length === 0 ? 1 : total > 0 ? hordeStrength / total : 0;
+  if (prey.length === 0) return kills + 1 + (me !== undefined && strongestZergOf(s, horde) === me ? selfWeight : 0);
+  const team = total > 0 ? hordeStrength / total : 0;
   return kills + team + (me !== undefined && hordeStrength > 0 ? (selfWeight * mine) / hordeStrength : 0);
 }
 
@@ -118,9 +121,7 @@ export function zergBranchAgent(id: string, opponent: Agent, ranker: NetScorer |
   return {
     id,
     choose(ctx) {
-      let horde = hordeOf(ctx.state, ctx.me);
-      // No prey left: the alliance is over, every other Zerg is fair game.
-      if (!ctx.state.players.some((p) => p.alive && !p.isNeutral && !horde.has(p.id))) horde = new Set([ctx.me]);
+      const horde = hordeOf(ctx.state, ctx.me);
       const own = chooseZergAction(ctx.state, ctx.me, horde, ctx.random);
       const phase = ctx.state.phase;
       if (!own || ctx.legal.pendingConquest || (phase !== 'attack' && phase !== 'reinforce') || own.type === 'surrender' || own.type === 'trade') return own;

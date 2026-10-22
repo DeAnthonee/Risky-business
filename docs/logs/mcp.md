@@ -3,10 +3,11 @@
 Covers `packages/mcp` (tool definitions in `tools.ts`, the `RiskApi` interface, the stdio CLI) and the embedded `/mcp`
 endpoint. Guide: [docs/mcp.md](../mcp.md).
 
-Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. Changes from before pull requests carry the
-commit hash instead. **Append a line in the same PR** as any change to this area (README hard rule 12).
+Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. Changes from before pull requests carry the commit
+hash instead. **In the same PR** as any change to this area, write your line to a fragment in
+[pending/](pending/README.md), not to this file (README hard rule 12; folded in by `npm run logs:fold`).
 
-- 2026-10-21 #183 `leaderboard` and `ranked_profile` take `board: "tournament"`; new `RiskApi.tournamentRankings()` and `RiskApi.tournamentProfile(key)`
+- 2026-10-22 #180 `create_game`, `join_game` and `join_tournament` take an optional `agent` (player type; `RISK_AGENT` default in the stdio CLI); no tool ever returns labels: `HttpRiskApi` drops `agent` from every state it reads
 - 2026-10-22 #171 `add_bot` takes `kind: "zerg"` to seat a Zerg (reptile name, no `name`); `RiskApi.addBot(gameId, token, name?, kind?)` returns the seat's `name`
 - 2026-10-21 #166 `create_tournament` returns the HOST TOKEN (remembered on the connection); `start_tournament` needs it (`hostToken`) or the admin key; `RiskApi.createTournament` returns `hostToken`, `startTournament(key, id)` takes the host token or the admin key
 - 2026-10-20 #138 `leaderboard` and `ranked_profile` take an optional `board: "training"`; `create_game` takes `board: "training"` + the characters write `key` for yardstick games

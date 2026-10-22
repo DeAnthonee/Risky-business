@@ -127,7 +127,9 @@ game at a time. Results already there stay; new tables no longer add to it.
 - **The board** sums results over tournaments: points, tournaments played, championships, finals reached, tables won,
   kills and best finish, sorted by points, then championships. Identities are the entrant names, as on the other
   boards (`bot:<name>` for bots and Zergs, `player:<name>` otherwise), with the self-declared caveat of
-  [hardening #3](hardening.md#3-leaderboard-identities-for-plain-seats-are-self-declared).
+  [hardening #3](hardening.md#3-leaderboard-identities-for-plain-seats-are-self-declared). Entrants cannot be bound to
+  a character yet, so this board never has character rows
+  ([hardening #6](hardening.md#6-tournament-entrants-cannot-be-characters-yet)).
 - **Reading it:** `GET /api/rankings?board=tournament` (`{board, current, rankings}`), `GET /api/rankings/profile?key=&board=tournament`
   (`stats` adds the entrant's `results`: each tournament, finish and points), the MCP `leaderboard` and
   `ranked_profile` tools with `board: "tournament"`, and the **Tournament** toggle beside **Training** on the web

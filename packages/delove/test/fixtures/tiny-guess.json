@@ -1,5 +1,5 @@
 {
- "fogGuessVersion": 1,
+ "fogGuessVersion": 2,
  "config": {
   "f_territory": 28,
   "f_global": 96,
@@ -32,5 +32,6 @@
    17,
    1000000000
   ]
- ]
+ ],
+ "memory": 0
 }

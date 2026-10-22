@@ -2,8 +2,8 @@
 
 1. army_bin puts armies in the right bins.
 2. GuessNet gives [B, T, OWNERS + BINS] and the ONNX export gives the same numbers as PyTorch (with onnxruntime).
-3. The (view, truth) examples: only hidden territories are targets, their owner is never the decider, and every
-   target owner is allowed.
+3. The (view, truth) examples: only hidden territories are targets, their owner is never the decider, every target
+   owner is allowed, and the memory columns are set only on hidden territories.
 
 --fixture rewrites packages/delove/test/fixtures/tiny-guess.{onnx,json}, the untrained tiny guesser the TypeScript
 tests load (test/fog-search.test.ts).
@@ -17,7 +17,7 @@ import numpy as np
 import torch
 
 from fog import MAX_SLOTS, FogMap
-from fog_guess import ARMY_BINS, BINS, FOG_GUESS_VERSION, OWNERS, Data, GuessNet, army_bin, export
+from fog_guess import ARMY_BINS, BINS, FOG_GUESS_VERSION, MEMORY, OWNERS, Data, GuessNet, army_bin, export
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FIXTURES = os.path.join(HERE, "..", "test", "fixtures")
@@ -53,12 +53,16 @@ def test_export_matches():
 def test_examples(folder):
     d = Data(folder, 200, np.random.default_rng(0))
     v = d.parts["train"]
-    hidden = v["t"][:, :, -1] == 1
+    hidden = v["t"][:, :, d.fm.TF] == 1  # the fog column (memory columns follow it)
     owner = v["owner"]
     assert ((owner >= 0) <= hidden).all(), "a target outside the hidden territories"
     assert (owner != 0).all(), "the decider's own territory is never hidden"
     allowed = v["allowed"].gather(1, owner.clamp(min=0)) | (owner < 0)
     assert allowed.all(), "a target owner that the mask forbids"
+    mem = v["t"][:, :, d.fm.TF + 1 :]
+    assert mem.shape[-1] == MEMORY
+    assert (mem[~hidden] == 0).all(), "memory columns on a visible territory"
+    assert (mem[..., OWNERS] > 0).any(), "no hidden territory was ever seen before"
 
 
 def write_fixture():
@@ -66,7 +70,7 @@ def write_fixture():
     net = GuessNet(F_TERRITORY, F_GLOBAL, hidden=8, rounds=1).eval()
     export(net, os.path.join(FIXTURES, "tiny-guess.onnx"), F_TERRITORY, F_GLOBAL)
     with open(os.path.join(FIXTURES, "tiny-guess.json"), "w") as f:
-        json.dump(dict(fogGuessVersion=FOG_GUESS_VERSION, config=net.config, owners=OWNERS, armyBins=ARMY_BINS), f, indent=1)
+        json.dump(dict(fogGuessVersion=FOG_GUESS_VERSION, config=net.config, owners=OWNERS, armyBins=ARMY_BINS, memory=0), f, indent=1)
     print("wrote", os.path.join(FIXTURES, "tiny-guess.onnx"))
 
 

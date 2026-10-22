@@ -5,8 +5,10 @@ predicts for every territory a distribution over its owner (seat slots 0-9 relat
 and over its armies in bins (ARMY_BINS). Only hidden territories are trained and used. The fog sampler
 (packages/delove/src/fog-guesser.ts, fog-sampler.ts) draws hidden owners and armies from it.
 
-Phase 1 (this file): (view, truth) pairs come for free from any cycle's full-board arrays: the view is fog.py's
-transform of the features, the truth is the untouched features. The seat's memory of earlier turns is not used yet.
+The (view, truth) pairs come for free from any cycle's full-board arrays: the view is fog.py's transform of the
+features, the truth is the untouched features. Each recorded seat's decisions in a game are replayed in order to rebuild
+what it saw before (MEMORY columns: each territory's last-seen owner, armies and age, as fog-sampler.ts's FogTracker
+keeps them); --no-memory leaves them out (the current view only).
 
     python fog_guess.py --data <dataset dir> [<dataset dir> ...] --out models/delove/fog-guess@1 [--per 15000]
 
@@ -26,7 +28,7 @@ import torch.nn.functional as F
 from delove_model import Block, mlp
 from fog import MAX_SLOTS, FogMap, fog_inputs
 
-FOG_GUESS_VERSION = 1
+FOG_GUESS_VERSION = 2
 OWNERS = MAX_SLOTS + 1  # seat slots 0-9, then the Neutral
 NEUTRAL_CLASS = MAX_SLOTS
 # army bins: [lo, hi] inclusive; the last is open-ended
@@ -63,15 +65,35 @@ def army_bin(armies):
     return b
 
 
-class Data:
-    """One dataset folder's (view, truth) examples: `per` decisions from training games and per/5 from held-out games."""
+# memory columns appended to each territory (phase 2): the last-seen owner (slot 0-9 or the Neutral), seen at all,
+# last-seen armies (log scale as the encoder's), rounds since (/10, at most 3). 0 on visible territories.
+MEMORY = OWNERS + 3
 
-    def __init__(self, folder, per, rng, val_fraction=0.1):
+
+def memory_columns(last_owner, last_armies, last_round, now_round, hidden):
+    """last_owner [T] (-1: never seen), last_armies [T], last_round [T], now_round, hidden [T] -> [T, MEMORY]."""
+    T = len(last_owner)
+    m = np.zeros((T, MEMORY), dtype=np.float32)
+    seen = hidden & (last_owner >= 0)
+    m[seen, last_owner[seen]] = 1
+    m[seen, OWNERS] = 1
+    m[seen, OWNERS + 1] = np.log1p(last_armies[seen]) / 5
+    m[seen, OWNERS + 2] = np.minimum((now_round - last_round[seen]) / 10, 3)
+    return m
+
+
+class Data:
+    """One dataset folder's (view, truth) examples, from whole games so each seat's memory can be rebuilt: games are
+    taken until `per` training examples (and per/5 held-out ones, from other games) are collected, every `every`-th
+    decision of each recorded seat."""
+
+    def __init__(self, folder, per, rng, val_fraction=0.1, memory=True, every=3):
         with open(os.path.join(folder, "features.json")) as f:
             info = json.load(f)
         self.name = os.path.basename(os.path.normpath(folder))
         self.map = info["map"]
         self.fm = FogMap(info)
+        self.memory = memory
         T = len(info["territoryIds"])
         adj = np.zeros((T, T), dtype=np.float32)
         for i, ns in enumerate(info["adjacency"]):
@@ -80,24 +102,68 @@ class Data:
         territory = np.load(os.path.join(folder, "territory.npy"), mmap_mode="r")
         glob = np.load(os.path.join(folder, "global.npy"), mmap_mode="r")
         game = np.asarray(np.load(os.path.join(folder, "game.npy"), mmap_mode="r"))
-        games = np.unique(game)
-        val_games = rng.choice(games, size=max(1, int(len(games) * val_fraction)), replace=False)
-        is_val = np.isin(game, val_games)
-        pick = lambda pool, n: np.sort(rng.choice(pool, size=min(n, len(pool)), replace=False))
+        seat = np.asarray(np.load(os.path.join(folder, "seat.npy"), mmap_mode="r"))
+        order = np.argsort(game, kind="stable")  # each game's decisions, in recorded (chronological) order
+        bounds = np.searchsorted(game[order], np.arange(game.max() + 2))
+        games = rng.permutation(np.unique(game))
+        n_val = max(1, int(len(games) * val_fraction))
         self.parts = {}
-        for part, pool, n in (("train", np.nonzero(~is_val)[0], per), ("val", np.nonzero(is_val)[0], max(1, per // 5))):
-            ks = pick(pool, n)
-            self.parts[part] = self._examples(np.asarray(territory[ks]), np.asarray(glob[ks]))
+        for part, pool, n in (("val", games[:n_val], max(1, per // 5)), ("train", games[n_val:], per)):
+            chunks, got = [], 0
+            for g in pool:
+                if got >= n:
+                    break
+                rows = order[bounds[g] : bounds[g + 1]]
+                if len(rows) == 0:
+                    continue
+                ex = self._game(np.asarray(territory[rows]), np.asarray(glob[rows]), seat[rows], every, rng)
+                if ex is not None:
+                    chunks.append(ex)
+                    got += len(ex["owner"])
+            self.parts[part] = {k: torch.cat([c[k] for c in chunks]) if k != "players" else np.concatenate([c[k] for c in chunks]) for k in chunks[0]}
 
-    def _examples(self, territory, glob):
+    def _game(self, territory, glob, seats, every, rng):
+        """One game's examples: the seat view of every `every`-th decision of each seat (random phase), with that
+        seat's memory of what it saw at its earlier decisions."""
         fm = self.fm
-        ti, gi = fm.t, fm.g
         x_t, x_g = fog_inputs(territory, glob, np.ones(len(territory), dtype=bool), fm)
         hidden = x_t[:, :, fm.TF] == 1
+        bliz = territory[:, :, fm.t["blizzard"]] == 1
         slots = territory[:, :, :MAX_SLOTS] == 1
-        owner = np.where(slots.any(-1), slots.argmax(-1), np.where(territory[:, :, ti["owner_neutral"]] == 1, NEUTRAL_CLASS, -1))
-        lin = territory[:, :, ti["armies_lin"]]
-        armies = np.where(lin < 1, np.round(lin * 30), np.round(np.expm1(territory[:, :, ti["armies_log"]] * 5)))
+        owner = np.where(slots.any(-1), slots.argmax(-1), np.where(territory[:, :, fm.t["owner_neutral"]] == 1, NEUTRAL_CLASS, -1))
+        lin = territory[:, :, fm.t["armies_lin"]]
+        armies = np.where(lin < 1, np.round(lin * 30), np.round(np.expm1(territory[:, :, fm.t["armies_log"]] * 5)))
+        rounds = np.round(glob[:, fm.g["round"]] * 50)
+        T = territory.shape[1]
+        mem = np.zeros((len(territory), T, MEMORY), dtype=np.float32)
+        take = np.zeros(len(territory), dtype=bool)
+        for s in np.unique(seats):
+            rows = np.nonzero(seats == s)[0]
+            last_owner = np.full(T, -1, dtype=np.int64)
+            last_armies = np.zeros(T)
+            last_round = np.zeros(T)
+            phase = rng.integers(every)
+            for j, r in enumerate(rows):
+                take[r] = j % every == phase
+                if self.memory and take[r]:
+                    mem[r] = memory_columns(last_owner, last_armies, last_round, rounds[r], hidden[r])
+                seen = ~hidden[r] & ~bliz[r]
+                last_owner[seen] = owner[r][seen]
+                last_armies[seen] = armies[r][seen]
+                last_round[seen] = rounds[r]
+        rows = np.nonzero(take)[0]
+        if len(rows) == 0:
+            return None
+        ex = self._examples(territory[rows], glob[rows], x_t[rows], x_g[rows], hidden[rows], owner[rows], armies[rows])
+        if ex is None:
+            return None
+        keep = ex.pop("_keep")
+        if self.memory:
+            ex["t"] = torch.cat([ex["t"], torch.from_numpy(mem[rows][keep])], dim=-1)
+        return ex
+
+    def _examples(self, territory, glob, x_t, x_g, hidden, owner, armies):
+        gi = self.fm.g
         target_owner = np.where(hidden & (owner >= 0), owner, -1)
         target_bin = np.where(hidden & (owner >= 0), army_bin(armies), -1)
         # owners a hidden territory can have: the other seats still alive, and the Neutral
@@ -107,6 +173,8 @@ class Data:
         allowed[:, NEUTRAL_CLASS] = True
         players = np.stack([glob[:, gi[f"slot{k}_present"]] == 1 for k in range(MAX_SLOTS)], 1).sum(1)
         keep = (target_owner >= 0).any(1)
+        if not keep.any():
+            return None
         return dict(
             t=torch.from_numpy(x_t[keep]),
             g=torch.from_numpy(x_g[keep]),
@@ -114,6 +182,7 @@ class Data:
             bin=torch.from_numpy(target_bin[keep]),
             allowed=torch.from_numpy(allowed[keep]),
             players=players[keep],
+            _keep=keep,
         )
 
 
@@ -190,12 +259,13 @@ def main():
     ap.add_argument("--rounds", type=int, default=3)
     ap.add_argument("--bin-weight", type=float, default=0.5)
     ap.add_argument("--seed", type=int, default=1)
+    ap.add_argument("--no-memory", action="store_true", help="phase 1: the current view only, no memory columns")
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     a = ap.parse_args()
     torch.manual_seed(a.seed)
     rng = np.random.default_rng(a.seed)
     t0 = time.time()
-    data = [Data(f, a.per, rng) for f in a.data]
+    data = [Data(f, a.per, rng, memory=not a.no_memory) for f in a.data]
     print(f"loaded {len(data)} datasets, {sum(len(d.parts['train']['owner']) for d in data)} training decisions in {time.time() - t0:.0f}s", flush=True)
     f_territory, f_global = data[0].parts["train"]["t"].shape[-1], data[0].parts["train"]["g"].shape[-1]
     model = GuessNet(f_territory, f_global, a.hidden, a.rounds).to(a.device)
@@ -222,7 +292,8 @@ def main():
     print("after", json.dumps(metrics), flush=True)
     torch.save({"config": model.config, "state": model.state_dict()}, a.out + ".pt")
     with open(a.out + ".json", "w") as f:
-        json.dump(dict(fogGuessVersion=FOG_GUESS_VERSION, config=model.config, owners=OWNERS, armyBins=ARMY_BINS, data=a.data, per=a.per, epochs=a.epochs,
+        json.dump(dict(fogGuessVersion=FOG_GUESS_VERSION, config=model.config, owners=OWNERS, armyBins=ARMY_BINS, memory=0 if a.no_memory else MEMORY, data=a.data,
+                       per=a.per, epochs=a.epochs,
                        metrics=metrics), f, indent=1)
     export(model, a.out + ".onnx", f_territory, f_global)
     print("wrote", a.out + ".onnx", flush=True)

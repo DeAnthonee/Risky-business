@@ -97,7 +97,7 @@ function branchFog(v: string | undefined): BranchFogMode {
  * DELOVE_BRANCH_FOG=determinize searches fog games too, on boards sampled from the seat's view and memory
  * (fogSearch, src/fog-sampler.ts; DELOVE_BRANCH_FOG_SAMPLES boards per option, default 8); unset or `off`: fogSafe's
  * fallback. `fog` replaces DELOVE_BRANCH_FOG. DELOVE_FOG_MODEL=<id> has the sampler draw hidden owners and armies from the
- * learned fog guesser models/<id>.onnx (fog-guesser.ts, python/fog_guess.py).
+ * learned fog guesser models/<id>.onnx, or the .onnx file it names (fog-guesser.ts, python/fog_guess.py).
  */
 export function branchFromEnv(
   dir = modelsDir(),
@@ -122,12 +122,13 @@ export function branchFromEnv(
   const tracker = new FogTracker();
   // DELOVE_FOG_MODEL=<id>: the learned fog guesser models/<id>.onnx (fog-guesser.ts), one guess per decision shared by
   // all its sampled boards
-  const guesser = fogMode === 'determinize' && env.DELOVE_FOG_MODEL ? new FogGuesser(join(dir, `${env.DELOVE_FOG_MODEL}.onnx`)) : null;
+  const fogModel = env.DELOVE_FOG_MODEL;
+  const guesser = fogMode === 'determinize' && fogModel ? new FogGuesser(fogModel.endsWith('.onnx') ? fogModel : join(dir, `${fogModel}.onnx`)) : null;
   const guesses = new WeakMap<object, FogGuess>();
   const guessFor = (state: Parameters<FogGuesser['guess']>[0], me: string): FogGuess | undefined => {
     if (!guesser) return undefined;
     let g = guesses.get(state);
-    if (!g) guesses.set(state, (g = guesser.guess(state, me)));
+    if (!g) guesses.set(state, (g = guesser.guess(state, me, tracker.observe(state, me))));
     return g;
   };
   const fogSearch: FogSearch | null =

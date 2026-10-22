@@ -1,10 +1,11 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { getMap, type GameState, type PlayerId, type TerritoryId } from '@risk/engine';
 import { encodeDecision, fogInputs, makeTraits, seatInput, type Candidate } from '@risk/selfplay';
+import type { SeatMemory } from './fog-sampler.js';
 import { NetScorer, seatOrder } from './net-agent.js';
 
 /** The fog guess layout this player reads (fog_guess.py FOG_GUESS_VERSION). */
-export const FOG_GUESS_VERSION = 1;
+export const FOG_GUESS_VERSION = 2;
 const MAX_SLOTS = 10;
 const END_ONLY: Candidate[] = [['end_turn']];
 
@@ -31,6 +32,8 @@ export class FogGuesser {
   private readonly net: NetScorer;
   private readonly armyBins: [number, number][];
   private readonly owners: number;
+  /** Memory columns per territory (fog_guess.py MEMORY; 0: a guesser of the current view only). */
+  private readonly memory: number;
 
   constructor(readonly path: string) {
     const json = path.replace(/\.onnx$/, '.json');
@@ -39,17 +42,20 @@ export class FogGuesser {
     if (info.fogGuessVersion > FOG_GUESS_VERSION) throw new Error(`fog guesser ${path}: v${info.fogGuessVersion}, this player reads up to v${FOG_GUESS_VERSION}`);
     this.armyBins = info.armyBins;
     this.owners = info.owners;
+    this.memory = info.memory ?? 0;
     this.net = new NetScorer(path);
   }
 
-  /** The guess for `me`'s view `state` (a state rebuilt by stateFromView; its hidden territories are marked). */
-  guess(state: GameState, me: PlayerId): FogGuess {
+  /**
+   * The guess for `me`'s view `state` (a state rebuilt by stateFromView; its hidden territories are marked), with what
+   * the seat saw before (`memory`, FogTracker) when the guesser reads it.
+   */
+  guess(state: GameState, me: PlayerId, memory?: SeatMemory): FogGuess {
     const map = getMap(state.options.map);
+    const T = map.territoryIds.length;
     const seatIds = seatOrder(state);
     const input = seatInput(state, seatIds, me, makeTraits(), END_ONLY);
     const x = fogInputs(encodeDecision(input), map.id, true);
-    const width = this.owners + this.armyBins.length;
-    const out = this.net.guess(x.territory, x.global, map.id, width);
     // slot k (0 = me, by turn order) -> player id, as encode.ts numbers them
     const order = input.state.order;
     const n = order.length;
@@ -57,6 +63,27 @@ export class FogGuesser {
     const bySlot = new Map<number, PlayerId>();
     for (const seat of order) bySlot.set((order.indexOf(seat) - myPos + n) % n, seatIds[seat]);
     const neutral = state.players.find((p) => p.isNeutral && p.alive)?.id ?? null;
+    let territory = x.territory;
+    if (this.memory) {
+      // fog_guess.py memory_columns: last-seen owner slot (or the Neutral), seen, log armies, rounds since / 10 (at most 3)
+      const slotOf = new Map<PlayerId, number>([...bySlot].map(([k, id]) => [id, k]));
+      const neutralId = state.players.find((p) => p.isNeutral)?.id;
+      const W = x.territory.length / T;
+      territory = new Float32Array(T * (W + this.memory));
+      map.territoryIds.forEach((t, i) => {
+        territory.set(x.territory.subarray(i * W, (i + 1) * W), i * (W + this.memory));
+        const seen = state.territories[t].hidden ? memory?.seen.get(t) : undefined;
+        const k = seen?.owner == null ? undefined : seen.owner === neutralId ? MAX_SLOTS : slotOf.get(seen.owner);
+        if (k === undefined) return;
+        const at = i * (W + this.memory) + W;
+        territory[at + k] = 1;
+        territory[at + this.owners] = 1;
+        territory[at + this.owners + 1] = Math.log1p(seen!.armies) / 5;
+        territory[at + this.owners + 2] = Math.min((state.round - seen!.round) / 10, 3);
+      });
+    }
+    const width = this.owners + this.armyBins.length;
+    const out = this.net.guess(territory, x.global, map.id, width);
     const alive = new Set(state.players.filter((p) => p.alive && p.id !== me).map((p) => p.id));
     const territories = new Map<TerritoryId, TerritoryGuess>();
     map.territoryIds.forEach((t, i) => {

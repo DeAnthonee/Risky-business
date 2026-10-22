@@ -1,8 +1,8 @@
 # Tournaments
 
-Knockout tournaments, run by the host. Only the host creates them (with the admin key, `RISK_ADMIN_TOKEN`), except
-while they are being tested: with `RISK_TOURNAMENTS_OPEN` on (the default for now) anyone can, no key needed. People
-join on the website (the Tournaments list on the home page, or `?tournament=CODE`) and agents with `join_tournament`.
+Knockout tournaments, run by the host. Hosts create them with a **hosting code** from the site's owner, or the
+admin key (`RISK_ADMIN_TOKEN`); see [Hosting codes and caps](#hosting-codes-and-caps). People join on the website (the
+Tournaments list on the home page, or `?tournament=CODE`) and agents with `join_tournament`.
 The tournament page has the home page's look (the `p5` theme and the home's panels, tickets and seat chips;
 `Tournament.tsx`, `tournament.css`): the name in a cut-paper title, the join panel, the entrants as chips, and each
 round's tables as tickets with a Watch button.
@@ -10,8 +10,9 @@ round's tables as tickets with a Watch button.
 - **Host token.** Creating a tournament returns its `hostToken`, once (it is never in the bracket or the list). That
   token, or the admin key, starts the tournament, forfeits for a no-show and deletes it; nobody else can, not even in
   open mode. Tournaments saved before host tokens existed have none: only the admin key runs them.
-- **Limits.** At most `RISK_MAX_ACTIVE_TOURNAMENTS` (default 20) tournaments register or run at once; creating
-  another fails until one finishes or is deleted. Only the newest `RISK_TOURNAMENTS_KEEP` (default 100) finished
+- **Limits.** At most `RISK_MAX_ACTIVE_TOURNAMENTS` (default 20) tournaments register or run at once, whoever made
+  them; creating another fails until one finishes or is deleted. Creates by code are held to tighter caps
+  ([below](#hosting-codes-and-caps)). Only the newest `RISK_TOURNAMENTS_KEEP` (default 100) finished
   tournaments are kept; older ones are pruned from `tournaments.json`.
 
 - **Server bots.** While registering, the host adds built-in bots or **Zergs** as entrants
@@ -66,6 +67,39 @@ Zerg moves on (see [zergs.md](zergs.md)). A table seated with Zergs only ends ri
 
 Tournaments are saved to `tournaments.json` in `RISK_DATA_DIR` and pick up their tables again after a restart;
 tables a tournament is still waiting on are not swept as idle, except past the hard limit of 7 days idle (the Store's fixed `max`; no env var changes it).
+
+## Hosting codes and caps
+
+The owner sets two codes as environment variables on the server (their values are never in the repo, the docs or a
+log): an **admin code**, `RISK_TOURNEY_ADMIN_CODE`, with unlimited creates, and a **limited code**,
+`RISK_TOURNEY_LIMITED_CODE`, with `RISK_TOURNEY_LIMITED_PER_DAY` creates per UTC day (default 5). The codes are a
+testing gate (owner, 2026-10-22); player keys or sign-in replace them later. The code is `server/src/tournament-access.ts`.
+
+- **Creating** (`POST /api/tournaments`, MCP `create_tournament`): once either code is set, a create needs `code` in
+  the body (or the admin key on `/api/admin/tournaments`). Open mode, `RISK_TOURNAMENTS_OPEN`, lets anyone create with
+  no code; it defaults **off** once a code is set and on while none is. Codes are compared in constant time.
+- **Starting** (`POST /api/tournaments/:id/start`, MCP `start_tournament`): the host token, the admin key, or a code
+  in the body: the admin code starts any tournament, the limited code only those made with it.
+- **Wrong codes**: 5 wrong per IP within 15 minutes lock that IP out for an hour (even the right code is refused,
+  429), and 50 wrong from anyone within an hour lock everyone out until the hour passes. The answer is always
+  "Wrong tournament code": it never says which code was close. The counts survive restarts
+  (`RISK_DATA_DIR/tournament-access.json`, which holds no code).
+- **Caps** (resources' defaults, owner-approved; each is an env var, `0` = no cap; the names are in
+  [hosting.md](hosting.md)). They apply to every create made with a code or in open mode; the admin key and the
+  schedule skip them, but their tournaments count toward the at-once caps:
+  - **2 tournaments** registering or running at once, site-wide; at most **1** made with the limited code (or in open
+    mode) at once;
+  - **seats**: up to **128** entrants with the admin code and **64** with the limited code (an unset `maxEntrants`
+    becomes the smaller of that and the format's default); at most **200** seats reserved (the sum of `maxEntrants`)
+    by all tournaments registering or running;
+  - **20 creates** a UTC day, site-wide;
+  - **Delove seats**: 40 per admin tournament, 16 per limited one, 48 at once. These numbers are stored now; Delove
+    seats on request (P3) will enforce them.
+- **Lag brake**: while the event loop's p99 lag over the last full minute (the `/healthz` `loopLagMs`) is above
+  100 ms, creates answer **503** "The server is busy right now".
+- **Expiry**: a tournament never started is called off 24 h after it was made, and a scheduled one still registering
+  2 h after its start (the schedule normally decides at the start). It ends with no rounds and no champion, and
+  `scheduled.cancelled` says `expired: never started`. The server checks every 5 minutes.
 
 ## Nested ("Inception") tournaments
 
@@ -215,4 +249,4 @@ The server can run nested tournaments on a timetable by itself (`packages/server
   With no schedule everything is `null`. The home page's **Next tournament** card and the MCP `next_tournament` tool
   read it.
 
-HTTP routes: [http-api.md](http-api.md). Open items (anyone can create while testing): [hardening.md](hardening.md#1-anyone-can-create-tournaments-while-testing).
+HTTP routes: [http-api.md](http-api.md). Who may host: [Hosting codes and caps](#hosting-codes-and-caps).

@@ -19,6 +19,7 @@ import { BOT_KINDS, type BotKind } from './bot.js';
 import { narrate, playByPlayText } from './playbyplay.js';
 import type { CharacterStore } from './characters.js';
 import type { CreateTournamentSpec } from './tournaments.js';
+import { NO_TOURNEY_CAPS, TournamentAccess } from './tournament-access.js';
 import { SeasonKeyGuard } from './season-key.js';
 import { RateLimitedError } from './rate-limit.js';
 import { QuickPlayBusyError } from './quick-play.js';
@@ -73,8 +74,10 @@ export interface ApiOptions {
   /** Read-only key for /api/records/* (x-records-key); unset turns those routes off. The admin token also works. */
   recordsKey?: string | null;
   characters?: CharacterStore;
-  /** TEMPORARY (testing): POST /tournaments creates a tournament without the admin token. */
+  /** Open mode (RISK_TOURNAMENTS_OPEN): POST /tournaments creates without a code; off by default once a code is set. */
   openTournaments?: boolean;
+  /** Hosting codes, caps and expiry (tournament-access.ts); defaults to no codes and the default caps. */
+  tourneyAccess?: TournamentAccess;
   /** RISK_SEASON_KEY: the password that archives the public leaderboard's season from the site (unset = off). */
   seasonKey?: string | null;
   /** Where the season-key lockout is saved (under RISK_DATA_DIR), so a restart does not reset it. */
@@ -87,6 +90,7 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
   const api = express.Router();
   api.use(express.json({ limit: '64kb' }));
   const seasonGuard = opts.seasonGuard ?? new SeasonKeyGuard(opts.seasonKey, undefined, undefined, opts.seasonLockFile ?? null);
+  const access = opts.tourneyAccess ?? new TournamentAccess(store.tournaments, NO_TOURNEY_CAPS);
 
   const wrap =
     (fn: (req: Req, res: Response) => Promise<unknown> | unknown) => (req: Request, res: Response, next: NextFunction) => {
@@ -548,16 +552,16 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
     }),
   );
 
-  // TEMPORARY (testing): while tournaments are open, anyone can create one here, no admin token.
-  // With openTournaments off this answers 403 and only POST /admin/tournaments creates.
-  function requireOpenTournaments(_req: Request, res: Response, next: NextFunction) {
-    if (!opts.openTournaments) return res.status(403).json({ error: 'Only the host can create tournaments' });
-    next();
-  }
+  // Anyone with a hosting code (or anyone at all in open mode) creates here, within the caps (tournament-access.ts).
   api.post(
     '/tournaments',
-    requireOpenTournaments,
-    wrap((req, res) => created(res, store.tournaments.create(parseTournamentSpec(req.body ?? {})))),
+    wrap((req, res) => {
+      const { code, ...body } = (req.body ?? {}) as Record<string, unknown>;
+      const tier = access.hostTier(req.ip ?? '', code, !!opts.openTournaments);
+      const t = store.tournaments.create(access.checkCreate(tier, parseTournamentSpec(body)));
+      access.recordCreate(tier, t.id);
+      created(res, t);
+    }),
   );
 
   // The tournament's own host: its host token, or the admin key. Tournaments saved before host tokens are admin-only.
@@ -569,9 +573,23 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
     if (store.tournaments.isHost(id, key) || checkAdmin(adminToken, key) === 'ok') return next();
     res.status(403).json({ error: "Only this tournament's host can do that" });
   }
+  // Start: the host token or the admin key, or a hosting code in the body (the admin code starts any; the limited code
+  // those made with it).
+  function requireHostOrCode(req: Request, res: Response, next: NextFunction) {
+    const code = (req.body as { code?: unknown } | undefined)?.code;
+    if (code === undefined || code === null || code === '') return requireTournamentHost(req, res, next);
+    const id = String(req.params.id);
+    if (!store.tournaments.get(id)) return res.status(404).json({ error: 'Tournament not found' });
+    try {
+      if (access.canStart(req.ip ?? '', code, id)) return next();
+      res.status(403).json({ error: "Only this tournament's host can do that" });
+    } catch (err) {
+      next(err);
+    }
+  }
   api.post(
     '/tournaments/:id/start',
-    requireTournamentHost,
+    requireHostOrCode,
     wrap((req, res) => {
       const t = store.tournaments.start(String(req.params.id));
       res.json({ tournament: store.tournaments.view(t.id) });

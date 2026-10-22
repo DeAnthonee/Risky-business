@@ -67,6 +67,15 @@ those three parts; hover a bar for the numbers. Each row also shows the player's
 possible; orange at 4+). Card counts are public, so under fog of war a seated player still gets the card-count list.
 In a progressive-cards game the top bar shows what the **next set** is worth (hover for the next three values).
 
+## The House
+
+The home page shows **The House**: the server's own bots over every finished tournament, "The Swarm" (Zergs) against
+"The Machines" (fill bots). Each side has its eliminations, tables, wins, rounds survived, finals, conquests and
+titles (the numbers count up), its best finish, a body-count bar between the two, and a rotating hall of fame (most
+kills, deepest run, biggest army, most conquests, longest survival, most armies lost). It's just for fun: the bots are
+never ranked. It loads after the rest of the page, refreshes every minute, and keeps still for viewers who prefer
+reduced motion. It's hidden until a house bot has played a tournament.
+
 ## Rules implemented
 
 Classic Hasbro world-domination rules on the classic board: 42 territories / 6 continents, 2–6 players (2-player games get the

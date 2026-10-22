@@ -160,14 +160,15 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
   const boardOf = (req: Request): LeaderboardName | undefined => parseLeaderboard(req.query.board, true);
   api.get('/rankings', (req, res) => {
     const board = boardOf(req);
-    // houseBots: the fill bots (never ranked) and Zergs, aggregate fun stats only.
-    if (board === 'tournament') return res.json({ board, current: true, rankings: store.tournamentBoard.rows(), houseBots: store.tournamentBoard.houseBots() });
+    if (board === 'tournament') return res.json({ board, current: true, rankings: store.tournamentBoard.rows() });
     if (board) return res.json({ board, season: String(store.training.season), current: true, rankings: store.training.rows() });
     const season = seasonOf(req);
     const rankings = store.rankings.seasonRows(season);
     if (!rankings) return res.status(404).json({ error: `No leaderboard season ${season}` });
     res.json({ season: season || String(store.rankings.season), current: !season || season === String(store.rankings.season), rankings });
   });
+  // House bots (the home-page widget): fun stats for the server's bots, aggregated from the tournament results. Not a ranking.
+  api.get('/house-bots', (_req, res) => res.json(store.tournamentBoard.houseBots()));
   api.get('/rankings/seasons', (_req, res) => res.json({ current: store.rankings.season, seasons: store.rankings.seasons() }));
   // Match history for the home page: finished games from the archive index, newest first. Only the public outcome
   // (seats, places, winner, turns), never a board, so fog games are safe to list. Empty when records are off.

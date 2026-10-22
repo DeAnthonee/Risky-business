@@ -78,6 +78,8 @@ export interface FunStats {
   worstLoss: number;
   /** Most turns survived at one table. */
   longest: number;
+  /** Rounds this entrant got through: every round won (a champion got through all of them). */
+  rounds: number;
 }
 
 export interface TournamentResult {
@@ -123,15 +125,15 @@ export function scoreTournament(t: ScoredBracket, finishedAt = Date.now()): Tour
   // Built-in fill bots never go on the tournament board (owner's decision); Zergs do. Keyed off the entrant's kind,
   // never its "Bot N" name, so a person called "Bot 1" still scores.
   const ranked = t.entrants.filter((e) => !e.isBot || e.kind === 'zerg');
-  // The fill bots are scored too, apart, for the house-bot panel (houseBotStats); they never become rows.
-  const fill = t.entrants.filter((e) => e.isBot && e.kind !== 'zerg');
+  // Every server bot left off the board is still scored, apart, for the house-bot widget (houseBotStats); never rows.
+  const fill = t.entrants.filter((e) => !ranked.includes(e));
   const score = (e: ScoredBracket['entrants'][number]): TournamentEntrantResult => {
     let round = 0;
     let final: TournamentEntrantResult['final'] = null;
     let tablesWon = 0;
     let tablePoints = 0;
     let kills = 0;
-    const fun: FunStats = { tables: 0, lost: 0, destroyed: 0, conquests: 0, peak: 0, worstLoss: 0, longest: 0 };
+    const fun: FunStats = { tables: 0, lost: 0, destroyed: 0, conquests: 0, peak: 0, worstLoss: 0, longest: 0, rounds: 0 };
     t.rounds.forEach((r, i) => {
       const m = r.matches.find((x) => x.entrants.includes(e.id));
       if (!m) return;
@@ -158,6 +160,7 @@ export function scoreTournament(t: ScoredBracket, finishedAt = Date.now()): Tour
       }
     });
     const champion = t.champion === e.id;
+    fun.rounds = champion ? L : Math.max(0, round - 1);
     const place = placementPoints(L, round, final, champion);
     return {
       key: entrantKey(e),
@@ -304,9 +307,12 @@ export interface HouseGroup {
   armiesLost: number;
   armiesDestroyed: number;
   conquests: number;
+  /** Rounds got through, over every entry. */
+  roundsSurvived: number;
   best: { name: string; finish: string; tournament: string } | null;
   records: {
     mostKills: HouseRecord | null;
+    deepestRun: HouseRecord | null;
     mostArmiesLost: HouseRecord | null;
     longestSurvival: HouseRecord | null;
     biggestArmy: HouseRecord | null;
@@ -324,8 +330,8 @@ export interface HouseBots {
 function emptyGroup(): HouseGroup {
   return {
     bots: 0, entries: 0, tables: 0, tablesWon: 0, kills: 0, knockedOut: 0, championships: 0, finals: 0,
-    armiesLost: 0, armiesDestroyed: 0, conquests: 0, best: null,
-    records: { mostKills: null, mostArmiesLost: null, longestSurvival: null, biggestArmy: null, mostConquests: null },
+    armiesLost: 0, armiesDestroyed: 0, conquests: 0, roundsSurvived: 0, best: null,
+    records: { mostKills: null, deepestRun: null, mostArmiesLost: null, longestSurvival: null, biggestArmy: null, mostConquests: null },
   };
 }
 
@@ -355,6 +361,8 @@ export function houseBotStats(results: readonly TournamentResult[]): HouseBots {
         g.armiesLost += e.fun.lost;
         g.armiesDestroyed += e.fun.destroyed;
         g.conquests += e.fun.conquests;
+        g.roundsSurvived += e.fun.rounds ?? 0;
+        keep(g, 'deepestRun', e.name, e.fun.rounds ?? 0, t.name);
         keep(g, 'mostArmiesLost', e.name, e.fun.worstLoss, t.name);
         keep(g, 'longestSurvival', e.name, e.fun.longest, t.name);
         keep(g, 'biggestArmy', e.name, e.fun.peak, t.name);

@@ -10,6 +10,7 @@ import './styles.css';
 import './theme.css';
 import './home.css';
 import './game.css';
+import './housebots.css';
 
 createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

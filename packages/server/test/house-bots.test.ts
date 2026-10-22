@@ -1,6 +1,6 @@
 import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { houseBotStats, rankTournaments, scoreTournament, type ScoredBracket } from '../src/tournament-scoring.js';
+import { houseBotStats, scoreTournament, type ScoredBracket } from '../src/tournament-scoring.js';
 
 // Bots move without the 700 ms pause, so a whole tournament plays out in the test. Set before the store module loads.
 vi.hoisted(() => {
@@ -39,11 +39,6 @@ const bracket: ScoredBracket = {
 };
 
 describe('house bots (owner, 2026-10-22)', () => {
-  it('fill bots are not ranked; Zergs and players are', () => {
-    const rows = rankTournaments([scoreTournament(bracket)!]);
-    expect(rows.map((r) => r.name).sort()).toEqual(['Ann', 'Komodo']);
-  });
-
   it('aggregates fun stats for fill bots and Zergs, with records', () => {
     const h = houseBotStats([scoreTournament(bracket)!]);
     expect(h.bots).toMatchObject({ bots: 4, entries: 4, tables: 5, tablesWon: 2, kills: 3, knockedOut: 3, championships: 1, finals: 1 });
@@ -55,10 +50,14 @@ describe('house bots (owner, 2026-10-22)', () => {
     expect(h.bots.records.longestSurvival?.value).toBe(40);
     expect(h.bots.records.biggestArmy).toEqual({ name: 'Bot 3', value: 44, tournament: 'Bot Cup' });
     expect(h.bots.records.mostConquests).toEqual({ name: 'Bot 3', value: 19, tournament: 'Bot Cup' });
+    // Rounds got through: only the champion (Bot 3) got through any, both of them.
+    expect(h.bots.roundsSurvived).toBe(2);
+    expect(h.bots.records.deepestRun).toEqual({ name: 'Bot 3', value: 2, tournament: 'Bot Cup' });
     // The Zerg is reported apart (and stays on the ranked board).
     expect(h.zergs).toMatchObject({ bots: 1, entries: 1, tables: 1, kills: 0, knockedOut: 1, armiesLost: 30 });
     expect(h.zergs.records.biggestArmy).toEqual({ name: 'Komodo', value: 41, tournament: 'Bot Cup' });
     expect(h.zergs.records.mostKills).toBeNull();
+    expect(h.zergs.roundsSurvived).toBe(0);
   });
 
   it('results saved before fun stats existed still aggregate (counts only)', () => {
@@ -71,7 +70,7 @@ describe('house bots (owner, 2026-10-22)', () => {
   });
 });
 
-describe('house bots over HTTP', () => {
+describe('house bots over HTTP (GET /api/house-bots, read from the tournament results)', () => {
   let store: InstanceType<typeof Store>;
   let risk: ReturnType<typeof createRiskServer>;
   let base: string;
@@ -104,7 +103,7 @@ describe('house bots over HTTP', () => {
 
     const board = await call('/rankings?board=tournament');
     expect(board.rankings.every((r: any) => !r.key.startsWith('bot:'))).toBe(true);
-    const h = board.houseBots;
+    const h = await call('/house-bots');
     expect(h.bots.entries).toBe(3);
     expect(h.bots.tables).toBeGreaterThan(0);
     expect(h.bots.armiesLost).toBeGreaterThan(0);

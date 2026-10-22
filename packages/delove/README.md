@@ -53,6 +53,10 @@ time" below explains it). The newest base network in the models folder (`delove@
 | C | +2.11 (+1.84 to +2.38) | +1.09 (+0.77 to +1.41) | -0.07 (-0.34 to +0.19) | 100 |
 | `measured` | +1.91 (+1.54 to +2.27) | +0.76 (+0.42 to +1.10) | -0.24 (-0.54 to +0.06) | 47 |
 
+**Against delove@12** (2026-10-22, CPU, mirrored, 100 games each, no fog; docs/delove-fog.md "Controls"):
+`js2-range` vs bare delove@12 is +0.17 (-0.28 to +0.61) at Classic 4p and +0.42 (-0.12 to +0.95) at World 6p.
+That's still positive-leaning but no longer significant, so the search's edge shrank as the network got stronger.
+
 Head to head, `js2-range` vs `measured`: World 6p +1.01 (+0.76 to +1.25), Classic 4p +0.41 (-0.01 to +0.83), Classic
 2p +0.18 (-0.17 to +0.53). Most of the gain is Jacob Sensei 2 and the range score (C); horizon 2 adds a little more
 at about twice the time, which the live tables can afford.

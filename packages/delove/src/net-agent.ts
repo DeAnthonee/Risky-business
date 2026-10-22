@@ -116,6 +116,17 @@ export class NetScorer {
     this.wait('rating positions');
     return this.out.slice(0, positions.length);
   }
+
+  /** A fog guesser's raw output for one position's inputs (this scorer loaded with the guesser's .onnx): [T, width]. */
+  guess(territory: Float32Array, global: Float32Array, mapId: string, width: number): Float32Array {
+    const map = getMap(mapId);
+    const T = map.territoryIds.length;
+    const worker = this.start();
+    Atomics.store(this.ctl, 0, 0);
+    worker.postMessage({ kind: 'guess', T, territory, global, adj: adjacencyMatrix(map) });
+    this.wait('guessing the fog');
+    return this.out.slice(0, T * width);
+  }
 }
 
 /** The fog input layout a model was trained with: `fogInputs` in the <model>.json beside it (0: none, or no file). */

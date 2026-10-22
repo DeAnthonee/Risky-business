@@ -204,6 +204,12 @@ describe('nested tournaments', () => {
       const view = (await call(`/tournaments/${id}`)).body.tournament;
       expect(view.champion.entrantId).toBe(t.champion);
       expect(view.rounds[1].matches[0].status).toMatch(/finished|decided/);
+      // The finished tournament goes on the tournament board once: a decided table's first place has its +1 win.
+      const result = store.tournamentBoard.result(id)!;
+      expect(result).toBeTruthy();
+      const decidedWinners = t.rounds.flatMap((r) => r.matches.filter((m) => m.status === 'decided').map((m) => m.winner));
+      const person = people.find((p) => decidedWinners.includes(p.entrantId));
+      if (person) expect(JSON.stringify(result)).toContain(person.name);
     } finally {
       await agent.close();
       await risk.shutdown('test');

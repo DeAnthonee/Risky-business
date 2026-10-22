@@ -17,8 +17,8 @@ Python + PyTorch (CUDA), not an npm workspace. Uses the repo's `.venv`:
 
 **Every map, every table size and every game setting but fog of war** (`fused.py`, `teacher.py`, `branch.py`,
 `generate.py`): the ten verified maps of `MAP_IDS` (classic, world, world_large, europe, greater_europe with 116 territories,
-europe_classic, usa, asia, fantasy, skirmish / Four Crowns), plus bohemia (Bohemia, 42 territories) and nine_realms (The Nine Realms, 58
-territories), which are wired into `RULE_FILES` and the rules matrix but **not yet verified** (its replay proof is pending), 2 to 10 seats up to each map's player limit, and these
+europe_classic, usa, asia, fantasy, skirmish / Four Crowns), plus bohemia (Bohemia, 42 territories), nine_realms (The Nine Realms, 58
+territories) and hexworld (Hex Earth, 80 territories), which are wired into `RULE_FILES` and the rules matrix but **not yet verified** (its replay proof is pending), 2 to 10 seats up to each map's player limit, and these
 settings in any combination: capitals and `chooseCapitals`, card values (progressive, fixed, exponential), fortify mode
 (connected, adjacent), balanced blitz, blizzards, `firstRoundBonus`, `setupBatch`, `autoSetup`, `randomDeal` (the
 claiming phase) and `neutrals` / `neutralArmies`. That is the whole game: the deal (random or claimed), setup,
@@ -213,6 +213,15 @@ at a table (`delove-teacher@N`, `jacob-sensei@N`, any mix) plays its own version
   rollout copies; branch-env.ts registers the same ids on the CPU; a score token combines with the rollout and option tokens below, e.g. `delove-branch@1:range:o4`) for a jobs line with its own score or for comparing
   scores head to head (`scripts/score_compare.py h2h-jobs`, now with 2- and 3-seat tables, `--net` / `--other` for
   the field and a top-2 column; results in packages/delove/README.md).
+- **Gumbel root** (`--root gumbel`, `DELOVE_BRANCH_ROOT` in branch.ts `gumbelRoot`): `k_branch_gumbel` draws one
+  Gumbel value per legal candidate, in candidate order (`cpu_order`), from the decider's stream. `log_fd` is V8's
+  fdlibm `Math.log` ported operation for operation, like `log1p_fd`; `tests/log1p_check.py` checks it, and the
+  Gumbel transform, against Node. Python picks the teacher's move and the K - 1 best of g + logit (a stable sort,
+  ties in candidate order), and `k_branch_prep` completes them and draws each decision's own number of seeds.
+  `GpuBranch._decide_gumbel` then runs the halving rounds for every deciding game at once. Each round's copies go
+  through `_copies` (chunked to the copy pool; teacher or network rollouts) grouped by objective. The sums are added
+  copy by copy in seed order, never with atomics, so the doubles are the TypeScript's, and the halving and the pick
+  use the same priorities in the same order. `Decision.copies` holds each candidate's copies.
 - **Network rollouts** (`--rollout MODEL[:self]`, `DELOVE_BRANCH_ROLLOUT` in branch.ts): a Delove network plays the
   rollouts instead of the teacher, its top move (ties to the first candidate, as `delove@N` plays) in every seat, or in
   the decider's seat only with the rollout teacher in the others (`:self`). `k_branch_sim` splits into three kernels:
@@ -527,6 +536,15 @@ stage is a short tail (cycle 7 split the same games by players alive and the spe
   and ratio scenarios (2 and 3 survivors on 6-10 seat tables, capitals, blizzards, card modes) are played on the CPU
   (`play` + `export`) and on the GPU; every game must end the same way (winner, turns, the turn
   the stage began, who played each seat) and the two datasets must hold the same games bit for bit.
+  The one exception is the ranker near-tie (above): a game that ends the same way, whose rows are identical up to a
+  row where only the choice differs, and where the ranker's top logits at that row (the branch's options and the
+  next one, recomputed from the row) are within `--near-tie` (1e-4) of each other, is printed as a `note:` with the
+  two choices, the logits and the smallest gap, and does not fail. Anything else fails, with the first differing row
+  and its fields. Why: on 2026-10-22 one `verify.py --models` on a RunPod RTX 4090 (commit `32b99bf`) failed only
+  here, `lead-classic-4p-2`: winners, turns and points matched in all 36 games but one game's rows differed ("35 of
+  36 games identical"). The same case with the same seed on the RTX 4060 at home was identical in all 40 games, so
+  it was the GPU's rounding of the ranker, not the mirror; the pod's data was lost with the pod, so the gap itself
+  was not seen. Before this change the check had no tolerance and needed a new run.
 
 ## Ladder gates on the GPU
 
@@ -746,7 +764,7 @@ is free and a cycle's generation is spread over several GPUs. Nothing in it is a
 | `cloud/worker.sh` | runs on a pod: unpacks the commit (`git archive`), Node 22, `npm ci` and builds the engine and self-play, installs the training PC's PyTorch version, loads the uploaded `_cache/` kernels, checks the fingerprint, runs every lane, deletes the models, packs `out.tar.gz` (gzip -1: the arrays shrink 11-25x) |
 | `cloud/merge.py` | joins several workers' map folders into one `DATA/<name>-<step>/<map>` (rows appended, `cand_offset` continued, `game` renumbered, counts summed; any per-row array such as `branch_tag.npy` included) and their summaries into the step's `gpu.json` (for a step whose arrays stay on the network volume, only the summary, counted from the `features.json` files) |
 | `cloud/trainer.sh`, `cloud/trainer.py` | run on the training pod (`remote.py train`, "Cloud training" below): set up the commit and PyTorch, unpack the earlier cycles' datasets from the network volume, wait for generation, merge this cycle's archives there with `merge.py` (and keep them on the volume as datasets), run `train.py` and `export_onnx.py`, pack only the candidate's files and `train.log` |
-| `tests/cloud_check.py` | offline checks (no GPU, no pods): a real map folder cut into workers and merged back is identical game for game; the split places every table once and its jobs lines round-trip; `remote.py run` against a fake API and clock terminates every pod on every path, replaces an unreachable pod, a failed upload, a failed worker and a lane that delivered nothing, and exits 1 (after downloading the healthy pods) when a pod's share never gets played; pods placed 20 minutes late still play to the end; pods cut at their time keep their finished configurations, which a rerun does not play again; `--accept-partial` merges them at once; no stock launches nothing; with `--volume` the pods are pinned to the volume's data center, the arrays stay on it and `trainer.py` merges them into the same games; `remote.py train` (fake API, pod and clock) terminates every pod on every path, uploads only the init model, sends go only after generation, exits 3 when a dataset is not in the cloud, pushes it with `--push-missing`, replaces a failed host but not a failed training, and handles a generation failure; the API key goes only in the `Authorization` header |
+| `tests/cloud_check.py` | offline checks (no GPU, no pods): a real map folder cut into workers and merged back is identical game for game; the split places every table once and its jobs lines round-trip; `remote.py run` against a fake API and clock terminates every pod on every path, replaces an unreachable pod, a failed upload, a failed worker and a lane that delivered nothing, and exits 1 (after downloading the healthy pods) when a pod's share never gets played; pods placed 20 minutes late still play to the end; pods cut at their time keep their finished configurations, which a rerun does not play again; `--accept-partial` merges them at once; no stock launches nothing; with `--volume` the pods are pinned to the volume's data center, the arrays stay on it and `trainer.py` merges them into the same games; `remote.py train` (fake API, pod and clock) terminates every pod on every path, uploads only the init model, sends go only after generation, exits 3 when a dataset is not in the cloud, pushes it with `--push-missing` (packed before the pod is rented; the pack cache reuses an unchanged folder's pack and repacks a changed one), replaces a failed host but not a failed training, and handles a generation failure; the API key goes only in the `Authorization` header |
 
 **How a step is split.** The unit is a configuration (map, seats, settings): `generate` plays all of a configuration's
 tables in one engine, and a configuration takes about as long as its longest games whatever their number (a lockstep
@@ -897,6 +915,13 @@ the arrays at home: `REMOTE_HOME_COPY=1` keeps a home copy of a volume run). `RE
 cycle's missing datasets (CPU steps) from `DATA`; `REMOTE_TRAIN_PUSH=all` also the earlier ones, once: cycle 8's
 `train_data` used about 75 GB of cycle 5 and 6 arrays, about 5-7 GB compressed. To seed the volume outside a cycle:
 `remote.py train --no-train --push-missing all --data <dataset>/<map> ...` (any cheap GPU type will do).
+The packs come from a home cache, `--pack-cache` (default `<DATA>-push-cache`, beside `DATA` and kept across cycles):
+each earlier dataset a push might need is gzipped **before** the pod is rented, so the GPU never waits on it (the
+cycle 16 seed spent about half of its ~50 GPU-minutes idle while each map folder was packed, about 1.6 minutes each),
+and a folder is packed again only when it changed (the cache key is its `features.json` plus its files' total size and
+newest mtime; older packs of the same dataset are removed). This cycle's own datasets, written by generation while the
+pod waits, are packed when they are pushed. The volume inventory check on the pod is unchanged: a cached pack is
+only uploaded when the volume lacks the dataset. Delete the cache folder to free its disk.
 
 **Guarantees kept.** The estimate is printed first and `--max-gpu-hours` (default 1.5) is a hard cap; the pod's
 watchdog terminates it at the deadline even if the training PC is gone; every pod is terminated on every path (done,

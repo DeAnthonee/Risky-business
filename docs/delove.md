@@ -1,7 +1,7 @@
 # Delove: our base model, a trained Risk player with no personality
 
-Status: Stage 2 under way. Current best: `delove@3` (cycle 4 of branch-and-score training): 0.541 / 0.600 / 0.610 against
-`delove@2` at 2 / 4 / 6 players. History and per-step stats: `packages/delove/CYCLES.md`.
+Status: Stage 2 under way. Current best: `delove@12` (cycle 15, 2026-10-22, the first trained for fog of war); the current state and each promotion's
+results are in `docs/delove-status.md` section 3. History and per-step stats: `packages/delove/CYCLES.md`.
 Where things stand, the training flow and why each step should work, what has been tried, open work and the
 roadmap: **`docs/delove-status.md`** (read that first when coordinating Delove's training). For Generation 5 game settings,
 the randomized switch matrix (fog of war, blizzards, capitals, card values), and testing configs: **`docs/game-settings.md`**.

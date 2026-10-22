@@ -96,6 +96,16 @@ export interface BranchOptions {
   closeRollouts: number;
   closeHorizon: number;
   /**
+   * How the options are chosen and searched: 'top' (the teacher's move and the ranker's `options - 1` favourites, every
+   * option `rollouts` copies) or 'gumbel' (Gumbel root: the teacher's move and `gumbelK - 1` candidates sampled
+   * without replacement from the ranker's logits plus Gumbel noise, searched by sequential halving; see gumbelRoot).
+   */
+  root: 'top' | 'gumbel';
+  /** 'gumbel': candidates per decision (the teacher's move included). */
+  gumbelK: number;
+  /** 'gumbel': rollout copies per decision; 0 = `options` x the decision's rollouts (the 'top' budget). */
+  copies: number;
+  /**
    * Blend of the network's win chance into a branch's score: score = (1 - valueWeight) * objective share +
    * valueWeight * V(end position), V from the valuer's batched value model (one call per decision). 0 = off.
    */
@@ -119,6 +129,9 @@ export const DEFAULT_BRANCH: BranchOptions = {
   threat: 0.3,
   closeRollouts: 12,
   closeHorizon: 2,
+  root: 'top',
+  gumbelK: 8,
+  copies: 0,
   weights: { armies: 0.3, income: 0.3, territories: 0.15, cards: 0.15, continents: 0.1 },
 };
 
@@ -392,6 +405,152 @@ function isImportant(ctx: DecisionContext): boolean {
  * (a Delove network) proposes the alternatives worth trying; `rolloutNet` (optional) is a network that plays the
  * rollouts instead of the teacher, in every seat or in the decider's only.
  */
+/** Gumbel root constants (Danihelka et al. 2022, "Policy improvement by planning with Gumbel"): sigma(q) = (C_VISIT +
+ * the most copies any candidate has) * C_SCALE * q, for scores on a 0..1 scale. */
+export const GUMBEL_C_VISIT = 50;
+export const GUMBEL_C_SCALE = 1;
+
+/**
+ * Sequential halving for `m` candidates (the teacher's move and m - 1 others) within `budget` copies: per round, the
+ * candidates searched (the teacher's move always, plus the others still in) and the new copies each gets,
+ * max(1, floor(budget / (rounds * candidates))). The others halve (rounded up) each round until one is left, so with
+ * 8 candidates and 30 copies: 8 x 1, 5 x 1, 3 x 2, 2 x 3 (25 copies; the teacher's move and the finalist 7 each).
+ */
+export function gumbelSchedule(m: number, budget: number): { size: number; copies: number }[] {
+  const sizes: number[] = [];
+  for (let others = m - 1; ; others = Math.ceil(others / 2)) {
+    sizes.push(1 + others);
+    if (others <= 1) break;
+  }
+  return sizes.map((size) => ({ size, copies: Math.max(1, Math.floor(budget / (sizes.length * size))) }));
+}
+
+/** A Gumbel(0, 1) draw from a uniform one: -log(-log(u)) (Math.log: V8's fdlibm log, ported as log_fd on the GPU). */
+export function gumbel(u: number): number {
+  return -Math.log(-Math.log(u));
+}
+
+/**
+ * branchAgent's decision with `root: 'gumbel'` (Gumbel AlphaZero's root, Danihelka et al. 2022), for one important
+ * decision:
+ *
+ * 1. a Gumbel draw g per candidate, in candidate order, from the seat's stream (after the teacher's pick, before the
+ *    fortify completions and the seeds);
+ * 2. the candidates: the teacher's move first, then the `gumbelK - 1` others with the highest g + logit (the ranker's
+ *    logits; all 0 without a ranker), ties in candidate order: sampling without replacement from softmax(logits);
+ * 3. the copies: every candidate on the same seeded copies (common random numbers), copy j of every candidate on seed
+ *    j; sequential halving (gumbelSchedule) over the budget, the others ranked after each round by
+ *    g + logit + sigma(q), q the candidate's mean score so far (its copies' scores summed seed by seed, divided by
+ *    their number), sigma(q) = (GUMBEL_C_VISIT + the most copies any candidate has) * GUMBEL_C_SCALE * q; the
+ *    teacher's move is searched in every round, so it is never dropped and ends on the same copies as the finalist;
+ * 4. the pick: the highest g + logit + sigma(q) among the teacher's move and the finalist, then the margin rule: the
+ *    teacher's move unless the pick's mean beats it by `margin` (both on the same copies).
+ *
+ * The trace (DELOVE_BRANCH_TRACE) lists every searched candidate with its mean score and copies. valueWeight is not
+ * supported here.
+ */
+function gumbelRoot(
+  dctx: DecisionContext,
+  base: StepContext,
+  teacherIndex: number,
+  teacher: StepPick,
+  ranker: NetScorer | null,
+  opts: BranchOptions,
+  rolloutNet: RolloutNet | null,
+): Action {
+  const n = dctx.candidates.length;
+  const logits = ranker ? ranker.score(base).logits : new Float32Array(n);
+  const g = Array.from({ length: n }, () => gumbel(dctx.random()));
+  const key = (i: number) => g[i] + logits[i];
+  const rest = [...Array(n).keys()].filter((i) => i !== teacherIndex);
+  rest.sort((a, b) => {
+    const ka = key(a);
+    const kb = key(b);
+    return kb > ka ? 1 : kb < ka ? -1 : a - b;
+  });
+  const order = [teacherIndex, ...rest.slice(0, Math.max(0, opts.gumbelK - 1))];
+  const actions: Action[] = [];
+  const kept: number[] = [];
+  const keys = new Set<string>();
+  for (const i of order) {
+    const a = completeAction(base, i, teacher);
+    const k = JSON.stringify(a);
+    if (!keys.has(k)) (keys.add(k), actions.push(a), kept.push(i));
+  }
+  if (actions.length === 1) return actions[0];
+
+  branchStats.branched++;
+  const kind = dctx.candidates[teacherIndex][0];
+  branchStats.branchedByKind[kind] = (branchStats.branchedByKind[kind] ?? 0) + 1;
+  const ds = decisionScore(opts, dctx.state.players.filter((p) => p.alive && !p.isNeutral).length);
+  const m = actions.length;
+  const plan = gumbelSchedule(m, opts.copies > 0 ? opts.copies : opts.options * ds.rollouts);
+  const total = plan.reduce((a, r) => a + r.copies, 0);
+  const seeds = Array.from({ length: total }, () => Math.floor(dctx.random() * 0xffffffff) >>> 0);
+  const zeroScore = (): Score => ({ score: 0, armies: 0, income: 0, territories: 0, cards: 0, continents: 0, won: 0, lost: 0 });
+  const sums = actions.map(zeroScore);
+  const count = new Array<number>(m).fill(0);
+  const dead = new Array<boolean>(m).fill(false);
+  const copyScores: { score: number; gap: number }[][] = actions.map(() => []);
+  const play = (o: number) => {
+    if (dead[o]) return;
+    const seed = seeds[count[o]];
+    const copy: GameState = { ...dctx.state, rngState: seed, deck: shuffle(createRng(seed ^ 0x5bd1e995), dctx.state.deck) };
+    let after: GameState;
+    try {
+      after = applyAction(copy, dctx.me, actions[o]).state;
+    } catch {
+      dead[o] = true;
+      return;
+    }
+    const player = rolloutNet ? rolloutPlayer(teacher, rolloutNet, dctx.me) : null;
+    const r = rollout(after, ds.horizon, player ? player.pick : teacher, seededRandom(seed));
+    branchStats.simulations++;
+    branchStats.simulatedMoves += r.moves;
+    const sc = positionScore(r.state, dctx.me, opts.weights, ds.mode, opts);
+    if (player) copyScores[o].push({ score: sc.score, gap: player.gap });
+    for (const k of Object.keys(sums[o]) as (keyof Score)[]) sums[o][k] += sc[k];
+    count[o]++;
+  };
+  const mean = (o: number) => (dead[o] ? -Infinity : sums[o].score / count[o]);
+  const priority = (o: number) => {
+    const most = Math.max(...count);
+    return key(kept[o]) + (GUMBEL_C_VISIT + most) * GUMBEL_C_SCALE * mean(o);
+  };
+  let live = [...Array(m).keys()];
+  for (let r = 0; r < plan.length; r++) {
+    for (const o of live) for (let c = 0; c < plan[r].copies; c++) play(o);
+    if (r === plan.length - 1) break;
+    const others = live.filter((o) => o !== 0);
+    others.sort((a, b) => {
+      const pa = priority(a);
+      const pb = priority(b);
+      return pb > pa ? 1 : pb < pa ? -1 : a - b;
+    });
+    live = [0, ...others.slice(0, plan[r + 1].size - 1).sort((a, b) => a - b)];
+  }
+  let best = live[0];
+  for (const o of live) if (priority(o) > priority(best)) best = o;
+  if (best !== 0 && mean(best) - mean(0) < opts.margin) best = 0;
+  if (best !== 0) {
+    branchStats.changed++;
+    branchStats.changedByKind[kind] = (branchStats.changedByKind[kind] ?? 0) + 1;
+  }
+  branchStats.gain += mean(best) - mean(0);
+  if (TRACE) {
+    const line: Record<string, unknown> = {
+      game: dctx.state.id, turn: dctx.state.turnNumber, seat: dctx.seat, options: kept, means: kept.map((_, o) => mean(o)), copies: count, best,
+    };
+    if (rolloutNet) {
+      line.scores = copyScores.map((o) => o.map((c) => c.score));
+      line.gaps = copyScores.map((o) => o.map((c) => (Number.isFinite(c.gap) ? c.gap : null)));
+    }
+    appendFileSync(TRACE, JSON.stringify(line) + '\n');
+  }
+  for (const k of Object.keys(branchStats.chosen) as (keyof Score)[]) branchStats.chosen[k] += sums[best][k] / count[best];
+  return actions[best];
+}
+
 export function branchAgent(
   id: string,
   teacher: StepPick,
@@ -401,6 +560,7 @@ export function branchAgent(
   valuer: NetScorer | null = null,
   rolloutNet: RolloutNet | null = null,
 ): Agent {
+  if (opts.root === 'gumbel' && opts.valueWeight > 0) throw new Error('branch: the Gumbel root does not blend the value head (valueWeight must be 0)');
   return {
     id,
     choose(dctx) {
@@ -409,6 +569,7 @@ export function branchAgent(
       branchStats.decisions++;
       const teacherIndex = teacher(base);
       if (!isImportant(dctx) || opts.skip.includes(dctx.candidates[teacherIndex][0])) return completeAction(base, teacherIndex, teacher);
+      if (opts.root === 'gumbel') return gumbelRoot(dctx, base, teacherIndex, teacher, ranker, opts, rolloutNet);
 
       // Options: the teacher's move first, then the network's favourites.
       const order: number[] = [teacherIndex];

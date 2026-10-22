@@ -36,7 +36,16 @@ afterAll(async () => {
 });
 
 describe('Zerg seats', () => {
-  it('seats Zergs with distinct reptile names, and rejects a custom name or an unknown kind', async () => {
+  it('the Zerg names: 40 good-natured puns, each with "Zerg" in it, unique, short enough for a " 99" suffix', () => {
+    expect(ZERG_NAMES.length).toBeGreaterThanOrEqual(40);
+    expect(new Set(ZERG_NAMES.map((n) => n.toLowerCase())).size).toBe(ZERG_NAMES.length);
+    for (const n of ZERG_NAMES) {
+      expect(n.toLowerCase()).toContain('zerg');
+      expect(n.length).toBeLessThanOrEqual(21);
+    }
+  });
+
+  it('seats Zergs with distinct names from the Zerg list, and rejects a custom name or an unknown kind', async () => {
     const created = await api('/games', { method: 'POST', body: JSON.stringify({ playerName: 'Host', options: { maxPlayers: 6 } }) });
     const { gameId, token } = created.body;
     const names: string[] = [];

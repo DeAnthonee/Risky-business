@@ -1,12 +1,12 @@
 import { chooseZergAction, getMap } from '@risk/engine';
-import { actionSteps, isZergName, type StepContext } from '@risk/selfplay';
+import { actionSteps, isZergName, zergParamsFor, type StepContext } from '@risk/selfplay';
 import { hordeOf } from './zerg-branch.js';
 
 type StepPick = (ctx: StepContext) => number;
 
 /**
  * A rollout policy for branch and score at horde tables (docs/zergs.md): Zerg seats (players named after a Zerg agent)
- * play the hand-coded horde bot's move, mapped onto the candidate list; every other seat plays `base` (the branch
+ * play the hand-coded horde bot's move (each seat its own version: zerg@1 or zerg@2, `zergParamsFor`), mapped onto the candidate list; every other seat plays `base` (the branch
  * teacher). So a searching Delove seat foresees the horde ganging up instead of imagining the Zergs as Jacob Sensei.
  * A Zerg move that is not a candidate (a surrender to feed the swarm, an off-list placement) falls back to `base`, or,
  * when that would attack a fellow Zerg, to ending the turn (else the first candidate that doesn't). Once no prey is
@@ -30,7 +30,7 @@ export function hordeRolloutPick(base: StepPick): StepPick {
       const end = ctx.candidates.findIndex((c) => c[0] === 'end_turn');
       return end >= 0 ? end : Math.max(0, ctx.candidates.findIndex((_, i) => safe(i)));
     };
-    const action = chooseZergAction(ctx.state, ctx.me, horde, ctx.random);
+    const action = chooseZergAction(ctx.state, ctx.me, horde, ctx.random, zergParamsFor(player.name));
     if (!action || action.type === 'surrender') return fallback();
     const steps = actionSteps(ctx.state, ctx.me, ctx.legal, action);
     let choice = -1;

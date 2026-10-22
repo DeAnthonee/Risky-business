@@ -137,6 +137,9 @@ gen_args() {
   [[ -n ${DELOVE_BRANCH_THREAT:-} ]] && args+=(--threat "$DELOVE_BRANCH_THREAT")
   [[ -n ${DELOVE_BRANCH_CLOSE_ROLLOUTS:-} ]] && args+=(--close-rollouts "$DELOVE_BRANCH_CLOSE_ROLLOUTS")
   [[ -n ${DELOVE_BRANCH_CLOSE_HORIZON:-} ]] && args+=(--close-horizon "$DELOVE_BRANCH_CLOSE_HORIZON")
+  [[ -n ${DELOVE_BRANCH_ROOT:-} ]] && args+=(--root "$DELOVE_BRANCH_ROOT")
+  [[ -n ${DELOVE_BRANCH_K:-} ]] && args+=(--gumbel-k "$DELOVE_BRANCH_K")
+  [[ -n ${DELOVE_BRANCH_COPIES:-} ]] && args+=(--copies "$DELOVE_BRANCH_COPIES")
   [[ -n ${DELOVE_BRANCH_ROLLOUT:-} ]] && args+=(--rollout "$DELOVE_BRANCH_ROLLOUT")
   # The config's export_agents, so GPU steps also export per-job seats such as delove-branch@1:range (#148).
   args+=(--export-agents "$export_agents")

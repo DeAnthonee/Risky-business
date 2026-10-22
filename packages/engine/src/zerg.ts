@@ -31,9 +31,15 @@ export interface ZergParams {
   stagingDistance: number;
   /**
    * 1: a walled-in Zerg (not the strongest) surrenders to feed the swarm, so the front Zerg eats its land; 0: never.
-   * On in zerg@1 (the owner's decision, 2026-10-22; it was off from #169 to #176), and live seats play ZERG_1_PARAMS.
+   * On in zerg@1 (the owner's decision, 2026-10-22; it was off from #169 to #176). Off in zerg@2, which live seats
+   * play: the owner called the mid-game surrender a bug after a live 10-player game (#198).
    */
   sacrifice: number;
+  /**
+   * 1: a Zerg walled in by its allies (no front of its own) reinforces and fortifies toward its territory nearest the
+   * prey, counted through any land, ready for when the front opens; 0: as zerg@1 (#198, on in zerg@2).
+   */
+  walledInMass: number;
   // Later behaviours, each 0 = off (as in zerg@1), so zerg@1 plays exactly as before:
   /**
    * Synchronised strike: the horde holds its attacks on the target (knock-outs aside) until its armies bordering the
@@ -66,12 +72,21 @@ export const ZERG_1_PARAMS: ZergParams = {
   occupyShare: 0.7,
   stagingDistance: 10,
   sacrifice: 1,
+  walledInMass: 0,
   strikeRatio: 0,
   cardHoard: 0,
   hoardFinish: 3,
   capitalBonus: 0,
   wallWeight: 0,
 };
+
+/**
+ * zerg@2: zerg@1 without the mid-game surrender. A Zerg surrenders only when only Zergs are left, and a walled-in Zerg
+ * masses toward the prey instead (#198, the owner's call after a live game where 6 of 8 Zergs surrendered in 2.5
+ * minutes). Live and tournament Zerg seats play it; training and the horde gate stay on zerg@1 until the Lord of
+ * training moves them.
+ */
+export const ZERG_2_PARAMS: ZergParams = { ...ZERG_1_PARAMS, sacrifice: 0, walledInMass: 1 };
 
 /**
  * A Zerg: a hand-coded house bot that plays as one of a horde (docs/zergs.md). It rushes, never attacks a fellow
@@ -83,7 +98,8 @@ export const ZERG_1_PARAMS: ZergParams = {
  *
  * The alliance lasts only while there is prey: once every non-Zerg is out, the strongest Zerg (`strongestZergOf`) keeps
  * the table and the others surrender at once (the owner's rule, docs/zergs.md). Before that, the only surrender is a
- * walled-in Zerg feeding the swarm (`sacrifice`, on in zerg@1).
+ * walled-in Zerg feeding the swarm (`sacrifice`, on in zerg@1, off in zerg@2, where a walled-in Zerg masses toward the
+ * prey instead: `walledInMass`).
  */
 export function chooseZergAction(
   state: GameState,
@@ -97,8 +113,10 @@ export function chooseZergAction(
 
   const prey = preyOf(state, horde);
   // No prey left: the strongest Zerg keeps the table and every other Zerg surrenders at once (the owner's rule: Zerg
-  // has its own agenda, and it ends the game quickly). The strongest keeps playing as an ally until it stands alone.
-  if (prey.length === 0 && state.phase !== 'setup' && state.phase !== 'capitals' && strongestZergOf(state, horde) !== me) {
+  // has its own agenda, and it ends the game quickly). The strongest keeps playing as an ally until it stands alone. A
+  // Zerg that has just taken the last prey territory occupies it first (the occupy below), so it never surrenders with
+  // its own conquest left empty.
+  if (prey.length === 0 && !state.pendingConquest && state.phase !== 'setup' && state.phase !== 'capitals' && strongestZergOf(state, horde) !== me) {
     return { type: 'surrender' };
   }
 
@@ -114,6 +132,10 @@ export function chooseZergAction(
   if (state.phase === 'reinforce' && !lm.pendingConquest && prey.length > 0 && params.sacrifice > 0 && walledIn(state, me, horde, prey) && !strongestZerg(state, me, horde)) {
     return { type: 'surrender' };
   }
+
+  // zerg@2: steps to the nearest prey through any land (allies' included), where a walled-in Zerg masses its armies.
+  const nearPrey = params.walledInMass > 0 ? distanceThrough(state, prey) : null;
+  const near = nearPrey ? (t: TerritoryId) => nearPrey.get(t) ?? Infinity : null;
 
   if (lm.pendingConquest) {
     const pc = lm.pendingConquest;
@@ -131,7 +153,7 @@ export function chooseZergAction(
   }
 
   if (lm.canPlaceOn.length > 0 && lm.placeLimit > 0) {
-    return { type: 'place', placements: { [stagingTerritory(state, me, horde, lm.canPlaceOn, d, random, params)]: lm.placeLimit } };
+    return { type: 'place', placements: { [stagingTerritory(state, me, horde, lm.canPlaceOn, d, near, random, params)]: lm.placeLimit } };
   }
 
   if (state.phase === 'attack') {
@@ -140,7 +162,7 @@ export function chooseZergAction(
   }
 
   if (state.phase === 'attack' || state.phase === 'fortify') {
-    const f = bestFortify(state, me, horde, lm.fortifies, d);
+    const f = bestFortify(state, me, horde, lm.fortifies, d, near);
     if (f) return { type: 'fortify', from: f.from, to: f.to, armies: f.armies };
     return { type: 'end_turn' };
   }
@@ -239,6 +261,23 @@ function strongestZerg(state: GameState, me: PlayerId, horde: ReadonlySet<Player
   return best === me;
 }
 
+/** Steps from every territory to the nearest territory of any of `players`, through any land but blizzards. */
+function distanceThrough(state: GameState, players: PlayerId[]): Map<TerritoryId, number> {
+  const adjacency = getMap(state.options.map).adjacency;
+  const dist = new Map<TerritoryId, number>();
+  const queue = players.flatMap((p) => territoriesOf(state, p));
+  for (const t of queue) dist.set(t, 0);
+  for (let i = 0; i < queue.length; i++) {
+    const t = queue[i];
+    for (const n of adjacency[t]) {
+      if (dist.has(n) || isBlizzard(state, n)) continue;
+      dist.set(n, dist.get(t)! + 1);
+      queue.push(n);
+    }
+  }
+  return dist;
+}
+
 function hostile(state: GameState, me: PlayerId, horde: ReadonlySet<PlayerId>, t: TerritoryId): boolean {
   const owner = state.territories[t].owner;
   return owner !== null && owner !== me && !horde.has(owner) && !isBlizzard(state, t);
@@ -274,10 +313,18 @@ function stagingTerritory(
   horde: ReadonlySet<PlayerId>,
   options: TerritoryId[],
   d: (t: TerritoryId) => number,
+  near: ((t: TerritoryId) => number) | null,
   random: RandomSource,
   params: ZergParams,
 ): TerritoryId {
-  let best = options.reduce((a, b) => (state.territories[b].armies > state.territories[a].armies ? b : a));
+  // No front: the biggest stack (zerg@1); walled in by allies in zerg@2, my territory nearest the prey (biggest on a tie).
+  let best = near
+    ? options.reduce((a, b) => {
+        const na = near(a);
+        const nb = near(b);
+        return nb < na || (nb === na && state.territories[b].armies > state.territories[a].armies) ? b : a;
+      })
+    : options.reduce((a, b) => (state.territories[b].armies > state.territories[a].armies ? b : a));
   let bestScore = -Infinity;
   for (const t of options) {
     const enemies = hostileNeighbours(state, me, horde, t);
@@ -346,8 +393,33 @@ function bestAttack(
   return best;
 }
 
-/** Move the biggest stack sitting behind the lines to the front nearest the target. */
-function bestFortify(state: GameState, me: PlayerId, horde: ReadonlySet<PlayerId>, options: { from: TerritoryId; to: TerritoryId; maxArmies: number }[], d: (t: TerritoryId) => number) {
+/**
+ * Move the biggest stack sitting behind the lines to the front nearest the target. In zerg@2, walled in by allies (no
+ * front of my own): move it toward my side nearest the prey instead.
+ */
+function bestFortify(
+  state: GameState,
+  me: PlayerId,
+  horde: ReadonlySet<PlayerId>,
+  options: { from: TerritoryId; to: TerritoryId; maxArmies: number }[],
+  d: (t: TerritoryId) => number,
+  near: ((t: TerritoryId) => number) | null,
+) {
+  const hasFront = !near || territoriesOf(state, me).some((t) => hostileNeighbours(state, me, horde, t).length > 0);
+  if (!hasFront && near) {
+    let move: { from: TerritoryId; to: TerritoryId; armies: number } | null = null;
+    let moveScore = 0;
+    for (const f of options) {
+      const gain = near(f.from) - near(f.to);
+      if (!(gain > 0) || !Number.isFinite(gain)) continue;
+      const score = gain * 10 + f.maxArmies;
+      if (score > moveScore) {
+        moveScore = score;
+        move = { from: f.from, to: f.to, armies: f.maxArmies };
+      }
+    }
+    return move;
+  }
   let best: { from: TerritoryId; to: TerritoryId; armies: number } | null = null;
   let bestScore = -Infinity;
   for (const f of options) {

@@ -73,6 +73,10 @@ def branch_variant(agent: str) -> dict:
             out["rollout"] = ROLLOUT_TOKENS[tok]
         elif tok[:1] == "o" and tok[1:].isdigit() and int(tok[1:]) >= 1:
             out["options"] = int(tok[1:])
+        elif tok in ("gumbel", "top"):
+            out["root"] = tok
+        elif tok[:1] == "k" and tok[1:].isdigit() and int(tok[1:]) >= 2:
+            out["gumbel_k"] = int(tok[1:])
         else:
             raise ValueError(agent)
     return out
@@ -536,7 +540,7 @@ class Group:
             return
         L = self.e.L
         nopt = (d.options[d.branched] >= 0).sum(1)
-        s["simulations"] += int((nopt * d.rollouts[d.branched]).sum())
+        s["simulations"] += int(d.copies[d.branched].sum()) if d.copies is not None else int((nopt * d.rollouts[d.branched]).sum())
         s["simulatedMoves"] += d.moves
         s["changed"] += int(d.changed.sum())
         m = d.means[d.branched]
@@ -558,7 +562,7 @@ class Group:
         e, dev, B, r = self.e, self.dev, self.B, self.r
         ar = torch.arange(B, device=dev)
         self.btag = torch.zeros(B, dtype=torch.int8, device=dev)  # this step's branch tag per game (Recorder)
-        kq = max([b.cfg.options for b in self.branches.values()] or [1])
+        kq = branch_q_width([b.cfg for b in self.branches.values()])
         self.bq_opts = torch.full((B, kq), -1, dtype=torch.long, device=dev)  # this step's branch options and mean scores
         self.bq_means = torch.full((B, kq), float("nan"), dtype=torch.float64, device=dev)
         torch.cuda.reset_peak_memory_stats(dev)
@@ -612,9 +616,7 @@ class Group:
                     act1[bg] = d.act1
                     act2[bg] = d.act2
                     self.btag[bg] = d.branched.to(torch.int8) + d.changed.to(torch.int8)
-                    k = d.options.shape[1]
-                    self.bq_opts[bg, :k] = torch.where(d.branched[:, None], d.options, -1)
-                    self.bq_means[bg, :k] = torch.where(d.branched[:, None], d.means[:, :, 0], float("nan"))
+                    put_branch_q(self.bq_opts, self.bq_means, bg, d)
                     self._branch_stats(d)
             ordered, cnt = e.cand_order() if self.rec else (None, None)
             self._record(active.nonzero(as_tuple=True)[0], ordered, cnt, act1, terr, glob, (self.bq_opts, self.bq_means))
@@ -659,6 +661,19 @@ def option_q(ordered: torch.Tensor, q: tuple[torch.Tensor, torch.Tensor] | None,
     return torch.where(hit.any(2), val, out)
 
 
+def branch_q_width(cfgs) -> int:
+    """Columns of a step's branch options and mean scores (branch_q.npy): the most options any branch seat compares
+    (a Gumbel root's candidates, gumbel_k, can be more than options)."""
+    return max([c.gumbel_k if c.root == "gumbel" else c.options for c in cfgs] or [1])
+
+
+def put_branch_q(bq_opts: torch.Tensor, bq_means: torch.Tensor, bg: torch.Tensor, d) -> None:
+    """A branch seat's Decision `d` for main games `bg` into the step's options and mean scores (nan: not branched)."""
+    k = d.options.shape[1]
+    bq_opts[bg, :k] = torch.where(d.branched[:, None], d.options, -1)
+    bq_means[bg, :k] = torch.where(d.branched[:, None], d.means[:, :, 0], float("nan"))
+
+
 def table_summary(results: list[dict]) -> list[dict]:
     out = {}
     for r in results:
@@ -701,6 +716,10 @@ def main():
                     " MODEL or MODEL:all a Delove network in every seat; MODEL:self in the decider's seat only (the teacher in the"
                     " others). Comparison seats delove-branch@1:net / :netself / :teacher pick their own, with MODEL (or --rollout-net)")
     ap.add_argument("--rollout-net", default=None, help="the rollout network for :net / :netself seats when --rollout is not given")
+    ap.add_argument("--root", default=d.root, choices=["top", "gumbel"], help="branch root (DELOVE_BRANCH_ROOT); seats delove-branch@1:gumbel"
+                    " / :top pick their own, :k<N> their candidates")
+    ap.add_argument("--gumbel-k", type=int, default=d.gumbel_k, help="Gumbel root: candidates, the teacher's move included (DELOVE_BRANCH_K)")
+    ap.add_argument("--copies", type=int, default=d.copies, help="Gumbel root: copies per decision, 0 = options x rollouts (DELOVE_BRANCH_COPIES)")
     ap.add_argument("--batch", type=int, default=0, help="games in flight per configuration (0: sized to --gpu-gb)")
     ap.add_argument("--gpu-gb", type=float, default=3.0, help="GPU memory for game states when sizing batches (networks come on top)")
     ap.add_argument("--out", help="write training arrays here (export's format, one folder per map)")
@@ -733,12 +752,14 @@ def main():
         if seats not in ("", "all", "self"):
             ap.error(f"--rollout {args.rollout}: want MODEL, MODEL:all or MODEL:self")
         cfg.rollout = seats or "all"
+    cfg.root, cfg.gumbel_k, cfg.copies = args.root, args.gumbel_k, args.copies
     run = Run(tables, args.seed, models, args.ranker, teacher, cfg, args.export_agents.split(","), Path(args.out) if args.out else None,
               args.max_turns, args.precision, "cuda", args.allow_unverified, rollout_net)
     res = run.run(args.batch or None, args.gpu_gb * 2**30)
     res["tables"] = table_summary(run.results)
     res["config"] = {"seed": args.seed, "ranker": args.ranker, "teacher": teacher, "options": cfg.options, "rollouts": cfg.rollouts,
                      "horizon": cfg.horizon, "margin": cfg.margin, "skip": cfg.skip, "score": cfg.score, "rollout": cfg.rollout, "rolloutNet": rollout_net,
+                     "root": cfg.root, "gumbelK": cfg.gumbel_k, "copies": cfg.copies,
                      "killWeight": cfg.kill_weight, "threat": cfg.threat, "closeRollouts": cfg.close_rollouts, "closeHorizon": cfg.close_horizon,
                      "weights": cfg.weights, "batch": args.batch,
                      "precision": args.precision}

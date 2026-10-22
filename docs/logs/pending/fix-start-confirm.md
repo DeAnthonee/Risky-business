@@ -1,0 +1,2 @@
+client: - 2026-10-22 #288 tournament Start now (the Host bar and the screen after creating): a live "Seats: J / M · Delove K / N" beside it, and a confirm ("Only J of M seats are filled (Delove requested N, joined K). Start anyway?", Start anyway / Wait) while seats are empty or Delove seats have not all joined (StartButton.tsx; HostEntrants shares its live view)
+docs: - 2026-10-22 #288 playing.md: the seat count and the start confirm

@@ -9,6 +9,7 @@ import {
   finalPlacements,
   genMapId,
   getMap,
+  maxBlizzards,
   isMapId,
   nestSeed,
   nextFloat,
@@ -137,6 +138,11 @@ export interface NestedSettings {
   finishShare: number;
   /** Bots' pace at this tournament's tables, ms between moves. Absent on tournaments saved before it: the server default. */
   botDelayMs?: number;
+  /**
+   * Blizzards as a share of each table's territories (NESTED_BLIZZARD_SHARE), set when the host gave no blizzard
+   * count. Absent (an explicit count, or saved before it): every table uses `options.blizzards` as given.
+   */
+  blizzardShare?: number;
   /** A seed the host fixed at create (else one is drawn at start). */
   fixedSeed?: number;
   /** Set at start: the seed of every board and of the seating, the plan, each table's board, and each table's portals
@@ -255,6 +261,8 @@ export interface TournamentView {
     roundMinutes: number;
     finishShare: number;
     botDelayMs: number | null;
+    /** Blizzards as a share of each table's territories, or null when every table uses options.blizzards. */
+    blizzardShare: number | null;
     plan: number[][] | null;
     zergs: number;
     /** The board tree from the start (null before): each table's board, seats, portals, parent board and portal. */
@@ -292,6 +300,16 @@ export interface TournamentSummary {
 const MAX_NAME = 24;
 const DEFAULT_MAX_ENTRANTS = 64;
 const DEFAULT_MAX_NESTED_ENTRANTS = 128;
+/** Nested (and so scheduled) tournaments' table settings when the host leaves them out (owner, 2026-10-22). */
+export const NESTED_DEFAULT_OPTIONS: Partial<GameOptions> = { autoSetup: true, capitals: true };
+/** Unless the host sets a blizzard count, each nested table freezes this share of its own board's territories. */
+export const NESTED_BLIZZARD_SHARE = 0.1;
+
+/** A table's blizzards for a share of its board: at least 1, at most the map's limit. */
+export function blizzardsFor(mapId: string, share: number): number {
+  const map = getMap(mapId as GameOptions['map']);
+  return Math.min(maxBlizzards(map), Math.max(1, Math.round(share * map.territoryIds.length)));
+}
 const MAX_ENTRANTS = 256;
 const NESTED_TABLE = { min: 3, max: 6 };
 const NESTED_FINAL = { min: 6, max: 10 };
@@ -434,7 +452,8 @@ export class TournamentManager extends EventEmitter {
   private createNested(spec: CreateTournamentSpec, dryRun: true): null;
   private createNested(spec: CreateTournamentSpec, dryRun?: false): TournamentSnapshot;
   private createNested(spec: CreateTournamentSpec, dryRun = false): TournamentSnapshot | null {
-    const options: Partial<GameOptions> = { ...(spec.options ?? {}) };
+    // The owner's tournament mode (a random deal and placement, capitals, blizzards) unless the host says otherwise.
+    const options: Partial<GameOptions> = { ...NESTED_DEFAULT_OPTIONS, ...(spec.options ?? {}) };
     delete options.maxPlayers; // set per table
     delete options.map; // every table plays its own board
     const tps = spec.territoriesPerSeat ?? 5;
@@ -462,6 +481,8 @@ export class TournamentManager extends EventEmitter {
     // The settings must work at every table size the plan can make, on generated boards and on the final's board.
     for (let seats = 2; seats <= NESTED_FINAL.max; seats++) createGame('CHECK', { ...options, map: genMapId({ seed: 1, seats, territoriesPerSeat: tps }), maxPlayers: seats });
     if (finalMap) for (let seats = NESTED_FINAL.min; seats <= this.maxFinal(finalMap); seats++) createGame('CHECK', { ...options, map: finalMap as GameOptions['map'], maxPlayers: seats });
+    // No blizzard count from the host: each table gets its share of its own board (buildNestedRound).
+    const blizzardShare = options.blizzards === undefined ? NESTED_BLIZZARD_SHARE : undefined;
     if (dryRun) return null;
     let id = code();
     while (this.tournaments.has(id)) id = code();
@@ -482,7 +503,7 @@ export class TournamentManager extends EventEmitter {
       updatedAt: now,
       version: 1,
       format: 'nested',
-      nested: { finalMap, territoriesPerSeat: tps, roundMinutes, finishShare, botDelayMs, ...(spec.seed !== undefined ? { fixedSeed: spec.seed } : {}) },
+      nested: { finalMap, territoriesPerSeat: tps, roundMinutes, finishShare, botDelayMs, ...(blizzardShare !== undefined ? { blizzardShare } : {}), ...(spec.seed !== undefined ? { fixedSeed: spec.seed } : {}) },
       ...(spec.scheduled ? { scheduled: { startsAt: spec.scheduled.startsAt } } : {}),
     };
     this.tournaments.set(id, t);
@@ -653,6 +674,7 @@ export class TournamentManager extends EventEmitter {
               roundMinutes: t.nested.roundMinutes,
               finishShare: t.nested.finishShare,
               botDelayMs: t.nested.botDelayMs ?? null,
+              blizzardShare: t.nested.blizzardShare ?? null,
               plan: t.nested.plan ? t.nested.plan.rounds.map((r) => r.map((x) => x.seats)) : null,
               zergs: t.nested.plan?.zergs ?? 0,
               nodes: t.nested.nodes ?? null,
@@ -943,7 +965,7 @@ export class TournamentManager extends EventEmitter {
       const rng = createRng(nestSeed(n.seed!, `start:${r + 1}:${j}`));
       const { room, seats } = this.store.createTable(
         `${t.name} · R${r + 1} ${label}`.slice(0, 40),
-        { ...t.options, map: map as GameOptions['map'], maxPlayers: entrants.length },
+        { ...t.options, ...(n.blizzardShare !== undefined ? { blizzards: blizzardsFor(map, n.blizzardShare) } : {}), map: map as GameOptions['map'], maxPlayers: entrants.length },
         players.map((p) => ({ name: p.name, isBot: p.isBot, ...(p.kind ? { kind: p.kind } : {}), agent: p.agent })),
         t.id,
         {

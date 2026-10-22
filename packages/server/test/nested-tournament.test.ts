@@ -12,8 +12,8 @@ vi.hoisted(() => {
 const { Store } = await import('../src/store.js');
 const { createRiskServer } = await import('../src/app.js');
 type TournamentClock = import('../src/tournaments.js').TournamentClock;
-const { ROUND_MIN_TURNS, seatNestedRound } = await import('../src/tournaments.js');
-const { createRng, nestSeed } = await import('@risk/engine');
+const { NESTED_BLIZZARD_SHARE, NESTED_DEFAULT_OPTIONS, ROUND_MIN_TURNS, blizzardsFor, seatNestedRound } = await import('../src/tournaments.js');
+const { createRng, genMapId, nestSeed } = await import('@risk/engine');
 
 /** A clock the test moves by hand: round deadlines fire only when it is advanced past them. */
 class FakeClock implements TournamentClock {
@@ -511,5 +511,51 @@ describe('nested tournaments', () => {
     expect(t2.rounds).toHaveLength(2);
     store2.stopTimers();
     for (const room of store2.rooms.values()) room.stopBot();
+  });
+
+  it('every table of every round plays the owner\'s tournament mode by default: auto setup, capitals, blizzards', () => {
+    const clock = new FakeClock();
+    const store = new Store(null, {}, { clock });
+    const t = store.tournaments.create({ format: 'nested', finalMap: 'hexworld', botDelayMs: 2000 });
+    expect(t.options).toMatchObject({ autoSetup: true, capitals: true });
+    expect(t.options.blizzards).toBeUndefined();
+    expect(NESTED_DEFAULT_OPTIONS).toEqual({ autoSetup: true, capitals: true });
+    // Blizzards scale with each table's board: 10%, at least 1 (lord of game development).
+    expect(NESTED_BLIZZARD_SHARE).toBe(0.1);
+    expect(t.nested!.blizzardShare).toBe(0.1);
+    expect([15, 30, 50].map((n) => blizzardsFor(genMapId({ seed: 1, seats: n / 5 }), 0.1))).toEqual([2, 3, 5]);
+    // 100 entrants: three rounds (generated boards, then moved-on tables on generated boards, then the Hex Earth final).
+    for (let i = 1; i <= 100; i++) t.entrants.push({ id: `e_${i}`, name: `B${i}`, isBot: true, joinedAt: 0 });
+    store.tournaments.start(t.id);
+    const rounds = t.nested!.plan!.rounds.length;
+    expect(rounds).toBe(3);
+    for (let r = 0; r < rounds; r++) {
+      expect(t.rounds).toHaveLength(r + 1);
+      for (const m of t.rounds[r].matches) {
+        const s = store.get(m.gameId!)!.state;
+        const where = `round ${r + 1} ${m.map}`;
+        expect(s.options, where).toMatchObject({ autoSetup: true, capitals: true, blizzards: blizzardsFor(m.map!, 0.1) });
+        expect(s.phase, where).not.toBe('setup'); // dealt and placed at once
+        expect(s.blizzards.length, where).toBeGreaterThan(0);
+        for (const p of s.players.filter((x) => !x.isNeutral)) expect(s.blizzards, where).not.toContain(s.capitals[p.id]);
+        if (r === rounds - 1) expect(m.map).toBe('hexworld');
+        else expect(m.map, where).toMatch(/^gen1-/);
+      }
+      // The round's deadline decides whatever is still playing; the next round is seated at once.
+      if (r < rounds - 1) clock.advance(30 * 60_000);
+    }
+    store.stopTimers();
+    for (const room of store.rooms.values()) room.stopBot();
+
+    // The host can still turn them off, and an explicit blizzard count holds at every table, whatever its size.
+    const plain = store.tournaments.create({ format: 'nested', botDelayMs: 2000, options: { autoSetup: false, capitals: false, blizzards: 0 } });
+    expect(plain.options).toMatchObject({ autoSetup: false, capitals: false, blizzards: 0 });
+    expect(plain.nested!.blizzardShare).toBeUndefined();
+    const six = store.tournaments.create({ format: 'nested', botDelayMs: 2000, options: { blizzards: 6 } });
+    for (let i = 1; i <= 18; i++) six.entrants.push({ id: `s_${i}`, name: `S${i}`, isBot: true, joinedAt: 0 });
+    store.tournaments.start(six.id);
+    for (const m of six.rounds[0].matches) expect(store.get(m.gameId!)!.state.options.blizzards).toBe(6);
+    store.stopTimers();
+    for (const room of store.rooms.values()) room.stopBot();
   });
 });

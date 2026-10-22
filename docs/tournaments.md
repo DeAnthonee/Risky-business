@@ -74,6 +74,13 @@ round; the boards nest inside each other's territories (the map side: [maps.md](
 - **Turn timer on by default.** Unless `options` set `turnTimer`, the tables run a per-move timer of 90 s (the owner's default), so a
   stalled seat cannot hold a round (on timeout the seat is skipped: see [playing.md](playing.md)). Bots and models
   move well inside it.
+- **Tournament mode on by default** (owner, 2026-10-22). Unless `options` say otherwise, every table, the final
+  included, deals and places armies at random (`autoSetup: true`) and plays Capital Conquest (`capitals: true`) with
+  blizzards **scaled to its own board**: 10% of its territories, at least 1, at most the map's limit (a 3-seat table
+  of 15 gets 2, a 6-seat table of 30 gets 3, a 50-territory final gets 5; a flat count would freeze too much of the
+  small boards). A `blizzards` count in `options` overrides it at every table. These are `NESTED_DEFAULT_OPTIONS`
+  and `NESTED_BLIZZARD_SHARE` in `tournaments.ts` (the tournament view shows `nested.blizzardShare`, `null` with an
+  explicit count); scheduled tournaments are nested, so they get them too.
 - **Start.** The engine's `planNest` plans the rounds for the entrants: tables of 3-6, uneven by at most one in a
   round, and a final of 6-10. Zerg entrants are added only when the count fits no plan (11-17 entrants fill to 18; under 6 fill
   the final to 6). A random seed, saved with the tournament, fixes every board (`planToNest`, generated gen1 boards
@@ -109,7 +116,8 @@ round; the boards nest inside each other's territories (the map side: [maps.md](
   table starts with every winner **on the portal territory it came up through**: the engine's `startOnSpots` deals as
   usual, then swaps each spot (owner and armies) with a territory its player was dealt, so everyone keeps the same
   share; a blizzard on a spot moves to a territory where the blizzard rule allows one (the open territories stay
-  connected and every continent keeps two open), or, with none left, thaws. If that start cannot be built, the table
+  connected and every continent keeps two open), or, with none left, thaws (and so do the blizzards next to it until
+  the open territories are one network again: a spot ringed by blizzards is never cut off). If that start cannot be built, the table
   starts normally. The other entrants of a table are **out**: their `you.status` is `out` and `you.match` is `null`, and they
   can watch. The final's winner, or its first place on standing at the deadline, is the champion.
 - **Simulation: `npm run nested:sim`** (`scripts/nested-sim.mjs`, after `npm run build`). It plays a whole nested

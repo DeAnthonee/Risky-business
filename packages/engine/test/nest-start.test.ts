@@ -5,8 +5,12 @@ import {
   chooseBotAction,
   createGame,
   createRng,
+  defaultRegions,
+  genMapId,
   getMap,
+  maxBlizzards,
   nextFloat,
+  pickStartSpots,
   startGame,
   startOnSpots,
   type GameOptions,
@@ -143,4 +147,56 @@ describe('startOnSpots', () => {
     for (let n = 0; n < 20_000 && s.phase !== 'finished'; n++) s = applyAction(s, s.currentPlayer!, chooseBotAction(s, s.currentPlayer!, random)!).state;
     expect(s.phase).toBe('finished');
   });
+});
+
+describe('blizzards on generated nested boards', () => {
+  /** The open territories form one network. */
+  function openConnected(s: GameState): boolean {
+    const map = getMap(s.options.map);
+    const open = map.territoryIds.filter((t) => !s.blizzards.includes(t));
+    const seen = new Set([open[0]]);
+    const queue = [open[0]];
+    while (queue.length) for (const n of map.adjacency[queue.pop()!]) if (!s.blizzards.includes(n) && !seen.has(n)) (seen.add(n), queue.push(n));
+    return seen.size === open.length;
+  }
+
+  /** What every table of a nested round needs: one open network, two open per region, every capital open and held. */
+  function expectPlayable(s: GameState, seats: string[], where: string) {
+    const map = getMap(s.options.map);
+    expect(s.blizzards.length, where).toBeGreaterThan(0);
+    expect(openConnected(s), where).toBe(true);
+    for (const c of map.continents) expect(c.territories.filter((t) => !s.blizzards.includes(t)).length, where).toBeGreaterThanOrEqual(2);
+    for (const id of seats) {
+      expect(count(s, id), where).toBeGreaterThan(0);
+      const cap = s.capitals[id];
+      expect(cap, where).toBeDefined();
+      expect(s.blizzards, where).not.toContain(cap);
+      expect(s.territories[cap].owner, where).toBe(id);
+    }
+  }
+
+  it('max blizzards never split a generated board (2-10 seats, every board size, many seeds), with capitals and auto setup', () => {
+    let tables = 0;
+    for (let n = 2; n <= 10; n++)
+      for (let tps = 4; tps <= 6; tps++)
+        for (let seed = 1; seed <= 20; seed++) {
+          const seats = Array.from({ length: n }, (_, i) => `p${i}`);
+          const opts = (map: string): Partial<GameOptions> => ({ map: map as GameOptions['map'], autoSetup: true, capitals: true, blizzards: maxBlizzards(getMap(map)) });
+          // A leaf table: its board as the planner makes it (default regions), a plain start.
+          const leaf = genMapId({ seed: seed * 7919 + n, seats: n, territoriesPerSeat: tps });
+          expectPlayable(startGame(lobby(seats, opts(leaf), seed)).state, seats, `${leaf} seed ${seed}`);
+          // A parent table: a region per seat (nest.ts boardId), everyone starts on their portal (startOnSpots).
+          const parentMap = genMapId({ seed: seed * 7919 + n, seats: n, territoriesPerSeat: tps, regions: Math.max(defaultRegions(n * tps), n) });
+          const portals = pickStartSpots(getMap(parentMap), n, seed);
+          const spots = Object.fromEntries(seats.map((id, i) => [id, portals[i]]));
+          const s = startOnSpots(lobby(seats, opts(parentMap), seed), spots, seeded(seed)).state;
+          expectPlayable(s, seats, `${parentMap} seed ${seed} on spots`);
+          for (const [id, t] of Object.entries(spots)) {
+            expect(s.blizzards).not.toContain(t);
+            expect(s.territories[t].owner).toBe(id);
+          }
+          tables += 2;
+        }
+    expect(tables).toBe(9 * 3 * 20 * 2);
+  }, 60_000);
 });

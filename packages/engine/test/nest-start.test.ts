@@ -203,26 +203,28 @@ describe('blizzards on generated nested boards', () => {
   it('a parent table keeps its blizzard count and an even deal, and never throws (seed sweep, #264)', () => {
     // As the server builds a parent table: a gen1 board with a region per seat, the nested default of 10% blizzards (at
     // least 1, tournaments.ts blizzardsFor), spots from pickStartSpots. Includes gen1-s22-p6-t30 (seed 22), where a
-    // player held only other players' spots and the trade threw.
-    for (let n = 3; n <= 6; n++)
-      for (let seed = 1; seed <= 400; seed++) {
-        const seats = Array.from({ length: n }, (_, i) => `p${i}`);
-        const mapId = genMapId({ seed, seats: n, territoriesPerSeat: 5, regions: Math.max(defaultRegions(n * 5), n) });
-        const map = getMap(mapId);
-        const want = Math.min(maxBlizzards(map), Math.max(1, Math.round(0.1 * map.territoryIds.length)));
-        const portals = pickStartSpots(map, n, seed);
-        const spots = Object.fromEntries(seats.map((id, i) => [id, portals[i]]));
-        const opts: Partial<GameOptions> = { map: mapId as GameOptions['map'], autoSetup: true, capitals: true, blizzards: want };
-        const where = `${mapId} seed ${seed}`;
-        let s!: GameState;
-        expect(() => (s = startOnSpots(lobby(seats, opts, seed), spots, seeded(seed)).state), where).not.toThrow();
-        expect(s.blizzards, where).toHaveLength(want);
-        expectPlayable(s, seats, where);
-        for (const [id, t] of Object.entries(spots)) expect(s.territories[t].owner, where).toBe(id);
-        const held = seats.map((id) => count(s, id));
-        expect(Math.max(...held) - Math.min(...held), where).toBeLessThanOrEqual(1);
-      }
-  }, 60_000);
+    // player held only other players' spots and the trade threw, and Reviewer A's gen1-s427-p8-t40, gen1-s65-p10-t50 and
+    // gen1-s1072-p10-t50 (the rng as the server seeds it here: createRng(seed * 7 + 1)).
+    const cases = [3, 4, 5, 6, 8, 10].flatMap((n) => Array.from({ length: 400 }, (_, i) => [n, i + 1]));
+    cases.push([8, 427], [10, 1072]); // Reviewer A's boards past the sweep
+    for (const [n, seed] of cases) {
+      const seats = Array.from({ length: n }, (_, i) => `p${i}`);
+      const mapId = genMapId({ seed, seats: n, territoriesPerSeat: 5, regions: Math.max(defaultRegions(n * 5), n) });
+      const map = getMap(mapId);
+      const want = Math.min(maxBlizzards(map), Math.max(1, Math.round(0.1 * map.territoryIds.length)));
+      const portals = pickStartSpots(map, n, seed);
+      const spots = Object.fromEntries(seats.map((id, i) => [id, portals[i]]));
+      const opts: Partial<GameOptions> = { map: mapId as GameOptions['map'], autoSetup: true, capitals: true, blizzards: want };
+      const where = `${mapId} seed ${seed}`;
+      let s!: GameState;
+      expect(() => (s = startOnSpots(lobby(seats, opts, seed), spots, seeded(seed * 7 + 1)).state), where).not.toThrow();
+      expect(s.blizzards, where).toHaveLength(want);
+      expectPlayable(s, seats, where);
+      for (const [id, t] of Object.entries(spots)) expect(s.territories[t].owner, where).toBe(id);
+      const held = seats.map((id) => count(s, id));
+      expect(Math.max(...held) - Math.min(...held), where).toBeLessThanOrEqual(1);
+    }
+  }, 180_000);
 
   it('max blizzards never split a generated board (2-10 seats, every board size, many seeds), with capitals and auto setup', () => {
     let tables = 0;

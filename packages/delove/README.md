@@ -73,6 +73,54 @@ Jacob Sensei 2): Classic 6 players 0.17 s mean, 0.35 s at the 90th percentile, 1
 and their seats are named "Sensei 1" and "Sensei 2" unless `--names` says otherwise (#88). `jacob-sensei@1` (alias `jacob`)
 sits as "Jacob Sensei", `jacob-sensei@2` (alias `jacob2`) as "Jacob Sensei 2".
 
+**Decision notes** (`src/notes.ts`; the server side is #206): every move a seat sends carries a short private
+note on what Delove saw in it. It is kept on the game record's step and never shown during the game; the admin reads
+it after the game ([docs/game-records.md](../../docs/game-records.md)). `--no-notes` turns them off. A note reports
+only what the move already computed (no extra inference), stays under 2 KB (3 decimals, candidates cut first), and a
+note that can't be built never stops the move. A search seat's option scores come from branch and score's own trace
+(`DELOVE_BRANCH_TRACE`, which `delove-seat` points at a per-process temp file), so `branch.ts` is unchanged. A
+process decides for its seats one at a time with no wait in between, so each note reads its own move's line (matched to
+the game and seat too); the file is emptied after every move and deleted when the process exits.
+
+```jsonc
+// a search seat that compared options
+{"agent":"delove@11 + search","model":"delove@11","preset":"js2-range","phase":"attack","alive":4,"fog":false,
+ "top":[{"m":"att ontario>quebec","s":0.412,"r":6},{"m":"end","s":0.398,"r":6}],"chosen":0,"margin":0.02,"value":0.31}
+// a network seat
+{"agent":"delove@11","model":"delove@11","preset":null,"phase":"reinforce","alive":3,"fog":false,
+ "top":[{"m":"pl ontario 3","p":0.62},{"m":"pl quebec 3","p":0.21},{"m":"pl alaska 3","p":0.05}],"value":0.44}
+```
+
+`top`: for a search seat, the options it tried (the teacher's move first) with their branch score `s` (the share of
+the table it expects one round on, or its range score) and rollouts `r`, `chosen` the one played (it changes only by
+more than `margin`); `br: 0` when it played its teacher's move without comparing (setup, or nothing worth comparing);
+`fb: 1` under fog, where it plays its ranker's move (`top` then lists the ranker's favourites). For a network seat:
+its 3 favourite moves with their probability `p`. `value`: the network's win chance for this seat. Teachers (Jacob
+Sensei) send the header only. Moves read: `pl T n` place, `att A>B` attack, `occ n` move in, `ff A` / `ft B n`
+fortify from / to, `cap T` capital, `trade`, `end`.
+
+**Tournaments** (many Delove entrants, e.g. 20 Delove among 80 Zergs): `--tournament CODE --entrants N`.
+
+```bash
+npm run delove-seat -- --server https://risky.deanthoneeking.com --tournament ABC123 --entrants 20 --procs 6   --agents delove-branch --tokens runs/cup-tokens.json
+```
+
+- The runner joins N entrants while the tournament registers ("Delove 1" ... "Delove N", or `--names`; the agents of
+  `--agents` in turn, each tagged for spectators as in a single game, e.g. "delove@10 + search"; give one id per
+  entrant to choose each one's player, and `<model>+search`, e.g. `delove@10+search`, for search ranked by that model), then every entrant plays like an agent over MCP (`src/tournament-seat.ts`, `playEntrant`):
+  wait for its table (the tournament long poll with its entrant token), play it with the seat player, wait for the
+  next, until it is out or the tournament is over. The host starts the tournament as usual.
+- **Processes:** a Node process makes one decision at a time (a search blocks it), so the entrants are spread over
+  `--procs` child processes (default min(6, N)), each loading its models once. The decisions of one process wait on
+  each other: keep entrants per process low enough for the turn timer. Each process logs its decision latency
+  (p50 / p90 / max) and CPU use so far every minute (`DELOVE_SEAT_REPORT_MS`), and the end-of-run report sums them up.
+- **Restarts:** every wait re-reads the tournament with the entrant token after a break (a server restart, a dropped
+  connection), and each table re-attaches as the seat player does; a move refused because the state moved on (a turn
+  timer skip) is dropped and the seat acts on the fresh state. `--tokens FILE` keeps the entrant tokens, so a runner
+  restarted with the same FILE plays on instead of joining again.
+- **Fog tables:** as any seat: a fog-trained network (or `delove-branch` with a fog-trained ranker, which plays the
+  ranker's move without searching) plays them; other versions sit them out.
+
 The seat rebuilds the board from its view (`stateFromView`): each opponent's hand gets its real size (`cardCount`),
 the deck and discard theirs, dealt at random from the cards the seat can't see. Before #143 the rebuilt board gave
 every opponent an empty hand, so the network and Jacob Sensei read every opponent's card count as 0 in live games
@@ -168,7 +216,7 @@ answer synchronously.
 | `delove@1` | network distilled from the teacher (Stage 1), loaded from `models/delove/` (ignored by git) | done |
 | `delove@2` | distilled from the tuned teacher delove-teacher@2 (round 5) | done |
 | `delove@3` | fresh hidden-192 / 6-round network on branch-and-score decisions (cycle 4, `CYCLES.md`): 0.541 / 0.600 / 0.610 against delove@2 at 2 / 4 / 6 players | done |
-| `delove@4` … `delove@10` | the same network fine-tuned each cycle (cycles 6, 8-13; `docs/delove-status.md` section 3); `delove@10`: about +0.19 leaderboard points per seat over `delove@9` at 4-10 players, even with Jacob Sensei 2 at World 6p | `delove@10` current best (private models repo) |
+| `delove@4` … `delove@12` | the same network fine-tuned each cycle (cycles 6, 8-15; `docs/delove-status.md` section 3); `delove@12`, trained with fog dropout: +1.98 leaderboard points per seat over `delove@11` with fog on at 4-8 players | `delove@12` current best (private models repo) |
 | `jacob-sensei@1` | Jacob Sensei: hand-coded teacher for big tables (`src/jacob.ts`, below); never stalls in self-play, even with Sensei 2 at 2 players, far ahead at 4-10 | rollout teacher since cycle 6 |
 | `jacob-sensei@2` | Jacob Sensei 2 (`src/jacob.ts`, below): Jacob plus RISK_LEARNINGS.md sections 7-21, with its own duel numbers; vs `jacob-sensei@1` 0.53-0.57 at 2p and +0.4 to +1.3 points per seat at 4-10p | candidate rollout teacher (cycle 12) |
 
@@ -385,7 +433,14 @@ npm run delove:horde -- --candidate delove@10 --tables classic:4:3,classic:6:3 -
   `rounds`, `kills` and `points` (leaderboard points, Zerg seats ranked like any seat for now). With `--base` every
   metric gets a paired 95% interval; the verdict is on `--metric`. Seeds are fixed by `--seed` (default 1), so keep
   the default to compare successive Delove versions on the same games.
-- `--zerg` picks the horde (default `zerg@1`, the fixed reference opponent; `zerg-branch@1` is the searching Zerg).
+- `--zerg` picks the horde. The default is `zerg@1`, the fixed reference opponent, so earlier gates stay comparable.
+  `zerg@2` is the live seats' version (no mid-game surrender, walled-in Zergs mass toward the prey; #198), which
+  training uses since #201. `zerg-branch@1` is the searching Zerg. A recheck against the live horde:
+  `npm run delove:horde -- --candidate <model> --zerg zerg@2 --games 100 --procs 14` (add `--base-zerg zerg@1` to
+  compare the two hordes on the same games). First comparison (2026-10-22, delove@10, 100 games per table): hold
+  even, +0.007 (-0.012 to +0.025), so the live horde is no harder to survive. Delove scores 0.48 fewer points a game
+  against it, because with no mid-game surrender more Zergs outlast it. Turn limits: 12 of 100 games at 4p vs 3
+  Zergs (3 under `zerg@1`).
   `--base-zerg` plays the same candidate against a second horde on the same games: a negative difference means the
   `--zerg` horde is the stronger one.
 - Worker threads (`--procs`, default all cores but one): 1000 games in about 17 s for delove@10.
@@ -402,9 +457,12 @@ npm run delove:horde -- --candidate delove@10 --tables classic:4:3,classic:6:3 -
   - Neither survives a solo rush often: delove@10 wins 0-1% of solo tables (Jacob 0%) and 5-18% of the tables with
     fillers.
 - For scenarios or training data, the agents play in any self-play command:
-  `npm run delove -- play --agents delove@10,zerg@1,zerg@1,zerg@1`. `scripts/cycles/horde.jobs` is a ready job file
-  for `generate.sh` (about 4,000 games, the branch seat against 2-3 Zergs with Jacob fillers, league settings), not
-  part of any cycle until the captain adds it. Its seat is `delove-branch@1:range-horde`: `delove-branch@1:range`
+  `npm run delove -- play --agents delove@10,zerg@2,zerg@2,zerg@2`. `scripts/cycles/horde.jobs` is a ready job file
+  for `generate.sh` (about 4,000 games, the branch seat against 2-3 `zerg@2` with Jacob fillers, league settings; it
+  seated `zerg@1` until #201); the captain adds it to a cycle. Under `zerg@2` (200-game sample, the cycle-13 branch
+  env): about 3.4 process-seconds a game at 8 processes, so about 29 min for the 4,000 games on 8 processes (16-20 on
+  14). 4 of the 200 games (2%) hit the 250-turn cap; a mean game is 32 turns. Rollouts play each Zerg seat with its own version
+  (`zergParamsFor`). Its seat is `delove-branch@1:range-horde`: `delove-branch@1:range`
   whose rollouts play the Zerg seats with the horde bot (src/horde-branch.ts; a Zerg move off the candidate list falls
   back to the teacher's pick, never an attack on a fellow Zerg), so the search sees the gang-up coming. The plain
   branch seat imagines the Zergs as its teacher.
@@ -422,8 +480,8 @@ npm run delove:horde -- --candidate delove@10 --tables classic:4:3,classic:6:3 -
 ### The searching Zerg (`zerg-branch@1`)
 
 Branch and score for the horde (src/zerg-branch.ts): the Zerg's own move and up to 3 alternatives (never an attack on a
-fellow Zerg) are each played on 8 copies of the board with common dice, 2 rounds forward, Zergs playing `zerg@1` and the
-prey modelled by Jacob Sensei 2, and scored for the horde: prey knocked out × kill weight + the horde's share of the
+fellow Zerg) are each played on 8 copies of the board with common dice, 2 rounds forward, each Zerg seat playing its own
+version (`zergParamsFor`: `zerg@2`'s numbers for a `zerg@2` seat, `zerg@1`'s otherwise; #201) and the prey modelled by Jacob Sensei 2, and scored for the horde: prey knocked out × kill weight + the horde's share of the
 alive players' armies and income + `selfWeight` (default 0.5) × my standing (my share of the horde's strength; once
 the prey is gone, 1 if I am the strongest Zerg). It is the teacher for a trained Zerg network (docs/zergs.md). Its
 numbers come from `ZERG_BRANCH_OPTIONS`, `_ROLLOUTS`, `_HORIZON`, `_KILL_WEIGHT`, `_MARGIN` and `_SELF_WEIGHT`. A Zerg agent's id must start with `zerg`:
@@ -432,7 +490,7 @@ self-play seats named so are one horde.
 First result (2026-10-21, delove@10 as the candidate, `--base-zerg zerg@1`, same games): **no gain yet**. Defaults
 (4 options, 8 rollouts, horizon 2, kill weight 1) over the 5 default tables: Delove's hold diff +0.003 (95% -0.028 to
 +0.035). Kill weight 3, 12 rollouts, horizon 3 on classic:4:2, 6:3 and 6:2: +0.006 (-0.051 to +0.062). Both are even
-with the hand-coded Zerg, so the search is not yet a better teacher. Next: tune `zerg@1`'s numbers (a `zerg@2`) and
+with the hand-coded Zerg, so the search is not yet a better teacher. Next: tune `zerg@1`'s numbers (a `zerg@3`) and
 give the search a network's alternatives.
 
 ### Tuning the Zerg (`npm run delove:zerg-tune`)
@@ -469,8 +527,9 @@ npm run delove:zerg-tune -- --out models/delove/zerg-tune-run2.json --generation
 ```
 
 The file holds the numbers and every generation's result; it stays on the training PC. Once the result passes a gate
-(`npm run delove:horde -- --candidate delove@10 --zerg zerg@2 --base-zerg zerg@1`), copy it to `models/delove/zerg@2.json`:
-register.ts loads `zerg@N.json` (N >= 2) as agent `zerg@N`. `zerg@1` stays fixed as the reference horde.
+(`npm run delove:horde -- --candidate delove@10 --zerg zerg@3 --base-zerg zerg@1`), copy it to `models/delove/zerg@3.json`:
+register.ts loads `zerg@N.json` (N >= 3) as agent `zerg@N`. `zerg@1` (the reference horde) and `zerg@2` (the live
+version) are fixed in the engine, and a file with their name is ignored.
 
 ## Jacob Sensei (`jacob-sensei@1`): a teacher that doesn't stall
 
@@ -988,6 +1047,57 @@ for second places, which is its objective (the Mid Range stage decides on top 2,
 to 0.2%. These are teacher-vs-teacher numbers; whether a specialist trained on these labels beats `delove@6` on its
 stage is the next cycle's gate (`npm run delove:stages`). The per-game results stay on the training PC.
 Pod spend for the verification and both runs: about $3.60.
+
+### Gumbel root (`DELOVE_BRANCH_ROOT=gumbel`): more candidates for the same copies
+
+#141 showed that more options pay (+0.23 points at 4, +0.28 at 5), but every option costs `rollouts` copies. The Gumbel
+root (Danihelka et al. 2022, "Policy improvement by planning with Gumbel"; `branch.ts` `gumbelRoot`) searches more
+candidates within the same budget, and explores moves the ranker under-rates:
+
+1. **Candidates:** the teacher's move, plus the `DELOVE_BRANCH_K - 1` (default 7) candidates with the highest
+   g + logit. Here g is a Gumbel(0, 1) draw per candidate, `-Math.log(-Math.log(u))` with u from the seat's stream
+   (one draw per candidate in candidate order, after the teacher's pick, before the fortify completions and the
+   seeds), and the logit is the ranker's. That is sampling without replacement from softmax(logits); self-play stays
+   deterministic from the seed.
+2. **Copies:** `DELOVE_BRANCH_COPIES`, default 0 = options × the decision's rollouts (the `top` root's budget: 5 × 6 =
+   30 at cycle settings), spent by **sequential halving** (`gumbelSchedule`): each round every candidate still in gets
+   max(1, ⌊budget / (rounds × candidates)⌋) more copies, then the others are halved (rounded up) by
+   g + logit + σ(q), with σ(q) = (50 + the most copies any candidate has) × q, q the candidate's mean score so far.
+   With 8 candidates and 30 copies that's 8 × 1, 5 × 1, 3 × 2, 2 × 3: 25 copies, and the teacher's move and the
+   finalist 7 each. Copy j of every candidate plays seed j (common random numbers), and later rounds add copies on
+   top of the earlier ones (the sums carry over).
+3. **Pick:** the higher g + logit + σ(q) of the teacher's move and the finalist. The teacher's move is never halved
+   away, so the margin rule still compares the pick with it on the same copies.
+
+`DELOVE_BRANCH_ROOT=top` (the default) is the old search, unchanged. Every branch score works with either root; the
+value blend (`DELOVE_BRANCH_VALUE`) does not work with gumbel. GPU: `delove_gpu.generate --root gumbel --gumbel-k 8
+--copies 0`, or seats `delove-branch@1:gumbel` (with `:k<N>`, `:o<N>` and score tokens, e.g.
+`delove-branch@1:range:gumbel`). The trace lists every searched candidate with its mean and copies, and
+`branch_q.npy` keeps every searched candidate's mean.
+
+**Measured** (2026-10-21; RunPod RTX 4090, 0.96 pod-hours, $0.85): head to head at the same tables, a
+`delove-branch@1:range:gumbel` seat (8 candidates) against a `delove-branch@1:range:o5` seat (the teacher's move
+plus the ranker's top 4). Both use 30 copies per decision (Gumbel: 25 in its 8-candidate plan), the range score,
+ranker `delove@10`, Jacob Sensei 2 rollouts, horizon 1, margin 0.01, seed 16 (`scripts/score_compare.py h2h-jobs
+--variants range:o5,range:gumbel --net delove@10 --other jacob-sensei@2`, run with `--options 5`). The field is
+`delove@10` plus one Jacob Sensei 2; both seats rotate through every seat. Leaderboard points per game, Gumbel minus
+5 options, 95% intervals, paired by game; 1,892 games:
+
+| table | games | Gumbel − 5 options | wins Gumbel / 5 options | kills per game |
+| --- | --- | --- | --- | --- |
+| Classic 2p | 400 | **+0.33 ± 0.29** | 0.555 / 0.445 | 0.56 / 0.45 |
+| Classic 4p | 296 | +0.03 ± 0.52 | 0.341 / 0.318 | 1.06 / 1.02 |
+| World 4p | 296 | **+0.64 ± 0.53** | 0.429 / 0.291 | 1.23 / 0.94 |
+| Classic 6p | 300 | −0.20 ± 0.72 | 0.293 / 0.280 | 1.41 / 1.47 |
+| World 6p | 300 | −0.41 ± 0.80 | 0.333 / 0.343 | 1.65 / 1.79 |
+| World 10p | 300 | +0.38 ± 1.19 | 0.317 / 0.260 | 2.60 / 2.28 |
+| **4-10p pooled** | 1,492 | +0.09 ± 0.36 | | +0.09 ± 0.18 kills |
+
+The Gumbel root wins clearly in the duel and at World 4p, and is even pooled over 4-10p, where 6p leans the other
+way. So it is at least as good as 5 options for the same copies, and better at 2 players, which is where Close
+Range lives. The first cycle to try it is 16 (`DELOVE_BRANCH_ROOT=gumbel`, or `:gumbel` seats on Close Range's
+stage jobs). One failed launch before this run cost $0.12 (a branch_q column bug, fixed and covered by
+`tests/gumbel_check.py`).
 
 ### Rollouts played by Delove (`DELOVE_BRANCH_ROLLOUT`): tried, not better; more options are
 

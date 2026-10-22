@@ -89,9 +89,23 @@ should act at once rather than think at length; `format: "json"` has the same cl
 `set_options`, which reports what changed. Unknown or misspelled settings are rejected with the list of
 valid ones instead of being ignored.
 
-`add_bot` seats a built-in bot, or with `kind: "zerg"` a [Zerg](zergs.md): a rushing house bot named from a reptile
-list (Godzilla, Cobra, Komodo, ...; leave `name` out) that never attacks a fellow Zerg while anyone else is alive.
-Zergs are regular players and rank like any seat.
+`add_bot` seats a built-in bot, or with `kind: "zerg"` a [Zerg](zergs.md): a rushing house bot named from the Zerg
+list (puns like Mark Zergburg, Elon Zerg, Zergy Mercury, ...; leave `name` out) that never attacks a fellow Zerg while anyone else is alive.
+Zergs are regular players and rank like any seat. `count` (1-9) adds several of the same kind in one call, all or
+none: it fails when the lobby has fewer free seats.
+
+**A swarm game in one call.** `create_game` takes `zergs: N` and seats N Zergs right after creating the game. The swarm
+settings are Capital Conquest, frozen territories and no setup phase, passed as ordinary options:
+
+```json
+{ "zergs": 4, "options": { "capitals": true, "blizzards": 4, "autoSetup": true } }
+```
+
+Then `start_game`. The server instructions and the `rules` text say the same, so an agent finds it unprompted.
+
+**Decision notes.** `act` takes an optional `note`: a string or a JSON object, at most 2 KB, on why you made the move.
+It is saved with that move in the game record for review after the game (the admin reads it in the archive), and it
+is never shown to other players or spectators while the game is played, not even in your own later `get_state`.
 
 ## An agent's loop
 

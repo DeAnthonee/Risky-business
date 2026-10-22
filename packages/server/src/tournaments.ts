@@ -496,8 +496,9 @@ export class TournamentManager extends EventEmitter {
   // ---- players ----
 
   /**
-   * The host adds server bots while registering: built-in bots ("Bot 3") or Zergs, named from the reptile list
-   * (unique in the tournament: "Komodo", then "Komodo 2" once every name is used). They are entrants like anyone else.
+   * The host adds server bots while registering: built-in bots ("Bot 3") or Zergs, named from the Zerg list (puns like
+   * "Mark Zergburg"; unique in the tournament: "Elon Zerg", then "Elon Zerg 2" once every name is used). They are
+   * entrants like anyone else.
    */
   addBots(id: string, kind: BotKind, count: number): { entrantId: string; name: string }[] {
     const t = this.require(id);
@@ -727,9 +728,11 @@ export class TournamentManager extends EventEmitter {
       const { room, seats } = this.store.createTable(`${t.name} · R${round} ${label}`.slice(0, 40), { ...t.options, maxPlayers: entrants.length }, players.map((p) => ({ name: p.name, isBot: p.isBot, ...(p.kind ? { kind: p.kind } : {}), agent: p.agent })), t.id);
       const match: TournamentMatch = { gameId: room.id, entrants, seats: Object.fromEntries(entrants.map((eid, k) => [eid, seats[k]])), winner: null, status: 'playing' };
       matches.push(match);
-      this.watch(t, match, room);
     }
+    // The round is in place before its tables are watched: a table can already be over when it starts (only Zergs
+    // seated: the game ends right after the deal), and settling it must see this round, not build it again.
     t.rounds.push({ round, matches });
+    for (const m of matches) if (m.status === 'playing') this.watch(t, m, this.store.get(m.gameId!)!);
   }
 
   private watch(t: TournamentSnapshot, m: TournamentMatch, room: GameRoom) {

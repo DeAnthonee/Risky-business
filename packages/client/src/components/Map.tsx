@@ -1,5 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { getMap, type GameView, type MapDef } from '@risk/engine';
+import { hasGlobe, loadGlobe, preferFlat, setPreferFlat, webglAvailable, type GlobeData } from '../globeData';
+
+// The 3D globe for hex-globe boards: three.js is a separate chunk, loaded only when a globe is shown.
+const GlobeMap = lazy(() => import('./GlobeMap'));
 
 export type Highlight = 'source' | 'target' | 'place' | 'selected' | 'pending-target' | 'hover-source' | 'hover-target';
 
@@ -22,12 +26,26 @@ export interface FloatAnim {
   durationMs?: number;
 }
 
-/** A conquest: the new owner's colour sweeps across the territory from the attacker's side. */
+/** A conquest: the new owner's colour pours in from the attacker's side like liquid, fills the territory, then locks in. */
 export interface SweepAnim {
   id: number;
   territory: string;
   from: string;
   color: string;
+  /** The previous owner's colour, shown until the pour pushes it out. */
+  prevColor: string;
+}
+
+/** How long the pour takes before the lock-in, in ms (the lock-in adds about 0.8 s). */
+export const POUR_MS = 1100;
+
+/** A wavy-edged slab: everything left of a rippling vertical line at x = 0, from y = -r to r (wave period 40). */
+function liquidSlab(r: number, amp: number): string {
+  const top = -r - 80;
+  const bottom = r + 80;
+  let d = `M${-r * 2},${top} L0,${top}`;
+  for (let y = top, i = 0; y < bottom; y += 20, i++) d += ` Q${i % 2 ? amp : -amp},${y + 10} 0,${y + 20}`;
+  return `${d} L${-r * 2},${bottom} Z`;
 }
 
 export interface MapProps {
@@ -125,7 +143,43 @@ function shortLabel(name: string): string {
     .replace('Territory', 'Terr.');
 }
 
+/**
+ * The board. Hex-globe boards (a generated globe file, see globeData.ts) show the rotatable 3D globe by default,
+ * with a button to the flat map and back (remembered per browser); without WebGL, or while the globe loads, they
+ * use the flat map. Every other board is the flat map.
+ */
 export function GameMap(props: MapProps) {
+  const mapId = props.view.options.map;
+  const globeable = hasGlobe(mapId) && webglAvailable();
+  const [flat, setFlat] = useState(preferFlat);
+  const [globe, setGlobe] = useState<GlobeData | null>(null);
+  useEffect(() => {
+    if (!globeable || flat || globe?.id === mapId) return;
+    let current = true;
+    loadGlobe(mapId)
+      .then((g) => current && setGlobe(g))
+      .catch(() => {
+        // The globe chunk failed to load (offline, a new deploy): keep the flat map.
+      });
+    return () => {
+      current = false;
+    };
+  }, [mapId, globeable, flat, globe]);
+  const choose = (toFlat: boolean) => {
+    setFlat(toFlat);
+    setPreferFlat(toFlat);
+  };
+  if (globeable && !flat && globe?.id === mapId)
+    return (
+      <Suspense fallback={<FlatMap {...props} />}>
+        <GlobeMap {...props} globe={globe} onShowFlat={() => choose(true)} />
+      </Suspense>
+    );
+  return <FlatMap {...props} onShowGlobe={globeable ? () => choose(false) : undefined} />;
+}
+
+function FlatMap(props: MapProps & { onShowGlobe?: () => void }) {
+  const { onShowGlobe } = props;
   const { view, highlights, pendingPlacements, attackArrow, flashes, moves, floats, sweeps, onTerritoryClick, dimOthers, hidden, bonusView, onToggleBonusView } = props;
   // The bonuses view shows regions only: no fog, owners or armies.
   const isHidden = (id: string) => !bonusView && !!(hidden?.has(id) || view.territories[id]?.hidden);
@@ -282,7 +336,7 @@ export function GameMap(props: MapProps) {
   const zoomed = scale > 1.05;
   const showNames = !dense || scale >= 1.7;
 
-  // Territories of the player whose turn it is (not hidden or frozen): drawn again, raised, above the board.
+  // Territories of the player whose turn it is (not hidden or frozen): a glassy sheen is drawn over them.
   const turnPlayer = !bonusView && view.phase !== 'lobby' && view.phase !== 'finished' ? view.currentPlayer : null;
   const liftedList = useMemo(
     () => (turnPlayer ? map.territories.filter((t) => view.territories[t.id]?.owner === turnPlayer && !isHidden(t.id) && !isFrozen(t.id)) : []),
@@ -341,6 +395,21 @@ export function GameMap(props: MapProps) {
             <feMergeNode in="SourceGraphic" />
           </feMerge>
         </filter>
+        {/* Whose turn: a still, glassy sheen (lit from the top, darker at the bottom) over the current player's land */}
+        <linearGradient id="turn-sheen" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#fff" stopOpacity="0.34" />
+          <stop offset="0.38" stopColor="#fff" stopOpacity="0" />
+          <stop offset="1" stopColor="#000" stopOpacity="0.2" />
+        </linearGradient>
+        {/* Capture pour: blurred drops pulled back into sharp, merging blobs */}
+        <filter id="goo" x="-20%" y="-20%" width="140%" height="140%">
+          <feGaussianBlur stdDeviation="2.4" />
+          <feColorMatrix values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 22 -9" />
+        </filter>
+        <pattern id="pour-ripples" width="80" height="40" patternUnits="userSpaceOnUse">
+          <path d="M0,10 Q20,4 40,10 T80,10" fill="none" stroke="#fff" strokeOpacity="0.22" strokeWidth="1.6" />
+          <path d="M0,30 Q20,24 40,30 T80,30" fill="none" stroke="#fff" strokeOpacity="0.12" strokeWidth="1.2" />
+        </pattern>
         <filter id="land-shadow" x="-5%" y="-5%" width="110%" height="110%">
           <feDropShadow dx="0" dy="2" stdDeviation="2.5" floodColor="#000" floodOpacity="0.45" />
         </filter>
@@ -455,20 +524,13 @@ export function GameMap(props: MapProps) {
         })}
       </g>
 
-      {/* Whose turn: a raised copy of the current player's land that rocks gently, so watchers spot it at a glance.
-          Visual only: clicks and hovers fall through to the unmoved territories underneath. */}
+      {/* Whose turn: a still, glassy sheen over the current player's land, so watchers spot it at a glance.
+          Visual only: clicks and hovers fall through to the territories underneath. */}
       {liftedList.length > 0 && (
-        <g className="turn-lift-layer" pointerEvents="none" aria-hidden="true">
-          {liftedList.map((t, i) => {
-            const hl = effectiveHighlights[t.id];
-            const flashing = flashes[t.id] && now - flashes[t.id] < 1200;
-            const cls = ['territory', hl ? `hl-${hl}` : '', flashing ? 'flash' : '', dimOthers && !hl ? 'dim' : '', hovered === t.id ? 'hovered' : ''].filter(Boolean).join(' ');
-            return (
-              <g key={t.id} className="turn-lift" style={{ animationDelay: `${-(i % 7) * 0.45}s` } as CSSProperties}>
-                <path d={t.path} className={cls} fill={colorOf(view.territories[t.id]?.owner ?? null) ?? continentColor(map, t.continent)} />
-              </g>
-            );
-          })}
+        <g className="turn-sheen" pointerEvents="none" aria-hidden="true">
+          {liftedList.map((t) => (
+            <path key={t.id} d={t.path} fill="url(#turn-sheen)" />
+          ))}
         </g>
       )}
 
@@ -482,39 +544,68 @@ export function GameMap(props: MapProps) {
         </g>)}
       </g>
 
-      {/* Capture sweeps: a clipped band of the new owner's colour wipes across the shape */}
-      <g className="sweeps">
+      {/* Capture pour: drops of the new owner's colour cross the border, a rippling front fills the territory and
+          pushes the old colour out, then a rim flash, a small pop and a ripple lock it in. All CSS, no timers. */}
+      <g className="sweeps" pointerEvents="none" aria-hidden="true">
         {sweeps.map((sw) => {
           const t = map.territoryById[sw.territory];
           const f = map.territoryById[sw.from];
           if (!t || !f) return null;
           const [bx, by, bw, bh] = t.bbox;
-          const pad = 6;
-          const dx = t.x - f.x;
-          const dy = t.y - f.y;
-          const horizontal = Math.abs(dx) >= Math.abs(dy);
-          // The band starts fully outside the shape on the attacker's side and grows across it.
-          const rect = horizontal
-            ? { x: dx >= 0 ? bx - pad : bx + bw + pad, y: by - pad, w: 0, h: bh + 2 * pad, attr: 'width', to: bw + 2 * pad, anchorRight: dx < 0 }
-            : { x: bx - pad, y: dy >= 0 ? by - pad : by + bh + pad, w: bw + 2 * pad, h: 0, attr: 'height', to: bh + 2 * pad, anchorRight: dy < 0 };
-          const clipId = `sweep-${sw.id}`;
+          const cx = bx + bw / 2;
+          const cy = by + bh / 2;
+          const angle = (Math.atan2(t.y - f.y, t.x - f.x) * 180) / Math.PI;
+          const r = Math.hypot(bw, bh) / 2 + 6;
+          const A = anchor(sw.from);
+          const B = anchor(sw.territory);
+          const clipId = `pour-${sw.id}`;
+          // Under fog the viewer may see the attacker's side but not the captured land: show only the drops crossing
+          // the border, never the territory's old or new colour.
+          const toHidden = isHidden(sw.territory);
+          const timing = { '--pour': `${POUR_MS}ms`, '--dist': `${2 * r + 14}px` } as CSSProperties;
           return (
-            <g key={sw.id} className="sweep">
-              <clipPath id={clipId}>
-                {rect.anchorRight ? (
-                  // grow towards the left/top: animate both position and size
-                  <rect x={rect.x} y={rect.y} width={rect.w} height={rect.h}>
-                    <animate attributeName={rect.attr} from="0" to={String(rect.to)} dur="0.55s" fill="freeze" calcMode="spline" keySplines="0.2 0.7 0.3 1" />
-                    <animate attributeName={horizontal ? 'x' : 'y'} from={String(horizontal ? rect.x : rect.y)} to={String((horizontal ? rect.x : rect.y) - rect.to)} dur="0.55s" fill="freeze" calcMode="spline" keySplines="0.2 0.7 0.3 1" />
-                  </rect>
-                ) : (
-                  <rect x={rect.x} y={rect.y} width={rect.w} height={rect.h}>
-                    <animate attributeName={rect.attr} from="0" to={String(rect.to)} dur="0.55s" fill="freeze" calcMode="spline" keySplines="0.2 0.7 0.3 1" />
-                  </rect>
-                )}
-              </clipPath>
-              <path d={t.path} fill={sw.color} className="sweep-fill" clipPath={`url(#${clipId})`} />
-              <path d={t.path} className="sweep-edge" stroke={sw.color} />
+            <g key={sw.id} className="sweep" style={timing}>
+              {!toHidden && (
+                <>
+                  <clipPath id={clipId}>
+                    <path d={t.path} />
+                  </clipPath>
+                  <g className="pour" clipPath={`url(#${clipId})`}>
+                    <path d={t.path} fill={sw.prevColor} />
+                    <g transform={`translate(${cx},${cy}) rotate(${angle}) translate(${-r},0)`}>
+                      <g className="pour-front">
+                        <g className="pour-wave back">
+                          <path d={liquidSlab(r, 7)} fill={sw.color} opacity={0.55} transform="translate(9,0)" />
+                        </g>
+                        <g className="pour-wave">
+                          <path d={liquidSlab(r, 4.5)} fill={sw.color} />
+                          <path d={liquidSlab(r, 4.5)} fill="url(#pour-ripples)" opacity={0.8} />
+                        </g>
+                      </g>
+                    </g>
+                  </g>
+                </>
+              )}
+              <g className="pour-drops" filter="url(#goo)">
+                {[0, 1, 2, 3, 4, 5, 6].map((i) => {
+                  const j = (k: number) => (((sw.id * 7 + i * 13 + k * 5) % 9) - 4);
+                  const drop = {
+                    '--x0': `${A.x + j(0)}px`,
+                    '--y0': `${A.y + j(1)}px`,
+                    '--x1': `${B.x + j(2)}px`,
+                    '--y1': `${B.y + j(3)}px`,
+                    animationDelay: `${i * POUR_MS * 0.06}ms`,
+                  } as CSSProperties;
+                  return <circle key={i} className="pour-drop" r={3 + ((sw.id + i) % 4)} fill={sw.color} style={drop} />;
+                })}
+              </g>
+              {!toHidden && (
+                <g className="lock-in">
+                  <path d={t.path} className="lock-fill" fill={sw.color} />
+                  <path d={t.path} className="lock-rim" stroke={sw.color} />
+                  <circle cx={B.x} cy={B.y} r={26} className="lock-ripple" />
+                </g>
+              )}
             </g>
           );
         })}
@@ -662,6 +753,11 @@ export function GameMap(props: MapProps) {
       {onToggleBonusView && (
         <button className={`bonus-toggle ${bonusView ? 'active' : ''}`} aria-pressed={!!bonusView} title="Show region bonuses, colour-coded (shortcut: B)" onClick={onToggleBonusView}>
           {bonusView ? 'Back to board' : 'Bonuses'}
+        </button>
+      )}
+      {onShowGlobe && (
+        <button className="globe-toggle" title="Show the rotatable globe" onClick={onShowGlobe}>
+          Globe
         </button>
       )}
       {dense && !showNames && <span className="map-hint">zoom in or hover for names</span>}

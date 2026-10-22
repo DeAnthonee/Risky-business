@@ -26,6 +26,11 @@ export class NetScorer {
 
   /** The model's fog input layout (`fogInputs` in its <model>.json, written by train.py --fog-dropout); 0 = none. */
   readonly fogInputs: number;
+  /**
+   * The first scoring since the last `first = null` (the seat player's decision notes, notes.ts, reset it before each
+   * move): the candidates, their logits and the win chance, so a note reuses what the move computed.
+   */
+  first: { candidates: StepContext['candidates']; logits: Float32Array; value: number } | null = null;
 
   constructor(
     readonly modelPath: string,
@@ -88,7 +93,9 @@ export class NetScorer {
       candTo: BigInt64Array.from(f.candTo, (x) => BigInt(x)),
     });
     this.wait('a decision');
-    return { logits: this.out.slice(0, C), value: this.out[this.out.length - 1] };
+    const result = { logits: this.out.slice(0, C), value: this.out[this.out.length - 1] };
+    if (!this.first) this.first = { candidates: ctx.candidates, ...result };
+    return result;
   }
 
   /** Win probability for the decider of each encoded position (one batched call; all on one map; `fogged`: a fog game). */
@@ -164,7 +171,18 @@ export function netAgent(id: string, modelPath: string, temperature = 0): Agent 
     const { logits } = scorer.score(ctx);
     return temperature > 0 ? sample(logits, temperature, ctx.random) : argmax(logits);
   });
-  return scorer.fogInputs ? { ...agent, fogInputs: scorer.fogInputs } : agent;
+  const out = scorer.fogInputs ? { ...agent, fogInputs: scorer.fogInputs } : agent;
+  scorers.set(out, scorer);
+  return out;
+}
+
+/** The network that scores an agent's moves: a netAgent's own, or a search seat's ranker (branch-env.ts). */
+const scorers = new WeakMap<Agent, NetScorer>();
+export function scorerOf(agent: Agent): NetScorer | undefined {
+  return scorers.get(agent);
+}
+export function setScorer(agent: Agent, scorer: NetScorer): void {
+  scorers.set(agent, scorer);
 }
 
 /**

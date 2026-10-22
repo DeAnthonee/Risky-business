@@ -57,7 +57,7 @@ describe('dropping a disconnected seat at a tournament table', () => {
     ctx.store.stopTimers();
   });
 
-  it('one timeout and silence is not enough; a second in a row drops the seat: the house bot plays it as "<name>-bot"', async () => {
+  it('one timeout and silence is not enough; a second in a row drops the seat: a Zerg plays it as "<name>-Zerg"', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     const ctx = table(['Ann', 'Bob']);
     const risk = createRiskServer(ctx.store, { clientDir: null, sweepIntervalMs: 0 });
@@ -69,8 +69,10 @@ describe('dropping a disconnected seat at a tournament table', () => {
       // A move of Bob's in between does not reset Ann's run; only Ann's own move would.
       timeOut(ctx, 'Ann');
       const seat = ctx.room.state.players.find((p) => p.id === ctx.seat('Ann').playerId)!;
-      expect(seat).toMatchObject({ name: 'Ann-bot', isBot: true });
-      expect(ctx.entrant('Ann').dropped).toMatchObject({ reason: 'disconnected', standIn: 'Ann-bot' });
+      expect(seat).toMatchObject({ name: 'Ann-Zerg', isBot: true });
+      expect(ctx.entrant('Ann').dropped).toMatchObject({ reason: 'disconnected', standIn: 'Ann-Zerg' });
+      expect(ctx.room.isZerg(seat.id)).toBe(true);
+      expect(ctx.room.agents[seat.id]).toBe('zerg');
       expect(ctx.room.history.some((h) => h.action.type === 'system' && /dropped \(disconnected\)/.test((h.action as { note: string }).note))).toBe(true);
       // The old token says why, over HTTP (410) and MCP.
       const base = `http://127.0.0.1:${(risk.server.address() as AddressInfo).port}`;
@@ -79,15 +81,47 @@ describe('dropping a disconnected seat at a tournament table', () => {
       expect(((await res.json()) as { error: string }).error).toMatch(/dropped from this table \(disconnected\)/);
       const mcp = new LocalRiskApi(ctx.store, risk.characters);
       await expect(mcp.act(ctx.room.id, ctx.seat('Ann').token, { type: 'end_turn' })).rejects.toMatchObject({ status: 410 });
-      // The bracket shows it, and the stand-in plays on: the house bot moves the seat.
-      expect(ctx.store.tournaments.view(ctx.t.id).entrants.find((e) => e.name === 'Ann')).toMatchObject({ status: 'dropped', dropped: { reason: 'disconnected', standIn: 'Ann-bot' } });
-      for (let i = 0; i < 50 && ctx.room.state.currentPlayer !== seat.id; i++) ctx.room.expireTurn();
+      // The bracket shows it, and the stand-in plays on: a Zerg moves the seat, in the horde.
+      expect(ctx.store.tournaments.view(ctx.t.id).entrants.find((e) => e.name === 'Ann')).toMatchObject({ status: 'dropped', dropped: { reason: 'disconnected', standIn: 'Ann-Zerg' } });
+      ctx.room.stopBot(); // the stand-in's real bot timer may have played during the awaits above
+      for (let i = 0; i < 300 && ctx.room.state.currentPlayer !== seat.id; i++) {
+        ctx.room.playerForToken(ctx.seat('Bob').token); // Bob is present: only Ann was dropped
+        ctx.room.expireTurn();
+      }
       const v = ctx.room.state.version;
       expect(ctx.room.stepBot()).toBe(true);
       expect(ctx.room.state.version).toBeGreaterThan(v);
     } finally {
       await risk.shutdown('test');
     }
+  });
+
+  it('the Zerg stand-in never ends the table early: the Zerg-only end needs every seat left to be a Zerg', () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const store = new Store(null);
+    const t = store.tournaments.create({ name: 'Swarm Cup', groupSize: 3, maxEntrants: 3, fillBots: false, options: { map: 'classic', autoSetup: true, turnTimer: 'move', turnTimerSeconds: 30 } });
+    const ann = store.tournaments.join(t.id, 'Annabelle Featherstonehaugh').entrantId; // 27 characters: the stand-in name is cut to 24
+    const bob = store.tournaments.join(t.id, 'Bob').entrantId;
+    const [zerg] = store.tournaments.addBots(t.id, 'zerg', 1);
+    store.tournaments.start(t.id);
+    const m = t.rounds[0].matches[0];
+    const room = store.get(m.gameId!)!;
+    room.stopBot();
+    const ctx = { store, t, m, room, seat: (n: string) => m.seats[n === 'Ann' ? ann : n === 'Bob' ? bob : zerg.entrantId], entrant: (n: string) => t.entrants.find((e) => e.id === (n === 'Ann' ? ann : bob))! } as unknown as ReturnType<typeof table>;
+    vi.setSystemTime(Date.now() + 10 * 60_000);
+    timeOut(ctx, 'Ann');
+    timeOut(ctx, 'Ann');
+    const standIn = room.state.players.find((p) => p.id === m.seats[ann].playerId)!;
+    expect(standIn.name).toBe('Annabelle Featherst-Zerg'); // 19 + "-Zerg" = 24
+    expect(standIn.name.length).toBeLessThanOrEqual(24);
+    // The stand-in and the Zerg are both Zergs, but Bob is still in: the table plays on.
+    expect(room.isZerg(standIn.id) && room.isZerg(m.seats[zerg.entrantId].playerId)).toBe(true);
+    expect(room.state.phase).not.toBe('finished');
+    // Bob goes: now only Zergs are left, so the table ends by standing (the Zerg rule), and a stand-in never moves on.
+    room.act(m.seats[bob].playerId, { type: 'surrender' });
+    expect(room.state.phase).toBe('finished');
+    expect(m.winner === null || m.winner !== ann).toBe(true);
+    store.stopTimers();
   });
 
   it('never at a table outside a tournament, and never for bots', () => {

@@ -160,9 +160,11 @@ a model that is only thinking, and drops it so the table plays on. The code is `
   dropped. Tournament tables only, outside seats only (never bots or Zergs), and only with a turn timer (tournaments
   run one by default).
 - **The takeover.** The seat's token stops working at that table: it answers **410** "You were dropped from this table
-  (disconnected)…", over HTTP and MCP. The **house bot** plays the seat at once, renamed **"<name>-bot"** (honest
-  labels: a later step lets the Delove seat pool take it over as "<name>-Delove"). The table's chat and the game's
-  history and record note it.
+  (disconnected)…", over HTTP and MCP. A **Zerg** (zerg@2) plays the seat at once, renamed **"<name>-Zerg"** (owner:
+  "have a zerg bot take over it and its hyphen with Zerg"; names cut to fit 24 characters). It is one of the table's
+  horde and follows the Zerg rules. The Zerg-only end still needs **every** seat left to be a Zerg, so it never ends a
+  table while a real player is seated. A later step lets the Delove seat pool take the seat over as "<name>-Delove".
+  The table's chat and the game's history and record note it.
 - **Out of the tournament.** The entrant shows as `dropped` in the bracket (`dropped: {reason, standIn}`; 🔌 on the
   site). The stand-in plays only to finish that table. It can win the game, but **it never moves on**: the best other
   seat by standing does, as a table decided on standing (+1). That is the winner's next in line, players already out

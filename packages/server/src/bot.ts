@@ -20,10 +20,19 @@ export function seatIdPrefix(kind: BotKind | null): string {
   return kind === 'zerg' ? ZERG_PREFIX : kind === 'bot' ? 'bot_' : 'p_';
 }
 
-/** Every Zerg gets one of these names, never two alike in one room: the name is how players tell a Zerg. */
+/**
+ * Every Zerg gets one of these names, never two alike in one room: the name is how players tell a Zerg (each has
+ * "Zerg" in it). Good-natured puns (owner, 2026-10-22), at most 21 characters so a " 99" suffix still fits a name.
+ */
 export const ZERG_NAMES = [
-  'Godzilla', 'Cobra', 'Komodo', 'Basilisk', 'Iguana', 'Gecko', 'Python', 'Mamba', 'Viper', 'Anaconda',
-  'Gila', 'Chameleon', 'Caiman', 'Gharial', 'Tuatara', 'Skink', 'Taipan', 'Boomslang',
+  'Mark Zergburg', 'Elon Zerg', 'Zergy Mercury', 'Zerg Lightyear', 'Zerglock Holmes',
+  'Bruce Zergsteen', 'Elvis Zergsley', 'Obi-Wan Zergobi', 'Darth Zerger', 'Lady Zerga',
+  'Kim Zergdashian', 'Morgan Zergman', 'Leonardo DiZergio', 'Gandalf the Zerg', 'Harry Zerger',
+  'Captain Zergica', 'Albert Zergstein', 'Beyonzerg', 'Mick Zergger', 'Jerry Zergfeld',
+  "Shaquille O'Zerg", 'Pikazerg', 'Sir Zergalot', 'Zergeant Pepper', 'Zerg Ross',
+  'Zergiana Grande', 'Keanu Zerges', 'Indiana Zergs', 'Zergbo Baggins', 'Gordon Zergsay',
+  'Agatha Zergstie', 'Jimi Zergdrix', 'Zerge Clooney', 'Zergmund Freud', 'Lionel Zergsi',
+  'Zergolas', 'Zerggy Pop', 'Dolly Zergton', 'Zergzilla', 'Zerg Nye',
 ] as const;
 
 /** A random name from ZERG_NAMES that nobody in the room uses yet (any case). */
@@ -32,16 +41,14 @@ export function zergName(state: GameState): string {
 }
 
 /**
- * A random name from ZERG_NAMES that none of `names` uses (any case). Once all are taken: "Godzilla 2", "Godzilla 3",
- * ... (a tournament with more Zergs than the list).
+ * A random name from ZERG_NAMES that none of `names` uses (any case). Once all are taken, a random one with a number:
+ * "Elon Zerg 2", "Pikazerg 2", ..., then " 3" (a tournament with more Zergs than the list).
  */
 export function freeZergName(names: readonly string[]): string {
   const taken = new Set(names.map((n) => n.trim().toLowerCase()));
-  const free = ZERG_NAMES.filter((n) => !taken.has(n.toLowerCase()));
-  if (free.length > 0) return free[randomInt(free.length)];
-  for (let i = 2; ; i++) {
-    const name = `${ZERG_NAMES[0]} ${i}`;
-    if (!taken.has(name.toLowerCase())) return name;
+  for (let i = 1; ; i++) {
+    const free = ZERG_NAMES.map((n) => (i === 1 ? n : `${n} ${i}`)).filter((n) => !taken.has(n.toLowerCase()));
+    if (free.length > 0) return free[randomInt(free.length)];
   }
 }
 

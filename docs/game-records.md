@@ -97,7 +97,9 @@ A training game ([training leaderboard](character-league.md#training-leaderboard
       "board": [[0, 3], [1, 2]],                 // the truth just before the action
       "seen": [[0, 3], null],                    // fog only: what the acting player saw when choosing it
       "hand": [{ "id": 4, "kind": "cavalry", "territory": "peru" }],
-      "events": [{ "type": "battle", "attackerDice": [6, 5, 2], "defenderDice": [4, 3], "...": "..." }] }
+      "events": [{ "type": "battle", "attackerDice": [6, 5, 2], "defenderDice": [4, 3], "...": "..." }],
+      "note": { "why": "take the weak border before Kamchatka reinforces" } }  // only if the player sent one (act's
+                                                // `note`, at most 2 KB): their own reasoning, never shown during the game
   ],
   "outcome": { "finished": true, "winner": "p_ab12", "reason": "domination",
     "eliminations": [{ "player": "p_cd34", "by": "p_ab12", "turn": 31, "step": 402 }],

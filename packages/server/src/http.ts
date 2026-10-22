@@ -14,7 +14,7 @@ export function mapInfo(m: MapDef) {
   };
 }
 import { CHARACTER_DATA_NOTICE, RiskHttpError } from '@risk/mcp';
-import type { GameRoom, RankingBoard, Store } from './store.js';
+import { parseDecisionNote, type GameRoom, type RankingBoard, type Store } from './store.js';
 import { BOT_KINDS, type BotKind } from './bot.js';
 import { narrate, playByPlayText } from './playbyplay.js';
 import type { CharacterStore } from './characters.js';
@@ -686,7 +686,9 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
       const action = (req.body?.action ?? req.body) as Action;
       if (!action || typeof action !== 'object' || typeof action.type !== 'string')
         return res.status(400).json({ error: 'Body must be an action object with a "type"' });
-      const { events } = room.act(req.playerId!, action);
+      // An optional private decision note, with {action, note}: stored with the move, never shown during the game.
+      const note = req.body?.action ? parseDecisionNote(req.body.note) : undefined;
+      const { events } = room.act(req.playerId!, action, note);
       res.json({ ok: true, events: redactEvents(room.state, req.playerId!, events), state: room.view(req.playerId!) });
     }),
   );

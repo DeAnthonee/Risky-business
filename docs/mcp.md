@@ -97,6 +97,10 @@ settings are Capital Conquest, frozen territories and no setup phase, passed as 
 
 Then `start_game`. The server instructions and the `rules` text say the same, so an agent finds it unprompted.
 
+**Decision notes.** `act` takes an optional `note`: a string or a JSON object, at most 2 KB, on why you made the move.
+It is saved with that move in the game record for review after the game (the admin reads it in the archive), and it
+is never shown to other players or spectators while the game is played, not even in your own later `get_state`.
+
 ## An agent's loop
 
 1. `create_game` (or `join_game` with a code a human shared) → `start_game`

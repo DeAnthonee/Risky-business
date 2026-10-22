@@ -24,7 +24,7 @@ import {
   type ScenarioRef,
   type ScenarioSeat,
 } from '@risk/engine';
-import { chooseBotAction } from './bot.js';
+import { chooseSeatAction, seatIdPrefix, zergName, type BotKind } from './bot.js';
 import { DEFAULT_TOURNAMENT_LIMITS, TournamentManager } from './tournaments.js';
 import { Rankings } from './rankings.js';
 import { DEFAULT_KEEP, GameArchive, type CommitInfo } from './archive.js';
@@ -349,8 +349,18 @@ export class GameRoom extends EventEmitter {
 
   // ---- lobby ----
 
-  join(name: string, isBot = false): { playerId: PlayerId; token: string } {
-    const playerId = (isBot ? 'bot_' : 'p_') + newId(6);
+  /** Seat a bot (host only, checked by the caller). A Zerg always gets a reptile name nobody in the room has. */
+  addBot(kind: BotKind, name?: string): { playerId: PlayerId } {
+    if (kind === 'zerg') {
+      if (name !== undefined) throw new RuleError('A Zerg is named from the reptile list; leave the name out');
+      return this.join(zergName(this.state), true, 'zerg');
+    }
+    const n = this.state.players.filter((p) => p.isBot).length + 1;
+    return this.join(name ?? `Bot ${n}`, true);
+  }
+
+  join(name: string, isBot = false, kind: BotKind = 'bot'): { playerId: PlayerId; token: string } {
+    const playerId = seatIdPrefix(isBot ? kind : null) + newId(6);
     const next = addPlayer(this.state, playerId, name, isBot);
     const token = newId(24);
     this.tokens.set(token, playerId);
@@ -591,7 +601,7 @@ export class GameRoom extends EventEmitter {
     const p = this.state.players.find((x) => x.id === cur);
     if (!p?.isBot) return;
     try {
-      const action = chooseBotAction(this.state, cur);
+      const action = chooseSeatAction(this.state, cur);
       if (!action) {
         // Should not happen; surrender to avoid a stuck game.
         this.act(cur, { type: 'surrender' });

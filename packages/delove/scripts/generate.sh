@@ -9,8 +9,13 @@
 # OUT/<name>-c<start>.json and a chunk's errors to OUT/<name>-c<start>.err. Exploring versions (delove@N-explore)
 # sample at DELOVE_TEMPERATURE (default here 0.7); branch-and-score stats go to OUT (DELOVE_BRANCH_STATS). A failed
 # chunk is reported as FAILED and the script exits non-zero.
+#
+# Turn cap: a jobs file may hold a line "#@max-turns N" (a comment to anything else) and MAX_TURNS=N in the
+# environment overrides it; either passes --max-turns N to every game (a game that reaches it is a draw). Unset: the
+# self-play default (500), so files without the line play exactly as before.
 set -euo pipefail
 jobs=$1; out=$2; seed=$3; parallel=${4:-14}; chunk=${CHUNK:-500}
+max_turns=${MAX_TURNS:-$(sed -nE 's/^#@max-turns[[:space:]]+([0-9]+).*/\1/p' "$jobs" | tail -n 1)}
 mkdir -p "$out"
 chunks=$(mktemp)
 trap 'rm -f "$chunks"' EXIT
@@ -21,14 +26,14 @@ grep -v '^\s*\(#\|$\)' "$jobs" | while read -r name total agents options; do
     echo "$name $(( base + s )) $agents $(( total - s < chunk ? total - s : chunk )) ${options:-"{}"}"
   done
 done > "$chunks"
-echo "$(wc -l < "$chunks") chunks of up to $chunk games, $parallel at a time -> $out"
-export out seed
+echo "$(wc -l < "$chunks") chunks of up to $chunk games, $parallel at a time -> $out${max_turns:+ (max $max_turns turns)}"
+export out seed max_turns
 export DELOVE_TEMPERATURE=${DELOVE_TEMPERATURE:-0.7}
 export DELOVE_BRANCH_STATS=${DELOVE_BRANCH_STATS:-$out}
 run_chunk() {
   read -r name start agents games options <<< "$1"
   node --import ./packages/delove/dist/register.js packages/selfplay/dist/cli.js play --agents "$agents" \
-    --games "$games" --start "$start" --seed "$seed" --options "$options" --log "$out/$name/c$start" \
+    --games "$games" --start "$start" --seed "$seed" --options "$options" ${max_turns:+--max-turns "$max_turns"} --log "$out/$name/c$start" \
     > "$out/$name-c$start.json" 2> "$out/$name-c$start.err" \
     && echo "done $name c$start" || { echo "FAILED $name c$start (see $out/$name-c$start.err)"; exit 1; }
 }

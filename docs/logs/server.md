@@ -7,7 +7,7 @@ except character saves ([characters.md](characters.md)) and deploy behaviour ([h
 Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. Changes from before pull requests carry the
 commit hash instead. **Append a line in the same PR** as any change to this area (README hard rule 12).
 
-- 2026-10-21 #DRIFTPR docs drift: http-api.md lists `POST /games/:id/name` (rename your seat in the lobby); tournaments.md's 7-day idle limit is the Store's fixed `max`, not a `RISK_MAX_IDLE` env var
+- 2026-10-21 #194 docs drift: http-api.md lists `POST /games/:id/name` (rename your seat in the lobby); tournaments.md's 7-day idle limit is the Store's fixed `max`, not a `RISK_MAX_IDLE` env var
 - 2026-10-21 #184 `excitement.ts`: `excitementScore` (a table's 0-100 excitement from its spectator view and recent events, the §4.1 signals) and `pickFollow` (stay 20 s, switch for +15 or when the table ends, with a caption); pure, not wired into a feed yet
 - 2026-10-21 #179 scale groundwork: one WebSocket spectator frame per (room, change), shared by every spectator socket; snapshot debounce 2 s while more than 10 games play (0.5 s otherwise); tournament tables save only their last 500 history entries
 - 2026-10-22 #171 Zerg seats: `POST /games/:id/bots` takes `kind: "zerg"` (default "bot"); a Zerg seat (id `zerg_...`, a reptile name from `ZERG_NAMES`, no repeats in a room) plays `chooseZergAction` (zerg@1 with its default `ZERG_1_PARAMS`, so it follows zerg@1's endgame rules) with every Zerg seat in the room as its horde, through `GameRoom.commit`; ranked like any bot seat; no snapshot change

@@ -14,6 +14,7 @@ import { buildInfo } from './build-info.js';
 import { createMcpRouter } from './mcp.js';
 import { CharacterStore } from './characters.js';
 import type { SeasonKeyGuard } from './season-key.js';
+import { NO_TOURNEY_CAPS, TournamentAccess, type TourneyAccessConfig } from './tournament-access.js';
 import { TournamentScheduler, type ScheduleEntry } from './tournament-schedule.js';
 
 export interface AppOptions {
@@ -28,10 +29,14 @@ export interface AppOptions {
   /** AI character profiles; defaults to the repo's AI/ folder with saves kept in memory. */
   characters?: CharacterStore;
   /**
-   * TEMPORARY (testing): anyone may create tournaments, without the admin key (default true); each creator gets a host token.
-   * Turn off before launch (RISK_TOURNAMENTS_OPEN=0) so only the host can.
+   * Open mode (RISK_TOURNAMENTS_OPEN): anyone may create tournaments without a code, within the caps (default true here;
+   * index.ts turns it off by default once a hosting code is set). Each creator gets a host token.
    */
   openTournaments?: boolean;
+  /** Hosting codes and caps (RISK_TOURNEY_*; tournament-access.ts). Unset: no codes and no caps (tests); index.ts passes the env. */
+  tourneyAccess?: Partial<TourneyAccessConfig>;
+  /** Where the day's create counts and wrong code tries are saved (under RISK_DATA_DIR). */
+  tourneyAccessFile?: string | null;
   /** RISK_SEASON_KEY: lets the site archive the public leaderboard's season with this password (unset = off). */
   seasonKey?: string | null;
   /** Where the season-key lockout is saved (under RISK_DATA_DIR). */
@@ -111,12 +116,16 @@ export function createRiskServer(store: Store, opts: AppOptions = {}): RiskServe
       .catch(next);
   });
   const characters = opts.characters ?? new CharacterStore(DEFAULT_AI_DIR, null);
-  app.use('/api', createApi(store, { adminToken: opts.adminToken, recordsKey: opts.recordsKey, openTournaments: opts.openTournaments ?? true, characters, seasonKey: opts.seasonKey, seasonGuard: opts.seasonGuard, seasonLockFile: opts.seasonLockFile }));
+  // Hosting codes, caps and expiry: one instance for the HTTP API and the MCP. Creates pause while the loop lags.
+  // The brake reads only a finished minute's p99, so it acts on lag that stayed high, not on a start-up blip.
+  const tourneyAccess = new TournamentAccess(store.tournaments, opts.tourneyAccess ?? NO_TOURNEY_CAPS, opts.tourneyAccessFile ?? null, () => lastMinuteLagMs ?? 0);
+  if (opts.sweepIntervalMs !== 0) tourneyAccess.startSweeper();
+  app.use('/api', createApi(store, { adminToken: opts.adminToken, recordsKey: opts.recordsKey, openTournaments: opts.openTournaments ?? true, tourneyAccess, characters, seasonKey: opts.seasonKey, seasonGuard: opts.seasonGuard, seasonLockFile: opts.seasonLockFile }));
   if (opts.sweepIntervalMs !== 0) store.startSweeper(opts.sweepIntervalMs ?? 30_000);
   if (opts.tournamentSchedule?.length) store.schedule = new TournamentScheduler(store.tournaments, opts.tournamentSchedule, opts.scheduleFile ?? null);
 
   // Remote MCP endpoint for AI agents (claude.ai connectors, any Streamable HTTP MCP client).
-  const mcp = createMcpRouter(store, characters, opts.mcpLabel ?? 'Risky Business', opts.adminToken ?? null, opts.openTournaments ?? true);
+  const mcp = createMcpRouter(store, characters, opts.mcpLabel ?? 'Risky Business', opts.adminToken ?? null, opts.openTournaments ?? true, tourneyAccess);
   app.use('/mcp', mcp.router);
 
   // Event-loop lag for /healthz: a histogram read and reset every minute.
@@ -227,6 +236,7 @@ export function createRiskServer(store: Store, opts: AppOptions = {}): RiskServe
       });
       store.stopTimers();
       clearInterval(lagTimer);
+      tourneyAccess.stopSweeper();
       loopDelay.disable();
       console.log('shutdown complete');
     })();

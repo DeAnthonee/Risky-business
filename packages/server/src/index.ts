@@ -7,6 +7,7 @@ import { DEFAULT_AI_DIR, createRiskServer } from './app.js';
 import { CharacterStore } from './characters.js';
 import { buildInfo } from './build-info.js';
 import { parseSchedule, scheduleFromEnv, type ScheduleEntry } from './tournament-schedule.js';
+import { openModeFromEnv, tourneyAccessFromEnv } from './tournament-access.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -48,6 +49,7 @@ try {
   scheduleNote = `OFF: the schedule is invalid: ${(err as Error).message}`;
   console.error(`tournament schedule: ${scheduleNote}`);
 }
+const tourneyAccess = tourneyAccessFromEnv(process.env);
 const risk = createRiskServer(store, {
   clientDir: CLIENT_DIR,
   mcpLabel: process.env.RISK_PUBLIC_URL ?? 'Risky Business',
@@ -59,8 +61,10 @@ const risk = createRiskServer(store, {
     process.env.RISK_CHARACTERS_KEY,
     process.env.RISK_ADMIN_TOKEN,
   ]),
-  // TEMPORARY: tournaments are open to create while testing; RISK_TOURNAMENTS_OPEN=0 makes them host-only.
-  openTournaments: process.env.RISK_TOURNAMENTS_OPEN !== '0',
+  // Hosting codes and caps (values never printed). Open mode (no code needed) is on by default only while no code is set.
+  tourneyAccess,
+  tourneyAccessFile: DATA_DIR ? join(DATA_DIR, 'tournament-access.json') : null,
+  openTournaments: openModeFromEnv(process.env, tourneyAccess),
   // The site's "Archive season" button: unset = off.
   seasonKey: process.env.RISK_SEASON_KEY || null,
   // Wrong-try counts and lockouts survive restarts.
@@ -80,6 +84,7 @@ risk.server.listen(PORT, HOST, () => {
   console.log(`  records:   ${process.env.RISK_RECORDS_KEY ? 'full records need the records key' : 'off (set RISK_RECORDS_KEY to read full records)'}`);
   console.log(`  characters: ${risk.characters.writable ? 'saves need the write key' : 'read-only (set RISK_CHARACTERS_KEY to allow saves)'}`);
   console.log(`  schedule:  ${scheduleNote}`);
+  console.log(`  hosting:   ${tourneyAccess.adminCode || tourneyAccess.limitedCode ? 'creating tournaments needs a hosting code' : 'no hosting codes set'}`);
   console.log(`  client:    ${CLIENT_DIR}`);
 });
 

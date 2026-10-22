@@ -60,11 +60,12 @@ status tracker) is in [map-making.md](map-making.md). More in
 - MCP tools are defined once in `packages/mcp/src/tools.ts` over the `RiskApi` interface; the stdio CLI uses
   `HttpRiskApi`, the embedded `/mcp` endpoint uses the server's `LocalRiskApi`.
 - Tournaments (`packages/server/src/tournaments.ts`) sit above rooms: tables are rooms made with `Store.createTable`
-  (no host, `tournamentId` set), decided by the engine's own winner. Creating one is admin-only
-  (`RISK_ADMIN_TOKEN`), except while testing: `RISK_TOURNAMENTS_OPEN` (default on) lets anyone create them with
-  no key, over `POST /api/tournaments` and the MCP. Create returns the tournament's host token; start, forfeit and
-  delete check it (`TournamentManager.isHost`) or the admin key, never open mode. Before launch: turn it off and remove the TEMPORARY
-  `create_tournament` / `start_tournament` MCP tools; joining, status and `wait_for_match` stay.
+  (no host, `tournamentId` set), decided by the engine's own winner. Who may create, and the caps, are one place:
+  `packages/server/src/tournament-access.ts` (hosting codes, wrong-code lockout, caps, lag brake, expiry), used by
+  both `POST /api/tournaments` and the MCP (`LocalRiskApi`); the admin key (`/api/admin/tournaments`) skips it.
+  Create returns the tournament's host token; start, forfeit and delete check it (`TournamentManager.isHost`) or the
+  admin key (start also takes a hosting code), never open mode. Code values live only in the server's environment:
+  tests use fake values set in the test.
 - Game records (`packages/engine/src/record.ts`, written by `packages/server/src/archive.ts`): every started game is
   journalled to `RISK_DATA_DIR/archive/` from `GameRoom.commit` (the `commit` event) and filed when it ends, with the
   true board and per-player fog views; records replay exactly with `stateAtStep`/`verifyRecord`. Admin-only (they show

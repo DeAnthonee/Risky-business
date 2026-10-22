@@ -1,0 +1,31 @@
+# Cycle 19 (overhaul T1, cleaner labels), run with (from the repo root; RUNPOD_API_KEY in the environment):
+#   DELOVE_BRANCH_RANKER=delove@13 DELOVE_BRANCH_TEACHER=jacob-sensei@2 DELOVE_BRANCH_HORIZON=1
+#   DELOVE_BRANCH_ROLLOUTS=24 DELOVE_BRANCH_MARGIN=0.03 DELOVE_BRANCH_OPTIONS=5 REMOTE_GPUS=<n> REMOTE_MAX_GPU_HOURS=<cap>
+#   REMOTE_TRAIN=1 REMOTE_VOLUME=<volume id> REMOTE_TRAIN_DISK_GB=250 REMOTE_TRAIN_MAX_GPU_HOURS=1.5
+#   REMOTE_TIMINGS="<runs>/c19-smoke/a1/gpu.log ... <runs>/c19-smoke/b/gpu.log"
+#   DELOVE_MODELS=<models> DATA=<data> OUT=<runs>/c19 PYTHON=<venv python>
+#   bash packages/delove/scripts/cycle.sh packages/delove/scripts/cycles/c19.cycle
+# Cycle 18's tables at 0.6 (24,000 games) with cleaner labels: the architecture review (2026-10-22) found the teacher
+# picks the same move under fresh rollout seeds only about half the time. 24 rollouts per option and margin 0.03 raised
+# that to 0.67 in the T1 sweep; the 2p Gumbel seats get the same budget (5 x 24 = 120 copies, k 8). One candidate from
+# delove@13 with soft targets and the confidence weight (train.py --confidence, near-tie labels count less), on
+# cycle 19 + cycle 18 at 0.5 + cycle 17 at 0.3, trained on a rented pod from the network volume. No gates here: the
+# A/B scorecard (npm run delove:abtest, fog tables) decides.
+name=c19
+seed=319
+steps=(
+  "a1 packages/delove/scripts/cycles/c19-a1.jobs Cycle 19, step a1: Classic 4-player"
+  "a2 packages/delove/scripts/cycles/c19-a2.jobs Cycle 19, step a2: Classic 2p, Four Crowns 1v1, Classic 6p"
+  "a3 packages/delove/scripts/cycles/c19-a3.jobs Cycle 19, step a3: Europe 8p, USA 10p, Asia 8p"
+  "a4 packages/delove/scripts/cycles/c19-a4.jobs Cycle 19, step a4: Bohemia, Nine Realms, Hex Earth 6p"
+  "b packages/delove/scripts/cycles/c19-b.jobs Cycle 19, step b: the huge boards"
+)
+gpu_steps=(all)
+export_agents=delove-branch@1,delove-branch@1:range,delove-branch@1:range:gumbel
+train_data=(a1/classic a2/classic a2/skirmish a3/europe a3/usa a3/asia a4/bohemia a4/nine_realms a4/hexworld b/hexworld b/greater_europe b/fantasy b/europe_classic
+  "c18-a1/classic#0.5" "c18-a2/classic#0.5" "c18-a2/skirmish#0.5" "c18-a3/europe#0.5" "c18-a3/usa#0.5" "c18-a3/asia#0.5" "c18-a4/bohemia#0.5" "c18-a4/nine_realms#0.5" "c18-a4/hexworld#0.5" "c18-b/hexworld#0.5" "c18-b/greater_europe#0.5" "c18-b/fantasy#0.5" "c18-b/europe_classic#0.5" 
+  "c17-a1/classic#0.3" "c17-a2/classic#0.3" "c17-a2/skirmish#0.3" "c17-a3/europe#0.3" "c17-a3/usa#0.3" "c17-a3/asia#0.3" "c17-a4/bohemia#0.3" "c17-a4/nine_realms#0.3" "c17-a4/world#0.3" "c17-b/world#0.3" "c17-b/world_large#0.3" "c17-b/greater_europe#0.3" "c17-b/fantasy#0.3" "c17-b/europe_classic#0.3" )
+train_init=delove@13
+candidate=c19-candidate
+train_args="--epochs 1.5 --batch 512 --lr 2e-4 --hidden 192 --rounds 6 --value-target points --amp --branch-weights 0.5,1,2 --soft-targets 5 --confidence 0.05,0.2 --fog-dropout 0.25"
+gates=()

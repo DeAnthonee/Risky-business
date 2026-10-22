@@ -1,0 +1,12 @@
+# Cycle 19, step a4: Bohemia, Nine Realms, Hex Earth 6p. League settings (docs/game-settings.md) with four card/capitals/blizzard variants; Jacob Sensei
+# teaches and fills about half the seats; delove@13 / delove@12 the rest; the branch seat moves round the table.
+bo4a 450 jacob-sensei@1,delove@13,jacob-sensei@1,delove-branch@1 {"map":"bohemia","autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"exponential","blizzards":8}
+bo4b 450 jacob-sensei@1,delove-branch@1,delove@13,jacob-sensei@1 {"map":"bohemia","autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"progressive","capitals":true,"blizzards":8}
+bo6a 450 jacob-sensei@1,delove@13,jacob-sensei@1,delove-branch@1:range,delove@12,jacob-sensei@1 {"map":"bohemia","autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"progressive"}
+bo6b 450 jacob-sensei@1,delove@13,jacob-sensei@1,delove@12,jacob-sensei@1,delove-branch@1:range {"map":"bohemia","autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"fixed","capitals":true}
+nr6a 450 jacob-sensei@1,delove@13,jacob-sensei@1,delove@12,jacob-sensei@1,delove-branch@1:range {"map":"nine_realms","autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"exponential","blizzards":8}
+nr6b 450 jacob-sensei@1,delove-branch@1:range,delove@13,jacob-sensei@1,delove@12,jacob-sensei@1 {"map":"nine_realms","autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"progressive","capitals":true,"blizzards":8}
+nr8a 300 jacob-sensei@1,delove-branch@1:range,delove@13,jacob-sensei@1,delove@12,jacob-sensei@1,delove@13,jacob-sensei@1 {"map":"nine_realms","autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"progressive"}
+nr8b 300 jacob-sensei@1,delove@13,jacob-sensei@1,delove-branch@1:range,delove@12,jacob-sensei@1,delove@13,jacob-sensei@1 {"map":"nine_realms","autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"fixed","capitals":true}
+hx6a 300 jacob-sensei@1,delove@13,jacob-sensei@1,delove-branch@1:range,delove@12,jacob-sensei@1 {"map":"hexworld","autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"exponential","blizzards":8}
+hx6b 300 jacob-sensei@1,delove@13,jacob-sensei@1,delove@12,jacob-sensei@1,delove-branch@1:range {"map":"hexworld","autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"progressive","capitals":true,"blizzards":8}

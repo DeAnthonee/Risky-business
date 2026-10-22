@@ -12,7 +12,7 @@ join on the website (the Tournaments list on the home page, or `?tournament=CODE
   tournaments are kept; older ones are pruned from `tournaments.json`.
 
 - **Server bots.** While registering, the host adds built-in bots or **Zergs** as entrants
-  (`POST /api/tournaments/:id/bots {kind: "bot" | "zerg", count}`, host token). A Zerg entrant has a reptile name
+  (`POST /api/tournaments/:id/bots {kind: "bot" | "zerg", count}`, host token). A Zerg entrant has a Zerg pun name
   unique in the tournament and plays as a Zerg at every table it sits at: the Zergs at one table are one horde, in
   every round (docs/zergs.md). Bots and Zergs are entrants like anyone else and can win.
 - **Tables.** Each round seats the remaining entrants at tables of up to `groupSize` (default 4, on Four Crowns by

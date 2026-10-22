@@ -3,7 +3,7 @@
 Zergs are house bots that rush, never attack each other and hunt eliminations together. Two ways to play with them:
 
 - **Live Zergs** (sections 1 to 6): the owner's rules, built. A host seats Zergs like any bot; they are regular
-  players with reptile names.
+  players with Zerg pun names.
 - **Stealth mode** (section 7): a later idea, not built. A surprise social-deduction game where Zergs find each other
   through table chat with a learned challenge-response.
 
@@ -11,9 +11,10 @@ Zergs are house bots that rush, never attack each other and hunt eliminations to
 
 - **Zergs are regular players.** No faction flag, no engine option, no `ranking.ts` change and no special scoring: a
   Zerg seat places, scores, kills and is killed like any other bot seat, on whichever leaderboard its room ranks on.
-- **Reptile names.** Every Zerg added to a game gets a name from a fixed list (`ZERG_NAMES` in
-  `packages/server/src/bot.ts`: Godzilla, Cobra, Komodo, Basilisk, ...), never two alike in one room. The name is how
-  outsiders tell which seats are Zergs; there is no badge or banner.
+- **Zerg names** (owner, 2026-10-22; they were reptile names before): every Zerg added to a game gets a good-natured
+  pun on "Zerg" from a fixed list (`ZERG_NAMES` in `packages/server/src/bot.ts`: Mark Zergburg, Elon Zerg, Zergy
+  Mercury, Zerg Lightyear, ... 40 of them), never two alike in one room. Every name has "Zerg" in it, so it is how
+  outsiders tell which seats are Zergs; there is no badge or banner. Games saved before keep their reptile names.
 - **Allies until the prey is gone.** A Zerg never attacks a fellow Zerg while any non-Zerg is alive.
 - **The Zerg endgame (owner, 2026-10-22).** When only Zergs are left, the weaker Zergs surrender at once to the
   strongest (most territories, then armies, then the lowest seat). This replaces #169's fight to one winner and landed
@@ -30,12 +31,12 @@ Zergs are house bots that rush, never attack each other and hunt eliminations to
 ## 2. How a Zerg seat works (server)
 
 - **Seating.** `POST /api/games/:id/bots` with `{kind: "zerg"}` (host only, lobby only), the MCP `add_bot` tool with
-  `kind: "zerg"`, or **Add Zerg** in the web lobby. A custom `name` is refused: the reptile list names every Zerg.
+  `kind: "zerg"`, or **Add Zerg** in the web lobby. A custom `name` is refused: the Zerg list names every Zerg.
 - **Tournaments.** The host adds Zerg entrants with `POST /api/tournaments/:id/bots {kind: "zerg", count}`; each
-  keeps a reptile name unique in the tournament ("Komodo", then "Komodo 2") and is seated as a Zerg at its tables.
+  keeps a Zerg name unique in the tournament ("Elon Zerg", then "Elon Zerg 2" once all 40 are used) and is seated as a Zerg at its tables.
   The Zergs at one table are one horde, in every round (owner, 2026-10-22).
 - **Who is a Zerg.** The seat id starts with `zerg_` (built-in bots are `bot_...`, people `p_...`). The server mints
-  every id, so nobody can join as a Zerg or turn a seat into one (a person can still take a reptile name), and saved
+  every id, so nobody can join as a Zerg or turn a seat into one (a person can still take a Zerg name), and saved
   rooms need no new field: old snapshots load as before, and a restored Zerg seat is still a Zerg. (In self-play a
   horde is instead the seats named after the agent id, `zerg@1`.)
 - **Moves.** The room's bot loop plays a Zerg seat with `chooseZergAction(state, me, horde, Math.random, ZERG_2_PARAMS)` (`zerg@2` since #198), the horde
@@ -45,7 +46,7 @@ Zergs are house bots that rush, never attack each other and hunt eliminations to
 
 ## 3. Tests
 
-`packages/server/test/zerg.test.ts`: Zerg names are distinct reptile names, a custom name or an unknown kind is a
+`packages/server/test/zerg.test.ts`: Zerg names are distinct names from the Zerg list, a custom name or an unknown kind is a
 400, and a room with 2 Zergs and 1 built-in bot plays to the end with Zerg battles, no Zerg-on-Zerg battle while the
 bot lives, and a Zerg winner. How the Zergs settle it among themselves is `zerg@1`'s rule, pinned by the engine's
 Zerg tests.

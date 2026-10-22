@@ -311,7 +311,7 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
     'add_bot',
     {
       description:
-        'Add a computer player to a game you host (lobby only). kind "bot" (default) is the built-in bot. kind "zerg" is a Zerg: a rushing house bot that never attacks a fellow Zerg while anyone else is alive. Each Zerg gets a reptile name (Godzilla, Cobra, Komodo, ...), so leave name out. Zergs are regular players and rank like any seat.',
+        'Add a computer player to a game you host (lobby only). kind "bot" (default) is the built-in bot. kind "zerg" is a Zerg: a rushing house bot that never attacks a fellow Zerg while anyone else is alive. Each Zerg gets a Zerg pun for a name (Mark Zergburg, Elon Zerg, Zergy Mercury, ...), so leave name out. Zergs are regular players and rank like any seat.',
       inputSchema: {
         gameId: gameIdSchema,
         name: z.string().max(24).optional(),

@@ -42,7 +42,10 @@ admin call above does (`Rankings.archiveTo`) and shows the new season.
 - Wrong tries are limited: 5 wrong tries from one IP lock it out for 15 minutes, and 20 wrong tries from anyone within
   15 minutes lock everyone out for the rest of that window (`429` with `Retry-After`). Failures are logged without the
   value tried.
-- Without `RISK_SEASON_KEY` the button is hidden and the route answers `403`.
+- Without `RISK_SEASON_KEY` the button shows disabled and the route answers `403` (there is no default password).
+- The wrong-try counts and lockouts are saved in `$RISK_DATA_DIR/season-key-lockout.json`, so a restart does not reset
+  them. The file holds IPs, counts and times, never a password or a guess.
+- Archiving never deletes: the old season moves to `rankings.season-<N>.json` and stays viewable.
 - Only the public board's season changes; the training and tournament boards are untouched.
 
 ## Archive on a deploy: bump `RANKINGS_SEASON`

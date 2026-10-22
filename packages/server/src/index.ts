@@ -49,6 +49,8 @@ const risk = createRiskServer(store, {
   openTournaments: process.env.RISK_TOURNAMENTS_OPEN !== '0',
   // The site's "Archive season" button: unset = off.
   seasonKey: process.env.RISK_SEASON_KEY || null,
+  // Wrong-try counts and lockouts survive restarts.
+  seasonLockFile: DATA_DIR ? join(DATA_DIR, 'season-key-lockout.json') : null,
 });
 
 risk.server.listen(PORT, HOST, () => {

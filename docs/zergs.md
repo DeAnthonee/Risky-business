@@ -16,6 +16,17 @@ Zergs are house bots that rush, never attack each other and hunt eliminations to
   Mercury, Zerg Lightyear, ... 40 of them), never two alike in one room. Every name has "Zerg" in it, so it is how
   outsiders tell which seats are Zergs; there is no badge or banner. Games saved before keep their reptile names.
 - **Allies until the prey is gone.** A Zerg never attacks a fellow Zerg while any non-Zerg is alive.
+- **Live games end by standing (owner's rule A, 2026-10-22).** Live games end by standing as soon as only Zergs are
+  left (server, `endByStanding` in `packages/engine/src/standing.ts`): the strongest Zerg wins (most territories,
+  then armies, then the lowest seat, the same Zerg as `strongestZergOf`), nobody surrenders, no land turns neutral,
+  and the rest are placed by standing (the public board's own order: territories, then armies, then turn order). The room posts "Only Zergs are left: the swarm
+  has won" and records the ending as a system step. It never ends in the middle of a conquest: the decision is the
+  engine's `onlySideLeft(state, zergSeats)` (false while armies are still to move in), and when the last non-Zerg has
+  just fallen to an attack, the server moves the minimum in for the Zerg (an ordinary occupy, since the Zerg's own rule
+  would surrender first) and the game ends on that move, so no territory is ever left with 0 armies. A table seated with Zergs only (a tournament table) ends right
+  after the deal, by the same standing (owner, 2026-10-22; `ALL_ZERG_TABLES_END_AT_ONCE` in
+  `packages/server/src/store.ts`). In self-play, where there is no server, zerg@1 and zerg@2's weaker Zergs surrender
+  to the strongest; the winner is the same Zerg either way.
 - **The Zerg endgame (owner, 2026-10-22).** When only Zergs are left, the weaker Zergs surrender at once to the
   strongest (most territories, then armies, then the lowest seat). This replaces #169's fight to one winner and landed
   in `zerg@1` in #176; section 4 says what is built.

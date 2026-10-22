@@ -1,0 +1,38 @@
+# Cycle 17's deciding gate (owner rule, 2026-10-21: promote only if better WITH FOG ON). The candidate (FOG_CANDIDATE:
+# c17-candidate) against delove@13 at fog tables (packages/delove/configs/gen5-randomfog.json: fog of
+# war, capitals, 8 blizzards, progressive cards) on Classic 4p and 6p, World 6p and Europe 8p, pooled by
+# scripts/sprt.mjs (GATE_SPRT=1), plus 2p and Jacob Sensei rows for the record. No training: run with OUT=<runs>/c17-fog-a
+# or c17-fog-b holding copies of <runs>/c17/<step> folders, after the candidate is trained:
+#   for s in a1 a2 a3 a4 b; do cp -r <runs>/c17/$s <runs>/c17-fog-a/; done
+#   FOG_CANDIDATE=c15-candidate GATE_SPRT=1 DELOVE_MODELS=<models> DATA=<data> OUT=<runs>/c17-fog-a PYTHON=<venv python>
+#   bash packages/delove/scripts/cycle.sh packages/delove/scripts/cycles/c17-fog.cycle
+name=c17
+seed=317
+steps=(
+  "a1 packages/delove/scripts/cycles/c17-a1.jobs Cycle 17, step a1: Classic 4-player"
+  "a2 packages/delove/scripts/cycles/c17-a2.jobs Cycle 17, step a2: Classic 2p, Four Crowns 1v1, Classic 6p"
+  "a3 packages/delove/scripts/cycles/c17-a3.jobs Cycle 17, step a3: Europe 8p, USA 10p, Asia 8p"
+  "a4 packages/delove/scripts/cycles/c17-a4.jobs Cycle 17, step a4: Bohemia, Nine Realms, World 6p"
+  "b packages/delove/scripts/cycles/c17-b.jobs Cycle 17, step b: the huge boards"
+)
+gpu_steps=(all)
+export_agents=delove-branch@1,delove-branch@1:o6,delove-branch@1:range:o6
+train_data=(a1/classic a2/classic a2/skirmish a3/europe a3/usa a3/asia a4/bohemia a4/nine_realms a4/world
+  b/world b/world_large b/greater_europe b/fantasy b/europe_classic
+  "c16-a1/classic#0.4" "c16-a2/classic#0.4" "c16-a2/skirmish#0.4" "c16-a3/europe#0.4" "c16-a3/usa#0.4" "c16-a3/asia#0.4"
+  "c16-a4/bohemia#0.4" "c16-a4/nine_realms#0.4" "c16-a4/world#0.4" "c16-b/world#0.4" "c16-b/world_large#0.4"
+  "c16-b/greater_europe#0.4" "c16-b/fantasy#0.4" "c16-b/europe_classic#0.4"
+  "c15-a1/classic#0.2" "c15-a2/classic#0.2" "c15-a3/europe#0.2" "c15-a4/bohemia#0.2" "c15-b/world#0.2" "c15-b/greater_europe#0.2")
+train_init=delove@13
+candidate=${FOG_CANDIDATE:-c17-candidate}
+train_args="--epochs 1.5 --batch 512 --lr 2e-4 --hidden 192 --rounds 6 --value-target points --amp --branch-weights 0.5,1,2 --fog-dropout 0.25"
+gates=(
+  "delove@13 4 200 {\"autoSetup\":true,\"randomDeal\":true,\"setupBatch\":1,\"balancedBlitz\":true,\"firstRoundBonus\":true,\"fortifyMode\":\"connected\",\"chooseCapitals\":true,\"fogOfWar\":true,\"blizzards\":8,\"capitals\":true,\"cardValues\":\"progressive\",\"neutrals\":0,\"neutralArmies\":2}"
+  "delove@13 6 200 {\"autoSetup\":true,\"randomDeal\":true,\"setupBatch\":1,\"balancedBlitz\":true,\"firstRoundBonus\":true,\"fortifyMode\":\"connected\",\"chooseCapitals\":true,\"fogOfWar\":true,\"blizzards\":8,\"capitals\":true,\"cardValues\":\"progressive\",\"neutrals\":0,\"neutralArmies\":2}"
+  "delove@13 6 200 {\"map\":\"world\",\"autoSetup\":true,\"randomDeal\":true,\"setupBatch\":1,\"balancedBlitz\":true,\"firstRoundBonus\":true,\"fortifyMode\":\"connected\",\"chooseCapitals\":true,\"fogOfWar\":true,\"blizzards\":8,\"capitals\":true,\"cardValues\":\"progressive\",\"neutrals\":0,\"neutralArmies\":2}"
+  "delove@13 8 200 {\"map\":\"europe\",\"autoSetup\":true,\"randomDeal\":true,\"setupBatch\":1,\"balancedBlitz\":true,\"firstRoundBonus\":true,\"fortifyMode\":\"connected\",\"chooseCapitals\":true,\"fogOfWar\":true,\"blizzards\":8,\"capitals\":true,\"cardValues\":\"progressive\",\"neutrals\":0,\"neutralArmies\":2}"
+  "delove@13 2 400 {\"autoSetup\":true,\"randomDeal\":true,\"setupBatch\":1,\"balancedBlitz\":true,\"firstRoundBonus\":true,\"fortifyMode\":\"connected\",\"chooseCapitals\":true,\"fogOfWar\":true,\"blizzards\":8,\"capitals\":true,\"cardValues\":\"progressive\",\"neutrals\":0,\"neutralArmies\":2}"
+  "jacob-sensei@1 6 200 {\"map\":\"world\",\"autoSetup\":true,\"randomDeal\":true,\"setupBatch\":1,\"balancedBlitz\":true,\"firstRoundBonus\":true,\"fortifyMode\":\"connected\",\"chooseCapitals\":true,\"fogOfWar\":true,\"blizzards\":8,\"capitals\":true,\"cardValues\":\"progressive\",\"neutrals\":0,\"neutralArmies\":2}"
+  "jacob-sensei@2 6 200 {\"map\":\"world\",\"autoSetup\":true,\"randomDeal\":true,\"setupBatch\":1,\"balancedBlitz\":true,\"firstRoundBonus\":true,\"fortifyMode\":\"connected\",\"chooseCapitals\":true,\"fogOfWar\":true,\"blizzards\":8,\"capitals\":true,\"cardValues\":\"progressive\",\"neutrals\":0,\"neutralArmies\":2}"
+  "jacob-sensei@2 4 200 {\"autoSetup\":true,\"randomDeal\":true,\"setupBatch\":1,\"balancedBlitz\":true,\"firstRoundBonus\":true,\"fortifyMode\":\"connected\",\"chooseCapitals\":true,\"fogOfWar\":true,\"blizzards\":8,\"capitals\":true,\"cardValues\":\"progressive\",\"neutrals\":0,\"neutralArmies\":2}"
+)

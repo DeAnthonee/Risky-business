@@ -2792,3 +2792,492 @@ tables **+0.17 points per seat (95% +0.04 to +0.31)**, SPRT accepted, with Class
 significant; fog 2p even. With fog on it scores 0.800 against Jacob Sensei 1 and 0.785 / 0.757 against Jacob Sensei 2.
 Without fog it is +0.27 points per seat (+0.15 to +0.40), SPRT accepted, even at 2p. Candidate (b), fog dropout 0.5,
 also passed with fog on (+0.16) but scored lower, and +0.12 without fog: the fog-dropout ramp gives nothing past 0.25 here.
+
+## Cycle 17
+
+## c17
+
+### Cycle 17, step a1: Classic 4-player
+
+| table | games | seat wins | mean turns | turn limit | decisions |
+| --- | --- | --- | --- | --- | --- |
+| c4a | 1,000 | jacob-sensei@1 119, branch@1:o6 462, delove@13 297, jacob-sensei@1 122 | 41.0 | 0 | 549,114 |
+| c4b | 1,000 | jacob-sensei@1 50, delove@13 431, jacob-sensei@1 60, branch@1:o6 459 | 26.9 | 0 | 330,159 |
+| c4c | 1,000 | jacob-sensei@1 126, branch@1:o6 427, delove@13 304, jacob-sensei@1 137 | 42.8 | 6 | 439,916 |
+| c4d | 1,000 | jacob-sensei@1 60, delove@13 428, jacob-sensei@1 71, branch@1:o6 439 | 26.8 | 2 | 283,203 |
+
+**4,000 games.**
+
+| branch and score | |
+| --- | --- |
+| branching player's decisions | 432,897 |
+| branched (compared options) | 275,865 (63.7%) |
+| simulations run | 9,568,230 (251,355,938 simulated moves) |
+| changed the teacher's move | 115,348 (41.8% of branched) |
+| average score gain per branched decision | +0.0213 |
+| changes by kind | attack 67,024/175,442, place 30,299/61,689, fortify_from 7,682/18,145, trade 5,635/10,623, end_turn 4,708/9,966 |
+| chosen branches, 2 rounds on: share of armies / income / territories / cards / continents | 0.410 / 0.456 / 0.438 / 0.371 / 0.564 |
+| chosen branches that had won / lost within the horizon | 8.7% / 1.1% |
+
+### Cycle 17, step a2: Classic 2p, Four Crowns 1v1, Classic 6p
+
+| table | games | seat wins | mean turns | turn limit | decisions |
+| --- | --- | --- | --- | --- | --- |
+| c2a | 2,000 | branch@1 1421, jacob-sensei@1 579 | 18.3 | 0 | 405,574 |
+| c2b | 2,000 | branch@1 1027, delove@13 973 | 3.4 | 0 | 70,614 |
+| c2c | 2,000 | jacob-sensei@1 692, branch@1 1308 | 16.6 | 0 | 319,266 |
+| c2d | 2,000 | delove@13 980, branch@1 1016 | 5.9 | 4 | 92,511 |
+| c6a | 1,000 | jacob-sensei@1 85, delove@13 178, jacob-sensei@1 77, delove@12 194, jacob-sensei@1 89, branch@1:range:o6 372 | 50.3 | 5 | 480,962 |
+| c6b | 1,000 | jacob-sensei@1 45, branch@1:range:o6 314, delove@13 285, jacob-sensei@1 57, delove@12 243, jacob-sensei@1 49 | 40.0 | 7 | 414,879 |
+| mca | 3,000 | branch@1 1839, jacob-sensei@1 1161 | 16.0 | 0 | 400,481 |
+| mcb | 3,000 | branch@1 1365, delove@13 1606 | 16.0 | 29 | 196,904 |
+
+**16,000 games.**
+
+| branch and score | |
+| --- | --- |
+| branching player's decisions | 970,920 |
+| branched (compared options) | 660,933 (68.1%) |
+| simulations run | 20,641,560 (382,133,740 simulated moves) |
+| changed the teacher's move | 276,789 (41.9% of branched) |
+| average score gain per branched decision | +0.0348 |
+| changes by kind | attack 143,137/371,981, place 81,192/189,702, fortify_from 28,650/53,771, trade 12,161/23,065, end_turn 11,649/22,414 |
+| chosen branches, 2 rounds on: share of armies / income / territories / cards / continents | 0.544 / 0.580 / 0.583 / 0.538 / 0.648 |
+| chosen branches that had won / lost within the horizon | 12.2% / 3.5% |
+
+### Cycle 17, step a3: Europe 8p, USA 10p, Asia 8p
+
+| table | games | seat wins | mean turns | turn limit | decisions |
+| --- | --- | --- | --- | --- | --- |
+| as8a | 1,000 | jacob-sensei@1 51, branch@1:range:o6 376, delove@13 135, jacob-sensei@1 57, delove@12 132, jacob-sensei@1 51, delove@13 142, jacob-sensei@1 56 | 48.0 | 0 | 617,484 |
+| as8b | 1,000 | jacob-sensei@1 20, delove@13 208, jacob-sensei@1 31, branch@1:range:o6 297, delove@12 200, jacob-sensei@1 20, delove@13 201, jacob-sensei@1 21 | 55.5 | 2 | 741,687 |
+| eu8a | 1,000 | jacob-sensei@1 71, delove@13 128, jacob-sensei@1 61, delove@12 107, jacob-sensei@1 54, branch@1:range:o6 380, delove@13 128, jacob-sensei@1 71 | 43.3 | 0 | 535,752 |
+| eu8b | 1,000 | jacob-sensei@1 30, delove@13 169, jacob-sensei@1 44, delove@12 198, jacob-sensei@1 30, delove@13 210, jacob-sensei@1 30, branch@1:range:o6 288 | 47.0 | 1 | 632,701 |
+| us10a | 1,000 | jacob-sensei@1 55, delove@13 99, jacob-sensei@1 63, delove@12 106, jacob-sensei@1 48, branch@1:range:o6 341, delove@13 100, jacob-sensei@1 51, delove@12 86, jacob-sensei@1 51 | 49.4 | 0 | 529,565 |
+| us10b | 1,000 | jacob-sensei@1 32, delove@13 125, jacob-sensei@1 26, delove@12 163, jacob-sensei@1 29, delove@13 136, jacob-sensei@1 32, branch@1:range:o6 273, delove@12 157, jacob-sensei@1 27 | 37.8 | 0 | 523,012 |
+
+**6,000 games.**
+
+| branch and score | |
+| --- | --- |
+| branching player's decisions | 569,027 |
+| branched (compared options) | 352,575 (62.0%) |
+| simulations run | 14,117,238 (661,086,341 simulated moves) |
+| changed the teacher's move | 132,844 (37.7% of branched) |
+| average score gain per branched decision | +0.0305 |
+| changes by kind | attack 85,629/235,965, place 35,466/81,822, trade 5,182/10,437, fortify_from 3,872/11,648, end_turn 2,695/12,703 |
+| chosen branches, 2 rounds on: share of armies / income / territories / cards / continents | 0.405 / 0.411 / 0.410 / 0.369 / 0.464 |
+| chosen branches that had won / lost within the horizon | 15.9% / 2.9% |
+
+### Cycle 17, step a4: Bohemia, Nine Realms, World 6p
+
+| table | games | seat wins | mean turns | turn limit | decisions |
+| --- | --- | --- | --- | --- | --- |
+| bo4a | 750 | jacob-sensei@1 100, delove@13 220, jacob-sensei@1 103, branch@1:o6 326 | 35.4 | 1 | 284,450 |
+| bo4b | 750 | jacob-sensei@1 62, branch@1:o6 312, delove@13 309, jacob-sensei@1 67 | 22.3 | 0 | 187,206 |
+| bo6a | 750 | jacob-sensei@1 64, delove@13 117, jacob-sensei@1 69, branch@1:range:o6 317, delove@12 119, jacob-sensei@1 64 | 42.4 | 0 | 394,690 |
+| bo6b | 750 | jacob-sensei@1 36, delove@13 211, jacob-sensei@1 42, delove@12 169, jacob-sensei@1 32, branch@1:range:o6 256 | 45.1 | 4 | 405,019 |
+| nr6a | 750 | jacob-sensei@1 87, delove@13 143, jacob-sensei@1 71, delove@12 139, jacob-sensei@1 78, branch@1:range:o6 231 | 67.0 | 1 | 575,646 |
+| nr6b | 750 | jacob-sensei@1 36, branch@1:range:o6 269, delove@13 187, jacob-sensei@1 30, delove@12 191, jacob-sensei@1 37 | 44.3 | 0 | 451,483 |
+| nr8a | 500 | jacob-sensei@1 14, branch@1:range:o6 211, delove@13 48, jacob-sensei@1 32, delove@12 58, jacob-sensei@1 33, delove@13 61, jacob-sensei@1 43 | 54.9 | 0 | 375,527 |
+| nr8b | 500 | jacob-sensei@1 35, delove@13 85, jacob-sensei@1 29, branch@1:range:o6 143, delove@12 76, jacob-sensei@1 14, delove@13 82, jacob-sensei@1 35 | 77.9 | 1 | 510,696 |
+| w6a | 500 | jacob-sensei@1 42, delove@13 107, jacob-sensei@1 34, branch@1:range:o6 189, delove@12 90, jacob-sensei@1 36 | 76.7 | 2 | 506,047 |
+| w6b | 500 | jacob-sensei@1 32, delove@13 123, jacob-sensei@1 19, delove@12 108, jacob-sensei@1 19, branch@1:range:o6 199 | 48.4 | 0 | 399,347 |
+
+**6,500 games.**
+
+| branch and score | |
+| --- | --- |
+| branching player's decisions | 803,906 |
+| branched (compared options) | 503,267 (62.6%) |
+| simulations run | 19,475,790 (774,577,252 simulated moves) |
+| changed the teacher's move | 190,436 (37.8% of branched) |
+| average score gain per branched decision | +0.0237 |
+| changes by kind | attack 116,131/332,743, place 49,718/107,991, fortify_from 10,420/28,678, trade 9,390/18,142, end_turn 4,777/15,713 |
+| chosen branches, 2 rounds on: share of armies / income / territories / cards / continents | 0.385 / 0.415 / 0.397 / 0.343 / 0.501 |
+| chosen branches that had won / lost within the horizon | 10.8% / 1.7% |
+
+### Cycle 17, step b: the huge boards
+
+| table | games | seat wins | mean turns | turn limit | decisions |
+| --- | --- | --- | --- | --- | --- |
+| ec6a | 500 | jacob-sensei@1 21, delove@13 158, branch@1:range:o6 138, jacob-sensei@1 17, delove@12 148, jacob-sensei@1 18 | 83.7 | 0 | 644,130 |
+| ec6b | 500 | jacob-sensei@1 47, delove@13 92, jacob-sensei@1 41, delove@12 102, branch@1:range:o6 188, jacob-sensei@1 30 | 89.5 | 0 | 642,535 |
+| fa10a | 500 | branch@1:range:o6 120, jacob-sensei@1 29, delove@13 65, jacob-sensei@1 22, delove@12 63, jacob-sensei@1 23, delove@13 72, jacob-sensei@1 16, delove@12 76, jacob-sensei@1 14 | 127.7 | 0 | 942,270 |
+| fa10b | 500 | jacob-sensei@1 28, delove@13 38, branch@1:range:o6 195, jacob-sensei@1 31, delove@12 30, jacob-sensei@1 30, delove@13 43, jacob-sensei@1 29, delove@12 41, jacob-sensei@1 35 | 120.8 | 0 | 765,647 |
+| fa6a | 500 | branch@1:range:o6 204, jacob-sensei@1 31, delove@13 93, jacob-sensei@1 43, delove@12 103, jacob-sensei@1 26 | 53.9 | 0 | 496,645 |
+| fa6b | 500 | jacob-sensei@1 41, delove@13 93, branch@1:range:o6 196, jacob-sensei@1 39, delove@12 75, jacob-sensei@1 56 | 63.2 | 0 | 617,740 |
+| ge10a | 500 | jacob-sensei@1 14, delove@13 80, jacob-sensei@1 1, delove@12 90, jacob-sensei@1 5, delove@13 70, branch@1:range:o6 131, jacob-sensei@1 15, delove@12 86, jacob-sensei@1 7 | 199.1 | 1 | 1,513,124 |
+| ge10b | 500 | jacob-sensei@1 29, delove@13 29, jacob-sensei@1 26, delove@12 24, jacob-sensei@1 35, delove@13 34, jacob-sensei@1 35, delove@12 36, branch@1:range:o6 230, jacob-sensei@1 22 | 170.6 | 0 | 1,223,098 |
+| ge6a | 500 | jacob-sensei@1 33, delove@13 87, branch@1:range:o6 231, jacob-sensei@1 28, delove@12 94, jacob-sensei@1 27 | 68.5 | 0 | 781,627 |
+| ge6b | 500 | jacob-sensei@1 46, delove@13 74, jacob-sensei@1 44, delove@12 62, branch@1:range:o6 229, jacob-sensei@1 45 | 84.4 | 0 | 1,040,307 |
+| w10a | 750 | jacob-sensei@1 13, delove@13 108, branch@1:range:o6 183, jacob-sensei@1 13, delove@12 129, jacob-sensei@1 22, delove@13 127, jacob-sensei@1 23, delove@12 118, jacob-sensei@1 14 | 91.1 | 0 | 993,533 |
+| w10b | 750 | jacob-sensei@1 48, delove@13 75, jacob-sensei@1 51, delove@12 69, branch@1:range:o6 266, jacob-sensei@1 42, delove@13 60, jacob-sensei@1 38, delove@12 66, jacob-sensei@1 35 | 93.6 | 0 | 862,775 |
+| wl10a | 500 | jacob-sensei@1 15, delove@13 72, jacob-sensei@1 24, delove@12 43, branch@1:range:o6 190, jacob-sensei@1 12, delove@13 54, jacob-sensei@1 17, delove@12 54, jacob-sensei@1 19 | 70.5 | 0 | 679,859 |
+| wl10b | 500 | jacob-sensei@1 22, delove@13 40, jacob-sensei@1 36, delove@12 64, jacob-sensei@1 24, delove@13 36, branch@1:range:o6 182, jacob-sensei@1 21, delove@12 47, jacob-sensei@1 28 | 77.2 | 0 | 710,784 |
+
+**7,500 games.**
+
+| branch and score | |
+| --- | --- |
+| branching player's decisions | 1,763,378 |
+| branched (compared options) | 1,054,835 (59.8%) |
+| simulations run | 40,622,778 (2,570,894,685 simulated moves) |
+| changed the teacher's move | 388,691 (36.8% of branched) |
+| average score gain per branched decision | +0.0217 |
+| changes by kind | attack 270,141/759,187, place 74,643/178,899, fortify_from 17,532/48,368, trade 16,088/31,882, end_turn 10,287/36,499 |
+| chosen branches, 2 rounds on: share of armies / income / territories / cards / continents | 0.342 / 0.377 / 0.350 / 0.285 / 0.473 |
+| chosen branches that had won / lost within the horizon | 8.9% / 1.1% |
+
+### c17: ladder gate (c17-candidate)
+
+| opponent | players | options | games | score | 95% interval | Elo | points | opp. points | points diff (95%) | place | kills | turn limit |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| delove@13 | 2 | {} | 800 | 0.484 | 0.457-0.512 | -11 | +0.42 | +0.52 | -0.09 (-0.23 to +0.04) | 1.52 | 0.47 | 17 |
+| delove@13 | 4 | {} | 200 | 0.515 | 0.455-0.575 | +10 | +0.73 | +0.77 | -0.04 (-0.27 to +0.20) | 2.52 | 0.79 | 0 |
+| delove@13 | 6 | {} | 200 | 0.507 | 0.441-0.574 | +5 | +0.81 | +0.81 | -0.00 (-0.43 to +0.43) | 3.51 | 0.85 | 1 |
+| delove@13 | 6 | {"map":"world"} | 200 | 0.545 | 0.478-0.612 | +31 | +1.04 | +0.63 | +0.41 (+0.20 to +0.62) | 3.39 | 0.90 | 0 |
+| delove@13 | 10 | {"map":"world"} | 200 | 0.510 | 0.437-0.583 | +7 | +0.80 | +1.00 | -0.20 (-0.73 to +0.33) | 5.55 | 0.87 | 0 |
+| delove@13 | 6 | {"autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"progressive","capitals":true,"blizzards":8} | 200 | 0.465 | 0.410-0.520 | -24 | -0.55 | -0.41 | -0.14 (-0.31 to +0.03) | 3.57 | 0.45 | 62 |
+| delove@13 | 6 | {"map":"world","autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"fixed","capitals":true} | 200 | 0.505 | 0.433-0.577 | +3 | +0.50 | +0.56 | -0.06 (-0.31 to +0.19) | 3.54 | 0.54 | 0 |
+| delove@13 | 4 | {"autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"exponential","blizzards":8} | 200 | 0.412 | 0.352-0.473 | -61 | +0.47 | +0.84 | -0.38 (-0.74 to -0.02) | 2.56 | 0.64 | 7 |
+| delove@13 | 2 | {"autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"exponential","blizzards":8} | 400 | 0.511 | 0.476-0.547 | +8 | +0.50 | +0.43 | +0.07 (-0.17 to +0.31) | 1.49 | 0.50 | 9 |
+| delove@13 | 6 | {"map":"bohemia","autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"progressive"} | 200 | 0.535 | 0.466-0.604 | +24 | +0.86 | +0.81 | +0.05 (-0.22 to +0.31) | 3.50 | 0.86 | 0 |
+| delove@13 | 8 | {"map":"nine_realms","autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"fixed","capitals":true} | 200 | 0.522 | 0.455-0.590 | +16 | +0.34 | +0.70 | -0.36 (-0.80 to +0.08) | 4.67 | 0.69 | 9 |
+| jacob-sensei@1 | 6 | {"map":"world"} | 200 | 0.655 | 0.583-0.727 | +111 | +1.29 | +0.37 | +0.92 (+0.45 to +1.39) | 3.23 | 0.95 | 0 |
+| jacob-sensei@2 | 6 | {"map":"world"} | 200 | 0.510 | 0.439-0.581 | +7 | +0.80 | +0.87 | -0.08 (-0.46 to +0.30) | 3.44 | 0.72 | 0 |
+| jacob-sensei@2 | 2 | {} | 400 | 0.626 | 0.590-0.663 | +90 | +0.69 | -0.07 | +0.76 (+0.55 to +0.97) | 1.42 | 0.56 | 51 |
+| delove-teacher@2 | 2 | {} | 400 | 0.637 | 0.596-0.679 | +98 | +0.79 | -0.03 | +0.82 (+0.64 to +1.01) | 1.38 | 0.60 | 32 |
+| delove@6 | 6 | {"map":"world"} | 200 | 0.757 | 0.706-0.809 | +198 | +1.57 | +0.06 | +1.51 (+1.14 to +1.89) | 3.22 | 1.24 | 1 |
+| delove@6 | 2 | {} | 400 | 0.568 | 0.527-0.608 | +47 | +0.70 | +0.30 | +0.41 (+0.14 to +0.67) | 1.43 | 0.57 | 0 |
+| delove@3 | 6 | {"map":"world"} | 200 | 0.850 | 0.801-0.899 | +301 | +1.79 | -0.12 | +1.91 (+1.73 to +2.08) | 3.16 | 1.37 | 0 |
+| jacob-sensei@1 | 6 | {"map":"world"} | 200 | 0.660 | 0.597-0.723 | +115 | +1.21 | +0.46 | +0.75 (+0.35 to +1.14) | 3.29 | 0.96 | 0 |
+| jacob-sensei@2 | 6 | {"map":"world"} | 200 | 0.550 | 0.478-0.622 | +35 | +1.00 | +0.66 | +0.34 (+0.01 to +0.68) | 3.33 | 0.78 | 0 |
+| jacob-sensei@2 | 2 | {} | 400 | 0.608 | 0.567-0.648 | +76 | +0.70 | +0.06 | +0.65 (+0.39 to +0.90) | 1.41 | 0.57 | 32 |
+| delove-teacher@2 | 2 | {} | 400 | 0.664 | 0.625-0.703 | +118 | +0.82 | -0.16 | +0.98 (+0.69 to +1.27) | 1.37 | 0.61 | 45 |
+
+### c17: paired statistics (mirrored pairs) and SPRT
+
+| opponent | players | options | games | pairs | points diff per seat (paired 95%) |
+| --- | --- | --- | --- | --- | --- |
+| delove@13 | 2 | {} | 800 | 400 | -0.09 (-0.25 to +0.06) |
+| delove@13 | 4 | {} | 200 | 100 | -0.04 (-0.42 to +0.35) |
+| delove@13 | 6 | {} | 200 | 100 | -0.00 (-0.38 to +0.37) |
+| delove@13 | 6 | {"map":"world"} | 200 | 100 | +0.41 (+0.03 to +0.79) |
+| delove@13 | 10 | {"map":"world"} | 200 | 100 | -0.20 (-0.65 to +0.26) |
+| delove@13 | 6 | {"autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"progressive","capitals":true,"blizzards":8} | 200 | 100 | -0.14 (-0.41 to +0.14) |
+| delove@13 | 6 | {"map":"world","autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"fixed","capitals":true} | 200 | 100 | -0.06 (-0.39 to +0.27) |
+| delove@13 | 4 | {"autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"exponential","blizzards":8} | 200 | 100 | -0.38 (-0.70 to -0.06) |
+| delove@13 | 2 | {"autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"exponential","blizzards":8} | 400 | 200 | +0.07 (-0.14 to +0.27) |
+| delove@13 | 6 | {"map":"bohemia","autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"progressive"} | 200 | 100 | +0.05 (-0.37 to +0.46) |
+| delove@13 | 8 | {"map":"nine_realms","autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"fixed","capitals":true} | 200 | 100 | -0.36 (-0.73 to +0.01) |
+| jacob-sensei@1 | 6 | {"map":"world"} | 200 | 100 | +0.92 (+0.54 to +1.30) |
+| jacob-sensei@2 | 6 | {"map":"world"} | 200 | 100 | -0.08 (-0.44 to +0.29) |
+| jacob-sensei@2 | 2 | {} | 400 | 200 | +0.76 (+0.54 to +0.98) |
+| delove-teacher@2 | 2 | {} | 400 | 200 | +0.82 (+0.58 to +1.07) |
+| delove@6 | 6 | {"map":"world"} | 200 | 100 | +1.51 (+1.18 to +1.84) |
+| delove@6 | 2 | {} | 400 | 200 | +0.41 (+0.16 to +0.65) |
+| delove@3 | 6 | {"map":"world"} | 200 | 100 | +1.91 (+1.59 to +2.22) |
+| jacob-sensei@1 | 6 | {"map":"world"} | 200 | 100 | +0.75 (+0.35 to +1.15) |
+| jacob-sensei@2 | 6 | {"map":"world"} | 200 | 100 | +0.34 (-0.09 to +0.77) |
+| jacob-sensei@2 | 2 | {} | 400 | 200 | +0.65 (+0.40 to +0.89) |
+| delove-teacher@2 | 2 | {} | 400 | 200 | +0.98 (+0.74 to +1.22) |
+
+**SPRT vs delove@13** (pooled 9 tables at 4-10p, each weighted equally; H0 <= 0, H1 >= 0.15 points per seat, alpha 0.05, beta 0.05): pooled -0.08 (95% -0.20 to +0.04), LLR -5.79 (bounds -2.94 / 2.94): **not better (H0 accepted)**; 2p: -0.09, +0.07 (not significantly worse)
+
+### c17: time per phase (minutes from the start)
+
+| phase | minutes |
+| --- | --- |
+| start | 0.0 |
+| generation done | 0.0 |
+| generated and exported the GPU steps (remote, 7 GPUs) | 40.7 |
+| exports done | 40.7 |
+| trained c17-candidate (cloud) | 48.5 |
+| gates done | 68.3 |
+| summary | 68.3 |
+
+### c17: base, recipe and the deciding gate
+
+Base: cycle 16's (deploy `99cc705`) plus a cherry-pick of #228, so fog-input networks load on the GPU mirror; the rules
+fingerprint is unchanged (`d7a6fd6`). `delove@13` ranked the search, with `delove@13` / `delove@12` in the network seats.
+**The branch seats at 4-10 players compared 6 options** (`delove-branch@1:o6`, `:range:o6`); 2-player tables kept 5.
+Cycle 16's data was pushed to the network volume first (one pod, $0.21; #211's packer still packs after renting in this
+mode), then **the candidate trained on a rented pod from the volume** (`REMOTE_TRAIN`), the first cloud-trained Delove:
+25 minutes, $0.47. A first launch stopped before renting anything (the planner read timings from cycle 16's hand-merged
+steps, which have no `gpu.log`).
+
+Fog on, against `delove@13` (deciding):
+
+| opponent | players | options | games | score | 95% interval | Elo | points | opp. points | points diff (95%) | place | kills | turn limit |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| delove@13 | 4 | {"autoSetup":true,"randomDeal":true,"setupBatch":1,"balancedBlitz":true,"firstRoundBonus":true,"fortifyMode":"connected","chooseCapitals":true,"fogOfWar":true,"blizzards":8,"capitals":true,"cardValues":"progressive","neutrals":0,"neutralArmies":2} | 280 | 0.557 | 0.505-0.610 | +40 | +0.42 | +0.14 | +0.29 (-0.01 to +0.58) | 2.42 | 0.38 | 10 |
+| delove@13 | 6 | {"autoSetup":true,"randomDeal":true,"setupBatch":1,"balancedBlitz":true,"firstRoundBonus":true,"fortifyMode":"connected","chooseCapitals":true,"fogOfWar":true,"blizzards":8,"capitals":true,"cardValues":"progressive","neutrals":0,"neutralArmies":2} | 280 | 0.482 | 0.427-0.537 | -12 | +0.30 | +0.56 | -0.26 (-0.54 to +0.02) | 3.55 | 0.59 | 18 |
+| delove@13 | 6 | {"map":"world","autoSetup":true,"randomDeal":true,"setupBatch":1,"balancedBlitz":true,"firstRoundBonus":true,"fortifyMode":"connected","chooseCapitals":true,"fogOfWar":true,"blizzards":8,"capitals":true,"cardValues":"progressive","neutrals":0,"neutralArmies":2} | 280 | 0.489 | 0.433-0.546 | -7 | +0.60 | +0.50 | +0.10 (-0.20 to +0.40) | 3.46 | 0.55 | 0 |
+| delove@13 | 8 | {"map":"europe","autoSetup":true,"randomDeal":true,"setupBatch":1,"balancedBlitz":true,"firstRoundBonus":true,"fortifyMode":"connected","chooseCapitals":true,"fogOfWar":true,"blizzards":8,"capitals":true,"cardValues":"progressive","neutrals":0,"neutralArmies":2} | 280 | 0.457 | 0.400-0.515 | -30 | +0.59 | +0.87 | -0.28 (-0.55 to -0.01) | 4.59 | 0.73 | 2 |
+| delove@13 | 2 | {"autoSetup":true,"randomDeal":true,"setupBatch":1,"balancedBlitz":true,"firstRoundBonus":true,"fortifyMode":"connected","chooseCapitals":true,"fogOfWar":true,"blizzards":8,"capitals":true,"cardValues":"progressive","neutrals":0,"neutralArmies":2} | 480 | 0.497 | 0.463-0.530 | -2 | -0.01 | +0.00 | -0.02 (-0.14 to +0.10) | 1.50 | 0.00 | 5 |
+| jacob-sensei@1 | 6 | {"map":"world","autoSetup":true,"randomDeal":true,"setupBatch":1,"balancedBlitz":true,"firstRoundBonus":true,"fortifyMode":"connected","chooseCapitals":true,"fogOfWar":true,"blizzards":8,"capitals":true,"cardValues":"progressive","neutrals":0,"neutralArmies":2} | 200 | 0.845 | 0.800-0.890 | +295 | +1.16 | -0.00 | +1.16 (+1.00 to +1.32) | 3.17 | 0.77 | 0 |
+| jacob-sensei@2 | 6 | {"map":"world","autoSetup":true,"randomDeal":true,"setupBatch":1,"balancedBlitz":true,"firstRoundBonus":true,"fortifyMode":"connected","chooseCapitals":true,"fogOfWar":true,"blizzards":8,"capitals":true,"cardValues":"progressive","neutrals":0,"neutralArmies":2} | 200 | 0.775 | 0.720-0.830 | +215 | +0.94 | +0.24 | +0.71 (+0.41 to +1.00) | 3.29 | 0.70 | 0 |
+| jacob-sensei@2 | 4 | {"autoSetup":true,"randomDeal":true,"setupBatch":1,"balancedBlitz":true,"firstRoundBonus":true,"fortifyMode":"connected","chooseCapitals":true,"fogOfWar":true,"blizzards":8,"capitals":true,"cardValues":"progressive","neutrals":0,"neutralArmies":2} | 200 | 0.698 | 0.637-0.758 | +145 | +0.73 | -0.00 | +0.73 (+0.44 to +1.02) | 2.26 | 0.41 | 1 |
+
+| opponent | players | options | games | pairs | points diff per seat (paired 95%) |
+| --- | --- | --- | --- | --- | --- |
+| delove@13 | 4 | {"autoSetup":true,"randomDeal":true,"setupBatch":1,"balancedBlitz":true,"firstRoundBonus":true,"fortifyMode":"connected","chooseCapitals":true,"fogOfWar":true,"blizzards":8,"capitals":true,"cardValues":"progressive","neutrals":0,"neutralArmies":2} | 280 | 140 | +0.29 (+0.03 to +0.54) |
+| delove@13 | 6 | {"autoSetup":true,"randomDeal":true,"setupBatch":1,"balancedBlitz":true,"firstRoundBonus":true,"fortifyMode":"connected","chooseCapitals":true,"fogOfWar":true,"blizzards":8,"capitals":true,"cardValues":"progressive","neutrals":0,"neutralArmies":2} | 280 | 140 | -0.26 (-0.53 to +0.01) |
+| delove@13 | 6 | {"map":"world","autoSetup":true,"randomDeal":true,"setupBatch":1,"balancedBlitz":true,"firstRoundBonus":true,"fortifyMode":"connected","chooseCapitals":true,"fogOfWar":true,"blizzards":8,"capitals":true,"cardValues":"progressive","neutrals":0,"neutralArmies":2} | 280 | 140 | +0.10 (-0.20 to +0.40) |
+| delove@13 | 8 | {"map":"europe","autoSetup":true,"randomDeal":true,"setupBatch":1,"balancedBlitz":true,"firstRoundBonus":true,"fortifyMode":"connected","chooseCapitals":true,"fogOfWar":true,"blizzards":8,"capitals":true,"cardValues":"progressive","neutrals":0,"neutralArmies":2} | 280 | 140 | -0.28 (-0.56 to +0.00) |
+| delove@13 | 2 | {"autoSetup":true,"randomDeal":true,"setupBatch":1,"balancedBlitz":true,"firstRoundBonus":true,"fortifyMode":"connected","chooseCapitals":true,"fogOfWar":true,"blizzards":8,"capitals":true,"cardValues":"progressive","neutrals":0,"neutralArmies":2} | 480 | 240 | -0.02 (-0.15 to +0.11) |
+| jacob-sensei@1 | 6 | {"map":"world","autoSetup":true,"randomDeal":true,"setupBatch":1,"balancedBlitz":true,"firstRoundBonus":true,"fortifyMode":"connected","chooseCapitals":true,"fogOfWar":true,"blizzards":8,"capitals":true,"cardValues":"progressive","neutrals":0,"neutralArmies":2} | 200 | 100 | +1.16 (+0.86 to +1.46) |
+| jacob-sensei@2 | 6 | {"map":"world","autoSetup":true,"randomDeal":true,"setupBatch":1,"balancedBlitz":true,"firstRoundBonus":true,"fortifyMode":"connected","chooseCapitals":true,"fogOfWar":true,"blizzards":8,"capitals":true,"cardValues":"progressive","neutrals":0,"neutralArmies":2} | 200 | 100 | +0.71 (+0.37 to +1.05) |
+| jacob-sensei@2 | 4 | {"autoSetup":true,"randomDeal":true,"setupBatch":1,"balancedBlitz":true,"firstRoundBonus":true,"fortifyMode":"connected","chooseCapitals":true,"fogOfWar":true,"blizzards":8,"capitals":true,"cardValues":"progressive","neutrals":0,"neutralArmies":2} | 200 | 100 | +0.73 (+0.41 to +1.05) |
+
+**SPRT vs delove@13** (pooled 4 tables at 4-10p, each weighted equally; H0 <= 0, H1 >= 0.15 points per seat, alpha 0.05, beta 0.05): pooled -0.04 (95% -0.18 to +0.10), LLR -3.39 (bounds -2.94 / 2.94): **not better (H0 accepted)**; 2p: -0.02 (not significantly worse)
+
+**Review: not promoted.** With fog on -0.04 points per seat (95% -0.18 to +0.10), SPRT not better; without fog -0.08
+(-0.20 to +0.04), not better. Six options did not make a better teacher this cycle. Cycle 17: **$3.64** ($2.96 games,
+$0.47 cloud training, $0.21 push).
+
+## Cycle 18
+
+## c18
+
+### Cycle 18, step a1: Classic 4-player
+
+| table | games | seat wins | mean turns | turn limit | decisions |
+| --- | --- | --- | --- | --- | --- |
+| c4a | 1,000 | jacob-sensei@1 125, branch@1 473, delove@13 271, jacob-sensei@1 131 | 41.4 | 0 | 556,016 |
+| c4b | 1,000 | jacob-sensei@1 63, delove@13 417, jacob-sensei@1 67, branch@1 453 | 27.4 | 0 | 330,858 |
+| c4c | 1,000 | jacob-sensei@1 132, branch@1 429, delove@13 302, jacob-sensei@1 132 | 43.0 | 5 | 438,338 |
+| c4d | 1,000 | jacob-sensei@1 60, delove@13 417, jacob-sensei@1 49, branch@1 470 | 26.4 | 4 | 272,581 |
+
+**4,000 games.**
+
+| branch and score | |
+| --- | --- |
+| branching player's decisions | 434,929 |
+| branched (compared options) | 275,502 (63.3%) |
+| simulations run | 8,089,728 (213,464,799 simulated moves) |
+| changed the teacher's move | 110,950 (40.3% of branched) |
+| average score gain per branched decision | +0.0203 |
+| changes by kind | attack 65,453/176,884, place 28,137/59,689, fortify_from 7,926/18,737, trade 5,371/10,622, end_turn 4,063/9,570 |
+| chosen branches, 2 rounds on: share of armies / income / territories / cards / continents | 0.413 / 0.456 / 0.439 / 0.370 / 0.560 |
+| chosen branches that had won / lost within the horizon | 8.6% / 1.0% |
+
+### Cycle 18, step a2: Classic 2p, Four Crowns 1v1, Classic 6p
+
+| table | games | seat wins | mean turns | turn limit | decisions |
+| --- | --- | --- | --- | --- | --- |
+| c2a | 2,000 | branch@1:range:gumbel 1618, jacob-sensei@1 382 | 18.3 | 0 | 390,163 |
+| c2b | 2,000 | branch@1:range:gumbel 1065, delove@13 934 | 4.8 | 1 | 80,221 |
+| c2c | 2,000 | jacob-sensei@1 449, branch@1:range:gumbel 1551 | 16.3 | 0 | 307,073 |
+| c2d | 2,000 | delove@13 893, branch@1:range:gumbel 1090 | 10.8 | 17 | 133,190 |
+| c6a | 1,000 | jacob-sensei@1 75, delove@13 206, jacob-sensei@1 90, delove@12 182, jacob-sensei@1 89, branch@1:range 353 | 49.6 | 5 | 484,521 |
+| c6b | 1,000 | jacob-sensei@1 36, branch@1:range 324, delove@13 261, jacob-sensei@1 41, delove@12 273, jacob-sensei@1 57 | 39.7 | 8 | 416,510 |
+| mca | 3,000 | branch@1:range:gumbel 2327, jacob-sensei@1 673 | 15.6 | 0 | 385,483 |
+| mcb | 3,000 | branch@1:range:gumbel 1607, delove@13 1298 | 32.1 | 95 | 362,769 |
+
+**16,000 games.**
+
+| branch and score | |
+| --- | --- |
+| branching player's decisions | 1,074,726 |
+| branched (compared options) | 761,547 (70.9%) |
+| simulations run | 37,919,970 (1,132,771,343 simulated moves) |
+| changed the teacher's move | 281,660 (37.0% of branched) |
+| average score gain per branched decision | +0.0523 |
+| changes by kind | attack 138,652/384,406, place 103,852/269,748, fortify_from 20,966/50,652, trade 9,266/21,564, end_turn 8,924/35,177 |
+| chosen branches, 2 rounds on: share of armies / income / territories / cards / continents | 0.621 / 0.636 / 0.634 / 0.595 / 0.673 |
+| chosen branches that had won / lost within the horizon | 34.2% / 9.7% |
+
+### Cycle 18, step a3: Europe 8p, USA 10p, Asia 8p
+
+| table | games | seat wins | mean turns | turn limit | decisions |
+| --- | --- | --- | --- | --- | --- |
+| as8a | 1,000 | jacob-sensei@1 47, branch@1:range 406, delove@13 128, jacob-sensei@1 52, delove@12 120, jacob-sensei@1 41, delove@13 143, jacob-sensei@1 63 | 47.7 | 0 | 614,785 |
+| as8b | 1,000 | jacob-sensei@1 22, delove@13 227, jacob-sensei@1 17, branch@1:range 280, delove@12 202, jacob-sensei@1 12, delove@13 214, jacob-sensei@1 24 | 55.9 | 2 | 742,366 |
+| eu8a | 1,000 | jacob-sensei@1 66, delove@13 106, jacob-sensei@1 65, delove@12 113, jacob-sensei@1 70, branch@1:range 381, delove@13 126, jacob-sensei@1 73 | 43.5 | 0 | 543,313 |
+| eu8b | 1,000 | jacob-sensei@1 32, delove@13 185, jacob-sensei@1 26, delove@12 184, jacob-sensei@1 16, delove@13 190, jacob-sensei@1 35, branch@1:range 331 | 46.8 | 1 | 628,630 |
+| us10a | 1,000 | jacob-sensei@1 56, delove@13 115, jacob-sensei@1 52, delove@12 93, jacob-sensei@1 49, branch@1:range 323, delove@13 113, jacob-sensei@1 48, delove@12 97, jacob-sensei@1 54 | 49.8 | 0 | 533,053 |
+| us10b | 1,000 | jacob-sensei@1 25, delove@13 140, jacob-sensei@1 33, delove@12 125, jacob-sensei@1 34, delove@13 161, jacob-sensei@1 28, branch@1:range 277, delove@12 139, jacob-sensei@1 30 | 42.3 | 8 | 544,210 |
+
+**6,000 games.**
+
+| branch and score | |
+| --- | --- |
+| branching player's decisions | 578,074 |
+| branched (compared options) | 357,107 (61.8%) |
+| simulations run | 12,010,956 (556,520,859 simulated moves) |
+| changed the teacher's move | 129,243 (36.2% of branched) |
+| average score gain per branched decision | +0.0290 |
+| changes by kind | attack 84,343/239,712, place 32,905/81,751, trade 5,029/10,591, fortify_from 4,226/12,328, end_turn 2,740/12,725 |
+| chosen branches, 2 rounds on: share of armies / income / territories / cards / continents | 0.402 / 0.408 / 0.408 / 0.366 / 0.458 |
+| chosen branches that had won / lost within the horizon | 15.6% / 3.0% |
+
+### Cycle 18, step a4: Bohemia, Nine Realms, Hex Earth 6p
+
+| table | games | seat wins | mean turns | turn limit | decisions |
+| --- | --- | --- | --- | --- | --- |
+| bo4a | 750 | jacob-sensei@1 83, delove@13 240, jacob-sensei@1 110, branch@1 316 | 35.0 | 1 | 281,410 |
+| bo4b | 750 | jacob-sensei@1 62, branch@1 327, delove@13 304, jacob-sensei@1 57 | 23.4 | 0 | 192,794 |
+| bo6a | 750 | jacob-sensei@1 72, delove@13 118, jacob-sensei@1 71, branch@1:range 295, delove@12 109, jacob-sensei@1 85 | 42.6 | 0 | 398,655 |
+| bo6b | 750 | jacob-sensei@1 34, delove@13 218, jacob-sensei@1 34, delove@12 189, jacob-sensei@1 37, branch@1:range 237 | 43.2 | 1 | 398,070 |
+| hx6a | 500 | jacob-sensei@1 31, delove@13 99, jacob-sensei@1 37, branch@1:range 172, delove@12 118, jacob-sensei@1 43 | 81.8 | 0 | 561,700 |
+| hx6b | 500 | jacob-sensei@1 37, delove@13 108, jacob-sensei@1 11, delove@12 106, jacob-sensei@1 32, branch@1:range 206 | 52.1 | 0 | 450,681 |
+| nr6a | 750 | jacob-sensei@1 87, delove@13 119, jacob-sensei@1 74, delove@12 138, jacob-sensei@1 78, branch@1:range 251 | 68.5 | 3 | 579,021 |
+| nr6b | 750 | jacob-sensei@1 37, branch@1:range 244, delove@13 182, jacob-sensei@1 34, delove@12 207, jacob-sensei@1 46 | 44.3 | 0 | 453,987 |
+| nr8a | 500 | jacob-sensei@1 32, branch@1:range 185, delove@13 60, jacob-sensei@1 37, delove@12 56, jacob-sensei@1 34, delove@13 65, jacob-sensei@1 31 | 56.4 | 0 | 389,967 |
+| nr8b | 500 | jacob-sensei@1 23, delove@13 93, jacob-sensei@1 25, branch@1:range 170, delove@12 71, jacob-sensei@1 20, delove@13 78, jacob-sensei@1 18 | 74.5 | 2 | 491,954 |
+
+**6,500 games.**
+
+| branch and score | |
+| --- | --- |
+| branching player's decisions | 815,246 |
+| branched (compared options) | 508,523 (62.4%) |
+| simulations run | 16,566,624 (662,157,572 simulated moves) |
+| changed the teacher's move | 185,696 (36.5% of branched) |
+| average score gain per branched decision | +0.0224 |
+| changes by kind | attack 114,750/337,194, place 46,902/108,016, fortify_from 10,601/29,149, trade 8,779/17,777, end_turn 4,664/16,387 |
+| chosen branches, 2 rounds on: share of armies / income / territories / cards / continents | 0.378 / 0.410 / 0.390 / 0.336 / 0.496 |
+| chosen branches that had won / lost within the horizon | 10.4% / 1.7% |
+
+### Cycle 18, step b: the huge boards
+
+| table | games | seat wins | mean turns | turn limit | decisions |
+| --- | --- | --- | --- | --- | --- |
+| ec6a | 500 | jacob-sensei@1 16, delove@13 144, branch@1:range 153, jacob-sensei@1 31, delove@12 139, jacob-sensei@1 17 | 82.8 | 0 | 635,141 |
+| ec6b | 500 | jacob-sensei@1 43, delove@13 96, jacob-sensei@1 30, delove@12 102, branch@1:range 184, jacob-sensei@1 45 | 89.9 | 0 | 647,196 |
+| fa10a | 500 | branch@1:range 147, jacob-sensei@1 15, delove@13 60, jacob-sensei@1 15, delove@12 69, jacob-sensei@1 13, delove@13 76, jacob-sensei@1 14, delove@12 69, jacob-sensei@1 22 | 126.3 | 0 | 930,108 |
+| fa10b | 500 | jacob-sensei@1 48, delove@13 30, branch@1:range 210, jacob-sensei@1 23, delove@12 31, jacob-sensei@1 29, delove@13 31, jacob-sensei@1 30, delove@12 45, jacob-sensei@1 23 | 118.6 | 0 | 751,825 |
+| fa6a | 500 | branch@1:range 197, jacob-sensei@1 25, delove@13 94, jacob-sensei@1 44, delove@12 117, jacob-sensei@1 23 | 54.3 | 0 | 504,244 |
+| fa6b | 500 | jacob-sensei@1 60, delove@13 61, branch@1:range 212, jacob-sensei@1 56, delove@12 66, jacob-sensei@1 45 | 64.2 | 0 | 632,204 |
+| ge10a | 500 | jacob-sensei@1 8, delove@13 79, jacob-sensei@1 8, delove@12 92, jacob-sensei@1 5, delove@13 88, branch@1:range 113, jacob-sensei@1 9, delove@12 82, jacob-sensei@1 16 | 200.7 | 0 | 1,532,495 |
+| ge10b | 500 | jacob-sensei@1 37, delove@13 24, jacob-sensei@1 45, delove@12 35, jacob-sensei@1 36, delove@13 32, jacob-sensei@1 39, delove@12 28, branch@1:range 193, jacob-sensei@1 31 | 174.6 | 0 | 1,252,376 |
+| ge6a | 500 | jacob-sensei@1 26, delove@13 91, branch@1:range 234, jacob-sensei@1 20, delove@12 99, jacob-sensei@1 30 | 70.0 | 0 | 810,581 |
+| ge6b | 500 | jacob-sensei@1 35, delove@13 64, jacob-sensei@1 48, delove@12 70, branch@1:range 246, jacob-sensei@1 37 | 85.9 | 0 | 1,079,826 |
+| hx10a | 750 | jacob-sensei@1 29, delove@13 113, branch@1:range 190, jacob-sensei@1 21, delove@12 117, jacob-sensei@1 37, delove@13 88, jacob-sensei@1 32, delove@12 96, jacob-sensei@1 27 | 109.0 | 0 | 1,194,717 |
+| hx10b | 750 | jacob-sensei@1 47, delove@13 61, jacob-sensei@1 48, delove@12 68, branch@1:range 270, jacob-sensei@1 43, delove@13 60, jacob-sensei@1 44, delove@12 58, jacob-sensei@1 51 | 104.9 | 0 | 966,622 |
+| hx10c | 500 | jacob-sensei@1 18, delove@13 56, jacob-sensei@1 28, delove@12 63, branch@1:range 177, jacob-sensei@1 26, delove@13 52, jacob-sensei@1 17, delove@12 49, jacob-sensei@1 14 | 59.5 | 0 | 483,573 |
+| hx10d | 500 | jacob-sensei@1 33, delove@13 37, jacob-sensei@1 35, delove@12 35, jacob-sensei@1 38, delove@13 34, branch@1:range 177, jacob-sensei@1 31, delove@12 48, jacob-sensei@1 32 | 65.2 | 0 | 515,166 |
+
+**7,500 games.**
+
+| branch and score | |
+| --- | --- |
+| branching player's decisions | 1,771,736 |
+| branched (compared options) | 1,058,787 (59.8%) |
+| simulations run | 34,307,052 (2,104,109,993 simulated moves) |
+| changed the teacher's move | 370,276 (35.0% of branched) |
+| average score gain per branched decision | +0.0202 |
+| changes by kind | attack 256,662/759,614, place 69,786/180,050, fortify_from 17,423/49,299, trade 15,392/32,033, end_turn 11,013/37,791 |
+| chosen branches, 2 rounds on: share of armies / income / territories / cards / continents | 0.339 / 0.374 / 0.347 / 0.282 / 0.470 |
+| chosen branches that had won / lost within the horizon | 8.6% / 1.1% |
+
+### c18: ladder gate (c18-candidate)
+
+| opponent | players | options | games | score | 95% interval | Elo | points | opp. points | points diff (95%) | place | kills | turn limit |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| delove@13 | 2 | {} | 800 | 0.511 | 0.484-0.537 | +7 | +0.47 | +0.40 | +0.06 (-0.09 to +0.22) | 1.50 | 0.49 | 35 |
+| delove@13 | 4 | {} | 480 | 0.519 | 0.479-0.559 | +13 | +0.80 | +0.70 | +0.10 (-0.15 to +0.35) | 2.49 | 0.78 | 0 |
+| delove@13 | 6 | {} | 480 | 0.519 | 0.472-0.565 | +13 | +0.87 | +0.80 | +0.07 (-0.16 to +0.30) | 3.50 | 0.87 | 0 |
+| delove@13 | 6 | {"map":"world"} | 480 | 0.524 | 0.484-0.564 | +17 | +0.86 | +0.79 | +0.07 (-0.34 to +0.48) | 3.48 | 0.86 | 1 |
+| delove@13 | 10 | {"map":"world"} | 480 | 0.514 | 0.469-0.558 | +9 | +0.92 | +0.85 | +0.07 (-0.22 to +0.36) | 5.50 | 0.94 | 1 |
+| delove@13 | 6 | {"autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"progressive","capitals":true,"blizzards":8} | 480 | 0.495 | 0.457-0.532 | -4 | -0.50 | -0.57 | +0.06 (-0.13 to +0.26) | 3.52 | 0.49 | 157 |
+| delove@13 | 6 | {"map":"world","autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"fixed","capitals":true} | 480 | 0.523 | 0.480-0.566 | +16 | +0.59 | +0.47 | +0.12 (-0.10 to +0.34) | 3.47 | 0.56 | 0 |
+| delove@13 | 4 | {"autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"exponential","blizzards":8} | 480 | 0.469 | 0.427-0.510 | -22 | +0.49 | +0.76 | -0.28 (-0.51 to -0.04) | 2.56 | 0.67 | 22 |
+| delove@13 | 2 | {"autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"exponential","blizzards":8} | 400 | 0.546 | 0.511-0.582 | +32 | +0.64 | +0.36 | +0.28 (+0.07 to +0.48) | 1.45 | 0.55 | 1 |
+| delove@13 | 6 | {"map":"bohemia","autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"progressive"} | 480 | 0.469 | 0.425-0.512 | -22 | +0.71 | +0.92 | -0.21 (-0.51 to +0.09) | 3.56 | 0.80 | 2 |
+| delove@13 | 8 | {"map":"nine_realms","autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"fixed","capitals":true} | 480 | 0.516 | 0.471-0.560 | +11 | +0.69 | +0.39 | +0.30 (+0.05 to +0.54) | 4.41 | 0.76 | 19 |
+| jacob-sensei@1 | 6 | {"map":"world"} | 200 | 0.710 | 0.648-0.772 | +156 | +1.51 | +0.16 | +1.35 (+0.87 to +1.82) | 3.11 | 1.02 | 0 |
+| jacob-sensei@2 | 6 | {"map":"world"} | 200 | 0.520 | 0.452-0.588 | +14 | +0.99 | +0.68 | +0.31 (-0.10 to +0.72) | 3.30 | 0.73 | 0 |
+| jacob-sensei@2 | 2 | {} | 400 | 0.627 | 0.590-0.665 | +91 | +0.66 | -0.11 | +0.77 (+0.55 to +0.98) | 1.43 | 0.55 | 60 |
+| delove-teacher@2 | 2 | {} | 400 | 0.662 | 0.624-0.701 | +117 | +0.79 | -0.19 | +0.97 (+0.74 to +1.21) | 1.39 | 0.59 | 54 |
+| delove@6 | 6 | {"map":"world"} | 200 | 0.772 | 0.719-0.826 | +212 | +1.63 | -0.00 | +1.63 (+1.13 to +2.14) | 3.15 | 1.24 | 1 |
+| delove@6 | 2 | {} | 400 | 0.588 | 0.547-0.628 | +61 | +0.76 | +0.23 | +0.53 (+0.30 to +0.75) | 1.41 | 0.58 | 2 |
+| delove@3 | 6 | {"map":"world"} | 200 | 0.845 | 0.794-0.896 | +295 | +1.73 | -0.07 | +1.80 (+1.39 to +2.22) | 3.14 | 1.30 | 0 |
+| jacob-sensei@1 | 6 | {"map":"world"} | 200 | 0.640 | 0.576-0.704 | +100 | +1.32 | +0.35 | +0.97 (+0.57 to +1.37) | 3.20 | 0.94 | 0 |
+| jacob-sensei@2 | 6 | {"map":"world"} | 200 | 0.515 | 0.446-0.584 | +10 | +0.91 | +0.76 | +0.15 (-0.35 to +0.66) | 3.36 | 0.73 | 0 |
+| jacob-sensei@2 | 2 | {} | 400 | 0.618 | 0.575-0.660 | +83 | +0.67 | -0.03 | +0.70 (+0.49 to +0.92) | 1.43 | 0.56 | 48 |
+| delove-teacher@2 | 2 | {} | 400 | 0.703 | 0.666-0.739 | +149 | +0.94 | -0.28 | +1.22 (+1.01 to +1.42) | 1.34 | 0.65 | 46 |
+
+### c18: paired statistics (mirrored pairs) and SPRT
+
+| opponent | players | options | games | pairs | points diff per seat (paired 95%) |
+| --- | --- | --- | --- | --- | --- |
+| delove@13 | 2 | {} | 800 | 400 | +0.06 (-0.09 to +0.22) |
+| delove@13 | 4 | {} | 480 | 240 | +0.10 (-0.14 to +0.33) |
+| delove@13 | 6 | {} | 480 | 240 | +0.07 (-0.20 to +0.34) |
+| delove@13 | 6 | {"map":"world"} | 480 | 240 | +0.07 (-0.19 to +0.33) |
+| delove@13 | 10 | {"map":"world"} | 480 | 240 | +0.07 (-0.22 to +0.36) |
+| delove@13 | 6 | {"autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"progressive","capitals":true,"blizzards":8} | 480 | 240 | +0.06 (-0.12 to +0.25) |
+| delove@13 | 6 | {"map":"world","autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"fixed","capitals":true} | 480 | 240 | +0.12 (-0.10 to +0.35) |
+| delove@13 | 4 | {"autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"exponential","blizzards":8} | 480 | 240 | -0.28 (-0.50 to -0.05) |
+| delove@13 | 2 | {"autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"exponential","blizzards":8} | 400 | 200 | +0.28 (+0.08 to +0.48) |
+| delove@13 | 6 | {"map":"bohemia","autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"progressive"} | 480 | 240 | -0.21 (-0.47 to +0.05) |
+| delove@13 | 8 | {"map":"nine_realms","autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"fixed","capitals":true} | 480 | 240 | +0.30 (+0.07 to +0.52) |
+| jacob-sensei@1 | 6 | {"map":"world"} | 200 | 100 | +1.35 (+0.96 to +1.73) |
+| jacob-sensei@2 | 6 | {"map":"world"} | 200 | 100 | +0.31 (-0.07 to +0.69) |
+| jacob-sensei@2 | 2 | {} | 400 | 200 | +0.77 (+0.55 to +0.98) |
+| delove-teacher@2 | 2 | {} | 400 | 200 | +0.97 (+0.75 to +1.20) |
+| delove@6 | 6 | {"map":"world"} | 200 | 100 | +1.64 (+1.25 to +2.02) |
+| delove@6 | 2 | {} | 400 | 200 | +0.53 (+0.28 to +0.77) |
+| delove@3 | 6 | {"map":"world"} | 200 | 100 | +1.80 (+1.43 to +2.18) |
+| jacob-sensei@1 | 6 | {"map":"world"} | 200 | 100 | +0.97 (+0.60 to +1.34) |
+| jacob-sensei@2 | 6 | {"map":"world"} | 200 | 100 | +0.15 (-0.24 to +0.55) |
+| jacob-sensei@2 | 2 | {} | 400 | 200 | +0.70 (+0.45 to +0.96) |
+| delove-teacher@2 | 2 | {} | 400 | 200 | +1.22 (+1.00 to +1.43) |
+
+**SPRT vs delove@13** (pooled 9 tables at 4-10p, each weighted equally; H0 <= 0, H1 >= 0.15 points per seat, alpha 0.05, beta 0.05): pooled +0.03 (95% -0.05 to +0.11), LLR -3.65 (bounds -2.94 / 2.94): **not better (H0 accepted)**; 2p: +0.06, +0.28 (not significantly worse)
+
+### c18: time per phase (minutes from the start)
+
+| phase | minutes |
+| --- | --- |
+| start | 0.0 |
+| generation done | 0.0 |
+| generated and exported the GPU steps (remote, 7 GPUs) | 70.5 |
+| exports done | 70.5 |
+| trained c18-candidate (cloud) | 83.2 |
+| gates done | 116.6 |
+| summary | 116.6 |
+
+### c18: base, recipe and the deciding gate
+
+Base: deploy `68336a6`, whose GPU fingerprint #278 verified at `11a78d3` (5,757,635 steps; hexworld, the Gumbel root and
+fog-input networks). Back to 5 options; `delove@13` ranking; **hexworld (Hex Earth) replaces the World 6p / 10p and
+World Large tables** (3,500 games, about 9%); **the 2-player tables use the Gumbel root** (`delove-branch@1:range:gumbel`,
+#187). Training data: cycle 18 + cycle 17 at 0.6 + cycle 16 at 0.4, trained on a rented pod from the network volume
+(no home copy of the arrays).
+
+Fog on, against `delove@13` (deciding):
+
+| opponent | players | options | games | score | 95% interval | Elo | points | opp. points | points diff (95%) | place | kills | turn limit |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| delove@13 | 4 | {"autoSetup":true,"randomDeal":true,"setupBatch":1,"balancedBlitz":true,"firstRoundBonus":true,"fortifyMode":"connected","chooseCapitals":true,"fogOfWar":true,"blizzards":8,"capitals":true,"cardValues":"progressive","neutrals":0,"neutralArmies":2} | 200 | 0.560 | 0.493-0.627 | +42 | +0.44 | +0.10 | +0.34 (+0.02 to +0.65) | 2.40 | 0.41 | 8 |
+| delove@13 | 6 | {"autoSetup":true,"randomDeal":true,"setupBatch":1,"balancedBlitz":true,"firstRoundBonus":true,"fortifyMode":"connected","chooseCapitals":true,"fogOfWar":true,"blizzards":8,"capitals":true,"cardValues":"progressive","neutrals":0,"neutralArmies":2} | 200 | 0.405 | 0.337-0.473 | -67 | +0.07 | +0.47 | -0.41 (-0.73 to -0.08) | 3.59 | 0.52 | 22 |
+| delove@13 | 6 | {"map":"world","autoSetup":true,"randomDeal":true,"setupBatch":1,"balancedBlitz":true,"firstRoundBonus":true,"fortifyMode":"connected","chooseCapitals":true,"fogOfWar":true,"blizzards":8,"capitals":true,"cardValues":"progressive","neutrals":0,"neutralArmies":2} | 200 | 0.510 | 0.446-0.574 | +7 | +0.48 | +0.64 | -0.15 (-0.40 to +0.10) | 3.56 | 0.56 | 0 |
+| delove@13 | 8 | {"map":"europe","autoSetup":true,"randomDeal":true,"setupBatch":1,"balancedBlitz":true,"firstRoundBonus":true,"fortifyMode":"connected","chooseCapitals":true,"fogOfWar":true,"blizzards":8,"capitals":true,"cardValues":"progressive","neutrals":0,"neutralArmies":2} | 200 | 0.497 | 0.429-0.566 | -2 | +0.56 | +0.76 | -0.20 (-0.52 to +0.12) | 4.55 | 0.73 | 5 |
+| delove@13 | 2 | {"autoSetup":true,"randomDeal":true,"setupBatch":1,"balancedBlitz":true,"firstRoundBonus":true,"fortifyMode":"connected","chooseCapitals":true,"fogOfWar":true,"blizzards":8,"capitals":true,"cardValues":"progressive","neutrals":0,"neutralArmies":2} | 400 | 0.544 | 0.504-0.584 | +30 | +0.08 | -0.10 | +0.18 (+0.03 to +0.33) | 1.46 | 0.01 | 5 |
+| jacob-sensei@1 | 6 | {"map":"world","autoSetup":true,"randomDeal":true,"setupBatch":1,"balancedBlitz":true,"firstRoundBonus":true,"fortifyMode":"connected","chooseCapitals":true,"fogOfWar":true,"blizzards":8,"capitals":true,"cardValues":"progressive","neutrals":0,"neutralArmies":2} | 200 | 0.795 | 0.740-0.850 | +235 | +1.08 | +0.07 | +1.02 (+0.49 to +1.54) | 3.21 | 0.72 | 0 |
+| jacob-sensei@2 | 6 | {"map":"world","autoSetup":true,"randomDeal":true,"setupBatch":1,"balancedBlitz":true,"firstRoundBonus":true,"fortifyMode":"connected","chooseCapitals":true,"fogOfWar":true,"blizzards":8,"capitals":true,"cardValues":"progressive","neutrals":0,"neutralArmies":2} | 200 | 0.835 | 0.787-0.883 | +282 | +1.04 | +0.11 | +0.93 (+0.58 to +1.28) | 3.22 | 0.70 | 0 |
+| jacob-sensei@2 | 4 | {"autoSetup":true,"randomDeal":true,"setupBatch":1,"balancedBlitz":true,"firstRoundBonus":true,"fortifyMode":"connected","chooseCapitals":true,"fogOfWar":true,"blizzards":8,"capitals":true,"cardValues":"progressive","neutrals":0,"neutralArmies":2} | 200 | 0.813 | 0.758-0.867 | +255 | +0.85 | -0.25 | +1.10 (+0.85 to +1.36) | 2.16 | 0.41 | 3 |
+
+| opponent | players | options | games | pairs | points diff per seat (paired 95%) |
+| --- | --- | --- | --- | --- | --- |
+| delove@13 | 4 | {"autoSetup":true,"randomDeal":true,"setupBatch":1,"balancedBlitz":true,"firstRoundBonus":true,"fortifyMode":"connected","chooseCapitals":true,"fogOfWar":true,"blizzards":8,"capitals":true,"cardValues":"progressive","neutrals":0,"neutralArmies":2} | 200 | 100 | +0.34 (+0.05 to +0.63) |
+| delove@13 | 6 | {"autoSetup":true,"randomDeal":true,"setupBatch":1,"balancedBlitz":true,"firstRoundBonus":true,"fortifyMode":"connected","chooseCapitals":true,"fogOfWar":true,"blizzards":8,"capitals":true,"cardValues":"progressive","neutrals":0,"neutralArmies":2} | 200 | 100 | -0.41 (-0.74 to -0.08) |
+| delove@13 | 6 | {"map":"world","autoSetup":true,"randomDeal":true,"setupBatch":1,"balancedBlitz":true,"firstRoundBonus":true,"fortifyMode":"connected","chooseCapitals":true,"fogOfWar":true,"blizzards":8,"capitals":true,"cardValues":"progressive","neutrals":0,"neutralArmies":2} | 200 | 100 | -0.15 (-0.47 to +0.17) |
+| delove@13 | 8 | {"map":"europe","autoSetup":true,"randomDeal":true,"setupBatch":1,"balancedBlitz":true,"firstRoundBonus":true,"fortifyMode":"connected","chooseCapitals":true,"fogOfWar":true,"blizzards":8,"capitals":true,"cardValues":"progressive","neutrals":0,"neutralArmies":2} | 200 | 100 | -0.20 (-0.52 to +0.12) |
+| delove@13 | 2 | {"autoSetup":true,"randomDeal":true,"setupBatch":1,"balancedBlitz":true,"firstRoundBonus":true,"fortifyMode":"connected","chooseCapitals":true,"fogOfWar":true,"blizzards":8,"capitals":true,"cardValues":"progressive","neutrals":0,"neutralArmies":2} | 400 | 200 | +0.18 (+0.03 to +0.33) |
+| jacob-sensei@1 | 6 | {"map":"world","autoSetup":true,"randomDeal":true,"setupBatch":1,"balancedBlitz":true,"firstRoundBonus":true,"fortifyMode":"connected","chooseCapitals":true,"fogOfWar":true,"blizzards":8,"capitals":true,"cardValues":"progressive","neutrals":0,"neutralArmies":2} | 200 | 100 | +1.02 (+0.67 to +1.37) |
+| jacob-sensei@2 | 6 | {"map":"world","autoSetup":true,"randomDeal":true,"setupBatch":1,"balancedBlitz":true,"firstRoundBonus":true,"fortifyMode":"connected","chooseCapitals":true,"fogOfWar":true,"blizzards":8,"capitals":true,"cardValues":"progressive","neutrals":0,"neutralArmies":2} | 200 | 100 | +0.93 (+0.57 to +1.29) |
+| jacob-sensei@2 | 4 | {"autoSetup":true,"randomDeal":true,"setupBatch":1,"balancedBlitz":true,"firstRoundBonus":true,"fortifyMode":"connected","chooseCapitals":true,"fogOfWar":true,"blizzards":8,"capitals":true,"cardValues":"progressive","neutrals":0,"neutralArmies":2} | 200 | 100 | +1.10 (+0.81 to +1.40) |
+
+**SPRT vs delove@13** (pooled 4 tables at 4-10p, each weighted equally; H0 <= 0, H1 >= 0.15 points per seat, alpha 0.05, beta 0.05): pooled -0.11 (95% -0.26 to +0.05), LLR -4.20 (bounds -2.94 / 2.94): **not better (H0 accepted)**; 2p: +0.18 (not significantly worse)
+
+Hexworld 6p with fog on, record only (outside the SPRT pool), 200 games: 0.535, +0.24 points per seat (-0.18 to +0.65).
+
+**Review: not promoted.** With fog on -0.11 points per seat (95% -0.26 to +0.05), SPRT not better; without fog +0.03
+(-0.05 to +0.11), not better. As in cycle 17, Classic 4p and 2p went up while Classic 6p and Europe 8p went down under
+fog. Two flat cycles after `delove@13`: the Lord of training's architecture review follows. Cycle 18: **$3.52** ($2.86
+games, $0.66 cloud training). Cycles 16-18: $13.53 of the $35.

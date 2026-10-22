@@ -1,1 +1,1 @@
-mcp: - 2026-10-22 #PR the MCP server instructions say a game may have a turn timer (nested tournaments by default): act at once when get_state/wait_for_turn/act show "TURN TIMER ... YOU HAVE Ns LEFT", or be skipped
+mcp: - 2026-10-22 #232 the MCP server instructions say a game may have a turn timer (nested tournaments by default): act at once when get_state/wait_for_turn/act show "TURN TIMER ... YOU HAVE Ns LEFT", or be skipped

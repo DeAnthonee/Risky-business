@@ -109,6 +109,9 @@ export class GameArchive {
     if (!this.dir) return;
     try {
       if (c.action.type === 'start') return this.begin(room, c.next, c.events, c.at);
+      // A system commit can end the game too (owner rule A: only Zergs are left, store.ts endIfOnlySwarm). It adds no
+      // step (the board is as it stood), but the record still has to be finished.
+      if (room.recordId && c.next.phase === 'finished' && (c.action.type === 'system' || !c.playerId)) return this.finish(room);
       if (!room.recordId || c.action.type === 'system' || !c.playerId) return;
       const file = this.journal(room.recordId);
       // A game that started before recording existed (or whose journal is gone) is not recorded.

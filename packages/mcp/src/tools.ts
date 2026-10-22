@@ -1,7 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { DEFAULT_OPTIONS, MAP_IDS, OPTION_KEYS, OPTION_SPECS, describeOptions, getMap, globalMax, optionLimits, type Action, type GameOptions, type GameView } from '@risk/engine';
-import { GAME_OUTCOMES, RiskHttpError, type CharacterMemory, type IdentityStore, type QuickPlayTicketInfo, type RiskApi, type TournamentInfo } from './api.js';
+import { GAME_OUTCOMES, RiskHttpError, type CharacterMemory, type IdentityStore, type QuickPlayTicketInfo, type RiskApi, type TournamentInfo, type TournamentPreviewInfo } from './api.js';
 import { formatActResult, formatEvents, formatState } from './format.js';
 
 export interface RiskMcpOptions {
@@ -135,6 +135,31 @@ export function formatMemory(m: CharacterMemory): string {
 }
 
 /** Told to every agent on the tools it plays with: a game may have a turn timer. */
+/** Said wherever a Delove seat count is taken. */
+const DELOVE_SEATS_NOTE =
+  'delove (Delove seats) is accepted and stored with the tournament, but nothing joins them automatically yet: until the Delove seat pool joins on request, an operator joins them.';
+
+/** Seat counts for preview_tournament and create_tournament. */
+const seatCountsSchema = {
+  zergs: z.number().int().min(0).max(256).optional().describe('Zerg entrants (rushing house bots), added when the tournament is created'),
+  delove: z.number().int().min(0).max(256).optional().describe('Delove seats asked for: stored only for now (see the description)'),
+  open: z.number().int().min(0).max(256).optional().describe('Open spots for people and agents to join'),
+};
+
+/** A preview as text for an agent. */
+export function formatPreview(p: TournamentPreviewInfo): string {
+  const lines = [
+    `Seats: ${p.seats} (${p.counts.zergs} Zergs, ${p.counts.delove} Delove, ${p.counts.open} open)${p.plannerZergs ? ` + ${p.plannerZergs} Zergs the plan adds` : ''}`,
+    `Rounds: ${p.rounds}; tables per round: ${p.tablesPerRound.join(' > ')}; seats per table: ${p.seatsPerRound.map((r) => r.join('/')).join(' > ')}`,
+    `Final: ${p.finalists} players on ${p.finalBoard.generated ? `a generated board (${p.finalBoard.territories} territories)` : `${p.finalBoard.name} (${p.finalBoard.territories} territories)`}`,
+    `Round 1 seating (people/Zergs per table): ${p.firstRound.map((t) => `${t.people}/${t.zergs}`).join(', ')}`,
+    `Turn timer: ${p.timer ? `${p.timer.seconds} s per ${p.timer.mode}` : 'off'}`,
+    `Time: about ${p.minutes.low}-${p.minutes.high} min (${p.minutes.perRound} min per round at most)`,
+    ...p.warnings.map((w) => `Note: ${w}`),
+  ];
+  return lines.join('\n');
+}
+
 const TIMER_NOTE =
   'TURN TIMER: a game may have one (the turnTimer setting: per move or per turn, a few seconds). When it is on, the state shows a TURN TIMER line with your seconds left: act quickly and do not think for long. If the clock runs out you are skipped (your armies are placed for you, no attacks, no fortify, your turn ends).';
 const tournamentIdSchema = z.string().min(4).max(12).describe('Tournament code, e.g. "TAB12C"');
@@ -879,7 +904,7 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
   server.registerTool(
     'create_tournament',
     {
-      description: 'Create a tournament that players and agents can join (open to anyone while tournaments are being tested; later host only). Settings: map and other game options for every table, seats per table (groupSize), entrant cap, and whether to fill round 1 with bots.',
+      description: 'Create a tournament that players and agents can join (open to anyone while tournaments are being tested; later host only). Settings: map and other game options for every table, seats per table (groupSize), entrant cap, and whether to fill round 1 with bots. Seat counts: zergs (added at once), delove and open; with counts, the entrant cap defaults to their sum. preview_tournament shows the breakdown first. ' + DELOVE_SEATS_NOTE,
       inputSchema: {
         adminKey: adminKeySchema,
         name: z.string().max(60).optional(),
@@ -893,16 +918,41 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
         roundMinutes: z.number().int().min(1).max(240).optional().describe('nested: round deadline in minutes (default 30)'),
         finishShare: z.number().min(0.1).max(1).optional().describe('nested: share of tables that must finish to end a round (default 0.51)'),
         botDelayMs: z.number().int().min(0).max(2000).optional().describe('nested: bot pace at the tables, ms between moves (default 300)'),
+        ...seatCountsSchema,
       },
     },
-    async ({ adminKey, name, options, groupSize, maxEntrants, fillBots, format, finalMap, territoriesPerSeat, roundMinutes, finishShare, botDelayMs }) => {
+    async ({ adminKey, name, options, groupSize, maxEntrants, fillBots, format, finalMap, territoriesPerSeat, roundMinutes, finishShare, botDelayMs, zergs, delove, open }) => {
       try {
-        const { hostToken, tournament } = await api.createTournament(adminKey, { name, options: options as Partial<GameOptions> | undefined, groupSize, maxEntrants, fillBots, format, finalMap, territoriesPerSeat, roundMinutes, finishShare, botDelayMs });
+        const { hostToken, tournament } = await api.createTournament(adminKey, { name, options: options as Partial<GameOptions> | undefined, groupSize, maxEntrants, fillBots, format, finalMap, territoriesPerSeat, roundMinutes, finishShare, botDelayMs, zergs, delove, open });
         hosted.set(tournament.id, hostToken);
         return text(
           `Created tournament ${tournament.id}. HOST TOKEN: ${hostToken}  <- keep it secret: only it (or the admin key) starts this tournament. start_tournament remembers it on this connection; pass it as "hostToken" from another one.\n` +
             `Share the code: players join with join_tournament (agents) or on the website; start it with start_tournament.\n\n${formatTournament(tournament)}`,
         );
+      } catch (e) {
+        return errorText(e);
+      }
+    },
+  );
+  server.registerTool(
+    'preview_tournament',
+    {
+      description:
+        'See what a nested tournament would look like before creating it; creates nothing. Give the seat counts (zergs, delove, open) and any nested settings; returns the rounds, tables per round, finalists, the final board, how round 1 seats people and Zergs, and the time as a range (low at bot pace, high with every round to its deadline). Then create_tournament with the same values. ' +
+        DELOVE_SEATS_NOTE,
+      inputSchema: {
+        ...seatCountsSchema,
+        options: optionsSchema,
+        finalMap: z.string().optional().describe('The final on an existing board (default a generated one)'),
+        territoriesPerSeat: z.number().int().min(4).max(6).optional().describe('Generated board size per seat (default 5)'),
+        roundMinutes: z.number().int().min(1).max(240).optional().describe('Round deadline in minutes (default 30)'),
+        botDelayMs: z.number().int().min(0).max(2000).optional().describe('Bot pace at the tables, ms between moves (default 300)'),
+      },
+    },
+    async ({ zergs, delove, open, options, finalMap, territoriesPerSeat, roundMinutes, botDelayMs }) => {
+      try {
+        const { preview } = await api.previewTournament({ format: 'nested', zergs, delove, open, options: options as Partial<GameOptions> | undefined, finalMap, territoriesPerSeat, roundMinutes, botDelayMs });
+        return text(formatPreview(preview));
       } catch (e) {
         return errorText(e);
       }

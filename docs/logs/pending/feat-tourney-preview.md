@@ -1,0 +1,2 @@
+server: - 2026-10-22 #252 tournament hosting P1-B: `POST /api/tournaments/preview` (nested settings + seat counts; creates nothing; planNest, final board, round-1 seating, a time range by formula; 30/min per client) and seat counts on create (`zergs` added at once, `delove` stored as `requested`, `open`; maxEntrants defaults to the sum)
+mcp: - 2026-10-22 #252 `preview_tournament` tool; `create_tournament` takes `zergs`/`delove`/`open` (Delove stored only, said in the descriptions)

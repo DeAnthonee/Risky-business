@@ -109,6 +109,26 @@ export interface TournamentSpec {
   roundMinutes?: number;
   finishShare?: number;
   botDelayMs?: number;
+  /** Seat counts: Zerg entrants added at create, Delove seats asked for (stored only for now), open spots for people and agents. */
+  zergs?: number;
+  delove?: number;
+  open?: number;
+}
+
+/** A nested tournament's breakdown before it exists (POST /api/tournaments/preview). */
+export interface TournamentPreviewInfo {
+  counts: { zergs: number; delove: number; open: number };
+  seats: number;
+  plannerZergs: number;
+  rounds: number;
+  tablesPerRound: number[];
+  seatsPerRound: number[][];
+  finalists: number;
+  finalBoard: { map: string | null; name: string; generated: boolean; territories: number };
+  firstRound: { seats: number; people: number; zergs: number }[];
+  timer: { mode: string; seconds: number } | null;
+  minutes: { low: number; high: number; perRound: number };
+  warnings: string[];
 }
 
 export interface ChatResult {
@@ -305,6 +325,8 @@ export interface RiskApi {
   createTournament(adminKey: string | undefined, spec: TournamentSpec): Promise<{ hostToken: string; tournament: TournamentInfo }>;
   /** `key`: the tournament's host token or the admin key. */
   startTournament(key: string | undefined, tournamentId: string): Promise<{ tournament: TournamentInfo }>;
+  /** What a nested tournament with these counts and settings would look like; creates nothing. */
+  previewTournament(spec: TournamentSpec): Promise<{ preview: TournamentPreviewInfo }>;
 
   /** Quick play: enter the queue; the returned token is the ticket's (to wait or leave), not a seat token. */
   quickPlayJoin(spec: QuickPlaySpec): Promise<{ token: string; ticket: QuickPlayTicketInfo }>;
@@ -569,6 +591,9 @@ export class HttpRiskApi implements RiskApi {
   }
   createTournament(adminKey: string | undefined, spec: TournamentSpec) {
     return this.request<{ hostToken: string; tournament: TournamentInfo }>(adminKey ? '/admin/tournaments' : '/tournaments', { method: 'POST', body: JSON.stringify(spec) }, adminKey);
+  }
+  previewTournament(spec: TournamentSpec) {
+    return this.request<{ preview: TournamentPreviewInfo }>('/tournaments/preview', { method: 'POST', body: JSON.stringify({ format: 'nested', ...spec }) });
   }
   startTournament(key: string | undefined, tournamentId: string) {
     return this.request<{ tournament: TournamentInfo }>(`/tournaments/${tournamentId}/start`, { method: 'POST', body: '{}' }, key);

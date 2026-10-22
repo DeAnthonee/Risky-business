@@ -179,7 +179,7 @@
 .nested-bracket h3 {
   margin: 12px 0 6px;
 }
-/* A hex-globe board in focus (GlobeMap.tsx InceptionGlobe): same frame as the flat view. */
+/* The live globe (GlobeMap.tsx LiveGlobe): same frame as the flat view. */
 .inception-globe {
   position: relative;
   width: 100%;

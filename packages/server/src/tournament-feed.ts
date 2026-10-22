@@ -31,6 +31,13 @@ export interface FeedTable {
   players: { name: string; color: string; alive: boolean }[];
   /** Owner of each territory, in getMap(map).territoryIds order, as an index into `players` (null: nobody or a blizzard). */
   owners: (number | null)[];
+  /** Armies on each territory, in the same order as `owners` (null where the view hides it). */
+  armies: (number | null)[];
+  /**
+   * The table's latest battle in the last 30 s, as indexes into the map's territoryIds, with its time (absolute ms);
+   * null when none, or when either side is hidden in the view.
+   */
+  lastAttack: { from: number; to: number; at: number } | null;
   /** Index into `players`: the winner once finished or decided, else the leader (territories, then armies). */
   leader: number | null;
   /** The tournament's last table. */
@@ -84,6 +91,7 @@ export function tableSummary(t: TournamentSnapshot, round: number, m: Tournament
   const at = new Map(seats.map((p, i) => [p.id, i]));
   const ids = getMap(view.options.map).territoryIds;
   const owners = ids.map((id) => { const o = view.territories[id]?.owner; return o != null && at.has(o) ? at.get(o)! : null; });
+  const armiesOn = ids.map((id) => (view.territories[id] && !view.territories[id].hidden ? view.territories[id].armies : null));
   const held = (i: number) => ids.filter((_, k) => owners[k] === i);
   const armies = (i: number) => held(i).reduce((n, id) => n + (view.territories[id]?.armies ?? 0), 0);
   const winnerSeat = m.winner ? m.seats[m.winner]?.playerId : null;
@@ -96,6 +104,16 @@ export function tableSummary(t: TournamentSnapshot, round: number, m: Tournament
   const recent = [];
   for (let i = room.history.length - 1; i >= 0 && now - room.history[i].at <= RECENT_MS; i--) recent.push(room.history[i]);
   const ex = excitementScore(view, recent, now, { final });
+  // The newest battle in that window (recent is newest first), if both sides are visible to spectators.
+  let lastAttack: FeedTable['lastAttack'] = null;
+  const index = new Map(ids.map((id, k) => [id, k]));
+  for (const h of recent) {
+    const b = [...h.events].reverse().find((e) => e.type === 'battle');
+    if (!b || b.type !== 'battle') continue;
+    const [from, to] = [index.get(b.from), index.get(b.to)];
+    if (from !== undefined && to !== undefined && !view.territories[b.from]?.hidden && !view.territories[b.to]?.hidden) lastAttack = { from, to, at: h.at };
+    break;
+  }
   return {
     node: m.node ?? (m.table !== undefined ? (nodes.get(`${round - 1}:${m.table}`) ?? null) : null),
     gameId: room.id,
@@ -104,6 +122,8 @@ export function tableSummary(t: TournamentSnapshot, round: number, m: Tournament
     status,
     players: seats.map((p) => ({ name: p.name, color: p.color, alive: p.alive })),
     owners,
+    armies: armiesOn,
+    lastAttack,
     leader,
     final,
     excitement: { score: ex.score, why: ex.signals[0]?.label ?? null, signals: ex.signals },

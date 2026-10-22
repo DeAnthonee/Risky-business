@@ -31,7 +31,7 @@ with reduced motion they stay raised but still.
 ### Features that move a spectator
 
 README hard rule 10: the client moves a spectator to another game only when they turned that on, and never moves a
-player. These are the features that do it:
+player; the one exception is runner generation training matches. These are the features that move a spectator:
 
 **Auto-spectate** is a hands-off live stream: press **Auto-Spectate Live Stream** above the game list (shown while a
 game is being played) or open `/?spectate=1` with no game. It tunes into a game in progress and, when that game ends
@@ -40,8 +40,8 @@ ends auto-spectate). It is opt-in: a game you opened yourself (from the list, a 
 moves you on, players are never moved, and tournament tables are never picked. While waiting it polls the game list
 every 2 s, backing off to 10 s. The URL stays `/?spectate=1`, so a reload picks up whatever is live.
 
-**Generation training matches** (#95; today automatic for anyone watching such a room, so whether it becomes an
-opt-in switch under the rule above is waiting on the owner): the runner names its rooms
+**Generation training matches** are the rule's one exception: automatic, with no switch (#95; the owner's call,
+2026-10-22). The runner names its rooms
 `Generation <tag> Match <n>` (e.g. `Generation 5 Match 3`), and when one ends or closes, every spectator gets a 4 s
 countdown to the next one, a running match first, otherwise its lobby (watch it fill and start), with **Stay here** to
 remain. Only that exact name counts (a room a person names that way counts too), tournament tables are never picked,

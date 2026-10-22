@@ -45,7 +45,7 @@ for (const agent of discoverNetAgents()) registerAgent(agent);
 
 /**
  * zerg-branch@1: the searching Zerg (src/zerg-branch.ts, docs/zergs.md), its prey modelled by Jacob Sensei 2.
- * ZERG_BRANCH_OPTIONS, _ROLLOUTS, _HORIZON, _KILL_WEIGHT and _MARGIN override DEFAULT_ZERG_BRANCH.
+ * ZERG_BRANCH_OPTIONS, _ROLLOUTS, _HORIZON, _KILL_WEIGHT, _MARGIN and _SELF_WEIGHT override DEFAULT_ZERG_BRANCH.
  */
 const zenv = (k: string, d: number) => (process.env[`ZERG_BRANCH_${k}`] !== undefined ? Number(process.env[`ZERG_BRANCH_${k}`]) : d);
 registerAgent(
@@ -55,6 +55,7 @@ registerAgent(
     horizon: zenv('HORIZON', DEFAULT_ZERG_BRANCH.horizon),
     killWeight: zenv('KILL_WEIGHT', DEFAULT_ZERG_BRANCH.killWeight),
     margin: zenv('MARGIN', DEFAULT_ZERG_BRANCH.margin),
+    selfWeight: zenv('SELF_WEIGHT', DEFAULT_ZERG_BRANCH.selfWeight),
   }),
 );
 

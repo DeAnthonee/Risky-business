@@ -447,7 +447,9 @@ tables with LLM characters, with fog of war on. In order:
    Sonnet (3 games) and -2.5 against Opus (2 games), knocked out by round 3-9 with no kills; 2nd against Haiku in a
    pilot without capitals or blizzards. Rerun on 2026-10-21 with the live search seat (delove@8 + search, #154's `js2-range` preset, real card counts): 1st with 4
    kills against Haiku, last in all 3 Sonnet games (ganged up on from round 1), 4th and a capital win against Opus
-   (mean +3.0). Rerun the same lineup for every new model.
+   (mean +3.0). Baseline 3 (2026-10-22, delove@10 + search, neutral brief, capitals and blizzards for every tier, 2 games
+   per tier): Haiku mean +3.0 (a capital win), Sonnet +2.5 (2nd with 4 kills), Opus -3.0 (two early exits); 2-3 seats
+   still attacked Delove in rounds 1-2 in every game. Rerun the same lineup for every new model.
 5. **Faster cycles** (no strength change): the faster big-table search (#117, 2.5-5x, merged), 10 cloud pods for a
    whole cycle's generation (about 47 minutes, about $7), and a training pod fed directly by the generation pods
    through a RunPod network volume (`REMOTE_TRAIN=1`, built, not yet run for pay: about 10 minutes and $0.40-0.50 a

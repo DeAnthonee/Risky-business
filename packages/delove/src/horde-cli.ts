@@ -71,7 +71,7 @@ async function main() {
   console.error(`horde gate: ${values.candidate}${values.base ? ` vs ${values.base}` : ''}${values['base-zerg'] ? ` (Zergs ${values.zerg} vs ${values['base-zerg']})` : ''} (filler ${values.filler}, Zergs ${values.zerg}), ${values.games} games per table`);
   for (const t of byTable) {
     const c = t.candidate.metrics;
-    let line = `${t.table.padEnd(16)} hold ${f(c.hold.mean)} win ${f(c.win.mean)} place ${f(c.place.mean)} rounds ${c.rounds.mean.toFixed(1)} kills ${f(c.kills.mean)} points ${f(c.points.mean)} TL ${t.candidate.turnLimit}`;
+    let line = `${t.table.padEnd(16)} hold ${f(c.hold.mean)} win ${f(c.win.mean)} place ${f(c.place.mean)} rounds ${c.rounds.mean.toFixed(1)} kills ${f(c.kills.mean)} points ${f(c.points.mean)} game ${t.candidate.gameRounds} rounds TL ${t.candidate.turnLimit}`;
     const d = (m: HordeMetric) => { const x = t.compare!.diffs[m]; return `${m} ${f(x.mean)} [${f(x.low)}, ${f(x.high)}]`; };
     if (t.base && t.compare) line += ` | base ${metric} ${f(t.base.metrics[metric].mean)} | diff ${d(metric)} ${t.compare.verdict}; ${(['points', 'kills'] as HordeMetric[]).filter((m) => m !== metric).map(d).join('; ')}`;
     console.error(line);

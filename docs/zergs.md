@@ -31,7 +31,8 @@ Zergs are house bots that rush, never attack each other and hunt eliminations to
   `kind: "zerg"`, or **Add Zerg** in the web lobby. A custom `name` is refused: the reptile list names every Zerg.
 - **Who is a Zerg.** The seat id starts with `zerg_` (built-in bots are `bot_...`, people `p_...`). The server mints
   every id, so nobody can join as a Zerg or turn a seat into one (a person can still take a reptile name), and saved rooms need no new field: old
-  snapshots load as before, and a restored Zerg seat is still a Zerg.
+  snapshots load as before, and a restored Zerg seat is still a Zerg. (In self-play a horde is instead the seats named
+  after the agent id, `zerg@1`.)
 - **Moves.** The room's bot loop plays a Zerg seat with `chooseZergAction(state, me, horde)` (`zerg@1`), the horde being every Zerg seat in the room; other bots play `chooseBotAction`. Every move goes through `GameRoom.commit`, like any bot.
 - **Ranking.** A Zerg is ranked as `bot:<name>`, like any built-in bot.
 
@@ -54,11 +55,15 @@ All Zergs run the same deterministic **target rule** on the same public board, s
   holds back; the engine has no ally rule).
 - **Occupy** with everything when the new territory faces the target; **fortify** toward the target's front.
 - **Cards**: trade as soon as possible.
-- **Feed the swarm.** A Zerg walled in by its allies (no road to any prey) that is not the horde's strongest
-  surrenders, and its land turns neutral. Otherwise its armies would idle forever while one front Zerg fights alone
-  (seen in testing: a Delove turtle in Australia stalled 3 Zergs for 500 turns). Zergs take neutral land at good odds,
-  so the front Zerg eats that land for cards and continents.
-- **Ending.** When only Zergs are left, all but the first in turn order surrender, so the game ends without a stall.
+- **Feed the swarm: off.** With `sacrifice: 1`, a Zerg walled in by its allies (no road to any prey) that is not
+  the horde's strongest surrenders, and its land turns neutral for the front Zerg to eat. It is **0 in `zerg@1`**
+  (#169): the owner's "no surrenders" rules it out, and the live Zerg seat plays with 0. The parameter stays for tests.
+  - The cost: the walled-in Zergs idle while one front Zerg fights alone, so a turtling prey can stall the horde. At
+    4p against 3 Zergs, 9 of 100 games against delove@10 reach the 500-turn limit (3 with the sacrifice).
+  - Zergs still take neutral land at good odds.
+- **Ending: the falling-out.** When only Zergs are left, the alliance is over: each Zerg plays for itself (its horde is
+  just itself) and they fight to one winner. No surrenders. (Until #169, all but one Zerg surrendered; the golden test
+  was updated on purpose, and it pins the alliance phase's moves as unchanged.)
 - **Later behaviours**, tunable and off in `zerg@1`:
   - a synchronised strike on the target once the horde has massed;
   - hoarding cards for the kill;
@@ -136,14 +141,21 @@ delove@10 that learns a horde objective from a stronger teacher.
      3/4/6p), Zerg decisions recorded.
    - `zerg@1` games run about 30 a second per core, so 50k games take minutes. No pod.
 3. **Iteration 0, behaviour cloning:** imitate `zerg@1`, giving an ally-aware network that plays about like
-   `zerg@1`. `train.py --init delove@10.pt`, with a widening flag for the ally columns and the value target set to
+   `zerg@1`. The data comes from the `zerg@1` with the falling-out (#169), so the network never learns to surrender.
+   The ally flags switch off once no prey is left, so the network sees the Zergs as rivals in the endgame. `train.py --init delove@10.pt`, with a widening flag for the ally columns and the value target set to
    the horde's outcome (`rush`).
 4. **Iteration 1, a stronger teacher:**
-   - `zerg-branch@1` with the iteration-0 network as its ranker and rollout policy, and the prey modelled by delove@10
-     instead of Jacob 2. Its no-gain result came from hand-coded rollouts and a weak prey model.
+   - `zerg-branch@1` with the iteration-0 network as its ranker only. The rollouts stay `zerg@1` until the network beats
+     `zerg@1` on the gate: Delove's #141 found network rollouts worse, and 10-30x slower, while the network trailed its
+     teacher. The prey is modelled by delove@10 instead of Jacob 2.
    - Distil the searched choices, then repeat (the AlphaZero loop, at Delove's scale).
+   - **Objective: the horde and the Zerg itself.** The score has a team part (prey knocked out × kill weight + the
+     horde's share) and a self part (`selfWeight` × my share of the horde's strength; a won game counts 1). The
+     falling-out is coming, so a Zerg that spends itself for the horde ends up last among the Zergs. The value target
+     adds the seat's own final place and kills in the Zerg-vs-Zerg endgame to the horde's `rush`. `zerg-branch@1`
+     already scores this way (`ZERG_BRANCH_SELF_WEIGHT`, default 0.5), and its rollouts play the falling-out.
 5. **Gate.** `npm run delove:horde -- --candidate delove@10 --zerg zergnet@N --base-zerg zerg@1` (`rush` and `hold`,
-   500+ games per table, fixed seeds). `zerg@1` stays the fixed reference. A passing network becomes `zerg@2`
+   500+ games per table, fixed seeds). A stronger Zerg lowers delove@10's `hold`. `zerg@1` stays the fixed reference. A passing network becomes `zerg@2`
    alongside it.
 6. **Costs and owners.**
    - Training is a short home-GPU run (minutes to an hour), booked through the captain and the Lord of Resources.

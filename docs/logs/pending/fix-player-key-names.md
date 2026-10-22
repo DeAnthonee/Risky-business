@@ -1,0 +1,1 @@
+server: - 2026-10-22 #268 player-key names compared by skeleton (NFKC, invisible characters removed, Cyrillic/Greek look-alikes and 0/1 folded), so look-alike names count as taken; registered names looked up in an index instead of a scan (review nits from #260)

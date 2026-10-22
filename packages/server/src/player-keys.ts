@@ -70,13 +70,41 @@ export class PlayerKeyLimitError extends Error {
 const digest = (key: string) => createHash('sha256').update(key).digest();
 const newKey = () => `rk_${randomBytes(24).toString('base64url')}`;
 const newPlayerId = () => `pk_${randomBytes(6).toString('base64url')}`;
-const normal = (name: string) => name.trim().toLowerCase();
+/**
+ * Letters that look like others, folded to one (Cyrillic and Greek look-alikes of Latin letters, and 0/1/| vs o/l), so
+ * "Аda" (Cyrillic А) or "Ada" with a zero-width space counts as "Ada".
+ */
+const CONFUSABLES: Record<string, string> = {
+  а: 'a', в: 'b', е: 'e', ё: 'e', к: 'k', м: 'm', н: 'h', о: 'o', р: 'p', с: 'c', т: 't', у: 'y', х: 'x', ѕ: 's', і: 'i', ї: 'i', ј: 'j', ԁ: 'd', ԛ: 'q', ԝ: 'w',
+  α: 'a', β: 'b', ε: 'e', η: 'n', ι: 'i', κ: 'k', μ: 'u', ν: 'v', ο: 'o', ρ: 'p', τ: 't', υ: 'u', χ: 'x', ω: 'w',
+  '0': 'o', '1': 'l', i: 'l', '|': 'l',
+};
+
+/**
+ * A name's comparison form: Unicode NFKC (full-width, ligatures and other compatibility forms to plain letters), lower
+ * case, zero-width and other invisible characters removed, look-alike letters folded, spaces collapsed. Two names with
+ * the same skeleton are the same name for registration and seats.
+ */
+export function nameSkeleton(name: string): string {
+  return name
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[\u00ad\u034f\u061c\u115f\u1160\u17b4\u17b5\u180e\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/g, '')
+    .replace(/[^\s]/gu, (ch) => CONFUSABLES[ch] ?? ch)
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+const normal = nameSkeleton;
+/** Words the server uses for seats, as skeletons. */
+const SERVER_WORDS = ['neutral', 'host', 'admin'].map(nameSkeleton);
 
 /** Names nobody may register: the Zergs, the server's bots and other built-in seats (AI characters are added by the app). */
 export function builtInReservedName(name: string): string | null {
   const n = normal(name);
   if (n.includes('zerg') || ZERG_NAMES.some((z) => normal(z) === n)) return 'Zerg names belong to the house bots';
-  if (/^(bot|player|agent)( \d+)?$/.test(n) || n === 'neutral' || n === 'host' || n === 'admin') return 'That name is used by the server';
+  // Compared as skeletons, where the digits 0 and 1 fold to o and l ("Bot 10" is "bot lo").
+  if (/^(bot|player|agent)( [0-9ol]+)?$/.test(n) || SERVER_WORDS.includes(n)) return 'That name is used by the server';
   // The Delove seat pool's seats ("Delove", "Delove 3": seat-requests.ts POOL_NAME): nobody registers as one.
   if (/^delove(\s|$)/.test(n)) return 'Delove names belong to the Delove seat pool';
   return null;
@@ -91,6 +119,8 @@ interface SavedFile {
 export class PlayerKeyStore {
   private players = new Map<string, PlayerAccount>();
   private byHash = new Map<string, PlayerAccount>();
+  /** Registered names by skeleton (revoked ones too: a name stays taken). */
+  private byName = new Map<string, PlayerAccount>();
   /** Recent issues (last 24 h), for the limits. The IP is kept only for the window. */
   private issued: { at: number; ip: string }[] = [];
   enabled = true;
@@ -179,9 +209,7 @@ export class PlayerKeyStore {
 
   /** Is this a registered player's name (any case)? Seats without that player's key may not use it. */
   isRegistered(name: string): boolean {
-    const n = normal(name);
-    for (const p of this.players.values()) if (normal(p.name) === n) return true;
-    return false;
+    return this.byName.has(normal(name));
   }
 
   /**
@@ -210,6 +238,7 @@ export class PlayerKeyStore {
 
   private index(p: PlayerAccount) {
     this.players.set(p.id, p);
+    this.byName.set(normal(p.name), p);
     if (p.revokedAt === undefined) this.byHash.set(p.hash, p);
   }
 

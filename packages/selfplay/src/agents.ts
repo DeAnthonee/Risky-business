@@ -1,4 +1,4 @@
-import { chooseBotAction, chooseZergAction, getMap, ZERG_1_PARAMS, type ZergParams, type Action, type GameState, type LegalMoves, type PlayerId, type RandomSource } from '@risk/engine';
+import { chooseBotAction, chooseZergAction, getMap, ZERG_1_PARAMS, ZERG_2_PARAMS, type ZergParams, type Action, type GameState, type LegalMoves, type PlayerId, type RandomSource } from '@risk/engine';
 import { candidates, candidateToAction, type Candidate } from './actions.js';
 import type { Traits } from './traits.js';
 
@@ -55,6 +55,16 @@ export function makeZergAgent(id: string, params: ZergParams): Agent {
   };
 }
 export const zergBot: Agent = makeZergAgent('zerg@1', ZERG_1_PARAMS);
+/** zerg@2: zerg@1 without the mid-game surrender; walled-in Zergs mass toward the prey (the live seats' version). */
+export const zergBot2: Agent = makeZergAgent('zerg@2', ZERG_2_PARAMS);
+
+/**
+ * The numbers a Zerg seat plays, from its self-play name (its agent id): zerg@2's for `zerg@2`, zerg@1's otherwise.
+ * For code that plays Zerg seats itself (a branch seat's rollouts), so each Zerg plays its own version.
+ */
+export function zergParamsFor(name: string): ZergParams {
+  return name === 'zerg@2' ? ZERG_2_PARAMS : ZERG_1_PARAMS;
+}
 
 /** One step of a decision: `candidates` are this step's choices; a fortify_to step carries its source. */
 export interface StepContext extends DecisionContext {
@@ -88,7 +98,7 @@ export function stepAgent(id: string, pick: (ctx: StepContext) => number): Agent
 /** Uniformly random legal candidate at every step. A floor for the ladder, not a real opponent. */
 export const randomAgent: Agent = stepAgent('random@1', (ctx) => Math.floor(ctx.random() * ctx.candidates.length));
 
-const REGISTRY = new Map<string, Agent>([riskyBot, randomAgent, zergBot].map((a) => [a.id, a]));
+const REGISTRY = new Map<string, Agent>([riskyBot, randomAgent, zergBot, zergBot2].map((a) => [a.id, a]));
 
 /** Make an agent available by id (e.g. a trained network loaded from disk). */
 export function registerAgent(agent: Agent): void {

@@ -1,0 +1,2 @@
+selfplay: - 2026-10-22 #PR agent `zerg@2` (`ZERG_2_PARAMS`, the live seats' version) and `zergParamsFor(name)`, so code that plays Zerg seats itself gives each its own version; no `LOG_VERSION` or `ENCODER_VERSION` change
+delove: - 2026-10-22 #PR training on `zerg@2`: `horde.jobs` seats `zerg@2`; `delove-branch@1:range-horde` and `zerg-branch@1` rollouts play each Zerg seat's own version; the horde gate keeps `zerg@1` as its default (`--zerg zerg@2` for the live horde); register.ts loads tuned Zergs as `zerg@N` for N >= 3 only

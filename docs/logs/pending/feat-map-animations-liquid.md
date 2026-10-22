@@ -1,0 +1,1 @@
+client: - 2026-10-21 #PR liquid capture: drops cross the border, a rippling front fills the captured territory, then a lock-in flash (replaces the colour sweep); the current player's land gets a still glassy sheen instead of the rocking lift

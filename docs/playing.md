@@ -26,9 +26,13 @@ The board sits on animated water: a lit sea that darkens toward the edges, small
 and fade in and out, and a soft surf glow that swells along every coast. It is ambient decoration (Fast-forward
 does not touch it) and holds still when the system asks for reduced motion.
 
-The territories of the player whose turn it is sit slightly raised: a little larger, with a light rim and a drop
-shadow, rocking gently so you can see at a glance what they hold. Under fog only the land you can see is raised;
-with reduced motion they stay raised but still.
+The territories of the player whose turn it is get a still, glassy sheen (lit from the top, a little darker at the
+bottom) so you can see at a glance what they hold. Under fog only the land you can see gets it.
+
+A **capture** pours in like liquid: drops of the new owner's colour run across the border from the attacking
+territory, a rippling front fills the captured territory from that side and pushes the old colour out (about a
+second), then a white rim flash, a small pop and a ripple from the army badge lock the new colour in. With reduced
+motion only the rim flash plays; Fast-forward skips it.
 
 **Auto-spectate** is a hands-off live stream: press **Auto-Spectate Live Stream** above the game list (shown while a
 game is being played) or open `/?spectate=1` with no game. It tunes into a game in progress and, when that game ends

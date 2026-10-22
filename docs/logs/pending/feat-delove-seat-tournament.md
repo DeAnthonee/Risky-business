@@ -1,2 +1,0 @@
-delove: - 2026-10-21 #173 `delove-seat --tournament CODE --entrants N [--procs P] [--tokens FILE]`: N Delove entrants in a tournament (`src/tournament-seat.ts` `playEntrant`: wait for the table, play it with playSeat, wait again; re-reads after breaks), spread over child processes, with a latency / CPU report; `playSeat` reports each decision's time; docs/tournaments.md agents
-server: - 2026-10-21 #173 docs/tournaments.md: Delove entrants join through `delove-seat --tournament` (no server change)

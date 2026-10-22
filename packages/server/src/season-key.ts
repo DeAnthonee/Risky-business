@@ -1,10 +1,13 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { dirname } from 'node:path';
 
 /**
  * The season-archive password (RISK_SEASON_KEY) and its brute-force guard. The owner's chosen value may be short, so
  * wrong tries are limited per IP and in total: after `perIp` wrong tries an IP is locked out for `lockMs`, and after
  * `global` wrong tries from anyone within `lockMs` every attempt is refused until the window passes. A right password
- * clears its IP's count. Failures are logged without the attempted value.
+ * clears its IP's count. Failures are logged without the attempted value. With a `file` (under RISK_DATA_DIR) the counts
+ * and lockouts are saved on every change and read back at start, so a restart does not reset them.
  */
 export interface SeasonKeyLimits {
   perIp: number;
@@ -31,7 +34,30 @@ export class SeasonKeyGuard {
     private key: string | null | undefined,
     private limits: SeasonKeyLimits = DEFAULT_SEASON_KEY_LIMITS,
     private now: () => number = Date.now,
-  ) {}
+    private file: string | null = null,
+  ) {
+    if (file && existsSync(file)) {
+      try {
+        const saved = JSON.parse(readFileSync(file, 'utf8')) as { byIp?: Record<string, { fails: number; until: number }>; globalFails?: number[] };
+        this.byIp = new Map(Object.entries(saved.byIp ?? {}));
+        this.globalFails = (saved.globalFails ?? []).filter((n) => typeof n === 'number');
+      } catch (err) {
+        console.error('[season] could not read the lockout file:', (err as Error).message);
+      }
+    }
+  }
+
+  private save() {
+    if (!this.file) return;
+    try {
+      mkdirSync(dirname(this.file), { recursive: true });
+      const tmp = `${this.file}.${process.pid}.tmp`;
+      writeFileSync(tmp, JSON.stringify({ byIp: Object.fromEntries(this.byIp), globalFails: this.globalFails }));
+      renameSync(tmp, this.file);
+    } catch (err) {
+      console.error('[season] could not save the lockout file:', (err as Error).message);
+    }
+  }
 
   get enabled(): boolean {
     return !!this.key;
@@ -45,12 +71,13 @@ export class SeasonKeyGuard {
     if (mine && mine.until > t) return this.locked(mine.until - t);
     if (this.globalFails.length >= this.limits.global) return this.locked(this.limits.lockMs - (t - this.globalFails[0]));
     if (typeof password === 'string' && password.length > 0 && password.length <= 200 && sameSecret(password, this.key)) {
-      this.byIp.delete(ip);
+      if (this.byIp.delete(ip)) this.save();
       return { ok: true };
     }
     const fails = (mine && mine.until <= t && mine.fails >= this.limits.perIp ? 0 : (mine?.fails ?? 0)) + 1;
     this.byIp.set(ip, { fails, until: fails >= this.limits.perIp ? t + this.limits.lockMs : 0 });
     this.globalFails.push(t);
+    this.save();
     console.warn(`[season] wrong archive password from ${ip} (${fails}/${this.limits.perIp})`);
     if (fails >= this.limits.perIp) return this.locked(this.limits.lockMs);
     return { ok: false, status: 403, error: 'Wrong password' };

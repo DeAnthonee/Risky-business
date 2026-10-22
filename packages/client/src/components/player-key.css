@@ -1,0 +1,20 @@
+/* ---------- Player key page (?player=1): layout only; the look is the tournament page's pieces. ---------- */
+.player-key-page .home-actions {
+  grid-template-columns: 1fr;
+  margin-bottom: 24px;
+}
+.player-key-page .pk-form {
+  display: grid;
+  gap: 12px;
+}
+.player-key-page .pk-form label {
+  display: grid;
+  gap: 4px;
+}
+.player-key-page .pk-key {
+  display: block;
+  padding: 10px 12px;
+  overflow-wrap: anywhere;
+  user-select: all;
+  font-size: 1.05em;
+}

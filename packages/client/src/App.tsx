@@ -5,14 +5,17 @@ import { Lobby } from './components/Lobby';
 import { Game } from './components/Game';
 import { AutoAdvance, isGenerationGame, useLiveGame, type AutoSpectate } from './components/AutoAdvance';
 import { Tournament } from './components/Tournament';
+import { PlayerKeyPage } from './components/PlayerKeyPage';
 import {
   clearSession,
   gameIdFromUrl,
   getName,
+  playerPageFromUrl,
   getSession,
   saveSession,
   setGameInUrl,
   setName as persistName,
+  setPlayerPageInUrl,
   setTournamentInUrl,
   spectateFromUrl,
   tournamentIdFromUrl,
@@ -31,6 +34,8 @@ export function App() {
   const [name, setNameState] = useState(getName());
   // The tournament being followed: leaving one of its games comes back to its bracket.
   const [tournamentId, setTournamentId] = useState<string | null>(() => tournamentIdFromUrl());
+  // ?player=1: the player key page (links to it come from the home page).
+  const [playerPage, setPlayerPage] = useState(() => playerPageFromUrl());
 
   useEffect(() => {
     // The stream keeps its URL (`?spectate=1`), so a reload tunes back into whatever is live.
@@ -40,6 +45,9 @@ export function App() {
   useEffect(() => {
     setTournamentInUrl(tournamentId);
   }, [tournamentId]);
+  useEffect(() => {
+    setPlayerPageInUrl(playerPage);
+  }, [playerPage]);
 
   const firstLive = useLiveGame(autoSpectate && !gameId, null);
   useEffect(() => {
@@ -81,6 +89,10 @@ export function App() {
 
   // Stable, so the countdown's effects do not restart on every render. Staying ends auto-spectate for good.
   const auto = useMemo<AutoSpectate>(() => ({ advance: (id) => setGameId(id), stay: () => setAutoSpectate(false) }), []);
+
+  if (!gameId && !tournamentId && playerPage) {
+    return <PlayerKeyPage onBack={() => setPlayerPage(false)} />;
+  }
 
   if (!gameId && tournamentId) {
     return <Tournament id={tournamentId} name={name} setName={setName} onPlay={enter} onWatch={watch} onBack={() => setTournamentId(null)} />;

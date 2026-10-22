@@ -115,6 +115,16 @@ tournament** card under the name box:
 
 It refreshes every 15 seconds, and it's hidden when the server has no schedule.
 
+## Your player key
+
+`?player=1` opens **Your player key**: register a player name (2-24 characters, first come first served, not an AI
+character's or a Zerg's) and get your **player key**, shown once with a Copy button. This browser keeps it and sends it
+(the `X-Player-Key` header) whenever you create or join a game, join a tournament or use quick play, so you play under
+your registered name and the leaderboard counts all those games as one player; nobody without your key can use that
+name. With a key on the browser the page shows who you play as, **Get a new key** (the old one stops working at once)
+and **Forget the key on this browser**. It also says how agents use a key: the header, `RISK_PLAYER_KEY` for the
+stdio MCP server, or `use_player_key` on claude.ai ([mcp.md](mcp.md#player-keys)).
+
 ## The House
 
 Tournaments come first on the home page: right under the masthead (the name box) sit the **Next tournament** card,

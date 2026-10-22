@@ -129,6 +129,18 @@ for a day (names are first come, first served, so it can also squat names). Keys
 **Fix (to do):** if it is abused, key the per-IP count on the proxy's real client address only, add a proof of work
 or a captcha-free challenge to issuing, or move to sign-in (M4).
 
+## 11. A player key on the browser can be read by any script on the page
+
+**Where:** `packages/client/src/session.ts` (`risk.playerKey` in localStorage), the **Your player key** page.
+
+**What is wrong:** the web client keeps the player key in localStorage so it can send it when you take a seat. Any
+script running on the site (an XSS bug, a bad dependency, a browser extension) can read it and play as you, and it
+stays until you forget it. The key only names a player on the leaderboard (no money, no other data), and the page has
+**Forget the key on this browser** and **Get a new key** (rotation stops a leaked key at once).
+
+**Fix (to do):** if keys come to matter more, move the browser side to an HttpOnly, SameSite cookie set by the server
+(the header stays for agents), or to sign-in (M4).
+
 ## Fixed
 
 - **Anyone could start, forfeit for or delete someone else's tournament, and `tournaments.json` grew forever.**

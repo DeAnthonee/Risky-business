@@ -72,6 +72,38 @@ export function setTournamentInUrl(id: string | null) {
   window.history.replaceState({}, '', u.toString());
 }
 
+/**
+ * Your player key on this browser (risk.playerKey): sent as X-Player-Key when you take a seat, so you play as your
+ * registered player. Kept in localStorage, which any script on the page can read (hardening #11): "Forget" removes it.
+ */
+const PLAYER_KEY = 'risk.playerKey';
+export function getPlayerKey(): string | null {
+  try {
+    return localStorage.getItem(PLAYER_KEY);
+  } catch {
+    return null;
+  }
+}
+export function savePlayerKey(key: string | null) {
+  try {
+    if (key) localStorage.setItem(PLAYER_KEY, key);
+    else localStorage.removeItem(PLAYER_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+/** ?player=1: the player key page. */
+export function playerPageFromUrl(): boolean {
+  return new URL(window.location.href).searchParams.get('player') === '1';
+}
+export function setPlayerPageInUrl(on: boolean) {
+  const u = new URL(window.location.href);
+  if (on) u.searchParams.set('player', '1');
+  else u.searchParams.delete('player');
+  window.history.replaceState({}, '', u.toString());
+}
+
 /** Your entrant token for a tournament on this browser. */
 const entrantKey = (id: string) => `risk.tournament.${id.toUpperCase()}`;
 export function getEntrantToken(id: string): string | null {

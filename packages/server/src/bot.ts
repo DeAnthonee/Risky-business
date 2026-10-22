@@ -1,6 +1,6 @@
 // The built-in bot and the Zerg live in the engine so the self-play harness plays the exact same code.
 import { randomInt } from 'node:crypto';
-import { ZERG_1_PARAMS, chooseBotAction, chooseZergAction, type Action, type GameState, type PlayerId, type ZergParams } from '@risk/engine';
+import { chooseBotAction, chooseZergAction, type Action, type GameState, type PlayerId } from '@risk/engine';
 
 export { chooseBotAction };
 
@@ -37,12 +37,12 @@ export function zergName(state: GameState): string {
   }
 }
 
-/** A live Zerg never surrenders (the owner's rule), so it never sacrifices itself to feed the swarm either. */
-export const LIVE_ZERG_PARAMS: ZergParams = { ...ZERG_1_PARAMS, sacrifice: 0 };
-
-/** A bot seat's move: a Zerg plays with every Zerg seat in the room as its horde; any other bot is the built-in bot. */
+/**
+ * A bot seat's move: a Zerg plays zerg@1 (the same numbers as training and the horde gate) with every Zerg seat in the
+ * room as its horde; any other bot is the built-in bot.
+ */
 export function chooseSeatAction(state: GameState, me: PlayerId): Action | null {
   if (!isZergSeat(me)) return chooseBotAction(state, me);
   const horde = new Set(state.players.filter((p) => isZergSeat(p.id)).map((p) => p.id));
-  return chooseZergAction(state, me, horde, Math.random, LIVE_ZERG_PARAMS);
+  return chooseZergAction(state, me, horde);
 }

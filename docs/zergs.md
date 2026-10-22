@@ -16,8 +16,11 @@ Zergs are house bots that rush, never attack each other and hunt eliminations to
   outsiders tell which seats are Zergs; there is no badge or banner.
 - **Allies until the prey is gone.** A Zerg never attacks a fellow Zerg while any non-Zerg is alive. Once only Zergs
   are left, the alliance is over and they fight each other to one winner (`chooseZergAction`, #169).
-- **No surrenders.** A live Zerg never surrenders, so the server plays it with `sacrifice: 0` (`LIVE_ZERG_PARAMS` in
-  `packages/server/src/bot.ts`): a walled-in Zerg keeps its land instead of feeding the swarm (section 4).
+- **No surrenders.** A Zerg never surrenders: `zerg@1` has `sacrifice: 0` (#169), so a walled-in Zerg keeps its land
+  instead of feeding the swarm (section 4). Live seats play the same `ZERG_1_PARAMS` as training and the horde gate.
+- **Known trade-off: a turtle can stall the horde.** With no sacrifice, a Zerg walled in by its allies sits idle while
+  one front Zerg fights alone, so a turtling player can hold out: 9 of 100 test games hit the 500-turn limit. Accepted
+  for now (the owner's no-surrender rule wins); not fixed.
 - **The rules don't change.** The ally rule lives in the Zerg's own policy (`packages/engine/src/zerg.ts`), not in
   `legalMoves`: anyone, Zergs included, may attack a Zerg as far as the engine is concerned. Cards, endings and
   Capital Conquest are as normal, so no mirrored file is touched.
@@ -29,8 +32,7 @@ Zergs are house bots that rush, never attack each other and hunt eliminations to
 - **Who is a Zerg.** The seat id starts with `zerg_` (built-in bots are `bot_...`, people `p_...`). The server mints
   every id, so nobody can join as a Zerg or turn a seat into one (a person can still take a reptile name), and saved rooms need no new field: old
   snapshots load as before, and a restored Zerg seat is still a Zerg.
-- **Moves.** The room's bot loop plays a Zerg seat with `chooseZergAction(state, me, horde, Math.random,
-  LIVE_ZERG_PARAMS)`, the horde being every Zerg seat in the room; other bots play `chooseBotAction`. Every move goes through `GameRoom.commit`, like any bot.
+- **Moves.** The room's bot loop plays a Zerg seat with `chooseZergAction(state, me, horde)` (`zerg@1`), the horde being every Zerg seat in the room; other bots play `chooseBotAction`. Every move goes through `GameRoom.commit`, like any bot.
 - **Ranking.** A Zerg is ranked as `bot:<name>`, like any built-in bot.
 
 ## 3. Tests

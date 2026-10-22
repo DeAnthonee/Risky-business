@@ -1,4 +1,5 @@
 import type { Action, GameEvent, GameOptions, GameView, NestNode } from '@risk/engine';
+import { getPlayerKey } from './session';
 
 /** Root path of the app (supports hosting under a sub-path, e.g. /risk/). */
 const loc = typeof window !== 'undefined' ? window.location : { href: 'http://localhost/', protocol: 'http:', host: 'localhost' };
@@ -13,6 +14,20 @@ export class ApiError extends Error {
   ) {
     super(message);
   }
+}
+
+/** The X-Player-Key header when this browser holds a player key (only on the calls that take a seat). */
+function keyed(): Record<string, string> {
+  const key = getPlayerKey();
+  return key ? { 'x-player-key': key } : {};
+}
+
+/** A registered player (POST /api/players, GET /api/players/me). `key` only right after issuing or rotating. */
+export interface PlayerInfo {
+  playerId: string;
+  name: string;
+  createdAt: number;
+  key?: string;
 }
 
 async function request<T>(path: string, init: RequestInit = {}, token?: string): Promise<T> {
@@ -225,15 +240,15 @@ export const api = {
   createTournament: (spec: CreateTournamentRequest) => request<{ hostToken: string; tournament: TournamentView }>('/tournaments', { method: 'POST', body: JSON.stringify(spec) }),
   startTournament: (id: string, hostToken: string) => request<{ tournament: TournamentView }>(`/tournaments/${id}/start`, { method: 'POST', body: '{}' }, hostToken),
   quickPlayJoin: (playerName: string, map: string, seats: number, fog: boolean) =>
-    request<{ token: string; ticket: QuickPlayTicket }>('/queue', { method: 'POST', body: JSON.stringify({ playerName, map, seats, fog }) }),
+    request<{ token: string; ticket: QuickPlayTicket }>('/queue', { method: 'POST', headers: keyed(), body: JSON.stringify({ playerName, map, seats, fog }) }),
   quickPlayWait: (ticket: string, token: string, timeoutMs: number) =>
     request<{ ticket: QuickPlayTicket }>(`/queue/${encodeURIComponent(ticket)}?timeoutMs=${timeoutMs}`, {}, token),
   quickPlayLeave: (ticket: string, token: string) => request(`/queue/${encodeURIComponent(ticket)}`, { method: 'DELETE' }, token),
   listGames: () => request<{ games: GameSummary[] }>('/games'),
   createGame: (playerName: string, gameName: string, options: Partial<GameOptions>) =>
-    request<JoinResponse>('/games', { method: 'POST', body: JSON.stringify({ playerName, gameName, options }) }),
+    request<JoinResponse>('/games', { method: 'POST', headers: keyed(), body: JSON.stringify({ playerName, gameName, options }) }),
   joinGame: (gameId: string, playerName: string) =>
-    request<JoinResponse>(`/games/${gameId}/join`, { method: 'POST', body: JSON.stringify({ playerName }) }),
+    request<JoinResponse>(`/games/${gameId}/join`, { method: 'POST', headers: keyed(), body: JSON.stringify({ playerName }) }),
   getGame: (gameId: string, token?: string) =>
     request<{ state: GameView; host: string; name: string; playerId: string | null }>(`/games/${gameId}`, {}, token),
   addBot: (gameId: string, token: string, kind: 'bot' | 'zerg' = 'bot') =>
@@ -251,7 +266,10 @@ export const api = {
   nextTournament: () => request<NextTournament>('/tournaments/next'),
   getTournament: (id: string, token?: string) => request<{ tournament: TournamentView }>(`/tournaments/${id}`, {}, token),
   joinTournament: (id: string, playerName: string) =>
-    request<{ entrantId: string; token: string; tournament: TournamentView }>(`/tournaments/${id}/join`, { method: 'POST', body: JSON.stringify({ playerName }) }),
+    request<{ entrantId: string; token: string; tournament: TournamentView }>(`/tournaments/${id}/join`, { method: 'POST', headers: keyed(), body: JSON.stringify({ playerName }) }),
+  registerPlayer: (name: string) => request<PlayerInfo>('/players', { method: 'POST', body: JSON.stringify({ name }) }),
+  playerMe: (key: string) => request<PlayerInfo>('/players/me', { headers: { 'x-player-key': key } }),
+  rotatePlayerKey: (key: string) => request<PlayerInfo>('/players/me/rotate', { method: 'POST', headers: { 'x-player-key': key }, body: '{}' }),
   waitTournament: (id: string, since: number, token?: string) =>
     request<{ reason: string; tournament: TournamentView }>(`/tournaments/${id}/wait?since=${since}&timeoutMs=25000`, {}, token),
   act: (gameId: string, token: string, action: Action) =>

@@ -562,7 +562,8 @@ class Group:
         e, dev, B, r = self.e, self.dev, self.B, self.r
         ar = torch.arange(B, device=dev)
         self.btag = torch.zeros(B, dtype=torch.int8, device=dev)  # this step's branch tag per game (Recorder)
-        kq = max([b.cfg.options for b in self.branches.values()] or [1])
+        # columns: the most options any branch seat compares (a Gumbel root's candidates, gumbel_k, can be more)
+        kq = max([b.cfg.gumbel_k if b.cfg.root == "gumbel" else b.cfg.options for b in self.branches.values()] or [1])
         self.bq_opts = torch.full((B, kq), -1, dtype=torch.long, device=dev)  # this step's branch options and mean scores
         self.bq_means = torch.full((B, kq), float("nan"), dtype=torch.float64, device=dev)
         torch.cuda.reset_peak_memory_stats(dev)

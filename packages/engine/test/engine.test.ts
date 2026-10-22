@@ -1382,15 +1382,15 @@ describe('hexworld map (Hex Earth)', () => {
   });
 
   it('holds its regions at chokepoints: the exact entry territories', () => {
-    expect(entries('central_america')).toEqual(['caribbean', 'central_america', 'mexico']);
-    expect(entries('south_america')).toEqual(['brazil', 'colombia', 'venezuela']);
-    expect(entries('south_asia')).toEqual(['bengal', 'india']);
-    expect(entries('oceania')).toEqual(['hawaii', 'queensland', 'western_australia']);
-    expect(entries('southern_africa')).toEqual(['congo', 'mozambique', 'zambia']);
-    expect(entries('europe')).toEqual(['balkans', 'eastern_europe', 'iberia', 'iceland', 'italy', 'scandinavia']);
+    expect(entries('central_america')).toEqual(['caribbean', 'isthmus', 'mexico']);
+    expect(entries('south_america')).toEqual(['brazilian_highlands', 'colombia', 'orinoco']);
+    expect(entries('south_asia')).toEqual(['bengal', 'deccan']);
+    expect(entries('oceania')).toEqual(['hawaii', 'queensland', 'western_plateau']);
+    expect(entries('southern_africa')).toEqual(['congo_basin', 'mozambique', 'zambia']);
+    expect(entries('europe')).toEqual(['balkans', 'eastern_europe', 'fennoscandia', 'iberia', 'iceland', 'italy']);
     expect(entries('middle_east')).toEqual(['arabia', 'caucasus', 'levant', 'persia', 'turkey']);
     // Panama joins the Americas by land; the Red Sea, the Black Sea and the Caspian stay water.
-    expect(m.adjacency.central_america).toEqual(expect.arrayContaining(['mexico', 'colombia']));
+    expect(m.adjacency.isthmus).toEqual(expect.arrayContaining(['mexico', 'colombia']));
     expect(m.adjacency.caucasus).not.toContain('kazakhstan');
     expect(m.adjacency.arabia).not.toContain('sudan');
   });
@@ -1398,8 +1398,8 @@ describe('hexworld map (Hex Earth)', () => {
   it('reaches its islands by sea, and has symmetric, connected adjacency', () => {
     const sea = new Set(m.seaLinks.map((l) => [l.a, l.b].sort().join('|')));
     const bySea = (a: string, b: string) => sea.has([a, b].sort().join('|'));
-    expect(bySea('western_us', 'hawaii') && bySea('hawaii', 'new_zealand')).toBe(true);
-    expect(bySea('brazil', 'west_africa') && bySea('alaska', 'kamchatka') && bySea('kamchatka', 'japan')).toBe(true);
+    expect(bySea('great_basin', 'hawaii') && bySea('hawaii', 'new_zealand')).toBe(true);
+    expect(bySea('brazilian_highlands', 'west_africa') && bySea('beringia', 'far_east') && bySea('far_east', 'japan')).toBe(true);
     for (const isle of ['hawaii', 'new_zealand', 'japan', 'philippines', 'madagascar', 'caribbean']) expect(m.adjacency[isle].every((n) => bySea(isle, n))).toBe(true);
     for (const t of m.territoryIds) for (const n of m.adjacency[t]) expect(m.adjacency[n]).toContain(t);
     const seen = new Set<string>([m.territoryIds[0]]);

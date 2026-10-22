@@ -37,12 +37,14 @@ Hex Earth ("hexworld"): the real world on a globe tiled by hexagons, 80 territor
 each territory is a cluster of hexes (one for small islands and countries). North America +6, Central America +2,
 South America +4, Europe +7, Russia +5, Middle East +5, Central Asia +4, South Asia +2, East Asia +6, Southeast Asia
 +4, Oceania +3 (Australia, New Zealand and Hawaii), North Africa +5, East Africa +5, Southern Africa +4. Land borders
-are touching hexes; 25 sea links cross the oceans (Bering, Greenland-Iceland-Britain, the Caribbean, Brazil-West
-Africa, Sicily-Tunisia, Madagascar, Japan, the islands down to Australia, and a Pacific route from the Western US
-through Hawaii to New Zealand). Being a globe, it wraps everywhere; the flat view joins Alaska and Kamchatka.
+are touching hexes; 25 sea links cross the oceans (Beringia-Far East over the Bering Strait, Greenland-Iceland-
+Britain, the Caribbean, Brazilian Highlands-West Africa, Sicily-Tunisia, Madagascar, Japan, the islands down to
+Australia, and a Pacific route from the Great Basin through Hawaii to New Zealand). Territories carry general
+real-world area names (Great Plains, Andes, Sahel, Gobi ...). Being a globe, it wraps everywhere; the flat view joins
+Beringia and the Far East.
 Use the "map" tool for the exact territories, regions and adjacency of the map a game is using. On the classic,
-World, Grand World and Hex Earth maps Alaska and Kamchatka are adjacent (the map wraps); on every map some adjacencies
-cross water.
+World and Grand World maps Alaska and Kamchatka are adjacent, as are Beringia and the Far East on Hex Earth (the map
+wraps); on every map some adjacencies cross water.
 
 PLAYERS & STARTING ARMIES
 Classic: 2 players: 40 each (plus a 40-army Neutral that never attacks). 3: 35. 4: 30. 5: 25. 6: 20.

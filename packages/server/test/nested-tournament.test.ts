@@ -200,21 +200,22 @@ describe('nested tournaments', () => {
       expect(view.champion.entrantId).toBe(t.champion);
       expect(view.rounds[1].matches[0].status).toMatch(/finished|decided/);
 
-      // The tournament board (#183): one result per entrant; a decided table's win is worth +1, a played-out one +2;
-      // the champion of a 2-round event with a final of 10 scores 3 + 2 × 9 + 6 = 27 for placement.
+      // The tournament board (#183): one result per person (the 37 built-in fill bots stay off it, owner's decision);
+      // a decided table's win is worth +1, a played-out one +2; a champion of this 2-round event with a final of 10
+      // scores 3 + 2 × 9 + 6 = 27 for placement.
       const board = (await call('/rankings?board=tournament')).body.rankings;
-      expect(board).toHaveLength(40);
+      expect(board.map((r: any) => r.name).sort()).toEqual(['Ada', 'Claude', 'Grace']);
       const result = store.tournamentBoard.result(id)!;
       expect(result).toMatchObject({ format: 'nested', rounds: 2 });
       const tablePoints = (eid: string) =>
         t.rounds.flatMap((r) => r.matches).filter((m) => m.winner === eid && (m.status === 'finished' || m.status === 'decided')).reduce((n, m) => n + (m.status === 'decided' ? 1 : 2), 0);
-      for (const e of t.entrants) {
+      for (const e of t.entrants.filter((x) => !x.isBot)) {
         const r = result.entrants.find((x) => x.name === e.name)!;
         expect(r.tablePoints).toBe(tablePoints(e.id));
+        if (e.id === t.champion) expect(r).toMatchObject({ champion: true, placementPoints: 27, final: { place: 1, of: 10 } });
+        else if (final.entrants.includes(e.id)) expect(r.placementPoints).toBe(3 + 2 * (10 - r.final!.place));
+        else expect(r.placementPoints).toBe(0);
       }
-      const champ = result.entrants.find((x) => x.champion)!;
-      expect(champ).toMatchObject({ name: t.entrants.find((e) => e.id === t.champion)!.name, placementPoints: 27, final: { place: 1, of: 10 } });
-      for (const m of decided) expect(result.entrants.find((x) => x.name === t.entrants.find((e) => e.id === m.winner)!.name)!.tablesWon).toBeGreaterThanOrEqual(1);
       // Tournament tables never land on the public board.
       expect((await call('/rankings')).body.rankings).toEqual([]);
     } finally {

@@ -35,9 +35,9 @@ afterEach(async () => {
 });
 
 /** A registered player seated by quick play (with their key) at a 2-seat table with one Zerg. */
-async function seated(fog = false) {
+async function seated(fog = false, map = 'classic') {
   const player = (await call('/players', { body: { name: 'Coachee' } })).body;
-  const joined = (await call('/queue', { key: player.key, body: { seats: 2, fog } })).body;
+  const joined = (await call('/queue', { key: player.key, body: { seats: 2, fog, map } })).body;
   const ticket = (await call(`/queue/${joined.ticket.ticket}?timeoutMs=5000`, { token: joined.token })).body.ticket;
   expect(ticket.status).toBe('seated');
   const room = risk.store.get(ticket.gameId)!;
@@ -101,13 +101,20 @@ describe('live coach channel (quick play)', () => {
   });
 
   it("the coach's page gets the seat's view, fog applied, never the whole board", async () => {
-    const g = await seated(true);
+    // A big board for two seats, so fog really hides territories from the seat.
+    const g = await seated(true, 'world_large');
     const r = await call(`/games/${g.gameId}/coach`, { key: g.key });
     expect(r.status).toBe(200);
     expect(r.body.seat).toBe(g.seat);
     expect(r.body.state.you).toBe(g.seat);
-    expect(JSON.stringify(r.body.state.territories)).toBe(JSON.stringify(g.room.view(g.seat).territories));
-    expect(JSON.stringify(r.body.state.territories)).not.toBe(JSON.stringify(g.room.spectatorView().territories));
+    const seat = g.room.view(g.seat).territories as Record<string, unknown>;
+    const whole = g.room.spectatorView().territories as Record<string, unknown>;
+    const coach = r.body.state.territories as Record<string, unknown>;
+    expect(JSON.stringify(coach)).toBe(JSON.stringify(seat));
+    // Every territory the seat's fog hides is hidden from the coach too (the seat's version, not the whole board's).
+    const hidden = Object.keys(whole).filter((id) => JSON.stringify(seat[id]) !== JSON.stringify(whole[id]));
+    expect(hidden.length).toBeGreaterThan(0);
+    for (const id of hidden) expect(coach[id], id).toEqual(seat[id]);
   });
 
   it('files the notes in the game record as private notes', async () => {

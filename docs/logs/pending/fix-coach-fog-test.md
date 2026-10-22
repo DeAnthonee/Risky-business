@@ -1,0 +1,1 @@
+server: - 2026-10-22 #273 coach test: the fog check plays on World Large (two seats) and checks every territory the seat cannot see is hidden from the coach too (it was flaky when the seat saw the whole board)

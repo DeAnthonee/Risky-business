@@ -1,12 +1,13 @@
 import { createServer, type Server } from 'node:http';
 import { monitorEventLoopDelay } from 'node:perf_hooks';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import cors from 'cors';
 import { WebSocket } from 'ws';
 import { Store } from './store.js';
+import { OG_IMAGE_CACHE, OgImages, ogTags, withOgTags } from './og.js';
 import { createApi } from './http.js';
 import { attachWebSocket } from './ws.js';
 import { buildInfo } from './build-info.js';
@@ -92,6 +93,18 @@ export function createRiskServer(store: Store, opts: AppOptions = {}): RiskServe
     res.setHeader('Cache-Control', 'no-store');
     next();
   });
+  // Link previews: the board picture for a shared game link. The one /api route a cache may keep, for a minute
+  // (crawlers fetch it rarely; the page's og:image URL carries the game version, so a new move is a new URL).
+  const ogImages = new OgImages();
+  app.get('/api/og/game/:file', (req, res, next) => {
+    const m = /^([A-Za-z0-9]+)\.png$/.exec(String(req.params.file));
+    const room = m ? store.get(m[1]) : undefined;
+    if (!room || room.closed || room.state.phase === 'lobby') return res.status(404).json({ error: 'Game not found' });
+    ogImages
+      .gamePng(room)
+      .then((png) => res.setHeader('Cache-Control', OG_IMAGE_CACHE).type('image/png').send(png))
+      .catch(next);
+  });
   const characters = opts.characters ?? new CharacterStore(DEFAULT_AI_DIR, null);
   app.use('/api', createApi(store, { adminToken: opts.adminToken, recordsKey: opts.recordsKey, openTournaments: opts.openTournaments ?? true, characters, seasonKey: opts.seasonKey, seasonGuard: opts.seasonGuard, seasonLockFile: opts.seasonLockFile }));
   if (opts.sweepIntervalMs !== 0) store.startSweeper(opts.sweepIntervalMs ?? 30_000);
@@ -161,11 +174,13 @@ export function createRiskServer(store: Store, opts: AppOptions = {}): RiskServe
       }),
     );
     // SPA entry + history fallback: always revalidated so a new deploy is picked up on next load.
-    app.get(/^(?!\/api|\/ws|\/healthz|\/mcp).*/, (_req, res) => {
+    // The page carries link-preview tags for the game or tournament in its query (og:/twitter:, see og.ts). The built
+    // index.html is read once; absolute URLs come from this request (no hard-coded host).
+    const indexHtml = readFileSync(join(clientDir, 'index.html'), 'utf8');
+    app.get(/^(?!\/api|\/ws|\/healthz|\/mcp).*/, (req, res) => {
       noCache(res);
-      // Relative path + root: `send` dot-checks only 'index.html', so a checkout under a dot-folder
-      // (e.g. .claude/worktrees/...) does not 404.
-      res.sendFile('index.html', { root: clientDir });
+      const origin = `${req.protocol}://${req.get('host')}`;
+      res.type('html').send(withOgTags(indexHtml, ogTags(store, req.query, origin)));
     });
   } else {
     app.get('/', (_req, res) =>

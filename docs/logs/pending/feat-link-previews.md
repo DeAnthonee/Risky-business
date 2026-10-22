@@ -1,0 +1,3 @@
+server: - 2026-10-22 #PR link previews: the SPA fallback injects og:/twitter: tags for `/?game=`, `/?tournament=` and the home page (escaped, no-cache, origin from the request); `GET /api/og/game/:id.png` renders the board (owner colours, army dots except under fog) with `@resvg/resvg-wasm` 2.6.2 (pinned, lazy-loaded), cached per game version, `public, max-age=60` (the one cacheable /api route)
+client: - 2026-10-22 #PR a 🔗 Share button on the game and tournament pages (share sheet on touch devices, else copies the link); replaces "Copy watch link"
+hosting: - 2026-10-22 #PR new server dependency `@resvg/resvg-wasm` 2.6.2 (WASM, no native build); `/api/og/game/:id.png` is cacheable for 60 s

@@ -77,7 +77,14 @@ Behaviour that the deploy pipeline relies on:
 - **Graceful shutdown.** SIGTERM/SIGINT: save, close WebSocket clients, release long-polls, close the
   HTTP server, exit 0 — typically well under a second, hard limit `RISK_SHUTDOWN_TIMEOUT_MS`.
 - **Caching.** `index.html` and the SPA fallback are `Cache-Control: no-cache`; Vite's hashed
-  `/assets/*` are `public, max-age=31536000, immutable`; `/api/*` and `/healthz` are `no-store`.
+  `/assets/*` are `public, max-age=31536000, immutable`; `/api/*` and `/healthz` are `no-store`, with one
+  exception: the link-preview picture `GET /api/og/game/:id.png` is `public, max-age=60`, so link crawlers can keep
+  it (its URL in the page carries the game version, so a new move is a new URL).
+- **Link previews.** The SPA fallback serves `index.html` with Open Graph and Twitter tags for `/?game=ID`,
+  `/?tournament=ID` and the home page (still `no-cache`); absolute URLs come from the request's protocol and host
+  (`trust proxy` is on, so `X-Forwarded-Proto` counts), never a hard-coded name. The board picture is rendered by
+  `@resvg/resvg-wasm` (WASM, no native binary; loaded on the first picture, so startup and memory stay lean) and kept
+  in memory per game version (the 100 most recent games), one render per move at most.
   The client also shows a "new version available — reload" prompt when the server's build commit
   differs from the page's.
 - **Proxying.** The server speaks plain HTTP/ws; TLS terminates at the edge. The client uses relative

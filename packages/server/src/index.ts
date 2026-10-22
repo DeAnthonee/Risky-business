@@ -64,6 +64,10 @@ const risk = createRiskServer(store, {
   // Hosting codes and caps (values never printed). Open mode (no code needed) is on by default only while no code is set.
   tourneyAccess,
   tourneyAccessFile: DATA_DIR ? join(DATA_DIR, 'tournament-access.json') : null,
+  // The Delove seat pool's key (never printed); unset = Delove seats on request off.
+  seatPoolKey: process.env.RISK_SEAT_POOL_KEY || null,
+  seatRequestsFile: DATA_DIR ? join(DATA_DIR, 'seat-requests.json') : null,
+  seatPoolLockFile: DATA_DIR ? join(DATA_DIR, 'seat-pool-lockout.json') : null,
   openTournaments: openModeFromEnv(process.env, tourneyAccess),
   // The site's "Archive season" button: unset = off.
   seasonKey: process.env.RISK_SEASON_KEY || null,
@@ -85,6 +89,7 @@ risk.server.listen(PORT, HOST, () => {
   console.log(`  characters: ${risk.characters.writable ? 'saves need the write key' : 'read-only (set RISK_CHARACTERS_KEY to allow saves)'}`);
   console.log(`  schedule:  ${scheduleNote}`);
   console.log(`  hosting:   ${tourneyAccess.adminCode || tourneyAccess.limitedCode ? 'creating tournaments needs a hosting code' : 'no hosting codes set'}`);
+  console.log(`  seat pool: ${process.env.RISK_SEAT_POOL_KEY ? 'Delove seats on request are on (the pool needs its key)' : 'off (set RISK_SEAT_POOL_KEY)'}`);
   console.log(`  client:    ${CLIENT_DIR}`);
 });
 

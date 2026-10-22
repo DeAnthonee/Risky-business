@@ -16,6 +16,7 @@ import { nameSkeleton } from './player-keys.js';
 import { CharacterStore } from './characters.js';
 import type { SeasonKeyGuard } from './season-key.js';
 import { NO_TOURNEY_CAPS, TournamentAccess, type TourneyAccessConfig } from './tournament-access.js';
+import { SeatRequests } from './seat-requests.js';
 import { TournamentScheduler, type ScheduleEntry } from './tournament-schedule.js';
 
 export interface AppOptions {
@@ -38,6 +39,11 @@ export interface AppOptions {
   tourneyAccess?: Partial<TourneyAccessConfig>;
   /** Where the day's create counts and wrong code tries are saved (under RISK_DATA_DIR). */
   tourneyAccessFile?: string | null;
+  /** RISK_SEAT_POOL_KEY: the Delove seat pool's key for /api/seat-requests (unset = Delove seats on request off). */
+  seatPoolKey?: string | null;
+  /** Where the seat requests and the pool's wrong-key lockout are saved (under RISK_DATA_DIR). */
+  seatRequestsFile?: string | null;
+  seatPoolLockFile?: string | null;
   /** RISK_SEASON_KEY: lets the site archive the public leaderboard's season with this password (unset = off). */
   seasonKey?: string | null;
   /** Where the season-key lockout is saved (under RISK_DATA_DIR). */
@@ -126,12 +132,16 @@ export function createRiskServer(store: Store, opts: AppOptions = {}): RiskServe
   // The brake reads only a finished minute's p99, so it acts on lag that stayed high, not on a start-up blip.
   const tourneyAccess = new TournamentAccess(store.tournaments, opts.tourneyAccess ?? NO_TOURNEY_CAPS, opts.tourneyAccessFile ?? null, () => lastMinuteLagMs ?? 0);
   if (opts.sweepIntervalMs !== 0) tourneyAccess.startSweeper();
-  app.use('/api', createApi(store, { adminToken: opts.adminToken, recordsKey: opts.recordsKey, openTournaments: opts.openTournaments ?? true, tourneyAccess, characters, seasonKey: opts.seasonKey, seasonGuard: opts.seasonGuard, seasonLockFile: opts.seasonLockFile }));
+  // Delove seats on request: the pool claims seats; unfilled ones become Zergs at the start; the preview shows the pool.
+  const seatRequests = new SeatRequests(store.tournaments, tourneyAccess.config, opts.seatPoolKey ?? null, opts.seatRequestsFile ?? null, opts.seatPoolLockFile ?? null);
+  store.tournaments.beforeStart = (t) => seatRequests.onStart(t);
+  store.tournaments.delovePool = seatRequests.enabled ? () => seatRequests.pool() : null;
+  app.use('/api', createApi(store, { adminToken: opts.adminToken, recordsKey: opts.recordsKey, openTournaments: opts.openTournaments ?? true, tourneyAccess, seatRequests, characters, seasonKey: opts.seasonKey, seasonGuard: opts.seasonGuard, seasonLockFile: opts.seasonLockFile }));
   if (opts.sweepIntervalMs !== 0) store.startSweeper(opts.sweepIntervalMs ?? 30_000);
   if (opts.tournamentSchedule?.length) store.schedule = new TournamentScheduler(store.tournaments, opts.tournamentSchedule, opts.scheduleFile ?? null);
 
   // Remote MCP endpoint for AI agents (claude.ai connectors, any Streamable HTTP MCP client).
-  const mcp = createMcpRouter(store, characters, opts.mcpLabel ?? 'Risky Business', opts.adminToken ?? null, opts.openTournaments ?? true, tourneyAccess);
+  const mcp = createMcpRouter(store, characters, opts.mcpLabel ?? 'Risky Business', opts.adminToken ?? null, opts.openTournaments ?? true, tourneyAccess, seatRequests);
   app.use('/mcp', mcp.router);
 
   // Event-loop lag for /healthz: a histogram read and reset every minute.

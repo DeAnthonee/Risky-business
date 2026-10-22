@@ -84,9 +84,9 @@ export interface TournamentInfo {
   version: number;
   format?: 'knockout' | 'nested';
   nested?: { finalMap: string | null; territoriesPerSeat: number; roundMinutes: number; finishShare: number; botDelayMs?: number | null; plan: number[][] | null; zergs: number };
-  you?: { entrantId: string; name: string; status: string; match: { gameId: string; playerId: string; token: string; round: number } | null };
+  you?: { entrantId: string; name: string; status: string; match: { gameId: string; playerId: string; token: string; round: number } | null; checkedIn?: boolean };
   /** Made by the server's schedule: when it starts, and why it was called off, if it was. */
-  scheduled?: { startsAt: number; cancelled?: string };
+  scheduled?: { startsAt: number; cancelled?: string; checkinMinutes?: number; checkedIn?: number; noShows?: number };
 }
 
 /** The server's next scheduled tournament (GET /tournaments/next); everything null when it has no schedule. */
@@ -130,6 +130,8 @@ export interface TournamentPreviewInfo {
   firstRound: { seats: number; people: number; zergs: number }[];
   timer: { mode: string; seconds: number } | null;
   minutes: { low: number; high: number; perRound: number };
+  /** The Delove seat pool now: null when none is set up. */
+  delovePool?: { online: boolean; free: number; freeSearch: number } | null;
   warnings: string[];
 }
 

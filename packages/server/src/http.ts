@@ -20,8 +20,9 @@ import { narrate, playByPlayText } from './playbyplay.js';
 import type { CharacterStore } from './characters.js';
 import type { CreateTournamentSpec } from './tournaments.js';
 import { NO_TOURNEY_CAPS, TournamentAccess } from './tournament-access.js';
+import { NO_SEAT_CAPS, SeatRequests, type SeatRequest } from './seat-requests.js';
 import { SeasonKeyGuard } from './season-key.js';
-import { RateLimitedError } from './rate-limit.js';
+import { RateLimitedError, RateLimiter } from './rate-limit.js';
 import { PLAYER_KEY_HEADER, PlayerKeyLimitError, type PlayerAccount } from './player-keys.js';
 import { QuickPlayBusyError } from './quick-play.js';
 
@@ -79,6 +80,8 @@ export interface ApiOptions {
   openTournaments?: boolean;
   /** Hosting codes, caps and expiry (tournament-access.ts); defaults to no codes and the default caps. */
   tourneyAccess?: TournamentAccess;
+  /** Delove seats on request (seat-requests.ts); unset = no pool (the routes answer 404). */
+  seatRequests?: SeatRequests;
   /** RISK_SEASON_KEY: the password that archives the public leaderboard's season from the site (unset = off). */
   seasonKey?: string | null;
   /** Where the season-key lockout is saved (under RISK_DATA_DIR), so a restart does not reset it. */
@@ -92,6 +95,7 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
   api.use(express.json({ limit: '64kb' }));
   const seasonGuard = opts.seasonGuard ?? new SeasonKeyGuard(opts.seasonKey, undefined, undefined, opts.seasonLockFile ?? null);
   const access = opts.tourneyAccess ?? new TournamentAccess(store.tournaments, NO_TOURNEY_CAPS);
+  const seatReqs = opts.seatRequests ?? new SeatRequests(store.tournaments, NO_SEAT_CAPS);
 
   const wrap =
     (fn: (req: Req, res: Response) => Promise<unknown> | unknown) => (req: Request, res: Response, next: NextFunction) => {
@@ -550,7 +554,13 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
   api.post(
     '/admin/tournaments',
     requireAdmin,
-    wrap((req, res) => created(res, store.tournaments.create(parseTournamentSpec(req.body ?? {}, true)))),
+    wrap((req, res) => {
+      const spec = parseTournamentSpec(req.body ?? {}, true);
+      seatReqs.checkCreate('key', spec.delove);
+      const t = store.tournaments.create(spec);
+      seatReqs.openFor(t);
+      created(res, t);
+    }),
   );
   api.post(
     '/admin/tournaments/:id/start',
@@ -583,11 +593,43 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
     wrap((req, res) => {
       const { code, ...body } = (req.body ?? {}) as Record<string, unknown>;
       const tier = access.hostTier(req.ip ?? '', code, !!opts.openTournaments);
-      const t = store.tournaments.create(access.checkCreate(tier, parseTournamentSpec(body)));
+      const spec = access.checkCreate(tier, parseTournamentSpec(body));
+      seatReqs.checkCreate(tier, spec.delove);
+      const t = store.tournaments.create(spec);
       access.recordCreate(tier, t.id);
+      seatReqs.openFor(t);
       created(res, t);
     }),
   );
+
+  // ---- Delove seats on request: the seat-pool daemon (RISK_SEAT_POOL_KEY in x-seat-pool-key) polls, claims, reports ----
+  const pool = (req: Request) => seatReqs.authorize(req.ip ?? '', req.headers['x-seat-pool-key']);
+  const num = (v: unknown) => (typeof v === 'string' && v !== '' ? Number(v) : undefined);
+  // Each poll carries the pool's free capacity (?free=&freeSearch=); it answers the open requests and the pool as kept.
+  api.get(
+    '/seat-requests',
+    wrap((req, res) => {
+      pool(req);
+      if (req.query.free !== undefined || req.query.freeSearch !== undefined) seatReqs.report(num(req.query.free), num(req.query.freeSearch));
+      res.json({ requests: seatReqs.list(typeof req.query.kind === 'string' ? req.query.kind : undefined), pool: seatReqs.pool() });
+    }),
+  );
+  api.post(
+    '/seat-requests/:id/claim',
+    wrap((req, res) => {
+      pool(req);
+      res.json(seatReqs.claim(String(req.params.id), (req.body as { n?: unknown } | undefined)?.n));
+    }),
+  );
+  for (const outcome of ['done', 'failed'] as const)
+    api.post(
+      `/seat-requests/:id/${outcome}`,
+      wrap((req, res) => {
+        pool(req);
+        const body = (req.body ?? {}) as { joined?: unknown; reason?: unknown };
+        res.json({ request: seatReqs.finish(String(req.params.id), outcome, body.joined, body.reason) });
+      }),
+    );
 
   // The tournament's own host: its host token, or the admin key. Tournaments saved before host tokens are admin-only.
   function requireTournamentHost(req: Request, res: Response, next: NextFunction) {
@@ -645,6 +687,43 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
     wrap((req, res) => {
       store.tournaments.delete(String(req.params.id));
       res.json({ ok: true });
+    }),
+  );
+
+  // ---- live coach channel (quick play, coach.ts): the seat's owner, proven by their player key ----
+  const coachLimiter = new RateLimiter(30, 60_000);
+  /** The seat in this room that the key's player owns and may coach; 401 without a key, 403 otherwise. */
+  function coachSeat(room: GameRoom, req: Request): string {
+    const player = playerOf(req);
+    if (!player) throw new RiskHttpError('Coaching needs your player key in the X-Player-Key header', 401);
+    if (!room.quickPlay) throw new RiskHttpError('Coaching is for quick-play games only', 403);
+    const seat = Object.entries(room.playerKeys).find(([, id]) => id === player.id)?.[0];
+    if (!seat) throw new RiskHttpError('Your player key has no seat in this game', 403);
+    return seat;
+  }
+  api.post(
+    '/games/:id/coach',
+    loadRoom,
+    wrap((req, res) => {
+      if (!coachLimiter.take(req.ip ?? 'unknown')) throw new RateLimitedError('Too many coach notes: slow down');
+      const room = req.room!;
+      const seat = coachSeat(room, req);
+      room.addCoachNote(seat, req.body?.text);
+      res.status(201).json({ seat, notes: room.coach.notes.filter((n) => n.player === seat).map((n) => ({ text: n.text, at: n.at })) });
+    }),
+  );
+  // The coach's own page: the coached seat's view (fog applied: in a fog game the coach sees what the seat sees, not the
+  // whole board) and the notes sent. Long-polls like /wait with since/timeoutMs; it never counts as the seat being present.
+  api.get(
+    '/games/:id/coach',
+    loadRoom,
+    wrap(async (req, res) => {
+      const room = req.room!;
+      const seat = coachSeat(room, req);
+      const timeoutMs = Math.min(Math.max(Number(req.query.timeoutMs ?? 0) || 0, 0), 60_000);
+      const since = req.query.since !== undefined ? Number(req.query.since) : undefined;
+      if (since !== undefined && timeoutMs > 0) await room.waitFor(null, since, timeoutMs);
+      res.json({ seat, state: room.view(seat), notes: room.coach.notes.filter((n) => n.player === seat).map((n) => ({ text: n.text, at: n.at })) });
     }),
   );
 
@@ -718,6 +797,7 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
     '/tournaments/:id',
     wrap((req, res) => {
       if (!store.tournaments.get(String(req.params.id))) return res.status(404).json({ error: 'Tournament not found' });
+      store.tournaments.checkIn(String(req.params.id), tokenOf(req));
       res.json({ tournament: store.tournaments.view(String(req.params.id), tokenOf(req)) });
     }),
   );
@@ -725,10 +805,20 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
     '/tournaments/:id/join',
     wrap((req, res) => {
       if (!store.tournaments.get(String(req.params.id))) return res.status(404).json({ error: 'Tournament not found' });
+      const id = String(req.params.id);
+      // The joiner (this IP) is counted against the pre-registration cap of scheduled tournaments.
       const player = playerOf(req);
       const name = store.playerKeys.seatName(String(req.body?.playerName ?? req.body?.name ?? ''), player);
-      const { entrantId, token } = store.tournaments.join(String(req.params.id), name, parseAgent(req.body?.agent), player ? { id: player.id, name: player.name } : undefined);
-      res.status(201).json({ entrantId, token, tournament: store.tournaments.view(String(req.params.id), token) });
+      // The Delove seat pool joins its claimed seats with seatRequestId and its key; those entrants are the request's.
+      // Anyone else is refused the pool's names in a tournament with a seat request.
+      let request: SeatRequest | null = null;
+      if (req.body?.seatRequestId !== undefined) {
+        pool(req);
+        request = seatReqs.checkBind(req.body.seatRequestId, id);
+      } else seatReqs.checkJoinName(id, name);
+      const { entrantId, token } = store.tournaments.join(id, name, parseAgent(req.body?.agent), player ? { id: player.id, name: player.name } : undefined, `ip:${req.ip ?? 'unknown'}`);
+      if (request) seatReqs.bind(request, entrantId);
+      res.status(201).json({ entrantId, token, tournament: store.tournaments.view(id, token) });
     }),
   );
   api.get(
@@ -738,6 +828,8 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
       if (!store.tournaments.get(id)) return res.status(404).json({ error: 'Tournament not found' });
       const timeoutMs = Math.min(Math.max(Number(req.query.timeoutMs ?? 30000), 0), 120_000);
       const since = req.query.since !== undefined ? Number(req.query.since) : undefined;
+      // Polling with an entrant token inside a scheduled tournament's check-in window checks that entrant in.
+      store.tournaments.checkIn(id, tokenOf(req));
       const reason = await store.tournaments.waitFor(id, since, timeoutMs);
       if (!store.tournaments.get(id)) return res.status(404).json({ error: 'Tournament not found' });
       res.json({ reason, tournament: store.tournaments.view(id, tokenOf(req)) });

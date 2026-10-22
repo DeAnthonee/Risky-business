@@ -93,13 +93,43 @@ testing gate (owner, 2026-10-22); player keys or sign-in replace them later. The
     becomes the smaller of that and the format's default); at most **200** seats reserved (the sum of `maxEntrants`)
     by all tournaments registering or running;
   - **20 creates** a UTC day, site-wide;
-  - **Delove seats**: 40 per admin tournament, 16 per limited one, 48 at once. These numbers are stored now; Delove
-    seats on request (P3) will enforce them.
+  - **Delove seats**: 40 per tournament with the admin code (or the admin key), 16 with the limited code or in open
+    mode, 48 held by open requests at once, and of those at most 20 searching at once
+    ([Delove seats on request](#delove-seats-on-request)). These apply to the admin key too: they guard the CPU box.
 - **Lag brake**: while the event loop's p99 lag over the last full minute (the `/healthz` `loopLagMs`) is above
   100 ms, creates answer **503** "The server is busy right now".
 - **Expiry**: a tournament never started is called off 24 h after it was made, and a scheduled one still registering
   2 h after its start (the schedule normally decides at the start). It ends with no rounds and no champion, and
   `scheduled.cancelled` says `expired: never started`. The server checks every 5 minutes.
+
+## Delove seats on request
+
+A tournament created with `delove: N` (the create form, `POST /api/tournaments`, MCP `create_tournament`) opens a
+**seat request** that training's seat-pool daemon fills. The daemon runs outside the server (README hard rule 10) and
+talks to it with its own key, `RISK_SEAT_POOL_KEY`, sent as the `x-seat-pool-key` header. Unset, Delove seats on
+request are off: the count is only stored, and an operator joins the seats (`npm run delove-seat`). The code is
+`server/src/seat-requests.ts`; the routes are in [http-api.md](http-api.md).
+
+- **A request** is `{id, kind: "delove", tournamentId, n, claimed, joined, labelPrefix: "Delove", fog, searchAllowed,
+  search, expiresAt, status}`. `searchAllowed` is true only with fog off (Delove's search is fog-off only), and
+  `expiresAt` is the scheduled start (null for a host-started tournament).
+- **Polling.** The daemon polls `GET /api/seat-requests?kind=delove&free=F&freeSearch=S`, sending its free capacity.
+  The server keeps the last report with its time; it's **stale after 2 minutes** ("pool offline").
+- **Claiming.** `POST /api/seat-requests/:id/claim {n}` answers `{tournamentId, n, search, labelPrefix, firstLabel,
+  options}`. `search` is how many of the claimed seats may run search (fog off, within 20 at once). The daemon joins
+  its seats with the ordinary join route plus `seatRequestId` and its key, as "Delove <firstLabel>", "Delove
+  <firstLabel + 1>" and so on: each entrant is **bound** to the request, at most one per claimed seat. Then it reports
+  `POST …/done {joined}` or `POST …/failed {joined, reason}`. A failed claim's unjoined seats go back to the request.
+- **The pool's names are its own** in a tournament with a seat request: any other join named "Delove …" (HTTP, MCP,
+  the site) is refused, so nobody can take or block a pool seat by name, and nobody can register a player under one
+  (`POST /api/players`). Elsewhere a seat's name stays free, for the
+  operator's `npm run delove-seat`.
+- **At the start**, the request closes. Delove seats not filled by then (only entrants bound to the request count)
+  become **Zerg entrants**, so the bracket holds.
+- **The preview** (`POST /api/tournaments/preview`, MCP `preview_tournament`, the create form) adds `delovePool:
+  {online, free, freeSearch}` (null with no pool) and a line: "Delove: K seats available now", or "Delove seat pool
+  offline".
+- **Wrong pool keys** are limited as the hosting codes are: 5 per IP, 50 from anyone, then an hour's lockout.
 
 ## Nested ("Inception") tournaments
 
@@ -112,8 +142,8 @@ round; the boards nest inside each other's territories (the map side: [maps.md](
   checked at create on every table size from 2 to 10 seats), `maxEntrants` (default 128), `botDelayMs` (the bots' pace
   at the tables, 0-2000 ms between moves, default 300). `groupSize` and `fillBots` do not apply.
 - **Seat counts** (create, any format): `zergs` (Zerg entrants, added in the same call), `delove` (Delove seats asked
-  for: **stored only** as `requested` on the tournament until the Delove seat pool joins on request; for now an
-  operator joins them with `npm run delove-seat`) and `open` (spots for people and agents). With any count,
+  for, kept as `requested`: they open a [seat request](#delove-seats-on-request) the Delove seat pool fills, and any
+  left at the start go to Zergs; with no pool set up, an operator joins them with `npm run delove-seat`) and `open` (spots for people and agents). With any count,
   `maxEntrants` defaults to their sum (a smaller `maxEntrants` is a 400). The tournament view shows `requested`.
 - **Preview** (`POST /api/tournaments/preview`, MCP `preview_tournament`): the same counts and nested settings, and
   **nothing is created**. It runs the planner and returns the rounds, tables and seats per round, the finalists (plus
@@ -169,10 +199,12 @@ round; the boards nest inside each other's territories (the map side: [maps.md](
 - **Moving up.** The next round is seated at once: each table's winner takes a seat at its parent table, which sits
   on the board whose territories hold the child tables ("portals", one per child, in different regions). The parent
   table starts with every winner **on the portal territory it came up through**: the engine's `startOnSpots` deals as
-  usual, then swaps each spot (owner and armies) with a territory its player was dealt, so everyone keeps the same
+  usual, then swaps each spot (owner and armies) with a territory its player was dealt (another player's spot not yet given out if that is all they hold), so everyone keeps the same
   share; a blizzard on a spot moves to a territory where the blizzard rule allows one (the open territories stay
-  connected and every continent keeps two open), or, with none left, thaws (and so do the blizzards next to it until
-  the open territories are one network again: a spot ringed by blizzards is never cut off). If that start cannot be built, the table
+  connected and every continent keeps two open), or, when no single territory will do (a spot whose only way out is another blizzard), the
+  whole set is drawn again, as many as before, where the rule allows and never on a spot; each territory that freezes
+  hands its holder and armies to one that thaws, so the count and the deal stay as they were (fewer blizzards only if
+  the board holds no more). If that start cannot be built, the table
   starts normally. The other entrants of a table are **out**: their `you.status` is `out` and `you.match` is `null`, and they
   can watch. The final's winner, or its first place on standing at the deadline, is the champion.
 - **Simulation: `npm run nested:sim`** (`scripts/nested-sim.mjs`, after `npm run build`). It plays a whole nested
@@ -215,7 +247,9 @@ The server can run nested tournaments on a timetable by itself (`packages/server
 - **An entry** (one object, or a list):
   - `at`: `"HH:MM"` every day, or `"Mon,Thu HH:MM"` on those days, always in **UTC**;
   - `name`;
-  - `signupMinutes` (sign-up opens this long before the start, 1-1440, default 60);
+  - `signupMinutes` (sign-up opens this long before the start, 1-10080, i.e. up to 7 days ahead; default 60);
+  - `checkinMinutes` (the check-in window, the last this-many minutes before the start, 1-60 and at most
+    `signupMinutes`; default 10);
   - `minEntrants` (people or agents needed at the start, 2-256, default 2: a nested tournament needs two players);
   - any [nested setting](#nested-inception-tournaments): `finalMap`, `maxEntrants`, `roundMinutes`,
     `territoriesPerSeat`, `finishShare`, `botDelayMs`, `options`.
@@ -227,8 +261,28 @@ The server can run nested tournaments on a timetable by itself (`packages/server
   token: it never leaves the server, and the admin key can still delete the tournament. It is listed like any
   other, with `scheduled.startsAt` in the bracket and `startsAt` in the list. People join on its page; agents use
   `next_tournament` and `join_tournament` (MCP) or `POST /tournaments/:id/join`.
+- **Pre-registration needs no code** (the owner's call). The entrant token `join_tournament` returns is the
+  registration code: keep it, it is the seat. One joiner holds at most `RISK_PREREG_PER_JOINER` (default 4) open
+  registrations across scheduled tournaments still registering; a fifth join answers 400. Site-wide, at most
+  `RISK_PREREG_PER_DAY` (default 500) registrations go into scheduled tournaments in any 24 h, because new MCP
+  sessions are free; past that, a join answers 429. The joiner is the IP for
+  HTTP, and the MCP session for `/mcp`, because claude.ai connectors share a few addresses. The count is kept in
+  memory, so a restart forgets it. Host-made tournaments are not capped (their hosts hold codes).
+- **Check-in.** In the last `checkinMinutes` before the start, an entrant checks in by polling the bracket with its
+  token: `wait_for_match` or `tournament_status` (MCP), `GET /tournaments/:id/wait` or `GET /tournaments/:id`, or the
+  tournament page left open (its long-poll). Joining inside the window also checks in.
+  - The bracket's `scheduled` has `checkinMinutes`, and `checkedIn` (a count) once the window is open.
+  - `you.checkedIn` says whether you are checked in.
+  - The Next tournament card shows "Checked in N / M".
+  - An agent that joins days ahead calls `reconnect_prompt` (MCP). It returns the start and the window in UTC and in
+    the user's time zone, the entrant code, the exact calls, and a line asking the agent to have its user schedule
+    the reconnect. Expect no-shows anyway: a chat that only answers when spoken to cannot schedule itself, and the
+    Zerg swap covers them.
+- **No-shows.** At the start, every person who has not checked in is a no-show. Each one is swapped in place for a Zerg
+  entrant before planning, so the count and the plan hold, and `scheduled.noShows` counts them. The no-show's token
+  then answers "<name> missed check-in for this tournament: the seat went to a Zerg (<Zerg name>)".
 - **Start.** At `startsAt` it starts on its own, and the nested start fills the empty seats with Zergs by the
-  planner's rule (above). If fewer than `minEntrants` people or agents joined, it is **called off**: finished, with no
+  planner's rule (above). If fewer than `minEntrants` people or agents **checked in**, it is **called off**: finished, with no
   rounds and no champion, and `scheduled.cancelled` is `"not enough entrants"`. A called-off tournament never reaches
   the tournament board. Each entry then moves on to its next time.
 - **It counts toward `RISK_MAX_ACTIVE_TOURNAMENTS`** like any tournament. If the cap is full at sign-up time, it
@@ -246,7 +300,8 @@ The server can run nested tournaments on a timetable by itself (`packages/server
 - **CPU.** One timer, set to the next sign-up or start; nothing polls.
 - **`GET /api/tournaments/next`** returns `{scheduled, next, running, cancelled}`:
   - `next`: the soonest slot, with its `id` once sign-up is open (`null` before), `name`, `startsAt`, `opensAt`,
-    `entrants` (people and agents, the count `minEntrants` is checked against), `maxEntrants`, `minEntrants`;
+    `checkinOpensAt`, `entrants` (people and agents), `checkedIn` (once the window is open: the count `minEntrants`
+    is checked against), `maxEntrants`, `minEntrants`;
   - `running`: a scheduled tournament being played;
   - `cancelled`: the latest one called off, until a later one starts.
 

@@ -92,6 +92,18 @@
   width: 100%;
 }
 
+/* Scheduled tournaments: your check-in. */
+.tourney-checkin {
+  padding: 6px 10px;
+  border: 2px dashed var(--ink);
+  background: #fff;
+  font-weight: 700;
+}
+.tourney-checkin.done {
+  border-style: solid;
+  background: var(--sun);
+}
+
 /* Entrants: name chips, the same as a game ticket's seats. */
 .tourney-seats li.playing,
 .tourney-seats li.waiting {

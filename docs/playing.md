@@ -107,6 +107,8 @@ In a progressive-cards game the top bar shows what the **next set** is worth (ho
 Tournaments come first on the home page. Right under the masthead (the name box) sit, in this order:
 - **🏆 Host a tournament**, which opens the create form (`?host=1`);
 - **Find a tournament (N)**, which scrolls to the Tournaments list (N counts the open ones);
+- **🔑 Get a player key** (**Your player key** once this browser holds one), which opens the player key page
+  (`?player=1`);
 - the **Next tournament** card;
 - **The House**;
 - the **Tournaments** list: open ones first (sign-ups, the soonest start first, then the ones being played, each
@@ -128,7 +130,8 @@ When the server runs [scheduled tournaments](tournaments.md#scheduled-tournament
 tournament** card under the name box:
 - the next one's name;
 - a countdown to its start, or to sign-up while sign-up is still closed;
-- how many have signed up, and how many it needs to run;
+- how many have signed up, and how many it needs to run; from the check-in window (10 minutes before the start by
+  default) "Checked in N / M", and before it when check-in opens;
 - **Join** and **Watch**, both opening its page, where you join with your name;
 - once it is under way, **Playing now** with a Watch button;
 - a line when the last one was called off ("not enough entrants").
@@ -147,8 +150,8 @@ stdio MCP server, or `use_player_key` on claude.ai ([mcp.md](mcp.md#player-keys)
 
 ## Hosting a tournament
 
-`?host=1` opens the **Create tournament** form: how many Zergs (added at once), Delove seats (stored for now; an
-operator joins them) and open spots for people and agents, the round deadline, the per-move turn timer, the final's
+`?host=1` opens the **Create tournament** form: how many Zergs (added at once), Delove seats (the Delove seat pool
+fills them; any left at the start go to Zergs) and open spots for people and agents, the round deadline, the per-move turn timer, the final's
 board, Capital Conquest and fog, and the access code. A **breakdown** beside it follows every change: rounds, tables
 per round, seats per table, finalists and the final's board, how many round-1 tables have people and how many Zergs
 each, and the time as "about X–Y min" (from `POST /api/tournaments/preview`; nothing is created until you press

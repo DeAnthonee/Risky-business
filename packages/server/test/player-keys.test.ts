@@ -83,7 +83,7 @@ describe('player keys', () => {
     const g = (await call('/games', { body: { playerName: 'Host', options: {} } })).body;
     expect((await call(`/games/${g.gameId}/join`, { body: { playerName: 'АDA' } })).status).toBe(400);
     // Server names, folded the same way.
-    for (const name of ['Bot 1', 'Bot l', 'Adm1n', 'NEUTRAL']) expect((await call('/players', { body: { name } })).status, name).toBe(400);
+    for (const name of ['Bot 1', 'Bot l', 'Adm1n', 'NEUTRAL', 'Dеlove 2']) expect((await call('/players', { body: { name } })).status, name).toBe(400);
   });
 
   it('limits issuing per IP and in total, and the counts survive a restart', async () => {

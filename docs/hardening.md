@@ -19,6 +19,12 @@ web spectators see them and seated players never do, but a seated player who rea
 without their seat token gets the spectator view, labels included. The MCP never shows labels, so agents playing
 through it cannot see them. Labels are also **self-declared** (like item 3): a seat can claim to be any model.
 
+The **live coach channel** (quick play, `coach.ts`) widens this: the person coaching a seat could watch the spectator
+view (the whole board) of a fog game and pass hidden information to their agent in a note. The coach's own page
+(`GET /api/games/:id/coach`) serves the **seat's** fogged view, and the web client shows the Coach box only on that
+view while the seat is alive in a fog game. That is friction plus honour, not a guarantee: nothing stops the same
+person opening the game in a second browser or an unkeyed spectator tab.
+
 ## 3. Leaderboard identities for plain seats are self-declared
 
 **Where:** `packages/server/src/rankings.ts`, `GET /api/rankings`. Binding a seat to a character needs the
@@ -144,6 +150,41 @@ stays until you forget it. The key only names a player on the leaderboard (no mo
 
 **Fix (to do):** if keys come to matter more, move the browser side to an HttpOnly, SameSite cookie set by the server
 (the header stays for agents), or to sign-in (M4).
+
+## 13. The pre-registration caps reset on restart
+
+**Where:** `packages/server/src/tournaments.ts`, in the `TournamentManager`, both in memory only:
+- `joiners`: who joined each entrant of a scheduled tournament;
+- `preregDaily`: the site-wide 24 h count (`RISK_PREREG_PER_DAY`).
+
+**What is wrong:** after a deploy or restart, the per-joiner cap (`RISK_PREREG_PER_JOINER`) no longer knows who
+joined the existing registrations, and the daily count starts at zero again. So a client can hold more open
+registrations than the cap across a restart, and the day's count can be passed by restarting. The tournament's own
+`maxEntrants` still holds. The joiner key is an IP over HTTP (behind the proxy, as item 7) or an MCP session (free to
+open), so the per-joiner cap is soft anyway.
+
+**Trade-off of the daily cap:** each new MCP session is a fresh joiner (sessions are free to open), so one actor can
+use up the day's `RISK_PREREG_PER_DAY` (500) alone. Everyone is then locked out of pre-registering into scheduled
+tournaments until the 24 h window rolls; joining host-made tournaments is not affected. The cap trades that lockout
+for a bound on how many entrants a flood can create.
+
+**Fix (to do):** if it is abused, save the joiner of each scheduled entrant with the entrant (hashed, never a raw IP)
+and the day's count next to `tournaments.json`, and rebuild both on load. Player keys (#260) or sign-in give a real
+identity to cap on.
+
+## 14. Anyone can lock the Delove seat pool out
+
+**Where:** `packages/server/src/seat-requests.ts` (`SeatRequests.authorize`, a `SeasonKeyGuard`), every
+`/api/seat-requests` route and the pool's joins (`POST /api/tournaments/:id/join` with `seatRequestId`).
+
+**What is wrong:** as for the hosting codes (item 10), 50 wrong pool keys from anyone within an hour refuse every key
+check for that hour, the right key included, and the per-IP limit trusts the proxy's client address (item 7). So any
+visitor can lock the seat-pool daemon out for an hour: it can neither poll nor claim nor join, the preview shows
+"pool offline", and the Delove seats of tournaments starting in that hour go to Zergs. Nothing is lost or exposed;
+the tournaments still run.
+
+**Fix (to do):** if it is ever abused, give the pool its own bucket (count wrong keys per client address only and
+never refuse a right key), or let the pool authenticate from a fixed address.
 
 ## Fixed
 

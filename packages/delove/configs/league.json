@@ -1,0 +1,17 @@
+{
+  "v": 1,
+  "about": "The training league (packages/delove/README.md \"League\"): a jobs file's \"@league\" seats are sampled from the snapshots by PFSP, an active exploiter takes exploiterShare of them, and \"@league:<kind>\" seats sample that kind. Members without a rating count as even with the main until an A/B scorecard rates them (npm run delove:league -- rate).",
+  "main": "delove@13",
+  "mainElo": 0,
+  "pfsp": { "curve": "hard", "power": 2 },
+  "exploiterShare": 0.15,
+  "splitGames": 250,
+  "members": [
+    { "id": "delove@13", "kind": "snapshot" },
+    { "id": "delove@12", "kind": "snapshot" },
+    { "id": "delove@10", "kind": "snapshot" },
+    { "id": "delove@8", "kind": "snapshot" },
+    { "id": "delove-exploit@1", "kind": "exploiter", "active": false },
+    { "id": "zerg@2", "kind": "zerg" }
+  ]
+}

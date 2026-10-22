@@ -389,7 +389,10 @@ npm run delove:horde -- --candidate delove@10 --tables classic:4:3,classic:6:3 -
   `zerg@2` is the live seats' version (no mid-game surrender, walled-in Zergs mass toward the prey; #198), which
   training uses since #PR. `zerg-branch@1` is the searching Zerg. A recheck against the live horde:
   `npm run delove:horde -- --candidate <model> --zerg zerg@2 --games 100 --procs 14` (add `--base-zerg zerg@1` to
-  compare the two hordes on the same games).
+  compare the two hordes on the same games). First comparison (2026-10-22, delove@10, 100 games per table): hold
+  even, +0.007 (-0.012 to +0.025), so the live horde is no harder to survive. Delove scores 0.48 fewer points a game
+  against it, because with no mid-game surrender more Zergs outlast it. Turn limits: 12 of 100 games at 4p vs 3
+  Zergs (3 under `zerg@1`).
   `--base-zerg` plays the same candidate against a second horde on the same games: a negative difference means the
   `--zerg` horde is the stronger one.
 - Worker threads (`--procs`, default all cores but one): 1000 games in about 17 s for delove@10.
@@ -408,7 +411,9 @@ npm run delove:horde -- --candidate delove@10 --tables classic:4:3,classic:6:3 -
 - For scenarios or training data, the agents play in any self-play command:
   `npm run delove -- play --agents delove@10,zerg@2,zerg@2,zerg@2`. `scripts/cycles/horde.jobs` is a ready job file
   for `generate.sh` (about 4,000 games, the branch seat against 2-3 `zerg@2` with Jacob fillers, league settings; it
-  seated `zerg@1` until #PR); the captain adds it to a cycle. Rollouts play each Zerg seat with its own version
+  seated `zerg@1` until #PR); the captain adds it to a cycle. Under `zerg@2` (200-game sample, the cycle-13 branch
+  env): about 3.4 process-seconds a game at 8 processes, so about 29 min for the 4,000 games on 8 processes (16-20 on
+  14). 4 of the 200 games (2%) hit the 250-turn cap; a mean game is 32 turns. Rollouts play each Zerg seat with its own version
   (`zergParamsFor`). Its seat is `delove-branch@1:range-horde`: `delove-branch@1:range`
   whose rollouts play the Zerg seats with the horde bot (src/horde-branch.ts; a Zerg move off the candidate list falls
   back to the teacher's pick, never an attack on a fellow Zerg), so the search sees the gang-up coming. The plain

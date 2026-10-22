@@ -235,10 +235,8 @@ them blocks the training work. Suggested defaults in brackets:
 
 - **Ranking:** are stealth games ranked, unranked, or on the training board? [unranked or training board]
 - **Prizes:** can a stealth game ever carry a prize? [no]
-- **Reveal: decided (owner, 2026-10-22): "Reveal to spectators only".** Spectators see the roles live; players see
-  them only at game over. Game development owns the reveal.
-- **Names: decided (owner, 2026-10-22): "Hidden roles everywhere".** Learned Zergs get normal-looking names in every
-  game, and everyone deduces from chat and behaviour. Game development owns seating and names.
+- **Reveal: decided (owner, 2026-10-22):** spectators see which seats are Zergs during the game; players learn who the
+  Zergs were when it ends. Game development owns the reveal.
 - **Where they may sit:** only in rooms whose host chose stealth, or also at tournament tables whose rules announce
   the mode? Should the server enforce it? [host-chosen rooms only, enforced by the server]
 - **Lobby notice:** does a stealth room say "may contain hidden players"? [host's choice]
@@ -255,8 +253,8 @@ players"; and on the secret: "Make it use the chat and deduction". So there is *
 pre-agreed signature (this replaces the earlier "learned offset signature" handshake, a shared secret in disguise), no
 ally list and no server flag in the model's inputs. Allies are a belief the model forms from what seats say and do.
 
-- **Where it plays.** Every game, with hidden roles (owner: "Hidden roles everywhere"): normal-looking names, and
-  roles shown live to spectators only. It is trained and evaluated that way. It runs as a **runner seat**
+- **Where it plays.** Stealth tables, with hidden roles; where they may sit is still open (the owner will decide
+  later). It is trained and evaluated with hidden roles. It runs as a **runner seat**
   (`packages/runner`, its own process; the server never imports it, hard rule 10). There is no faction flag and no
   ally rule in the engine: a learned Zerg *can* attack anyone. Until it passes its gates, live Zerg seats keep playing
   `zerg@2`.

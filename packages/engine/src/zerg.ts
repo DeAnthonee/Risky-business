@@ -29,7 +29,10 @@ export interface ZergParams {
   occupyShare: number;
   /** Reinforcement staging: score per step closer to the target (the stack size counts 1 per army). */
   stagingDistance: number;
-  /** 1: a walled-in Zerg (not the strongest) surrenders to feed the swarm; 0: never. */
+  /**
+   * 1: a walled-in Zerg (not the strongest) surrenders to feed the swarm; 0: never. Off in zerg@1: the owner's rule is
+   * no surrenders, and the live Zerg seat plays with 0. Kept so it can still be tested.
+   */
   sacrifice: number;
   // Later behaviours, each 0 = off (as in zerg@1), so zerg@1 plays exactly as before:
   /**
@@ -62,7 +65,7 @@ export const ZERG_1_PARAMS: ZergParams = {
   exposureWeight: 0.5,
   occupyShare: 0.7,
   stagingDistance: 10,
-  sacrifice: 1,
+  sacrifice: 0,
   strikeRatio: 0,
   cardHoard: 0,
   hoardFinish: 3,

@@ -85,10 +85,12 @@ All Zergs run the same deterministic **target rule** on the same public board, s
   enforces it too).
 - **Occupy** with everything when the new territory faces the target; **fortify** toward the target's front.
 - **Cards**: trade as soon as possible.
-- **Feed the swarm.** A Zerg walled in by its allies (no road to any prey) that is not the horde's strongest
-  surrenders, and its land turns neutral. Otherwise its armies would idle forever while one front Zerg fights alone
-  (seen in testing: a Delove turtle in Australia stalled 3 Zergs for 500 turns). Zergs take neutral land at good odds,
-  so the front Zerg eats that land for cards and continents.
+- **Feed the swarm: off.** With `sacrifice: 1`, a Zerg walled in by its allies (no road to any prey) that is not
+  the horde's strongest surrenders, and its land turns neutral for the front Zerg to eat. It is **0 in `zerg@1`**
+  (#169): the owner's "no surrenders" rules it out, and the live Zerg seat plays with 0. The parameter stays for tests.
+  - The cost: the walled-in Zergs idle while one front Zerg fights alone, so a turtling prey can stall the horde. At
+    4p against 3 Zergs, 9 of 100 games against delove@10 reach the 500-turn limit (3 with the sacrifice).
+  - Zergs still take neutral land at good odds.
 - **Ending: the falling-out.** When only Zergs are left, the alliance is over: each Zerg plays for itself (its horde is
   just itself) and they fight to one winner. No surrenders. (Until #169, all but one Zerg surrendered; the golden test
   was updated on purpose, and it pins the alliance phase's moves as unchanged.)

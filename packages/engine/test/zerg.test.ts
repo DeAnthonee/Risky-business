@@ -100,7 +100,9 @@ describe('Zerg judgement numbers', () => {
     // Golden: 3 Capital Conquest games of the built-in bot against 3 zerg@1, recorded before the later terms existed.
     // Updated on purpose (2026-10-21) for the owner's rule that the alliance ends with the prey: the Zergs used to
     // surrender all but one once the bot was out (568 moves, 7eacf674a9c99eeb); now they fight each other to a winner
-    // (762 moves). The alliance phase, every move while the bot is alive, is unchanged: pinned separately below.
+    // (762 moves). The alliance phase, every move while the bot is alive, was unchanged by that (543 moves,
+    // b4ce79d26322fdb7). Updated again on purpose the same day: sacrifice is now 0 in zerg@1 (the owner's "no surrenders"
+    // also rules out a walled-in Zerg surrendering mid-game), which changes the alliance phase too (520 moves).
     const out: unknown[] = [];
     const alliance: unknown[] = [];
     for (const seed of [1, 2, 3]) {
@@ -119,10 +121,32 @@ describe('Zerg judgement numbers', () => {
       }
     }
     const hash = (x: unknown) => createHash('sha256').update(JSON.stringify(x)).digest('hex').slice(0, 16);
-    expect(alliance.length).toBe(543);
-    expect(hash(alliance)).toBe('b4ce79d26322fdb7');
-    expect(out.length).toBe(762);
-    expect(hash(out)).toBe('94bceec449a8bb81');
+    expect(alliance.length).toBe(520);
+    expect(hash(alliance)).toBe('2d3786e3308f3a1b');
+    expect(out.length).toBe(736);
+    expect(hash(out)).toBe('d325b0557613847f');
+  });
+
+  it('no Zerg ever surrenders by default; sacrifice: 1 (kept for tests) makes walled-in Zergs surrender mid-game', () => {
+    const surrenders = (params: typeof ZERG_1_PARAMS) => {
+      let n = 0;
+      for (const seed of [1, 2, 3]) {
+        let s = createGame('g', { map: 'classic', maxPlayers: 4, capitals: true }, seed);
+        for (const id of ['a', 'z1', 'z2', 'z3']) s = addPlayer(s, id, id, true);
+        s = startGame(s).state;
+        const horde = new Set(['z1', 'z2', 'z3']);
+        const random = seeded(seed);
+        for (let i = 0; i < 3000 && s.phase !== 'finished'; i++) {
+          const me = s.currentPlayer!;
+          const a = horde.has(me) ? chooseZergAction(s, me, horde, random, params)! : chooseBotAction(s, me, random)!;
+          if (a.type === 'surrender' && horde.has(me)) n++;
+          s = applyAction(s, me, a).state;
+        }
+      }
+      return n;
+    };
+    expect(surrenders(ZERG_1_PARAMS)).toBe(0);
+    expect(surrenders({ ...ZERG_1_PARAMS, sacrifice: 1 })).toBeGreaterThan(0);
   });
 
   it('each later behaviour changes play when switched on', () => {

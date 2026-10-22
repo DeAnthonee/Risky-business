@@ -7,6 +7,7 @@ numbers go in [packages/delove/CYCLES.md](../../packages/delove/CYCLES.md) and t
 Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. **Append a line in the same PR** as any change to
 this area (README hard rule 12).
 
+- 2026-10-21 #169 horde gate with the falling-out and no sacrifice: delove@10 vs jacob-sensei@2 hold diff +0.119 (+0.084 to +0.154), unchanged; turn limits at 4p vs 3 Zergs 9/100 (3 with the sacrifice): a turtling prey can stall the horde
 - 2026-10-21 #169 Zerg falling-out: the horde gate reads the candidate's survival from its own last decision (the Zergs now fight on after it falls; solo hold re-baselined) and reports game length; `zerg-branch@1` scores its own standing too (`ZERG_BRANCH_SELF_WEIGHT`); horde-aware rollouts drop the alliance once the prey is gone
 - 2026-10-21 #167 Zerg horde follow-up to #165: `delove-branch@1:range-horde` (src/horde-branch.ts, rollouts play Zergs with the horde bot) and `scripts/cycles/horde.jobs` (~4,000 games, in no cycle yet); horde gate `--zerg` / `--base-zerg`, points, kills and `rush` with 95% intervals; the searching Zerg `zerg-branch@1` and `npm run delove:zerg-tune` (three tuning runs flat within ±0.04 of zerg@1, docs/zergs.md 6a)
 - 2026-10-21 #165 the Zerg-horde gate `npm run delove:horde` (src/horde.ts): one seat against 2-3 `zerg@1` at 3/4/6p, paired against a base on the same games, `hold` metric

@@ -424,7 +424,7 @@ give the search a network's alternatives.
 ### Tuning the Zerg (`npm run delove:zerg-tune`)
 
 `zerg@1`'s judgement numbers are `ZERG_1_PARAMS` in packages/engine/src/zerg.ts (attack odds per kind of target, the
-knock-out bonus, the target rule's weights, occupation share, staging pull, the sacrifice switch). Four later
+knock-out bonus, the target rule's weights, occupation share, staging pull, the sacrifice switch, 0 in `zerg@1` since #169: no surrenders). Four later
 behaviours are terms that are 0 (off) in `ZERG_1_PARAMS`, so `zerg@1` plays exactly as recorded (a golden test guards it):
 
 - `strikeRatio`: synchronised strike. The horde holds its attacks on the target until its border armies reach that

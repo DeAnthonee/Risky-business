@@ -1,0 +1,1 @@
+docs: - 2026-10-22 #282 hardening #15: in open mode anyone, entrants included, reads player-type labels before play (the host's Who joined list); #2: a host who also enters sees opponents' labels; Entrant.agent comment fixed

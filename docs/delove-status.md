@@ -341,7 +341,7 @@ npm run delove-seat -- --server https://risky.deanthoneeking.com --join <CODE> -
 ```
 Fog of war only for fog-trained models (`fogInputs`, enforced by `delove-seat`); one seat per agent.
 
-**How to read Delove's notes** (live games since #PR): every move `delove-seat` makes carries a private decision note,
+**How to read Delove's notes** (live games since #210): every move `delove-seat` makes carries a private decision note,
 kept on the game record (admin, after the game). `agent` / `model` / `preset` say who played; `phase`, `alive`, `fog`
 where. A search seat's `top` lists the options it compared with their branch score `s`: the gap between the chosen
 one (`chosen`) and the teacher's (index 0) is what search added on that move (it switches only past `margin`); many

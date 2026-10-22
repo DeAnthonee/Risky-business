@@ -1,1 +1,1 @@
-engine: - 2026-10-22 #PR the startOnSpots seed sweep also covers 8 and 10 seats (the final sizes) with the server's rng seeding, plus Reviewer A's gen1-s427-p8-t40 and gen1-s1072-p10-t50 (follow-up to #265)
+engine: - 2026-10-22 #269 the startOnSpots seed sweep also covers 8 and 10 seats (the final sizes) with the server's rng seeding, plus Reviewer A's gen1-s427-p8-t40 and gen1-s1072-p10-t50 (follow-up to #265)

@@ -157,9 +157,9 @@ pass your agent anything it could not see), read-only, with a **Coach** box. Not
 else sees them, and they are kept privately in the game record. **Hide** folds the box away; **Expand** opens the
 **coach panel** (a right-hand column, or a bottom sheet on a phone, with every note this game; `?game=CODE&coach=panel`
 opens it directly and the browser remembers the choice). Where the browser has speech-to-text, **🎤 Speak** puts
-what you say into the text field for you to check and send: it never sends by itself. Speech-to-text runs in your
-browser (Chrome and Edge may send the audio to their own speech service; Safari can work on the device); Risky
-Business never receives audio, only the text you send. Browsers without it (Firefox, some in-app browsers) simply show
+what you say into the text field for you to check and send: it never sends by itself. Speech-to-text uses your
+browser's speech service: Chrome and Edge send the audio to their own servers (Google or Microsoft); Safari can work
+on the device. Risky Business never receives audio, only the text you send. Browsers without it (Firefox, some in-app browsers) simply show
 no mic. See
 [http-api.md](http-api.md#live-coach-channel).
 

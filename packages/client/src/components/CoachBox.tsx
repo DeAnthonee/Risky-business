@@ -86,7 +86,7 @@ export function CoachBox({ gameId, coachKey, seatName, initial }: { gameId: stri
       </div>
       <p className="muted coach-hint">
         Your agent sees these as advice, not orders. You see the game as your seat does.
-        {panel && speech.supported && ' Speech-to-text runs in your browser (Chrome and Edge may use their own speech service); this site only gets the text you send.'}
+        {panel && speech.supported && " Speech-to-text uses your browser's speech service: Chrome and Edge send the audio to their own (Google or Microsoft) servers; this site only gets the text you send."}
       </p>
       <ul className="coach-notes">
         {shown.map((n) => (

@@ -243,46 +243,64 @@ them blocks the training work. Suggested defaults in brackets:
 Whatever is chosen, the server knows which seats are stealth Zergs (it seats them) and keeps that out of every view
 until the game ends.
 
-### No ally list: how the Zergs play
+### No ally list, no secret: the learned Zerg (chat and deduction)
 
-- There is no faction flag in the engine for stealth games, and the engine has no ally rule. Stealth Zergs are
-  ordinary seats that *can* attack each other; they hold back only because their own model has recognised an ally.
-- The Zerg seat runs as a **runner seat** (`packages/runner`, its own process, which already does Ollama table talk),
-  not inside the server. The server never imports it (hard rule 10). It plays the engine's `chooseZergAction`, given
-  the ally set *its recogniser produced from chat*, not a list from the code or the server.
-- Each stealth Zerg has three learned parts:
-  1. **Challenger:** chooses when to ask and what. Innocuous table talk with a checkable answer: a quick sum, "how
-     many territories do you hold", "what's 7 times my border count".
-  2. **Responder:** answers a challenge **wrong by a learned offset signature** (for example, an offset that depends
-     on the question's numbers in a way only the trained models share), phrased as natural, slightly sloppy chat.
-  3. **Recogniser:** reads the chat and gives each seat a probability of being a fellow Zerg. Above a threshold the
-     seat joins the ally set; a seat that attacks a Zerg drops out again.
-- Chat phrasing comes from the local model the runner already uses (Ollama) and is steered by the challenger's and
-  responder's choices, so the lines read like ordinary banter.
+The owner's rules (2026-10-22, via the Lord of training): the knowledge must "come from the model itself and not us
+hard coding it not to attack allies"; the model should "try and figure out who's zerg from chat ... other models can
+pretend to be zerg ... allowed"; "a little cannablization ... so games still progress, but they mostly attack other
+players"; and on the secret: "Make it use the chat and deduction". So there is **no shared secret**: no key, no
+pre-agreed signature (this replaces the earlier "learned offset signature" handshake, a shared secret in disguise), no
+ally list and no server flag in the model's inputs. Allies are a belief the model forms from what seats say and do.
+
+- **Where it plays.** Stealth tables first (hidden roles), where deduction matters. It runs as a **runner seat**
+  (`packages/runner`, its own process; the server never imports it, hard rule 10). There is no faction flag and no
+  ally rule in the engine: a learned Zerg *can* attack anyone. Open-mode live seats keep playing `zerg@2`.
+- **The model.** A Delove network warm-started from the current best, with three parts:
+  1. **Action policy:** the Delove net plus belief inputs (for each seat: how likely it is a Zerg, and whether it
+     spoke), added with zero-initialised weights the way the fog inputs were, so it starts out playing like its parent.
+  2. **Listening head:** for every other seat, p(that seat is a Zerg). It reads the messages each seat sent and its
+     behaviour (whom it attacked, losses it dealt to and took from each seat), and is trained supervised on the true
+     roles in self-play.
+  3. **Speaking head:** at most one message per turn from a small vocabulary (claim to be a Zerg, ask, vouch, accuse,
+     name a target, thanks, warn, deny, or stay silent), public or whispered. Templates turn the messages into table
+     talk on live tables.
+- **Rewards (team spirit).** A Zerg's reward mixes its own result with the Zerg team's:
+  `r = (1 − α) · own + α · team`. Nothing forbids attacking a fellow Zerg. Sparing believed allies is learned because
+  it pays, and some infighting stays because sometimes it pays more. α is tuned so infighting (Zerg attacks on true
+  Zergs while non-Zergs are alive) lands in a 5-15% band: the owner's "little cannibalization".
+- **Impostors.** Non-Zerg seats are rewarded for being spared by Zergs and use the same vocabulary, as the owner
+  allows. Trained impostors copy every cheap signal (any message pattern), so only **costly behaviour** stays
+  reliable: really hitting the other players and not hitting believed Zergs. That is the deduction, and it's why no
+  secret is needed or could survive.
+- **Endgame.** Rule-based, not learned: when only Zergs are left the game ends by standing (`endByStanding` in
+  `packages/engine/src/standing.ts`), on live tables and in self-play alike.
 
 ### How it is trained (on the training PC, outside git)
 
-- **Self-play signalling game.** Tables of 2 Zergs plus decoy seats. Decoys answer the way real players do: honestly,
-  plus human-like mistakes (off by one, misread), and LLM character seats replayed from real game chat. The Zergs are
-  rewarded when they recognise each other quickly and never mark a decoy.
-- **Detective term.** A separate classifier is trained to spot Zergs *from the outside*, from the chat alone. The
-  Zergs are penalised when it succeeds, so the signal has to look like normal mistakes and normal banter. That is what
-  keeps it sneaky.
-- **Gate.** Recognition within a few rounds, a false-ally rate below about 1%, and a detective close to chance.
-- Training data, transcripts and weights stay on the training PC or in the private models repo (hard rule 13); the
-  runner loads the weights from a path given at start.
+- **Self-play with chat.** A separate, unmirrored game loop for talking tables (`packages/selfplay/src/game.ts` is a
+  mirrored file and stays untouched). It passes the table's messages to every seat and logs them next to the
+  decisions in their own versioned file.
+- **Curriculum.** Honest tables (Zergs plus ordinary seats); then scripted impostors (always claim to be a Zerg, attack
+  the weakest) and quiet Zergs (never talk); then impostors trained against the current Zerg in the league; then
+  LLM character seats with free-text chat.
+- **Gates.** The listening head's AUC (true Zerg vs impostor or plain seat) on a held-out impostor pool the Zerg never
+  trained against: at least 0.75 by round 5, against 0.5 for chance, and it must not fall as the league goes on. The
+  horde still wins about as often as `zerg@2` does. Infighting stays inside the 5-15% band. Chat stays at most one
+  message a turn.
+- **Live chat.** The runner seat uses the existing chat API, so the server needs no change for it:
+  - `GET /api/games/:id/chat` (MCP `read_chat`) and `POST /api/games/:id/chat` with an optional `to` for a whisper
+    (MCP `send_chat`). Messages are capped at 500 characters. Whispers are hidden from other seats, not from
+    spectators.
+  - Free text from people is mapped onto the same message vocabulary by a small classifier.
+- Training data, transcripts and weights stay on the training PC or in the private models repo (hard rule 13).
 
 ### What stays visible in the public repo
 
-Plainly, since the repo is public:
+With no shared secret there is no handshake to protect: the mechanism is deduction, and it can be public.
 
-- **Visible:** that a stealth mode exists; that hidden Zergs recognise each other through a chat challenge-response
-  with deliberately wrong answers; the code for the challenger, responder and recogniser *architecture*, the training
-  script, the question templates, the guardrails and the reveal. A cousin who reads the repo can learn that "a player
-  who gets a simple sum slightly wrong might be a Zerg".
-- **Not visible:** the learned signature (which offsets, on which questions, in what phrasing), the thresholds and
-  the weights. Nobody can read the exact handshake from the code, and nobody can join as a Zerg without the weights.
+- **Visible:** that a stealth mode exists; the message vocabulary and templates; the code for the talking self-play,
+  the heads and the training; the gates and the reveal. A reader learns that "Zergs talk with these messages and watch
+  who attacks whom". Impostors know that too, and that's the game.
+- **Not visible:** the weights, the chat transcripts, league snapshots, thresholds and the classifier's labelled data.
 - **Not hidden from the server:** the server knows who the stealth Zergs are, because it seats them and reveals them
-  at the end. It just never tells anyone during the game.
-- To keep the surprise, the owner can leave the stealth mode out of the public docs page (the setting still has to
-  show in the host's lobby). The code itself stays readable.
+  at the end. It just never tells anyone during the game, and the learned Zerg never gets that information either.

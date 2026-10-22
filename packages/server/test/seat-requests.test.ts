@@ -77,8 +77,15 @@ describe('Delove seats on request', () => {
       expect(claim.status).toBe(200);
       expect(claim.body).toMatchObject({ tournamentId: id, n: 3, search: 3, labelPrefix: 'Delove', firstLabel: 1, options: { fogOfWar: false } });
       expect((await call('POST', `/seat-requests/${req.id}/claim`, { n: 3 }, asPool)).status).toBe(409); // only 2 left
-      // The pool joins with the ordinary join route, then reports.
-      for (let k = 1; k <= 3; k++) expect((await call('POST', `/tournaments/${id}/join`, { playerName: `Delove ${k}`, agent: 'delove@12' })).status).toBe(201);
+      // Nobody else can take or block a pool seat by name in this tournament (HTTP or MCP).
+      const squat = await call('POST', `/tournaments/${id}/join`, { playerName: 'Delove 2' });
+      expect(squat.status).toBe(400);
+      expect(squat.body.error).toMatch(/kept for the Delove seat pool/);
+      // A pool join needs the key, this tournament's request and a claimed seat free.
+      expect((await call('POST', `/tournaments/${id}/join`, { playerName: 'Delove 1', seatRequestId: req.id })).status).toBe(401);
+      // The pool joins its claimed seats with the ordinary join route plus seatRequestId and its key, then reports.
+      for (let k = 1; k <= 3; k++) expect((await call('POST', `/tournaments/${id}/join`, { playerName: `Delove ${k}`, agent: 'delove@12', seatRequestId: req.id }, asPool)).status).toBe(201);
+      expect((await call('POST', `/tournaments/${id}/join`, { playerName: 'Delove 4', seatRequestId: req.id }, asPool)).status).toBe(409); // only 3 claimed
       expect((await call('POST', `/seat-requests/${req.id}/done`, { joined: 3 }, asPool)).body.request).toMatchObject({ joined: 3, status: 'open' });
       // The other 2 are claimed and fail: they go back to the request.
       await call('POST', `/seat-requests/${req.id}/claim`, { n: 2 }, asPool);
@@ -143,6 +150,21 @@ describe('Delove seats on request', () => {
     }
   });
 
+  it("the pool's names are free in tournaments without a seat request (the operator's npm run delove-seat), and a request binds only to its own tournament", async () => {
+    const { risk, call, asPool } = await serve();
+    try {
+      const plain = (await call('POST', '/tournaments', { format: 'nested', name: 'No pool', open: 4, code: ADMIN_CODE })).body.tournament.id;
+      expect((await call('POST', `/tournaments/${plain}/join`, { playerName: 'Delove 1' })).status).toBe(201);
+      const withPool = (await call('POST', '/tournaments', { format: 'nested', name: 'Pool', delove: 2, open: 2, code: ADMIN_CODE })).body.tournament.id;
+      const req = (await call('GET', '/seat-requests', undefined, asPool)).body.requests[0];
+      await call('POST', `/seat-requests/${req.id}/claim`, { n: 2 }, asPool);
+      expect((await call('POST', `/tournaments/${plain}/join`, { playerName: 'Delove 2', seatRequestId: req.id }, asPool)).status).toBe(400); // another tournament's request
+      expect((await call('POST', `/tournaments/${withPool}/join`, { playerName: 'Delove 1', seatRequestId: req.id }, asPool)).status).toBe(201);
+    } finally {
+      await risk.shutdown('test');
+    }
+  });
+
   it('an MCP create with Delove seats opens a request too', async () => {
     const { risk, call, asPool, base } = await serve();
     const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
@@ -155,6 +177,10 @@ describe('Delove seats on request', () => {
       const id = /Created tournament (\w+)/.exec(r.content[0].text)![1];
       const reqs = (await call('GET', '/seat-requests', undefined, asPool)).body.requests;
       expect(reqs).toEqual([expect.objectContaining({ tournamentId: id, n: 3 })]);
+      // join_tournament refuses the pool's names there too.
+      const squat = (await agent.callTool({ name: 'join_tournament', arguments: { tournamentId: id, playerName: 'Delove 1' } })) as { content: { text: string }[]; isError?: boolean };
+      expect(squat.isError).toBe(true);
+      expect(squat.content[0].text).toMatch(/kept for the Delove seat pool/);
     } finally {
       await agent.close();
       await risk.shutdown('test');

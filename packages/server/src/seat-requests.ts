@@ -27,6 +27,8 @@ export interface SeatRequest {
   claimed: number;
   /** Seats the pool reported joined (done). */
   joined: number;
+  /** Entrants the pool joined for this request (join with seatRequestId and the pool key): the seats that count. */
+  bound?: string[];
   /** Names the pool gives its seats: "<labelPrefix> 1", "<labelPrefix> 2", ... */
   labelPrefix: string;
   /** The tournament plays with fog of war (Delove's search is fog-off only). */
@@ -50,6 +52,9 @@ export interface PoolStatus {
   /** When the pool last reported (ms), or null if never. */
   at: number | null;
 }
+
+/** Names kept for the pool's seats in a tournament with a seat request: "Delove", "Delove 3", ... */
+export const POOL_NAME = /^delove(\s|$)/i;
 
 /** The Delove caps (tournament-access.ts); every one 0 = no cap. */
 export type SeatCaps = Pick<TourneyAccessConfig, 'deloveAdmin' | 'deloveLimited' | 'deloveAtOnce' | 'deloveSearchAtOnce'>;
@@ -158,6 +163,35 @@ export class SeatRequests {
     return r;
   }
 
+  /** The request of a tournament, if it has one still taking seats. */
+  private requestOf(tournamentId: string): SeatRequest | undefined {
+    return this.saved.requests.find((r) => r.tournamentId === tournamentId.toUpperCase() && (r.status === 'open' || r.status === 'claimed' || r.status === 'done'));
+  }
+
+  /**
+   * An ordinary join (no pool key): in a tournament with a seat request, the pool's names ("Delove …") are refused, so
+   * nobody can take or block a pool seat by name. Elsewhere they stay free (the operator's npm run delove-seat).
+   */
+  checkJoinName(tournamentId: string, name: string) {
+    if (POOL_NAME.test(name.trim()) && this.requestOf(tournamentId))
+      throw new RiskHttpError('Names starting with "Delove" are kept for the Delove seat pool in this tournament', 400);
+  }
+
+  /** Before a pool join (seatRequestId and the pool key): the request is this tournament's and has a claimed seat free. */
+  checkBind(requestId: unknown, tournamentId: string): SeatRequest {
+    const r = this.require(String(requestId ?? ''));
+    if (r.tournamentId !== tournamentId.toUpperCase()) throw new RiskHttpError('That seat request is for another tournament', 400);
+    if (r.status !== 'claimed' && r.status !== 'open') throw new RiskHttpError(`This request is ${r.status}`, 409);
+    if ((r.bound ?? []).length >= r.claimed) throw new RiskHttpError('Every claimed seat of this request has joined: claim more first', 409);
+    return r;
+  }
+
+  /** After a pool join: the entrant is this request's. */
+  bind(r: SeatRequest, entrantId: string) {
+    r.bound = [...(r.bound ?? []), entrantId];
+    this.save();
+  }
+
   /** Requests the pool may still claim from. */
   list(kind: string | undefined): SeatRequest[] {
     if (kind !== undefined && kind !== 'delove') throw new RiskHttpError('kind must be "delove"', 400);
@@ -234,13 +268,12 @@ export class SeatRequests {
 
   /**
    * At the tournament's start (TournamentManager.beforeStart): the request closes, and the Delove seats nobody filled
-   * become Zerg entrants, so the bracket holds. Filled seats are the entrants named "<labelPrefix> <k>".
+   * become Zerg entrants, so the bracket holds. Filled seats are the entrants bound to the request (pool joins only).
    */
   onStart(t: TournamentSnapshot) {
-    const r = this.saved.requests.find((x) => x.tournamentId === t.id && (x.status === 'open' || x.status === 'claimed' || x.status === 'done'));
+    const r = this.requestOf(t.id);
     if (!r) return;
-    const label = `${r.labelPrefix.toLowerCase()} `;
-    const filled = t.entrants.filter((e) => e.name.toLowerCase().startsWith(label)).length;
+    const filled = (r.bound ?? []).filter((id) => t.entrants.some((e) => e.id === id)).length;
     const missing = Math.max(0, Math.min(r.n - filled, t.maxEntrants - t.entrants.length));
     if (missing > 0) this.tournaments.addBots(t.id, 'zerg', missing);
     r.joined = Math.max(r.joined, Math.min(filled, r.n));

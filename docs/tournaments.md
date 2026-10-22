@@ -117,9 +117,13 @@ request are off: the count is only stored, and an operator joins the seats (`npm
   The server keeps the last report with its time; it's **stale after 2 minutes** ("pool offline").
 - **Claiming.** `POST /api/seat-requests/:id/claim {n}` answers `{tournamentId, n, search, labelPrefix, firstLabel,
   options}`. `search` is how many of the claimed seats may run search (fog off, within 20 at once). The daemon joins
-  its seats with the ordinary join route as "Delove <firstLabel>", "Delove <firstLabel + 1>" and so on, then reports
+  its seats with the ordinary join route plus `seatRequestId` and its key, as "Delove <firstLabel>", "Delove
+  <firstLabel + 1>" and so on: each entrant is **bound** to the request, at most one per claimed seat. Then it reports
   `POST …/done {joined}` or `POST …/failed {joined, reason}`. A failed claim's unjoined seats go back to the request.
-- **At the start**, the request closes. Delove seats not filled by then (counted by the entrants named "Delove <k>")
+- **The pool's names are its own** in a tournament with a seat request: any other join named "Delove …" (HTTP, MCP,
+  the site) is refused, so nobody can take or block a pool seat by name. Elsewhere the names stay free, for the
+  operator's `npm run delove-seat`.
+- **At the start**, the request closes. Delove seats not filled by then (only entrants bound to the request count)
   become **Zerg entrants**, so the bracket holds.
 - **The preview** (`POST /api/tournaments/preview`, MCP `preview_tournament`, the create form) adds `delovePool:
   {online, free, freeSearch}` (null with no pool) and a line: "Delove: K seats available now", or "Delove seat pool

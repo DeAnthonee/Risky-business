@@ -20,7 +20,7 @@ import { narrate, playByPlayText } from './playbyplay.js';
 import type { CharacterStore } from './characters.js';
 import type { CreateTournamentSpec } from './tournaments.js';
 import { NO_TOURNEY_CAPS, TournamentAccess } from './tournament-access.js';
-import { NO_SEAT_CAPS, SeatRequests } from './seat-requests.js';
+import { NO_SEAT_CAPS, SeatRequests, type SeatRequest } from './seat-requests.js';
 import { SeasonKeyGuard } from './season-key.js';
 import { RateLimitedError } from './rate-limit.js';
 import { PLAYER_KEY_HEADER, PlayerKeyLimitError, type PlayerAccount } from './player-keys.js';
@@ -767,10 +767,19 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
     '/tournaments/:id/join',
     wrap((req, res) => {
       if (!store.tournaments.get(String(req.params.id))) return res.status(404).json({ error: 'Tournament not found' });
+      const id = String(req.params.id);
       const player = playerOf(req);
       const name = store.playerKeys.seatName(String(req.body?.playerName ?? req.body?.name ?? ''), player);
-      const { entrantId, token } = store.tournaments.join(String(req.params.id), name, parseAgent(req.body?.agent), player ? { id: player.id, name: player.name } : undefined);
-      res.status(201).json({ entrantId, token, tournament: store.tournaments.view(String(req.params.id), token) });
+      // The Delove seat pool joins its claimed seats with seatRequestId and its key; those entrants are the request's.
+      // Anyone else is refused the pool's names in a tournament with a seat request.
+      let request: SeatRequest | null = null;
+      if (req.body?.seatRequestId !== undefined) {
+        pool(req);
+        request = seatReqs.checkBind(req.body.seatRequestId, id);
+      } else seatReqs.checkJoinName(id, name);
+      const { entrantId, token } = store.tournaments.join(id, name, parseAgent(req.body?.agent), player ? { id: player.id, name: player.name } : undefined);
+      if (request) seatReqs.bind(request, entrantId);
+      res.status(201).json({ entrantId, token, tournament: store.tournaments.view(id, token) });
     }),
   );
   api.get(

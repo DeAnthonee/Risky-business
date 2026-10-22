@@ -31,7 +31,8 @@ tables a tournament is still waiting on are not swept as idle, except past the h
 territories, each starting on their own territory (their "portal"). The engine's `startOnSpots`
 (`packages/engine/src/nest-start.ts`) builds that start: the normal start and random deal, then each spot is swapped
 (owner and armies together) with a territory its player was dealt elsewhere, so every player keeps the same number of
-territories and armies; a blizzard on a spot moves to another open territory. Built so far: that function; the
+territories and armies. A blizzard on a spot moves to a territory where the blizzard rule allows one (the open
+territories stay connected and every continent keeps two open), or, with none left, thaws. Built so far: that function; the
 rounds come next.
 
 HTTP routes: [http-api.md](http-api.md). Open items (anyone can create while testing): [hardening.md](hardening.md#1-anyone-can-create-tournaments-while-testing).

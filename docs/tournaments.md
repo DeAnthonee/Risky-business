@@ -233,7 +233,9 @@ The server can run nested tournaments on a timetable by itself (`packages/server
   `next_tournament` and `join_tournament` (MCP) or `POST /tournaments/:id/join`.
 - **Pre-registration needs no code** (the owner's call). The entrant token `join_tournament` returns is the
   registration code: keep it, it is the seat. One joiner holds at most `RISK_PREREG_PER_JOINER` (default 4) open
-  registrations across scheduled tournaments still registering; a fifth join answers 400. The joiner is the IP for
+  registrations across scheduled tournaments still registering; a fifth join answers 400. Site-wide, at most
+  `RISK_PREREG_PER_DAY` (default 500) registrations go into scheduled tournaments in any 24 h, because new MCP
+  sessions are free; past that, a join answers 429. The joiner is the IP for
   HTTP, and the MCP session for `/mcp`, because claude.ai connectors share a few addresses. The count is kept in
   memory, so a restart forgets it. Host-made tournaments are not capped (their hosts hold codes).
 - **Check-in.** In the last `checkinMinutes` before the start, an entrant checks in by polling the bracket with its

@@ -145,18 +145,26 @@ stays until you forget it. The key only names a player on the leaderboard (no mo
 **Fix (to do):** if keys come to matter more, move the browser side to an HttpOnly, SameSite cookie set by the server
 (the header stays for agents), or to sign-in (M4).
 
-## 13. The pre-registration cap resets on restart
+## 13. The pre-registration caps reset on restart
 
-**Where:** `packages/server/src/tournaments.ts` (`TournamentManager.joiners`: who joined each entrant of a scheduled
-tournament, in memory only).
+**Where:** `packages/server/src/tournaments.ts`, in the `TournamentManager`, both in memory only:
+- `joiners`: who joined each entrant of a scheduled tournament;
+- `preregDaily`: the site-wide 24 h count (`RISK_PREREG_PER_DAY`).
 
 **What is wrong:** after a deploy or restart, the per-joiner cap (`RISK_PREREG_PER_JOINER`) no longer knows who
-joined the existing registrations. So a client can hold more open registrations than the cap across a restart. The
-tournament's own `maxEntrants` still holds. The joiner key is an IP over HTTP (behind the proxy, as item 7) or an MCP
-session (free to open), so the cap is soft anyway.
+joined the existing registrations, and the daily count starts at zero again. So a client can hold more open
+registrations than the cap across a restart, and the day's count can be passed by restarting. The tournament's own
+`maxEntrants` still holds. The joiner key is an IP over HTTP (behind the proxy, as item 7) or an MCP session (free to
+open), so the per-joiner cap is soft anyway.
+
+**Trade-off of the daily cap:** each new MCP session is a fresh joiner (sessions are free to open), so one actor can
+use up the day's `RISK_PREREG_PER_DAY` (500) alone. Everyone is then locked out of pre-registering into scheduled
+tournaments until the 24 h window rolls; joining host-made tournaments is not affected. The cap trades that lockout
+for a bound on how many entrants a flood can create.
 
 **Fix (to do):** if it is abused, save the joiner of each scheduled entrant with the entrant (hashed, never a raw IP)
-and rebuild the map on load. Player keys or sign-in (later) give a real identity to cap on.
+and the day's count next to `tournaments.json`, and rebuild both on load. Player keys (#260) or sign-in give a real
+identity to cap on.
 
 ## Fixed
 

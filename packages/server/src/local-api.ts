@@ -230,7 +230,15 @@ export class LocalRiskApi implements RiskApi {
   async joinTournament(tournamentId: string, playerName: string, agent?: string) {
     const t = this.tournament(tournamentId);
     const player = this.keyedPlayer();
-    const { entrantId, token } = this.store.tournaments.join(t.id, this.store.playerKeys.seatName(playerName, player), parseAgent(agent), player ? { id: player.id, name: player.name } : undefined, this.client !== null ? this.session : null);
+    let joined: { entrantId: string; token: string };
+    try {
+      joined = this.store.tournaments.join(t.id, this.store.playerKeys.seatName(playerName, player), parseAgent(agent), player ? { id: player.id, name: player.name } : undefined, this.client !== null ? this.session : null);
+    } catch (e) {
+      // The site-wide daily pre-registration cap: 429, as over HTTP.
+      if (e instanceof RateLimitedError) throw new RiskHttpError(e.message, 429);
+      throw e;
+    }
+    const { entrantId, token } = joined;
     return { entrantId, token, tournament: this.store.tournaments.view(t.id, token) };
   }
   async waitTournament(tournamentId: string, token: string | undefined, since: number | undefined, timeoutMs: number) {

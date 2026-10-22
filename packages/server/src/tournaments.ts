@@ -214,9 +214,11 @@ export interface TournamentLimits {
   keepFinished: number;
   /** Scheduled tournaments: one joiner (an IP, or an MCP session) holds at most this many open registrations. */
   preregPerJoiner: number;
+  /** Scheduled tournaments: at most this many registrations site-wide in any 24 h (new MCP sessions are free); 0 = no cap. */
+  preregPerDay: number;
 }
 
-export const DEFAULT_TOURNAMENT_LIMITS: TournamentLimits = { maxActive: 20, keepFinished: 100, preregPerJoiner: 4 };
+export const DEFAULT_TOURNAMENT_LIMITS: TournamentLimits = { maxActive: 20, keepFinished: 100, preregPerJoiner: 4, preregPerDay: 500 };
 
 export interface CreateTournamentSpec {
   name?: string;
@@ -417,6 +419,8 @@ export class TournamentManager extends EventEmitter {
   private roundTimers = new Map<string, unknown>();
   /** Who joined each entrant of a scheduled tournament (an IP or an MCP session), for the pre-registration cap. */
   private joiners = new Map<string, string>();
+  /** Site-wide pre-registrations in the last 24 h (in memory); null = no cap. Set up in the constructor. */
+  private preregDaily: RateLimiter | null = null;
 
   constructor(
     private store: Store,
@@ -426,6 +430,7 @@ export class TournamentManager extends EventEmitter {
   ) {
     super();
     this.limits = { ...DEFAULT_TOURNAMENT_LIMITS, ...limits };
+    if (this.limits.preregPerDay > 0) this.preregDaily = new RateLimiter(this.limits.preregPerDay, 24 * 60 * 60_000, () => this.clock.now());
     this.setMaxListeners(500);
     if (file && existsSync(file)) {
       try {
@@ -752,6 +757,9 @@ export class TournamentManager extends EventEmitter {
     if (!name) throw new RuleError('A name is required');
     if (player && t.entrants.some((e) => e.playerKey === player.id)) throw new RuleError('This player has already joined this tournament');
     if (t.entrants.some((e) => e.name.toLowerCase() === name.toLowerCase())) throw new RuleError(`The name "${name}" is taken in this tournament`);
+    // The site-wide daily cap on pre-registrations, counted last so a refused join costs nothing (429).
+    if (t.scheduled && joiner && this.preregDaily && !this.preregDaily.take('site'))
+      throw new RateLimitedError(`Too many tournament registrations on this site today (at most ${this.limits.preregPerDay} in 24 h); try again later`);
     const entrant: Entrant = { id: `e_${newId(6)}`, name, isBot: false, token: newId(24), joinedAt: Date.now(), ...(agent ? { agent } : {}), ...(player ? { playerKey: player.id } : {}) };
     // Joining inside the check-in window is checking in.
     if (this.checkinOpen(t)) entrant.checkedInAt = this.clock.now();

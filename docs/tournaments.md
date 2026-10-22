@@ -82,6 +82,10 @@ round; the boards nest inside each other's territories (the map side: [maps.md](
   every round's biggest table at bot pace (75 moves per seat × `botDelayMs`, at least a minute, at most the round's
   deadline), high = rounds × `roundMinutes` (agents on a 90 s/move timer usually run close to it). A formula, never a
   simulation, and at most 30 previews per minute per client (429 past that).
+- **Create form** (web client, `?host=1`, `packages/client/src/components/CreateTournament.tsx`): the seat counts and
+  settings (round deadline, per-move turn timer, final board, Capital Conquest, fog), the access code, and the
+  preview's breakdown updated as you type; then create, and **Start now** from the same page (the browser keeps the
+  host token, `risk.tournament-host.<ID>`) or open the bracket. See [playing.md](playing.md#hosting-a-tournament).
 - **Turn timer on by default.** Unless `options` set `turnTimer`, the tables run a per-move timer of 90 s (the owner's default), so a
   stalled seat cannot hold a round (on timeout the seat is skipped: see [playing.md](playing.md)). Bots and models
   move well inside it.

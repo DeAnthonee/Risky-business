@@ -1,0 +1,262 @@
+import { useEffect, useState } from 'react';
+import { MAP_IDS, getMap } from '@risk/engine';
+import { api, type TournamentPreview } from '../api';
+import { saveHostToken } from '../session';
+import './create-tournament.css';
+
+/** Boards that can hold a final: 6+ seats with a region per seat (the server checks too). */
+const FINAL_MAPS = MAP_IDS.filter((id) => Math.min(getMap(id).maxPlayers, getMap(id).continents.length) >= 6);
+
+interface Form {
+  name: string;
+  zergs: number;
+  delove: number;
+  open: number;
+  roundMinutes: number;
+  finalMap: string;
+  /** Per-move turn timer in seconds; 0 = off. */
+  timer: number;
+  capitals: boolean;
+  fog: boolean;
+  code: string;
+}
+
+const START: Form = { name: '', zergs: 20, delove: 0, open: 12, roundMinutes: 30, finalMap: '', timer: 90, capitals: true, fog: false, code: '' };
+
+/** The request both the preview and create send (nested format; unset settings keep the server's tournament defaults). */
+function specOf(f: Form) {
+  return {
+    format: 'nested' as const,
+    ...(f.name.trim() ? { name: f.name.trim() } : {}),
+    zergs: f.zergs,
+    delove: f.delove,
+    open: f.open,
+    roundMinutes: f.roundMinutes,
+    ...(f.finalMap ? { finalMap: f.finalMap } : {}),
+    options: {
+      capitals: f.capitals,
+      fogOfWar: f.fog,
+      ...(f.timer > 0 ? { turnTimer: 'move' as const, turnTimerSeconds: f.timer } : { turnTimer: 'off' as const }),
+    },
+  };
+}
+
+/**
+ * "Create tournament": seat counts (Zergs, Delove seats, open spots) and settings, with the breakdown from
+ * POST /api/tournaments/preview updated as you type, then create (and start) it. The access code goes with the create.
+ */
+export function CreateTournament({ onOpen, onBack }: { onOpen: (id: string) => void; onBack: () => void }) {
+  const [form, setForm] = useState<Form>(START);
+  const [preview, setPreview] = useState<TournamentPreview | null>(null);
+  const [previewErr, setPreviewErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [created, setCreated] = useState<{ id: string; hostToken: string; started: boolean } | null>(null);
+  const set = <K extends keyof Form>(key: K, value: Form[K]) => setForm((f) => ({ ...f, [key]: value }));
+
+  // The breakdown follows the form, a moment after the last change (the preview is rate-limited per client).
+  useEffect(() => {
+    let alive = true;
+    const t = setTimeout(() => {
+      api
+        .previewTournament(specOf(form))
+        .then((r) => {
+          if (!alive) return;
+          setPreview(r.preview);
+          setPreviewErr(null);
+        })
+        .catch((e) => {
+          if (!alive) return;
+          setPreview(null);
+          setPreviewErr((e as Error).message);
+        });
+    }, 400);
+    return () => {
+      alive = false;
+      clearTimeout(t);
+    };
+    // The code does not change the plan.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.name, form.zergs, form.delove, form.open, form.roundMinutes, form.finalMap, form.timer, form.capitals, form.fog]);
+
+  const create = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      const r = await api.createTournament({ ...specOf(form), ...(form.code.trim() ? { code: form.code.trim() } : {}) });
+      saveHostToken(r.tournament.id, r.hostToken);
+      setCreated({ id: r.tournament.id, hostToken: r.hostToken, started: false });
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const start = async () => {
+    if (!created) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      await api.startTournament(created.id, created.hostToken);
+      setCreated({ ...created, started: true });
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const count = (key: 'zergs' | 'delove' | 'open', label: string, hint: string) => (
+    <label className="ct-count">
+      <span>{label}</span>
+      <input type="number" min={0} max={256} value={form[key]} onChange={(e) => set(key, Math.max(0, Math.min(256, Math.floor(Number(e.target.value) || 0))))} />
+      <small className="muted">{hint}</small>
+    </label>
+  );
+
+  if (created) {
+    return (
+      <div className="home p5 p5-page create-tournament">
+        <section className="ct-panel" aria-live="polite">
+          <h2>Tournament {created.id} {created.started ? 'started' : 'created'}</h2>
+          <p>
+            Share the code <strong>{created.id}</strong>: people join on the site, agents with <code>join_tournament</code>.{' '}
+            {created.started ? 'Round 1 is being seated.' : 'Start it when everyone is in; empty open spots are planned around at the start.'}
+          </p>
+          <p className="muted">This browser keeps the host token, so you can start it from here. Keep it private.</p>
+          {err && (
+            <p className="error" role="alert">
+              {err}
+            </p>
+          )}
+          <div className="row">
+            {!created.started && (
+              <button className="primary" disabled={busy} onClick={() => void start()}>
+                Start now
+              </button>
+            )}
+            <button onClick={() => onOpen(created.id)}>Open the bracket</button>
+            <button onClick={onBack}>Back to games</button>
+          </div>
+        </section>
+      </div>
+    );
+  }
+
+  const seats = form.zergs + form.delove + form.open;
+  return (
+    <div className="home p5 p5-page create-tournament">
+      <header className="ct-head">
+        <h1>Create tournament</h1>
+        <button onClick={onBack}>Back</button>
+      </header>
+      <div className="ct-layout">
+        <form
+          className="ct-panel options"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void create();
+          }}
+        >
+          <label className="ct-name">
+            Name
+            <input value={form.name} maxLength={60} placeholder="e.g. Friday Inception Cup" onChange={(e) => set('name', e.target.value)} />
+          </label>
+          <fieldset className="options-group">
+            <legend>Seats ({seats})</legend>
+            <div className="options-fields">
+              {count('zergs', 'Zergs', 'rushing house bots, added now')}
+              {count('delove', 'Delove seats', 'stored for now: an operator joins them')}
+              {count('open', 'Open spots', 'for people and agents to join')}
+            </div>
+          </fieldset>
+          <fieldset className="options-group">
+            <legend>Settings</legend>
+            <div className="options-fields">
+              <label>
+                Round deadline (minutes)
+                <input type="number" min={1} max={240} value={form.roundMinutes} onChange={(e) => set('roundMinutes', Math.max(1, Math.min(240, Math.floor(Number(e.target.value) || 1))))} />
+              </label>
+              <label>
+                Turn timer
+                <select value={form.timer} onChange={(e) => set('timer', Number(e.target.value))}>
+                  {[30, 60, 90, 120, 180].map((s) => (
+                    <option key={s} value={s}>
+                      {s} s per move
+                    </option>
+                  ))}
+                  <option value={0}>off</option>
+                </select>
+              </label>
+              <label>
+                Final board
+                <select value={form.finalMap} onChange={(e) => set('finalMap', e.target.value)}>
+                  <option value="">a generated board</option>
+                  {FINAL_MAPS.map((id) => (
+                    <option key={id} value={id}>
+                      {getMap(id).name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="ct-check">
+                <input type="checkbox" checked={form.capitals} onChange={(e) => set('capitals', e.target.checked)} /> Capital Conquest
+              </label>
+              <label className="ct-check">
+                <input type="checkbox" checked={form.fog} onChange={(e) => set('fog', e.target.checked)} /> Fog of war
+              </label>
+            </div>
+          </fieldset>
+          <label className="ct-code">
+            Access code
+            <input value={form.code} autoComplete="off" spellCheck={false} placeholder="from the site owner" onChange={(e) => set('code', e.target.value)} />
+          </label>
+          {err && (
+            <p className="error" role="alert">
+              {err}
+            </p>
+          )}
+          <button type="submit" className="primary" disabled={busy || !preview}>
+            Create tournament
+          </button>
+        </form>
+
+        <aside className="ct-panel ct-breakdown" aria-live="polite" aria-label="Breakdown">
+          <h2>Breakdown</h2>
+          {previewErr && <p className="error">{previewErr}</p>}
+          {!preview && !previewErr && <p className="muted">Planning…</p>}
+          {preview && (
+            <dl>
+              <dt>Rounds</dt>
+              <dd>{preview.rounds}</dd>
+              <dt>Tables per round</dt>
+              <dd>{preview.tablesPerRound.join(' → ')}</dd>
+              <dt>Seats per table</dt>
+              <dd>{preview.seatsPerRound.map((r) => [...new Set(r)].join('–')).join(' → ')}</dd>
+              <dt>Finalists</dt>
+              <dd>
+                {preview.finalists} on {preview.finalBoard.generated ? `a generated board (${preview.finalBoard.territories} territories)` : preview.finalBoard.name}
+              </dd>
+              <dt>Round 1</dt>
+              <dd>
+                {preview.firstRound.filter((t) => t.people > 0).length} of {preview.firstRound.length} tables with people; Zergs per table {Math.min(...preview.firstRound.map((t) => t.zergs))}–
+                {Math.max(...preview.firstRound.map((t) => t.zergs))}
+                {preview.plannerZergs ? ` (+${preview.plannerZergs} added to fit)` : ''}
+              </dd>
+              <dt>Estimated time</dt>
+              <dd>
+                about {preview.minutes.low}–{preview.minutes.high} min
+              </dd>
+            </dl>
+          )}
+          {preview?.warnings.map((w) => (
+            <p key={w} className="muted ct-note">
+              {w}
+            </p>
+          ))}
+        </aside>
+      </div>
+    </div>
+  );
+}

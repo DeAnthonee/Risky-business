@@ -153,7 +153,39 @@ export interface QuickPlayTicket {
   seatToken?: string;
 }
 
+/** A nested tournament's breakdown before it exists (POST /api/tournaments/preview). */
+export interface TournamentPreview {
+  counts: { zergs: number; delove: number; open: number };
+  seats: number;
+  plannerZergs: number;
+  rounds: number;
+  tablesPerRound: number[];
+  seatsPerRound: number[][];
+  finalists: number;
+  finalBoard: { map: string | null; name: string; generated: boolean; territories: number };
+  firstRound: { seats: number; people: number; zergs: number }[];
+  timer: { mode: string; seconds: number } | null;
+  minutes: { low: number; high: number; perRound: number };
+  warnings: string[];
+}
+
+/** What the create form sends (nested format, seat counts, settings, the access code when there is one). */
+export interface CreateTournamentRequest {
+  format: 'nested';
+  name?: string;
+  zergs: number;
+  delove: number;
+  open: number;
+  roundMinutes: number;
+  finalMap?: string;
+  options: Partial<GameOptions>;
+  code?: string;
+}
+
 export const api = {
+  previewTournament: (spec: CreateTournamentRequest) => request<{ preview: TournamentPreview }>('/tournaments/preview', { method: 'POST', body: JSON.stringify(spec) }),
+  createTournament: (spec: CreateTournamentRequest) => request<{ hostToken: string; tournament: TournamentView }>('/tournaments', { method: 'POST', body: JSON.stringify(spec) }),
+  startTournament: (id: string, hostToken: string) => request<{ tournament: TournamentView }>(`/tournaments/${id}/start`, { method: 'POST', body: '{}' }, hostToken),
   quickPlayJoin: (playerName: string, map: string, seats: number, fog: boolean) =>
     request<{ token: string; ticket: QuickPlayTicket }>('/queue', { method: 'POST', body: JSON.stringify({ playerName, map, seats, fog }) }),
   quickPlayWait: (ticket: string, token: string, timeoutMs: number) =>

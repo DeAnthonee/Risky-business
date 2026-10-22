@@ -74,6 +74,8 @@ async function main() {
   );
   const ids = (values.agents ?? 'delove-branch').split(',').map((s) => s.trim()).filter(Boolean);
   // Branch and score loads its ranker network, so it is only built when a seat asks for it.
+  // Its spectator label names the network that plays, e.g. "delove@10 + search".
+  const labels = new Map<Agent, string>();
   if (ids.some((id) => id === 'delove-branch' || id === 'delove-branch@1')) {
     const preset = (values.preset ?? LIVE_BRANCH_DEFAULT_PRESET) as LiveBranchPresetName;
     if (!(preset in LIVE_BRANCH_PRESETS)) fail(`--preset must be one of ${Object.keys(LIVE_BRANCH_PRESETS).join(', ')}`);
@@ -81,6 +83,7 @@ async function main() {
     const branch = branchFromEnv(undefined, env);
     console.log(`delove-branch (${preset}): ranker ${env.DELOVE_BRANCH_RANKER ?? 'none'}, rollouts by ${env.DELOVE_BRANCH_TEACHER}, ${env.DELOVE_BRANCH_OPTIONS} options, ${env.DELOVE_BRANCH_SCORE} score, horizon ${env.DELOVE_BRANCH_HORIZON}, margin ${env.DELOVE_BRANCH_MARGIN}`);
     known.set(branch.id, branch).set('delove-branch', branch);
+    labels.set(branch, `${env.DELOVE_BRANCH_RANKER ?? 'delove'} + search`);
   }
   const agents = ids.map((id) => known.get(id) ?? fail(`unknown Delove version "${id}" (known: ${[...known.keys()].join(', ')})`));
   const names = values.names ? values.names.split(',').map((s) => s.trim()) : ids.map(defaultName);
@@ -103,7 +106,9 @@ async function main() {
   const seats: { gameId: string; playerId: string; token: string; name: string; agent: Agent }[] = [];
   let gameId = values.join?.trim().toUpperCase() ?? '';
   for (let i = 0; i < agents.length; i++) {
-    const r = !gameId ? await api.createGame(names[i], 'Delove test game', options) : await api.joinGame(gameId, names[i]);
+    // The seat's player type, for spectators only (players never see it): the Delove version it plays.
+    const label = labels.get(agents[i]) ?? agents[i].id;
+    const r = !gameId ? await api.createGame(names[i], 'Delove test game', options, undefined, undefined, label) : await api.joinGame(gameId, names[i], label);
     gameId = r.gameId;
     seats.push({ gameId, playerId: r.playerId, token: r.token, name: names[i], agent: agents[i] });
     log(`${names[i]} (${agents[i].id}) sits in game ${gameId}`);

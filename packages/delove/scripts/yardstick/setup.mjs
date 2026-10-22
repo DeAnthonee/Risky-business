@@ -29,13 +29,15 @@ const post = async (path, body, headers = {}) => {
   if (!res.ok) throw new Error(`${path}: ${json.error ?? res.status}`);
   return json;
 };
+// Each seat's player type, shown to spectators only (players never see it).
+const agent = `claude-${tier.toLowerCase()}`;
 const host = await post('/games', {
-  playerName: `${tier} ${CHARACTERS[0]}`, gameName: `${tier} table (${label ?? ''})`, options,
+  playerName: `${tier} ${CHARACTERS[0]}`, gameName: `${tier} table (${label ?? ''})`, options, agent,
   ...(key ? { board: 'training' } : {}),
 }, key ? { 'x-characters-key': key } : {});
 const seats = [{ name: `${tier} ${CHARACTERS[0]}`, character: `league/${CHARACTERS[0].toLowerCase()}`, token: host.token }];
 for (const c of CHARACTERS.slice(1)) {
-  const j = await post(`/games/${host.gameId}/join`, { playerName: `${tier} ${c}` });
+  const j = await post(`/games/${host.gameId}/join`, { playerName: `${tier} ${c}`, agent });
   seats.push({ name: `${tier} ${c}`, character: `league/${c.toLowerCase()}`, token: j.token });
 }
 writeFileSync(join(dir, `host-${host.gameId}.json`), JSON.stringify({ token: host.token }));

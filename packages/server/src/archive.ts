@@ -33,6 +33,8 @@ export interface ArchivedRoom {
   name: string;
   tournamentId?: string;
   characterIds: Record<string, string>;
+  /** Player-type labels by seat; written into the record only when it is filed, after the game. */
+  agents: Record<string, string>;
   state: GameState;
   /** The record this room's game is being written to, if any. */
   recordId?: string;
@@ -63,7 +65,7 @@ export interface ArchiveIndexEntry {
   reason: 'domination' | 'capitals' | null;
   turns: number;
   steps: number;
-  players: { id: string; name: string; isBot: boolean; characterId: string | null; place: number | null }[];
+  players: { id: string; name: string; isBot: boolean; characterId: string | null; place: number | null; agent?: string }[];
 }
 
 /** Records kept by default: roughly 0.3-1.6 GB at 0.3-1.6 MB a game. */
@@ -161,6 +163,8 @@ export class GameArchive {
       const header = (JSON.parse(lines[0]) as { header: RecordHeader }).header;
       // A room moved to the training board after its game began.
       if (room.board) header.room = { ...header.room, board: room.board };
+      // The game is over, so the seats' player types can go public with the record.
+      if (Object.keys(room.agents).length) header.room = { ...header.room, agents: { ...room.agents } };
       const entries = lines.slice(1).map((l) => JSON.parse(l) as RecordEntry);
       const record = assembleRecord(header, entries, room.state, Date.now(), endedBecause);
       const month = new Date(record.startedAt).toISOString().slice(0, 7);
@@ -303,6 +307,6 @@ function indexEntry(r: GameRecord, file: string): ArchiveIndexEntry {
     steps: r.steps.length,
     players: r.players
       .filter((p) => !p.isNeutral)
-      .map((p) => ({ id: p.id, name: p.name, isBot: p.isBot, characterId: p.characterId, place: place.get(p.id) ?? null })),
+      .map((p) => ({ id: p.id, name: p.name, isBot: p.isBot, characterId: p.characterId, place: place.get(p.id) ?? null, ...(r.room.agents?.[p.id] ? { agent: r.room.agents[p.id] } : {}) })),
   };
 }

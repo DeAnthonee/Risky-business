@@ -282,6 +282,13 @@ export class GameArchive {
     return out;
   }
 
+  /** The record an index entry points to (no index scan), or null when its file is gone. */
+  read(entry: ArchiveIndexEntry): GameRecord | null {
+    if (!this.dir) return null;
+    const file = join(this.dir, entry.file);
+    return existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as GameRecord) : null;
+  }
+
   /** One finished record, by id, or null. */
   get(id: string): GameRecord | null {
     if (!this.dir || !RECORD_ID.test(id)) return null;

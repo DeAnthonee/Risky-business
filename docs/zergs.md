@@ -63,6 +63,29 @@ Zergs are house bots that rush, never attack each other and hunt eliminations to
 bot lives, and a Zerg winner. How the Zergs settle it among themselves is `zerg@1`'s rule, pinned by the engine's
 Zerg tests.
 
+## 3a. The Zerg report (swarm discipline)
+
+`packages/server/src/zerg-report.ts`, `zergReport(steps, players)`: a pure walk over a game's moves (a live room's
+commits, or a finished record's steps; both give the same report, which a test checks) that reports how the swarm
+behaved:
+
+- **Attacks:** on prey, on fellow Zergs, and on neutral. Each Zerg `attack` is classed by its first battle's defender.
+- **Alarm 1:** Zerg-on-Zerg attacks while a non-Zerg is still alive. Must be 0, and the report lists each one.
+- **Armies:** destroyed by the swarm (prey, Zerg, neutral victims), lost by the swarm, and the trade ratio.
+- **Conquests and knockouts:** conquests by previous owner; knockouts by the swarm and of the swarm (a surrender
+  credits nobody).
+- **Surrenders:** mid-game (**alarm 2**, a non-Zerg still alive) vs endgame (by design), with the land each one left
+  neutral (its territories at its last turn).
+- **A per-seat table:** turns, attacks, battle rolls, armies destroyed and lost, conquests, knockouts, peak territories,
+  how it ended.
+
+**Where it shows:**
+- `GET /api/history/:id/report` for any recorded game (cached; records never change).
+- THE HOUSE on the home page: a "swarm discipline" line summed over every game with Zergs (archived records, plus
+  games being played now), with a red badge if either alarm is ever above 0.
+
+A room restored mid-game after a restart is not tallied live; its record still is, once it's filed.
+
 ## 4. Zerg behaviour (hand-coded first)
 
 All Zergs run the same deterministic **target rule** on the same public board, so they agree without talking:

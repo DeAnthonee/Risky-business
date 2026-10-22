@@ -244,6 +244,34 @@
 .house-dots button[aria-selected='true'] {
   background: var(--house-cream);
 }
+.house-discipline {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  margin-top: 10px;
+  font-size: 0.9em;
+}
+.house-discipline strong {
+  color: var(--house-swarm);
+  font-variant-numeric: tabular-nums;
+}
+.house-alarm {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--house-red);
+  color: #fff;
+  font-weight: 800;
+  animation: house-pulse 1.2s ease-in-out infinite;
+}
+.house-ok {
+  color: var(--house-swarm);
+  font-weight: 700;
+}
+.house-games {
+  opacity: 0.6;
+}
 @keyframes house-in {
   from {
     opacity: 0;
@@ -273,7 +301,8 @@
 @media (prefers-reduced-motion: reduce) {
   .house-vs,
   .house-emoji,
-  .house-record {
+  .house-record,
+  .house-alarm {
     animation: none;
   }
   .house-meter-swarm,

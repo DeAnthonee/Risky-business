@@ -38,7 +38,7 @@ export function Tournament({
   const start = async () => {
     setBusy(true);
     try {
-      const r = hostToken ? await api.startTournament(id, hostToken) : await api.startTournamentWithCode(id, code.trim());
+      const r = hostToken ? await api.startTournament(id, hostToken) : await api.startTournamentWithCode(id, t?.openMode ? '' : code.trim());
       setT(r.tournament);
       setErr(null);
     } catch (e) {
@@ -112,6 +112,10 @@ export function Tournament({
   const mapName = MAPS[t.map as keyof typeof MAPS]?.name ?? t.map;
   const nameOf = (eid: string) => t.entrants.find((e) => e.id === eid)?.name ?? '?';
   const nested = t.format === 'nested';
+  // The host controls (Start now, who joined) sit above every view of a registering tournament: for this browser's host
+  // token, or for anyone in open mode (testing, no hosting codes), so another window or Incognito can still start it.
+  const canHost = !!hostToken || !!t.openMode;
+  const hostBar = t.status === 'registering' && !t.scheduled && canHost;
 
   return (
     <div className="home p5 tournament-page">
@@ -130,6 +134,23 @@ export function Tournament({
           {nested ? 'boards inside boards (tables of 3 to 6, a final of 6 to 10)' : `${mapName} · tables of up to ${t.groupSize}`} · {t.entrants.length}/{t.maxEntrants} entrants
         </p>
       </header>
+
+      {hostBar && (
+        <section className="home-actions tourney-hostbar" aria-label="Host controls">
+          <h2 className="p5-tag">Host</h2>
+          <p>
+            {hostToken ? 'You created this tournament.' : 'Testing mode: anyone can start this tournament.'} Start it when everyone is in; empty open
+            spots are planned around at the start.
+          </p>
+          <div className="row">
+            <button className="primary" disabled={busy} onClick={start}>
+              Start now
+            </button>
+          </div>
+          {err && <p className="error">{err}</p>}
+          <HostEntrants id={id} hostToken={hostToken ?? undefined} />
+        </section>
+      )}
 
       {t.champion && (
         <section className="tourney-champion" aria-label="Champion">
@@ -185,27 +206,16 @@ export function Tournament({
               <p>Registration is closed. Watch any table below.</p>
             </>
           )}
-          {t.status === 'registering' && !t.scheduled && (
+          {t.status === 'registering' && !t.scheduled && !canHost && (
             <div className="tourney-host">
               <h3>Host</h3>
-              {hostToken ? (
-                <>
-                  <button className="primary" disabled={busy} onClick={start}>
-                    Start now
-                  </button>
-                  <HostEntrants id={id} hostToken={hostToken} />
-                </>
-              ) : (
-                <>
-                  <label className="ct-code">
-                    Hosting code
-                    <input value={code} autoComplete="off" spellCheck={false} placeholder="from the site owner" onChange={(e) => setCode(e.target.value)} />
-                  </label>
-                  <button disabled={busy || !code.trim()} onClick={start}>
-                    Start with code
-                  </button>
-                </>
-              )}
+              <label className="ct-code">
+                Hosting code
+                <input value={code} autoComplete="off" spellCheck={false} placeholder="from the site owner" onChange={(e) => setCode(e.target.value)} />
+              </label>
+              <button disabled={busy || !code.trim()} onClick={start}>
+                Start with code
+              </button>
             </div>
           )}
           {err && <p className="error">{err}</p>}

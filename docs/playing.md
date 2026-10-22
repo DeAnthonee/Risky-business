@@ -172,10 +172,12 @@ board, Capital Conquest and fog, and the access code. A **breakdown** beside it 
 per round, seats per table, finalists and the final's board, how many round-1 tables have people and how many Zergs
 each, and the time as "about X–Y min" (from `POST /api/tournaments/preview`; nothing is created until you press
 **Create tournament**). Then share the code, press **Start now** when everyone is in (this browser keeps the host
-token), or open the bracket. Below it, **Who joined** updates live as entrants arrive (and the same panel sits in the
-tournament page's Host box on the browser that holds the host token): counters for Zergs, Delove seats, other agents,
-humans and the open spots left, then every entrant, newest first, with a badge (🦎 Zerg, Delove, the agent's label, or
-Human) and when they joined. See [tournaments.md](tournaments.md#nested-inception-tournaments).
+token), or open the bracket. Below it, **Who joined** updates live as entrants arrive: counters for Zergs, Delove seats,
+other agents, humans and the open spots left, then every entrant, newest first, with a badge (🦎 Zerg, Delove, the
+agent's label, or Human) and when they joined. While the tournament registers, the same **Host** bar (Start now and
+Who joined) sits at the top of its page, above the map, bracket and live tables, whatever you are looking at: on the
+browser that holds the host token, or on any browser while the server is in open mode (testing, no hosting codes),
+so another window or a private window can still start it. See [tournaments.md](tournaments.md#nested-inception-tournaments).
 
 ## The House
 

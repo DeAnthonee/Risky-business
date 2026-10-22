@@ -134,6 +134,8 @@ export type EntrantStatus = 'registered' | 'playing' | 'waiting' | 'out' | 'cham
 export interface TournamentView {
   id: string;
   name: string;
+  /** The server is in open mode (testing, no hosting codes): anyone may start it, so the host controls show for all. */
+  openMode?: boolean;
   status: TournamentSummary['status'];
   map: string;
   groupSize: number;
@@ -245,7 +247,7 @@ export interface HostEntrantsView {
 }
 
 export const api = {
-  hostEntrants: (id: string, hostToken: string) => request<HostEntrantsView>(`/tournaments/${id}/entrants`, {}, hostToken),
+  hostEntrants: (id: string, hostToken?: string) => request<HostEntrantsView>(`/tournaments/${id}/entrants`, {}, hostToken),
   previewTournament: (spec: CreateTournamentRequest) => request<{ preview: TournamentPreview }>('/tournaments/preview', { method: 'POST', body: JSON.stringify(spec) }),
   createTournament: (spec: CreateTournamentRequest) => request<{ hostToken: string; tournament: TournamentView }>('/tournaments', { method: 'POST', body: JSON.stringify(spec) }),
   startTournament: (id: string, hostToken: string) => request<{ tournament: TournamentView }>(`/tournaments/${id}/start`, { method: 'POST', body: '{}' }, hostToken),

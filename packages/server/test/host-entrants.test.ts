@@ -1,10 +1,18 @@
 import type { AddressInfo } from 'node:net';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { Store } from '../src/store.js';
 import { createRiskServer, type RiskServer } from '../src/app.js';
 
+const ADMIN = 'entrants-admin';
 let risk: RiskServer;
 let base: string;
+
+/** A server; `open`: open mode (testing: no codes, anyone may create and start). */
+async function serve(open: boolean) {
+  risk = createRiskServer(new Store(null), { clientDir: null, sweepIntervalMs: 0, adminToken: ADMIN, openTournaments: open });
+  await new Promise<void>((resolve) => risk.server.listen(0, '127.0.0.1', resolve));
+  base = `http://127.0.0.1:${(risk.server.address() as AddressInfo).port}`;
+}
 
 async function call(path: string, opts: { body?: unknown; token?: string } = {}) {
   const headers: Record<string, string> = { 'content-type': 'application/json' };
@@ -14,11 +22,6 @@ async function call(path: string, opts: { body?: unknown; token?: string } = {})
   return { status: res.status, raw, body: raw ? JSON.parse(raw) : {} };
 }
 
-beforeEach(async () => {
-  risk = createRiskServer(new Store(null), { clientDir: null, sweepIntervalMs: 0 });
-  await new Promise<void>((resolve) => risk.server.listen(0, '127.0.0.1', resolve));
-  base = `http://127.0.0.1:${(risk.server.address() as AddressInfo).port}`;
-});
 afterEach(async () => {
   risk.store.stopTimers();
   await risk.shutdown('test');
@@ -26,7 +29,8 @@ afterEach(async () => {
 
 describe("the host's live entrants list (GET /api/tournaments/:id/entrants)", () => {
   it('counts Zergs, Delove, other agents, humans and open spots, newest first, for the host only, never with tokens', async () => {
-    const created = (await call('/tournaments', { body: { format: 'nested', name: 'Live Cup', maxEntrants: 20 } })).body;
+    await serve(false);
+    const created = (await call('/admin/tournaments', { token: ADMIN, body: { format: 'nested', name: 'Live Cup', maxEntrants: 20 } })).body;
     const id = created.tournament.id as string;
     await call(`/tournaments/${id}/bots`, { token: created.hostToken, body: { kind: 'zerg', count: 3 } });
     const tokens: string[] = [];
@@ -51,5 +55,20 @@ describe("the host's live entrants list (GET /api/tournaments/:id/entrants)", ()
     // A seat the Delove pool joined counts as Delove whatever its label.
     const ada = r.body.entrants.find((e: { name: string }) => e.name === 'Ada').id;
     expect(risk.store.tournaments.hostEntrants(id, new Set([ada])).counts).toMatchObject({ delove: 2, humans: 0 });
+    // Not open mode: the view does not offer the host controls to everyone.
+    expect((await call(`/tournaments/${id}`)).body.tournament.openMode).toBeUndefined();
+  });
+
+  it('in open mode (testing) the view says so and anyone may read the list, so another window can host', async () => {
+    await serve(true);
+    const created = (await call('/tournaments', { body: { format: 'nested', name: 'Open Cup', zergs: 2, open: 4 } })).body;
+    const id = created.tournament.id as string;
+    expect((await call(`/tournaments/${id}`)).body.tournament.openMode).toBe(true);
+    expect((await call(`/tournaments/${id}/wait?since=0&timeoutMs=0`)).body.tournament.openMode).toBe(true);
+    const r = await call(`/tournaments/${id}/entrants`);
+    expect(r.status).toBe(200);
+    expect(r.body.counts).toMatchObject({ zergs: 2, open: 4 });
+    // And anyone may start it (#280), with no token and no code.
+    expect((await call(`/tournaments/${id}/start`, { body: { code: '' } })).status).toBe(200);
   });
 });

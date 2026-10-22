@@ -55,3 +55,8 @@
 .he-list {
   grid-template-columns: minmax(0, 1fr);
 }
+/* The host bar above every view of a registering tournament (Tournament.tsx): one column. */
+.home.p5 .home-actions.tourney-hostbar {
+  grid-template-columns: 1fr;
+  margin-bottom: 24px;
+}

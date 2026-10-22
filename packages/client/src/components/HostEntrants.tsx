@@ -21,9 +21,10 @@ function ago(at: number, now: number): string {
 /**
  * The host's live view of who joined (GET /api/tournaments/:id/entrants, host token): counter tiles (Zergs, Delove,
  * other agents, humans, open spots) and every entrant, newest first, with a kind badge and when they joined. It
- * refreshes whenever the tournament changes (the /wait long-poll), and stops once registration closes.
+ * refreshes whenever the tournament changes (the /wait long-poll), and stops once registration closes. `hostToken`:
+ * this browser's host token; without it (open mode) the server answers anyone.
  */
-export function HostEntrants({ id, hostToken }: { id: string; hostToken: string }) {
+export function HostEntrants({ id, hostToken }: { id: string; hostToken?: string }) {
   const [view, setView] = useState<HostEntrantsView | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now());

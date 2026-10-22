@@ -642,6 +642,11 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
   }
   // Start: the host token or the admin key, or a hosting code in the body (the admin code starts any; the limited code
   // those made with it).
+  /** Open mode (testing: RISK_TOURNAMENTS_OPEN and no hosting codes): anyone may start a tournament (#280). */
+  const openMode = () => access.openStart(!!opts.openTournaments);
+  /** A tournament's public view, with `openMode` when anyone may start it (the client then shows the host controls). */
+  const tournamentView = (id: string, token?: string) => ({ ...store.tournaments.view(id, token), ...(openMode() ? { openMode: true as const } : {}) });
+
   function requireHostOrCode(req: Request, res: Response, next: NextFunction) {
     const code = (req.body as { code?: unknown } | undefined)?.code;
     const id = String(req.params.id);
@@ -666,10 +671,11 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
       res.json({ tournament: store.tournaments.view(t.id) });
     }),
   );
-  // The host's live list of entrants: kinds, agent labels and join times, with counts (never an entrant token).
+  // The host's live list of entrants: kinds, agent labels and join times, with counts (never an entrant token). In open
+  // mode (testing: no codes, anyone may start) anyone may read it too, so a host in another browser still sees it.
   api.get(
     '/tournaments/:id/entrants',
-    requireTournamentHost,
+    (req, res, next) => (openMode() && store.tournaments.get(String(req.params.id)) ? next() : requireTournamentHost(req, res, next)),
     wrap((req, res) => {
       const id = String(req.params.id);
       res.json(store.tournaments.hostEntrants(id, seatReqs.boundEntrants(id)));
@@ -811,7 +817,7 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
     wrap((req, res) => {
       if (!store.tournaments.get(String(req.params.id))) return res.status(404).json({ error: 'Tournament not found' });
       store.tournaments.checkIn(String(req.params.id), tokenOf(req));
-      res.json({ tournament: store.tournaments.view(String(req.params.id), tokenOf(req)) });
+      res.json({ tournament: tournamentView(String(req.params.id), tokenOf(req)) });
     }),
   );
   api.post(
@@ -845,7 +851,7 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
       store.tournaments.checkIn(id, tokenOf(req));
       const reason = await store.tournaments.waitFor(id, since, timeoutMs);
       if (!store.tournaments.get(id)) return res.status(404).json({ error: 'Tournament not found' });
-      res.json({ reason, tournament: store.tournaments.view(id, tokenOf(req)) });
+      res.json({ reason, tournament: tournamentView(id, tokenOf(req)) });
     }),
   );
 

@@ -248,6 +248,7 @@ export function Tournament({
               {t.entrants.map((e) => (
                 <li key={e.id} className={e.status}>
                   {e.status === 'champion' ? '👑 ' : ''}
+                  {e.dropped ? <span title={`Dropped (${e.dropped.reason}): ${e.dropped.standIn} plays the seat to the end of that table`}>🔌 </span> : ''}
                   {nested ? (
                     <button type="button" className="entrant-link" title={`Find ${e.name} on the globe`} onClick={() => findEntrant(e.id)}>
                       {e.name}
@@ -316,5 +317,6 @@ function youLine(status: string, t: TournamentView['status'], scheduled = false)
   if (status === 'playing') return 'Your table is being played.';
   if (status === 'waiting') return 'You won your table! Waiting for the other tables to finish.';
   if (status === 'champion') return 'You won the tournament!';
+  if (status === 'dropped') return 'You were dropped (disconnected): a stand-in plays your seat to the end of that table, and you are out of the tournament.';
   return 'You are out. Watch the rest of the bracket below.';
 }

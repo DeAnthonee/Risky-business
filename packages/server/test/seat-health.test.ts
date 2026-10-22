@@ -1,0 +1,122 @@
+import type { AddressInfo } from 'node:net';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { Store } from '../src/store.js';
+import { createRiskServer } from '../src/app.js';
+import { LocalRiskApi } from '../src/local-api.js';
+import { DEFAULT_DISCONNECT, disconnectConfigFromEnv, disconnectIdleMs } from '../src/seat-health.js';
+
+/** A knockout tournament with one table of `names`, a per-move timer of 30 s, the game started; bots held still. */
+function table(names: string[]) {
+  const store = new Store(null);
+  const t = store.tournaments.create({ name: 'Drop Cup', groupSize: names.length, maxEntrants: names.length, fillBots: false, options: { map: 'classic', autoSetup: true, turnTimer: 'move', turnTimerSeconds: 30 } });
+  const ids = names.map((n) => store.tournaments.join(t.id, n).entrantId);
+  store.tournaments.start(t.id);
+  const m = t.rounds[0].matches[0];
+  const room = store.get(m.gameId!)!;
+  room.stopBot();
+  const seat = (name: string) => m.seats[ids[names.indexOf(name)]];
+  const entrant = (name: string) => t.entrants.find((e) => e.id === ids[names.indexOf(name)])!;
+  return { store, t, m, room, seat, entrant };
+}
+
+/** Let the clock run out on whoever is to move until it is `name`'s decision, then time `name` out once. */
+function timeOut(ctx: ReturnType<typeof table>, name: string) {
+  const pid = ctx.seat(name).playerId;
+  // The other seats are present (they poll), so only `name` can be dropped here.
+  const others = Object.values(ctx.m.seats).filter((s) => s.playerId !== pid);
+  for (let i = 0; i < 50 && ctx.room.state.currentPlayer !== pid; i++) {
+    for (const s of others) ctx.room.playerForToken(s.token);
+    ctx.room.expireTurn();
+  }
+  expect(ctx.room.state.currentPlayer).toBe(pid);
+  ctx.room.expireTurn();
+}
+
+afterEach(() => vi.useRealTimers());
+
+describe('disconnect thresholds', () => {
+  it('a seat is disconnected after 2 timeouts in a row and max(2 x the move timer, 180 s) of silence; env-tunable', () => {
+    expect(DEFAULT_DISCONNECT).toEqual({ timeouts: 2, timerFactor: 2, idleFloorMs: 180_000 });
+    expect(disconnectIdleMs(30)).toBe(180_000);
+    expect(disconnectIdleMs(120)).toBe(240_000);
+    expect(disconnectConfigFromEnv({ RISK_DISCONNECT_TIMEOUTS: '3', RISK_DISCONNECT_IDLE_S: '60' })).toMatchObject({ timeouts: 3, idleFloorMs: 60_000 });
+  });
+});
+
+describe('dropping a disconnected seat at a tournament table', () => {
+  it('a model that is thinking (any request with its token) is never dropped, however many timeouts', () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const ctx = table(['Ann', 'Bob']);
+    for (let i = 0; i < 4; i++) {
+      vi.setSystemTime(Date.now() + 5 * 60_000);
+      ctx.room.playerForToken(ctx.seat('Ann').token); // get_state, wait_for_turn, chat...
+      timeOut(ctx, 'Ann');
+    }
+    expect(ctx.entrant('Ann').dropped).toBeUndefined();
+    expect(ctx.room.state.players.find((p) => p.id === ctx.seat('Ann').playerId)).toMatchObject({ name: 'Ann', isBot: false });
+    ctx.store.stopTimers();
+  });
+
+  it('one timeout and silence is not enough; a second in a row drops the seat: the house bot plays it as "<name>-bot"', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const ctx = table(['Ann', 'Bob']);
+    const risk = createRiskServer(ctx.store, { clientDir: null, sweepIntervalMs: 0 });
+    await new Promise<void>((resolve) => risk.server.listen(0, '127.0.0.1', resolve));
+    try {
+      vi.setSystemTime(Date.now() + 10 * 60_000);
+      timeOut(ctx, 'Ann');
+      expect(ctx.entrant('Ann').dropped).toBeUndefined();
+      // A move of Bob's in between does not reset Ann's run; only Ann's own move would.
+      timeOut(ctx, 'Ann');
+      const seat = ctx.room.state.players.find((p) => p.id === ctx.seat('Ann').playerId)!;
+      expect(seat).toMatchObject({ name: 'Ann-bot', isBot: true });
+      expect(ctx.entrant('Ann').dropped).toMatchObject({ reason: 'disconnected', standIn: 'Ann-bot' });
+      expect(ctx.room.history.some((h) => h.action.type === 'system' && /dropped \(disconnected\)/.test((h.action as { note: string }).note))).toBe(true);
+      // The old token says why, over HTTP (410) and MCP.
+      const base = `http://127.0.0.1:${(risk.server.address() as AddressInfo).port}`;
+      const res = await fetch(`${base}/api/games/${ctx.room.id}/actions`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${ctx.seat('Ann').token}` }, body: JSON.stringify({ action: { type: 'end_turn' } }) });
+      expect(res.status).toBe(410);
+      expect(((await res.json()) as { error: string }).error).toMatch(/dropped from this table \(disconnected\)/);
+      const mcp = new LocalRiskApi(ctx.store, risk.characters);
+      await expect(mcp.act(ctx.room.id, ctx.seat('Ann').token, { type: 'end_turn' })).rejects.toMatchObject({ status: 410 });
+      // The bracket shows it, and the stand-in plays on: the house bot moves the seat.
+      expect(ctx.store.tournaments.view(ctx.t.id).entrants.find((e) => e.name === 'Ann')).toMatchObject({ status: 'dropped', dropped: { reason: 'disconnected', standIn: 'Ann-bot' } });
+      for (let i = 0; i < 50 && ctx.room.state.currentPlayer !== seat.id; i++) ctx.room.expireTurn();
+      const v = ctx.room.state.version;
+      expect(ctx.room.stepBot()).toBe(true);
+      expect(ctx.room.state.version).toBeGreaterThan(v);
+    } finally {
+      await risk.shutdown('test');
+    }
+  });
+
+  it('never at a table outside a tournament, and never for bots', () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const store = new Store(null);
+    const { room, playerId: a } = store.create('Plain', { map: 'classic', maxPlayers: 2, autoSetup: true, turnTimer: 'move', turnTimerSeconds: 30 }, 'Ann');
+    room.join('Bob');
+    room.start();
+    room.stopBot();
+    vi.setSystemTime(Date.now() + 10 * 60_000);
+    for (let i = 0; i < 6; i++) room.expireTurn();
+    expect(room.state.players.find((p) => p.id === a)).toMatchObject({ name: 'Ann', isBot: false });
+    store.stopTimers();
+  });
+
+  it('a stand-in can win the table but never moves on: the best other seat by standing does, as decided', () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const ctx = table(['Ann', 'Bob', 'Cat']);
+    vi.setSystemTime(Date.now() + 10 * 60_000);
+    timeOut(ctx, 'Ann');
+    timeOut(ctx, 'Ann');
+    expect(ctx.entrant('Ann').dropped).toBeDefined();
+    // Bob goes out first, then Cat: Ann's stand-in wins the game.
+    for (const name of ['Bob', 'Cat']) ctx.room.act(ctx.seat(name).playerId, { type: 'surrender' });
+    expect(ctx.room.state.winner).toBe(ctx.seat('Ann').playerId);
+    expect(ctx.m.status).toBe('decided');
+    expect(ctx.m.winner).toBe(ctx.entrant('Cat').id); // the last one out: the best other seat by standing
+    expect(ctx.m.standing!.order[0]).toBe(ctx.entrant('Ann').id);
+    expect(ctx.t.champion).toBe(ctx.entrant('Cat').id); // a one-table knockout: the table's winner is the champion
+    ctx.store.stopTimers();
+  });
+});

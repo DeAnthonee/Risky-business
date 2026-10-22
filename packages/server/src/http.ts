@@ -21,6 +21,7 @@ import type { CharacterStore } from './characters.js';
 import type { CreateTournamentSpec } from './tournaments.js';
 import { NO_TOURNEY_CAPS, TournamentAccess } from './tournament-access.js';
 import { NO_SEAT_CAPS, SeatRequests, type SeatRequest } from './seat-requests.js';
+import { droppedMessage } from './seat-health.js';
 import { SeasonKeyGuard } from './season-key.js';
 import { RateLimitedError, RateLimiter } from './rate-limit.js';
 import { PLAYER_KEY_HEADER, PlayerKeyLimitError, type PlayerAccount } from './player-keys.js';
@@ -130,6 +131,9 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
   }
 
   function requirePlayer(req: Req, res: Response, next: NextFunction) {
+    // A seat dropped as disconnected (seat-health.ts): its old token says why, instead of a bare 401.
+    const dropped = !req.playerId && req.room ? req.room.droppedReason(tokenOf(req)) : null;
+    if (dropped) return res.status(410).json({ error: droppedMessage(dropped) });
     if (!req.playerId) return res.status(401).json({ error: 'A valid player token is required' });
     next();
   }

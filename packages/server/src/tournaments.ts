@@ -87,6 +87,11 @@ export interface Entrant {
   checkedInAt?: number;
   /** A no-show swapped for a Zerg at a scheduled start: the person's name and old token (so their client hears why). */
   missed?: { name: string; token: string };
+  /**
+   * Dropped from the tournament (seat-health.ts: disconnected): a stand-in ("<name>-bot") plays its seat to the end of
+   * that table only. It may win the table, but never moves on: the best other seat by standing does.
+   */
+  dropped?: { reason: string; at: number; standIn: string };
 }
 
 export interface TournamentMatch {
@@ -280,7 +285,7 @@ export interface TournamentView {
   groupSize: number;
   maxEntrants: number;
   fillBots: boolean;
-  entrants: { id: string; name: string; isBot: boolean; status: 'registered' | 'playing' | 'waiting' | 'out' | 'champion' }[];
+  entrants: { id: string; name: string; isBot: boolean; status: 'registered' | 'playing' | 'waiting' | 'out' | 'champion' | 'dropped'; dropped?: { reason: string; standIn: string } }[];
   rounds: {
     round: number;
     /** Nested: the round's deadline, the start of its last lap and its end (ms). */
@@ -937,7 +942,7 @@ export class TournamentManager extends EventEmitter {
       groupSize: t.groupSize,
       maxEntrants: t.maxEntrants,
       fillBots: t.fillBots,
-      entrants: t.entrants.map((e) => ({ id: e.id, name: e.name, isBot: e.isBot, status: status(e) })),
+      entrants: t.entrants.map((e) => ({ id: e.id, name: e.name, isBot: e.isBot, status: status(e), ...(e.dropped ? { dropped: { reason: e.dropped.reason, standIn: e.dropped.standIn } } : {}) })),
       rounds: t.rounds.map((r) => ({
         round: r.round,
         ...(r.deadline !== undefined ? { deadline: r.deadline } : {}),
@@ -1075,9 +1080,15 @@ export class TournamentManager extends EventEmitter {
     return t.rounds.at(-1);
   }
 
+  /** The first entrant in `order` that was not dropped (a stand-in never moves on), or null. */
+  private firstNotDropped(t: TournamentSnapshot, order: readonly string[]): string | null {
+    return order.find((eid) => !this.entrant(t, eid)?.dropped) ?? null;
+  }
+
   private entrantStatus(t: TournamentSnapshot, id: string): TournamentView['entrants'][number]['status'] {
     if (t.status === 'registering') return 'registered';
     if (t.champion === id) return 'champion';
+    if (this.entrant(t, id)?.dropped) return 'dropped';
     const m = this.currentRound(t)?.matches.find((x) => x.entrants.includes(id));
     if (!m) return 'out';
     if (m.status === 'playing') return 'playing';
@@ -1129,6 +1140,14 @@ export class TournamentManager extends EventEmitter {
 
   private watch(t: TournamentSnapshot, m: TournamentMatch, room: GameRoom) {
     let roundsSeen = room.state.round;
+    // A seat dropped as disconnected (GameRoom.dropSeat): its entrant is out of the tournament; the stand-in plays on.
+    const onDrop = ({ playerId, reason, standIn }: { playerId: string; reason: string; standIn: string }) => {
+      const e = this.entrant(t, Object.entries(m.seats).find(([, s]) => s.playerId === playerId)?.[0] ?? '');
+      if (!e || e.dropped) return;
+      e.dropped = { reason, at: this.clock.now(), standIn };
+      if (this.tournaments.get(t.id) === t) this.changed(t);
+    };
+    room.on('seat_dropped', onDrop);
     const settle = () => {
       if (m.status !== 'playing') return;
       if (t.format === 'nested' && room.state.phase !== 'finished' && !room.closed) {
@@ -1142,6 +1161,17 @@ export class TournamentManager extends EventEmitter {
         const winner = Object.entries(m.seats).find(([, s]) => s.playerId === room.state.winner)?.[0] ?? null;
         m.winner = winner;
         m.status = winner ? 'finished' : 'abandoned';
+        // A stand-in won (a dropped entrant's seat): it never moves on. The best other seat by standing does, as a
+        // table decided on standing (+1); with none left, nobody moves on from this table.
+        if (winner && this.entrant(t, winner)?.dropped) {
+          const rng = createRng(nestSeed(t.nested?.seed ?? 0, `drop:${t.rounds.length}:${m.table ?? 0}`));
+          const standing = rankByStanding(room.state, () => nextFloat(rng), room.eliminationOrder);
+          const byPlayer = new Map(Object.entries(m.seats).map(([eid, s]) => [s.playerId, eid]));
+          const order = standing.order.map((pid) => byPlayer.get(pid)).filter((eid): eid is string => !!eid);
+          m.standing = { order, rolls: Object.fromEntries(Object.entries(standing.rolls).filter(([pid]) => byPlayer.has(pid)).map(([pid, r]) => [byPlayer.get(pid)!, r])) };
+          m.winner = this.firstNotDropped(t, order);
+          m.status = m.winner ? 'decided' : 'abandoned';
+        }
         // A stalemate (the engine's stallEnd) is a decision on standing, not a win: 'decided' (+1 table point, owner's
         // rule), with its standing on the bracket; the winner still moves on.
         const stalemate = stallOf(room.state)?.stalemate;
@@ -1150,6 +1180,8 @@ export class TournamentManager extends EventEmitter {
           const order = stalemate.standing.map((pid) => byPlayer.get(pid)).filter((eid): eid is string => !!eid);
           m.status = 'decided';
           m.standing = { order, rolls: Object.fromEntries(Object.entries(stalemate.rolls).filter(([pid]) => byPlayer.has(pid)).map(([pid, r]) => [byPlayer.get(pid)!, r])) };
+          m.winner = this.firstNotDropped(t, order);
+          if (!m.winner) m.status = 'abandoned';
         }
       } else if (room.closed) {
         m.status = 'abandoned';
@@ -1159,6 +1191,7 @@ export class TournamentManager extends EventEmitter {
       if (m.status === 'decided' && m.standing) m.order = m.standing.order;
       room.off('change', settle);
       room.off('closed', settle);
+      room.off('seat_dropped', onDrop);
       if (this.tournaments.get(t.id) !== t) return; // tournament deleted
       this.advance(t);
       this.changed(t);
@@ -1376,7 +1409,8 @@ export class TournamentManager extends EventEmitter {
       const byPlayer = new Map(Object.entries(m.seats).map(([eid, s]) => [s.playerId, eid]));
       const order = standing.order.map((pid) => byPlayer.get(pid)).filter((eid): eid is string => !!eid);
       m.standing = { order, rolls: Object.fromEntries(Object.entries(standing.rolls).filter(([pid]) => byPlayer.has(pid)).map(([pid, r]) => [byPlayer.get(pid)!, r])) };
-      m.winner = order[0] ?? null;
+      // A stand-in (a dropped entrant's seat) never moves on: the best other seat does.
+      m.winner = this.firstNotDropped(t, order);
       m.status = m.winner ? 'decided' : 'abandoned';
       // The tournament board: kills from the game so far, and the standing as the table's order.
       this.scoreTable(m, room);

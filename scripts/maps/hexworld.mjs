@@ -64,9 +64,9 @@ export default {
     { id: 'british_isles', name: 'British Isles', continent: 'europe', site: [-2, 53], island: true },
     { id: 'scandinavia', name: 'Scandinavia', continent: 'europe', site: [15, 63] },
     { id: 'iberia', name: 'Iberia', continent: 'europe', site: [-4, 40] },
-    { id: 'western_europe', name: 'Western Europe', continent: 'europe', site: [2, 47] },
+    { id: 'western_europe', name: 'Western Europe', continent: 'europe', site: [2, 47], cells: [[3.7, 52.2]] },
     { id: 'central_europe', name: 'Central Europe', continent: 'europe', site: [14, 51] },
-    { id: 'italy', name: 'Italy', continent: 'europe', site: [13, 43] },
+    { id: 'italy', name: 'Italy', continent: 'europe', site: [13.5, 42], island: true, anchor: [14, 41.9] },
     { id: 'balkans', name: 'Balkans', continent: 'europe', site: [22, 43] },
     { id: 'eastern_europe', name: 'Eastern Europe', continent: 'europe', site: [30, 50] },
     // Russia

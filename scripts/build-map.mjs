@@ -435,23 +435,28 @@ function buildHexGlobeMap(def) {
       if (gapTo(t.id, best) > gapTo(t.id, badge.get(t.id))) badge.set(t.id, best);
     }
   // Single-hex neighbours can still be too close: push their flat-view badges apart along the
-  // line between them, as far as each stays inside its own territory.
+  // line between them, as far as each stays inside its own territory (a few passes, so a badge
+  // squeezed between two others settles).
   const at = new Map(ids.map((id) => [id, xy(badge.get(id))]));
-  for (let a = 0; a < ids.length; a++)
-    for (let b = a + 1; b < ids.length; b++) {
-      const [pa, pb] = [at.get(ids[a]), at.get(ids[b])];
-      const d = Math.hypot(pb[0] - pa[0], pb[1] - pa[1]);
-      if (d >= minGap) continue;
-      const [ux, uy] = [(pb[0] - pa[0]) / d, (pb[1] - pa[1]) / d];
-      const push = (id, p, s) => {
-        for (let k = (minGap - d) / 2 + 0.5; k > 0; k -= 0.5) {
-          const q = [p[0] + s * ux * k, p[1] + s * uy * k];
-          if (geoContains(geoms.get(id), projection.invert(q))) return at.set(id, q);
-        }
-      };
-      push(ids[a], pa, -1);
-      push(ids[b], pb, 1);
-    }
+  for (let pass = 0; pass < 6; pass++) {
+    for (let a = 0; a < ids.length; a++)
+      for (let b = a + 1; b < ids.length; b++) {
+        const [pa, pb] = [at.get(ids[a]), at.get(ids[b])];
+        const d = Math.hypot(pb[0] - pa[0], pb[1] - pa[1]);
+        if (d >= minGap) continue;
+        const [ux, uy] = [(pb[0] - pa[0]) / d, (pb[1] - pa[1]) / d];
+        // Each moves half the shortfall; whatever one cannot move, the other tries to.
+        const push = (id, p, s, want) => {
+          for (let k = want; k > 0; k -= 0.5) {
+            const q = [p[0] + s * ux * k, p[1] + s * uy * k];
+            if (geoContains(geoms.get(id), projection.invert(q))) return at.set(id, q), k;
+          }
+          return 0;
+        };
+        const moved = push(ids[a], pa, -1, (minGap - d) / 2 + 0.5);
+        push(ids[b], pb, 1, minGap - d - moved + 0.5);
+      }
+  }
   const territories = def.territories.map((t) => {
     const g = geoms.get(t.id);
     const [x, y] = at.get(t.id);

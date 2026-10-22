@@ -78,7 +78,8 @@ testing gate (owner, 2026-10-22); player keys or sign-in replace them later. The
 - **Testing mode** (owner, 2026-10-22: "those extra safety levers are blocking us testing it"). Unless
   `RISK_TOURNEY_STRICT=1`, the server runs with **no wrong-code lockout** (lockouts saved by a strict run are cleared
   at start) and **looser caps**: 10 tournaments at once, 5 per limited code, 200 creates a day, 50 per limited code,
-  1000 seats reserved. The codes, the seat and Delove caps, expiry and the lag brake stay. `RISK_TOURNEY_STRICT=1`
+  1000 seats reserved, up to 256 entrants per tournament with any code or open mode, and Delove seats up to 256 per
+  tournament and 1000 at once. The codes, expiry, the search-seat cap (20) and the lag brake stay. `RISK_TOURNEY_STRICT=1`
   restores the launch levers listed below. Each lever's own variable wins in either mode. The startup log says
   `[tourney] codes: admin set|unset, limited set|unset, strict on|off` (never a value).
 - **No codes on the server** (owner: "I dont care to have some code block our testing right now"): with neither code

@@ -53,9 +53,9 @@ Environment variables:
 | `RISK_TOURNEY_CREATES_PER_DAY` | creates per UTC day, site-wide, by code or open mode (default 20 [testing 200]) |
 | `RISK_TOURNEY_MAX_ACTIVE`  | tournaments registering or running at once, site-wide, for a create by code or open mode (default 2 [testing 10]; every tournament counts toward it) |
 | `RISK_TOURNEY_MAX_ACTIVE_LIMITED` | of those, at most this many made with the limited code or in open mode at once (default 1 [testing 5]) |
-| `RISK_TOURNEY_SEATS_ADMIN` / `RISK_TOURNEY_SEATS_LIMITED` | most entrants per tournament with the admin code (default 128) / the limited code or open mode (default 64) |
+| `RISK_TOURNEY_SEATS_ADMIN` / `RISK_TOURNEY_SEATS_LIMITED` | most entrants per tournament with the admin code (default 128 [testing 256]) / the limited code or open mode (default 64 [testing 256]) |
 | `RISK_TOURNEY_MAX_LIVE_SEATS` | most entrant seats (`maxEntrants`) reserved by all tournaments registering or running (default 200 [testing 1000]) |
-| `RISK_TOURNEY_DELOVE_ADMIN` / `RISK_TOURNEY_DELOVE_LIMITED` / `RISK_TOURNEY_DELOVE_AT_ONCE` | Delove seats per tournament with the admin code or key / the limited code or open mode, and held by open seat requests at once (defaults 40 / 16 / 48; `0` = no cap) |
+| `RISK_TOURNEY_DELOVE_ADMIN` / `RISK_TOURNEY_DELOVE_LIMITED` / `RISK_TOURNEY_DELOVE_AT_ONCE` | Delove seats per tournament with the admin code or key / the limited code or open mode, and held by open seat requests at once (defaults 40 / 16 / 48 [testing 256 / 256 / 1000]; `0` = no cap) |
 | `RISK_TOURNEY_DELOVE_SEARCH_AT_ONCE` | of those, how many may run search at once (fog-off tables only; default 20); the rest play the bare network |
 | `RISK_SEAT_POOL_KEY`       | the Delove seat-pool daemon's key for `/api/seat-requests` (header `x-seat-pool-key`; [tournaments.md](tournaments.md#delove-seats-on-request)). The owner sets the value; no session writes, prints or logs it. Unset = Delove seats on request off. The requests and the wrong-key lockout are saved as `seat-requests.json` and `seat-pool-lockout.json` under `RISK_DATA_DIR` |
 | `RISK_TOURNEY_LAG_BRAKE_MS` | creates answer 503 while the last full minute's event-loop p99 lag is above this (default 100; `0` = off) |

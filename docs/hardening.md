@@ -198,7 +198,7 @@ never refuse a right key), or let the pool authenticate from a fixed address.
 
 **What is wrong:** while the owner tests (2026-10-22: "I dont care to have some code block our testing right now.
 We'll harden this later"), `RISK_TOURNEY_STRICT` is off by default. So there is no wrong-code lockout, and the caps
-are loose (10 tournaments at once, 200 creates a day, 1000 seats). With no hosting code set, a typed code is ignored
+are loose (10 tournaments at once, 200 creates a day, 1000 seats, 256 entrants and 256 Delove seats per tournament). With no hosting code set, a typed code is ignored
 and **anyone can create and start tournaments** in open mode, whoever made them. Open mode also opens the host's view
 to everyone: the tournament view carries `openMode: true` and every browser gets the Host bar (Start now). And
 **anyone, other entrants included, can read the player-type labels before play** through the live Who joined list

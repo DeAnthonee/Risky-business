@@ -724,11 +724,12 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
         territoriesPerSeat: z.number().int().min(4).max(6).optional().describe('nested: generated board size per seat (default 5)'),
         roundMinutes: z.number().int().min(1).max(240).optional().describe('nested: round deadline in minutes (default 30)'),
         finishShare: z.number().min(0.1).max(1).optional().describe('nested: share of tables that must finish to end a round (default 0.51)'),
+        botDelayMs: z.number().int().min(0).max(2000).optional().describe('nested: bot pace at the tables, ms between moves (default 300)'),
       },
     },
-    async ({ adminKey, name, options, groupSize, maxEntrants, fillBots, format, finalMap, territoriesPerSeat, roundMinutes, finishShare }) => {
+    async ({ adminKey, name, options, groupSize, maxEntrants, fillBots, format, finalMap, territoriesPerSeat, roundMinutes, finishShare, botDelayMs }) => {
       try {
-        const { hostToken, tournament } = await api.createTournament(adminKey, { name, options: options as Partial<GameOptions> | undefined, groupSize, maxEntrants, fillBots, format, finalMap, territoriesPerSeat, roundMinutes, finishShare });
+        const { hostToken, tournament } = await api.createTournament(adminKey, { name, options: options as Partial<GameOptions> | undefined, groupSize, maxEntrants, fillBots, format, finalMap, territoriesPerSeat, roundMinutes, finishShare, botDelayMs });
         hosted.set(tournament.id, hostToken);
         return text(
           `Created tournament ${tournament.id}. HOST TOKEN: ${hostToken}  <- keep it secret: only it (or the admin key) starts this tournament. start_tournament remembers it on this connection; pass it as "hostToken" from another one.\n` +

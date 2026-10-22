@@ -12,7 +12,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { getMap, type MapDef, type NestNode } from '@risk/engine';
 import type { GlobeData } from '../globeData';
-import { landBox, livePatches, onPatch, pathRings, type Vec3 } from '../globeLayout';
+import { frameAt, landBox, livePatches, onPatch, pathRings, type Patch, type Vec3 } from '../globeLayout';
 import { continentColor, POUR_MS, type Highlight, type MapProps } from './Map';
 
 const LAND = 1.012; // top of a territory with no armies (sea level is 1)
@@ -881,7 +881,8 @@ export function InceptionGlobe({
  * The live globe of a nested tournament: the boards of the round in play tile the sphere (globeLayout.ts), each drawn
  * as a patch in its holders' colours and repainted as the tournament feed changes. Click a patch to focus its table
  * (the side panel offers Watch table); the camera turns to the focused table. Spins slowly until grabbed, never with
- * reduced motion. A new round simply redraws the next boards.
+ * reduced motion. When a round ends, each table's patch shrinks into its portal (the winner's starting territory) on
+ * the next round's board while those boards fade in; with reduced motion the new round simply replaces the old.
  */
 export function LiveGlobe({
   nodes,
@@ -908,11 +909,12 @@ export function LiveGlobe({
   const wrapRef = useRef<HTMLDivElement>(null);
   const labelRefs = useRef(new Map<number, HTMLDivElement>());
   const patches = useMemo(() => livePatches(nodes, depth, mapOf), [nodes, depth, mapOf]);
-  const live = useRef({ fill, focus, onPick, patches });
-  live.current = { fill, focus, onPick, patches };
-  const api = useRef<{ repaint: () => void; focusOn: (i: number) => void } | null>(null);
+  const live = useRef({ fill, focus, onPick, patches, nodes, mapOf, depth });
+  live.current = { fill, focus, onPick, patches, nodes, mapOf, depth };
+  const api = useRef<{ repaint: () => void; focusOn: (i: number) => void; show: () => void } | null>(null);
   const [hover, setHover] = useState<number | null>(null);
 
+  // The scene, camera and loop: built once; the round's boards come and go as layers (`show`).
   useEffect(() => {
     const wrap = wrapRef.current;
     if (!wrap) return;
@@ -939,7 +941,8 @@ export function LiveGlobe({
     controls.maxDistance = 4.6;
     controls.autoRotateSpeed = 0.3;
     controls.autoRotate = !reducedMotion();
-    const startAt = patches.get(live.current.focus)?.centre ?? patches.values().next().value?.centre ?? ([0, 0.3, 1] as Vec3);
+    const first = live.current.patches;
+    const startAt = first.get(live.current.focus)?.centre ?? first.values().next().value?.centre ?? ([0, 0.3, 1] as Vec3);
     camera.position.set(...startAt).normalize().multiplyScalar(3.6);
     controls.update();
 
@@ -947,93 +950,54 @@ export function LiveGlobe({
     const keep = <T extends { dispose: () => void }>(x: T) => (disposables.push(x), x);
     scn.add(new THREE.Mesh(keep(new THREE.SphereGeometry(0.998, 64, 48)), keep(new THREE.MeshStandardMaterial({ color: 0x2c6e8a, roughness: 1 }))));
     scn.add(new THREE.Mesh(keep(new THREE.SphereGeometry(1.06, 48, 32)), keep(new THREE.MeshBasicMaterial({ color: 0x5c8fd6, transparent: true, opacity: 0.07, side: THREE.BackSide }))));
-
-    // Patches: one mesh for every board of the round; each territory owns a range of vertices (for repainting).
-    const pos: number[] = [];
-    const triNode: number[] = [];
-    const ranges: { node: number; territory: string; from: number; to: number }[] = [];
-    const border: number[] = [];
-    const frames: number[] = [];
-    const LIFT = 1.004;
-    const MAX_ARC = 0.05; // split triangles longer than this (radians) so big boards follow the curve
-    for (const [i, p] of patches) {
-      const map = mapOf(nodes[i].map);
-      for (const t of map.territories) {
-        const from = pos.length / 3;
-        for (const ring of pathRings(t.path)) {
-          const contour = ring.map(([u, v]) => new THREE.Vector2(u, v));
-          if (THREE.ShapeUtils.isClockWise(contour)) contour.reverse();
-          const tris = THREE.ShapeUtils.triangulateShape(contour, []);
-          const emit = (a: THREE.Vector2, b: THREE.Vector2, c: THREE.Vector2, level: number) => {
-            const len = Math.max(a.distanceTo(b), b.distanceTo(c), c.distanceTo(a)) * p.k;
-            if (len > MAX_ARC && level < 4) {
-              const [ab, bc, ca] = [a.clone().lerp(b, 0.5), b.clone().lerp(c, 0.5), c.clone().lerp(a, 0.5)];
-              emit(a, ab, ca, level + 1);
-              emit(ab, b, bc, level + 1);
-              emit(ca, bc, c, level + 1);
-              emit(ab, bc, ca, level + 1);
-              return;
-            }
-            // Board v grows downwards, so flip the winding to face outwards.
-            for (const q of [a, c, b]) pos.push(...onPatch(p, q.x, q.y, LIFT));
-            triNode.push(i);
-          };
-          for (const [a, b, c] of tris) emit(contour[a], contour[b], contour[c], 0);
-          for (let k = 0; k < ring.length; k++) {
-            const [u0, v0] = ring[k];
-            const [u1, v1] = ring[(k + 1) % ring.length];
-            border.push(...onPatch(p, u0, v0, LIFT + 0.0008), ...onPatch(p, u1, v1, LIFT + 0.0008));
-          }
-        }
-        ranges.push({ node: i, territory: t.id, from, to: pos.length / 3 });
-      }
-      // A thin circle around each table's patch.
-      const [x0, y0, x1, y1] = landBox(map);
-      const a = p.k * (Math.hypot(x1 - x0, y1 - y0) / 2) * 1.02;
-      for (let s = 0; s < 64; s++) {
-        const ring = [s, s + 1].map((m) => {
-          const th = (m / 64) * Math.PI * 2;
-          const d = [0, 1, 2].map((x) => p.east[x] * Math.cos(th) + p.north[x] * Math.sin(th));
-          return [0, 1, 2].map((x) => (p.centre[x] * Math.cos(a) + d[x] * Math.sin(a)) * 1.002);
-        });
-        frames.push(...ring[0], ...ring[1]);
-      }
-    }
-    const geo = keep(new THREE.BufferGeometry());
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    const colours = new Float32Array(pos.length);
-    geo.setAttribute('color', new THREE.BufferAttribute(colours, 3));
-    geo.computeVertexNormals();
-    const mesh = new THREE.Mesh(geo, keep(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, side: THREE.DoubleSide })));
-    scn.add(mesh);
-    const borderGeo = keep(new THREE.BufferGeometry());
-    borderGeo.setAttribute('position', new THREE.Float32BufferAttribute(border, 3));
-    scn.add(new THREE.LineSegments(borderGeo, keep(new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.35 }))));
-    const frameGeo = keep(new THREE.BufferGeometry());
-    frameGeo.setAttribute('position', new THREE.Float32BufferAttribute(frames, 3));
-    const frameMat = keep(new THREE.LineBasicMaterial({ color: 0xdfe8f2, transparent: true, opacity: 0.35 }));
-    scn.add(new THREE.LineSegments(frameGeo, frameMat));
-    // The focused table's circle in gold.
     const focusGeo = keep(new THREE.BufferGeometry());
     const focusLine = new THREE.LineSegments(focusGeo, keep(new THREE.LineBasicMaterial({ color: 0xf2c14e })));
     scn.add(focusLine);
-    const order = [...patches.keys()];
-    const showFocus = () => {
-      const at = order.indexOf(live.current.focus);
-      focusLine.visible = at >= 0;
-      if (at >= 0) focusGeo.setAttribute('position', new THREE.Float32BufferAttribute(frames.slice(at * 64 * 6, (at + 1) * 64 * 6), 3));
-    };
-    showFocus();
 
-    const c = new THREE.Color();
+    let layer: Layer | null = null;
+    let leaving: { layer: Layer; from: Map<number, Patch>; to: Map<number, Patch>; t0: number } | null = null;
     let dirty = true;
+
+    const showFocus = () => {
+      const at = layer ? layer.order.indexOf(live.current.focus) : -1;
+      focusLine.visible = at >= 0 && !leaving;
+      if (at >= 0 && layer) focusGeo.setAttribute('position', new THREE.Float32BufferAttribute(layer.frames.slice(at * FRAME_FLOATS, (at + 1) * FRAME_FLOATS), 3));
+      dirty = true;
+    };
     const repaint = () => {
-      const { fill: colourOf } = live.current;
-      for (const r of ranges) {
-        c.set(colourOf(r.node, r.territory));
-        for (let v = r.from; v < r.to; v++) colours.set([c.r, c.g, c.b], v * 3);
+      if (layer) layer.paint(live.current.fill);
+      dirty = true;
+    };
+
+    // A new set of boards: the old round shrinks into its portals on the new boards (a round advanced), or is
+    // simply replaced (first draw, a jump, reduced motion).
+    const show = () => {
+      const { patches: next, nodes: tree, mapOf: boardOf } = live.current;
+      const old = layer;
+      layer = buildLayer(next, tree, boardOf);
+      layer.paint(live.current.fill);
+      scn.add(layer.group);
+      if (leaving) {
+        scn.remove(leaving.layer.group);
+        leaving.layer.dispose();
+        leaving = null;
       }
-      geo.attributes.color.needsUpdate = true;
+      if (old) {
+        const advanced = old.order.length > 0 && old.order.every((i) => tree[i]?.parent !== null && next.has(tree[i].parent!));
+        if (advanced && !reducedMotion()) {
+          const from = new Map(old.order.map((i) => [i, old.patches.get(i)!]));
+          const to = new Map(old.order.map((i) => [i, shrinkTarget(tree, boardOf, i, next.get(tree[i].parent!)!, old.patches.get(i)!)]));
+          leaving = { layer: old, from, to, t0: performance.now() };
+          layer.setOpacity(0);
+        } else {
+          scn.remove(old.group);
+          old.dispose();
+        }
+        // A new round: turn to the focused table if it plays in it, or to the only board left (the final).
+        const target = next.has(live.current.focus) ? live.current.focus : next.size === 1 ? [...next.keys()][0] : null;
+        if (target !== null) focusOn(target);
+      }
+      showFocus();
     };
 
     // Turn to a table: the camera eases over the globe (jumps with reduced motion).
@@ -1051,17 +1015,19 @@ export function LiveGlobe({
       }
       turn = { from: camera.position.clone().normalize(), to, dist, t0: performance.now() };
     };
-    api.current = { repaint: () => (dirty = true), focusOn };
+    api.current = { repaint, focusOn, show };
+    show();
 
     const ray = new THREE.Raycaster();
     const ndc = new THREE.Vector2();
     const el = renderer.domElement;
     const pick = (e: PointerEvent): number | null => {
+      if (!layer) return null;
       const r = el.getBoundingClientRect();
       ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
       ray.setFromCamera(ndc, camera);
-      const hit = ray.intersectObject(mesh, false)[0];
-      return hit && hit.faceIndex != null ? (triNode[hit.faceIndex] ?? null) : null;
+      const hit = ray.intersectObject(layer.mesh, false)[0];
+      return hit && hit.faceIndex != null ? (layer.triNode[hit.faceIndex] ?? null) : null;
     };
     let down: { x: number; y: number } | null = null;
     const onDown = (e: PointerEvent) => {
@@ -1105,24 +1071,43 @@ export function LiveGlobe({
     let raf = 0;
     const frame = () => {
       raf = requestAnimationFrame(frame);
+      const now = performance.now();
       if (turn) {
-        const k = Math.min(1, (performance.now() - turn.t0) / TURN_MS);
+        const k = Math.min(1, (now - turn.t0) / TURN_MS);
         const e = k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2;
         camera.position.copy(turn.from.clone().lerp(turn.to, e).normalize().multiplyScalar(turn.dist));
         if (k >= 1) turn = null;
       }
+      if (leaving) {
+        // The old boards shrink into their portals and fade at the end; the new boards fade in over the second half.
+        const k = Math.min(1, (now - leaving.t0) / SHRINK_MS);
+        const e = 1 - (1 - k) ** 3;
+        const { from, to } = leaving;
+        leaving.layer.place((i) => lerpPatch(from.get(i)!, to.get(i)!, e));
+        leaving.layer.setOpacity(k < 0.7 ? 1 : 1 - (k - 0.7) / 0.3);
+        layer?.setOpacity(k < 0.5 ? 0 : (k - 0.5) / 0.5);
+        if (k >= 1) {
+          scn.remove(leaving.layer.group);
+          leaving.layer.dispose();
+          leaving = null;
+          layer?.setOpacity(1);
+          showFocus();
+        }
+        dirty = true;
+      }
       const moved = controls.update();
-      if (dirty) {
-        repaint();
-        dirty = false;
-      } else if (!moved && !turn && !controls.autoRotate) return; // nothing changed: skip the frame
+      if (!dirty && !moved && !turn && !controls.autoRotate) return; // nothing changed: skip the frame
+      dirty = false;
       renderer.render(scn, camera);
-      // Table names over their patches, hidden on the far side.
+      // Table names over their patches, hidden on the far side (and while a round changes).
       const rect = el.getBoundingClientRect();
       camDir.copy(camera.position).normalize();
       for (const [i, node] of labelRefs.current) {
         const p = live.current.patches.get(i);
-        if (!p) continue;
+        if (!p || leaving) {
+          node.style.opacity = '0';
+          continue;
+        }
         v3.set(...p.centre);
         const facing = v3.dot(camDir);
         if (facing < 0.3) {
@@ -1143,15 +1128,18 @@ export function LiveGlobe({
       el.removeEventListener('pointermove', onMove);
       el.removeEventListener('pointerleave', onLeave);
       controls.dispose();
+      layer?.dispose();
+      leaving?.layer.dispose();
       for (const d of disposables) d.dispose();
       renderer.dispose();
       el.remove();
       api.current = null;
     };
-    // Rebuilt for a new round (new boards); colours and focus go through `live` and `api`.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [patches]);
+  }, []);
 
+  useEffect(() => {
+    api.current?.show();
+  }, [patches]);
   useEffect(() => {
     api.current?.repaint();
   }, [version, fill]);
@@ -1175,4 +1163,165 @@ export function LiveGlobe({
       {hover !== null && <div className="globe-hover-name">{labelOf(hover)}: click to focus</div>}
     </div>
   );
+}
+
+const SHRINK_MS = 1100;
+const LIFT = 1.004;
+const FRAME_SEGMENTS = 64;
+const FRAME_FLOATS = FRAME_SEGMENTS * 6;
+
+/** One round's boards on the globe: the patches, their borders and frames, movable (`place`) and fadeable. */
+interface Layer {
+  group: THREE.Group;
+  mesh: THREE.Mesh;
+  /** Node of each triangle (picking). */
+  triNode: number[];
+  /** Nodes in drawing order, and their patches as laid out. */
+  order: number[];
+  patches: Map<number, Patch>;
+  /** The circle around each patch, FRAME_FLOATS numbers per node in `order`. */
+  frames: number[];
+  paint(fill: (node: number, territory: string) => string): void;
+  place(patchOf: (node: number) => Patch): void;
+  setOpacity(o: number): void;
+  dispose(): void;
+}
+
+function buildLayer(patches: Map<number, Patch>, nodes: readonly NestNode[], mapOf: (id: string) => MapDef): Layer {
+  // Every vertex keeps its board point (u, v) and node, so the layer can be laid out again on other patches.
+  const uv: number[] = [];
+  const vNode: number[] = [];
+  const triNode: number[] = [];
+  const ranges: { node: number; territory: string; from: number; to: number }[] = [];
+  const buv: number[] = [];
+  const bNode: number[] = [];
+  const frames: number[] = [];
+  const MAX_ARC = 0.05; // split triangles longer than this (radians) so big boards follow the curve
+  for (const [i, p] of patches) {
+    const map = mapOf(nodes[i].map);
+    for (const t of map.territories) {
+      const from = uv.length / 2;
+      for (const ring of pathRings(t.path)) {
+        const contour = ring.map(([u, v]) => new THREE.Vector2(u, v));
+        if (THREE.ShapeUtils.isClockWise(contour)) contour.reverse();
+        const tris = THREE.ShapeUtils.triangulateShape(contour, []);
+        const emit = (a: THREE.Vector2, b: THREE.Vector2, c: THREE.Vector2, level: number) => {
+          const len = Math.max(a.distanceTo(b), b.distanceTo(c), c.distanceTo(a)) * p.k;
+          if (len > MAX_ARC && level < 4) {
+            const [ab, bc, ca] = [a.clone().lerp(b, 0.5), b.clone().lerp(c, 0.5), c.clone().lerp(a, 0.5)];
+            emit(a, ab, ca, level + 1);
+            emit(ab, b, bc, level + 1);
+            emit(ca, bc, c, level + 1);
+            emit(ab, bc, ca, level + 1);
+            return;
+          }
+          // Board v grows downwards, so flip the winding to face outwards.
+          for (const q of [a, c, b]) uv.push(q.x, q.y), vNode.push(i);
+          triNode.push(i);
+        };
+        for (const [a, b, c] of tris) emit(contour[a], contour[b], contour[c], 0);
+        for (let k = 0; k < ring.length; k++) {
+          const [u0, v0] = ring[k];
+          const [u1, v1] = ring[(k + 1) % ring.length];
+          buv.push(u0, v0, u1, v1);
+          bNode.push(i, i);
+        }
+      }
+      ranges.push({ node: i, territory: t.id, from, to: uv.length / 2 });
+    }
+    // A thin circle around each table's patch.
+    const [x0, y0, x1, y1] = landBox(map);
+    const a = p.k * (Math.hypot(x1 - x0, y1 - y0) / 2) * 1.02;
+    for (let s = 0; s < FRAME_SEGMENTS; s++) {
+      for (const m of [s, s + 1]) {
+        const th = (m / FRAME_SEGMENTS) * Math.PI * 2;
+        const d = [0, 1, 2].map((x) => p.east[x] * Math.cos(th) + p.north[x] * Math.sin(th));
+        frames.push(...[0, 1, 2].map((x) => (p.centre[x] * Math.cos(a) + d[x] * Math.sin(a)) * 1.002));
+      }
+    }
+  }
+  const group = new THREE.Group();
+  const geo = new THREE.BufferGeometry();
+  const pos = new Float32Array(uv.length * 1.5);
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  const colours = new Float32Array(uv.length * 1.5);
+  geo.setAttribute('color', new THREE.BufferAttribute(colours, 3));
+  const meshMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, side: THREE.DoubleSide, transparent: true });
+  const mesh = new THREE.Mesh(geo, meshMat);
+  group.add(mesh);
+  const borderGeo = new THREE.BufferGeometry();
+  const bpos = new Float32Array(buv.length * 1.5);
+  borderGeo.setAttribute('position', new THREE.BufferAttribute(bpos, 3));
+  const borderMat = new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.35 });
+  group.add(new THREE.LineSegments(borderGeo, borderMat));
+  const frameGeo = new THREE.BufferGeometry();
+  frameGeo.setAttribute('position', new THREE.Float32BufferAttribute(frames, 3));
+  const frameMat = new THREE.LineBasicMaterial({ color: 0xdfe8f2, transparent: true, opacity: 0.35 });
+  const frameLines = new THREE.LineSegments(frameGeo, frameMat);
+  group.add(frameLines);
+
+  const place = (patchOf: (node: number) => Patch) => {
+    for (let v = 0; v < vNode.length; v++) pos.set(onPatch(patchOf(vNode[v]), uv[2 * v], uv[2 * v + 1], LIFT), 3 * v);
+    for (let v = 0; v < bNode.length; v++) bpos.set(onPatch(patchOf(bNode[v]), buv[2 * v], buv[2 * v + 1], LIFT + 0.0008), 3 * v);
+    geo.attributes.position.needsUpdate = true;
+    borderGeo.attributes.position.needsUpdate = true;
+    geo.computeVertexNormals();
+    geo.computeBoundingSphere();
+    borderGeo.computeBoundingSphere();
+    // Frames belong to the laid-out patches; while the boards move (a round change) they are hidden.
+    frameLines.visible = patchOf === laidOut;
+  };
+  const laidOut = (node: number) => patches.get(node)!;
+  place(laidOut);
+
+  const c = new THREE.Color();
+  return {
+    group,
+    mesh,
+    triNode,
+    order: [...patches.keys()],
+    patches,
+    frames,
+    paint(fill) {
+      for (const r of ranges) {
+        c.set(fill(r.node, r.territory));
+        for (let v = r.from; v < r.to; v++) colours.set([c.r, c.g, c.b], v * 3);
+      }
+      geo.attributes.color.needsUpdate = true;
+    },
+    place,
+    setOpacity(o) {
+      meshMat.opacity = o;
+      borderMat.opacity = 0.35 * o;
+      frameMat.opacity = 0.35 * o;
+      group.visible = o > 0.001;
+    },
+    dispose() {
+      for (const x of [geo, borderGeo, frameGeo, meshMat, borderMat, frameMat]) x.dispose();
+    },
+  };
+}
+
+/**
+ * Where a finished table's board ends up: centred on its portal (its winner's starting territory) on the parent's
+ * patch, shrunk to that territory's size.
+ */
+function shrinkTarget(nodes: readonly NestNode[], mapOf: (id: string) => MapDef, node: number, parent: Patch, from: Patch): Patch {
+  const n = nodes[node];
+  const parentMap = mapOf(nodes[n.parent!].map);
+  const portal = parentMap.territoryById[n.portal!];
+  if (!portal) return { ...from, k: from.k * 0.05 };
+  const [bx, by, bw, bh] = portal.bbox;
+  const centre = onPatch(parent, bx + bw / 2, by + bh / 2, 1);
+  const [x0, y0, x1, y1] = landBox(mapOf(n.map));
+  const k = (parent.k * (Math.min(bw, bh) / 2)) / (Math.hypot(x1 - x0, y1 - y0) / 2);
+  return { ...from, centre, ...frameAt(centre), k };
+}
+
+/** A patch part way from `a` to `b` (centres along the great circle, scale in between). */
+function lerpPatch(a: Patch, b: Patch, t: number): Patch {
+  const centre = [0, 1, 2].map((x) => a.centre[x] + (b.centre[x] - a.centre[x]) * t) as Vec3;
+  const l = Math.hypot(...centre) || 1;
+  const c: Vec3 = [centre[0] / l, centre[1] / l, centre[2] / l];
+  return { ...a, centre: c, ...frameAt(c), k: a.k * (b.k / a.k) ** t };
 }

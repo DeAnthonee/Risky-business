@@ -15,7 +15,7 @@ registration and workflow below but not the tracing and chokepoint sections.
 
 | rule | why |
 | --- | --- |
-| **Original names only.** No names from games, books, films or other franchises. Real place names are fine (Bohemia uses Czech towns). | The repo is public and the boards are ours. |
+| **Original names only.** No names from games, books, films or other franchises. Real place names are fine (Bohemia uses Czech towns), and so are general real-world area names on real-geography boards (Hex Earth: Great Plains, Andes, Sahel; the owner's ruling, 2026-10-22), but do not copy the classic Risk board's territory list. | The repo is public and the boards are ours. |
 | **Chokepoints between regions.** A small region (up to about 5 territories) has 2-3 entry territories; a big one has 3-5. | A bonus is only worth taking if it can be held. A region that borders everything is never held. |
 | **Bonuses follow the generator's suggestion** (`npm run build:map` prints `suggested N`, from size and entry points). Go 1 lower for a very defensible region (an island group, a region behind one pass). | Keeps the board balanced; a `<- check` mark means you are more than 1 away from the suggestion: have a reason. |
 | **No warnings left.** No `touching but not adjacent`, no `share only N units of border`, no `badges ... are N apart`, no `label of ... runs into the badge`, no site off its land. | Each one is a visible bug: two shapes that look connected but are not, or badges on top of each other. |

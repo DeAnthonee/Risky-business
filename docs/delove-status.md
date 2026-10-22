@@ -26,7 +26,7 @@ What "good" means, decided by the owner:
 2. **Every map, 2 to 10 players.** One general model for all maps (the base `delove@N`; the range specialists below
    are split by stage of the game, never by map) (`MAP_IDS` in `packages/engine/src/maps.ts`:
    classic, world, world_large, europe, greater_europe, europe_classic, usa, asia, fantasy, skirmish, bohemia,
-   nine_realms). No per-map models unless one map later dominates live play.
+   nine_realms, hexworld). No per-map models unless one map later dominates live play.
 3. **Strong one-on-one as well.** Every multiplayer game ends as a duel, and the 1v1 has been Delove's weakest spot.
 4. **Fast iteration.** Training should run as much as possible on the training PC's GPU so we can try more ideas per
    day.
@@ -414,6 +414,7 @@ where Delove thought the game turned. Format and reading in packages/delove/READ
 | Jacob Sensei 2: impL0's sections 7-21 as tunable terms, a duel stage, GPU port (`tests/matrix.py --suite jacob2`) | session "Jacob Sensei 2" | done, this PR: better than `jacob-sensei@1` at 2p and on points at every 4-10p table (section 3); the bar for the next cycle's teacher is met |
 | all-map strength data | coordinator | 147 of 296 chunks (about 5k games, 5 maps), stopped to free the machine; finish on the GPU |
 | #39 tournament Earth map | other work | on hold (owner) |
+| re-verify the GPU fingerprint for the new `hexworld` map (Hex Earth, #220) | coordinator, training PC | open: batched `verify.py` run (map-making.md section 6) |
 | network rollouts and more options for branch and score (section 9 item 1) | session "Delove-played rollouts" | done in **#141**: opt-in `DELOVE_BRANCH_ROLLOUT`, mirrored and replay-checked; not better than Jacob rollouts (every seat clearly worse at 4-6p); `DELOVE_BRANCH_OPTIONS=5` (or 4) is the measured gain for the next cycle |
 | re-verify the GPU fingerprint for the new `bohemia` (#100) and `nine_realms` (#102) maps | session "Points-aware branch score" | done in **#112** (4,764,579 steps identical; covers both maps, Jacob and the new branch scores) |
 

@@ -215,7 +215,7 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
     'map',
     {
       description: 'Return a static map: territories, continents with bonuses, and adjacency (which territories border which). Pass the map a game uses (get_state shows options.map).',
-      inputSchema: { map: mapIdSchema().optional().describe(`Default classic. One of: ${MAP_IDS.join(', ')} (fantasy = Realms of Halvaren, an original fantasy world; skirmish = Four Crowns, a small fast 4-player board; bohemia = Bohemia, a 42-territory inland kingdom whose regions meet only at river fords; nine_realms = The Nine Realms, a 58-territory north-south continent whose regions meet only at narrow passes, up to 8), or a generated board's id such as gen1-s42-p4-t20 (a hex board built from seed 42 for up to 4 players, 20 territories; tournament tables use these)`) },
+      inputSchema: { map: mapIdSchema().optional().describe(`Default classic. One of: ${MAP_IDS.join(', ')} (fantasy = Realms of Halvaren, an original fantasy world; skirmish = Four Crowns, a small fast 4-player board; bohemia = Bohemia, a 42-territory inland kingdom whose regions meet only at river fords; nine_realms = The Nine Realms, a 58-territory north-south continent whose regions meet only at narrow passes, up to 8; hexworld = Hex Earth, the real world on a hexagon globe, 80 territories, up to 10), or a generated board's id such as gen1-s42-p4-t20 (a hex board built from seed 42 for up to 4 players, 20 territories; tournament tables use these)`) },
     },
     async ({ map }) => {
     try {

@@ -66,5 +66,26 @@ allowed): 15 for 3 players, 20 for 4, 30 for 6, 50 for a 10-player final.
   better or different generator is a new version (`gen2-...`) beside it, so every gen1 id ever saved keeps loading.
   Making boards and previewing them: [map-making.md](map-making.md#8-procedural-boards).
 
+### Nested boards and the planner (`packages/engine/src/nest.ts`)
+
+For nested ("Inception") tournaments: every table plays on its own board, which sits inside a territory (a
+"portal") of the board of the table its winner moves on to. The tournament itself (rounds, deadlines, moving winners
+on) is not built yet; this is the map side.
+
+- `planNest(players)` plans the rounds: tables of 3-6 seats, uneven by at most one in a round, and a final of 6-10
+  chosen from the player count (owner's numbers). It picks no Zergs first, then the fewest rounds, then the bigger
+  final, then tables nearest 4. Only counts that fit no plan get Zerg bots: 11-17 players fill to 18 (6 tables of 3,
+  then a final of 6), and fewer than 6 fill the final to 6; Zergs are spread over the first-round tables, at most one
+  more at any table than another. Examples: 73 players play 1x4 + 23x3, then 8x3, then a final of 8; 100 play
+  4x4 + 28x3, then 2x4 + 8x3, then a final of 10; 250 play 50x5, then 10x5, then a final of 10.
+- A `NestSpec` describes a tree of boards: `{ v: 1, seed, board, portals?, inside? }`, where `board` is an existing
+  map (`{ map: 'world', seats: 10 }`) or a generated one (`{ gen: { seats: 4, territoriesPerSeat?: 5 } }`), `portals`
+  are listed territories or `'spots'` (the default: `pickStartSpots`, one per region), and `inside` is one rule for
+  every portal or a list in portal order, nesting again as deep as 6 levels. `resolveNest(spec)` returns every board
+  with its map id, seats, portals and parent. Each board's seed comes from the root seed and its path of portals
+  (`nestSeed`), so one seed fixes the whole tree; a generated board with children gets at least one region per seat.
+- `planToNest(plan, { seed, final?, boards? })` builds the spec for a plan: generated boards sized for each table,
+  optionally an existing board for the final, and returns the board of every table by round.
+
 How to add or change a map (data in `scripts/maps/*.mjs`, `npm run build:map`): [conventions.md](conventions.md#maps) and
 [CONTRIBUTING.md](../CONTRIBUTING.md#5-maps).

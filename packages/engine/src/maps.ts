@@ -17,6 +17,7 @@ import skirmishJson from './generated/skirmish.json' with { type: 'json' };
 import bohemiaJson from './generated/bohemia.json' with { type: 'json' };
 import nineRealmsJson from './generated/nine_realms.json' with { type: 'json' };
 import { RuleError } from './types.js';
+import { generateFromId, looksLikeGenId, parseGenId, type GenMapId } from './procgen.js';
 
 export type MapId = 'classic' | 'world' | 'world_large' | 'europe' | 'europe_advanced' | 'greater_europe' | 'europe_classic' | 'usa' | 'asia' | 'fantasy' | 'skirmish' | 'bohemia' | 'nine_realms';
 /**
@@ -61,7 +62,8 @@ export interface SeaLink {
 }
 
 export interface MapDef {
-  id: MapId;
+  /** A registered board, or a generated one ('gen1-...', built by procgen.ts from the seed in its id). */
+  id: MapId | GenMapId;
   name: string;
   maxPlayers: number;
   viewBox: [number, number];
@@ -142,7 +144,7 @@ function startingArmiesFor(rule: StartingArmiesRule, territoryCount: number, max
   };
 }
 
-function wrap(raw: RawMap): MapDef {
+function wrap(raw: RawMap, rule: StartingArmiesRule = STARTING_ARMIES[raw.id as MapId]): MapDef {
   const territoryIds = raw.territories.map((t) => t.id);
   const territoryById = Object.fromEntries(raw.territories.map((t) => [t.id, t]));
   const adjacency: Record<string, string[]> = Object.fromEntries(territoryIds.map((t) => [t, [] as string[]]));
@@ -152,9 +154,8 @@ function wrap(raw: RawMap): MapDef {
     adjacency[a].push(b);
     adjacency[b].push(a);
   }
-  const id = raw.id as MapId;
   return {
-    id,
+    id: raw.id as MapId | GenMapId,
     name: raw.name,
     maxPlayers: raw.maxPlayers,
     viewBox: [raw.viewBox[0], raw.viewBox[1]],
@@ -168,7 +169,7 @@ function wrap(raw: RawMap): MapDef {
     seaLinks: raw.seaLinks,
     isAdjacent: (a, b) => adjacency[a]?.includes(b) ?? false,
     isTerritory: (t) => t in territoryById,
-    startingArmies: startingArmiesFor(STARTING_ARMIES[id], territoryIds.length, raw.maxPlayers),
+    startingArmies: startingArmiesFor(rule, territoryIds.length, raw.maxPlayers),
   };
 }
 
@@ -188,14 +189,35 @@ export const MAPS: Record<MapId, MapDef> = {
   nine_realms: wrap(nineRealmsJson as RawMap),
 };
 
+/** Generated boards built so far, most recently used last (a small cache: building one takes milliseconds). */
+const GENERATED = new Map<string, MapDef>();
+const GENERATED_CACHE = 64;
+
 export function getMap(id: string | undefined): MapDef {
   const m = MAPS[(id ?? 'classic') as MapId];
-  if (!m) throw new RuleError(`Unknown map "${id}"`);
-  return m;
+  if (m) return m;
+  if (looksLikeGenId(id)) {
+    let g = GENERATED.get(id);
+    if (g) GENERATED.delete(id);
+    else g = wrap(generateFromId(id), { classicScaled: true });
+    GENERATED.set(id, g);
+    if (GENERATED.size > GENERATED_CACHE) GENERATED.delete(GENERATED.keys().next().value!);
+    return g;
+  }
+  throw new RuleError(`Unknown map "${id}"`);
 }
 
-export function isMapId(id: unknown): id is MapId {
-  return typeof id === 'string' && id in MAPS;
+/** A registered board's id, or a valid generated board's id (checked without building the board). */
+export function isMapId(id: unknown): id is MapId | GenMapId {
+  if (typeof id !== 'string') return false;
+  if (id in MAPS) return true;
+  if (!looksLikeGenId(id)) return false;
+  try {
+    parseGenId(id);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // ---- Backward-compatible aliases for the classic map ----

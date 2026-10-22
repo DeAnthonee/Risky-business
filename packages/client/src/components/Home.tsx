@@ -2,7 +2,7 @@ import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { Leaderboard } from './Profiles';
 import { MatchHistory } from './MatchHistory';
 import { MapPreview, MapThumb } from './MapPreview';
-import { MAPS, MAP_IDS, maxBlizzards, type GameOptions } from '@risk/engine';
+import { MAPS, MAP_IDS, getMap, isMapId, maxBlizzards, type GameOptions } from '@risk/engine';
 import { api, type GameSummary, type TournamentSummary } from '../api';
 import type { Session } from '../session';
 import { pickLiveGame } from './AutoAdvance';
@@ -49,7 +49,7 @@ function GameTicket({ g, canJoin, busy, onJoin, onWatch }: { g: GameSummary; can
           <code title="Join code">{g.id}</code>
         </div>
         <div className="ticket-meta">
-          <span>{MAPS[g.options.map]?.name ?? g.options.map}</span>
+          <span>{isMapId(g.options.map) ? getMap(g.options.map).name : g.options.map}</span>
           <span>
             {g.players.length} of {g.maxPlayers} seats
           </span>
@@ -321,10 +321,10 @@ export function OptionsForm({
   /** Pick the map from a grid of board silhouettes instead of a dropdown. */
   mapTiles?: boolean;
 }) {
-  const map = MAPS[options.map ?? 'classic'];
+  const map = getMap(options.map ?? 'classic');
   const maxSeats = map.maxPlayers;
   const pickMap = (id: GameOptions['map']) => {
-    const limit = MAPS[id].maxPlayers;
+    const limit = getMap(id).maxPlayers;
     onChange({ map: id, maxPlayers: Math.min(options.maxPlayers ?? limit, limit) });
   };
   return (
@@ -347,10 +347,10 @@ export function OptionsForm({
           <label>
             Map
             <select disabled={disabled} value={options.map ?? 'classic'} onChange={(e) => pickMap(e.target.value as GameOptions['map'])}>
-              {/* A lobby saved on a legacy board (kept in MAPS, not offered in MAP_IDS) still shows its map. */}
-              {(options.map && !MAP_IDS.includes(options.map) ? [...MAP_IDS, options.map] : MAP_IDS).map((id) => (
-                <option key={id} value={id} disabled={!MAP_IDS.includes(id)}>
-                  {MAPS[id].name} · up to {MAPS[id].maxPlayers} players
+              {/* A lobby saved on a legacy or generated board (not offered in MAP_IDS) still shows its map. */}
+              {(options.map && !(MAP_IDS as string[]).includes(options.map) ? [...MAP_IDS, options.map] : MAP_IDS).map((id) => (
+                <option key={id} value={id} disabled={!(MAP_IDS as string[]).includes(id)}>
+                  {getMap(id).name} · up to {getMap(id).maxPlayers} players
                 </option>
               ))}
             </select>
@@ -447,7 +447,7 @@ export function OptionsForm({
         <label>
           Blizzards
           <select disabled={disabled} value={options.blizzards ?? 0} onChange={(e) => onChange({ blizzards: Number(e.target.value) })}>
-            {[0, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 17].filter((n) => n <= maxBlizzards(MAPS[options.map ?? 'classic'])).map((n) => (
+            {[0, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 17].filter((n) => n <= maxBlizzards(getMap(options.map ?? 'classic'))).map((n) => (
               <option key={n} value={n}>{n === 0 ? 'Off' : `${n} frozen territories`}</option>
             ))}
           </select>
@@ -455,7 +455,7 @@ export function OptionsForm({
         <label>
           Neutral territories
           <select disabled={disabled} value={options.neutrals ?? 0} onChange={(e) => onChange({ neutrals: Number(e.target.value) })}>
-            {[0, 4, 6, 8, 10, 12, 14, 18, 24].filter((n) => n <= Math.floor(MAPS[options.map ?? 'classic'].territoryIds.length / 3)).map((n) => (
+            {[0, 4, 6, 8, 10, 12, 14, 18, 24].filter((n) => n <= Math.floor(getMap(options.map ?? 'classic').territoryIds.length / 3)).map((n) => (
               <option key={n} value={n}>{n === 0 ? 'Off (2 players always get a Neutral)' : `${n} territories`}</option>
             ))}
           </select>

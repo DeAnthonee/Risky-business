@@ -1,0 +1,8 @@
+# Cycle 18, step a3: Europe 8p, USA 10p, Asia 8p. League settings (docs/game-settings.md) with four card/capitals/blizzard variants; Jacob Sensei
+# teaches and fills about half the seats; delove@13 / delove@12 the rest; the branch seat moves round the table.
+eu8a 1000 jacob-sensei@1,delove@13,jacob-sensei@1,delove@12,jacob-sensei@1,delove-branch@1:range,delove@13,jacob-sensei@1 {"map":"europe","autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"progressive"}
+eu8b 1000 jacob-sensei@1,delove@13,jacob-sensei@1,delove@12,jacob-sensei@1,delove@13,jacob-sensei@1,delove-branch@1:range {"map":"europe","autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"fixed","capitals":true}
+us10a 1000 jacob-sensei@1,delove@13,jacob-sensei@1,delove@12,jacob-sensei@1,delove-branch@1:range,delove@13,jacob-sensei@1,delove@12,jacob-sensei@1 {"map":"usa","autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"exponential","blizzards":8}
+us10b 1000 jacob-sensei@1,delove@13,jacob-sensei@1,delove@12,jacob-sensei@1,delove@13,jacob-sensei@1,delove-branch@1:range,delove@12,jacob-sensei@1 {"map":"usa","autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"progressive","capitals":true,"blizzards":8}
+as8a 1000 jacob-sensei@1,delove-branch@1:range,delove@13,jacob-sensei@1,delove@12,jacob-sensei@1,delove@13,jacob-sensei@1 {"map":"asia","autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"progressive"}
+as8b 1000 jacob-sensei@1,delove@13,jacob-sensei@1,delove-branch@1:range,delove@12,jacob-sensei@1,delove@13,jacob-sensei@1 {"map":"asia","autoSetup":true,"balancedBlitz":true,"chooseCapitals":true,"cardValues":"fixed","capitals":true}

@@ -14,6 +14,10 @@ const LiveGlobe = lazy(() => import('./GlobeMap').then((m) => ({ default: m.Live
 export interface TableSnapshot {
   /** Owner of each territory as an index into `players` (null: nobody, e.g. a blizzard). Missing: not dealt yet. */
   owners?: Record<string, number | null>;
+  /** Armies on each territory (null: hidden). Missing: not known (the live globe draws the land flat). */
+  armies?: Record<string, number | null>;
+  /** The table's latest battle (territory ids) and when it was fought (ms), for the live globe's attack arc. */
+  lastAttack?: { from: string; to: string; at: number };
   players: { name: string; color: string; alive: boolean }[];
   status: 'waiting' | 'playing' | 'finished' | 'decided';
   /** The room to watch, once the table exists. */
@@ -213,7 +217,18 @@ export function Inception({
           </Suspense>
         ) : mode === 'live' ? (
           <Suspense fallback={<div className="inception-globe" />}>
-            <LiveGlobe nodes={nodes} depth={depth} mapOf={getMap} fill={colourIn} focus={focus} labelOf={label} onPick={zoomByHand} version={tables} />
+            <LiveGlobe
+              nodes={nodes}
+              depth={depth}
+              mapOf={getMap}
+              fill={colourIn}
+              armiesOf={(node, t) => tables[node]?.armies?.[t] ?? null}
+              attackOf={(node) => tables[node]?.lastAttack ?? null}
+              focus={focus}
+              labelOf={label}
+              onPick={zoomByHand}
+              version={tables}
+            />
           </Suspense>
         ) : (
           <svg className="inception-svg" viewBox={camera.join(' ')} preserveAspectRatio="xMidYMid meet" role="img" aria-label={`Nested tournament, ${label(focus)}`}>

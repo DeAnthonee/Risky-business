@@ -132,7 +132,8 @@ decided on standing) and three tabs:
 - **Map:** the final's board with every table's board drawn inside its territory, boards inside boards. Click a board
   to zoom in, Esc, **Zoom out** or the breadcrumb to zoom out, and **Watch table** to open a table as a spectator.
   **Globe** / **Flat** switches the Map tab between this flat view and a spinning **globe of the round in play**: every
-  live table's board is a patch of the sphere in its holders' colours, updated from the live feed. Click a patch to
+  live table's board is a patch of the sphere in its holders' colours, updated from the live feed: land rises with its armies and each table's latest battle shows as a red arc for a few
+  seconds. Click a patch to
   focus that table (the camera turns to it, **Watch table** opens it). When a round ends, each table's patch shrinks into
   its portal (its winner's starting territory, shown in the winner's colour) on the next round's board while those boards
   fade in, and the camera turns to the focused table (or to the final); with reduced motion the new round just appears. When the

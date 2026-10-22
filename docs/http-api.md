@@ -98,9 +98,11 @@ change always arrives); merge them by `node` (nested) or `gameId`.
 - `round`: `{n, deadline, finished, needed}`, the round clock: tables finished so far, how many the round needs before
   the rest are decided on standing (every table in a knockout), and its deadline (nested; null otherwise).
 - a table: `{node, gameId, version, round, status: "waiting"|"playing"|"finished"|"decided", players: [{name, color,
-  alive}], owners, leader, final, excitement: {score, why, signals}}`. `node` is the table's index in
+  alive}], owners, armies, lastAttack, leader, final, excitement: {score, why, signals}}`. `node` is the table's index in
   `resolveNest(spec)` order (null for a knockout); `owners` gives each territory's owner, in
-  `getMap(map).territoryIds` order, as an index into `players` (null: nobody or a blizzard); `leader` is the winner
+  `getMap(map).territoryIds` order, as an index into `players` (null: nobody or a blizzard); `armies` the armies on each
+  territory in the same order (null where the spectator view hides one); `lastAttack` `{from, to, at}` the table's
+  latest battle in the last 30 s (indexes into `territoryIds`, `at` in ms), or null; `leader` is the winner
   once finished or decided, else the leader (territories, then armies). From the public spectator view only: names,
   no cards, tokens or player-type labels. `excitement.score` is the 0-100 "Follow the action" score.
 - `follow`: `{node, gameId, caption}` or null, the one table every watcher with "Follow the action" on is shown

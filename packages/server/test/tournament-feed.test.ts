@@ -89,12 +89,39 @@ describe('tournament feed over WebSocket', () => {
         expect(table.owners).toHaveLength(getMap('skirmish').territoryIds.length);
         expect(table.owners.every((o: any) => o === null || o === 0 || o === 1)).toBe(true);
         expect([0, 1]).toContain(table.leader);
+        // Armies per territory beside the owners (spectators see the whole board); no battle yet.
+        expect(table.armies).toHaveLength(table.owners.length);
+        expect(table.armies.every((n: any) => Number.isInteger(n) && n >= 0)).toBe(true);
+        expect(table.lastAttack).toBeNull();
         // Public summaries only: no seat tokens, no cards, no player-type labels.
         expect(JSON.stringify(table)).not.toMatch(/token|cards|agent/);
       }
       // One table to follow, the same for every watcher, with a caption.
       expect(feed.follow).toMatchObject({ node: null, caption: expect.stringMatching(/^Following: /) });
       expect(feed.tables.map((x: any) => x.gameId)).toContain(feed.follow.gameId);
+    } finally {
+      s.ws.close();
+    }
+  });
+
+  it('carries the armies of each table and its latest battle', async () => {
+    const { id, t } = await knockout();
+    const s = await socket();
+    try {
+      s.ws.send(JSON.stringify({ type: 'subscribe_tournament', id }));
+      expect(await s.until(() => s.got.some((m) => m.type === 'tournament_tables'))).toBe(true);
+      const gameId = t.rounds[0].matches[0].gameId;
+      const room = risk.store.get(gameId)!;
+      // Play until the table has fought a battle.
+      for (let i = 0; i < 400 && !room.history.some((h) => h.events.some((e) => e.type === 'battle')); i++) move(room);
+      const ids = getMap(room.state.options.map).territoryIds;
+      const battle = room.history.flatMap((h) => h.events).filter((e) => e.type === 'battle').at(-1) as { from: string; to: string };
+      const latest = () => s.got.filter((m) => m.type === 'tournament_tables').flatMap((m) => m.tables).filter((x: any) => x.gameId === gameId).at(-1);
+      expect(await s.until(() => latest()?.lastAttack != null, FEED_TABLE_MS * 6)).toBe(true);
+      const table = latest();
+      expect(table.lastAttack).toMatchObject({ from: ids.indexOf(battle.from), to: ids.indexOf(battle.to) });
+      const now = JSON.stringify(ids.map((tid) => room.view(null).territories[tid].armies));
+      expect(await s.until(() => JSON.stringify(latest()?.armies) === now, FEED_TABLE_MS * 6)).toBe(true);
     } finally {
       s.ws.close();
     }

@@ -113,6 +113,8 @@ export interface TournamentSpec {
   zergs?: number;
   delove?: number;
   open?: number;
+  /** A hosting code (the owner's admin or limited code): needed to create once the server has codes set. */
+  code?: string;
 }
 
 /** A nested tournament's breakdown before it exists (POST /api/tournaments/preview). */
@@ -319,12 +321,13 @@ export interface RiskApi {
   joinTournament(tournamentId: string, playerName: string, agent?: string): Promise<{ entrantId: string; token: string; tournament: TournamentInfo }>;
   /** Long-poll until the tournament changes past `since`. */
   waitTournament(tournamentId: string, token: string | undefined, since: number | undefined, timeoutMs: number): Promise<{ reason: string; tournament: TournamentInfo }>;
-  // TEMPORARY (testing): while the server has tournaments open, no admin key is needed to create; otherwise pass the
-  // server's admin token. Remove from the MCP tools before launch.
-  /** Returns the tournament's host token: it (or the admin key) starts the tournament. */
+  /**
+   * Create with a hosting code in `spec.code` (or none in open mode), within the server's caps; the admin key skips
+   * both. Returns the tournament's host token: it (or the admin key, or a hosting code) starts the tournament.
+   */
   createTournament(adminKey: string | undefined, spec: TournamentSpec): Promise<{ hostToken: string; tournament: TournamentInfo }>;
-  /** `key`: the tournament's host token or the admin key. */
-  startTournament(key: string | undefined, tournamentId: string): Promise<{ tournament: TournamentInfo }>;
+  /** `key`: the tournament's host token or the admin key; or `code`, a hosting code. */
+  startTournament(key: string | undefined, tournamentId: string, code?: string): Promise<{ tournament: TournamentInfo }>;
   /** What a nested tournament with these counts and settings would look like; creates nothing. */
   previewTournament(spec: TournamentSpec): Promise<{ preview: TournamentPreviewInfo }>;
 
@@ -595,8 +598,8 @@ export class HttpRiskApi implements RiskApi {
   previewTournament(spec: TournamentSpec) {
     return this.request<{ preview: TournamentPreviewInfo }>('/tournaments/preview', { method: 'POST', body: JSON.stringify({ format: 'nested', ...spec }) });
   }
-  startTournament(key: string | undefined, tournamentId: string) {
-    return this.request<{ tournament: TournamentInfo }>(`/tournaments/${tournamentId}/start`, { method: 'POST', body: '{}' }, key);
+  startTournament(key: string | undefined, tournamentId: string, code?: string) {
+    return this.request<{ tournament: TournamentInfo }>(`/tournaments/${tournamentId}/start`, { method: 'POST', body: JSON.stringify(code ? { code } : {}) }, key);
   }
   addTournamentBots(key: string | undefined, tournamentId: string, kind: 'bot' | 'zerg', count: number) {
     return this.request<{ added: { entrantId: string; name: string }[]; tournament: TournamentInfo }>(`/tournaments/${tournamentId}/bots`, { method: 'POST', body: JSON.stringify({ kind, count }) }, key);

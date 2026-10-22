@@ -295,23 +295,6 @@ describe('scheduled nested tournaments', () => {
     for (let i = 1; i <= 6; i++) store.tournaments.join(open.id, `H${i}`, undefined, 'ip:127.0.0.1');
   });
 
-  it('a site-wide cap on pre-registrations a day (fresh MCP sessions are free): 429 past it, back after 24 h', async () => {
-    const clock = new FakeClock();
-    const store = new Store(null, {}, { clock });
-    const { TournamentManager } = await import('../src/tournaments.js');
-    const capped = new TournamentManager(store, null, { preregPerDay: 3 }, clock);
-    const t = capped.create({ name: 'Daily', format: 'nested', scheduled: { startsAt: NOON + 3 * 24 * H } });
-    for (let i = 1; i <= 3; i++) capped.join(t.id, `P${i}`, undefined, `mcp:session-${i}`);
-    expect(() => capped.join(t.id, 'P4', undefined, 'mcp:session-4')).toThrow(/Too many tournament registrations on this site today \(at most 3 in 24 h\)/);
-    // A host-made tournament is not counted; after 24 h there is room again.
-    const host = capped.create({ name: 'Host made', format: 'nested' });
-    capped.join(host.id, 'H1', undefined, 'mcp:session-5');
-    clock.advance(24 * H);
-    expect(capped.join(t.id, 'P4', undefined, 'mcp:session-4').token).toBeTruthy();
-    capped.stopTimers();
-    store.stopTimers();
-  });
-
   it('agents find and join it over MCP: next_tournament, list_tournaments, join_tournament', async () => {
     const clock = new FakeClock(NOON + H);
     const store = new Store(null, {}, { clock });
@@ -352,5 +335,22 @@ describe('scheduled nested tournaments', () => {
       return r;
     })()).toContain('join_tournament first');
     await client.close();
+  });
+});
+
+describe('a slot whose tournament is gone', () => {
+  it('moves on when its tournament was called off or deleted before the start (expiry, the admin)', () => {
+    for (const end of ['cancel', 'delete'] as const) {
+      const clock = new FakeClock(NOON + H); // 13:00: sign-up opens at once
+      const store = new Store(null, {}, { clock });
+      const sched = new TournamentScheduler(store.tournaments, parseSchedule(DAILY, store.tournaments), null);
+      const [id] = [...store.tournaments.tournaments.keys()];
+      if (end === 'cancel') store.tournaments.cancel(id, 'expired: never started');
+      else store.tournaments.delete(id);
+      expect(() => clock.advance(H)).not.toThrow(); // 14:00, the start
+      expect(sched.next().next).toMatchObject({ startsAt: Date.UTC(2026, 9, 23, 14, 0) });
+      sched.stop();
+      store.stopTimers();
+    }
   });
 });

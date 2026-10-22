@@ -72,6 +72,34 @@ export function setTournamentInUrl(id: string | null) {
   window.history.replaceState({}, '', u.toString());
 }
 
+/** The host token of a tournament created on this browser (it starts the tournament); private, never shown to others. */
+const hostKey = (id: string) => `risk.tournament-host.${id.toUpperCase()}`;
+export function getHostToken(id: string): string | null {
+  try {
+    return localStorage.getItem(hostKey(id));
+  } catch {
+    return null;
+  }
+}
+export function saveHostToken(id: string, token: string) {
+  try {
+    localStorage.setItem(hostKey(id), token);
+  } catch {
+    /* ignore */
+  }
+}
+
+/** ?host=1: the Create tournament form. */
+export function hostFormFromUrl(): boolean {
+  return new URL(window.location.href).searchParams.get('host') === '1';
+}
+export function setHostFormInUrl(on: boolean) {
+  const u = new URL(window.location.href);
+  if (on) u.searchParams.set('host', '1');
+  else u.searchParams.delete('host');
+  window.history.replaceState({}, '', u.toString());
+}
+
 /** Your entrant token for a tournament on this browser. */
 const entrantKey = (id: string) => `risk.tournament.${id.toUpperCase()}`;
 export function getEntrantToken(id: string): string | null {

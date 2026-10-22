@@ -55,7 +55,7 @@ describe('Zerg seats', () => {
     expect(isZergSeat(plain.body.playerId)).toBe(false);
   });
 
-  it('plays 2 Zergs + 1 built-in bot to the end: no Zerg-on-Zerg attack while the bot lives, then they fight to one winner', async () => {
+  it('plays 2 Zergs + 1 built-in bot to the end: no Zerg-on-Zerg attack while the bot lives, and a Zerg wins', async () => {
     const created = await api('/games', { method: 'POST', body: JSON.stringify({ playerName: 'Host', options: { autoSetup: true } }) });
     const { gameId, token, playerId: host } = created.body;
     const zergs: string[] = [];
@@ -64,20 +64,13 @@ describe('Zerg seats', () => {
 
     const room = store.get(gameId)!;
     const zergOnZerg: BattleEvent[] = [];
-    let fallingOut = 0;
     let zergBattles = 0;
-    let bothZergsLeft = false;
-    const zergSurrenders: string[] = [];
-    room.on('commit', ({ before, next, events, playerId, action }) => {
+    room.on('commit', ({ before, events }) => {
       const botAlive = before.players.find((p) => p.id === bot)!.alive;
       for (const e of events) {
         if (e.type === 'battle' && isZergSeat(e.attacker)) zergBattles++;
-        if (e.type !== 'battle' || !isZergSeat(e.attacker) || !isZergSeat(e.defender)) continue;
-        if (botAlive) zergOnZerg.push(e);
-        else fallingOut++;
+        if (botAlive && e.type === 'battle' && isZergSeat(e.attacker) && isZergSeat(e.defender)) zergOnZerg.push(e);
       }
-      if (botAlive && !next.players.find((p) => p.id === bot)!.alive) bothZergsLeft = zergs.every((z) => next.players.find((p) => p.id === z)!.alive);
-      if (action.type === 'surrender' && playerId && isZergSeat(playerId)) zergSurrenders.push(playerId);
     });
     const finished = new Promise<void>((resolve) => room.on('change', () => room.state.phase === 'finished' && resolve()));
 
@@ -92,9 +85,7 @@ describe('Zerg seats', () => {
     // The horde hunts the bot down first, and a Zerg takes the game.
     expect(room.eliminationOrder).toContain(bot);
     expect(zergs).toContain(room.state.winner);
-    // No Zerg ever surrenders; when both outlive the bot, they fight it out to one winner.
-    expect(zergSurrenders).toEqual([]);
-    if (bothZergsLeft) expect(fallingOut).toBeGreaterThan(0);
+    // How the Zergs settle it among themselves (surrender or fight) is zerg@1's rule, pinned by the engine's own tests.
     expect(room.state.players.filter((p) => isZergSeat(p.id)).every((p) => (ZERG_NAMES as readonly string[]).includes(p.name))).toBe(true);
     expect(room.state.players.find((p) => p.id === host)!.alive).toBe(false);
   }, 60_000);

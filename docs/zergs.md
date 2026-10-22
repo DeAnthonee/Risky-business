@@ -14,13 +14,11 @@ Zergs are house bots that rush, never attack each other and hunt eliminations to
 - **Reptile names.** Every Zerg added to a game gets a name from a fixed list (`ZERG_NAMES` in
   `packages/server/src/bot.ts`: Godzilla, Cobra, Komodo, Basilisk, ...), never two alike in one room. The name is how
   outsiders tell which seats are Zergs; there is no badge or banner.
-- **Allies until the prey is gone.** A Zerg never attacks a fellow Zerg while any non-Zerg is alive. Once only Zergs
-  are left, the alliance is over and they fight each other to one winner (`chooseZergAction`, #169).
-- **No surrenders.** A Zerg never surrenders: `zerg@1` has `sacrifice: 0` (#169), so a walled-in Zerg keeps its land
-  instead of feeding the swarm (section 4). Live seats play the same `ZERG_1_PARAMS` as training and the horde gate.
-- **Known trade-off: a turtle can stall the horde.** With no sacrifice, a Zerg walled in by its allies sits idle while
-  one front Zerg fights alone, so a turtling player can hold out: 9 of 100 test games hit the 500-turn limit. Accepted
-  for now (the owner's no-surrender rule wins); not fixed.
+- **Allies until the prey is gone.** A Zerg never attacks a fellow Zerg while any non-Zerg is alive.
+- **The Zerg endgame (owner, 2026-10-22).** When only Zergs are left, the weaker Zergs surrender at once to the
+  strongest (most territories, then armies, then the lowest seat), and the walled-in sacrifice is on. This replaces
+  #169's fight to one winner and lands in `zerg@1` in its own PR; section 4 says what is built. Live seats play
+  `ZERG_1_PARAMS`, the same as training and the horde gate, so they follow `zerg@1` with no server change.
 - **The rules don't change.** The ally rule lives in the Zerg's own policy (`packages/engine/src/zerg.ts`), not in
   `legalMoves`: anyone, Zergs included, may attack a Zerg as far as the engine is concerned. Cards, endings and
   Capital Conquest are as normal, so no mirrored file is touched.
@@ -30,17 +28,20 @@ Zergs are house bots that rush, never attack each other and hunt eliminations to
 - **Seating.** `POST /api/games/:id/bots` with `{kind: "zerg"}` (host only, lobby only), the MCP `add_bot` tool with
   `kind: "zerg"`, or **Add Zerg** in the web lobby. A custom `name` is refused: the reptile list names every Zerg.
 - **Who is a Zerg.** The seat id starts with `zerg_` (built-in bots are `bot_...`, people `p_...`). The server mints
-  every id, so nobody can join as a Zerg or turn a seat into one (a person can still take a reptile name), and saved rooms need no new field: old
-  snapshots load as before, and a restored Zerg seat is still a Zerg. (In self-play a horde is instead the seats named
-  after the agent id, `zerg@1`.)
-- **Moves.** The room's bot loop plays a Zerg seat with `chooseZergAction(state, me, horde)` (`zerg@1`), the horde being every Zerg seat in the room; other bots play `chooseBotAction`. Every move goes through `GameRoom.commit`, like any bot.
+  every id, so nobody can join as a Zerg or turn a seat into one (a person can still take a reptile name), and saved
+  rooms need no new field: old snapshots load as before, and a restored Zerg seat is still a Zerg. (In self-play a
+  horde is instead the seats named after the agent id, `zerg@1`.)
+- **Moves.** The room's bot loop plays a Zerg seat with `chooseZergAction(state, me, horde)` (`zerg@1`), the horde
+  being every Zerg seat in the room; other bots play `chooseBotAction`. Every move goes through `GameRoom.commit`,
+  like any bot.
 - **Ranking.** A Zerg is ranked as `bot:<name>`, like any built-in bot.
 
 ## 3. Tests
 
 `packages/server/test/zerg.test.ts`: Zerg names are distinct reptile names, a custom name or an unknown kind is a
-400, and a room with 2 Zergs and 1 built-in bot plays to the end: no Zerg-on-Zerg attack while the bot lives, no Zerg
-surrender, and (when both Zergs outlive the bot) a fight between them to one Zerg winner.
+400, and a room with 2 Zergs and 1 built-in bot plays to the end with Zerg battles, no Zerg-on-Zerg battle while the
+bot lives, and a Zerg winner. How the Zergs settle it among themselves is `zerg@1`'s rule, pinned by the engine's
+Zerg tests.
 
 ## 4. Zerg behaviour (hand-coded first)
 

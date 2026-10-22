@@ -6,7 +6,7 @@ bot, ranking and the game-record format. Map data has its own log ([maps.md](map
 Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. Changes from before pull requests carry the
 commit hash instead. **Append a line in the same PR** as any change to this area (README hard rule 12).
 
-- 2026-10-22 #PR types only: `PlayerView.agent?` (never set by `viewFor`; the server adds it for spectators) and `RecordHeader.room.agents?` (written when a game is filed); no rule change, `RECORD_VERSION` unchanged
+- 2026-10-22 #180 types only: `PlayerView.agent?` (never set by `viewFor`; the server adds it for spectators) and `RecordHeader.room.agents?` (written when a game is filed); no rule change, `RECORD_VERSION` unchanged
 - 2026-10-21 #169 `zerg.ts`: `sacrifice` is 0 in `ZERG_1_PARAMS` (no surrenders at all, as the live Zerg seat plays); the parameter stays for tests; golden test updated on purpose
 - 2026-10-21 #169 `zerg.ts`: the alliance ends with the prey: once no non-Zerg is left the Zergs fight each other to one winner, no surrenders (owner's rule). Golden test updated on purpose; the alliance-phase moves are pinned unchanged
 - 2026-10-21 #167 `zerg.ts`: the Zerg's numbers in `ZergParams` (`ZERG_1_PARAMS` = zerg@1, pinned by a golden test) and four later behaviours off by default (synchronised strike, card hoarding, capital sniping, wall avoidance)

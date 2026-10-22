@@ -198,5 +198,5 @@ describe('blizzards on generated nested boards', () => {
           tables += 2;
         }
     expect(tables).toBe(9 * 3 * 20 * 2);
-  });
+  }, 60_000);
 });

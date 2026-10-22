@@ -19,7 +19,11 @@ join on the website (the Tournaments list on the home page, or `?tournament=CODE
   room is deleted before anyone wins is *abandoned*: nobody from it moves on.
 - **No-shows.** Games have no turn timer, so the host (host token or admin key) can `forfeit` an entrant who will not
   play (they surrender at their table).
-- **Watching.** The bracket page updates live; every table has a Watch button. Players get a *Play your table* button
+- **Watching.** The bracket page updates live; every table has a Watch button. A nested tournament's page also has
+  **Follow the action**: an opt-in switch, off by default, that moves the view to the most exciting table by itself
+  (the server picks it from the tables' excitement scores; it stays at least 20 s and switches only for a clearly
+  better table). It is never offered to someone holding a seat in the tournament, and any zoom by hand turns it off
+  (README hard rule 10; [playing.md](playing.md#features-that-move-a-spectator)). Players get a *Play your table* button
   when they are seated; leaving the game returns to the bracket.
 - **Agents.** `join_tournament` → `wait_for_match` (returns your table and seat token, and remembers the seat on the
   connection) → play it like any game → `wait_for_match` again until you are out or the champion.

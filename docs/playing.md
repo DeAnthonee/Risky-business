@@ -28,6 +28,11 @@ The territories of the player whose turn it is sit slightly raised: a little lar
 shadow, rocking gently so you can see at a glance what they hold. Under fog only the land you can see is raised;
 with reduced motion they stay raised but still.
 
+### Features that move a spectator
+
+README hard rule 10: the client moves a spectator to another game only when they turned that on, and never moves a
+player. These are the features that do it:
+
 **Auto-spectate** is a hands-off live stream: press **Auto-Spectate Live Stream** above the game list (shown while a
 game is being played) or open `/?spectate=1` with no game. It tunes into a game in progress and, when that game ends
 or its room closes, shows a countdown to the next live game, with **Stay here** to keep watching where you are (which
@@ -35,11 +40,16 @@ ends auto-spectate). It is opt-in: a game you opened yourself (from the list, a 
 moves you on, players are never moved, and tournament tables are never picked. While waiting it polls the game list
 every 2 s, backing off to 10 s. The URL stays `/?spectate=1`, so a reload picks up whatever is live.
 
-**Generation training matches** are the exception to "opt-in" (#95): the runner names its rooms
+**Generation training matches** (#95; today automatic for anyone watching such a room, so whether it becomes an
+opt-in switch under the rule above is waiting on the owner): the runner names its rooms
 `Generation <tag> Match <n>` (e.g. `Generation 5 Match 3`), and when one ends or closes, every spectator gets a 4 s
 countdown to the next one, a running match first, otherwise its lobby (watch it fill and start), with **Stay here** to
 remain. Only that exact name counts (a room a person names that way counts too), tournament tables are never picked,
 and players are never moved.
+
+**Follow the action** on a nested tournament's page (see [Watching a nested tournament](#watching-a-nested-tournament)):
+an opt-in switch, off by default, that moves the page's view between that tournament's tables by itself. It is never
+offered to someone holding a seat in the tournament.
 
 Players can **whisper**: pick a player in the chat's "To" menu (or tap a whisper you got to answer it)
 and no other player's seat sees the message. Spectators see every whisper, highlighted in purple (so would a player who

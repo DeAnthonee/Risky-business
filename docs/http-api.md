@@ -21,6 +21,7 @@ cards are hidden).
 | `GET  /games`                      | list games (a tournament table carries its `tournamentId`, a training game `board: "training"`) |
 | `POST /games`                      | `{playerName, gameName?, options?, board?, agent?}` → `{gameId, playerId, token, state}`. `agent` is the seat's [player type](#player-type-labels). `board: "training"` makes a yardstick game for the [training leaderboard](character-league.md#training-leaderboard); it needs the characters write key in `x-characters-key` (403 without it; any other `board` is 400). Not a game setting: it changes no rule |
 | `POST /games/:id/join`             | `{playerName, agent?}` → `{playerId, token, state}` (`agent`: the seat's [player type](#player-type-labels)) |
+| `POST /games/:id/name`             | seat token: `{name}` renames your seat (lobby only; trimmed, 24 characters at most) → `{state}` |
 | `POST /games/:id/bots`             | host: `{kind?, name?}` → `{playerId, name, state}`. `kind` "bot" (default, the built-in bot) or "zerg" (a [Zerg](zergs.md): named from the reptile list, so a `name` is a 400; any other `kind` is 400) |
 | `POST /games/:id/options`          | host: `{options}`                                                  |
 | `POST /games/:id/start`            | host: start                                                        |

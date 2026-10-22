@@ -25,9 +25,11 @@ Environment variables:
 | `PORT`                     | listen port (default 8080). Binds `0.0.0.0` unless `HOST` is set        |
 | `RISK_DATA_DIR`            | directory for persistent state, outside the repo (default `~/.risky-business`; `none` disables) |
 | `RISK_CLIENT_DIR`          | built web client (default `packages/client/dist`)                       |
+| `RISK_AI_DIR`              | folder the server reads `AI/` (characters, general player, model docs) from (default the repo's `AI/`) |
 | `RISK_BOT_DELAY_MS`        | pause between bot actions so humans can follow (default 700)            |
 | `RISK_SHUTDOWN_TIMEOUT_MS` | hard exit after this on SIGTERM (default 10000)                         |
 | `RISK_PUBLIC_URL`          | public URL shown to MCP agents in the server instructions (optional)    |
+| `RISK_MCP_SESSION_IDLE_MS` | drop a `/mcp` session idle this long (default 21600000 = 6 h)           |
 | `RISK_LOBBY_TTL_MIN`       | delete a lobby nobody is connected to after this many idle minutes (default 60) |
 | `RISK_GAME_TTL_MIN`        | delete a running game nobody is connected to after this many idle minutes (default 720) |
 | `RISK_BOTS_ONLY_TTL_MIN`   | delete a running game with only built-in bots left and no watchers (default 30) |

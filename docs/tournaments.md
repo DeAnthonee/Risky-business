@@ -36,7 +36,7 @@ watcher sees: it stays at least 20 s and switches only for a table 15 or more ah
 with a "Following: Table 7 (capital under threat)" caption. The tournament feed and the client switch come later.
 
 Tournaments are saved to `tournaments.json` in `RISK_DATA_DIR` and pick up their tables again after a restart;
-tables a tournament is still waiting on are not swept as idle, except past the hard limit (`RISK_MAX_IDLE`, 7 days).
+tables a tournament is still waiting on are not swept as idle, except past the hard limit of 7 days idle (the Store's fixed `max`; no env var changes it).
 
 **Coming: nested ("Inception") tournaments.** A table of a later round seats the winners of the tables inside its
 territories, each starting on their own territory (their "portal"). The engine's `startOnSpots`

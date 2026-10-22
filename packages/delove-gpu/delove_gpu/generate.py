@@ -720,6 +720,8 @@ def main():
                     " / :top pick their own, :k<N> their candidates")
     ap.add_argument("--gumbel-k", type=int, default=d.gumbel_k, help="Gumbel root: candidates, the teacher's move included (DELOVE_BRANCH_K)")
     ap.add_argument("--copies", type=int, default=d.copies, help="Gumbel root: copies per decision, 0 = options x rollouts (DELOVE_BRANCH_COPIES)")
+    ap.add_argument("--incumbent", default=d.incumbent, choices=["teacher", "net"], help="T2: the move the margin rule protects (DELOVE_BRANCH_INCUMBENT)")
+    ap.add_argument("--styles", default=d.styles, help="T2: opponent styles in the rollouts, e.g. net:0.4,aggr:0.2,turtle:0.2,zerg:0.2 (DELOVE_BRANCH_STYLES; needs --rollout)")
     ap.add_argument("--batch", type=int, default=0, help="games in flight per configuration (0: sized to --gpu-gb)")
     ap.add_argument("--gpu-gb", type=float, default=3.0, help="GPU memory for game states when sizing batches (networks come on top)")
     ap.add_argument("--out", help="write training arrays here (export's format, one folder per map)")
@@ -753,6 +755,7 @@ def main():
             ap.error(f"--rollout {args.rollout}: want MODEL, MODEL:all or MODEL:self")
         cfg.rollout = seats or "all"
     cfg.root, cfg.gumbel_k, cfg.copies = args.root, args.gumbel_k, args.copies
+    cfg.incumbent, cfg.styles = args.incumbent, args.styles
     run = Run(tables, args.seed, models, args.ranker, teacher, cfg, args.export_agents.split(","), Path(args.out) if args.out else None,
               args.max_turns, args.precision, "cuda", args.allow_unverified, rollout_net)
     res = run.run(args.batch or None, args.gpu_gb * 2**30)

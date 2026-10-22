@@ -51,6 +51,7 @@ from delove_gpu import fingerprint  # noqa: E402
 
 REPO = fingerprint.REPO
 JACOB = "jacob-sensei@1"
+T2_STYLES = "net:0.4,aggr:0.2,turtle:0.2,zerg:0.2"  # T2's first mix (the Lord of training, 2026-10-22)
 JACOB2 = "jacob-sensei@2"
 
 
@@ -207,6 +208,12 @@ def main() -> int:
             extra_env[name] = {"DELOVE_BRANCH_RANKER": args.ranker, "DELOVE_BRANCH_TRACE": str(out / f"trace-{name}.jsonl"),
                                "DELOVE_BRANCH_TEACHER": JACOB, "DELOVE_BRANCH_HORIZON": "1", "DELOVE_BRANCH_MARGIN": "0.01",
                                "DELOVE_BRANCH_ROLLOUT": args.ranker + seats}
+        # T2 (the bootstrapped teacher): the ranker's top move as the incumbent, opponent styles in the rollouts (the
+        # ranker in 'net' seats and the decider's, style teachers in the others); four seats, network rollouts: few games
+        logs["branch-t2"] = (",".join(["delove-branch@1"] + [JACOB] * 3), max(6, nb // 4))
+        extra_env["branch-t2"] = {"DELOVE_BRANCH_RANKER": args.ranker, "DELOVE_BRANCH_TRACE": str(out / "trace-branch-t2.jsonl"),
+                                  "DELOVE_BRANCH_TEACHER": JACOB, "DELOVE_BRANCH_HORIZON": "1", "DELOVE_BRANCH_MARGIN": "0.01",
+                                  "DELOVE_BRANCH_ROLLOUT": args.ranker, "DELOVE_BRANCH_INCUMBENT": "net", "DELOVE_BRANCH_STYLES": T2_STYLES}
     if args.model:
         model = Path(args.model).resolve()
         net_agent = model.stem  # delove@N, as net-agent.ts registers models/delove/<id>.onnx
@@ -292,7 +299,9 @@ def main() -> int:
                                 ("branch-range", ["--horizon", "1", "--margin", "0.01", "--score", "range"], JACOB),
                                 ("branch-netroll", ["--horizon", "1", "--margin", "0.01", "--rollout", args.ranker], JACOB),
                                 ("branch-netself", ["--horizon", "1", "--margin", "0.01", "--rollout", args.ranker + ":self"], JACOB),
-                                ("branch-gumbel", ["--horizon", "1", "--margin", "0.01", "--root", "gumbel", "--gumbel-k", "8", "--options", "5"], JACOB)]:
+                                ("branch-gumbel", ["--horizon", "1", "--margin", "0.01", "--root", "gumbel", "--gumbel-k", "8", "--options", "5"], JACOB),
+                                ("branch-t2", ["--horizon", "1", "--margin", "0.01", "--rollout", args.ranker, "--incumbent", "net", "--styles",
+                                               T2_STYLES], JACOB)]:
             jobs.append(("branch", [str(tests / "branch_replay.py"), str(out / name), "--trace", str(out / f"trace-{name}.jsonl"), "--models",
                                     str(models), "--ranker", args.ranker, "--teacher", rt, *extra],
                          r"(\d+) games, (\d+) branch-player decisions .*means identical on \d+, different on 0;", 2))
@@ -300,6 +309,8 @@ def main() -> int:
                      r"(\d+) decisions, .*differs from the log at 0 steps; IDENTICAL", 1))
         # stage games (a lead-in to N players alive, positions from game records): the GPU generator's games and
         # arrays against the CPU's play + export of the same tables
+        # T2's opponent styles: the draws and the style teachers' numbers, Node against the GPU branch (CPU)
+        jobs.append(("branch", [str(tests / "styles_check.py")], r"styles: CPU and GPU agree on (\d+) copies", 1))
         # the stage check's near-tie rule and its caps, on made-up datasets (CPU)
         jobs.append(("branch", [str(tests / "stage_near_tie_check.py")], r"stage near-tie rule: (\d+) of \1 cases as expected", 1))
         jobs.append(("branch", [str(tests / "stage_check.py"), "--models", str(models), "--ranker", args.ranker, "--seed", str(seed),

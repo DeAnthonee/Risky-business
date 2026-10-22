@@ -1215,6 +1215,30 @@ Range lives. The first cycle to try it is 16 (`DELOVE_BRANCH_ROOT=gumbel`, or `:
 stage jobs). One failed launch before this run cost $0.12 (a branch_q column bug, fixed and covered by
 `tests/gumbel_check.py`).
 
+### T2, the bootstrapped teacher: network incumbent and opponent styles (M1, opt-in)
+
+The overhaul's track T2: the search improves on the current network instead of on Jacob alone (Expert Iteration),
+against a mix of opponents. Both parts are off by default, so the defaults and the golden lock are unchanged:
+
+- **`DELOVE_BRANCH_INCUMBENT=net`** (`BranchOptions.incumbent`): the move the margin rule protects is the ranker's top
+  move (ties to the first candidate), then the teacher's move, then the ranker's next favourites. Without a ranker,
+  under fog search, or with the Gumbel root, it is the teacher's move as before.
+- **`DELOVE_BRANCH_STYLES=net:0.4,aggr:0.2,turtle:0.2,zerg:0.2`** (`BranchOptions.styles`, `src/styles.ts`): in each
+  rollout copy the decider plays the rollout network (`DELOVE_BRANCH_ROLLOUT=<model>`, required; its `:self` / `:all`
+  is ignored) and every other seat one style, drawn from the copy's seed (never from the seat's stream):
+  - `net`, the rollout network;
+  - `aggr` and `turtle`, the rollout teacher with some numbers scaled (`STYLE_SCALES`: attack bar, own-loss weight,
+    capture and defence weights);
+  - `zerg`, a rush set standing in for the Zerg horde, which the GPU mirror doesn't play.
+
+  Every option sees the same styles on the same copy (common random numbers). The trace lists each copy's styles.
+  The Gumbel root does not take styles.
+
+The GPU mirror plays both, replay-verified (`tests/branch_replay.py --incumbent --styles`, verify.py log `branch-t2`,
+`tests/styles_check.py`). Next (M2): truncated rollouts with the value head (`valueWeight` on the GPU). Then (M3) the
+measurement against T1's labels, with a small sweep of the mix and λ. The design is in the overhaul notes
+(`t2-bootstrapped-teacher-design.md`).
+
 ### Rollouts played by Delove (`DELOVE_BRANCH_ROLLOUT`): tried, not better; more options are
 
 The plan's top lever after cycle 8 (`docs/delove-status.md` section 9 item 1) was a stronger teacher: Delove itself

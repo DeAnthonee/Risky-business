@@ -136,7 +136,7 @@ describe('stall relievers, the end: a stalled game is decided on standing (stall
     let s = game({ stallStorm: 2, stallEnd: 2 });
     for (let r = 0; r < 3; r++) s = passRound(s);
     expect(stalemateDue(s)).toBe(false); // 3 stalled: storm since 2, the end at 2 + 2
-    expect(() => endInStalemate(s)).toThrow();
+    expect(() => endInStalemate(s, [], 0)).toThrow();
     s = passRound(s);
     expect(stalemateDue(s)).toBe(true);
     const { state, events } = endInStalemate(s, [], 123);

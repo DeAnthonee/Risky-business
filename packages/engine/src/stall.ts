@@ -140,9 +140,10 @@ export function stalemateDue(state: GameState): boolean {
  * End a stalled game on standing (rankByStanding: territories, then armies, then dice), the dice drawn from the game's
  * own seeded rng so the same game always ends the same way. Pure: returns the finished state (a winner, no current
  * player, `stall.stalemate` with the standing) and the `stalemate` and `game_over` (reason `stalemate`) events.
- * `eliminated`: the order players went out in, earliest first (the server keeps it), for the players already out.
+ * `eliminated`: the order players went out in, earliest first (the server keeps it), for the players already out; `at`:
+ * the finish time, from the caller (no clock in here).
  */
-export function endInStalemate(state: GameState, eliminated: readonly PlayerId[] = [], at = Date.now()): ActionResult {
+export function endInStalemate(state: GameState, eliminated: readonly PlayerId[], at: number): ActionResult {
   if (!stalemateDue(state)) throw new RuleError('This game has not stalled long enough to end');
   const rng = createRng(state.rngState);
   const standing = rankByStanding(state, () => nextFloat(rng), eliminated);

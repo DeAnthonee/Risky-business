@@ -543,7 +543,7 @@ export class GameRoom extends EventEmitter {
    */
   private endIfStalemate() {
     if (this.decidedAt !== null || !stalemateDue(this.state)) return;
-    const { state, events } = endInStalemate(this.state, this.eliminationOrder);
+    const { state, events } = endInStalemate(this.state, this.eliminationOrder, Date.now());
     this.addChat(null, 'Game', 'Stalemate: nobody captured a territory for too long, so the game is decided on standing (territories, then armies, then dice).');
     this.commit(state, events, null, { type: 'system', note: 'stalemate: the game ends on standing' });
   }

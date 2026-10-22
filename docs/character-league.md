@@ -111,7 +111,7 @@ by their key. It has no seasons.
 
 A third board, apart from the public and training ones, for **tournaments** (owner, decisions 16, 18 and 20). A
 tournament table never ranks on the public board (or the training one); when the tournament finishes, every entrant
-gets one result on this board. **This changed in #PR:** before it, knockout tables were ranked on the public board one
+gets one result on this board. **This changed in #183:** before it, knockout tables were ranked on the public board one
 game at a time. Results already there stay; new tables no longer add to it.
 
 - **Scoring** (per tournament, `packages/server/src/tournament-scoring.ts`, never the engine's `ranking.ts`), with `L`

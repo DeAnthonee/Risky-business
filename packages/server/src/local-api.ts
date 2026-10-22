@@ -99,12 +99,11 @@ export class LocalRiskApi implements RiskApi {
     const { playerId, token } = room.join(playerName, false, 'bot', parseAgent(agent));
     return { gameId: room.id, playerId, token, state: room.view(playerId) };
   }
-  async addBot(gameId: string, token: string, name?: string, kind?: 'bot' | 'zerg') {
+  async addBot(gameId: string, token: string, name?: string, kind?: 'bot' | 'zerg', count?: number) {
     const room = this.room(gameId);
     this.host(room, token);
-    const { playerId } = room.addBot(parseBotKind(kind), name);
-    const p = room.state.players.find((x) => x.id === playerId)!;
-    return { playerId, name: p.name };
+    const added = room.addBots(parseBotKind(kind), count ?? 1, name);
+    return { playerId: added[0].playerId, name: added[0].name, added };
   }
   async setOptions(gameId: string, token: string, options: Partial<GameOptions>) {
     const room = this.room(gameId);

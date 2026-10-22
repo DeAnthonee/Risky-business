@@ -4,6 +4,8 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync, renameSync } from '
 import { dirname, join } from 'node:path';
 import {
   RuleError,
+  endByStanding,
+  onlySideLeft,
   addPlayer,
   applyAction,
   createGame,
@@ -24,7 +26,7 @@ import {
   type ScenarioRef,
   type ScenarioSeat,
 } from '@risk/engine';
-import { chooseSeatAction, seatIdPrefix, zergName, type BotKind } from './bot.js';
+import { chooseSeatAction, isZergSeat, seatIdPrefix, zergName, type BotKind } from './bot.js';
 import { DEFAULT_TOURNAMENT_LIMITS, TournamentManager } from './tournaments.js';
 import { TournamentRankings } from './tournament-scoring.js';
 import { Rankings } from './rankings.js';
@@ -160,6 +162,11 @@ export interface ChangeMessage {
 }
 
 const BOT_DELAY_MS = Number(process.env.RISK_BOT_DELAY_MS ?? 700);
+/**
+ * A game seated with Zergs only ends right after the deal, decided by standing (owner, 2026-10-22); false would let it
+ * play out. Games with any non-Zerg seat always end once only Zergs are left.
+ */
+const ALL_ZERG_TABLES_END_AT_ONCE = true;
 const MAX_HISTORY = 2000;
 /** Most bots one add-bots call seats (MCP add_bot count, create_game zergs, POST /games/:id/bots count). */
 export const MAX_BOTS_PER_CALL = 9;
@@ -383,6 +390,33 @@ export class GameRoom extends EventEmitter {
     const msg: ChangeMessage = { state: next, events, version: next.version, playerId };
     this.emit('change', msg);
     this.scheduleBot();
+    this.endIfOnlySwarm();
+  }
+
+  /**
+   * Owner's rule A (docs/zergs.md): when every living seat is a Zerg, the game ends at once, as it stands. The
+   * strongest Zerg wins (the engine's endByStanding), nobody surrenders and no land turns neutral. It goes through
+   * commit like any move, so records, replays, rankings and tournaments see an ordinary finished game.
+   */
+  private endIfOnlySwarm() {
+    const s = this.state;
+    // The server only says which seats are Zergs (a seating concept); whether that side is all that is left, and not
+    // mid-conquest, is the engine's call (onlySideLeft): the game ends on the occupy, never with a 0-army territory.
+    const zergs = new Set(s.players.filter((p) => isZergSeat(p.id)).map((p) => p.id));
+    // The last non-Zerg just fell to an attack and the armies have not moved in. The Zerg's own rule (no prey left and
+    // not the strongest: surrender) would come before its occupy, so the server moves the minimum in for it, as an
+    // ordinary move through commit; that commit then ends the game on a legal board.
+    const pc = s.pendingConquest;
+    if (pc && s.currentPlayer && zergs.has(s.currentPlayer) && onlySideLeft({ ...s, pendingConquest: null }, zergs)) {
+      this.act(s.currentPlayer, { type: 'occupy', armies: pc.minArmies });
+      return;
+    }
+    if (!onlySideLeft(s, zergs)) return;
+    // A table seated with Zergs only (e.g. a tournament table) ends right after the deal too, unless switched off.
+    if (!ALL_ZERG_TABLES_END_AT_ONCE && s.players.every((p) => p.isNeutral || isZergSeat(p.id))) return;
+    const { state, events } = endByStanding(s, new Set(s.players.filter((p) => p.alive && zergs.has(p.id)).map((p) => p.id)));
+    this.addChat(null, 'Game', 'Only Zergs are left: the swarm has won, and the game ends as it stands.');
+    this.commit(state, events, null, { type: 'system', note: 'only Zergs are left: the swarm has won, the game ends by standing' });
   }
 
   bindCharacter(playerId: string, characterId: string) {

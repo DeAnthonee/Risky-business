@@ -7,6 +7,10 @@ Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. Changes from
 hash instead. **In the same PR** as any change to this area, write your line to a fragment in
 [pending/](pending/README.md), not to this file (README hard rule 12; folded in by `npm run logs:fold`).
 
+- 2026-10-22 #234 new env vars `RISK_TOURNAMENT_SCHEDULE` and `RISK_TOURNAMENT_SCHEDULE_FILE` (default off); state file `tournament-schedule.json` under `RISK_DATA_DIR`
+- 2026-10-22 #231 new server dependency `@resvg/resvg-wasm` 2.6.2 (WASM, no native build); `/og/game/:id.png` (outside /api) is cacheable for 60 s
+- 2026-10-22 #209 new env var `RISK_SEASON_KEY` (unset = off)
+- 2026-10-22 #208 new env var `RISK_RECORDS_KEY`: read-only access to full game records; the owner sets it and keeps it private
 - 2026-10-21 #195 `npm test` also runs `logs:check` (validates `docs/logs/pending/` fragments, writes nothing) and `logs:test` (the fold script's tests)
 - 2026-10-21 #194 docs drift: hosting.md env table lists `RISK_AI_DIR` and `RISK_MCP_SESSION_IDLE_MS`
 - 2026-10-21 #179 `/healthz` adds `loopLagMs` (event-loop p99 over the last minute); the healthz shape only gains a field

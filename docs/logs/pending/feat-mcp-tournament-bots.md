@@ -1,1 +1,0 @@
-mcp: - 2026-10-22 #235 `add_tournament_bots` {tournamentId, kind zerg|bot, count}: the host seats Zergs or built-in bots as tournament entrants over MCP (host token remembered from create_tournament, or hostToken/adminKey), the same rules as `POST /tournaments/:id/bots`; `RiskApi.addTournamentBots`

@@ -15,6 +15,36 @@ export interface RiskMcpOptions {
   serverLabel?: string;
   /** Extra sentence(s) for the instructions (e.g. how identities persist in this transport). */
   identityNote?: string;
+  /** Tests: how often a waiting tool reports progress (default PROGRESS_EVERY_MS). */
+  progressEveryMs?: number;
+}
+
+/**
+ * The longest a long-poll tool (wait_for_turn, wait_for_match, quick_play) waits in one call. Proxies such as
+ * Cloudflare and many MCP clients drop a request that stays quiet for about 100 s ("upstream closed the stream"), so a
+ * call always answers before that; a timeout answer is normal and the agent calls again. Larger values are clamped.
+ */
+export const MAX_WAIT_SECONDS = 85;
+/** A long-poll tool's wait when the call does not say. */
+export const DEFAULT_WAIT_SECONDS = 60;
+/** While a long-poll tool waits, it reports progress this often when the client asked for it (a progressToken). */
+export const PROGRESS_EVERY_MS = 20_000;
+
+/** The seconds a long-poll call waits: the asked value (or the default), at most MAX_WAIT_SECONDS. */
+export function waitSeconds(asked: number | undefined): number {
+  return Math.min(MAX_WAIT_SECONDS, Math.max(1, asked ?? DEFAULT_WAIT_SECONDS));
+}
+
+const waitSecondsSchema = z
+  .number()
+  .min(1)
+  .optional()
+  .describe(`How long to wait in this call, in seconds (default ${DEFAULT_WAIT_SECONDS}, at most ${MAX_WAIT_SECONDS}: larger values wait ${MAX_WAIT_SECONDS}). A timeout answer is normal: call again.`);
+
+/** What a tool handler gets from the SDK that a long wait needs: the client's progress token, and a way to notify. */
+interface WaitExtra {
+  _meta?: { progressToken?: string | number };
+  sendNotification: (n: { method: 'notifications/progress'; params: { progressToken: string | number; progress: number; message?: string } }) => Promise<void>;
 }
 
 const gameIdSchema = z.string().min(4).max(12).describe('Game code, e.g. "ABC123"');
@@ -149,6 +179,22 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
       'What kind of player you are, e.g. your model id ("claude-sonnet-5-5") or "human". Optional and self-declared. Only spectators watching on the website see it; no player, you included, ever does.',
     );
   const agentOf = (agent: string | undefined) => agent ?? opts.defaultAgent;
+  /**
+   * Keep a long wait from looking idle: when the client sent a progressToken, report progress every few seconds until
+   * stop() (the stream carries bytes, and clients that reset their timeout on progress keep waiting).
+   */
+  const keepAlive = (extra: WaitExtra | undefined, what: string): (() => void) => {
+    const progressToken = extra?._meta?.progressToken;
+    if (progressToken === undefined || !extra) return () => undefined;
+    const started = Date.now();
+    const every = opts.progressEveryMs ?? PROGRESS_EVERY_MS;
+    const timer = setInterval(() => {
+      const waited = Math.round((Date.now() - started) / 1000);
+      void extra.sendNotification({ method: 'notifications/progress', params: { progressToken, progress: waited, message: `${what}: waited ${waited}s` } }).catch(() => undefined);
+    }, every);
+    timer.unref?.();
+    return () => clearInterval(timer);
+  };
   const label = opts.serverLabel ?? 'Risky Business';
 
   const server = new McpServer(
@@ -317,18 +363,19 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
     'quick_play',
     {
       description:
-        'Get a game fast: join the quick-play queue and wait to be seated. Entrants asking for the same map, seats and fog share a table; it starts as soon as it is full, or after the wait window (about a minute) with whoever is there, the empty seats filled with Zergs (rushing house bots). Quick-play games use auto setup and a per-move turn timer (a seat that does not move in time is skipped). Returns YOUR game code and player token like join_game: pass the token on every later call, then loop { wait_for_turn -> get_state -> act }. If it times out while waiting, call quick_play again: it resumes the same ticket.',
+        'Get a game fast: join the quick-play queue and wait to be seated (each call waits at most ' + MAX_WAIT_SECONDS + ' s; a timeout answer is normal, call again). Entrants asking for the same map, seats and fog share a table; it starts as soon as it is full, or after the wait window (about a minute) with whoever is there, the empty seats filled with Zergs (rushing house bots). Quick-play games use auto setup and a per-move turn timer (a seat that does not move in time is skipped). Returns YOUR game code and player token like join_game: pass the token on every later call, then loop { wait_for_turn -> get_state -> act }. If it times out while waiting, call quick_play again: it resumes the same ticket.',
       inputSchema: {
         map: z.string().optional().describe('Board id (default "classic"); the maps tool lists them'),
         seats: z.number().int().min(2).max(10).optional().describe("Players at the table, you included (default 4, at most the map's maximum)"),
         fog: z.boolean().optional().describe('Fog of war (default false)'),
         playerName: z.string().max(24).optional().describe(`Your display name (default "${DEFAULT_NAME}")`),
         agent: agentSchema,
-        timeoutSeconds: z.number().min(1).max(110).optional().describe('How long to wait in this call (default 90)'),
+        timeoutSeconds: waitSecondsSchema,
         leave: z.boolean().optional().describe('true: leave the queue instead (your waiting ticket on this connection)'),
       },
     },
-    async ({ map, seats, fog, playerName, agent, timeoutSeconds, leave }) => {
+    async ({ map, seats, fog, playerName, agent, timeoutSeconds, leave }, extra) => {
+      const stop = keepAlive(extra as WaitExtra, 'waiting to be seated');
       try {
         if (leave) {
           if (!quickTicket) return text('You are not waiting in the quick-play queue.');
@@ -344,7 +391,7 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
           quickTicket = { ticket: r.ticket.ticket, token: r.token, name: r.ticket.name };
           t = r.ticket;
         }
-        const deadline = Date.now() + (timeoutSeconds ?? 90) * 1000;
+        const deadline = Date.now() + waitSeconds(timeoutSeconds) * 1000;
         while (t.status !== 'seated' && Date.now() < deadline) {
           t = (await api.quickPlayWait(quickTicket.ticket, quickTicket.token, Math.max(0, deadline - Date.now()))).ticket;
         }
@@ -359,6 +406,8 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
         return text(`Seated by quick play in game ${t.gameId}.\n${seatLine(seat)}\n\n${formatState(g.state, g.name)}`);
       } catch (e) {
         return errorText(e);
+      } finally {
+        stop();
       }
     },
   );
@@ -516,19 +565,20 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
     'wait_for_turn',
     {
       description:
-        `Block until it is your turn (or the game ends), up to timeoutSeconds. Returns what happened since you last looked plus the new state. Call again if it returns "timeout". Spectators (no token) can pass sinceVersion to be woken by any change. ${TIMER_NOTE}`,
+        `Block until it is your turn (or the game ends), up to timeoutSeconds. Returns what happened since you last looked plus the new state. Each call waits at most ${MAX_WAIT_SECONDS} s: a "timeout" answer is normal, just call again. Spectators (no token) can pass sinceVersion to be woken by any change. ${TIMER_NOTE}`,
       inputSchema: {
         gameId: gameIdSchema,
-        timeoutSeconds: z.number().min(1).max(110).optional().describe('Default 60'),
+        timeoutSeconds: waitSecondsSchema,
         sinceVersion: z.number().int().optional().describe('If given, also return when the state version passes this number, and include the events since then'),
         token: tokenSchema,
         as: asSchema,
       },
     },
-    async ({ gameId, timeoutSeconds, sinceVersion, token, as }) => {
+    async ({ gameId, timeoutSeconds, sinceVersion, token, as }, extra) => {
+      const stop = keepAlive(extra as WaitExtra, 'waiting for your turn');
       try {
         const id = gameId.toUpperCase();
-        const r = await api.wait(id, tokenFor(id, token, as), sinceVersion, (timeoutSeconds ?? 60) * 1000);
+        const r = await api.wait(id, tokenFor(id, token, as), sinceVersion, waitSeconds(timeoutSeconds) * 1000);
         const header =
           r.reason === 'turn'
             ? 'It is your turn.'
@@ -543,6 +593,8 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
         return text(`${header}${evText}\n${formatState(r.state)}`);
       } catch (e) {
         return errorText(e);
+      } finally {
+        stop();
       }
     },
   );
@@ -784,15 +836,16 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
     'wait_for_match',
     {
       description:
-        'Block until you have a table to play in this tournament (or you are out, or it is over), up to timeoutSeconds. When it returns YOUR TABLE, play that game with wait_for_turn / get_state / act and the seat token it gives; when that game ends, call wait_for_match again for the next round. Call again if it times out.',
-      inputSchema: { tournamentId: tournamentIdSchema, token: entrantTokenSchema, timeoutSeconds: z.number().min(1).max(110).optional().describe('Default 60') },
+        'Block until you have a table to play in this tournament (or you are out, or it is over), up to timeoutSeconds. When it returns YOUR TABLE, play that game with wait_for_turn / get_state / act and the seat token it gives; when that game ends, call wait_for_match again for the next round. Each call waits at most ' + MAX_WAIT_SECONDS + ' s: a timeout answer is normal, just call again.',
+      inputSchema: { tournamentId: tournamentIdSchema, token: entrantTokenSchema, timeoutSeconds: waitSecondsSchema },
     },
-    async ({ tournamentId, token, timeoutSeconds }) => {
+    async ({ tournamentId, token, timeoutSeconds }, extra) => {
+      const stop = keepAlive(extra as WaitExtra, 'waiting for your table');
       try {
         const id = tournamentId.toUpperCase();
         const tok = entrantToken(id, token);
         if (!tok) throw new RiskHttpError('No entrant token for this tournament on this connection: pass "token" (from join_tournament)', 401);
-        const deadline = Date.now() + (timeoutSeconds ?? 60) * 1000;
+        const deadline = Date.now() + waitSeconds(timeoutSeconds) * 1000;
         let { tournament: t } = await api.getTournament(id, tok);
         while (!t.you?.match && t.status !== 'finished' && t.you?.status !== 'out' && Date.now() < deadline) {
           t = (await api.waitTournament(id, tok, t.version, Math.max(0, deadline - Date.now()))).tournament;
@@ -808,6 +861,8 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
         return text(`${header}\n\n${formatTournament(t)}`);
       } catch (e) {
         return errorText(e);
+      } finally {
+        stop();
       }
     },
   );

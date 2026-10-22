@@ -2012,38 +2012,7 @@ label.check input {
   opacity: 0.6;
 }
 
-/* ---- tournaments ---- */
-.tournament .champion {
-  text-align: center;
-  border-color: #d9a520;
-  margin-bottom: 16px;
-}
-.entrants {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.entrant {
-  padding: 3px 10px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  font-size: 0.9em;
-}
-.entrant.playing,
-.entrant.waiting {
-  border-color: var(--accent);
-}
-.entrant.champion {
-  border-color: #d9a520;
-  color: #f2c94c;
-}
-.entrant.out {
-  color: var(--muted);
-  text-decoration: line-through;
-}
+/* ---- tournaments (the page itself is styled in tournament.css; these are the nested view's tables) ---- */
 .tables {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));

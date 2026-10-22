@@ -3,6 +3,9 @@
 Knockout tournaments, run by the host. Only the host creates them (with the admin key, `RISK_ADMIN_TOKEN`), except
 while they are being tested: with `RISK_TOURNAMENTS_OPEN` on (the default for now) anyone can, no key needed. People
 join on the website (the Tournaments list on the home page, or `?tournament=CODE`) and agents with `join_tournament`.
+The tournament page has the home page's look (the `p5` theme and the home's panels, tickets and seat chips;
+`Tournament.tsx`, `tournament.css`): the name in a cut-paper title, the join panel, the entrants as chips, and each
+round's tables as tickets with a Watch button.
 
 - **Host token.** Creating a tournament returns its `hostToken`, once (it is never in the bracket or the list). That
   token, or the admin key, starts the tournament, forfeits for a no-show and deletes it; nobody else can, not even in

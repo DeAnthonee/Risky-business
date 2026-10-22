@@ -23,6 +23,8 @@ export interface Entrant {
   isBot: boolean;
   /** Secret that identifies this entrant (bots have none). */
   token?: string;
+  /** Self-declared player type, passed to every table seat; spectators see it, no view of the tournament does. */
+  agent?: string;
   joinedAt: number;
 }
 
@@ -277,14 +279,14 @@ export class TournamentManager extends EventEmitter {
 
   // ---- players ----
 
-  join(id: string, rawName: unknown): { entrantId: string; token: string } {
+  join(id: string, rawName: unknown, agent?: string): { entrantId: string; token: string } {
     const t = this.require(id);
     if (t.status !== 'registering') throw new RuleError('Registration is closed: this tournament has started');
     if (t.entrants.length >= t.maxEntrants) throw new RuleError('This tournament is full');
     const name = String(rawName ?? '').replace(/\s+/g, ' ').trim().slice(0, MAX_NAME);
     if (!name) throw new RuleError('A name is required');
     if (t.entrants.some((e) => e.name.toLowerCase() === name.toLowerCase())) throw new RuleError(`The name "${name}" is taken in this tournament`);
-    const entrant: Entrant = { id: `e_${newId(6)}`, name, isBot: false, token: newId(24), joinedAt: Date.now() };
+    const entrant: Entrant = { id: `e_${newId(6)}`, name, isBot: false, token: newId(24), joinedAt: Date.now(), ...(agent ? { agent } : {}) };
     t.entrants.push(entrant);
     this.changed(t);
     return { entrantId: entrant.id, token: entrant.token! };
@@ -460,7 +462,7 @@ export class TournamentManager extends EventEmitter {
       const players = entrants.map((eid) => this.entrant(t, eid)!);
       const tables = tableSizes(order.length, t.groupSize).length;
       const label = tables === 1 ? (round === 1 ? 'Table 1' : 'Final') : `Table ${i + 1}`;
-      const { room, seats } = this.store.createTable(`${t.name} · R${round} ${label}`.slice(0, 40), { ...t.options, maxPlayers: entrants.length }, players.map((p) => ({ name: p.name, isBot: p.isBot })), t.id);
+      const { room, seats } = this.store.createTable(`${t.name} · R${round} ${label}`.slice(0, 40), { ...t.options, maxPlayers: entrants.length }, players.map((p) => ({ name: p.name, isBot: p.isBot, agent: p.agent })), t.id);
       const match: TournamentMatch = { gameId: room.id, entrants, seats: Object.fromEntries(entrants.map((eid, k) => [eid, seats[k]])), winner: null, status: 'playing' };
       matches.push(match);
       this.watch(t, match, room);

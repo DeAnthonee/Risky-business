@@ -97,7 +97,9 @@ async function main() {
   const seats: { gameId: string; playerId: string; token: string; name: string; agent: Agent }[] = [];
   let gameId = values.join?.trim().toUpperCase() ?? '';
   for (let i = 0; i < agents.length; i++) {
-    const r = !gameId ? await api.createGame(names[i], 'Delove test game', options) : await api.joinGame(gameId, names[i]);
+    // The seat's player type, for spectators only (players never see it): the Delove version it plays.
+    const label = labels.get(agents[i]) ?? agents[i].id;
+    const r = !gameId ? await api.createGame(names[i], 'Delove test game', options, undefined, undefined, label) : await api.joinGame(gameId, names[i], label);
     gameId = r.gameId;
     seats.push({ gameId, playerId: r.playerId, token: r.token, name: names[i], agent: agents[i] });
     log(`${names[i]} (${agents[i].id}) sits in game ${gameId}`);
@@ -137,6 +139,9 @@ function paceOf(v: string | undefined): number {
   return pace;
 }
 
+/** Spectator labels (the `agent` tag on join): the network that plays, e.g. "delove@10 + search"; default the agent id. */
+const labels = new Map<Agent, string>();
+
 /** The players for these ids (the teachers, every network in the models folder, and delove-branch with its preset). */
 function buildAgents(ids: string[], presetName: string | undefined): Agent[] {
   const tuned = discoverTunedTeachers();
@@ -159,6 +164,7 @@ function buildAgents(ids: string[], presetName: string | undefined): Agent[] {
     const branch = branchFromEnv(undefined, env);
     console.log(`delove-branch (${preset}): ranker ${env.DELOVE_BRANCH_RANKER ?? 'none'}, rollouts by ${env.DELOVE_BRANCH_TEACHER}, ${env.DELOVE_BRANCH_OPTIONS} options, ${env.DELOVE_BRANCH_SCORE} score, horizon ${env.DELOVE_BRANCH_HORIZON}, margin ${env.DELOVE_BRANCH_MARGIN}`);
     known.set(branch.id, branch).set('delove-branch', branch);
+    labels.set(branch, `${env.DELOVE_BRANCH_RANKER ?? 'delove'} + search`);
   }
   return ids.map((id) => known.get(id) ?? fail(`unknown Delove version "${id}" (known: ${[...known.keys()].join(', ')})`));
 }
@@ -196,7 +202,7 @@ async function tournament(values: Record<string, string | boolean | undefined>):
   const ids = String(values.agents ?? 'delove-branch').split(',').map((s) => s.trim()).filter(Boolean);
   const names = values.names ? String(values.names).split(',').map((s) => s.trim()) : Array.from({ length: n }, (_, i) => `Delove ${i + 1}`);
   if (names.length !== n) fail('--names needs one name per entrant');
-  buildAgents(ids, values.preset as string | undefined); // fail now on an unknown id, before anyone joins
+  const built = buildAgents(ids, values.preset as string | undefined); // fails now on an unknown id, before anyone joins
   const procs = values.procs === undefined ? Math.min(6, n) : Number(values.procs);
   if (!Number.isInteger(procs) || procs < 1) fail('--procs must be a whole number of at least 1');
   const pace = paceOf(values.pace as string | undefined);
@@ -206,7 +212,8 @@ async function tournament(values: Record<string, string | boolean | undefined>):
   if (entrants.length) log(`reusing ${entrants.length} entrants from ${tokensFile}`);
   else {
     for (let i = 0; i < n; i++) {
-      const r = await api.joinTournament(id, names[i]);
+      const agent = built[i % ids.length];
+      const r = await api.joinTournament(id, names[i], labels.get(agent) ?? agent.id);
       entrants.push({ name: names[i], token: r.token, agentId: ids[i % ids.length] });
       log(`${names[i]} (${ids[i % ids.length]}) joined tournament ${id}`);
     }

@@ -10,8 +10,9 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { getMap } from '@risk/engine';
+import { getMap, type MapDef, type NestNode } from '@risk/engine';
 import type { GlobeData } from '../globeData';
+import { landBox, livePatches, onPatch, pathRings, type Vec3 } from '../globeLayout';
 import { continentColor, POUR_MS, type Highlight, type MapProps } from './Map';
 
 const LAND = 1.012; // top of a territory with no armies (sea level is 1)
@@ -872,6 +873,306 @@ export function InceptionGlobe({
   return (
     <div ref={wrapRef} className="inception-globe">
       {hover && <div className="globe-hover-name">Zoom into {labelOf(hover)}</div>}
+    </div>
+  );
+}
+
+/**
+ * The live globe of a nested tournament: the boards of the round in play tile the sphere (globeLayout.ts), each drawn
+ * as a patch in its holders' colours and repainted as the tournament feed changes. Click a patch to focus its table
+ * (the side panel offers Watch table); the camera turns to the focused table. Spins slowly until grabbed, never with
+ * reduced motion. A new round simply redraws the next boards.
+ */
+export function LiveGlobe({
+  nodes,
+  depth,
+  mapOf,
+  fill,
+  focus,
+  labelOf,
+  onPick,
+  version,
+}: {
+  nodes: readonly NestNode[];
+  /** The depth of the round in play: its boards are drawn. */
+  depth: number;
+  mapOf: (id: string) => MapDef;
+  /** Colour of a territory of a node's board. */
+  fill: (node: number, territory: string) => string;
+  focus: number;
+  labelOf: (node: number) => string;
+  onPick: (node: number) => void;
+  /** Changes whenever the colours may have changed (the feed): the patches are repainted. */
+  version: unknown;
+}) {
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const labelRefs = useRef(new Map<number, HTMLDivElement>());
+  const patches = useMemo(() => livePatches(nodes, depth, mapOf), [nodes, depth, mapOf]);
+  const live = useRef({ fill, focus, onPick, patches });
+  live.current = { fill, focus, onPick, patches };
+  const api = useRef<{ repaint: () => void; focusOn: (i: number) => void } | null>(null);
+  const [hover, setHover] = useState<number | null>(null);
+
+  useEffect(() => {
+    const wrap = wrapRef.current;
+    if (!wrap) return;
+    let renderer: THREE.WebGLRenderer;
+    try {
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    } catch {
+      return;
+    }
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.domElement.className = 'globe-canvas';
+    wrap.prepend(renderer.domElement);
+    const scn = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(35, 1, 0.05, 50);
+    scn.add(new THREE.AmbientLight(0xffffff, 0.9));
+    const sun = new THREE.DirectionalLight(0xffffff, 1.2);
+    sun.position.set(2, 3, 4);
+    camera.add(sun);
+    scn.add(camera);
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.enablePan = false;
+    controls.minDistance = 1.3;
+    controls.maxDistance = 4.6;
+    controls.autoRotateSpeed = 0.3;
+    controls.autoRotate = !reducedMotion();
+    const startAt = patches.get(live.current.focus)?.centre ?? patches.values().next().value?.centre ?? ([0, 0.3, 1] as Vec3);
+    camera.position.set(...startAt).normalize().multiplyScalar(3.6);
+    controls.update();
+
+    const disposables: { dispose: () => void }[] = [];
+    const keep = <T extends { dispose: () => void }>(x: T) => (disposables.push(x), x);
+    scn.add(new THREE.Mesh(keep(new THREE.SphereGeometry(0.998, 64, 48)), keep(new THREE.MeshStandardMaterial({ color: 0x2c6e8a, roughness: 1 }))));
+    scn.add(new THREE.Mesh(keep(new THREE.SphereGeometry(1.06, 48, 32)), keep(new THREE.MeshBasicMaterial({ color: 0x5c8fd6, transparent: true, opacity: 0.07, side: THREE.BackSide }))));
+
+    // Patches: one mesh for every board of the round; each territory owns a range of vertices (for repainting).
+    const pos: number[] = [];
+    const triNode: number[] = [];
+    const ranges: { node: number; territory: string; from: number; to: number }[] = [];
+    const border: number[] = [];
+    const frames: number[] = [];
+    const LIFT = 1.004;
+    const MAX_ARC = 0.05; // split triangles longer than this (radians) so big boards follow the curve
+    for (const [i, p] of patches) {
+      const map = mapOf(nodes[i].map);
+      for (const t of map.territories) {
+        const from = pos.length / 3;
+        for (const ring of pathRings(t.path)) {
+          const contour = ring.map(([u, v]) => new THREE.Vector2(u, v));
+          if (THREE.ShapeUtils.isClockWise(contour)) contour.reverse();
+          const tris = THREE.ShapeUtils.triangulateShape(contour, []);
+          const emit = (a: THREE.Vector2, b: THREE.Vector2, c: THREE.Vector2, level: number) => {
+            const len = Math.max(a.distanceTo(b), b.distanceTo(c), c.distanceTo(a)) * p.k;
+            if (len > MAX_ARC && level < 4) {
+              const [ab, bc, ca] = [a.clone().lerp(b, 0.5), b.clone().lerp(c, 0.5), c.clone().lerp(a, 0.5)];
+              emit(a, ab, ca, level + 1);
+              emit(ab, b, bc, level + 1);
+              emit(ca, bc, c, level + 1);
+              emit(ab, bc, ca, level + 1);
+              return;
+            }
+            // Board v grows downwards, so flip the winding to face outwards.
+            for (const q of [a, c, b]) pos.push(...onPatch(p, q.x, q.y, LIFT));
+            triNode.push(i);
+          };
+          for (const [a, b, c] of tris) emit(contour[a], contour[b], contour[c], 0);
+          for (let k = 0; k < ring.length; k++) {
+            const [u0, v0] = ring[k];
+            const [u1, v1] = ring[(k + 1) % ring.length];
+            border.push(...onPatch(p, u0, v0, LIFT + 0.0008), ...onPatch(p, u1, v1, LIFT + 0.0008));
+          }
+        }
+        ranges.push({ node: i, territory: t.id, from, to: pos.length / 3 });
+      }
+      // A thin circle around each table's patch.
+      const [x0, y0, x1, y1] = landBox(map);
+      const a = p.k * (Math.hypot(x1 - x0, y1 - y0) / 2) * 1.02;
+      for (let s = 0; s < 64; s++) {
+        const ring = [s, s + 1].map((m) => {
+          const th = (m / 64) * Math.PI * 2;
+          const d = [0, 1, 2].map((x) => p.east[x] * Math.cos(th) + p.north[x] * Math.sin(th));
+          return [0, 1, 2].map((x) => (p.centre[x] * Math.cos(a) + d[x] * Math.sin(a)) * 1.002);
+        });
+        frames.push(...ring[0], ...ring[1]);
+      }
+    }
+    const geo = keep(new THREE.BufferGeometry());
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    const colours = new Float32Array(pos.length);
+    geo.setAttribute('color', new THREE.BufferAttribute(colours, 3));
+    geo.computeVertexNormals();
+    const mesh = new THREE.Mesh(geo, keep(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, side: THREE.DoubleSide })));
+    scn.add(mesh);
+    const borderGeo = keep(new THREE.BufferGeometry());
+    borderGeo.setAttribute('position', new THREE.Float32BufferAttribute(border, 3));
+    scn.add(new THREE.LineSegments(borderGeo, keep(new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.35 }))));
+    const frameGeo = keep(new THREE.BufferGeometry());
+    frameGeo.setAttribute('position', new THREE.Float32BufferAttribute(frames, 3));
+    const frameMat = keep(new THREE.LineBasicMaterial({ color: 0xdfe8f2, transparent: true, opacity: 0.35 }));
+    scn.add(new THREE.LineSegments(frameGeo, frameMat));
+    // The focused table's circle in gold.
+    const focusGeo = keep(new THREE.BufferGeometry());
+    const focusLine = new THREE.LineSegments(focusGeo, keep(new THREE.LineBasicMaterial({ color: 0xf2c14e })));
+    scn.add(focusLine);
+    const order = [...patches.keys()];
+    const showFocus = () => {
+      const at = order.indexOf(live.current.focus);
+      focusLine.visible = at >= 0;
+      if (at >= 0) focusGeo.setAttribute('position', new THREE.Float32BufferAttribute(frames.slice(at * 64 * 6, (at + 1) * 64 * 6), 3));
+    };
+    showFocus();
+
+    const c = new THREE.Color();
+    let dirty = true;
+    const repaint = () => {
+      const { fill: colourOf } = live.current;
+      for (const r of ranges) {
+        c.set(colourOf(r.node, r.territory));
+        for (let v = r.from; v < r.to; v++) colours.set([c.r, c.g, c.b], v * 3);
+      }
+      geo.attributes.color.needsUpdate = true;
+    };
+
+    // Turn to a table: the camera eases over the globe (jumps with reduced motion).
+    let turn: { from: THREE.Vector3; to: THREE.Vector3; dist: number; t0: number } | null = null;
+    const focusOn = (i: number) => {
+      showFocus();
+      const p = live.current.patches.get(i);
+      if (!p) return;
+      const to = new THREE.Vector3(...p.centre);
+      const dist = camera.position.length();
+      if (reducedMotion()) {
+        camera.position.copy(to).multiplyScalar(dist);
+        controls.update();
+        return;
+      }
+      turn = { from: camera.position.clone().normalize(), to, dist, t0: performance.now() };
+    };
+    api.current = { repaint: () => (dirty = true), focusOn };
+
+    const ray = new THREE.Raycaster();
+    const ndc = new THREE.Vector2();
+    const el = renderer.domElement;
+    const pick = (e: PointerEvent): number | null => {
+      const r = el.getBoundingClientRect();
+      ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+      ray.setFromCamera(ndc, camera);
+      const hit = ray.intersectObject(mesh, false)[0];
+      return hit && hit.faceIndex != null ? (triNode[hit.faceIndex] ?? null) : null;
+    };
+    let down: { x: number; y: number } | null = null;
+    const onDown = (e: PointerEvent) => {
+      down = { x: e.clientX, y: e.clientY };
+      controls.autoRotate = false;
+      turn = null;
+    };
+    const onUp = (e: PointerEvent) => {
+      if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) < 6) {
+        const i = pick(e);
+        if (i !== null) live.current.onPick(i);
+      }
+      down = null;
+    };
+    const onMove = (e: PointerEvent) => {
+      if (e.buttons) return;
+      const i = pick(e);
+      setHover(i);
+      el.style.cursor = i !== null ? 'pointer' : '';
+    };
+    const onLeave = () => setHover(null);
+    el.addEventListener('pointerdown', onDown);
+    el.addEventListener('pointerup', onUp);
+    el.addEventListener('pointermove', onMove);
+    el.addEventListener('pointerleave', onLeave);
+    const resize = () => {
+      const w = wrap.clientWidth || 1;
+      const h = wrap.clientHeight || 1;
+      renderer.setSize(w, h, false);
+      camera.aspect = w / h;
+      camera.fov = w >= h ? 35 : Math.min(70, 2 * Math.atan(Math.tan((35 * Math.PI) / 360) / camera.aspect) * (180 / Math.PI));
+      camera.updateProjectionMatrix();
+      dirty = true;
+    };
+    const ro = new ResizeObserver(resize);
+    ro.observe(wrap);
+    resize();
+
+    const v3 = new THREE.Vector3();
+    const camDir = new THREE.Vector3();
+    let raf = 0;
+    const frame = () => {
+      raf = requestAnimationFrame(frame);
+      if (turn) {
+        const k = Math.min(1, (performance.now() - turn.t0) / TURN_MS);
+        const e = k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2;
+        camera.position.copy(turn.from.clone().lerp(turn.to, e).normalize().multiplyScalar(turn.dist));
+        if (k >= 1) turn = null;
+      }
+      const moved = controls.update();
+      if (dirty) {
+        repaint();
+        dirty = false;
+      } else if (!moved && !turn && !controls.autoRotate) return; // nothing changed: skip the frame
+      renderer.render(scn, camera);
+      // Table names over their patches, hidden on the far side.
+      const rect = el.getBoundingClientRect();
+      camDir.copy(camera.position).normalize();
+      for (const [i, node] of labelRefs.current) {
+        const p = live.current.patches.get(i);
+        if (!p) continue;
+        v3.set(...p.centre);
+        const facing = v3.dot(camDir);
+        if (facing < 0.3) {
+          node.style.opacity = '0';
+          continue;
+        }
+        v3.multiplyScalar(1.01).project(camera);
+        node.style.transform = `translate(${((v3.x + 1) / 2) * rect.width}px, ${((1 - v3.y) / 2) * rect.height}px) translate(-50%, -50%)`;
+        node.style.opacity = String(Math.min(1, (facing - 0.3) * 4));
+      }
+    };
+    raf = requestAnimationFrame(frame);
+    return () => {
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+      el.removeEventListener('pointerdown', onDown);
+      el.removeEventListener('pointerup', onUp);
+      el.removeEventListener('pointermove', onMove);
+      el.removeEventListener('pointerleave', onLeave);
+      controls.dispose();
+      for (const d of disposables) d.dispose();
+      renderer.dispose();
+      el.remove();
+      api.current = null;
+    };
+    // Rebuilt for a new round (new boards); colours and focus go through `live` and `api`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [patches]);
+
+  useEffect(() => {
+    api.current?.repaint();
+  }, [version, fill]);
+  useEffect(() => {
+    api.current?.focusOn(focus);
+  }, [focus]);
+
+  const setRef = (i: number) => (node: HTMLDivElement | null) => {
+    if (node) labelRefs.current.set(i, node);
+    else labelRefs.current.delete(i);
+  };
+  return (
+    <div ref={wrapRef} className="inception-globe">
+      <div className="globe-overlay">
+        {[...patches.keys()].map((i) => (
+          <div key={i} ref={setRef(i)} className={`live-globe-label ${i === focus ? 'focus' : ''}`}>
+            {labelOf(i)}
+          </div>
+        ))}
+      </div>
+      {hover !== null && <div className="globe-hover-name">{labelOf(hover)}: click to focus</div>}
     </div>
   );
 }

@@ -189,3 +189,16 @@
   border-radius: 12px;
   overflow: hidden;
 }
+/* Live globe (GlobeMap.tsx LiveGlobe): a table's name over its patch; the focused one in gold. */
+.live-globe-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  white-space: nowrap;
+  text-shadow: 0 1px 3px #000, 0 0 2px #000;
+  pointer-events: none;
+}
+.live-globe-label.focus {
+  color: #f2c14e;
+  font-size: 13px;
+}

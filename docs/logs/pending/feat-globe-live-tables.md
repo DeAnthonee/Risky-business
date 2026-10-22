@@ -1,0 +1,2 @@
+client: - 2026-10-22 #PR Inception Map tab: Globe view of the round in play, every live table's board a patch of the sphere (`globeLayout.ts`, `LiveGlobe` in the lazy GlobeMap chunk) in its holders' colours from the feed; click a patch to focus it (camera turns, Watch table); a new round redraws; a Hex Earth final shows the hexworld globe
+docs: - 2026-10-22 #PR playing.md: the live globe in the Inception view

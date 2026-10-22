@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { dealOptions, dealSeats, loadPool, playDeals, plackettLuce, pooledSprt, scorecard, scorecardMarkdown, type GatePool, type TableStats } from '../src/abtest.js';
+import { dealOptions, dealSeats, loadPool, playDeals, plackettLuce, pooledSprt, scorecard, scorecardMarkdown, sprtConfig, type GatePool, type TableStats } from '../src/abtest.js';
 
 // Built-in players only (no models in CI): risky@1, the server's bot, is far stronger than random@1.
 const pool: GatePool = {
@@ -35,6 +35,7 @@ describe('A/B harness (abtest.ts)', () => {
     const deals = [await playDeals(pool, 0, 0, 12, 'risky@1', 'random@1'), await playDeals(pool, 1, 0, 4, 'risky@1', 'random@1')];
     expect(deals[0].reduce((a, d) => a + d.diff, 0)).toBeGreaterThan(0);
     const card = scorecard(pool, 'hash', 'risky@1', 'random@1', deals, 1, 20);
+    expect(card.test).toMatchObject({ kind: 'quick', h1: 0.15 });
     expect(card.tables.map((t) => t.name)).toEqual(['gen-3', 'duel']);
     expect(card.tables[0].diff).toBeGreaterThan(0);
     expect(card.ratings['random@1'].elo).toBe(0);
@@ -62,11 +63,21 @@ describe('A/B harness (abtest.ts)', () => {
     expect(Number.isFinite(r.c)).toBe(true);
   });
 
-  it('the shipped frozen pool loads: every table has its field, the fog tables decide', () => {
-    const { pool: p, hash } = loadPool(join(__dirname, '..', 'configs', 'abtest-pool.json'));
-    expect(hash).toMatch(/^[0-9a-f]{12}$/);
-    expect(p.base).toBe('delove@13');
-    expect(p.tables.filter((t) => t.decides).every((t) => t.options.fogOfWar === true)).toBe(true);
-    expect(p.tables.some((t) => t.field.includes('zerg@2'))).toBe(true);
+  it('the shipped frozen pools load: every table has its field, the fog tables decide; @2 has the quick and promotion tests', () => {
+    for (const f of ['abtest-pool-1.json', 'abtest-pool-2.json']) {
+      const { pool: p, hash } = loadPool(join(__dirname, '..', 'configs', f));
+      expect(hash).toMatch(/^[0-9a-f]{12}$/);
+      expect(p.base).toBe('delove@13');
+      expect(p.tables.filter((t) => t.decides).every((t) => t.options.fogOfWar === true)).toBe(true);
+      expect(p.tables.some((t) => t.field.includes('zerg@2'))).toBe(true);
+    }
+    const { pool: p2 } = loadPool(join(__dirname, '..', 'configs', 'abtest-pool-2.json'));
+    expect(p2.name).toBe('abtest-pool@2');
+    expect(sprtConfig(p2, false)).toMatchObject({ h1: 0.25, maxDeals: 400 });
+    expect(sprtConfig(p2, true)).toMatchObject({ h0: 0, h1: 0.15, alpha: 0.05, maxDeals: 1200 });
+    expect(p2.tables.find((t) => t.name === 'zerg-horde-4')!.maxTurns).toBe(200);
+    const { pool: p1 } = loadPool(join(__dirname, '..', 'configs', 'abtest-pool-1.json'));
+    expect(p1.name).toBe('abtest-pool@1');
+    expect(() => sprtConfig(p1, true)).toThrow(/no promotion settings/);
   });
 });

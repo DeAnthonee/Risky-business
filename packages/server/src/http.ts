@@ -160,7 +160,8 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
   const boardOf = (req: Request): LeaderboardName | undefined => parseLeaderboard(req.query.board, true);
   api.get('/rankings', (req, res) => {
     const board = boardOf(req);
-    if (board === 'tournament') return res.json({ board, current: true, rankings: store.tournamentBoard.rows() });
+    // houseBots: the fill bots (never ranked) and Zergs, aggregate fun stats only.
+    if (board === 'tournament') return res.json({ board, current: true, rankings: store.tournamentBoard.rows(), houseBots: store.tournamentBoard.houseBots() });
     if (board) return res.json({ board, season: String(store.training.season), current: true, rankings: store.training.rows() });
     const season = seasonOf(req);
     const rankings = store.rankings.seasonRows(season);

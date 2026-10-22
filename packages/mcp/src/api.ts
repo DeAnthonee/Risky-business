@@ -213,7 +213,8 @@ export interface RiskApi {
   /** A season's leaderboard by id (from rankingSeasons); the current season when omitted. board "training": the training leaderboard (no seasons). */
   rankings(season?: string, board?: 'training'): Promise<{ board?: 'training'; season?: string; current?: boolean; rankings: import('@risk/engine').RankingRow[] }>;
   /** The tournament leaderboard: one result per entrant per finished tournament, summed. */
-  tournamentRankings(): Promise<{ board: 'tournament'; current: true; rankings: TournamentRowInfo[] }>;
+  /** houseBots: aggregate fun stats for the fill bots (never ranked) and Zergs. */
+  tournamentRankings(): Promise<{ board: 'tournament'; current: true; rankings: TournamentRowInfo[]; houseBots?: unknown }>;
   /** One identity's standing on the tournament leaderboard, with each tournament's finish and points. */
   tournamentProfile(key: string): Promise<{ stats: TournamentRowInfo & { results: { tournamentId: string; name: string; finish: string; points: number }[] }; profile: string | null }>;
   /** Leaderboard seasons: the current one first, then archives newest first. */
@@ -458,7 +459,7 @@ export class HttpRiskApi implements RiskApi {
     const q = board ? `?board=${board}` : season ? `?season=${encodeURIComponent(season)}` : '';
     return this.request<{ board?: 'training'; season?: string; current?: boolean; rankings: import('@risk/engine').RankingRow[] }>(`/rankings${q}`);
   }
-  tournamentRankings() { return this.request<{ board: 'tournament'; current: true; rankings: TournamentRowInfo[] }>('/rankings?board=tournament'); }
+  tournamentRankings() { return this.request<{ board: 'tournament'; current: true; rankings: TournamentRowInfo[]; houseBots?: unknown }>('/rankings?board=tournament'); }
   tournamentProfile(key: string) {
     return this.request<{ stats: TournamentRowInfo & { results: { tournamentId: string; name: string; finish: string; points: number }[] }; profile: string | null }>(`/rankings/profile?key=${encodeURIComponent(key)}&board=tournament`);
   }

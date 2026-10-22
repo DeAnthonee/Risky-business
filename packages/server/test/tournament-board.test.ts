@@ -79,8 +79,10 @@ describe('tournament scoring (owner decisions 18 and 20)', () => {
     expect(by.PD).toMatchObject({ placementPoints: 3, tablesWon: 1, tablePoints: 1, kills: 0, points: 4, final: { place: 2, of: 2 } });
     expect(by.PB).toMatchObject({ placementPoints: 0, points: 0, round: 1, final: null });
     expect(by.PF).toMatchObject({ key: 'bot:pf', points: 1, kills: 1 });
+    // PF is a fill bot: scored (for the house-bot panel) but not ranked.
+    expect(by.PF.bot).toBe('bot');
     const rows = rankTournaments([r]);
-    expect(rows.map((x) => x.name)).toEqual(['PA', 'PD', 'PF', 'PB', 'PC', 'PE']);
+    expect(rows.map((x) => x.name)).toEqual(['PA', 'PD', 'PB', 'PC', 'PE']);
     expect(rows[0]).toMatchObject({ rank: 1, tournaments: 1, championships: 1, finals: 1, tablesWon: 2, kills: 3, bestFinish: 'champion' });
     expect(rows[1].bestFinish).toBe('2nd in the final');
     expect(rows[3].bestFinish).toBe('out in round 1');

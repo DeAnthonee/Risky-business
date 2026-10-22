@@ -193,8 +193,9 @@ describe('nested tournaments', () => {
 
       // The tournament board (#183): one result per entrant; a decided table's win is worth +1, a played-out one +2;
       // the champion of a 2-round event with a final of 10 scores 3 + 2 × 9 + 6 = 27 for placement.
+      // Fill bots are not ranked (the house-bot panel has them): only the 3 people are rows.
       const board = (await call('/rankings?board=tournament')).body.rankings;
-      expect(board).toHaveLength(40);
+      expect(board).toHaveLength(t.entrants.filter((e) => !e.isBot).length);
       const result = store.tournamentBoard.result(id)!;
       expect(result).toMatchObject({ format: 'nested', rounds: 2 });
       const tablePoints = (eid: string) =>

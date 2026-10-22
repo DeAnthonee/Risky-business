@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { HouseBotsPanel, type HouseBots } from './HouseBots';
 import { createPortal } from 'react-dom';
 import type { RankingRow } from '@risk/engine';
 import { API } from '../api';
@@ -116,6 +117,7 @@ interface TournamentRow { key: string; name: string; rank: number; points: numbe
 export function Leaderboard() {
   const [rows, setRows] = useState<RankingRow[]>([]);
   const [tournamentRows, setTournamentRows] = useState<TournamentRow[]>([]);
+  const [houseBots, setHouseBots] = useState<HouseBots | null>(null);
   const [error, setError] = useState('');
   const [loaded, setLoaded] = useState(false);
   const [retry, setRetry] = useState(0);
@@ -133,11 +135,14 @@ export function Leaderboard() {
     setLoaded(false);
     const query = board ? `?board=${board}` : season ? `?season=${encodeURIComponent(season)}` : '';
     const load = () => Promise.all([
-      read<{ rankings: RankingRow[] | TournamentRow[] }>(`${API}/rankings${query}`),
+      read<{ rankings: RankingRow[] | TournamentRow[]; houseBots?: HouseBots }>(`${API}/rankings${query}`),
       read<{ seasons: SeasonInfo[] }>(`${API}/rankings/seasons`),
     ]).then(([r, s]) => {
       if (!alive) return;
-      if (board === 'tournament') setTournamentRows(r.rankings as TournamentRow[]);
+      if (board === 'tournament') {
+        setTournamentRows(r.rankings as TournamentRow[]);
+        setHouseBots(r.houseBots ?? null);
+      }
       else setRows(r.rankings as RankingRow[]);
       setSeasons(s.seasons); setLoaded(true); setError('');
     }).catch(e => { if (alive) setError(e.message); });
@@ -163,7 +168,7 @@ export function Leaderboard() {
       </div>
     </div>
     {training && <p className="small muted board-note">Yardstick games between AI models (e.g. Delove against Claude seats), ranked by seat name. They never count on the public leaderboard.</p>}
-    {tournament && <p className="small muted board-note">One result per player per finished tournament. Tournament tables never count on the public leaderboard.</p>}
+    {tournament && <p className="small muted board-note">One result per player per finished tournament. Tournament tables never count on the public leaderboard. Fill bots are not ranked: see House bots below.</p>}
     {error && <p role="alert">{error} <button onClick={() => setRetry(n => n + 1)}>Retry</button></p>}
     {!loaded && !error && <p role="status">Loading leaderboard…</p>}
     {loaded && !shown.length && <p className="board-empty">{training ? 'No training games yet.' : tournament ? 'No finished tournaments yet.' : season ? 'No games were ranked in this season.' : 'No completed games yet this season. The first finished game starts the standings.'}</p>}
@@ -195,6 +200,7 @@ export function Leaderboard() {
         </span>
       </li>)}
     </ol>}
+    {tournament && houseBots && <HouseBotsPanel h={houseBots} />}
     <details className="rank-rules"><summary>How points work</summary>
       {tournament
         ? <p>Per tournament: 3 points for each round you survive before the final; in the final, 3 per earlier round plus 2 for each finalist you finish above, and +6 for the champion. Plus 2 for each table you win (1 if it was decided on standing) and 1 for each player you eliminate.</p>

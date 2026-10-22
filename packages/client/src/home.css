@@ -842,3 +842,41 @@
     transition: none;
   }
 }
+
+/* House bots: fun numbers for the server's bots beside the tournament board (never ranked). */
+.house-bots {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 2px dashed currentColor;
+  border-radius: 12px;
+  color: inherit;
+}
+.house-bots h3 {
+  margin: 0 0 4px;
+}
+.house-group h4 {
+  margin: 10px 0 6px;
+}
+.house-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 6px;
+}
+.house-tile {
+  display: flex;
+  flex-direction: column;
+  padding: 6px 8px;
+  border: 1px solid currentColor;
+  border-radius: 8px;
+}
+.house-tile strong {
+  font-size: 1.2em;
+}
+.house-tile span {
+  font-size: 0.8em;
+  opacity: 0.8;
+}
+.house-records {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}

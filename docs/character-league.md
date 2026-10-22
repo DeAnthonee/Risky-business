@@ -126,8 +126,21 @@ game at a time. Results already there stay; new tables no longer add to it.
   tables × 2 = 15 before kills; the runner-up 3 + 2 = 5; round-1 exits 0 plus kills.
 - **The board** sums results over tournaments: points, tournaments played, championships, finals reached, tables won,
   kills and best finish, sorted by points, then championships. Identities are the entrant names, as on the other
-  boards (`bot:<name>` for bots and Zergs, `player:<name>` otherwise), with the self-declared caveat of
+  boards (`bot:<name>` for Zergs, `player:<name>` otherwise), with the self-declared caveat of
   [hardening #3](hardening.md#3-leaderboard-identities-for-plain-seats-are-self-declared).
+- **Fill bots are not ranked** (owner, 2026-10-22): the built-in bots a tournament adds (or the host adds as
+  `kind: "bot"`) are scored but left out of the rows. **Zergs are regular players and stay ranked.**
+- **House bots panel.** Beside the board, aggregate fun numbers for the server's bots, split into fill bots and
+  Zergs, never a ranking (`houseBots` in `GET /api/rankings?board=tournament`, and in the MCP `leaderboard` reply):
+  - totals: different bots, entries, tables played and won, eliminations made, times knocked out, finals,
+    championships, armies lost, enemy armies destroyed, conquests;
+  - the best finish (who, where);
+  - records with names: most kills in a tournament, most armies lost at one table, longest survival at a table (turns),
+    biggest army, most conquests in a tournament.
+
+  The table numbers are gathered from each table's moves while it is played, so a table already being played when
+  the server restarts counts only from the restart on. Results saved before this have the counts but no table
+  numbers.
 - **Reading it:** `GET /api/rankings?board=tournament` (`{board, current, rankings}`), `GET /api/rankings/profile?key=&board=tournament`
   (`stats` adds the entrant's `results`: each tournament, finish and points), the MCP `leaderboard` and
   `ranked_profile` tools with `board: "tournament"`, and the **Tournament** toggle beside **Training** on the web

@@ -77,6 +77,19 @@ describe('turn timer (GameRoom)', () => {
     expect(room.history.at(-1)!.timeout).toBe(true);
   });
 
+  it('spectators see the player labels and the timer; a seat sees the timer and no labels', () => {
+    const { room, a, b } = twoHumans({ turnTimer: 'turn', turnTimerSeconds: 30 });
+    room.agents[a] = 'claude-sonnet';
+    room.agents[b] = 'delove@10';
+    const watcher = room.spectatorView();
+    expect(watcher.timer).toMatchObject({ mode: 'turn', seconds: 30 });
+    expect(watcher.players.filter((p) => !p.isNeutral).map((p) => (p as { agent?: string }).agent)).toEqual(['claude-sonnet', 'delove@10']);
+    const seat = room.view(a);
+    expect(seat.timer).toMatchObject({ mode: 'turn', seconds: 30 });
+    expect(JSON.stringify(seat)).not.toContain('"agent"');
+    room.close('admin');
+  });
+
   it('never times a bot', () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
     const store = new Store(null);

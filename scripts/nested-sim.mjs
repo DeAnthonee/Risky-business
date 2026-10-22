@@ -154,11 +154,7 @@ function headless(run) {
 // live
 
 async function liveRun() {
-  const { WebSocket } = await import('ws');
   const { createRiskServer } = await load('packages/server/dist/app.js');
-  const delay = Number(opt('delay', 300));
-  const spectators = Number(opt('spectators', 20));
-  const minutes = Number(opt('minutes', 3));
   const dir = mkdtempSync(join(tmpdir(), 'risk-nested-sim-'));
   const store = new Store(join(dir, 'games.json'));
   // Snapshot cost: time every whole-store save.
@@ -177,6 +173,20 @@ async function liveRun() {
     return out;
   };
   const risk = createRiskServer(store, { clientDir: null, sweepIntervalMs: 0 });
+  try {
+    await liveTournament(store, risk, () => commits, saves);
+  } finally {
+    // The temp data dir goes even when the run fails.
+    await risk.shutdown('sim').catch(() => {});
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+async function liveTournament(store, risk, commitCount, saves) {
+  const { WebSocket } = await import('ws');
+  const delay = Number(opt('delay', 300));
+  const spectators = Number(opt('spectators', 20));
+  const minutes = Number(opt('minutes', 3));
   await new Promise((r) => risk.server.listen(0, '127.0.0.1', r));
   const port = risk.server.address().port;
   const lag = monitorEventLoopDelay({ resolution: 10 });
@@ -221,7 +231,7 @@ async function liveRun() {
         at: Math.round((now - started) / 1000),
         round: t.rounds.length,
         playing: t.rounds.at(-1).matches.filter((m) => m.status === 'playing').length,
-        commitsPerSec: Math.round((commits - last.commits) / secs),
+        commitsPerSec: Math.round((commitCount() - last.commits) / secs),
         msgsPerSec: Math.round((messages - last.messages) / secs),
         lagP50: +(lag.percentile(50) / 1e6).toFixed(1),
         lagP99: +(lag.percentile(99) / 1e6).toFixed(1),
@@ -233,7 +243,7 @@ async function liveRun() {
       rows.push(row);
       console.log(JSON.stringify(row));
       lag.reset();
-      last = { at: now, commits, messages, saves: saves.length };
+      last = { at: now, commits: commitCount(), messages, saves: saves.length };
       if (now - started >= minutes * 60_000 || t.status === 'finished') {
         clearInterval(tick);
         resolve();
@@ -241,10 +251,8 @@ async function liveRun() {
     }, 10_000);
   });
   for (const list of sockets.values()) for (const ws of list) ws.terminate();
-  await risk.shutdown('sim');
-  rmSync(dir, { recursive: true, force: true });
   const busy = rows.filter((r) => r.playing > 0);
-  const max = (k) => Math.max(...busy.map((r) => r[k]));
+  const max = (k) => (busy.length ? Math.max(...busy.map((r) => r[k])) : 0);
   console.log(
     `summary: ${busy.length} samples with tables playing; commits/s max ${max('commitsPerSec')}, spectator msgs/s max ${max('msgsPerSec')} (${(bytes / 2 ** 20).toFixed(0)} MB sent), ` +
       `loop lag p99 max ${max('lagP99')} ms (worst ${max('lagMax')} ms), save max ${max('saveMax')} ms, heap max ${max('heapMB')} MB; tournament ${t.status}${t.champion ? `, champion ${t.entrants.find((e) => e.id === t.champion)?.name}` : ''}`,

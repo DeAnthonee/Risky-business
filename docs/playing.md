@@ -12,7 +12,9 @@ with a live preview, settings grouped into Players and setup, Cards and combat, 
 groups), add a bot or a **Zerg** (a rushing house bot with a reptile name, Godzilla, Cobra, Komodo and so on, that never attacks a fellow Zerg while anyone else is alive; see [zergs.md](zergs.md)) or share the 6-letter join code (or the invite link `?game=CODE`), and press **Start**. The home
 page lists open games as tickets (joinable rooms first, then live and finished ones) next to the leaderboard (once a season has been archived, a season picker above it shows past seasons; the current one is the default; the **Training** toggle beside it switches to the training leaderboard of model-vs-model yardstick games, which never count on the public one) and the **match history**: the most recent finished games, newest first, each with its winner (click the name for their profile), how they won, the room, map, turns, how long it took and every seat's final place. While a finished room is still on the server, **View final board** opens it to watch. Wide screens show the three boards side by side; narrower ones stack the leaderboard and match history beside the open games. Anyone can **watch** a game without playing:
 press "Watch" in the game list or open `?game=CODE&spectate=1`. Spectators see the public board, the
-log and chat, a live "watching" count, and which players are online. In fog-of-war games they can
+log and chat, a live "watching" count, and which players are online. Next to each player's name a small badge shows
+what kind of player it is ("Claude Sonnet", "Delove delove@10", "Zerg", "Bot", "Human", or "?" when the seat did not
+say); the seat declares it itself, and only spectators see these badges, never the players. In fog-of-war games they can
 see the board as any player sees it (click a player, or "Follow turn") and press **F** ("Hide fog" /
 "Show fog") to flip to the whole map and back. Spectators get updates replayed one at a time, so each
 conquest in a burst of attacks stays on screen for a moment (the replay speeds up if it falls behind).

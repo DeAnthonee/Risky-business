@@ -14,10 +14,12 @@ export function mapInfo(m: MapDef) {
   };
 }
 import { CHARACTER_DATA_NOTICE, RiskHttpError } from '@risk/mcp';
-import type { GameRoom, RankingBoard, Store } from './store.js';
+import { parseDecisionNote, type GameRoom, type RankingBoard, type Store } from './store.js';
 import { BOT_KINDS, type BotKind } from './bot.js';
+import { narrate, playByPlayText } from './playbyplay.js';
 import type { CharacterStore } from './characters.js';
 import type { CreateTournamentSpec } from './tournaments.js';
+import { SeasonKeyGuard } from './season-key.js';
 
 /** Constant-time check of an admin token. 'disabled' when the server has none configured. */
 export function checkAdmin(adminToken: string | null | undefined, given: string | undefined): 'ok' | 'bad' | 'disabled' {
@@ -49,6 +51,7 @@ export function parseTournamentSpec(body: Record<string, unknown>): CreateTourna
     territoriesPerSeat: int(body.territoriesPerSeat, 'territoriesPerSeat'),
     roundMinutes: int(body.roundMinutes, 'roundMinutes'),
     finishShare: body.finishShare as number | undefined,
+    botDelayMs: int(body.botDelayMs, 'botDelayMs'),
   };
 }
 
@@ -57,14 +60,23 @@ type Req = Request & { room?: GameRoom; playerId?: string | null };
 export interface ApiOptions {
   /** Enables /api/admin/* when set (Authorization: Bearer <token>). */
   adminToken?: string | null;
+  /** Read-only key for /api/records/* (x-records-key); unset turns those routes off. The admin token also works. */
+  recordsKey?: string | null;
   characters?: CharacterStore;
   /** TEMPORARY (testing): POST /tournaments creates a tournament without the admin token. */
   openTournaments?: boolean;
+  /** RISK_SEASON_KEY: the password that archives the public leaderboard's season from the site (unset = off). */
+  seasonKey?: string | null;
+  /** Where the season-key lockout is saved (under RISK_DATA_DIR), so a restart does not reset it. */
+  seasonLockFile?: string | null;
+  /** Tests: the season-key guard to use (limits and clock). */
+  seasonGuard?: SeasonKeyGuard;
 }
 
 export function createApi(store: Store, opts: ApiOptions = {}) {
   const api = express.Router();
   api.use(express.json({ limit: '64kb' }));
+  const seasonGuard = opts.seasonGuard ?? new SeasonKeyGuard(opts.seasonKey, undefined, undefined, opts.seasonLockFile ?? null);
 
   const wrap =
     (fn: (req: Req, res: Response) => Promise<unknown> | unknown) => (req: Request, res: Response, next: NextFunction) => {
@@ -147,39 +159,60 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
     api.get('/model-info', (_req, res) => res.json(characters.modelInfo()));
   }
 
-  const rankedProfile = (key: string, name: string, season?: string, board?: RankingBoard) => {
-    let profile: string | null = null;
-    if (/^[a-z0-9][a-z0-9_-]*\/[a-z0-9][a-z0-9_-]*$/.test(key) && characters) {
-      try { profile = characters.get(key).markdown; } catch { /* historical character may have been removed */ }
-    }
-    return { stats: store.board(board).profile(key, name, season), profile };
+  const characterProfile = (key: string) => {
+    if (!/^[a-z0-9][a-z0-9_-]*\/[a-z0-9][a-z0-9_-]*$/.test(key) || !characters) return null;
+    try { return characters.get(key).markdown; } catch { return null; /* historical character may have been removed */ }
   };
+  const rankedProfile = (key: string, name: string, season?: string, board?: RankingBoard) => ({ stats: store.board(board).profile(key, name, season), profile: characterProfile(key) });
   // ?season=<id> reads an archived season (ids from /rankings/seasons); without it, the current one.
   const seasonOf = (req: Request) => (req.query.season === undefined ? undefined : String(req.query.season).slice(0, 20));
-  // ?board=training reads the training leaderboard (yardstick games; no seasons); ?board=public or none, the public one.
-  const boardOf = (req: Request): RankingBoard | undefined => parseBoard(req.query.board, true);
+  // ?board=training reads the training leaderboard (yardstick games; no seasons), ?board=tournament the tournament one
+  // (its own rows: points, tournaments, championships...); ?board=public or none, the public one.
+  const boardOf = (req: Request): LeaderboardName | undefined => parseLeaderboard(req.query.board, true);
   api.get('/rankings', (req, res) => {
     const board = boardOf(req);
+    if (board === 'tournament') return res.json({ board, current: true, rankings: store.tournamentBoard.rows() });
     if (board) return res.json({ board, season: String(store.training.season), current: true, rankings: store.training.rows() });
     const season = seasonOf(req);
     const rankings = store.rankings.seasonRows(season);
     if (!rankings) return res.status(404).json({ error: `No leaderboard season ${season}` });
     res.json({ season: season || String(store.rankings.season), current: !season || season === String(store.rankings.season), rankings });
   });
-  api.get('/rankings/seasons', (_req, res) => res.json({ current: store.rankings.season, seasons: store.rankings.seasons() }));
+  api.get('/rankings/seasons', (_req, res) => res.json({ current: store.rankings.season, seasons: store.rankings.seasons(), archiving: seasonGuard.enabled }));
+  // The site's "Archive season" button: the public board's season only (the same archive as the admin route), behind
+  // RISK_SEASON_KEY (or the admin token) with a per-IP and global lockout on wrong tries. Off when the key is unset.
+  api.post(
+    '/rankings/new-season',
+    wrap((req, res) => {
+      if (checkAdmin(opts.adminToken, tokenOf(req)) !== 'ok') {
+        const verdict = seasonGuard.check(req.ip ?? 'unknown', req.body?.password);
+        if (!verdict.ok) {
+          if (verdict.retryAfterSec) res.setHeader('Retry-After', String(verdict.retryAfterSec));
+          return res.status(verdict.status).json({ error: verdict.error });
+        }
+      }
+      try {
+        res.json(store.rankings.newSeason());
+      } catch (e) {
+        res.status(500).json({ error: (e as Error).message });
+      }
+    }),
+  );
   // Match history for the home page: finished games from the archive index, newest first. Only the public outcome
   // (seats, places, winner, turns), never a board, so fog games are safe to list. Empty when records are off.
-  // Training games carry board "training"; ?board=training lists only those, ?board=public only the others.
+  // ?board=training lists only training games (board "training"), ?board=tournament only tournament tables, ?board=public
+  // only the others (the games the public leaderboard ranks).
   api.get(
     '/history',
     wrap((req, res) => {
       const limit = Math.max(1, Math.min(Number(req.query.limit) || 20, 100));
       const filter = req.query.board === undefined ? null : String(req.query.board);
-      if (filter !== null && filter !== 'public') parseBoard(filter, true);
+      if (filter !== null) parseLeaderboard(filter, true);
+      const boardOfGame = (g: { board?: string; tournamentId?: string }) => (g.board === 'training' ? 'training' : g.tournamentId ? 'tournament' : 'public');
       const games = store.archive
         .list(Infinity)
         .filter((g) => g.finished && g.winner)
-        .filter((g) => filter === null || (filter === 'training') === (g.board === 'training'))
+        .filter((g) => filter === null || boardOfGame(g) === filter)
         .slice(0, limit)
         .map((g) => ({
           id: g.id,
@@ -195,7 +228,7 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
           winner: g.winner,
           reason: g.reason,
           turns: g.turns,
-          players: g.players.map((p) => ({ id: p.id, name: p.name, isBot: p.isBot, characterId: p.characterId, place: p.place })),
+          players: g.players.map((p) => ({ id: p.id, name: p.name, isBot: p.isBot, characterId: p.characterId, place: p.place, ...(p.agent ? { agent: p.agent } : {}) })),
         }));
       res.json({ enabled: store.archive.enabled, games });
     }),
@@ -204,6 +237,7 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
     const key = String(req.query.key ?? '').slice(0, 200);
     if (!key) return res.status(400).json({ error: 'Profile key is required' });
     const board = boardOf(req);
+    if (board === 'tournament') return res.json({ stats: store.tournamentBoard.profile(key, key.split(/[/:]/).pop()!), profile: characterProfile(key), board });
     const season = board ? undefined : seasonOf(req);
     if (!store.rankings.seasonRows(season)) return res.status(404).json({ error: `No leaderboard season ${season}` });
     res.json({ ...rankedProfile(key, key.split('/').pop()!, season, board), ...(board ? { board } : {}) });
@@ -247,7 +281,7 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
           return res.status(403).json({ error: 'A training-board game needs the characters write key in the x-characters-key header' });
         }
       }
-      const { room, playerId, token } = store.create(String(body.gameName ?? body.name ?? ''), options, playerName, Boolean(body.asBot), board);
+      const { room, playerId, token } = store.create(String(body.gameName ?? body.name ?? ''), options, playerName, Boolean(body.asBot), board, parseAgent(body.agent));
       res.status(201).json({ gameId: room.id, playerId, token, state: room.view(playerId), host: room.hostId });
     }),
   );
@@ -257,7 +291,8 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
     loadRoom,
     wrap((req, res) => {
       const room = req.room!;
-      res.json({ state: room.view(req.playerId ?? null), host: room.hostId, name: room.name, playerId: req.playerId ?? null });
+      // Only a watcher with no seat token sees the player-type labels.
+      res.json({ state: req.playerId ? room.view(req.playerId) : room.spectatorView(), host: room.hostId, name: room.name, playerId: req.playerId ?? null });
     }),
   );
 
@@ -267,7 +302,7 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
     wrap((req, res) => {
       const room = req.room!;
       const name = String(req.body?.playerName ?? req.body?.name ?? 'Player');
-      const { playerId, token } = room.join(name, Boolean(req.body?.asBot));
+      const { playerId, token } = room.join(name, Boolean(req.body?.asBot), 'bot', parseAgent(req.body?.agent));
       res.status(201).json({ gameId: room.id, playerId, token, state: room.view(playerId), host: room.hostId });
     }),
   );
@@ -280,9 +315,11 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
       const room = req.room!;
       const kind = parseBotKind(req.body?.kind);
       const name = req.body?.name == null ? undefined : String(req.body.name);
-      const { playerId } = room.addBot(kind, name);
-      const seat = room.state.players.find((p) => p.id === playerId)!;
-      res.status(201).json({ playerId, name: seat.name, state: room.view(req.playerId!) });
+      const count = req.body?.count == null ? 1 : req.body.count;
+      if (typeof count !== 'number') throw new RuleError('count must be a whole number');
+      // `count` seats several at once (all or none); the first one is also given as playerId/name, as before.
+      const added = room.addBots(kind, count, name);
+      res.status(201).json({ playerId: added[0].playerId, name: added[0].name, added, state: room.view(req.playerId!) });
     }),
   );
 
@@ -298,6 +335,36 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
 
   // ---- admin (only when RISK_ADMIN_TOKEN is configured) ----
   const adminToken = opts.adminToken || null;
+  // ---- full game records: read-only, behind the records key (or the admin token); they hold hidden hands ----
+  const recordsKey = opts.recordsKey || null;
+  function requireRecordsKey(req: Request, res: Response, next: NextFunction) {
+    if (!recordsKey) return res.status(403).json({ error: 'Full records are off on this server' });
+    const given = req.headers['x-records-key'];
+    const key = typeof given === 'string' ? given : undefined;
+    if (checkAdmin(recordsKey, key) === 'ok' || checkAdmin(adminToken, tokenOf(req)) === 'ok') return next();
+    res.status(403).json({ error: 'A valid records key is required (x-records-key)' });
+  }
+  api.get(
+    '/records/:id',
+    requireRecordsKey,
+    wrap((req, res) => {
+      const record = store.archive.get(String(req.params.id));
+      if (!record) return res.status(404).json({ error: 'No recorded game with that id' });
+      res.json(record);
+    }),
+  );
+  api.get(
+    '/records/:id/playbyplay',
+    requireRecordsKey,
+    wrap((req, res) => {
+      const record = store.archive.get(String(req.params.id));
+      if (!record) return res.status(404).json({ error: 'No recorded game with that id' });
+      const p = narrate(record);
+      if (req.query.format === 'json') return res.json(p);
+      res.type('text/plain; charset=utf-8').send(playByPlayText(p));
+    }),
+  );
+
   function requireAdmin(req: Request, res: Response, next: NextFunction) {
     const check = checkAdmin(adminToken, tokenOf(req));
     if (check === 'disabled') return res.status(404).json({ error: 'Admin API disabled (set RISK_ADMIN_TOKEN)' });
@@ -488,6 +555,17 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
       res.json({ tournament: store.tournaments.view(t.id) });
     }),
   );
+  // The host adds server bots while registering: { kind: "bot" | "zerg" (default "bot"), count (default 1) }.
+  api.post(
+    '/tournaments/:id/bots',
+    requireTournamentHost,
+    wrap((req, res) => {
+      const id = String(req.params.id);
+      const count = req.body?.count === undefined ? 1 : Number(req.body.count);
+      const added = store.tournaments.addBots(id, parseBotKind(req.body?.kind), count);
+      res.status(201).json({ added, tournament: store.tournaments.view(id) });
+    }),
+  );
   api.post(
     '/tournaments/:id/forfeit',
     requireTournamentHost,
@@ -517,7 +595,7 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
     '/tournaments/:id/join',
     wrap((req, res) => {
       if (!store.tournaments.get(String(req.params.id))) return res.status(404).json({ error: 'Tournament not found' });
-      const { entrantId, token } = store.tournaments.join(String(req.params.id), req.body?.playerName ?? req.body?.name);
+      const { entrantId, token } = store.tournaments.join(String(req.params.id), req.body?.playerName ?? req.body?.name, parseAgent(req.body?.agent));
       res.status(201).json({ entrantId, token, tournament: store.tournaments.view(String(req.params.id), token) });
     }),
   );
@@ -619,7 +697,9 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
       const action = (req.body?.action ?? req.body) as Action;
       if (!action || typeof action !== 'object' || typeof action.type !== 'string')
         return res.status(400).json({ error: 'Body must be an action object with a "type"' });
-      const { events } = room.act(req.playerId!, action);
+      // An optional private decision note, with {action, note}: stored with the move, never shown during the game.
+      const note = req.body?.action ? parseDecisionNote(req.body.note) : undefined;
+      const { events } = room.act(req.playerId!, action, note);
       res.json({ ok: true, events: redactEvents(room.state, req.playerId!, events), state: room.view(req.playerId!) });
     }),
   );
@@ -645,7 +725,7 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
       res.json({
         reason,
         yourTurn: !!req.playerId && room.state.currentPlayer === req.playerId,
-        state: room.view(req.playerId ?? null),
+        state: req.playerId ? room.view(req.playerId) : room.spectatorView(),
         events: since !== undefined ? room.eventsSince(since).map((h) => ({ ...h, events: redactEvents(room.state, req.playerId ?? null, h.events) })) : [],
       });
     }),
@@ -698,10 +778,34 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
  * A board name from an untrusted body or query: undefined for none (or "public" where `allowPublic`), "training", or a
  * 400 for anything else.
  */
+/** A leaderboard to read: a room board ("training") or "tournament". */
+export type LeaderboardName = RankingBoard | 'tournament';
+
+/** A leaderboard name from an untrusted query: undefined for the public one, else "training" or "tournament". */
+export function parseLeaderboard(raw: unknown, allowPublic = false): LeaderboardName | undefined {
+  if (raw === 'tournament') return 'tournament';
+  if (raw === undefined || raw === null || (allowPublic && raw === 'public') || raw === 'training') return parseBoard(raw, allowPublic);
+  throw new RiskHttpError(`board must be "training" or "tournament"${allowPublic ? ' or "public"' : ''}`, 400);
+}
+
 export function parseBoard(raw: unknown, allowPublic = false): RankingBoard | undefined {
   if (raw === undefined || raw === null || (allowPublic && raw === 'public')) return undefined;
   if (raw === 'training') return 'training';
   throw new RiskHttpError(`board must be "training"${allowPublic ? ' or "public"' : ''}`, 400);
+}
+
+const AGENT = /^[A-Za-z0-9 @._:/()+-]{1,40}$/;
+
+/**
+ * A seat's self-declared player type from an untrusted body ("claude-sonnet-5-5", "delove@10", "human"): up to 40
+ * letters, digits, spaces and @ . _ : / ( ) + -. Absent or empty is undefined (unknown); anything else is a 400.
+ */
+export function parseAgent(raw: unknown): string | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  const label = typeof raw === 'string' ? raw.replace(/\s+/g, ' ').trim() : '';
+  if (label === '' && typeof raw === 'string') return undefined;
+  if (!AGENT.test(label)) throw new RiskHttpError('agent must be 1-40 letters, digits, spaces or @ . _ : / ( ) + -', 400);
+  return label;
 }
 
 /** A bot kind from an untrusted body: "bot" (the default) or "zerg", or a 400 for anything else. */

@@ -25,6 +25,8 @@ export interface CommitInfo {
   at: number;
   /** The turn timer ran out and the server made this move for the player. */
   timeout?: true;
+  /** The acting seat's private decision note for this move, if it sent one. */
+  note?: unknown;
 }
 
 /** What the archive needs to know about the room a game is played in. */
@@ -33,6 +35,8 @@ export interface ArchivedRoom {
   name: string;
   tournamentId?: string;
   characterIds: Record<string, string>;
+  /** Player-type labels by seat; written into the record only when it is filed, after the game. */
+  agents: Record<string, string>;
   state: GameState;
   /** The record this room's game is being written to, if any. */
   recordId?: string;
@@ -63,7 +67,7 @@ export interface ArchiveIndexEntry {
   reason: 'domination' | 'capitals' | null;
   turns: number;
   steps: number;
-  players: { id: string; name: string; isBot: boolean; characterId: string | null; place: number | null }[];
+  players: { id: string; name: string; isBot: boolean; characterId: string | null; place: number | null; agent?: string }[];
 }
 
 /** Records kept by default: roughly 0.3-1.6 GB at 0.3-1.6 MB a game. */
@@ -105,6 +109,9 @@ export class GameArchive {
     if (!this.dir) return;
     try {
       if (c.action.type === 'start') return this.begin(room, c.next, c.events, c.at);
+      // A system commit can end the game too (owner rule A: only Zergs are left, store.ts endIfOnlySwarm). It adds no
+      // step (the board is as it stood), but the record still has to be finished.
+      if (room.recordId && c.next.phase === 'finished' && (c.action.type === 'system' || !c.playerId)) return this.finish(room);
       if (!room.recordId || c.action.type === 'system' || !c.playerId) return;
       const file = this.journal(room.recordId);
       // A game that started before recording existed (or whose journal is gone) is not recorded.
@@ -113,7 +120,10 @@ export class GameArchive {
         return;
       }
       const header = this.header(room.recordId);
-      const entries: RecordEntry[] = [recordStep(header, c.before, c.playerId, c.action, c.events, c.at, !!c.timeout)];
+      const entries: RecordEntry[] = [recordStep(header, c.before, c.playerId, c.action, c.events, c.at, {
+        ...(c.note === undefined ? {} : { note: c.note }),
+        ...(c.timeout ? { timeout: true } : {}),
+      })];
       const turn = recordTurnStart(header, c.next, c.events, c.at);
       if (turn) entries.push(turn);
       appendFileSync(file, entries.map((e) => JSON.stringify(e) + '\n').join(''));
@@ -161,6 +171,8 @@ export class GameArchive {
       const header = (JSON.parse(lines[0]) as { header: RecordHeader }).header;
       // A room moved to the training board after its game began.
       if (room.board) header.room = { ...header.room, board: room.board };
+      // The game is over, so the seats' player types can go public with the record.
+      if (Object.keys(room.agents).length) header.room = { ...header.room, agents: { ...room.agents } };
       const entries = lines.slice(1).map((l) => JSON.parse(l) as RecordEntry);
       const record = assembleRecord(header, entries, room.state, Date.now(), endedBecause);
       const month = new Date(record.startedAt).toISOString().slice(0, 7);
@@ -303,6 +315,6 @@ function indexEntry(r: GameRecord, file: string): ArchiveIndexEntry {
     steps: r.steps.length,
     players: r.players
       .filter((p) => !p.isNeutral)
-      .map((p) => ({ id: p.id, name: p.name, isBot: p.isBot, characterId: p.characterId, place: place.get(p.id) ?? null })),
+      .map((p) => ({ id: p.id, name: p.name, isBot: p.isBot, characterId: p.characterId, place: place.get(p.id) ?? null, ...(r.room.agents?.[p.id] ? { agent: r.room.agents[p.id] } : {}) })),
   };
 }

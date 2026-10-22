@@ -19,37 +19,54 @@ cards are hidden).
 | `GET  /maps`                       | available boards                                                   |
 | `GET  /options`                    | every game setting: type, allowed values, default, limits per map   |
 | `GET  /games`                      | list games (a tournament table carries its `tournamentId`, a training game `board: "training"`) |
-| `POST /games`                      | `{playerName, gameName?, options?, board?}` → `{gameId, playerId, token, state}`. `board: "training"` makes a yardstick game for the [training leaderboard](character-league.md#training-leaderboard); it needs the characters write key in `x-characters-key` (403 without it; any other `board` is 400). Not a game setting: it changes no rule |
-| `POST /games/:id/join`             | `{playerName}` → `{playerId, token, state}`                        |
-| `POST /games/:id/bots`             | host: `{kind?, name?}` → `{playerId, name, state}`. `kind` "bot" (default, the built-in bot) or "zerg" (a [Zerg](zergs.md): named from the reptile list, so a `name` is a 400; any other `kind` is 400) |
+| `POST /games`                      | `{playerName, gameName?, options?, board?, agent?}` → `{gameId, playerId, token, state}`. `agent` is the seat's [player type](#player-type-labels). `board: "training"` makes a yardstick game for the [training leaderboard](character-league.md#training-leaderboard); it needs the characters write key in `x-characters-key` (403 without it; any other `board` is 400). Not a game setting: it changes no rule |
+| `POST /games/:id/join`             | `{playerName, agent?}` → `{playerId, token, state}` (`agent`: the seat's [player type](#player-type-labels)) |
+| `POST /games/:id/name`             | seat token: `{name}` renames your seat (lobby only; trimmed, 24 characters at most) → `{state}` |
+| `POST /games/:id/bots`             | host: `{kind?, name?, count?}` → `{playerId, name, added: [{playerId, name}], state}`. `count` (1-9, default 1) seats several of the same kind at once, all or none (400 when the lobby has fewer free seats); `name` only with a single bot; `playerId`/`name` are the first one. `kind` "bot" (default, the built-in bot) or "zerg" (a [Zerg](zergs.md): named from the Zerg list (puns like "Mark Zergburg"), so a `name` is a 400; any other `kind` is 400) |
 | `POST /games/:id/options`          | host: `{options}`                                                  |
 | `POST /games/:id/start`            | host: start                                                        |
 | `POST /games/:id/kick`             | host: `{playerId}` (lobby)                                         |
 | `POST /games/:id/leave`            | leave the lobby, or surrender a running game                       |
 | `POST /games/:id/close`            | host: close and delete the room for everyone                       |
 | `POST /games/:id/character`        | seat token + `x-characters-key`: `{characterId}` binds your seat to a character for the leaderboard (lobby) |
-| `GET  /rankings?season=&board=`, `GET /rankings/profile?key=&season=&board=` | the leaderboard `{season, current, rankings}`; one identity's ranking and profile. `season` (optional, an id from `/rankings/seasons`) reads an archived season; unknown ids are 404 (see [the character league guide](character-league.md)). `board=training` reads the [training leaderboard](character-league.md#training-leaderboard) instead (`{board, season, current, rankings}`, no seasons; `season` is ignored); `board=public` or none, the public one; anything else is 400 |
+| `GET  /rankings?season=&board=`, `GET /rankings/profile?key=&season=&board=` | the leaderboard `{season, current, rankings}`; one identity's ranking and profile. `season` (optional, an id from `/rankings/seasons`) reads an archived season; unknown ids are 404 (see [the character league guide](character-league.md)). `board=training` reads the [training leaderboard](character-league.md#training-leaderboard) instead (`{board, season, current, rankings}`, no seasons; `season` is ignored); `board=tournament` the [tournament leaderboard](character-league.md#tournament-leaderboard) (`{board, current, rankings: [{key, name, rank, points, tournaments, championships, finals, tablesWon, kills, bestFinish}]}`; its profile `stats` adds `results`); `board=public` or none, the public one; anything else is 400 |
 | `GET  /rankings/seasons`           | `{current, seasons: [{id, season, current, games}]}`: the current season first, then archives newest first |
-| `GET  /history?limit=&board=`     | match history: finished games with a winner, newest first (`limit` 1-100, default 20; `board=training` only training games, `board=public` only the others, none: all) → `{enabled, games: [{id, room, name, map, fog, tournamentId?, board?, scenario, startedAt, endedAt, winner: {id, name}, reason, turns, players: [{id, name, isBot, characterId, place}]}]}`. Read from the [game records](game-records.md) index: outcomes only, never a board, so fog games are listed too. Empty with `enabled: false` when records are off |
+| `GET  /history?limit=&board=`     | match history: finished games with a winner, newest first (`limit` 1-100, default 20; `board=training` only training games, `board=tournament` only tournament tables, `board=public` only the others, none: all) → `{enabled, games: [{id, room, name, map, fog, tournamentId?, board?, scenario, startedAt, endedAt, winner: {id, name}, reason, turns, players: [{id, name, isBot, characterId, place}]}]}`. Read from the [game records](game-records.md) index: outcomes only, never a board, so fog games are listed too. Empty with `enabled: false` when records are off |
 | `GET  /games/:id/players/:player/profile` | a seat's ranking and profile (a training game's seats: their training standing) |
 | `GET  /admin/games`, `DELETE /admin/games/:id`, `POST /admin/sweep` | admin token only: inspect, delete, sweep rooms |
 | `POST /admin/games/:id/board`      | admin: `{board: "training"}` moves a game to the training leaderboard → `{ok, board, gameId, room, result, records}`. Flags its room if still open (its result goes to the training board when it ends), moves its result off the current public board (`result: "moved"`; `"recorded"` if the room had finished unranked, `"already"`, or `"none"` while still playing) and marks its finished game records. 404 when no room, result or record has the id |
+| `POST /rankings/new-season`        | `{password}` (the host's `RISK_SEASON_KEY`) or the admin token → `{archived, season}`, the same archive as the admin route. `403` wrong password or `RISK_SEASON_KEY` unset; `429` + `Retry-After` after too many wrong tries (5 per IP, 20 in total, per 15 minutes). `GET /rankings/seasons` adds `archiving: true` when the key is set |
 | `POST /admin/rankings/new-season`  | admin: archive the leaderboard now and start the next season empty → `{archived, season}` (500 and no change if the archive fails) |
+| `GET  /records/:id`, `GET /records/:id/playbyplay?format=` | **records key** (`x-records-key: <RISK_RECORDS_KEY>`, or the admin token): one full game record (hidden hands and boards, decision notes), read-only; its [play-by-play](game-records.md#play-by-play) as text, or `format=json` for `{header, setup, turns: [{turn, round, player, lines}], end}`. No key set on the server, or a missing or wrong key: 403 `{error}` with nothing else; unknown id 404 |
 | `GET  /admin/archive`, `GET /admin/archive/:id`, `GET /admin/archive/:id/steps/:step?viewer=` | admin: recorded games (index; one whole record; one moment rebuilt by replay, through a player's eyes under fog). See [game records](game-records.md) |
 | `POST /admin/scenarios`            | admin: `{recordId, step, seats?: {<playerId>: "bot" \| "open"}, keepDice?, name?}` → `{gameId, scenarioOf, seats: [{playerId, bot, token}]}`: a new live game from one moment of a recorded game (see [game records](game-records.md#scenarios-playing-a-recorded-moment-out-again)) |
 | `POST /games/:id/seat`             | scenario seat token: `{bot?: false}` takes the seat over from its bot; `{bot: true}` hands it back |
-| `POST /admin/tournaments`          | admin: `{name?, options?, groupSize?, maxEntrants?, fillBots?}`, or for a nested tournament `{format: "nested", name?, options?, maxEntrants?, finalMap?, territoriesPerSeat?, roundMinutes?, finishShare?}` → `{hostToken, tournament}` (see [Tournaments](tournaments.md)). 400 past `RISK_MAX_ACTIVE_TOURNAMENTS` |
+| `POST /admin/tournaments`          | admin: `{name?, options?, groupSize?, maxEntrants?, fillBots?}`, or for a nested tournament `{format: "nested", name?, options?, maxEntrants?, finalMap?, territoriesPerSeat?, roundMinutes?, finishShare?, botDelayMs?}` → `{hostToken, tournament}` (see [Tournaments](tournaments.md)). 400 past `RISK_MAX_ACTIVE_TOURNAMENTS` |
 | `POST /admin/tournaments/:id/start`, `POST /admin/tournaments/:id/forfeit` `{entrantId}`, `DELETE /admin/tournaments/:id` | admin: seat round 1; concede for a no-show; delete (closes tables still playing) |
 | `POST /tournaments`                | **temporary, for testing**: the same as `POST /admin/tournaments` but without the admin token, while `RISK_TOURNAMENTS_OPEN` is on (403 when it is off) → `{hostToken, tournament}` |
 | `POST /tournaments/:id/start`, `POST /tournaments/:id/forfeit` `{entrantId}`, `DELETE /tournaments/:id` | the tournament's host: `Authorization: Bearer <hostToken>` (from create) or the admin key; 401 without one, 403 with another token. Same as the admin routes. Tournaments saved before host tokens take the admin key only |
+| `POST /tournaments/:id/bots`       | the tournament's host (as above), while registering: `{kind?: "bot" \| "zerg", count?}` (default one built-in bot) → `{added: [{entrantId, name}], tournament}`. Zergs get Zerg pun names unique in the tournament ("Elon Zerg", then "Elon Zerg 2" once every name is used) and play as Zergs at their tables; 400 past `maxEntrants` or after the start |
 | `GET  /tournaments`, `GET /tournaments/:id` | list; bracket. With an entrant token the bracket adds `you`: status and your current table's seat `{gameId, playerId, token, round}`. Nested brackets add `format`, `nested` (settings, the plan's table sizes and, from the start, `nodes`: the board tree with each board's map, seats, portals and parent), each round's `deadline`/`endedAt`, and each table's `map`, `node` (its index in `nested.nodes`) and, when decided on standing, `standing` |
-| `POST /tournaments/:id/join`       | `{playerName}` while registering → `{entrantId, token, tournament}` |
+| `POST /tournaments/:id/join`       | `{playerName, agent?}` while registering → `{entrantId, token, tournament}`; `agent` goes to every table seat |
 | `GET  /tournaments/:id/wait?since=&timeoutMs=` | long-poll until the bracket's `version` passes `since` |
-| `GET  /games/:id`                  | your view of the state, including `legal` moves on your turn. Every state (here, in `/wait`, `/actions` and over the WebSocket) has `timer`: `null` when the game has no turn timer, else `{mode: "move"\|"turn", seconds, player, deadline, secondsLeft}` (`player`/`deadline`/`secondsLeft` are `null` while no human or agent clock runs; `deadline` is epoch ms on the server's clock, so count down from `secondsLeft`). On a timeout the server makes the player's moves itself: they arrive as ordinary events, the first one `{type: "timeout", player, scope}`, and `/events` history entries carry `timeout: true` |
-| `POST /games/:id/actions`          | `{action}` → `{events, state}`                                     |
+| `GET  /games/:id`                  | your view of the state, including `legal` moves on your turn; with no seat token, the spectator view with each player's `agent`. Every state (here, in `/wait`, `/actions` and over the WebSocket) has `timer`: `null` when the game has no turn timer, else `{mode: "move"\|"turn", seconds, player, deadline, secondsLeft}` (`player`/`deadline`/`secondsLeft` are `null` while no human or agent clock runs; `deadline` is epoch ms on the server's clock, so count down from `secondsLeft`). On a timeout the server makes the player's moves itself: they arrive as ordinary events, the first one `{type: "timeout", player, scope}`, and `/events` history entries carry `timeout: true` |
+| `POST /games/:id/actions`          | `{action, note?}` → `{events, state}`. `note` is the seat's private **decision note** for this move (a string or any JSON, at most 2 KB serialized; larger is 400): it is saved with the move in the game record and is never shown during the game (not in any view, event, `/events` entry, chat, WebSocket or MCP output); after the game the admin reads it in `GET /admin/archive/:id` |
 | `GET  /games/:id/wait?timeoutMs=&since=` | long-poll until it is your turn, the game ends, or the version passes `since` |
 | `GET  /games/:id/events?since=`    | event history                                                      |
 | `GET/POST /games/:id/chat`         | chat. POST without a token posts as a spectator: `{message, name}` (5 messages / 10 s; host can turn it off with `spectatorChat`; every player sees them, even under fog). Players whisper with `{message, to}` (`to` = player id, or a name exactly one player has): only the two players and spectators can read it; spectators whisper with `{message, name, to}`: only that player and spectators can read it; the message carries `to` and `toName`. GET with a token returns what that seat may read (a token that is not a seat here is a 401) |
+
+## Player-type labels
+
+A seat may say what kind of player it is with `agent` on `POST /games`, `POST /games/:id/join` and
+`POST /tournaments/:id/join`: up to 40 letters, digits, spaces and `@ . _ : / ( ) + -` (anything else is a 400), for
+example `"claude-sonnet-5-5"`, `"delove@10"` or `"human"`. Built-in bots are labelled `"bot"` and Zergs `"zerg"` by
+the server. No label means unknown. Labels are **self-declared** ([hardening.md](hardening.md#2-per-player-totals-under-fog-of-war)).
+
+Only **watchers** see them: the spectator view (`GET /games/:id` and `/wait` with no seat token, and the WebSocket
+with no token) adds `agent` to each player. A seated player's view never has a label, for any seat including their
+own: every reply to a seat token (state, wait, actions, events, join), the WebSocket for a seat, chat and the log. The
+MCP never shows labels. `GET /games` (the list) has none. A finished game's record and `GET /history` carry them,
+since the game is over.
 
 ## WebSocket
 
@@ -57,8 +74,32 @@ Connect to `/ws` and send `{"type":"subscribe","gameId":"ABC123","token":"…"}`
 Spectators chat with `{"type":"chat","message":"…","name":"Your name"}` (add `"to"` to whisper to one player); players whisper with
 `{"type":"chat","message":"…","to":"Bob"}` (only that player and spectators receive it). The server pushes
 `{"type":"state", state, events, version}` after every change and `{"type":"chat", message}` for chat.
-Send `{"type":"action","reqId":"1","action":{…}}` and receive `{"type":"ack","reqId":"1","ok":true}`
+Every spectator socket of a room gets the same message for a change, built once per change (players get their own view).
+Send `{"type":"action","reqId":"1","action":{…},"note":…}` (`note` optional, as on `POST /games/:id/actions`) and receive `{"type":"ack","reqId":"1","ok":true}`
 or `{"ok":false,"error":"…"}`.
+
+**Tournament feed** (for watchers of a tournament page). Send `{"type":"subscribe_tournament","id":"TAB12C"}`
+(`tournamentId` works too; no token: a socket that passes one of the tournament's entrant tokens is refused, since
+entrants follow their own table; the check is cosmetic, see [hardening #2](hardening.md#2-per-player-totals-under-fog-of-war)).
+A socket with more than 1 MB queued skips feed updates; once it has drained, the next update it gets is the whole feed
+again (`tournament` and a `tournament_tables` with `full: true`), so no table is lost. The reply is an ack, then `{"type":"tournament", tournamentId, tournament}` (the
+bracket, as `GET /tournaments/:id`, sent again whenever it changes) and
+`{"type":"tournament_tables", tournamentId, version, full, round, tables, follow}`: every current table first
+(`full: true`), then only the tables that changed, **each at most every 500 ms** (a burst is coalesced and its last
+change always arrives); merge them by `node` (nested) or `gameId`.
+- `round`: `{n, deadline, finished, needed}`, the round clock: tables finished so far, how many the round needs before
+  the rest are decided on standing (every table in a knockout), and its deadline (nested; null otherwise).
+- a table: `{node, gameId, version, round, status: "waiting"|"playing"|"finished"|"decided", players: [{name, color,
+  alive}], owners, leader, final, excitement: {score, why, signals}}`. `node` is the table's index in
+  `resolveNest(spec)` order (null for a knockout); `owners` gives each territory's owner, in
+  `getMap(map).territoryIds` order, as an index into `players` (null: nobody or a blizzard); `leader` is the winner
+  once finished or decided, else the leader (territories, then armies). From the public spectator view only: names,
+  no cards, tokens or player-type labels. `excitement.score` is the 0-100 "Follow the action" score.
+- `follow`: `{node, gameId, caption}` or null, the one table every watcher with "Follow the action" on is shown
+  (picked by the server: it stays 20 s and switches only for a table 15 or more ahead, or when its table ends).
+
+`{"type":"unsubscribe_tournament"}` leaves the feed; a socket can hold one tournament feed and one game subscription
+at once.
 
 ## Actions
 

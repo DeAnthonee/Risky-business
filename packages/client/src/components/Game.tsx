@@ -4,6 +4,7 @@ import { api } from '../api';
 import { AutoAdvance, type AutoSpectate } from './AutoAdvance';
 import { CARD_FX_MS, CardFxPanel, type CardFx } from './CardFx';
 import { CharacterName, type Whisper } from './Profiles';
+import { AgentBadge } from './AgentBadge';
 import { PlayerCard } from './PlayerCard';
 import { ScoreChart } from './ScoreChart';
 import { spectateLink, type Session } from '../session';
@@ -13,7 +14,7 @@ import { Chat } from './Chat';
 import { DicePanel, type BattleEvent } from './Dice';
 import { Log } from './Log';
 import { BlitzPlanner } from './BlitzPlanner';
-import { GameMap, territoryName, type FloatAnim, type Highlight, type MoveAnim, type SweepAnim } from './Map';
+import { GameMap, POUR_MS, territoryName, type FloatAnim, type Highlight, type MoveAnim, type SweepAnim } from './Map';
 
 type Mode = 'idle' | 'capital' | 'place' | 'attack' | 'fortify';
 
@@ -406,6 +407,7 @@ export function Game({
                 {p.isNeutral ? p.name : <CharacterName name={p.name} gameId={gameId} playerId={p.id} whisper={whisperTo(p.id)} />}
                 {p.isBot && ' 🤖'}
                 {p.id === you && ' (you)'}
+                {spectator && !p.isNeutral && <AgentBadge agent={p.agent} />}
                 {!p.isBot && !p.isNeutral && <span className={`online-dot ${conn.presence.online.includes(p.id) ? 'on' : ''}`} title={conn.presence.online.includes(p.id) ? 'online' : 'offline'} />}
               </span>
               <span className="pstats" title="territories · armies · cards">
@@ -1051,7 +1053,7 @@ function useAnimations(
           case 'conquered':
             lastQueued.current = null;
             flashes[e.to] = Date.now();
-            sweeps.push({ id: ++ids.current, territory: e.to, from: e.from, color: colorOf(e.player) });
+            sweeps.push({ id: ++ids.current, territory: e.to, from: e.from, color: colorOf(e.player), prevColor: colorOf(e.previousOwner) });
             break;
           case 'moved':
             moves.push({ id: ++ids.current, from: e.from, to: e.to, armies: e.armies, color: colorOf(e.player) });
@@ -1097,7 +1099,7 @@ function useAnimations(
           floats: s.floats.filter((f) => !floats.includes(f)),
           sweeps: s.sweeps.filter((f) => !sweeps.includes(f)),
         }));
-      }, Math.max(1600, floatMs + 200));
+      }, Math.max(1600, POUR_MS + 900, floatMs + 200));
     }
     if (newBattles) pumpBattles();
     if (newCards.length) {

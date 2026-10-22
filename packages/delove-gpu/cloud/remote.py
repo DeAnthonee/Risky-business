@@ -45,6 +45,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import hashlib
 import json
 import os
 import re
@@ -940,6 +941,34 @@ def pack_dataset(folder: Path, out: Path):
         t.add(folder, arcname=folder.name)
 
 
+def pack_key(folder: Path) -> str:
+    """What a dataset folder's pack depends on: its features.json, and the total size and newest mtime of its files."""
+    h = hashlib.sha256((folder / "features.json").read_bytes())
+    size = newest = 0
+    for f in sorted(folder.rglob("*")):
+        if f.is_file():
+            st = f.stat()
+            size += st.st_size
+            newest = max(newest, st.st_mtime_ns)
+    h.update(f"{size}:{newest}".encode())
+    return h.hexdigest()[:16]
+
+
+def cached_pack(folder: Path, cache: Path, ds: str, m: str) -> tuple[Path, bool]:
+    """The dataset folder's .tar.gz from the home pack cache, packed now only when the folder changed (or was never
+    packed): (tar, packed now). Older packs of the same dataset and map are removed."""
+    cache.mkdir(parents=True, exist_ok=True)
+    tar = cache / f"{ds}--{m}--{pack_key(folder)}.tar.gz"
+    if tar.exists():
+        return tar, False
+    for old in cache.glob(f"{ds}--{m}--*.tar.gz*"):
+        old.unlink(missing_ok=True)
+    part = tar.with_name(tar.name + ".part")
+    pack_dataset(folder, part)
+    part.replace(tar)
+    return tar, True
+
+
 def train(args, train_args: list[str]) -> int:
     """One training pod in the volume's data center (cloud/trainer.sh, cloud/trainer.py). With --wait-for, the pod is
     rented --lead-minutes before generation's estimated end (--eta), sets up and unpacks the earlier cycles' datasets
@@ -976,6 +1005,26 @@ def train(args, train_args: list[str]) -> int:
     launched = time.time()
     manifest_file = Path(args.manifest) if args.manifest else out / "remote" / "volume.json"
     data_root = Path(args.data_root) if args.data_root else None
+    # --push-missing packs come from a home cache beside DATA (kept across cycles), packed before any pod is rented
+    pack_cache = Path(args.pack_cache) if args.pack_cache else (data_root.with_name(data_root.name + "-push-cache") if data_root else None)
+
+    def pushable(ds: str, m: str) -> Path | None:
+        """The home folder of a dataset --push-missing may push, else None."""
+        home = data_root / ds / m if data_root else None
+        if (args.push_missing == "all" or (args.push_missing == "cycle" and mine(ds))) and home and (home / "features.json").exists():
+            return home
+        return None
+
+    # Every earlier dataset a push might need is packed now, before renting (this cycle's own are packed on demand once
+    # generation has written them): a pod never waits on gzip. Unchanged folders are not packed again.
+    if args.push_missing != "none" and pack_cache:
+        for ds, m in sorted({(d["dataset"], d["map"]) for d in data if not mine(d["dataset"])}):
+            home = pushable(ds, m)
+            if home:
+                t_pack = time.time()
+                tar, packed = cached_pack(home, pack_cache, ds, m)
+                print(f"  {'packed' if packed else 'cached'} {ds}/{m} for a possible push: {tar.name}"
+                      + (f" ({time.time() - t_pack:.0f}s)" if packed else ""), flush=True)
 
     def generated() -> bool:
         return all(f.exists() for f in wait_for)
@@ -1045,8 +1094,8 @@ def train(args, train_args: list[str]) -> int:
         missing = sorted({(d["dataset"], d["map"]) for d in data if which(d["dataset"]) and not on_volume(inv, steps, d["dataset"], d["map"])})
         push, stuck = [], []
         for ds, m in missing:
-            home = data_root / ds / m if data_root else None
-            if (args.push_missing == "all" or (args.push_missing == "cycle" and mine(ds))) and home and (home / "features.json").exists():
+            home = pushable(ds, m)
+            if home:
                 push.append((ds, m, home))
             else:
                 stuck.append(f"{ds}/{m}")
@@ -1055,13 +1104,9 @@ def train(args, train_args: list[str]) -> int:
             return False
         for ds, m, home in push:
             print(f"  pushing {ds}/{m} from {home} to the volume (once: later cycles find it there)", flush=True)
-            local = work / f"push-{ds}-{m}.tar.gz"
-            try:
-                pack_dataset(home, local)
-                ssh.run(p, f"mkdir -p {VOL}/datasets/{shlex.quote(ds)}")
-                ssh.put(p, local, f"{VOL}/datasets/{ds}/{m}.tar.gz", timeout=6 * 3600)
-            finally:
-                local.unlink(missing_ok=True)
+            local, _ = cached_pack(home, pack_cache, ds, m)  # packed before renting (earlier datasets), else now
+            ssh.run(p, f"mkdir -p {VOL}/datasets/{shlex.quote(ds)}")
+            ssh.put(p, local, f"{VOL}/datasets/{ds}/{m}.tar.gz", timeout=6 * 3600)
         return True
 
     def start(p: Pod) -> bool:
@@ -1337,6 +1382,8 @@ def main(argv=None) -> int:
     p.add_argument("--volume", required=True, help="the RunPod network volume id (the pod runs in its data center)")
     p.add_argument("--manifest", help="generation's volume.json (default OUT/remote/volume.json): this cycle's archives to merge")
     p.add_argument("--data-root", help="the training PC's DATA, for --push-missing")
+    p.add_argument("--pack-cache", help="home cache of --push-missing packs (default: <data-root>-push-cache, beside DATA); a "
+                   "dataset is packed again only when its folder changed")
     p.add_argument("--push-missing", choices=["none", "cycle", "all"], default="none",
                    help="upload datasets the volume lacks from DATA (cycle: only this cycle's, e.g. CPU steps); else exit 3")
     p.add_argument("--wait-for", action="append", default=[], help="files generation writes when done (each GPU step's gpu.json): "

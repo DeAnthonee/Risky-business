@@ -4,6 +4,8 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync, renameSync } from '
 import { dirname, join } from 'node:path';
 import {
   RuleError,
+  endByStanding,
+  onlySideLeft,
   addPlayer,
   applyAction,
   createGame,
@@ -15,6 +17,7 @@ import {
   startGame,
   viewFor,
   type Action,
+  type ActionResult,
   type GameEvent,
   type GameOptions,
   type GameState,
@@ -25,8 +28,9 @@ import {
   type ScenarioSeat,
 } from '@risk/engine';
 import { timeoutSteps, timerOf } from '@risk/engine';
-import { chooseSeatAction, seatIdPrefix, zergName, type BotKind } from './bot.js';
+import { chooseSeatAction, isZergSeat, seatIdPrefix, zergName, type BotKind } from './bot.js';
 import { DEFAULT_TOURNAMENT_LIMITS, TournamentManager, type TournamentClock } from './tournaments.js';
+import { TournamentRankings } from './tournament-scoring.js';
 import { Rankings } from './rankings.js';
 import { DEFAULT_KEEP, GameArchive, type CommitInfo } from './archive.js';
 
@@ -56,6 +60,11 @@ export interface HistoryEntry {
   events: GameEvent[];
   /** The turn timer ran out and the server made this move for the player. */
   timeout?: true;
+  /**
+   * The acting seat's private decision note for this move (`act` with `note`): kept for after the game, never shown
+   * to other players or spectators while it is played (eventsSince strips it).
+   */
+  decisionNote?: DecisionNote;
 }
 
 /** The turn timer as a game's state shows it (null when the game has none). */
@@ -70,8 +79,23 @@ export interface TurnTimerInfo {
   secondsLeft: number | null;
 }
 
+/** A seat's note on one move: a string or any JSON value, at most MAX_NOTE_BYTES once serialized. */
+export type DecisionNote = string | number | boolean | Record<string, unknown> | unknown[];
+export const MAX_NOTE_BYTES = 2048;
+
+/** A decision note from an untrusted request: undefined when absent, else the value, or a RuleError when too big. */
+export function parseDecisionNote(raw: unknown): DecisionNote | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  const json = JSON.stringify(raw);
+  if (json === undefined) throw new RuleError('note must be a string or JSON');
+  if (Buffer.byteLength(json, 'utf8') > MAX_NOTE_BYTES) throw new RuleError(`note is too long: at most ${MAX_NOTE_BYTES} bytes once serialized as JSON`);
+  return raw as DecisionNote;
+}
+
 export interface RoomSnapshot {
   characterIds?: Record<string, string>;
+  /** Each seat's self-declared player type ("claude-sonnet-5-5", "delove@10", "bot", "zerg"), shown to spectators only. */
+  agents?: Record<string, string>;
   eliminationOrder?: string[];
   id: string;
   name: string;
@@ -93,6 +117,8 @@ export interface RoomSnapshot {
   board?: RankingBoard;
   /** A nested-tournament table stopped at its round's end and decided on standing: frozen from then on. */
   decidedAt?: number;
+  /** This room's bots wait this long between moves (a tournament's botDelayMs); absent = the server default. */
+  botDelayMs?: number;
 }
 
 /** The leaderboard a room's result goes to when it is not the public one (see docs/character-league.md). */
@@ -144,6 +170,8 @@ export interface GameSummary {
   scenarioOf?: ScenarioRef;
   /** Set on a tournament table: the tournament it belongs to. */
   tournamentId?: string;
+  /** A nested-tournament table decided on standing at its round's end (ms): the game will not go on. */
+  decidedAt?: number;
   /** "training": a yardstick game ranked on the training leaderboard. Absent = public. */
   board?: RankingBoard;
 }
@@ -156,7 +184,21 @@ export interface ChangeMessage {
 }
 
 const BOT_DELAY_MS = Number(process.env.RISK_BOT_DELAY_MS ?? 700);
+/**
+ * A game seated with Zergs only ends right after the deal, decided by standing (owner, 2026-10-22); false would let it
+ * play out. Games with any non-Zerg seat always end once only Zergs are left.
+ */
+const ALL_ZERG_TABLES_END_AT_ONCE = true;
 const MAX_HISTORY = 2000;
+/** Most bots one add-bots call seats (MCP add_bot count, create_game zergs, POST /games/:id/bots count). */
+export const MAX_BOTS_PER_CALL = 9;
+/** A tournament table saves only its newest history entries: the game record already journals the whole game. */
+export const TABLE_SAVED_HISTORY = 500;
+/** Snapshot debounce, and the longer one while many games are being played (each save stringifies every room). */
+export const SAVE_DEBOUNCE_MS = 500;
+export const BUSY_SAVE_DEBOUNCE_MS = 2000;
+/** More rooms than this playing at once counts as busy. */
+export const BUSY_PLAYING_ROOMS = 10;
 const MAX_CHAT = 500;
 
 function fmt(ms: number): string {
@@ -178,6 +220,8 @@ function joinCode(): string {
 
 export class GameRoom extends EventEmitter {
   characterIds: Record<string, string> = {};
+  /** Player-type labels by seat: spectators see them (`spectatorView`); a seated player's view never has them. */
+  agents: Record<string, string> = {};
   eliminationOrder: string[] = [];
   id: string;
   name: string;
@@ -208,6 +252,8 @@ export class GameRoom extends EventEmitter {
   board?: RankingBoard;
   /** Set when a nested tournament decided this table on standing at its round's end: no more moves. */
   decidedAt: number | null = null;
+  /** Bot pace in this room (ms between moves); null = RISK_BOT_DELAY_MS. */
+  botDelayMs: number | null = null;
   private botTimer: NodeJS.Timeout | null = null;
   /** The turn timer (turnTimer option): when the current human or agent decision runs out. In memory only. */
   private turnTimer: NodeJS.Timeout | null = null;
@@ -221,6 +267,7 @@ export class GameRoom extends EventEmitter {
     this.setMaxListeners(500);
     this.id = snapshot.id;
     this.characterIds = snapshot.characterIds ?? {};
+    this.agents = snapshot.agents ?? {};
     this.eliminationOrder = snapshot.eliminationOrder ?? snapshot.history.flatMap(h => h.events.filter(e => e.type === 'eliminated').map(e => (e as { player: string }).player));
     this.name = snapshot.name;
     this.hostId = snapshot.hostId;
@@ -236,6 +283,7 @@ export class GameRoom extends EventEmitter {
     // Rooms saved before the training board existed are public.
     if (snapshot.board === 'training') this.board = 'training';
     this.decidedAt = snapshot.decidedAt ?? null;
+    this.botDelayMs = snapshot.botDelayMs ?? null;
     if (this.state.phase === 'finished') this.finishedAt = this.history.at(-1)?.at ?? this.updatedAt;
   }
 
@@ -243,13 +291,15 @@ export class GameRoom extends EventEmitter {
     return {
       id: this.id,
       characterIds: this.characterIds,
+      ...(Object.keys(this.agents).length ? { agents: this.agents } : {}),
       eliminationOrder: this.eliminationOrder,
       name: this.name,
       hostId: this.hostId,
       state: this.state,
       tokens: Object.fromEntries(this.tokens),
       chat: this.chat,
-      history: this.history,
+      // Tournament tables keep their full history in memory but save only the tail (the record has every move).
+      history: this.tournamentId && this.history.length > TABLE_SAVED_HISTORY ? this.history.slice(-TABLE_SAVED_HISTORY) : this.history,
       updatedAt: this.updatedAt,
       lastActivity: this.lastActivity,
       ...(this.tournamentId ? { tournamentId: this.tournamentId } : {}),
@@ -257,6 +307,7 @@ export class GameRoom extends EventEmitter {
       ...(this.scenarioOf ? { scenarioOf: this.scenarioOf } : {}),
       ...(this.board ? { board: this.board } : {}),
       ...(this.decidedAt !== null ? { decidedAt: this.decidedAt } : {}),
+      ...(this.botDelayMs !== null ? { botDelayMs: this.botDelayMs } : {}),
     };
   }
 
@@ -271,7 +322,9 @@ export class GameRoom extends EventEmitter {
     this.stopBot();
     this.addChat(null, 'Tournament', note);
     this.emit('decided');
-    this.releaseWaiters();
+    // Long-polls and sockets hear it as a change: waiters answer 'finished', clients get the view with decidedAt.
+    const msg: ChangeMessage = { state: this.state, events: [], version: this.state.version, playerId: null };
+    this.emit('change', msg);
   }
 
   /** Mark human/agent activity (keeps the room from being swept). */
@@ -348,6 +401,7 @@ export class GameRoom extends EventEmitter {
       ...(this.scenarioOf ? { scenarioOf: this.scenarioOf } : {}),
       ...(this.tournamentId ? { tournamentId: this.tournamentId } : {}),
       ...(this.board ? { board: this.board } : {}),
+      ...this.decidedField(),
     };
   }
 
@@ -358,8 +412,23 @@ export class GameRoom extends EventEmitter {
     return id;
   }
 
-  view(playerId: PlayerId | null): GameView & { timer: TurnTimerInfo | null } {
-    return { ...viewFor(this.state, playerId), timer: this.timerInfo() };
+  /** The game as a seat (or, with null, an anonymous spectator) sees it, with the turn timer. Never carries player-type labels. */
+  view(playerId: PlayerId | null): GameView & { timer: TurnTimerInfo | null; decidedAt?: number } {
+    return { ...viewFor(this.state, playerId), timer: this.timerInfo(), ...this.decidedField() };
+  }
+
+  /** `decidedAt` for views and summaries, only on a table decided on standing. */
+  private decidedField(): { decidedAt?: number } {
+    return this.decidedAt !== null ? { decidedAt: this.decidedAt } : {};
+  }
+
+  /**
+   * The spectator view plus each seat's player-type label (`agent`), with the turn timer. Only for watchers on the web
+   * (HTTP or WebSocket with no seat token); a seated player's view, the MCP and chat never get labels.
+   */
+  spectatorView(): GameView & { timer: TurnTimerInfo | null; decidedAt?: number } {
+    const v = viewFor(this.state, null);
+    return { ...v, players: v.players.map((p) => (this.agents[p.id] ? { ...p, agent: this.agents[p.id] } : p)), timer: this.timerInfo(), ...this.decidedField() };
   }
 
   timerInfo(now = Date.now()): TurnTimerInfo | null {
@@ -375,7 +444,8 @@ export class GameRoom extends EventEmitter {
     };
   }
 
-  private commit(next: GameState, events: GameEvent[], playerId: PlayerId | null, action: HistoryEntry['action'], timeout = false) {
+  private commit(next: GameState, events: GameEvent[], playerId: PlayerId | null, action: HistoryEntry['action'], opts: { timeout?: boolean; note?: DecisionNote } = {}) {
+    const { timeout = false, note } = opts;
     for (const player of this.state.players) {
       if (!player.isNeutral && player.alive && next.players.some(p => p.id === player.id && !p.alive) && !this.eliminationOrder.includes(player.id)) this.eliminationOrder.push(player.id);
     }
@@ -383,16 +453,43 @@ export class GameRoom extends EventEmitter {
     this.state = next;
     this.updatedAt = Date.now();
     if (next.phase === 'finished' && this.finishedAt === null) this.finishedAt = this.updatedAt;
-    this.history.push({ version: next.version, at: this.updatedAt, playerId, action, events, ...(timeout ? { timeout: true as const } : {}) });
+    this.history.push({ version: next.version, at: this.updatedAt, playerId, action, events, ...(timeout ? { timeout: true as const } : {}), ...(note !== undefined ? { decisionNote: note } : {}) });
     if (this.history.length > MAX_HISTORY) this.history.splice(0, this.history.length - MAX_HISTORY);
     // The game archive listens here: every move, in full, before anything else reacts to it.
-    const info: CommitInfo = { before, next, events, playerId, action, at: this.updatedAt, ...(timeout ? { timeout: true as const } : {}) };
+    const info: CommitInfo = { before, next, events, playerId, action, at: this.updatedAt, ...(timeout ? { timeout: true as const } : {}), ...(note !== undefined ? { note } : {}) };
     this.emit('commit', info);
     // The clock is set before anyone hears of the change, so the state they read carries the new deadline.
     this.armTurnTimer();
     const msg: ChangeMessage = { state: next, events, version: next.version, playerId };
     this.emit('change', msg);
     this.scheduleBot();
+    this.endIfOnlySwarm();
+  }
+
+  /**
+   * Owner's rule A (docs/zergs.md): when every living seat is a Zerg, the game ends at once, as it stands. The
+   * strongest Zerg wins (the engine's endByStanding), nobody surrenders and no land turns neutral. It goes through
+   * commit like any move, so records, replays, rankings and tournaments see an ordinary finished game.
+   */
+  private endIfOnlySwarm() {
+    const s = this.state;
+    // The server only says which seats are Zergs (a seating concept); whether that side is all that is left, and not
+    // mid-conquest, is the engine's call (onlySideLeft): the game ends on the occupy, never with a 0-army territory.
+    const zergs = new Set(s.players.filter((p) => isZergSeat(p.id)).map((p) => p.id));
+    // The last non-Zerg just fell to an attack and the armies have not moved in. The Zerg's own rule (no prey left and
+    // not the strongest: surrender) would come before its occupy, so the server moves the minimum in for it, as an
+    // ordinary move through commit; that commit then ends the game on a legal board.
+    const pc = s.pendingConquest;
+    if (pc && s.currentPlayer && zergs.has(s.currentPlayer) && onlySideLeft({ ...s, pendingConquest: null }, zergs)) {
+      this.act(s.currentPlayer, { type: 'occupy', armies: pc.minArmies });
+      return;
+    }
+    if (!onlySideLeft(s, zergs)) return;
+    // A table seated with Zergs only (e.g. a tournament table) ends right after the deal too, unless switched off.
+    if (!ALL_ZERG_TABLES_END_AT_ONCE && s.players.every((p) => p.isNeutral || isZergSeat(p.id))) return;
+    const { state, events } = endByStanding(s, new Set(s.players.filter((p) => p.alive && zergs.has(p.id)).map((p) => p.id)));
+    this.addChat(null, 'Game', 'Only Zergs are left: the swarm has won, and the game ends as it stands.');
+    this.commit(state, events, null, { type: 'system', note: 'only Zergs are left: the swarm has won, the game ends by standing' });
   }
 
   bindCharacter(playerId: string, characterId: string) {
@@ -404,21 +501,39 @@ export class GameRoom extends EventEmitter {
 
   // ---- lobby ----
 
-  /** Seat a bot (host only, checked by the caller). A Zerg always gets a reptile name nobody in the room has. */
+  /** Seat a bot (host only, checked by the caller). A Zerg always gets a Zerg name nobody in the room has. */
+  /** Add `count` (1-9) bots of one kind in one go, all or none: fails when the lobby has fewer free seats. */
+  addBots(kind: BotKind, count: number, name?: string): { playerId: PlayerId; name: string }[] {
+    if (!Number.isInteger(count) || count < 1 || count > MAX_BOTS_PER_CALL) throw new RuleError(`count must be a whole number from 1 to ${MAX_BOTS_PER_CALL}`);
+    if (name !== undefined && count > 1) throw new RuleError('A name is only for a single bot; leave it out with count');
+    const free = this.state.options.maxPlayers - this.state.players.length;
+    if (count > free) throw new RuleError(`Only ${free} free seat${free === 1 ? '' : 's'} in this lobby (maxPlayers ${this.state.options.maxPlayers}): add fewer, or raise maxPlayers`);
+    return Array.from({ length: count }, () => {
+      const { playerId } = this.addBot(kind, name);
+      return { playerId, name: this.state.players.find((p) => p.id === playerId)!.name };
+    });
+  }
+
   addBot(kind: BotKind, name?: string): { playerId: PlayerId } {
     if (kind === 'zerg') {
-      if (name !== undefined) throw new RuleError('A Zerg is named from the reptile list; leave the name out');
+      if (name !== undefined) throw new RuleError('A Zerg is named from the Zerg list; leave the name out');
       return this.join(zergName(this.state), true, 'zerg');
     }
     const n = this.state.players.filter((p) => p.isBot).length + 1;
     return this.join(name ?? `Bot ${n}`, true);
   }
 
-  join(name: string, isBot = false, kind: BotKind = 'bot'): { playerId: PlayerId; token: string } {
+  /**
+   * Take a seat. `agent` is the seat's self-declared player type, shown to spectators only. A built-in bot or Zerg is
+   * labelled by the server ("bot", "zerg"), whatever it declares.
+   */
+  join(name: string, isBot = false, kind: BotKind = 'bot', agent?: string): { playerId: PlayerId; token: string } {
     const playerId = seatIdPrefix(isBot ? kind : null) + newId(6);
     const next = addPlayer(this.state, playerId, name, isBot);
     const token = newId(24);
     this.tokens.set(token, playerId);
+    const label = isBot ? kind : agent;
+    if (label) this.agents[playerId] = label;
     if (!isBot) {
       this.touch();
       this.lastSeatSeen = Date.now();
@@ -450,8 +565,9 @@ export class GameRoom extends EventEmitter {
     this.commit(next, [], null, { type: 'system', note: 'options changed' });
   }
 
-  start() {
-    const { state, events } = startGame(this.state);
+  /** Start the game; `prepare` builds the start instead of startGame (engine rules, e.g. startOnSpots). */
+  start(prepare?: (lobby: GameState) => ActionResult) {
+    const { state, events } = prepare ? prepare(this.state) : startGame(this.state);
     this.touch();
     this.commit(state, events, null, { type: 'start' });
   }
@@ -467,16 +583,20 @@ export class GameRoom extends EventEmitter {
       this.touch();
       this.lastSeatSeen = Date.now();
     }
+    // Whoever plays the seat now: the built-in bot, or someone who has not said what they are.
+    if (bot) this.agents[playerId] = 'bot';
+    else delete this.agents[playerId];
     this.commit(next, [], playerId, { type: 'system', note: bot ? `${playerId} handed to a bot` : `${playerId} taken over` });
   }
 
   // ---- play ----
 
-  act(playerId: PlayerId, action: Action): { state: GameState; events: GameEvent[] } {
+  /** Make a move. `note` is the seat's private decision note (see HistoryEntry.decisionNote); check it first. */
+  act(playerId: PlayerId, action: Action, note?: DecisionNote): { state: GameState; events: GameEvent[] } {
     if (this.decidedAt !== null) throw new RuleError("This table was decided at the round's end");
     const { state, events } = applyAction(this.state, playerId, action);
     if (!this.state.players.find((p) => p.id === playerId)?.isBot) this.touch();
-    this.commit(state, events, playerId, action);
+    this.commit(state, events, playerId, action, { note });
     return { state, events };
   }
 
@@ -567,8 +687,9 @@ export class GameRoom extends EventEmitter {
     return this.chat.filter((m) => m.id > since && this.canReadChat(m, viewer));
   }
 
+  /** History since `version`, as anyone may read it: decision notes are taken out. */
   eventsSince(version: number): HistoryEntry[] {
-    return this.history.filter((h) => h.version > version);
+    return this.history.filter((h) => h.version > version).map(({ decisionNote: _private, ...h }) => h);
   }
 
   /**
@@ -581,7 +702,8 @@ export class GameRoom extends EventEmitter {
       this.markSeat(playerId);
     }
     const check = (): 'turn' | 'change' | 'finished' | null => {
-      if (this.state.phase === 'finished') return 'finished';
+      // A table decided on standing at its round's end is over for every seat (no move will come).
+      if (this.state.phase === 'finished' || this.decidedAt !== null) return 'finished';
       if (since !== undefined && this.state.version > since) return 'change';
       if (playerId && this.state.currentPlayer === playerId) return 'turn';
       return null;
@@ -680,7 +802,7 @@ export class GameRoom extends EventEmitter {
     this.clearTurnTimer();
     if (!t || !cur || this.closed) return;
     try {
-      for (const step of timeoutSteps(this.state, cur, t.mode)) this.commit(step.state, step.events, cur, step.action, true);
+      for (const step of timeoutSteps(this.state, cur, t.mode)) this.commit(step.state, step.events, cur, step.action, { timeout: true });
     } catch (err) {
       console.error(`[timer ${this.id}] skipping ${cur} failed:`, err);
     }
@@ -694,7 +816,8 @@ export class GameRoom extends EventEmitter {
     if (!cur || this.state.phase === 'finished' || this.state.phase === 'lobby') return;
     const p = this.state.players.find((x) => x.id === cur);
     if (!p?.isBot) return;
-    const delay = this.state.phase === 'setup' ? Math.min(BOT_DELAY_MS, 250) : BOT_DELAY_MS;
+    const pace = this.botDelayMs ?? BOT_DELAY_MS;
+    const delay = this.state.phase === 'setup' ? Math.min(pace, 250) : pace;
     this.botTimer = setTimeout(() => {
       this.botTimer = null;
       this.runBotStep();
@@ -735,6 +858,8 @@ export class Store {
   rankings: Rankings;
   /** The training leaderboard: model-vs-model yardstick games (rooms with board "training"), same scoring, no seasons. */
   training: Rankings;
+  /** The tournament leaderboard (rankings-tournament.json): one result per entrant per finished tournament. */
+  tournamentBoard: TournamentRankings;
   /** Every game's record, move by move (under <data dir>/archive; off without persistence). */
   archive: GameArchive;
   private saveTimer: NodeJS.Timeout | null = null;
@@ -751,6 +876,7 @@ export class Store {
     this.retention = { ...DEFAULT_RETENTION, ...retention };
     this.rankings = new Rankings(file ? join(dirname(file), 'rankings.json') : null);
     this.training = new Rankings(file ? join(dirname(file), 'rankings-training.json') : null, 1);
+    this.tournamentBoard = new TournamentRankings(file ? join(dirname(file), 'rankings-tournament.json') : null);
     const keep = Number(process.env.RISK_ARCHIVE_KEEP || DEFAULT_KEEP);
     this.archive = new GameArchive(
       file && process.env.RISK_ARCHIVE !== '0' ? join(dirname(file), 'archive') : null,
@@ -796,6 +922,12 @@ export class Store {
       maxActive: envInt('RISK_MAX_ACTIVE_TOURNAMENTS', DEFAULT_TOURNAMENT_LIMITS.maxActive, 0),
       keepFinished: envInt('RISK_TOURNAMENTS_KEEP', DEFAULT_TOURNAMENT_LIMITS.keepFinished, 1),
     }, opts.clock);
+    // A finished tournament goes on the tournament board once. On start, catch up on any that finished without being
+    // recorded (a crash in between); tournaments that finished before the board existed have no table scores: skipped.
+    this.tournaments.onFinished = (t) => this.tournamentBoard.record(t);
+    for (const t of this.tournaments.tournaments.values()) {
+      if (t.status === 'finished' && t.rounds.some((r) => r.matches.some((m) => m.order))) this.tournamentBoard.record(t, t.updatedAt);
+    }
     // A restored game's clock starts again in full (deadlines are not saved).
     for (const room of this.rooms.values()) {
       room.scheduleBot();
@@ -814,9 +946,12 @@ export class Store {
     room.on('chat', () => this.scheduleSave());
   }
 
-  /** Record a finished room's result on its board. A scenario starts from someone else's position, so it is not ranked. */
+  /**
+   * Record a finished room's result on its board. A scenario starts from someone else's position, so it is not ranked.
+   * A tournament table is never ranked on its own: its tournament scores it on the tournament board when it finishes.
+   */
   private rank(room: GameRoom) {
-    if (room.scenarioOf) return;
+    if (room.scenarioOf || room.tournamentId) return;
     this.board(room.board).record(room.state, room.characterIds, room.eliminationOrder);
   }
 
@@ -852,7 +987,7 @@ export class Store {
     return { gameId: id, room: !!room, result, records };
   }
 
-  create(name: string, options: Partial<GameOptions>, hostName: string, hostIsBot = false, board?: RankingBoard): { room: GameRoom; playerId: PlayerId; token: string } {
+  create(name: string, options: Partial<GameOptions>, hostName: string, hostIsBot = false, board?: RankingBoard, agent?: string): { room: GameRoom; playerId: PlayerId; token: string } {
     let id = joinCode();
     while (this.rooms.has(id)) id = joinCode();
     const state = createGame(id, options);
@@ -868,7 +1003,7 @@ export class Store {
       ...(board ? { board } : {}),
     });
     this.attach(room);
-    const { playerId, token } = room.join(hostName, hostIsBot);
+    const { playerId, token } = room.join(hostName, hostIsBot, 'bot', agent);
     room.hostId = playerId;
     this.scheduleSave();
     return { room, playerId, token };
@@ -878,13 +1013,21 @@ export class Store {
    * A tournament table: a room nobody hosts (so no seat can close it, kick or add players), seated with
    * the given players in order and started at once. Returns each player's seat in the same order.
    */
-  createTable(name: string, options: Partial<GameOptions>, players: { name: string; isBot: boolean }[], tournamentId: string): { room: GameRoom; seats: { playerId: PlayerId; token: string }[] } {
+  createTable(
+    name: string,
+    options: Partial<GameOptions>,
+    players: { name: string; isBot: boolean; kind?: BotKind; agent?: string }[],
+    tournamentId: string,
+    /** `prepare(lobby, seats)` builds the start from the seated lobby (engine rules, e.g. startOnSpots); `botDelayMs` sets the bots' pace. */
+    extra: { prepare?: (lobby: GameState, seats: { playerId: PlayerId; token: string }[]) => ActionResult; botDelayMs?: number } = {},
+  ): { room: GameRoom; seats: { playerId: PlayerId; token: string }[] } {
     let id = joinCode();
     while (this.rooms.has(id)) id = joinCode();
-    const room = new GameRoom({ id, name, hostId: '', state: createGame(id, options), tokens: {}, chat: [], history: [], updatedAt: Date.now(), tournamentId });
+    const room = new GameRoom({ id, name, hostId: '', state: createGame(id, options), tokens: {}, chat: [], history: [], updatedAt: Date.now(), tournamentId, ...(extra.botDelayMs !== undefined ? { botDelayMs: extra.botDelayMs } : {}) });
     this.attach(room);
-    const seats = players.map((p) => room.join(p.name, p.isBot));
-    room.start();
+    // A Zerg entrant keeps its tournament name (a Zerg name, unique in the tournament, so unique at the table).
+    const seats = players.map((p) => room.join(p.name, p.isBot, p.kind ?? 'bot', p.agent));
+    room.start(extra.prepare ? (lobby) => extra.prepare!(lobby, seats) : undefined);
     this.scheduleSave();
     return { room, seats };
   }
@@ -953,8 +1096,9 @@ export class Store {
     return true;
   }
 
-  describePersistence(): string {
-    return this.file ?? 'disabled';
+  /** For the public /healthz: "disk" or "disabled", never the path (it can name a folder on the host). */
+  describePersistence(): 'disk' | 'disabled' {
+    return this.file ? 'disk' : 'disabled';
   }
 
   releaseWaiters() {
@@ -1034,7 +1178,14 @@ export class Store {
     this.saveTimer = setTimeout(() => {
       this.saveTimer = null;
       this.save();
-    }, 500);
+    }, this.saveDelay());
+  }
+
+  /** How long changes wait before a snapshot: longer while more than BUSY_PLAYING_ROOMS games are being played. */
+  saveDelay(): number {
+    let playing = 0;
+    for (const r of this.rooms.values()) if (r.state.phase !== 'lobby' && r.state.phase !== 'finished' && ++playing > BUSY_PLAYING_ROOMS) return BUSY_SAVE_DEBOUNCE_MS;
+    return SAVE_DEBOUNCE_MS;
   }
 
   /** Atomic snapshot: write to a temp file then rename, so a crash mid-write never corrupts the store. */

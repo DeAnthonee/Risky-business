@@ -42,7 +42,8 @@ export interface RecordHeader {
   /** Unique per game (room codes are reused once a room is gone). */
   id: string;
   /** board "training": a model-vs-model yardstick game, ranked on the training leaderboard, not the public one. */
-  room: { id: string; name: string; tournamentId?: string; board?: 'training' };
+  /** agents: each seat's self-declared player type, added when the game is filed (never while it is played). */
+  room: { id: string; name: string; tournamentId?: string; board?: 'training'; agents?: Record<PlayerId, string> };
   map: GameOptions['map'];
   fog: boolean;
   options: GameOptions;
@@ -84,6 +85,11 @@ export interface RecordStep {
   events: GameEvent[];
   /** The turn timer ran out: the server made this move for the player (see timeout.ts). Absent otherwise. */
   timeout?: true;
+  /**
+   * The acting player's own decision note for this move (`act` with `note`): a string or JSON, at most 2 KB. Never
+   * shown during the game; optional, so records without it are unchanged.
+   */
+  note?: unknown;
 }
 
 /** The start of one player's turn. */
@@ -188,7 +194,7 @@ export function recordHeader(
 }
 
 /** The journal entry for one action: `before` is the state it was taken in. */
-export function recordStep(header: RecordHeader, before: GameState, player: PlayerId, action: Action, events: GameEvent[], at: number, timeout = false): RecordEntry {
+export function recordStep(header: RecordHeader, before: GameState, player: PlayerId, action: Action, events: GameEvent[], at: number, extra: { note?: unknown; timeout?: boolean } = {}): RecordEntry {
   return {
     kind: 'step',
     step: {
@@ -202,7 +208,8 @@ export function recordStep(header: RecordHeader, before: GameState, player: Play
       ...(header.fog ? { seen: seenBoardOf(before, player, header) } : {}),
       hand: before.players.find((p) => p.id === player)?.cards ?? [],
       events,
-      ...(timeout ? { timeout: true as const } : {}),
+      ...(extra.timeout ? { timeout: true as const } : {}),
+      ...(extra.note !== undefined ? { note: extra.note } : {}),
     },
   };
 }

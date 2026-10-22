@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { addPlayer, applyAction, createGame, getMap, legalMoves, startGame } from '@risk/engine';
-import { candidates, candidateToAction, makeTraits, riskyBot, stepAgent } from '@risk/selfplay';
+import { addPlayer, applyAction, createGame, getMap, legalMoves, startGame, ZERG_1_PARAMS, ZERG_2_PARAMS } from '@risk/engine';
+import { candidates, candidateToAction, makeTraits, resolveAgent, riskyBot, stepAgent, zergParamsFor } from '@risk/selfplay';
 import { compareHorde, hordeOf, hordeSchedule, hordeScore, hordeSeats, parseHordeTables, playHordeGame, summarizeHorde, zergBranchAgent } from '../src/index.js';
 import { hordeRolloutPick } from '../src/horde-branch.js';
 
@@ -93,10 +93,9 @@ describe('horde-aware rollouts (horde-branch)', () => {
       else {
         zergPicks++;
         if (i0 !== 0) offBase++;
-        // While the prey lives, a Zerg's pick is never an attack on a fellow Zerg (after it, the alliance is over).
+        // A Zerg's pick is never an attack on a fellow Zerg (once the prey is gone the weaker Zergs surrender instead).
         const c = cands[i0];
-        const preyAlive = s.players.some((p) => p.id === 'a' && p.alive);
-        if (preyAlive && c[0] === 'attack') expect(['z1', 'z2']).not.toContain(s.territories[getMap('skirmish').territoryIds[c[2]]].owner);
+        if (c[0] === 'attack') expect(['z1', 'z2']).not.toContain(s.territories[getMap('skirmish').territoryIds[c[2]]].owner);
       }
       const c = cands[i0];
       const map = getMap('skirmish');
@@ -110,5 +109,18 @@ describe('horde-aware rollouts (horde-branch)', () => {
     expect(zergPicks).toBeGreaterThan(0);
     // The horde bot really decides: its picks differ from the base pick (always 0) much of the time.
     expect(offBase).toBeGreaterThan(zergPicks / 4);
+  });
+});
+
+describe('zerg@2 in training', () => {
+  it('resolves as an agent, plays a horde table to the end, and Zerg seats get their own version', () => {
+    const z2 = resolveAgent('zerg@2');
+    expect(z2.id).toBe('zerg@2');
+    expect(zergParamsFor('zerg@2')).toBe(ZERG_2_PARAMS);
+    expect(zergParamsFor('zerg@1')).toBe(ZERG_1_PARAMS);
+    expect(zergParamsFor('zerg-branch@1')).toBe(ZERG_1_PARAMS);
+    const [t] = parseHordeTables('skirmish:4:3');
+    const g = playHordeGame(riskyBot, riskyBot, t, 5, 0, {}, 500, z2);
+    expect(g.turnLimit).toBe(0);
   });
 });

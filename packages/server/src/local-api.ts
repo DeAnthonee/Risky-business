@@ -1,8 +1,8 @@
 import { RULES_TEXT, RuleError, getMap, redactEvents, type Action, type GameOptions } from '@risk/engine';
 import type { CharacterUpdate, DiaryInput, RelationshipInput, RiskApi } from '@risk/mcp';
 import { RiskHttpError } from '@risk/mcp';
-import { checkAdmin, mapInfo, parseBotKind, parseTournamentSpec, sanitizeOptions } from './http.js';
-import type { GameRoom, Store } from './store.js';
+import { checkAdmin, mapInfo, parseAgent, parseBotKind, parseTournamentSpec, sanitizeOptions } from './http.js';
+import { parseDecisionNote, type GameRoom, type Store } from './store.js';
 import type { CharacterStore } from './characters.js';
 
 /** RiskApi implemented directly over the in-memory store (for the embedded /mcp endpoint). */
@@ -61,6 +61,12 @@ export class LocalRiskApi implements RiskApi {
     room.bindCharacter(player, canonical);
     return { ok: true };
   }
+  async tournamentRankings() { return { board: 'tournament' as const, current: true as const, rankings: this.store.tournamentBoard.rows() }; }
+  async tournamentProfile(key: string) {
+    let profile: string | null = null;
+    try { profile = this.characters.get(key).markdown; } catch { /* a plain player */ }
+    return { stats: this.store.tournamentBoard.profile(key, key), profile };
+  }
   async rankings(season?: string, board?: 'training') {
     if (board) return { board, season: String(this.store.training.season), current: true, rankings: this.store.training.rows() };
     const r = this.store.rankings;
@@ -77,7 +83,7 @@ export class LocalRiskApi implements RiskApi {
   async listGames() {
     return { games: this.store.list() };
   }
-  async createGame(playerName: string, gameName: string | undefined, options: Partial<GameOptions> | undefined, board?: 'training', key?: string) {
+  async createGame(playerName: string, gameName: string | undefined, options: Partial<GameOptions> | undefined, board?: 'training', key?: string, agent?: string) {
     if (board) {
       try {
         this.characters.checkWrite(key);
@@ -85,20 +91,19 @@ export class LocalRiskApi implements RiskApi {
         throw new RiskHttpError('A training-board game needs the characters write key ("key")', 403);
       }
     }
-    const { room, playerId, token } = this.store.create(gameName ?? '', sanitizeOptions(options), playerName, false, board);
+    const { room, playerId, token } = this.store.create(gameName ?? '', sanitizeOptions(options), playerName, false, board, parseAgent(agent));
     return { gameId: room.id, playerId, token, state: room.view(playerId) };
   }
-  async joinGame(gameId: string, playerName: string) {
+  async joinGame(gameId: string, playerName: string, agent?: string) {
     const room = this.room(gameId);
-    const { playerId, token } = room.join(playerName);
+    const { playerId, token } = room.join(playerName, false, 'bot', parseAgent(agent));
     return { gameId: room.id, playerId, token, state: room.view(playerId) };
   }
-  async addBot(gameId: string, token: string, name?: string, kind?: 'bot' | 'zerg') {
+  async addBot(gameId: string, token: string, name?: string, kind?: 'bot' | 'zerg', count?: number) {
     const room = this.room(gameId);
     this.host(room, token);
-    const { playerId } = room.addBot(parseBotKind(kind), name);
-    const p = room.state.players.find((x) => x.id === playerId)!;
-    return { playerId, name: p.name };
+    const added = room.addBots(parseBotKind(kind), count ?? 1, name);
+    return { playerId: added[0].playerId, name: added[0].name, added };
   }
   async setOptions(gameId: string, token: string, options: Partial<GameOptions>) {
     const room = this.room(gameId);
@@ -117,10 +122,10 @@ export class LocalRiskApi implements RiskApi {
     const playerId = room.playerForToken(token);
     return { state: room.view(playerId), host: room.hostId, name: room.name, playerId };
   }
-  async act(gameId: string, token: string, action: Action) {
+  async act(gameId: string, token: string, action: Action, note?: unknown) {
     const room = this.room(gameId);
     const me = this.player(room, token);
-    const { events } = room.act(me, action);
+    const { events } = room.act(me, action, parseDecisionNote(note));
     return { events: redactEvents(room.state, me, events), state: room.view(me) };
   }
   async wait(gameId: string, token: string | undefined, since: number | undefined, timeoutMs: number) {
@@ -164,9 +169,9 @@ export class LocalRiskApi implements RiskApi {
     const t = this.tournament(tournamentId);
     return { tournament: this.store.tournaments.view(t.id, token) };
   }
-  async joinTournament(tournamentId: string, playerName: string) {
+  async joinTournament(tournamentId: string, playerName: string, agent?: string) {
     const t = this.tournament(tournamentId);
-    const { entrantId, token } = this.store.tournaments.join(t.id, playerName);
+    const { entrantId, token } = this.store.tournaments.join(t.id, playerName, parseAgent(agent));
     return { entrantId, token, tournament: this.store.tournaments.view(t.id, token) };
   }
   async waitTournament(tournamentId: string, token: string | undefined, since: number | undefined, timeoutMs: number) {

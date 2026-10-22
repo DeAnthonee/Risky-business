@@ -50,6 +50,23 @@ describe('healthz', () => {
     expect(h.playing).toBe(0);
     expect(h.games).toBe(0);
     expect(typeof h.connections).toBe('number');
+    expect(typeof h.loopLagMs).toBe('number');
+    expect(h.loopLagMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it('never shows the data dir path, only whether games are saved', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'risk-healthz-'));
+    const own = await startServer(join(dir, 'games.json'));
+    try {
+      const text = await (await fetch(`${own.base}/healthz`)).text();
+      expect(JSON.parse(text).persistence).toBe('disk');
+      expect(text).not.toContain(dir);
+      expect(text).not.toContain(JSON.stringify(dir).slice(1, -1)); // the JSON-escaped form too (Windows backslashes)
+      expect(text).not.toContain('games.json');
+    } finally {
+      await own.risk.shutdown('test');
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -902,7 +919,7 @@ describe('MCP blitz with stopAt', () => {
 describe('new boards over HTTP', () => {
   it('lists every board', async () => {
     const r = await api('/maps');
-    expect(r.body.maps.map((m: any) => m.id)).toEqual(['classic', 'world', 'world_large', 'europe', 'greater_europe', 'europe_classic', 'usa', 'asia', 'fantasy', 'skirmish', 'bohemia', 'nine_realms']);
+    expect(r.body.maps.map((m: any) => m.id)).toEqual(['classic', 'world', 'world_large', 'europe', 'greater_europe', 'europe_classic', 'usa', 'asia', 'fantasy', 'skirmish', 'bohemia', 'nine_realms', 'hexworld']);
   });
 
   for (const [id, territories, maxPlayers] of [
@@ -914,6 +931,7 @@ describe('new boards over HTTP', () => {
     ['asia', 49, 8],
     ['bohemia', 42, 6],
     ['nine_realms', 58, 8],
+    ['hexworld', 80, 10],
   ] as const) {
     it(`creates, fills with bots and starts a ${maxPlayers}-player game on ${id}`, async () => {
       const map = await api(`/map?map=${id}`);

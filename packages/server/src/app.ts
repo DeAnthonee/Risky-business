@@ -1,4 +1,5 @@
 import { createServer, type Server } from 'node:http';
+import { monitorEventLoopDelay } from 'node:perf_hooks';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,6 +12,7 @@ import { attachWebSocket } from './ws.js';
 import { buildInfo } from './build-info.js';
 import { createMcpRouter } from './mcp.js';
 import { CharacterStore } from './characters.js';
+import type { SeasonKeyGuard } from './season-key.js';
 
 export interface AppOptions {
   /** Directory holding the built web client (served if it exists). */
@@ -19,6 +21,8 @@ export interface AppOptions {
   mcpLabel?: string;
   /** Enables /api/admin/* when set. */
   adminToken?: string | null;
+  /** Read-only key for full game records (/api/records/*); unset turns those routes off. Never logged. */
+  recordsKey?: string | null;
   /** AI character profiles; defaults to the repo's AI/ folder with saves kept in memory. */
   characters?: CharacterStore;
   /**
@@ -26,6 +30,12 @@ export interface AppOptions {
    * Turn off before launch (RISK_TOURNAMENTS_OPEN=0) so only the host can.
    */
   openTournaments?: boolean;
+  /** RISK_SEASON_KEY: lets the site archive the public leaderboard's season with this password (unset = off). */
+  seasonKey?: string | null;
+  /** Where the season-key lockout is saved (under RISK_DATA_DIR). */
+  seasonLockFile?: string | null;
+  /** Tests: the season-key guard (limits and clock). */
+  seasonGuard?: SeasonKeyGuard;
   /** Sweep interval for idle rooms; 0 disables the automatic sweeper (tests). */
   sweepIntervalMs?: number;
 }
@@ -58,8 +68,11 @@ export interface HealthReport {
   games: number;
   connections: number;
   mcpSessions: number;
-  persistence: string;
+  /** "disk" when games are saved under RISK_DATA_DIR, "disabled" otherwise; never the path. */
+  persistence: 'disk' | 'disabled';
   shuttingDown: boolean;
+  /** Event-loop lag: the 99th percentile over the last full minute (the current one until a minute has passed), in ms. */
+  loopLagMs: number;
 }
 
 /** The repo's AI/ folder: three levels up from packages/server/src (tsx) or packages/server/dist (built). */
@@ -80,12 +93,23 @@ export function createRiskServer(store: Store, opts: AppOptions = {}): RiskServe
     next();
   });
   const characters = opts.characters ?? new CharacterStore(DEFAULT_AI_DIR, null);
-  app.use('/api', createApi(store, { adminToken: opts.adminToken, openTournaments: opts.openTournaments ?? true, characters }));
+  app.use('/api', createApi(store, { adminToken: opts.adminToken, recordsKey: opts.recordsKey, openTournaments: opts.openTournaments ?? true, characters, seasonKey: opts.seasonKey, seasonGuard: opts.seasonGuard, seasonLockFile: opts.seasonLockFile }));
   if (opts.sweepIntervalMs !== 0) store.startSweeper(opts.sweepIntervalMs ?? 30_000);
 
   // Remote MCP endpoint for AI agents (claude.ai connectors, any Streamable HTTP MCP client).
   const mcp = createMcpRouter(store, characters, opts.mcpLabel ?? 'Risky Business', opts.adminToken ?? null, opts.openTournaments ?? true);
   app.use('/mcp', mcp.router);
+
+  // Event-loop lag for /healthz: a histogram read and reset every minute.
+  const loopDelay = monitorEventLoopDelay({ resolution: 20 });
+  loopDelay.enable();
+  let lastMinuteLagMs: number | null = null;
+  const lagTimer = setInterval(() => {
+    lastMinuteLagMs = loopDelay.count ? Math.round(loopDelay.percentile(99) / 1e6) : 0;
+    loopDelay.reset();
+  }, 60_000);
+  lagTimer.unref();
+  const loopLagMs = () => lastMinuteLagMs ?? (loopDelay.count ? Math.round(loopDelay.percentile(99) / 1e6) : 0);
 
   const health = (): HealthReport => {
     const info = buildInfo();
@@ -113,6 +137,7 @@ export function createRiskServer(store: Store, opts: AppOptions = {}): RiskServe
       mcpSessions: mcp.sessions.size,
       persistence: store.describePersistence(),
       shuttingDown,
+      loopLagMs: loopLagMs(),
     };
   };
 
@@ -180,6 +205,8 @@ export function createRiskServer(store: Store, opts: AppOptions = {}): RiskServe
         setTimeout(resolve, 3000).unref();
       });
       store.stopTimers();
+      clearInterval(lagTimer);
+      loopDelay.disable();
       console.log('shutdown complete');
     })();
     return shutdownPromise;

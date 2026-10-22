@@ -1,0 +1,2 @@
+client: - 2026-10-22 #221 Hex Earth on a rotatable 3D globe (`GlobeMap.tsx`, three.js 0.186.1 pinned, a lazy chunk): hexes raised by army count in the owner's colour, HTML army badges, sea-link and attack arcs, capture/flash colours, follow-the-action camera with idle spin (never while you choose a move; jumps with reduced motion), Flat/Globe toggle remembered per browser, flat map without WebGL
+docs: - 2026-10-22 #221 playing.md: the globe view

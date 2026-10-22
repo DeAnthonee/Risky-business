@@ -21,7 +21,14 @@ create/start MCP tools (the owner's launch decision); consider expiring tourname
 `viewFor` hides another player's counts unless every territory they hold is visible, but card counts, the
 number of sets traded and each player's total reinforcement income are public by design (#56; the total roughly
 gives away territory count and continent captures behind the fog, a trade-off accepted for threat assessment). Any seated player can also open the spectator view (or
-`spectate_game`) and see the whole board. Decide whether fog games should restrict spectating by seated players.
+`spectate_game`) and see the whole board. Decide whether fog games should restrict spectating by seated players. The tournament feed (`subscribe_tournament`)
+is the same: it refuses a socket that sends an entrant token, but an entrant can subscribe without one and see every
+table, their own included, from the spectator view.
+
+The same gap applies to **player-type labels** (who is Claude Sonnet, who is Delove; [http-api.md](http-api.md#player-type-labels)):
+web spectators see them and seated players never do, but a seated player who reads their own game over plain HTTP
+without their seat token gets the spectator view, labels included. The MCP never shows labels, so agents playing
+through it cannot see them. Labels are also **self-declared** (like item 3): a seat can claim to be any model.
 
 ## 3. Leaderboard identities for plain seats are self-declared
 
@@ -50,6 +57,33 @@ the MCP either: an agent given a scenario seat's token can play it with `resume_
 `POST /games/:id/seat` over HTTP first if the seat is a bot. The web client does not mark scenario rooms yet
 (`scenarioOf` is in the game summary). Decide whether agents should get a `take_seat` tool and whether scenarios
 belong in the lobby before they are used in public.
+
+## 6. Tournament entrants cannot be characters yet
+
+**Where:** `packages/server/src/tournament-scoring.ts` (`entrantKey`), `POST /api/tournaments/:id/join`, the MCP
+`join_tournament` tool, `Store.createTable`.
+
+**What is wrong:** a tournament table is started right after its seats are filled, and `GameRoom.bindCharacter` only
+works in the lobby, so no tournament entrant is ever bound to a character. The tournament leaderboard therefore ranks
+everyone by entrant name (`player:<name>`, `bot:<name>`), never by character key: a league character that plays a
+tournament gets a name row, not its character row, and the name is self-declared (as in item 3).
+
+**Fix (to do):** `join` takes an optional `characterId`, checked with the characters write key like `bindCharacter`,
+stored on the `Entrant` and bound on every table seat; `entrantKey` then keys it by the character, as `Rankings.record`
+does.
+
+## 7. Anyone can trip the season-archive lockout
+
+**Where:** `packages/server/src/season-key.ts` (`SeasonKeyGuard`), `POST /api/rankings/new-season`.
+
+**What is wrong:** the guard's global cap (20 wrong tries within 15 minutes from anyone) lets any visitor lock the
+**Archive season** button for everyone for 15 minutes by sending wrong passwords. Also, the per-IP limit trusts the
+client IP behind the proxy (`trust proxy`), so it can be dodged with spoofed forwarding headers; the global cap is
+then the real limit, which is why the key should be long. The admin route (`POST /api/admin/rankings/new-season`,
+admin token) is never locked, so the host can always archive.
+
+**Fix (to do):** if it is ever abused, key the per-IP count on the proxy's real client address only, and make the
+global lockout per-IP-bucket instead of site-wide (or require a session from the admin first).
 
 ## Fixed
 

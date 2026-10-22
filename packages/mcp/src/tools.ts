@@ -9,6 +9,8 @@ export interface RiskMcpOptions {
   identities: IdentityStore;
   /** Default display name for this agent. */
   defaultName?: string;
+  /** Default player-type label for this agent's seats (e.g. "claude-sonnet-5-5"); a tool's own `agent` wins. */
+  defaultAgent?: string;
   /** Shown in the server instructions, e.g. the game server URL. */
   serverLabel?: string;
   /** Extra sentence(s) for the instructions (e.g. how identities persist in this transport). */
@@ -138,6 +140,14 @@ function text(s: string) {
 export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
   const { api, identities } = opts;
   const DEFAULT_NAME = opts.defaultName ?? 'Agent';
+  const agentSchema = z
+    .string()
+    .max(40)
+    .optional()
+    .describe(
+      'What kind of player you are, e.g. your model id ("claude-sonnet-5-5") or "human". Optional and self-declared. Only spectators watching on the website see it; no player, you included, ever does.',
+    );
+  const agentOf = (agent: string | undefined) => agent ?? opts.defaultAgent;
   const label = opts.serverLabel ?? 'Risky Business';
 
   const server = new McpServer(
@@ -146,6 +156,7 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
       instructions: [
         'You can play the board game Risk (classic world domination rules) against humans, bots and other agents.',
         'Typical flow: rules -> game_options (see every setting) -> create_game with the settings you want (or join_game with a code a human shared) -> optionally set_options / add_bot -> start_game -> loop { wait_for_turn -> get_state -> act }.',
+        'SWARM GAME (play against the Zergs): create_game with zergs: 3-5 and options {capitals: true, blizzards: 4, autoSetup: true} (the swarm settings: Capital Conquest, frozen territories, no setup phase), then start_game.',
         'Tournaments: join_tournament with a code, then wait_for_match -> play your table like any game -> wait_for_match again until you are out or the champion.',
         'get_state returns your legal moves; act takes one JSON action. Attacking with blitz:true and occupy:"max" resolves a whole battle in one call. Under fog of war leave out occupy: a conquest reveals what lies beyond it, and you then choose how many armies to move in.',
         'IMPORTANT: create_game and join_game return a player token. Remember it and pass it as the "token" argument on every later call for that game: it is what identifies YOUR seat (several chats or agents can sit at the same table, each with its own token).',
@@ -208,7 +219,7 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
     'map',
     {
       description: 'Return a static map: territories, continents with bonuses, and adjacency (which territories border which). Pass the map a game uses (get_state shows options.map).',
-      inputSchema: { map: mapIdSchema().optional().describe(`Default classic. One of: ${MAP_IDS.join(', ')} (fantasy = Realms of Halvaren, an original fantasy world; skirmish = Four Crowns, a small fast 4-player board; bohemia = Bohemia, a 42-territory inland kingdom whose regions meet only at river fords; nine_realms = The Nine Realms, a 58-territory north-south continent whose regions meet only at narrow passes, up to 8), or a generated board's id such as gen1-s42-p4-t20 (a hex board built from seed 42 for up to 4 players, 20 territories; tournament tables use these)`) },
+      inputSchema: { map: mapIdSchema().optional().describe(`Default classic. One of: ${MAP_IDS.join(', ')} (fantasy = Realms of Halvaren, an original fantasy world; skirmish = Four Crowns, a small fast 4-player board; bohemia = Bohemia, a 42-territory inland kingdom whose regions meet only at river fords; nine_realms = The Nine Realms, a 58-territory north-south continent whose regions meet only at narrow passes, up to 8; hexworld = Hex Earth, the real world on a hexagon globe, 80 territories, up to 10), or a generated board's id such as gen1-s42-p4-t20 (a hex board built from seed 42 for up to 4 players, 20 territories; tournament tables use these)`) },
     },
     async ({ map }) => {
     try {
@@ -232,7 +243,8 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
     'create_game',
     {
       description:
-        'Create a new game and take a seat as its host. Pass any game settings in "options" (map, seats, setup, cards, fog of war, Capital Conquest, neutrals, blizzards, turn timer...); call game_options to see them all with defaults and limits. Returns the game code to share and your player token.',
+        'Create a new game and take a seat as its host. Pass any game settings in "options" (map, seats, setup, cards, fog of war, Capital Conquest, neutrals, blizzards, turn timer...); call game_options to see them all with defaults and limits. Returns the game code to share and your player token. ' +
+        'Pass zergs: N to seat N Zergs (rushing house bots that never attack each other while anyone else is alive) right away. For a swarm game use the swarm settings: zergs 3-5 and options {"capitals": true, "blizzards": 4, "autoSetup": true}, then start_game.',
       inputSchema: {
         playerName: z.string().max(24).optional().describe(`Your display name (default "${DEFAULT_NAME}")`),
         gameName: z.string().max(40).optional(),
@@ -242,17 +254,24 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
           .optional()
           .describe('"training": a model-vs-model yardstick game, ranked on the separate training leaderboard (never the public one). Needs the characters write key in "key". Omit for a normal public game.'),
         key: z.string().max(200).optional().describe('The characters write key, needed only with board "training" (the local stdio server reads it from RISK_CHARACTERS_KEY).'),
+        agent: agentSchema,
+        zergs: z.number().int().min(1).max(9).optional().describe('Seat this many Zergs right after creating (at most the free seats: maxPlayers minus you; default maxPlayers is 6)'),
       },
     },
-    async ({ playerName, gameName, options, board, key }) => {
+    async ({ playerName, gameName, options, board, key, agent, zergs }) => {
       try {
         const name = playerName ?? DEFAULT_NAME;
-        const r = await api.createGame(name, gameName, options, board, key);
+        const r = await api.createGame(name, gameName, options, board, key, agentOf(agent));
         const seat = { gameId: r.gameId, playerId: r.playerId, token: r.token, name };
         identities.set(seat);
+        let swarm = '';
+        if (zergs) {
+          const z = await api.addBot(r.gameId, r.token, undefined, 'zerg', zergs);
+          swarm = `Seated ${zergs} Zerg${zergs === 1 ? '' : 's'}: ${(z.added ?? [{ name: z.name ?? z.playerId }]).map((x) => x.name).join(', ')}. Call start_game when ready.\n`;
+        }
         return text(
-          `Created game ${r.gameId}. You are the host.\n${seatLine(seat)}\n` +
-            `Share the code ${r.gameId} so others can join (humans use the website, other chats/agents use join_game), add bots with add_bot, then start_game.\n\n${formatState(r.state)}`,
+          `Created game ${r.gameId}. You are the host.\n${seatLine(seat)}\n${swarm}` +
+            `Share the code ${r.gameId} so others can join (humans use the website, other chats/agents use join_game), add bots with add_bot, then start_game.\n\n${zergs ? await stateText(r.gameId, r.token) : formatState(r.state)}`,
         );
       } catch (e) {
         return errorText(e);
@@ -265,9 +284,9 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
     {
       description:
         'Join an existing game by code as a NEW player (the game must still be in its lobby). Each call with a new playerName takes a new seat, so several chats or agents can join the same game. Returns your player token: pass it on every later call.',
-      inputSchema: { gameId: gameIdSchema, playerName: z.string().max(24).optional().describe(`Your display name (default "${DEFAULT_NAME}"). Use a distinct name per player.`) },
+      inputSchema: { gameId: gameIdSchema, playerName: z.string().max(24).optional().describe(`Your display name (default "${DEFAULT_NAME}"). Use a distinct name per player.`), agent: agentSchema },
     },
-    async ({ gameId, playerName }) => {
+    async ({ gameId, playerName, agent }) => {
       try {
         const id = gameId.toUpperCase();
         const name = playerName ?? DEFAULT_NAME;
@@ -278,7 +297,7 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
           if (g.playerId === existing.playerId) return text(`You already hold this seat.\n${seatLine(existing)}\n\n${formatState(g.state, g.name)}`);
           identities.forget(id, existing.token);
         }
-        const r = await api.joinGame(id, name);
+        const r = await api.joinGame(id, name, agentOf(agent));
         const seat = { gameId: r.gameId, playerId: r.playerId, token: r.token, name };
         identities.set(seat);
         return text(`Joined game ${r.gameId}.\n${seatLine(seat)}\n\n${formatState(r.state)}`);
@@ -313,21 +332,24 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
     'add_bot',
     {
       description:
-        'Add a computer player to a game you host (lobby only). kind "bot" (default) is the built-in bot. kind "zerg" is a Zerg: a rushing house bot that never attacks a fellow Zerg while anyone else is alive. Each Zerg gets a reptile name (Godzilla, Cobra, Komodo, ...), so leave name out. Zergs are regular players and rank like any seat.',
+        'Add computer players to a game you host (lobby only); count (1-9, default 1) adds several of the same kind in one call, all or none, up to the free seats. kind "bot" (default) is the built-in bot. kind "zerg" is a Zerg: a rushing house bot that never attacks a fellow Zerg while anyone else is alive. Each Zerg gets a Zerg pun for a name (Mark Zergburg, Elon Zerg, Zergy Mercury, ...), so leave name out. Zergs are regular players and rank like any seat.',
       inputSchema: {
         gameId: gameIdSchema,
-        name: z.string().max(24).optional(),
+        name: z.string().max(24).optional().describe('Only for a single built-in bot'),
         kind: z.enum(['bot', 'zerg']).optional().describe('"bot" (default) or "zerg"'),
+        count: z.number().int().min(1).max(9).optional().describe('How many to add (default 1)'),
         token: tokenSchema,
         as: asSchema,
       },
     },
-    async ({ gameId, name, kind, token, as }) => {
+    async ({ gameId, name, kind, count, token, as }) => {
       try {
         const id = gameId.toUpperCase();
         const t = requireToken(id, token, as);
-        const r = await api.addBot(id, t, name, kind);
-        return text(`Added ${kind === 'zerg' ? 'Zerg' : 'bot'} ${r.name ? `${r.name} (${r.playerId})` : r.playerId}.\n\n${await stateText(id, t)}`);
+        const r = await api.addBot(id, t, name, kind, count);
+        const added = r.added ?? [{ playerId: r.playerId, name: r.name ?? r.playerId }];
+        const what = kind === 'zerg' ? (added.length === 1 ? 'Zerg' : 'Zergs') : added.length === 1 ? 'bot' : 'bots';
+        return text(`Added ${added.length} ${what}: ${added.map((x) => `${x.name} (${x.playerId})`).join(', ')}.\n\n${await stateText(id, t)}`);
       } catch (e) {
         return errorText(e);
       }
@@ -455,7 +477,9 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
           r.reason === 'turn'
             ? 'It is your turn.'
             : r.reason === 'finished'
-              ? 'The game is over.'
+              ? (r.state as { decidedAt?: number }).decidedAt
+                ? "This tournament table was decided on standing at its round's end: no more moves. Call wait_for_match (or tournament_status) for your next table."
+                : 'The game is over.'
               : r.reason === 'change'
                 ? 'The state changed.'
                 : 'Timed out while waiting; it is still not your turn. Call wait_for_turn again.';
@@ -482,12 +506,16 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
         token: tokenSchema,
         as: asSchema,
         full: z.boolean().optional().describe('true: return the whole board instead of just what your action changed'),
+        note: z
+          .union([z.string().max(2000), z.record(z.string(), z.unknown())])
+          .optional()
+          .describe('Optional private note on why you made this move (a string or a JSON object, at most 2 KB). It is saved with the move in the game record for review after the game and is never shown to other players or spectators during it.'),
       },
     },
-    async ({ gameId, action, token, as, full }) => {
+    async ({ gameId, action, token, as, full, note }) => {
       try {
         const id = gameId.toUpperCase();
-        const r = await api.act(id, requireToken(id, token, as), action as Action);
+        const r = await api.act(id, requireToken(id, token, as), action as Action, note);
         if (full) {
           const ev = formatEvents(r.events, r.state);
           return text(`OK.${ev ? `\nEvents:\n${ev}` : ''}\n\n${formatState(r.state)}`);
@@ -634,13 +662,13 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
     {
       description:
         'Enter a tournament while it is registering. Knockout format: each round seats the remaining entrants at tables of a few players, and each table\'s winner moves on until one champion is left. Returns your ENTRANT token: keep it. Once the host starts the tournament, call wait_for_match to be seated at your table.',
-      inputSchema: { tournamentId: tournamentIdSchema, playerName: z.string().max(24).optional().describe(`Your display name in the tournament (default "${DEFAULT_NAME}"); must be unique in it`) },
+      inputSchema: { tournamentId: tournamentIdSchema, playerName: z.string().max(24).optional().describe(`Your display name in the tournament (default "${DEFAULT_NAME}"); must be unique in it`), agent: agentSchema },
     },
-    async ({ tournamentId, playerName }) => {
+    async ({ tournamentId, playerName, agent }) => {
       try {
         const id = tournamentId.toUpperCase();
         const name = playerName ?? DEFAULT_NAME;
-        const r = await api.joinTournament(id, name);
+        const r = await api.joinTournament(id, name, agentOf(agent));
         entrants.set(id, { token: r.token, name });
         return text(`Joined tournament ${id} as ${name}. ENTRANT TOKEN: ${r.token}  <- pass it as "token" to tournament_status and wait_for_match.\n\n${formatTournament(r.tournament)}`);
       } catch (e) {
@@ -724,11 +752,12 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
         territoriesPerSeat: z.number().int().min(4).max(6).optional().describe('nested: generated board size per seat (default 5)'),
         roundMinutes: z.number().int().min(1).max(240).optional().describe('nested: round deadline in minutes (default 30)'),
         finishShare: z.number().min(0.1).max(1).optional().describe('nested: share of tables that must finish to end a round (default 0.51)'),
+        botDelayMs: z.number().int().min(0).max(2000).optional().describe('nested: bot pace at the tables, ms between moves (default 300)'),
       },
     },
-    async ({ adminKey, name, options, groupSize, maxEntrants, fillBots, format, finalMap, territoriesPerSeat, roundMinutes, finishShare }) => {
+    async ({ adminKey, name, options, groupSize, maxEntrants, fillBots, format, finalMap, territoriesPerSeat, roundMinutes, finishShare, botDelayMs }) => {
       try {
-        const { hostToken, tournament } = await api.createTournament(adminKey, { name, options: options as Partial<GameOptions> | undefined, groupSize, maxEntrants, fillBots, format, finalMap, territoriesPerSeat, roundMinutes, finishShare });
+        const { hostToken, tournament } = await api.createTournament(adminKey, { name, options: options as Partial<GameOptions> | undefined, groupSize, maxEntrants, fillBots, format, finalMap, territoriesPerSeat, roundMinutes, finishShare, botDelayMs });
         hosted.set(tournament.id, hostToken);
         return text(
           `Created tournament ${tournament.id}. HOST TOKEN: ${hostToken}  <- keep it secret: only it (or the admin key) starts this tournament. start_tournament remembers it on this connection; pass it as "hostToken" from another one.\n` +
@@ -948,15 +977,16 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
   server.registerTool('select_character', { description: 'Bind your seat to a persistent character identity before the game starts, so the game counts for that character on the leaderboard. Needs the characters write key. The same character may play in separate lobbies simultaneously.', inputSchema: { gameId: gameIdSchema, token: tokenSchema, as: asSchema, id: z.string().min(3).max(100), key: characterKeySchema } }, async ({ gameId, token, as, id, key }) => {
     try { await api.setCharacter(gameId, requireToken(gameId, token, as), id, key); return text('Character selected: ' + id); } catch (e) { return errorText(e); }
   });
-  server.registerTool('leaderboard', { description: 'Completed-game rankings: points (placement plus +1 per player eliminated, floored at zero), wins, losses, average placement, total kills and how many times each player was eliminated by them (victims). The board runs in seasons: the current one by default; pass season (an id from the seasons list in the reply) to read an archived one. Pass board "training" for the training leaderboard instead: model-vs-model yardstick games (e.g. Delove against Claude seats), ranked by seat name, no seasons.', inputSchema: { season: z.string().regex(/^\d+(-\d+)?$/).max(20).optional().describe('Season id, e.g. "1"; omit for the current season'), board: z.literal('training').optional().describe('"training" for the training leaderboard; omit for the public one') } }, async ({ season, board }) => {
+  server.registerTool('leaderboard', { description: 'Completed-game rankings: points (placement plus +1 per player eliminated, floored at zero), wins, losses, average placement, total kills and how many times each player was eliminated by them (victims). The board runs in seasons: the current one by default; pass season (an id from the seasons list in the reply) to read an archived one. Pass board "training" for the training leaderboard instead: model-vs-model yardstick games (e.g. Delove against Claude seats), ranked by seat name, no seasons. Pass board "tournament" for the tournament leaderboard: one result per entrant per finished tournament (placement: 3 per round survived, final places +2 each above last, champion +6; +2 per table won; +1 per kill), with tournaments played, championships, finals, tables won, kills and best finish; tournament tables never count on the public board.', inputSchema: { season: z.string().regex(/^\d+(-\d+)?$/).max(20).optional().describe('Season id, e.g. "1"; omit for the current season'), board: z.enum(['training', 'tournament']).optional().describe('"training" or "tournament" for those leaderboards; omit for the public one') } }, async ({ season, board }) => {
     try {
+      if (board === 'tournament') return text(JSON.stringify(await api.tournamentRankings(), null, 2));
       if (board) return text(JSON.stringify(await api.rankings(undefined, board), null, 2));
       const [rows, list] = await Promise.all([api.rankings(season), api.rankingSeasons()]);
       return text(JSON.stringify({ ...rows, seasons: list.seasons }, null, 2));
     } catch (e) { return errorText(e); }
   });
-  server.registerTool('ranked_profile', { description: 'Read a character or player ranking profile. Character keys use universe/name; player keys come from leaderboard. Pass board "training" for the standing on the training leaderboard.', inputSchema: { key: z.string().min(1).max(200), board: z.literal('training').optional().describe('"training" for the training leaderboard; omit for the public one') } }, async ({ key, board }) => {
-    try { return text(CHARACTER_DATA_NOTICE + '\n' + JSON.stringify(await api.rankedProfile(key, board), null, 2)); } catch (e) { return errorText(e); }
+  server.registerTool('ranked_profile', { description: 'Read a character or player ranking profile. Character keys use universe/name; player keys come from leaderboard. Pass board "training" or "tournament" for the standing on that leaderboard.', inputSchema: { key: z.string().min(1).max(200), board: z.enum(['training', 'tournament']).optional().describe('"training" or "tournament" for those leaderboards; omit for the public one') } }, async ({ key, board }) => {
+    try { return text(CHARACTER_DATA_NOTICE + '\n' + JSON.stringify(board === 'tournament' ? await api.tournamentProfile(key) : await api.rankedProfile(key, board), null, 2)); } catch (e) { return errorText(e); }
   });
   return server;
 }

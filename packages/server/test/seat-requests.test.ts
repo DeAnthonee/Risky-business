@@ -168,14 +168,18 @@ describe('Delove seats on request', () => {
   it('nobody can register a pool name, and a seat a squatter tried to take is still the pool\'s (one fewer Zerg only for a bound join)', async () => {
     const { risk, store, call, asPool } = await serve();
     try {
-      for (const name of ['Delove', 'Delove 3', 'delove 12']) {
+      // Look-alikes too (#268's skeleton): Greek epsilon and a 1 for the l, a capital I, full-width letters, a zero-width space.
+      for (const name of ['Delove', 'Delove 3', 'delove 12', 'Dε1ove 1', 'DeIove 2', 'Ｄｅｌｏｖｅ', 'De​love 4']) {
         const r = await call('POST', '/players', { name });
         expect(r.status, name).toBe(400);
-        expect(r.body.error).toMatch(/Delove seat pool/);
+        // Refused as a pool name, or earlier by the name rules (some look-alike letters are not allowed at all).
+        expect(r.body.error, name).toMatch(/Delove seat pool|A player name uses/);
       }
+      // A capital I passes the name rules, and the skeleton ("delove 2") makes it a pool name.
+      expect((await call('POST', '/players', { name: 'DeIove 2' })).body.error).toMatch(/Delove seat pool/);
       expect((await call('POST', '/players', { name: 'Delovely' })).status).toBe(201); // only the pool's names
       const id = (await call('POST', '/tournaments', { format: 'nested', name: 'Squat', delove: 2, zergs: 4, code: ADMIN_CODE })).body.tournament.id;
-      expect((await call('POST', `/tournaments/${id}/join`, { playerName: 'Delove 1' })).status).toBe(400);
+      for (const playerName of ['Delove 1', 'Dε1ove 1', 'DeIove 1', 'Ｄelove 1']) expect((await call('POST', `/tournaments/${id}/join`, { playerName })).status, playerName).toBe(400);
       const req = (await call('GET', '/seat-requests', undefined, asPool)).body.requests[0];
       await call('POST', `/seat-requests/${req.id}/claim`, { n: 1 }, asPool);
       // The pool's own "Delove 1" still joins, bound; the second seat stays empty and becomes a Zerg.

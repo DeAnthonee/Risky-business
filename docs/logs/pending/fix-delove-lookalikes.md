@@ -1,0 +1,1 @@
+server: - 2026-10-22 #PR Delove seat-pool names: a join in a tournament with a seat request is checked on the name's skeleton (#268), so look-alikes such as "Dε1ove 1" are refused like "Delove 1"; registration already compared skeletons (tests for both; follow-up to #271)

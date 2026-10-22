@@ -197,6 +197,6 @@ describe('leaderboard seasons API', () => {
     await new Promise<void>(r => risk!.server.listen(0, '127.0.0.1', r));
     const base = `http://127.0.0.1:${(risk.server.address() as AddressInfo).port}`;
     expect((await fetch(`${base}/api/admin/rankings/new-season`, { method: 'POST' })).status).toBe(404);
-    expect(await fetch(`${base}/api/rankings/seasons`).then(r => r.json())).toEqual({ current: RANKINGS_SEASON, seasons: [{ id: String(RANKINGS_SEASON), season: RANKINGS_SEASON, current: true, games: 0 }] });
+    expect(await fetch(`${base}/api/rankings/seasons`).then(r => r.json())).toEqual({ current: RANKINGS_SEASON, seasons: [{ id: String(RANKINGS_SEASON), season: RANKINGS_SEASON, current: true, games: 0 }], archiving: false });
   });
 });

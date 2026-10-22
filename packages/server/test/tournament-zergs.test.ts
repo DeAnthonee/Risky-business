@@ -22,7 +22,7 @@ async function call<T = any>(path: string, body?: unknown, token?: string): Prom
   return { status: res.status, body: (await res.json()) as T };
 }
 
-const reptile = (name: string) => (ZERG_NAMES as readonly string[]).includes(name.replace(/ \d+$/, ''));
+const zergName = (name: string) => (ZERG_NAMES as readonly string[]).includes(name.replace(/ \d+$/, ''));
 
 beforeAll(async () => {
   store = new Store(null);
@@ -36,20 +36,20 @@ afterAll(async () => {
 });
 
 describe('Zerg entrants in tournaments', () => {
-  it('the host adds Zergs and bots; only the host can; names are unique reptile names', async () => {
-    const created = await call('/admin/tournaments', { name: 'Horde Cup', fillBots: false, groupSize: 4, maxEntrants: 30 }, ADMIN);
+  it('the host adds Zergs and bots; only the host can; names are unique Zerg names', async () => {
+    const created = await call('/admin/tournaments', { name: 'Horde Cup', fillBots: false, groupSize: 4, maxEntrants: 64 }, ADMIN);
     const { hostToken } = created.body;
     const id = created.body.tournament.id;
     expect((await call(`/tournaments/${id}/bots`, { kind: 'zerg', count: 2 })).status).toBe(401);
     expect((await call(`/tournaments/${id}/bots`, { kind: 'zerg', count: 2 }, 'not-the-host')).status).toBe(403);
     expect((await call(`/tournaments/${id}/bots`, { kind: 'dragon' }, hostToken)).status).toBe(400);
-    expect((await call(`/tournaments/${id}/bots`, { kind: 'zerg', count: 31 }, hostToken)).status).toBe(400);
+    expect((await call(`/tournaments/${id}/bots`, { kind: 'zerg', count: 65 }, hostToken)).status).toBe(400);
 
-    // More Zergs than the reptile list: the names go on as "Godzilla 2" and so on, still unique.
+    // More Zergs than the list: the names go on as "Elon Zerg 2" and so on, still unique.
     const zergs = await call(`/tournaments/${id}/bots`, { kind: 'zerg', count: ZERG_NAMES.length + 2 }, hostToken);
     expect(zergs.status).toBe(201);
     const names: string[] = zergs.body.added.map((a: any) => a.name);
-    expect(names.every(reptile)).toBe(true);
+    expect(names.every(zergName)).toBe(true);
     expect(new Set(names.map((n) => n.toLowerCase())).size).toBe(names.length);
     const bots = await call(`/tournaments/${id}/bots`, { count: 2 }, hostToken);
     expect(bots.body.added.map((a: any) => a.name)).toEqual(['Bot 1', 'Bot 2']);

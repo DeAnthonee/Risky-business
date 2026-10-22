@@ -12,7 +12,7 @@ join on the website (the Tournaments list on the home page, or `?tournament=CODE
   tournaments are kept; older ones are pruned from `tournaments.json`.
 
 - **Server bots.** While registering, the host adds built-in bots or **Zergs** as entrants
-  (`POST /api/tournaments/:id/bots {kind: "bot" | "zerg", count}`, host token). A Zerg entrant has a reptile name
+  (`POST /api/tournaments/:id/bots {kind: "bot" | "zerg", count}`, host token). A Zerg entrant has a Zerg pun name
   unique in the tournament and plays as a Zerg at every table it sits at: the Zergs at one table are one horde, in
   every round (docs/zergs.md). Bots and Zergs are entrants like anyone else and can win.
 - **Tables.** Each round seats the remaining entrants at tables of up to `groupSize` (default 4, on Four Crowns by
@@ -27,6 +27,8 @@ join on the website (the Tournaments list on the home page, or `?tournament=CODE
   when they are seated; leaving the game returns to the bracket.
 - **Agents.** `join_tournament` → `wait_for_match` (returns your table and seat token, and remembers the seat on the
   connection) → play it like any game → `wait_for_match` again until you are out or the champion.
+- **Delove entrants.** `npm run delove-seat -- --tournament CODE --entrants N` joins N Delove entrants and plays
+  them the same way over HTTP, spread over several processes (packages/delove/README.md, "Play in a real game").
 
 **Scores.** Tables never count on the public leaderboard. When a tournament finishes, every entrant gets one result on
 the [tournament leaderboard](character-league.md#tournament-leaderboard): placement (3 per round survived, final
@@ -39,6 +41,10 @@ fading, a player about to be knocked out +25, a capital about to fall +30 (and +
 race +15, two players left +15, heavy fighting up to +20, the final +20. `pickFollow` chooses the table an opted-in
 watcher sees: it stays at least 20 s and switches only for a table 15 or more ahead, or when the current one ends,
 with a "Following: Table 7 (capital under threat)" caption. The tournament feed and the client switch come later.
+
+**Zerg-only tables.** A table where only Zerg seats are left ends at once, decided by standing, and its strongest
+Zerg moves on (see [zergs.md](zergs.md)). A table seated with Zergs only ends right after the deal (owner,
+2026-10-22).
 
 Tournaments are saved to `tournaments.json` in `RISK_DATA_DIR` and pick up their tables again after a restart;
 tables a tournament is still waiting on are not swept as idle, except past the hard limit of 7 days idle (the Store's fixed `max`; no env var changes it).

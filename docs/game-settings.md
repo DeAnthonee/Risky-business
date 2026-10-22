@@ -69,6 +69,7 @@ Gen 5 rotates through all supported engine maps that fit the table size (excludi
 | `fantasy` | Realms of Halvaren | 87 | 10 |
 | `bohemia` | Bohemia | 42 | 6 |
 | `nine_realms` | The Nine Realms | 58 | 8 |
+| `hexworld` | Hex Earth | 80 | 10 |
 
 ---
 

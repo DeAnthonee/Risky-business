@@ -15,7 +15,7 @@ registration and workflow below but not the tracing and chokepoint sections.
 
 | rule | why |
 | --- | --- |
-| **Original names only.** No names from games, books, films or other franchises. Real place names are fine (Bohemia uses Czech towns). | The repo is public and the boards are ours. |
+| **Original names only.** No names from games, books, films or other franchises. Real place names are fine (Bohemia uses Czech towns), and so are general real-world area names on real-geography boards (Hex Earth: Great Plains, Andes, Sahel; the owner's ruling, 2026-10-22), but do not copy the classic Risk board's territory list. | The repo is public and the boards are ours. |
 | **Chokepoints between regions.** A small region (up to about 5 territories) has 2-3 entry territories; a big one has 3-5. | A bonus is only worth taking if it can be held. A region that borders everything is never held. |
 | **Bonuses follow the generator's suggestion** (`npm run build:map` prints `suggested N`, from size and entry points). Go 1 lower for a very defensible region (an island group, a region behind one pass). | Keeps the board balanced; a `<- check` mark means you are more than 1 away from the suggestion: have a reason. |
 | **No warnings left.** No `touching but not adjacent`, no `share only N units of border`, no `badges ... are N apart`, no `label of ... runs into the badge`, no site off its land. | Each one is a visible bug: two shapes that look connected but are not, or badges on top of each other. |
@@ -218,3 +218,26 @@ node scripts/preview-map.mjs --sheet seats=3,4,6,10 seeds=1-4 tps=5
   as it is. Changes that do not move the hashes (speed, comments) are fine.
 - `procgen.ts` is not in the GPU mirror's `RULE_FILES`, so changing it needs no `verify.py` run.
 
+## 9. Hex-globe maps
+
+A board with `kind: 'hexglobe'` is the whole world on a sphere tiled by hexagons, for the client's rotatable 3D
+globe (Hex Earth, `scripts/maps/hexworld.mjs`; the generator is `scripts/hex-globe.mjs`). It follows the design
+rules, the workflow and the registration checklist above; only the way it is drawn differs.
+
+- **The grid.** A Goldberg sphere of `frequency` n has 10n²+2 cells (n = 12: 1442 cells, about 700 km across). All
+  are hexagons except 12 pentagons: two sit on the poles under the ice and `spin` (degrees about the polar axis)
+  parks the other ten in open ocean.
+- **Land.** A cell is land when at least half of its sample points fall on Natural Earth 1:50m land. A strait or
+  isthmus narrower than a hex comes out wrong (Panama vanished; the Red Sea, the Black Sea and the Caspian filled
+  in), so check the region entries (section 3) and fix single cells with `land`, `sea` or `ice` points ([lon, lat];
+  the nearest cell changes). Land beyond `iceLat` and everything beyond `seaIceLat` is ice: drawn, never played.
+- **Territories.** Each territory has a `site` [lon, lat]; every land cell goes to the nearest site over land, so a
+  territory never jumps the sea. Size territories by hex count, not by the countries: a real-geography layout gives
+  Europe one hex per country and Australia a dozen. Islands too small for a hex set `island: true` (their site's
+  cell becomes land) and are reached by `seaLanes`. The build warns about land no site reaches and about a
+  territory split into pieces.
+- **Two outputs.** `npm run build:map -- <id>` writes the usual engine JSON (the flat view: each territory's hexes
+  projected like the World map, with army badges on hex centres, spread apart where they crowd) and
+  `packages/client/src/generated/<id>.globe.json` (the cells' corners, which territory owns each cell, the badge
+  cells), which only the client loads. Commit both. `npm run maps:test` (`scripts/hex-globe.test.mjs`, part of
+  `npm test`) checks the grid and that the two files agree.

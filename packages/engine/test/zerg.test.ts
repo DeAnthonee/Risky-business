@@ -127,7 +127,9 @@ describe('Zerg judgement numbers', () => {
     // also rules out a walled-in Zerg surrendering mid-game), which changes the alliance phase too (520 moves).
     // Updated a third time on purpose: the owner replaced the fight with "the strongest Zerg keeps the table, the
     // others surrender at once", and turned the walled-in sacrifice back on. With the sacrifice on, the alliance phase
-    // is back to the original recording (543 moves, b4ce79d26322fdb7); whole games run 554 moves.
+    // is back to the original recording (543 moves, b4ce79d26322fdb7); whole games run 554 moves. Updated a fourth time
+    // on purpose (2026-10-22, urgent): the owner called the walled-in surrender a bug (6 of 8 Zergs surrendered in a live
+    // 10-player game), so it is gone and walled-in Zergs mass toward the prey instead (alliance 520 moves).
     const out: unknown[] = [];
     const alliance: unknown[] = [];
     for (const seed of [1, 2, 3]) {
@@ -146,34 +148,33 @@ describe('Zerg judgement numbers', () => {
       }
     }
     const hash = (x: unknown) => createHash('sha256').update(JSON.stringify(x)).digest('hex').slice(0, 16);
-    expect(alliance.length).toBe(543);
-    expect(hash(alliance)).toBe('b4ce79d26322fdb7');
-    expect(out.length).toBe(554);
-    expect(hash(out)).toBe('3ff075efe976d8b3');
+    expect(alliance.length).toBe(520);
+    expect(hash(alliance)).toBe('a1fab7267260478f');
+    expect(out.length).toBe(534);
+    expect(hash(out)).toBe('2c0b78cfed7b1cb2');
   });
 
-  it('walled-in Zergs feed the swarm by default (sacrifice: 1); with sacrifice: 0 no Zerg surrenders while prey is left', () => {
-    const surrenders = (params: typeof ZERG_1_PARAMS) => {
-      let n = 0;
-      for (const seed of [1, 2, 3]) {
-        let s = createGame('g', { map: 'classic', maxPlayers: 4, capitals: true }, seed);
-        for (const id of ['a', 'z1', 'z2', 'z3']) s = addPlayer(s, id, id, true);
-        s = startGame(s).state;
-        const horde = new Set(['z1', 'z2', 'z3']);
-        const random = seeded(seed);
-        for (let i = 0; i < 3000 && s.phase !== 'finished'; i++) {
-          const me = s.currentPlayer!;
-          const a = horde.has(me) ? chooseZergAction(s, me, horde, random, params)! : chooseBotAction(s, me, random)!;
-          const preyAlive = s.players.some((p) => p.id === 'a' && p.alive);
-          if (a.type === 'surrender' && horde.has(me) && preyAlive) n++;
-          s = applyAction(s, me, a).state;
-        }
+  it('no Zerg ever surrenders while prey is alive, even 8 Zergs at a 10-player table (the live bug)', () => {
+    // The live game that showed the bug: 8 Zergs and 2 others on a 10-player board, where most Zergs are walled in by
+    // their allies. The old walled-in sacrifice made them surrender mid-game; now they mass toward the prey instead.
+    let surrenders = 0;
+    for (const seed of [1, 2, 3, 4]) {
+      const ids = ['a', 'b', ...Array.from({ length: 8 }, (_, i) => `z${i + 1}`)];
+      let s = createGame('w', { map: 'world', maxPlayers: 10 }, seed);
+      for (const id of ids) s = addPlayer(s, id, id, true);
+      s = startGame(s).state;
+      const horde = new Set(ids.filter((x) => x.startsWith('z')));
+      const random = seeded(seed);
+      for (let i = 0; i < 20_000 && s.phase !== 'finished'; i++) {
+        const me = s.currentPlayer!;
+        const preyAlive = s.players.some((p) => p.alive && !p.isNeutral && !horde.has(p.id));
+        const a = horde.has(me) ? chooseZergAction(s, me, horde, random)! : chooseBotAction(s, me, random)!;
+        if (a.type === 'surrender' && horde.has(me) && preyAlive) surrenders++;
+        s = applyAction(s, me, a).state;
       }
-      return n;
-    };
-    expect(ZERG_1_PARAMS.sacrifice).toBe(1);
-    expect(surrenders(ZERG_1_PARAMS)).toBeGreaterThan(0);
-    expect(surrenders({ ...ZERG_1_PARAMS, sacrifice: 0 })).toBe(0);
+      expect(s.phase).toBe('finished');
+    }
+    expect(surrenders).toBe(0);
   });
 
   it('each later behaviour changes play when switched on', () => {

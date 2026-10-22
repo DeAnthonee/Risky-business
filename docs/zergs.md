@@ -16,7 +16,8 @@ Zergs are house bots that rush, never attack each other and hunt eliminations to
   outsiders tell which seats are Zergs; there is no badge or banner.
 - **Allies until the prey is gone.** A Zerg never attacks a fellow Zerg while any non-Zerg is alive.
 - **The Zerg endgame (owner, 2026-10-22).** When only Zergs are left, the weaker Zergs surrender at once to the
-  strongest (most territories, then armies, then the lowest seat), and the walled-in sacrifice is on. This replaces
+  strongest (most territories, then armies, then the lowest seat). That is the only time a Zerg surrenders (#PR removed
+  the walled-in sacrifice, a bug in the owner's eyes). This replaces
   #169's fight to one winner and landed in `zerg@1` in #176; section 4 says what is built. Live seats play
   `ZERG_1_PARAMS`, the same as training and the horde gate, so they follow `zerg@1` with no server change.
 - **The rules don't change.** The ally rule lives in the Zerg's own policy (`packages/engine/src/zerg.ts`), not in
@@ -59,11 +60,13 @@ All Zergs run the same deterministic **target rule** on the same public board, s
   holds back; the engine has no ally rule).
 - **Occupy** with everything when the new territory faces the target; **fortify** toward the target's front.
 - **Cards**: trade as soon as possible.
-- **Feed the swarm: on.** A Zerg walled in by its allies (no road to any prey) that is not the horde's strongest
-  surrenders, and its land turns neutral for the front Zerg to eat for cards and continents. It is `sacrifice: 1` in
-  `zerg@1` (the owner's decision, 2026-10-22, in #176). It was off from #169 to #176.
-  - Without it the walled-in Zergs idle and a turtling prey can stall the horde. At 4p against 3 Zergs, games against
-    delove@10 reaching the turn limit were 9 of 100 with it off and 3 of 100 with it on.
+- **Walled in: mass toward the prey.** A Zerg walled in by its allies (no front of its own) reinforces, and fortifies
+  toward, its territory nearest the prey (counted through any land), ready for when the front opens. It never
+  surrenders while prey is alive.
+  - The old "feed the swarm" surrender, and its `sacrifice` parameter, were removed in #PR. In a live 10-player game, 6
+    of 8 Zergs surrendered mid-game that way and the owner called it a bug.
+  - The cost: a turtling prey can stall the horde. At 4p against 3 Zergs, 12 of 100 games against delove@10 reach the
+    turn limit (3 with the sacrifice).
   - Zergs take neutral land at good odds.
 - **Ending: the strongest keeps the table.** When only Zergs are left, every Zerg but the strongest (`strongestZergOf`:
   most territories, then most armies, then the lowest seat index) surrenders on its turn, and the strongest wins. It

@@ -790,6 +790,31 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
     },
   );
 
+  server.registerTool(
+    'add_tournament_bots',
+    {
+      description:
+        'Seat server bots as entrants in a tournament you host, before it starts: kind "zerg" (Zergs: rushing house bots that never attack a fellow Zerg while anyone else is alive, each named from the Zerg pun list) or "bot" (the built-in bot). count adds that many at once, up to the tournament\'s maxEntrants. Only the host can: the host token from create_tournament (remembered on the connection that created it) or the admin key. Bots never get a row on the tournament leaderboard.',
+      inputSchema: {
+        tournamentId: tournamentIdSchema,
+        kind: z.enum(['zerg', 'bot']).optional().describe('"zerg" or "bot" (default "bot", as on the HTTP route)'),
+        count: z.number().int().min(1).max(256).optional().describe('How many to add (default 1)'),
+        hostToken: z.string().min(1).optional().describe('The host token create_tournament returned. Not needed on the connection that created the tournament.'),
+        adminKey: adminKeySchema,
+      },
+    },
+    async ({ tournamentId, kind, count, hostToken, adminKey }) => {
+      try {
+        const id = tournamentId.toUpperCase();
+        const r = await api.addTournamentBots(adminKey ?? hostToken ?? hosted.get(id), id, kind ?? 'bot', count ?? 1);
+        const what = (kind ?? 'bot') === 'zerg' ? (r.added.length === 1 ? 'Zerg' : 'Zergs') : r.added.length === 1 ? 'bot' : 'bots';
+        return text(`Added ${r.added.length} ${what}: ${r.added.map((a) => a.name).join(', ')}.\n\n${formatTournament(r.tournament)}`);
+      } catch (e) {
+        return errorText(e);
+      }
+    },
+  );
+
   server.registerTool('my_seats', { description: 'List the seats (game, player name, token) this connection currently holds, so you can pick which player to act as or recover a token.', inputSchema: {} }, async () => {
     const seats = identities.all();
     if (!seats.length) return text('No seats on this connection. Use create_game, join_game, or resume_game with a token.');

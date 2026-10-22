@@ -454,8 +454,8 @@ npm run delove:horde -- --candidate delove@10 --tables classic:4:3,classic:6:3 -
 ### The searching Zerg (`zerg-branch@1`)
 
 Branch and score for the horde (src/zerg-branch.ts): the Zerg's own move and up to 3 alternatives (never an attack on a
-fellow Zerg) are each played on 8 copies of the board with common dice, 2 rounds forward, Zergs playing `zerg@1` and the
-prey modelled by Jacob Sensei 2, and scored for the horde: prey knocked out × kill weight + the horde's share of the
+fellow Zerg) are each played on 8 copies of the board with common dice, 2 rounds forward, each Zerg seat playing its own
+version (`zergParamsFor`: `zerg@2`'s numbers for a `zerg@2` seat, `zerg@1`'s otherwise; #201) and the prey modelled by Jacob Sensei 2, and scored for the horde: prey knocked out × kill weight + the horde's share of the
 alive players' armies and income + `selfWeight` (default 0.5) × my standing (my share of the horde's strength; once
 the prey is gone, 1 if I am the strongest Zerg). It is the teacher for a trained Zerg network (docs/zergs.md). Its
 numbers come from `ZERG_BRANCH_OPTIONS`, `_ROLLOUTS`, `_HORIZON`, `_KILL_WEIGHT`, `_MARGIN` and `_SELF_WEIGHT`. A Zerg agent's id must start with `zerg`:

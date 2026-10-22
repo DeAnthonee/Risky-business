@@ -1028,6 +1028,12 @@ Sensei 2 (2p). Panel gates are reported, never pooled into the SPRT. Copy each c
   bounds fixed for the same reason). Min-max stays the default, so the two can be compared.
   Smoke run (150 Classic 2p branch games with Jacob rollouts, CPU, from `delove@3`, 1 epoch, `--range close
   --branch-weights 0.5,1,2`): trains; whether it beats hard labels is cycle 12's A/B.
+- `--confidence TAU[,FLOOR]`: scales a branched decision's policy weight by clip(gap / TAU, FLOOR, 1), the gap being
+  the best minus the second-best compared score in `branch_q.npy` (`python/confidence.py`; checks
+  `python packages/delove/python/test_confidence.py`). A near-tie label is mostly rollout noise: the architecture review
+  (2026-10-22) measured the cycle teacher picking the same move under fresh rollout seeds only about half the time,
+  with 62-70% of searched decisions in cycle 17's data under a gap of 0.01. Decisions with fewer than two compared
+  options keep weight 1; combine with `--soft-targets` so ties teach "these are equal" and clear wins count fully.
 - `--aux-rollout W`: adds a rollout head that learns each branched decision's 1-round result, the played option's
   mean branch score from `branch_q.npy` (0..1), with weight W on a squared-error loss (KataGo-style auxiliary target:
   a one-round outcome is far less noisy than the final points). Starting from a network without the head adds a fresh

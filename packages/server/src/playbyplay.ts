@@ -4,15 +4,33 @@
 import { getMap, type GameEvent, type GameRecord, type PlayerId, type RecordStep } from '@risk/engine';
 
 /**
- * A decision note on a step (G1: why a model chose its move). The shape is tolerant until G1 fixes it: the known
- * fields are rendered as a line, and anything else is shown as JSON.
+ * A decision note on a step (G1, `step.note`: a string or any JSON the seat sent, no schema enforced). The fields
+ * below are rendered as a line when present (`chosen`/`top` are Delove's names for `chose`/`alternatives`; `model`
+ * and `preset` tag the player); other keys are appended as compact JSON, and a note with none of them is shown as JSON.
  */
 export interface StepNote {
   text?: string;
   chose?: string;
+  chosen?: unknown;
   score?: number;
-  alternatives?: { label: string; score: number }[];
+  alternatives?: unknown[];
+  top?: unknown[];
   value?: number;
+  model?: string;
+  preset?: string;
+}
+
+const NOTE_KEYS = new Set(['text', 'chose', 'chosen', 'score', 'alternatives', 'top', 'value', 'model', 'preset']);
+
+/** A candidate's label and score: a string, or an object with label/move/name/id and score/p/q. */
+function candidate(c: unknown): { label: string; score?: number } | null {
+  if (typeof c === 'string') return { label: c };
+  if (!c || typeof c !== 'object') return null;
+  const o = c as Record<string, unknown>;
+  const raw = o.label ?? o.move ?? o.name ?? o.id;
+  const label = typeof raw === 'string' ? raw : raw !== undefined ? JSON.stringify(raw) : null;
+  const score = [o.score, o.p, o.q].find((x) => typeof x === 'number') as number | undefined;
+  return label === null ? null : { label, score };
 }
 
 export interface PlayByPlayTurn {
@@ -40,14 +58,26 @@ const num = (x: number) => (Math.round(x * 100) / 100).toString().replace(/^0\./
 export function noteLine(who: string, note: unknown): string {
   if (note === null || note === undefined) return '';
   if (typeof note === 'string') return `  ↳ ${note}`;
+  if (typeof note !== 'object' || Array.isArray(note)) return `  ↳ ${JSON.stringify(note)}`;
   const n = note as StepNote;
+  const tags = [n.model, n.preset].filter((x): x is string => typeof x === 'string' && x !== '');
+  const me = tags.length ? `${who} (${tags.join(', ')})` : who;
+  const chosen = candidate(n.chose ?? n.chosen);
+  const list = (Array.isArray(n.alternatives) ? n.alternatives : Array.isArray(n.top) ? n.top : [])
+    .map(candidate)
+    .filter((c): c is { label: string; score?: number } => c !== null);
+  const score = typeof n.score === 'number' ? n.score : (chosen?.score ?? list.find((c) => c.label === chosen?.label)?.score);
+  const others = list.filter((c) => c.label !== chosen?.label);
   const parts: string[] = [];
-  if (n.chose) parts.push(`${who} chose ${n.chose}${n.score !== undefined ? ` (${num(n.score)})` : ''}`);
-  if (n.alternatives?.length) parts.push(`over ${n.alternatives.map((a) => `${a.label} (${num(a.score)})`).join(', ')}`);
+  if (chosen) parts.push(`${me} chose ${chosen.label}${score !== undefined ? ` (${num(score)})` : ''}`);
+  if (others.length) parts.push(`over ${others.map((c) => `${c.label}${c.score !== undefined ? ` (${num(c.score)})` : ''}`).join(', ')}`);
   let line = parts.join(' ');
-  if (n.value !== undefined) line += `${line ? ', ' : ''}value ${num(n.value)}`;
-  if (n.text) line += `${line ? ': ' : ''}${n.text}`;
-  return `  ↳ ${line || JSON.stringify(note)}`;
+  if (typeof n.value === 'number') line += `${line ? ', ' : ''}value ${num(n.value)}`;
+  if (typeof n.text === 'string' && n.text) line += `${line ? ': ' : ''}${n.text}`;
+  if (!line) return `  ↳ ${JSON.stringify(note)}`;
+  const rest = Object.fromEntries(Object.entries(n).filter(([k]) => !NOTE_KEYS.has(k)));
+  if (Object.keys(rest).length) line += ` ${JSON.stringify(rest)}`;
+  return `  ↳ ${line}`;
 }
 
 /** The play-by-play of a game record, as structured lines. */

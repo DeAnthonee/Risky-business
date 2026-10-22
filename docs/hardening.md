@@ -186,6 +186,20 @@ the tournaments still run.
 **Fix (to do):** if it is ever abused, give the pool its own bucket (count wrong keys per client address only and
 never refuse a right key), or let the pool authenticate from a fixed address.
 
+## 15. Tournament hosting runs in testing mode by default
+
+**Where:** `packages/server/src/tournament-access.ts` (`tourneyAccessFromEnv`, `TESTING_TOURNEY_ACCESS`, `usable`,
+`openStart`), the create and start routes in `http.ts` and `local-api.ts`.
+
+**What is wrong:** while the owner tests (2026-10-22: "I dont care to have some code block our testing right now.
+We'll harden this later"), `RISK_TOURNEY_STRICT` is off by default. So there is no wrong-code lockout, and the caps
+are loose (10 tournaments at once, 200 creates a day, 1000 seats). With no hosting code set, a typed code is ignored
+and **anyone can create and start tournaments** in open mode, whoever made them.
+
+**Fix (to do, before launch):** set `RISK_TOURNEY_ADMIN_CODE` (and `RISK_TOURNEY_LIMITED_CODE` if wanted) and
+`RISK_TOURNEY_STRICT=1` on the server, and turn open mode off (`RISK_TOURNAMENTS_OPEN=0`, the default once a code is
+set). That restores the launch caps, the lockout and host-only starts. Then make strict the default in code.
+
 ## Fixed
 
 - **Anyone could create tournaments while testing (was item 1).** Creating now needs a hosting code once the owner

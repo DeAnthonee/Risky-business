@@ -5,7 +5,8 @@
 # (c12-sc, #137); then measured against BASE on the close stage (npm run delove:stages) and as the trio
 # BASE,BASE,c14-close on whole games. From the repo root:
 #
-#   BASE=delove@11 LABELS="" DELOVE_MODELS=<models> DATA=<data> OUT=<runs>/c14 PYTHON=<venv python> \n#     bash packages/delove/scripts/cycles/c14-specialists.sh
+#   BASE=delove@11 LABELS="" DELOVE_MODELS=<models> DATA=<data> OUT=<runs>/c14 PYTHON=<venv python> \
+#     bash packages/delove/scripts/cycles/c14-specialists.sh
 #
 # Steps resume: a trained specialist (its .onnx) and a finished stage result are kept.
 set -euo pipefail

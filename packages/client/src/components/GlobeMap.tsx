@@ -889,6 +889,8 @@ export function LiveGlobe({
   depth,
   mapOf,
   fill,
+  armiesOf,
+  attackOf,
   focus,
   labelOf,
   onPick,
@@ -900,6 +902,10 @@ export function LiveGlobe({
   mapOf: (id: string) => MapDef;
   /** Colour of a territory of a node's board. */
   fill: (node: number, territory: string) => string;
+  /** Armies on a territory (null: not known); the land rises with them. */
+  armiesOf: (node: number, territory: string) => number | null;
+  /** A table's latest battle: drawn as a red arc over its patch for a few seconds. */
+  attackOf: (node: number) => { from: string; to: string; at: number } | null;
   focus: number;
   labelOf: (node: number) => string;
   onPick: (node: number) => void;
@@ -909,8 +915,8 @@ export function LiveGlobe({
   const wrapRef = useRef<HTMLDivElement>(null);
   const labelRefs = useRef(new Map<number, HTMLDivElement>());
   const patches = useMemo(() => livePatches(nodes, depth, mapOf), [nodes, depth, mapOf]);
-  const live = useRef({ fill, focus, onPick, patches, nodes, mapOf, depth });
-  live.current = { fill, focus, onPick, patches, nodes, mapOf, depth };
+  const live = useRef({ fill, armiesOf, attackOf, focus, onPick, patches, nodes, mapOf, depth });
+  live.current = { fill, armiesOf, attackOf, focus, onPick, patches, nodes, mapOf, depth };
   const api = useRef<{ repaint: () => void; focusOn: (i: number) => void; show: () => void } | null>(null);
   const [hover, setHover] = useState<number | null>(null);
 
@@ -964,8 +970,44 @@ export function LiveGlobe({
       if (at >= 0 && layer) focusGeo.setAttribute('position', new THREE.Float32BufferAttribute(layer.frames.slice(at * FRAME_FLOATS, (at + 1) * FRAME_FLOATS), 3));
       dirty = true;
     };
+    // Attack arcs: one per table whose latest battle is younger than ARC_MS, fading out.
+    const arcs = new THREE.Group();
+    scn.add(arcs);
+    const drawArcs = () => {
+      for (const a of [...arcs.children]) {
+        arcs.remove(a);
+        const mesh = a as THREE.Mesh;
+        mesh.geometry.dispose();
+        (mesh.material as THREE.Material).dispose();
+      }
+      if (!layer) return;
+      const { attackOf: battleOf, nodes: tree, mapOf: boardOf } = live.current;
+      for (const i of layer.order) {
+        const b = battleOf(i);
+        if (!b || Date.now() - b.at > ARC_MS) continue;
+        const board = boardOf(tree[i].map);
+        const [A, B] = [board.territoryById[b.from], board.territoryById[b.to]];
+        const p = layer.patches.get(i);
+        if (!A || !B || !p) continue;
+        const pts: THREE.Vector3[] = [];
+        for (let s = 0; s <= 16; s++) {
+          const t = s / 16;
+          const lift = LIFT + 0.018 + Math.sin(Math.PI * t) * 0.012;
+          pts.push(new THREE.Vector3(...onPatch(p, A.x + (B.x - A.x) * t, A.y + (B.y - A.y) * t, lift)));
+        }
+        // A tube, so the arc reads at any zoom (a line is one pixel wide).
+        const width = Math.min(0.004, Math.max(0.0015, p.k * 4));
+        const tube = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 24, width, 6), new THREE.MeshBasicMaterial({ color: 0xff4d4d, transparent: true }));
+        tube.userData.at = b.at;
+        arcs.add(tube);
+      }
+    };
     const repaint = () => {
-      if (layer) layer.paint(live.current.fill);
+      if (layer) {
+        layer.paint(live.current.fill);
+        layer.setHeights(live.current.armiesOf);
+      }
+      drawArcs();
       dirty = true;
     };
 
@@ -976,6 +1018,7 @@ export function LiveGlobe({
       const old = layer;
       layer = buildLayer(next, tree, boardOf);
       layer.paint(live.current.fill);
+      layer.setHeights(live.current.armiesOf);
       scn.add(layer.group);
       if (leaving) {
         scn.remove(leaving.layer.group);
@@ -1095,6 +1138,14 @@ export function LiveGlobe({
         }
         dirty = true;
       }
+      if (arcs.children.length) {
+        for (const a of arcs.children) {
+          const age = Date.now() - (a.userData.at as number);
+          ((a as THREE.Mesh).material as THREE.MeshBasicMaterial).opacity = Math.max(0, 1 - age / ARC_MS);
+        }
+        if (arcs.children.every((a) => Date.now() - (a.userData.at as number) > ARC_MS)) drawArcs();
+        dirty = true;
+      }
       const moved = controls.update();
       if (!dirty && !moved && !turn && !controls.autoRotate) return; // nothing changed: skip the frame
       dirty = false;
@@ -1166,6 +1217,10 @@ export function LiveGlobe({
 }
 
 const SHRINK_MS = 1100;
+/** How long a table's latest battle shows as an arc on the live globe. */
+const ARC_MS = 4000;
+/** Lift of a territory on a live patch with `armies` on it (the land rises with the log of its armies). */
+const patchLift = (armies: number | null) => (armies === null ? LIFT : LIFT + 0.003 * Math.min(Math.log2(1 + armies), 7));
 const LIFT = 1.004;
 const FRAME_SEGMENTS = 64;
 const FRAME_FLOATS = FRAME_SEGMENTS * 6;
@@ -1182,6 +1237,8 @@ interface Layer {
   /** The circle around each patch, FRAME_FLOATS numbers per node in `order`. */
   frames: number[];
   paint(fill: (node: number, territory: string) => string): void;
+  /** Raise each territory with its armies (and lay the layer out again). */
+  setHeights(armies: (node: number, territory: string) => number | null): void;
   place(patchOf: (node: number) => Patch): void;
   setOpacity(o: number): void;
   dispose(): void;
@@ -1191,8 +1248,12 @@ function buildLayer(patches: Map<number, Patch>, nodes: readonly NestNode[], map
   // Every vertex keeps its board point (u, v) and node, so the layer can be laid out again on other patches.
   const uv: number[] = [];
   const vNode: number[] = [];
+  /** 1 for a vertex on top of the land (it rises with the armies), 0 for the foot of a side wall. */
+  const vTop: number[] = [];
+  /** 1 for a side-wall vertex (painted darker). */
+  const vWall: number[] = [];
   const triNode: number[] = [];
-  const ranges: { node: number; territory: string; from: number; to: number }[] = [];
+  const ranges: { node: number; territory: string; from: number; to: number; bFrom: number; bTo: number }[] = [];
   const buv: number[] = [];
   const bNode: number[] = [];
   const frames: number[] = [];
@@ -1201,6 +1262,7 @@ function buildLayer(patches: Map<number, Patch>, nodes: readonly NestNode[], map
     const map = mapOf(nodes[i].map);
     for (const t of map.territories) {
       const from = uv.length / 2;
+      const bFrom = buv.length / 2;
       for (const ring of pathRings(t.path)) {
         const contour = ring.map(([u, v]) => new THREE.Vector2(u, v));
         if (THREE.ShapeUtils.isClockWise(contour)) contour.reverse();
@@ -1216,7 +1278,7 @@ function buildLayer(patches: Map<number, Patch>, nodes: readonly NestNode[], map
             return;
           }
           // Board v grows downwards, so flip the winding to face outwards.
-          for (const q of [a, c, b]) uv.push(q.x, q.y), vNode.push(i);
+          for (const q of [a, c, b]) uv.push(q.x, q.y), vNode.push(i), vTop.push(1), vWall.push(0);
           triNode.push(i);
         };
         for (const [a, b, c] of tris) emit(contour[a], contour[b], contour[c], 0);
@@ -1225,9 +1287,13 @@ function buildLayer(patches: Map<number, Patch>, nodes: readonly NestNode[], map
           const [u1, v1] = ring[(k + 1) % ring.length];
           buv.push(u0, v0, u1, v1);
           bNode.push(i, i);
+          // A side wall under this edge, from the land's foot up to its top (seen once the territory rises).
+          for (const [u, v, top] of [[u0, v0, 1], [u1, v1, 1], [u0, v0, 0], [u1, v1, 1], [u1, v1, 0], [u0, v0, 0]] as const)
+            uv.push(u, v), vNode.push(i), vTop.push(top), vWall.push(1);
+          triNode.push(i, i);
         }
       }
-      ranges.push({ node: i, territory: t.id, from, to: uv.length / 2 });
+      ranges.push({ node: i, territory: t.id, from, to: uv.length / 2, bFrom, bTo: buv.length / 2 });
     }
     // A thin circle around each table's patch.
     const [x0, y0, x1, y1] = landBox(map);
@@ -1260,9 +1326,16 @@ function buildLayer(patches: Map<number, Patch>, nodes: readonly NestNode[], map
   const frameLines = new THREE.LineSegments(frameGeo, frameMat);
   group.add(frameLines);
 
+  // Each vertex's distance from the centre: the land's lift, raised with the territory's armies.
+  const vLift = new Float32Array(vNode.length).fill(LIFT);
+  // Wall feet sit just under the land so a flat territory shows no wall.
+  for (let v = 0; v < vNode.length; v++) if (!vTop[v]) vLift[v] = LIFT - 0.0005;
+  const bLift = new Float32Array(bNode.length).fill(LIFT);
+  let current: (node: number) => Patch = (node) => patches.get(node)!;
   const place = (patchOf: (node: number) => Patch) => {
-    for (let v = 0; v < vNode.length; v++) pos.set(onPatch(patchOf(vNode[v]), uv[2 * v], uv[2 * v + 1], LIFT), 3 * v);
-    for (let v = 0; v < bNode.length; v++) bpos.set(onPatch(patchOf(bNode[v]), buv[2 * v], buv[2 * v + 1], LIFT + 0.0008), 3 * v);
+    current = patchOf;
+    for (let v = 0; v < vNode.length; v++) pos.set(onPatch(patchOf(vNode[v]), uv[2 * v], uv[2 * v + 1], vLift[v]), 3 * v);
+    for (let v = 0; v < bNode.length; v++) bpos.set(onPatch(patchOf(bNode[v]), buv[2 * v], buv[2 * v + 1], bLift[v] + 0.0008), 3 * v);
     geo.attributes.position.needsUpdate = true;
     borderGeo.attributes.position.needsUpdate = true;
     geo.computeVertexNormals();
@@ -1285,9 +1358,21 @@ function buildLayer(patches: Map<number, Patch>, nodes: readonly NestNode[], map
     paint(fill) {
       for (const r of ranges) {
         c.set(fill(r.node, r.territory));
-        for (let v = r.from; v < r.to; v++) colours.set([c.r, c.g, c.b], v * 3);
+        const [wr, wg, wb] = [c.r * 0.55, c.g * 0.55, c.b * 0.55];
+        for (let v = r.from; v < r.to; v++) colours.set(vWall[v] ? [wr, wg, wb] : [c.r, c.g, c.b], v * 3);
       }
       geo.attributes.color.needsUpdate = true;
+    },
+    setHeights(armies) {
+      let changed = false;
+      for (const r of ranges) {
+        const h = patchLift(armies(r.node, r.territory));
+        if (vLift[r.from] === Math.fround(h) && (r.bFrom === r.bTo || bLift[r.bFrom] === Math.fround(h))) continue;
+        for (let v = r.from; v < r.to; v++) if (vTop[v]) vLift[v] = h;
+        bLift.fill(h, r.bFrom, r.bTo);
+        changed = true;
+      }
+      if (changed) place(current);
     },
     place,
     setOpacity(o) {

@@ -168,7 +168,9 @@ a model that is only thinking, and drops it so the table plays on. The code is `
   `{mode: "takeover", gameId, playerId, token, search, options}`: the seat is renamed **"<name>-Delove"**, stops being a
   bot, and the pool plays it with that token through the ordinary game API (as `resume_game` does). A failed claim
   hands the seat back to the house bot, as does a Delove stand-in that disconnects in turn; neither opens a second
-  request. Takeovers count toward the Delove seats at once, and close when the table ends.
+  request. Takeovers count toward the Delove seats at once, and close when the table ends. The pool daemon
+  (`npm run delove-pool`, packages/delove/README.md "Seat pool") takes them over: it checks the token plays the seat,
+  reports `done`, and plays it bare under fog with its fog-trained network.
 - **Out of the tournament.** The entrant shows as `dropped` in the bracket (`dropped: {reason, standIn}`; 🔌 on the
   site). The stand-in plays only to finish that table. It can win the game, but **it never moves on**: the best other
   seat by standing does, as a table decided on standing (+1). That is the winner's next in line, players already out

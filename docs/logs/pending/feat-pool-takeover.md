@@ -1,0 +1,1 @@
+delove: - 2026-10-22 #PR the seat pool takes dropped tournament seats over (takeover mode, #302): it polls with `modes=takeover`, claims, checks the seat token, reports done or failed, and plays the game seat as "<name>-Delove" through the game API (src/pool-play.ts); fog seats only with a fog-trained network, bare

@@ -890,27 +890,38 @@ describe('MCP blitz with stopAt', () => {
         const r = (await client.callTool({ name, arguments: args })) as { content: { text: string }[]; isError?: boolean };
         return { text: r.content.map((c) => c.text).join('\n'), isError: !!r.isError };
       };
-      const created = await call('create_game', { playerName: 'Careful', options: { autoSetup: true } });
+      // Two people, no bot: nothing moves on its own, so the board the test sets up is the board the attack sees.
+      // (With a bot that moved first, its turn ran on timers alongside the test's direct state edits; the attack could
+      // then run on a board other than the 25-vs-40 one set up here: #285.)
+      const created = await call('create_game', { playerName: 'Careful', options: { autoSetup: true, maxPlayers: 2 } });
       const gameId = created.text.match(/Created game (\w+)/)![1];
-      await call('add_bot', { gameId });
+      expect((await api(`/games/${gameId}/join`, { method: 'POST', body: JSON.stringify({ playerName: 'Other' }) })).status).toBe(201);
       await call('start_game', { gameId });
-      expect((await call('wait_for_turn', { gameId, timeoutSeconds: 15 })).text).toMatch(/^It is your turn/);
       const room = risk.store.get(gameId)!;
-      const me = room.state.players.find((p) => p.name === 'Careful')!;
+      // Act as whoever moves first, with that seat's token.
+      const mover = room.state.currentPlayer!;
+      const token = [...room.tokens].find(([, pid]) => pid === mover)![0];
+      const me = room.state.players.find((p) => p.id === mover)!;
       const adj = getMap(room.state.options.map).adjacency;
       const from = Object.keys(room.state.territories).find((t) => room.state.territories[t].owner === me.id && adj[t].some((n) => room.state.territories[n].owner !== me.id))!;
       const to = adj[from].find((n) => room.state.territories[n].owner !== me.id)!;
-      const toPlace = me.armiesToPlace;
-      await call('act', { gameId, action: { type: 'place', placements: { [from]: toPlace } } });
+      await call('act', { gameId, token, action: { type: 'place', placements: { [from]: me.armiesToPlace } } });
+      expect(room.state.phase).toBe('attack');
       room.state.territories[from].armies = 25;
       room.state.territories[to].armies = 40;
-      const board = await call('get_state', { gameId });
+      const board = await call('get_state', { gameId, token });
       expect(board.text).toContain('chance an all-in blitz takes it');
       expect(board.text).toMatch(new RegExp(`${from}->${to} \\(3, \\d+%\\)`));
       expect(board.text).toContain('"stopAt":N');
-      const r = await call('act', { gameId, action: { type: 'attack', from, to, stopAt: 15 } });
+      const version = room.state.version;
+      const r = await call('act', { gameId, token, action: { type: 'attack', from, to, stopAt: 15 } });
       expect(r.isError).toBe(false);
+      // The battle ran on the board set up above: at most 10 attackers lost (25 down to 15), so 40 defenders hold.
+      const battles = room.history.filter((h) => h.version > version).flatMap((h) => h.events).filter((e) => e.type === 'battle') as { attackerLosses: number; defenderLosses: number }[];
+      expect(battles.length).toBeGreaterThan(0);
+      expect(battles.reduce((n, e) => n + e.attackerLosses, 0)).toBeLessThanOrEqual(10);
       expect(room.state.territories[from].armies).toBeGreaterThanOrEqual(15);
+      expect(room.state.territories[to].armies).toBe(40 - battles.reduce((n, e) => n + e.defenderLosses, 0));
       expect(room.state.territories[to].owner).not.toBe(me.id);
     } finally {
       await client.close();

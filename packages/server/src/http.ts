@@ -16,6 +16,7 @@ export function mapInfo(m: MapDef) {
 import { CHARACTER_DATA_NOTICE, RiskHttpError } from '@risk/mcp';
 import type { GameRoom, RankingBoard, Store } from './store.js';
 import { BOT_KINDS, type BotKind } from './bot.js';
+import { narrate, playByPlayText } from './playbyplay.js';
 import type { CharacterStore } from './characters.js';
 import type { CreateTournamentSpec } from './tournaments.js';
 
@@ -49,6 +50,8 @@ type Req = Request & { room?: GameRoom; playerId?: string | null };
 export interface ApiOptions {
   /** Enables /api/admin/* when set (Authorization: Bearer <token>). */
   adminToken?: string | null;
+  /** Read-only key for /api/records/* (x-records-key); unset turns those routes off. The admin token also works. */
+  recordsKey?: string | null;
   characters?: CharacterStore;
   /** TEMPORARY (testing): POST /tournaments creates a tournament without the admin token. */
   openTournaments?: boolean;
@@ -296,6 +299,36 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
 
   // ---- admin (only when RISK_ADMIN_TOKEN is configured) ----
   const adminToken = opts.adminToken || null;
+  // ---- full game records: read-only, behind the records key (or the admin token); they hold hidden hands ----
+  const recordsKey = opts.recordsKey || null;
+  function requireRecordsKey(req: Request, res: Response, next: NextFunction) {
+    if (!recordsKey) return res.status(403).json({ error: 'Full records are off on this server' });
+    const given = req.headers['x-records-key'];
+    const key = typeof given === 'string' ? given : undefined;
+    if (checkAdmin(recordsKey, key) === 'ok' || checkAdmin(adminToken, tokenOf(req)) === 'ok') return next();
+    res.status(403).json({ error: 'A valid records key is required (x-records-key)' });
+  }
+  api.get(
+    '/records/:id',
+    requireRecordsKey,
+    wrap((req, res) => {
+      const record = store.archive.get(String(req.params.id));
+      if (!record) return res.status(404).json({ error: 'No recorded game with that id' });
+      res.json(record);
+    }),
+  );
+  api.get(
+    '/records/:id/playbyplay',
+    requireRecordsKey,
+    wrap((req, res) => {
+      const record = store.archive.get(String(req.params.id));
+      if (!record) return res.status(404).json({ error: 'No recorded game with that id' });
+      const p = narrate(record);
+      if (req.query.format === 'json') return res.json(p);
+      res.type('text/plain; charset=utf-8').send(playByPlayText(p));
+    }),
+  );
+
   function requireAdmin(req: Request, res: Response, next: NextFunction) {
     const check = checkAdmin(adminToken, tokenOf(req));
     if (check === 'disabled') return res.status(404).json({ error: 'Admin API disabled (set RISK_ADMIN_TOKEN)' });

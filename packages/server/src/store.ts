@@ -24,8 +24,8 @@ import {
   type ScenarioRef,
   type ScenarioSeat,
 } from '@risk/engine';
-import { chooseSeatAction, seatIdPrefix, zergName, type BotKind } from './bot.js';
 import { timeoutSteps, timerOf } from '@risk/engine';
+import { chooseSeatAction, seatIdPrefix, zergName, type BotKind } from './bot.js';
 import { DEFAULT_TOURNAMENT_LIMITS, TournamentManager } from './tournaments.js';
 import { Rankings } from './rankings.js';
 import { DEFAULT_KEEP, GameArchive, type CommitInfo } from './archive.js';

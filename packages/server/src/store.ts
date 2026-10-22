@@ -72,6 +72,8 @@ export interface TurnTimerInfo {
 
 export interface RoomSnapshot {
   characterIds?: Record<string, string>;
+  /** Each seat's self-declared player type ("claude-sonnet-5-5", "delove@10", "bot", "zerg"), shown to spectators only. */
+  agents?: Record<string, string>;
   eliminationOrder?: string[];
   id: string;
   name: string;
@@ -155,6 +157,13 @@ export interface ChangeMessage {
 
 const BOT_DELAY_MS = Number(process.env.RISK_BOT_DELAY_MS ?? 700);
 const MAX_HISTORY = 2000;
+/** A tournament table saves only its newest history entries: the game record already journals the whole game. */
+export const TABLE_SAVED_HISTORY = 500;
+/** Snapshot debounce, and the longer one while many games are being played (each save stringifies every room). */
+export const SAVE_DEBOUNCE_MS = 500;
+export const BUSY_SAVE_DEBOUNCE_MS = 2000;
+/** More rooms than this playing at once counts as busy. */
+export const BUSY_PLAYING_ROOMS = 10;
 const MAX_CHAT = 500;
 
 function fmt(ms: number): string {
@@ -176,6 +185,8 @@ function joinCode(): string {
 
 export class GameRoom extends EventEmitter {
   characterIds: Record<string, string> = {};
+  /** Player-type labels by seat: spectators see them (`spectatorView`); a seated player's view never has them. */
+  agents: Record<string, string> = {};
   eliminationOrder: string[] = [];
   id: string;
   name: string;
@@ -217,6 +228,7 @@ export class GameRoom extends EventEmitter {
     this.setMaxListeners(500);
     this.id = snapshot.id;
     this.characterIds = snapshot.characterIds ?? {};
+    this.agents = snapshot.agents ?? {};
     this.eliminationOrder = snapshot.eliminationOrder ?? snapshot.history.flatMap(h => h.events.filter(e => e.type === 'eliminated').map(e => (e as { player: string }).player));
     this.name = snapshot.name;
     this.hostId = snapshot.hostId;
@@ -238,13 +250,15 @@ export class GameRoom extends EventEmitter {
     return {
       id: this.id,
       characterIds: this.characterIds,
+      ...(Object.keys(this.agents).length ? { agents: this.agents } : {}),
       eliminationOrder: this.eliminationOrder,
       name: this.name,
       hostId: this.hostId,
       state: this.state,
       tokens: Object.fromEntries(this.tokens),
       chat: this.chat,
-      history: this.history,
+      // Tournament tables keep their full history in memory but save only the tail (the record has every move).
+      history: this.tournamentId && this.history.length > TABLE_SAVED_HISTORY ? this.history.slice(-TABLE_SAVED_HISTORY) : this.history,
       updatedAt: this.updatedAt,
       lastActivity: this.lastActivity,
       ...(this.tournamentId ? { tournamentId: this.tournamentId } : {}),
@@ -338,8 +352,18 @@ export class GameRoom extends EventEmitter {
     return id;
   }
 
+  /** The game as a seat (or, with null, an anonymous spectator) sees it, with the turn timer. Never carries player-type labels. */
   view(playerId: PlayerId | null): GameView & { timer: TurnTimerInfo | null } {
     return { ...viewFor(this.state, playerId), timer: this.timerInfo() };
+  }
+
+  /**
+   * The spectator view plus each seat's player-type label (`agent`), with the turn timer. Only for watchers on the web
+   * (HTTP or WebSocket with no seat token); a seated player's view, the MCP and chat never get labels.
+   */
+  spectatorView(): GameView & { timer: TurnTimerInfo | null } {
+    const v = viewFor(this.state, null);
+    return { ...v, players: v.players.map((p) => (this.agents[p.id] ? { ...p, agent: this.agents[p.id] } : p)), timer: this.timerInfo() };
   }
 
   timerInfo(now = Date.now()): TurnTimerInfo | null {
@@ -394,11 +418,17 @@ export class GameRoom extends EventEmitter {
     return this.join(name ?? `Bot ${n}`, true);
   }
 
-  join(name: string, isBot = false, kind: BotKind = 'bot'): { playerId: PlayerId; token: string } {
+  /**
+   * Take a seat. `agent` is the seat's self-declared player type, shown to spectators only. A built-in bot or Zerg is
+   * labelled by the server ("bot", "zerg"), whatever it declares.
+   */
+  join(name: string, isBot = false, kind: BotKind = 'bot', agent?: string): { playerId: PlayerId; token: string } {
     const playerId = seatIdPrefix(isBot ? kind : null) + newId(6);
     const next = addPlayer(this.state, playerId, name, isBot);
     const token = newId(24);
     this.tokens.set(token, playerId);
+    const label = isBot ? kind : agent;
+    if (label) this.agents[playerId] = label;
     if (!isBot) {
       this.touch();
       this.lastSeatSeen = Date.now();
@@ -447,6 +477,9 @@ export class GameRoom extends EventEmitter {
       this.touch();
       this.lastSeatSeen = Date.now();
     }
+    // Whoever plays the seat now: the built-in bot, or someone who has not said what they are.
+    if (bot) this.agents[playerId] = 'bot';
+    else delete this.agents[playerId];
     this.commit(next, [], playerId, { type: 'system', note: bot ? `${playerId} handed to a bot` : `${playerId} taken over` });
   }
 
@@ -829,7 +862,7 @@ export class Store {
     return { gameId: id, room: !!room, result, records };
   }
 
-  create(name: string, options: Partial<GameOptions>, hostName: string, hostIsBot = false, board?: RankingBoard): { room: GameRoom; playerId: PlayerId; token: string } {
+  create(name: string, options: Partial<GameOptions>, hostName: string, hostIsBot = false, board?: RankingBoard, agent?: string): { room: GameRoom; playerId: PlayerId; token: string } {
     let id = joinCode();
     while (this.rooms.has(id)) id = joinCode();
     const state = createGame(id, options);
@@ -845,7 +878,7 @@ export class Store {
       ...(board ? { board } : {}),
     });
     this.attach(room);
-    const { playerId, token } = room.join(hostName, hostIsBot);
+    const { playerId, token } = room.join(hostName, hostIsBot, 'bot', agent);
     room.hostId = playerId;
     this.scheduleSave();
     return { room, playerId, token };
@@ -855,12 +888,13 @@ export class Store {
    * A tournament table: a room nobody hosts (so no seat can close it, kick or add players), seated with
    * the given players in order and started at once. Returns each player's seat in the same order.
    */
-  createTable(name: string, options: Partial<GameOptions>, players: { name: string; isBot: boolean }[], tournamentId: string): { room: GameRoom; seats: { playerId: PlayerId; token: string }[] } {
+  createTable(name: string, options: Partial<GameOptions>, players: { name: string; isBot: boolean; kind?: BotKind; agent?: string }[], tournamentId: string): { room: GameRoom; seats: { playerId: PlayerId; token: string }[] } {
     let id = joinCode();
     while (this.rooms.has(id)) id = joinCode();
     const room = new GameRoom({ id, name, hostId: '', state: createGame(id, options), tokens: {}, chat: [], history: [], updatedAt: Date.now(), tournamentId });
     this.attach(room);
-    const seats = players.map((p) => room.join(p.name, p.isBot));
+    // A Zerg entrant keeps its tournament name (a reptile name, unique in the tournament, so unique at the table).
+    const seats = players.map((p) => room.join(p.name, p.isBot, p.kind ?? 'bot', p.agent));
     room.start();
     this.scheduleSave();
     return { room, seats };
@@ -930,8 +964,9 @@ export class Store {
     return true;
   }
 
-  describePersistence(): string {
-    return this.file ?? 'disabled';
+  /** For the public /healthz: "disk" or "disabled", never the path (it can name a folder on the host). */
+  describePersistence(): 'disk' | 'disabled' {
+    return this.file ? 'disk' : 'disabled';
   }
 
   releaseWaiters() {
@@ -1008,7 +1043,14 @@ export class Store {
     this.saveTimer = setTimeout(() => {
       this.saveTimer = null;
       this.save();
-    }, 500);
+    }, this.saveDelay());
+  }
+
+  /** How long changes wait before a snapshot: longer while more than BUSY_PLAYING_ROOMS games are being played. */
+  saveDelay(): number {
+    let playing = 0;
+    for (const r of this.rooms.values()) if (r.state.phase !== 'lobby' && r.state.phase !== 'finished' && ++playing > BUSY_PLAYING_ROOMS) return BUSY_SAVE_DEBOUNCE_MS;
+    return SAVE_DEBOUNCE_MS;
   }
 
   /** Atomic snapshot: write to a temp file then rename, so a crash mid-write never corrupts the store. */

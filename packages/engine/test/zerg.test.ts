@@ -11,6 +11,7 @@ import {
   startGame,
   territoriesOf,
   zergTarget,
+  strongestZergOf,
   ZERG_1_PARAMS,
   MAPS,
   type GameEvent,
@@ -33,6 +34,8 @@ function hordeGame(seed: number, seats: string[], map: 'classic' | 'skirmish' = 
   const actions: unknown[] = [];
   /** Zerg-on-Zerg attacks made while some non-Zerg was still alive (the alliance phase). */
   let allyHits = 0;
+  /** The strongest Zerg at the moment the last prey fell (it should keep the table). */
+  let keeper: string | null = null;
   let steps = 0;
   while (s.phase !== 'finished' && steps++ < 40_000) {
     const me = s.currentPlayer!;
@@ -43,8 +46,9 @@ function hordeGame(seed: number, seats: string[], map: 'classic' | 'skirmish' = 
     s = r.state;
     events.push(...r.events);
     for (const e of r.events) if (preyAlive && e.type === 'attack' && horde.has(e.attacker) && horde.has(e.defender)) allyHits++;
+    if (preyAlive && !s.players.some((p) => p.alive && !p.isNeutral && !horde.has(p.id))) keeper = strongestZergOf(s, horde);
   }
-  return { state: s, events, actions, horde, allyHits };
+  return { state: s, events, actions, horde, allyHits, keeper };
 }
 
 describe('Zerg horde bot', () => {
@@ -56,24 +60,42 @@ describe('Zerg horde bot', () => {
     }
   });
 
-  it('once the last non-Zerg falls the alliance ends: the Zergs fight each other to one winner, no surrenders', () => {
-    let zergKills = 0;
+  it('once the last non-Zerg falls the strongest Zerg keeps the table: the others surrender at once', () => {
+    let surrendered = 0;
     for (let seed = 1; seed <= 8; seed++) {
-      const { state, events, horde } = hordeGame(seed, ['a', 'z1', 'z2', 'z3']);
+      const { state, events, horde, keeper } = hordeGame(seed, ['a', 'z1', 'z2', 'z3']);
       expect(state.phase).toBe('finished');
-      expect(horde.has(state.winner!)).toBe(true);
       const out = events.filter((e) => e.type === 'eliminated');
       const bot = out.findIndex((e) => e.type === 'eliminated' && e.player === 'a');
       expect(out[bot]).toMatchObject({ by: expect.stringMatching(/^z/) });
-      // After the bot: every Zerg that goes out is knocked out by another Zerg, never a surrender (by: null).
+      // After the bot: every other Zerg goes out by surrender (by: null), never knocked out by a fellow Zerg.
       for (const e of out.slice(bot + 1)) {
-        expect(e.type === 'eliminated' && e.by).toMatch(/^z/);
-        zergKills++;
+        expect(e.type === 'eliminated' && e.by).toBeNull();
+        surrendered++;
       }
-      // One Zerg left standing: the winner.
-      expect(state.players.filter((p) => p.alive && !p.isNeutral).map((p) => p.id)).toEqual([state.winner]);
+      // The winner is the strongest Zerg when the bot fell (most territories, then armies, then seat).
+      expect(state.winner).toBe(keeper);
+      expect(horde.has(state.winner!)).toBe(true);
     }
-    expect(zergKills).toBeGreaterThan(0);
+    expect(surrendered).toBeGreaterThan(0);
+  });
+
+  it('strongest Zerg: most territories, then most armies, then the lowest seat index', () => {
+    let s = createGame('k', { map: 'skirmish', maxPlayers: 3 }, 2);
+    for (const id of ['z1', 'z2', 'z3']) s = addPlayer(s, id, id, true);
+    s = startGame(s).state;
+    const ids = Object.keys(s.territories);
+    const set = (owner: string, n: number, armies: number) => ids.splice(0, n).forEach((t) => ((s.territories[t].owner = owner), (s.territories[t].armies = armies)));
+    set('z1', 8, 1);
+    set('z2', 8, 2);
+    set('z3', ids.length, 1);
+    const horde = new Set(['z1', 'z2', 'z3']);
+    expect(territoriesOf(s, 'z3').length).toBe(8);
+    expect(strongestZergOf(s, horde)).toBe('z2'); // tie on territories, most armies
+    for (const t of territoriesOf(s, 'z2')) s.territories[t].armies = 1;
+    expect(strongestZergOf(s, horde)).toBe('z1'); // full tie (8 territories, 8 armies each): the first seated
+    s.territories[territoriesOf(s, 'z3')[0]].armies = 2;
+    expect(strongestZergOf(s, horde)).toBe('z3'); // one more army breaks the tie
   });
 
   it('plays the same moves for the same random source (self-play depends on it)', () => {
@@ -103,6 +125,9 @@ describe('Zerg judgement numbers', () => {
     // (762 moves). The alliance phase, every move while the bot is alive, was unchanged by that (543 moves,
     // b4ce79d26322fdb7). Updated again on purpose the same day: sacrifice is now 0 in zerg@1 (the owner's "no surrenders"
     // also rules out a walled-in Zerg surrendering mid-game), which changes the alliance phase too (520 moves).
+    // Updated a third time on purpose: the owner replaced the fight with "the strongest Zerg keeps the table, the
+    // others surrender at once", and turned the walled-in sacrifice back on. With the sacrifice on, the alliance phase
+    // is back to the original recording (543 moves, b4ce79d26322fdb7); whole games run 554 moves.
     const out: unknown[] = [];
     const alliance: unknown[] = [];
     for (const seed of [1, 2, 3]) {
@@ -121,13 +146,13 @@ describe('Zerg judgement numbers', () => {
       }
     }
     const hash = (x: unknown) => createHash('sha256').update(JSON.stringify(x)).digest('hex').slice(0, 16);
-    expect(alliance.length).toBe(520);
-    expect(hash(alliance)).toBe('2d3786e3308f3a1b');
-    expect(out.length).toBe(736);
-    expect(hash(out)).toBe('d325b0557613847f');
+    expect(alliance.length).toBe(543);
+    expect(hash(alliance)).toBe('b4ce79d26322fdb7');
+    expect(out.length).toBe(554);
+    expect(hash(out)).toBe('3ff075efe976d8b3');
   });
 
-  it('no Zerg ever surrenders by default; sacrifice: 1 (kept for tests) makes walled-in Zergs surrender mid-game', () => {
+  it('walled-in Zergs feed the swarm by default (sacrifice: 1); with sacrifice: 0 no Zerg surrenders while prey is left', () => {
     const surrenders = (params: typeof ZERG_1_PARAMS) => {
       let n = 0;
       for (const seed of [1, 2, 3]) {
@@ -139,14 +164,16 @@ describe('Zerg judgement numbers', () => {
         for (let i = 0; i < 3000 && s.phase !== 'finished'; i++) {
           const me = s.currentPlayer!;
           const a = horde.has(me) ? chooseZergAction(s, me, horde, random, params)! : chooseBotAction(s, me, random)!;
-          if (a.type === 'surrender' && horde.has(me)) n++;
+          const preyAlive = s.players.some((p) => p.id === 'a' && p.alive);
+          if (a.type === 'surrender' && horde.has(me) && preyAlive) n++;
           s = applyAction(s, me, a).state;
         }
       }
       return n;
     };
-    expect(surrenders(ZERG_1_PARAMS)).toBe(0);
-    expect(surrenders({ ...ZERG_1_PARAMS, sacrifice: 1 })).toBeGreaterThan(0);
+    expect(ZERG_1_PARAMS.sacrifice).toBe(1);
+    expect(surrenders(ZERG_1_PARAMS)).toBeGreaterThan(0);
+    expect(surrenders({ ...ZERG_1_PARAMS, sacrifice: 0 })).toBe(0);
   });
 
   it('each later behaviour changes play when switched on', () => {

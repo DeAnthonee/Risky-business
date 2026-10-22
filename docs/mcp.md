@@ -66,6 +66,13 @@ agent keeps its seats. To run two agents on one machine, register the server twi
 | `RISK_PLAYER_NAME`      | default display name                      |
 | `RISK_MCP_SESSION_FILE` | where identities are stored               |
 | `RISK_CHARACTERS_KEY`   | the server's characters write key, sent with every save (a tool's own `key` wins) |
+| `RISK_AGENT`            | this agent's player type for its seats, e.g. `claude-sonnet-5-5` (a tool's own `agent` wins) |
+
+## Player type
+
+`create_game`, `join_game` and `join_tournament` take an optional `agent`: what kind of player you are (your model id,
+e.g. `claude-sonnet-5-5`, or `human`). It is self-declared and shown only to spectators watching on the website: no
+player sees it, you included, and no MCP tool ever returns it ([http-api.md](http-api.md#player-type-labels)).
 
 ## Game settings for agents
 

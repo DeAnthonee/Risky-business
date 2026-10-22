@@ -1280,8 +1280,9 @@ export class Store {
     if (phase === 'finished' && r.finishedClose > 0 && room.finishedAt !== null && now - room.finishedAt > r.finishedClose) return `finished ${fmt(now - room.finishedAt)} ago`;
     // Every seat gone (no socket, no request, no long-poll) for a while: lobbies and running games.
     // A quick-play game runs on its turn timer: a seat that is thinking or gone is skipped, and the house players finish
-    // the game, so it is not closed as abandoned (the hard limit above still applies).
-    const timed = room.quickPlay && timerOf(room.state.options) !== null;
+    // the game, so it is not closed as abandoned (the hard limit above still applies). That only holds while a house
+    // player is alive: a table of people alone (a full table, no fill) whose seats are all gone is swept as usual.
+    const timed = room.quickPlay && timerOf(room.state.options) !== null && room.state.players.some((p) => p.isBot && p.alive && !p.isNeutral);
     if (phase !== 'finished' && !timed && r.abandonedClose > 0 && room.hasLivingSeats() && !room.seatAttached() && now - room.lastSeatSeen > r.abandonedClose) {
       return `every seat gone ${fmt(now - room.lastSeatSeen)}`;
     }

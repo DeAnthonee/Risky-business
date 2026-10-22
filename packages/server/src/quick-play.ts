@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { MAP_IDS, RuleError, getMap, type GameOptions, type PlayerId } from '@risk/engine';
 import type { BotKind } from './bot.js';
 
@@ -144,6 +144,13 @@ interface Bucket {
 
 /** A seated ticket is kept this long so a late wait still gets its seat. */
 const SEATED_KEPT_MS = 10 * 60_000;
+
+/** Constant-time token check (lengths differ: not equal). */
+function sameToken(a: string, b: string): boolean {
+  const x = Buffer.from(a);
+  const y = Buffer.from(b);
+  return x.length === y.length && timingSafeEqual(x, y);
+}
 
 const keyId = (k: QuickPlayKey) => `${k.map}|${k.seats}|${k.fog ? 1 : 0}`;
 const newId = (bytes: number) => randomBytes(bytes).toString('base64url');
@@ -333,7 +340,7 @@ export class QuickPlayQueue {
   private owned(id: string, token: string | undefined): Ticket | null {
     this.prune();
     const t = this.tickets.get(id);
-    if (!t || !token || t.token !== token) return null;
+    if (!t || !token || !sameToken(t.token, token)) return null;
     t.lastSeen = Date.now();
     return t;
   }

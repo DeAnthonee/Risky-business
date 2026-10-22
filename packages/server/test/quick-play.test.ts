@@ -174,6 +174,18 @@ describe('quick play (POST /api/queue)', () => {
     expect(risk.store.staleReason(room, later)).toMatch(/every seat gone/);
   });
 
+  it('a quick-play table of people alone (no house player) whose seats are all gone is swept as usual', async () => {
+    risk.store.quickPlay.config.waitMs = 60_000;
+    const a = (await join_({ playerName: 'Ada', seats: 2 })).body;
+    const b = (await join_({ playerName: 'Bo', seats: 2 })).body;
+    const room = risk.store.get(b.ticket.gameId)!;
+    expect(a.ticket.ticket).toBeTruthy();
+    expect(room.quickPlay).toBe(true);
+    expect(room.state.players.some((p) => p.isBot)).toBe(false);
+    // Nobody attached for 10 minutes: no house player would ever finish this game, so it is abandoned.
+    expect(risk.store.staleReason(room, Date.now() + 10 * 60_000)).toMatch(/every seat gone/);
+  });
+
   it('reads its settings from RISK_QUICKPLAY_* (bad values keep the defaults)', () => {
     expect(quickPlayConfigFromEnv({})).toEqual(DEFAULT_QUICK_PLAY);
     expect(quickPlayConfigFromEnv({ RISK_QUICKPLAY_WAIT_S: '30', RISK_QUICKPLAY_TIMER_S: '45', RISK_QUICKPLAY_MAX_ROOMS: '5' })).toEqual({ ...DEFAULT_QUICK_PLAY, waitMs: 30_000, timerSeconds: 45, maxRooms: 5 });

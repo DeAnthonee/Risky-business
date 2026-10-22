@@ -66,8 +66,9 @@ def main():
     t = lambda v: torch.tensor([float("-inf") if x is None else x for x in v], dtype=torch.float64)  # noqa: E731 (JSON: -inf as null)
     lg = b.log(torch.tensor(ls, dtype=torch.float64)).cpu()
     gg = -b.log(-b.log(torch.tensor(us, dtype=torch.float64))).cpu()
-    bad2 = [i for i in range(len(ls)) if lg[i].view(torch.int64) != t(lw)[i].view(torch.int64)]
-    bad3 = [i for i in range(len(us)) if gg[i].view(torch.int64) != t(gw)[i].view(torch.int64)]
+    lw_t, gw_t = t(lw), t(gw)  # once: the comparisons are vectorized (200,000 values by default)
+    bad2 = (lg.view(torch.int64) != lw_t.view(torch.int64)).nonzero().flatten().tolist()
+    bad3 = (gg.view(torch.int64) != gw_t.view(torch.int64)).nonzero().flatten().tolist()
     print(f"log: {len(ls) - len(bad2)} of {len(ls)} values bit-identical to Node's Math.log; gumbel: {len(us) - len(bad3)} of {len(us)}")
     for i in bad2[:5]:
         print(f"   log x={ls[i]!r}: node {lw[i]!r}, kernel {float(lg[i])!r}")

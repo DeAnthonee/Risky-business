@@ -121,7 +121,8 @@ request are off: the count is only stored, and an operator joins the seats (`npm
   <firstLabel + 1>" and so on: each entrant is **bound** to the request, at most one per claimed seat. Then it reports
   `POST …/done {joined}` or `POST …/failed {joined, reason}`. A failed claim's unjoined seats go back to the request.
 - **The pool's names are its own** in a tournament with a seat request: any other join named "Delove …" (HTTP, MCP,
-  the site) is refused, so nobody can take or block a pool seat by name. Elsewhere the names stay free, for the
+  the site) is refused, so nobody can take or block a pool seat by name, and nobody can register a player under one
+  (`POST /api/players`). Elsewhere a seat's name stays free, for the
   operator's `npm run delove-seat`.
 - **At the start**, the request closes. Delove seats not filled by then (only entrants bound to the request count)
   become **Zerg entrants**, so the bracket holds.

@@ -74,7 +74,7 @@ query string is ignored) and is 192 random bits (`rk_...`); the server stores on
 
 | route | |
 | --- | --- |
-| `POST /players` | `{name}` → 201 `{playerId, name, createdAt, key}`: the **only** time the key is sent. Names are 2-24 letters, digits, spaces and `. _ ' -`, unique in any case, and may not be an AI character's id or name, a Zerg name (or contain "zerg"), or a server name (`Bot 3`, `Player 2`, `Neutral`...). 400 on a bad name; 429 + `Retry-After` past the limits (`RISK_PLAYER_KEYS_PER_IP_DAY`, `RISK_PLAYER_KEYS_PER_DAY`); 403 when issuing is off |
+| `POST /players` | `{name}` → 201 `{playerId, name, createdAt, key}`: the **only** time the key is sent. Names are 2-24 letters, digits, spaces and `. _ ' -`, unique in any case, and may not be an AI character's id or name, a Zerg name (or contain "zerg"), a server name (`Bot 3`, `Player 2`, `Neutral`...), or a Delove seat-pool name (`Delove`, `Delove 3`). 400 on a bad name; 429 + `Retry-After` past the limits (`RISK_PLAYER_KEYS_PER_IP_DAY`, `RISK_PLAYER_KEYS_PER_DAY`); 403 when issuing is off |
 | `GET /players/me` | key header → `{playerId, name, createdAt}`; 401 without a working key |
 | `POST /players/me/rotate` | key header → `{playerId, name, createdAt, key}`: a new key; the old one stops working at once |
 | `GET /admin/players`, `DELETE /admin/players/:id` | admin: list players (never a key or hash); revoke a player's key (their games and leaderboard rows stay, the name stays taken) |

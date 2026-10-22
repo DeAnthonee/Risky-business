@@ -13,9 +13,9 @@ export interface DisconnectConfig {
   idleFloorMs: number;
 }
 
-export const DEFAULT_DISCONNECT: DisconnectConfig = { timeouts: 2, timerFactor: 2, idleFloorMs: 180_000 };
+export const DEFAULT_DISCONNECT: DisconnectConfig = { timeouts: 1, timerFactor: 1, idleFloorMs: 90_000 };
 
-/** RISK_DISCONNECT_TIMEOUTS (default 2; 0 turns detection off), RISK_DISCONNECT_IDLE_S (the idle floor, default 180). */
+/** RISK_DISCONNECT_TIMEOUTS (default 1; 0 turns detection off), RISK_DISCONNECT_IDLE_S (the idle floor, default 90; owner: "90 seconds seems great"). */
 export function disconnectConfigFromEnv(env: NodeJS.ProcessEnv): DisconnectConfig {
   const int = (name: string, fallback: number) => {
     const v = Number(env[name] ?? '');

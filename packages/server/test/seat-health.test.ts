@@ -35,21 +35,23 @@ function timeOut(ctx: ReturnType<typeof table>, name: string) {
 afterEach(() => vi.useRealTimers());
 
 describe('disconnect thresholds', () => {
-  it('a seat is disconnected after 2 timeouts in a row and max(2 x the move timer, 180 s) of silence; env-tunable', () => {
-    expect(DEFAULT_DISCONNECT).toEqual({ timeouts: 2, timerFactor: 2, idleFloorMs: 180_000 });
-    expect(disconnectIdleMs(30)).toBe(180_000);
-    expect(disconnectIdleMs(120)).toBe(240_000);
+  it('a seat is disconnected after 1 timeout and max(1 x the move timer, 90 s) of silence; env-tunable', () => {
+    // Owner: "Yes 90 seconds seems great": 1 timeout and max(1 x the move timer, 90 s) of silence.
+    expect(DEFAULT_DISCONNECT).toEqual({ timeouts: 1, timerFactor: 1, idleFloorMs: 90_000 });
+    expect(disconnectIdleMs(30)).toBe(90_000);
+    expect(disconnectIdleMs(120)).toBe(120_000);
     expect(disconnectConfigFromEnv({ RISK_DISCONNECT_TIMEOUTS: '3', RISK_DISCONNECT_IDLE_S: '60' })).toMatchObject({ timeouts: 3, idleFloorMs: 60_000 });
   });
 });
 
 describe('dropping a disconnected seat at a tournament table', () => {
-  it('a model that is thinking (any request with its token) is never dropped, however many timeouts', () => {
+  it('a slow model that sends anything inside the 90 s is never dropped, however many timeouts', () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     const ctx = table(['Ann', 'Bob']);
     for (let i = 0; i < 4; i++) {
-      vi.setSystemTime(Date.now() + 5 * 60_000);
-      ctx.room.playerForToken(ctx.seat('Ann').token); // get_state, wait_for_turn, chat...
+      vi.setSystemTime(Date.now() + 85_000);
+      ctx.room.playerForToken(ctx.seat('Ann').token); // get_state, wait_for_turn, chat... within 90 s
+      vi.setSystemTime(Date.now() + 80_000); // its timer runs out: 80 s after that request, inside the window
       timeOut(ctx, 'Ann');
     }
     expect(ctx.entrant('Ann').dropped).toBeUndefined();
@@ -57,16 +59,19 @@ describe('dropping a disconnected seat at a tournament table', () => {
     ctx.store.stopTimers();
   });
 
-  it('one timeout and silence is not enough; a second in a row drops the seat: a Zerg plays it as "<name>-Zerg"', async () => {
+  it('a silent seat is dropped after one timeout: a Zerg plays it as "<name>-Zerg"', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     const ctx = table(['Ann', 'Bob']);
     const risk = createRiskServer(ctx.store, { clientDir: null, sweepIntervalMs: 0 });
     await new Promise<void>((resolve) => risk.server.listen(0, '127.0.0.1', resolve));
     try {
-      vi.setSystemTime(Date.now() + 10 * 60_000);
+      // 89 s of silence and a timeout: not yet (the window is 90 s).
+      ctx.room.playerForToken(ctx.seat('Ann').token);
+      vi.setSystemTime(Date.now() + 89_000);
       timeOut(ctx, 'Ann');
       expect(ctx.entrant('Ann').dropped).toBeUndefined();
-      // A move of Bob's in between does not reset Ann's run; only Ann's own move would.
+      // Past 90 s with nothing from Ann, the next timeout drops the seat.
+      vi.setSystemTime(Date.now() + 2_000);
       timeOut(ctx, 'Ann');
       const seat = ctx.room.state.players.find((p) => p.id === ctx.seat('Ann').playerId)!;
       expect(seat).toMatchObject({ name: 'Ann-Zerg', isBot: true });
@@ -110,7 +115,6 @@ describe('dropping a disconnected seat at a tournament table', () => {
     const ctx = { store, t, m, room, seat: (n: string) => m.seats[n === 'Ann' ? ann : n === 'Bob' ? bob : zerg.entrantId], entrant: (n: string) => t.entrants.find((e) => e.id === (n === 'Ann' ? ann : bob))! } as unknown as ReturnType<typeof table>;
     vi.setSystemTime(Date.now() + 10 * 60_000);
     timeOut(ctx, 'Ann');
-    timeOut(ctx, 'Ann');
     const standIn = room.state.players.find((p) => p.id === m.seats[ann].playerId)!;
     expect(standIn.name).toBe('Annabelle Featherst-Zerg'); // 19 + "-Zerg" = 24
     expect(standIn.name.length).toBeLessThanOrEqual(24);
@@ -142,7 +146,6 @@ describe('dropping a disconnected seat at a tournament table', () => {
     const ctx = table(['Ann', 'Bob', 'Cat']);
     vi.setSystemTime(Date.now() + 10 * 60_000);
     timeOut(ctx, 'Ann');
-    timeOut(ctx, 'Ann');
     expect(ctx.entrant('Ann').dropped).toBeDefined();
     // Bob goes out first, then Cat: Ann's stand-in wins the game.
     for (const name of ['Bob', 'Cat']) ctx.room.act(ctx.seat(name).playerId, { type: 'surrender' });
@@ -169,7 +172,6 @@ describe('the Delove seat pool takes a dropped seat over (step B)', () => {
       return { status: res.status, body: (await res.json()) as any };
     };
     vi.setSystemTime(Date.now() + 10 * 60_000);
-    timeOut(ctx, 'Ann');
     timeOut(ctx, 'Ann');
     const seat = () => ctx.room.state.players.find((p) => p.id === ctx.seat('Ann').playerId)!;
     expect(seat()).toMatchObject({ name: 'Ann-Zerg', isBot: true });
@@ -222,7 +224,6 @@ describe('the Delove seat pool takes a dropped seat over (step B)', () => {
       await call('POST', `/seat-requests/${req.id}/claim`, {});
       expect(seat()).toMatchObject({ name: 'Ann-Delove', isBot: false });
       vi.setSystemTime(Date.now() + 10 * 60_000);
-      timeOut(ctx, 'Ann');
       timeOut(ctx, 'Ann');
       expect(seat()).toMatchObject({ name: 'Ann-Zerg', isBot: true });
       expect((await call('GET', '/seat-requests?modes=takeover')).body.requests).toEqual([]);

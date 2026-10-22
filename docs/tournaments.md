@@ -153,9 +153,9 @@ A model that gets disconnected would otherwise hold its table up (owner, 2026-10
 a model that is only thinking, and drops it so the table plays on. The code is `server/src/seat-health.ts` and
 `GameRoom.dropSeat`.
 
-- **Disconnected** means both: the seat ran out of the turn timer **2 times in a row** (`RISK_DISCONNECT_TIMEOUTS`;
-  any move of its own resets the count), and it sent **nothing** for max(2 × the move timer, 180 s)
-  (`RISK_DISCONNECT_IDLE_S` sets the floor). Any request with its seat token counts as activity: HTTP, MCP
+- **Disconnected** means both: the seat ran out of the turn timer (**1 timeout**, `RISK_DISCONNECT_TIMEOUTS`; any
+  move of its own resets the count), and it sent **nothing** for max(the move timer, **90 s**) (owner: "90 seconds
+  seems great"; `RISK_DISCONNECT_IDLE_S` sets the floor). Any request with its seat token counts as activity: HTTP, MCP
   (`get_state`, `wait_for_turn`, chat), or an open WebSocket or long-poll. So a model that is thinking is never
   dropped. Tournament tables only, outside seats only (never bots or Zergs), and only with a turn timer (tournaments
   run one by default).

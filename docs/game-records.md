@@ -133,6 +133,13 @@ mid-way when a player surrendered (its territories go to a neutral). `outcome.el
 when it is wiped out. Records filed before #124 can carry an extra `"neutral"` id in `placings` after a surrender;
 read places by seat (the archive index's `players[].place`) or by finishing order rather than by position.
 
+### Coach notes
+
+A quick-play game whose seats were coached through the live coach channel carries the notes as private notes in an
+optional top-level `coach`: `[{player, at, version, text}]`, in the order sent (`version` is the game state's version
+when the note was sent). Additive: `RECORD_VERSION` stays 1. Like everything in a record, they are served to the admin
+and the records key only, never in `/history` or anywhere public.
+
 ### Decided on standing
 
 A nested tournament table still playing when its round ends is stopped and decided on standing

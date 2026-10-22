@@ -33,6 +33,7 @@ import { chooseSeatAction, isZergSeat, seatIdPrefix, zergName, type BotKind } fr
 import { DEFAULT_TOURNAMENT_LIMITS, TournamentManager, type TournamentClock, type TournamentTableRef } from './tournaments.js';
 import { QuickPlayQueue, quickPlayConfigFromEnv } from './quick-play.js';
 import { PlayerKeyStore, playerKeyConfigFromEnv } from './player-keys.js';
+import { CoachLog } from './coach.js';
 import { TournamentRankings } from './tournament-scoring.js';
 import type { TournamentScheduler } from './tournament-schedule.js';
 import { SwarmSum, ZergTally, zergReport, type SwarmTotal, type ZergReport } from './zerg-report.js';
@@ -128,6 +129,8 @@ export interface RoomSnapshot {
   quickPlay?: true;
   /** Seats joined with a player key: player id -> registered player id (player-keys.ts). Never the key itself. */
   playerKeys?: Record<string, string>;
+  /** Live coach notes (quick play, coach.ts). */
+  coachNotes?: import('@risk/engine').RecordCoachNote[];
 }
 
 /** The leaderboard a room's result goes to when it is not the public one (see docs/character-league.md). */
@@ -250,6 +253,8 @@ export class GameRoom extends EventEmitter {
   characterIds: Record<string, string> = {};
   /** Seats joined with a player key: player id -> registered player id. They rank as `key:<registered id>`. */
   playerKeys: Record<string, string> = {};
+  /** Live coach notes, quick play only (coach.ts): each seat sees its own, nobody else does. */
+  coach = new CoachLog();
   /** Player-type labels by seat: spectators see them (`spectatorView`); a seated player's view never has them. */
   agents: Record<string, string> = {};
   eliminationOrder: string[] = [];
@@ -303,6 +308,7 @@ export class GameRoom extends EventEmitter {
     this.id = snapshot.id;
     this.characterIds = snapshot.characterIds ?? {};
     this.playerKeys = snapshot.playerKeys ?? {};
+    this.coach = new CoachLog(snapshot.coachNotes ?? []);
     this.agents = snapshot.agents ?? {};
     this.eliminationOrder = snapshot.eliminationOrder ?? snapshot.history.flatMap(h => h.events.filter(e => e.type === 'eliminated').map(e => (e as { player: string }).player));
     this.name = snapshot.name;
@@ -329,6 +335,7 @@ export class GameRoom extends EventEmitter {
       id: this.id,
       characterIds: this.characterIds,
       ...(Object.keys(this.playerKeys).length ? { playerKeys: this.playerKeys } : {}),
+      ...(this.coach.notes.length ? { coachNotes: this.coach.notes } : {}),
       ...(Object.keys(this.agents).length ? { agents: this.agents } : {}),
       eliminationOrder: this.eliminationOrder,
       name: this.name,
@@ -455,8 +462,24 @@ export class GameRoom extends EventEmitter {
   }
 
   /** The game as a seat (or, with null, an anonymous spectator) sees it, with the turn timer. Never carries player-type labels. */
-  view(playerId: PlayerId | null): GameView & { timer: TurnTimerInfo | null; decidedAt?: number } {
-    return { ...viewFor(this.state, playerId), timer: this.timerInfo(), ...this.decidedField() };
+  view(playerId: PlayerId | null): GameView & { timer: TurnTimerInfo | null; decidedAt?: number; coach?: { text: string; at: number }[] } {
+    // A seat's own coach notes (quick play), in its view only: never the spectators' or another seat's.
+    const coach = playerId && this.quickPlay ? this.coach.shown(playerId) : [];
+    return { ...viewFor(this.state, playerId), timer: this.timerInfo(), ...this.decidedField(), ...(coach.length ? { coach } : {}) };
+  }
+
+  /**
+   * A coach note for `playerId` from the person who owns the seat (checked by the caller with their player key): quick
+   * play only, while the seat is in a running game. Saved with the room; the seat sees it in its next view.
+   */
+  addCoachNote(playerId: PlayerId, text: unknown, now = Date.now()) {
+    if (!this.quickPlay) throw new RuleError('Coaching is for quick-play games only');
+    const seat = this.state.players.find((p) => p.id === playerId);
+    if (!seat || !seat.alive || this.state.phase === 'lobby' || this.state.phase === 'finished' || this.decidedAt !== null)
+      throw new RuleError('That seat is not playing right now');
+    const note = this.coach.add(playerId, text, this.state.version, now);
+    this.emit('coach', note);
+    return note;
   }
 
   /** `decidedAt` for views and summaries, only on a table decided on standing. */
@@ -1019,6 +1042,7 @@ export class Store {
       this.scheduleSave();
     });
     room.on('chat', () => this.scheduleSave());
+    room.on('coach', () => this.scheduleSave());
   }
 
   /**

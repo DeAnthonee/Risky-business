@@ -253,12 +253,21 @@ async function child(): Promise<void> {
   const decisionsMs: number[] = [];
   const t0 = performance.now();
   const cpu0 = process.cpuUsage();
+  // Every minute, how this process keeps up so far (a run stopped early still tells it; live, an operator sees it).
+  const every = Number(process.env.DELOVE_SEAT_REPORT_MS ?? 60_000);
+  const timer = setInterval(() => {
+    const l = latencySummary(decisionsMs);
+    const c = process.cpuUsage(cpu0);
+    log(`process ${process.pid} so far: ${l.decisions} decisions, ms p50 ${l.p50} p90 ${l.p90} max ${l.max}; CPU ${Math.round((100 * (c.user + c.system)) / 1000 / Math.max(1, performance.now() - t0))}%`);
+  }, every);
+  timer.unref();
   const results = await Promise.all(
     job.entrants.map((e, i) =>
       playEntrant({ api, tournamentId: job.tournamentId, entrantToken: e.token, name: e.name, agent: agents.get(e.agentId)!, paceMs: job.pace, log,
         random: seededRandom((Date.now() + i * 7919) >>> 0), onDecision: (ms) => decisionsMs.push(ms) }),
     ),
   );
+  clearInterval(timer);
   const cpu = process.cpuUsage(cpu0);
   const report: ChildReport = { pid: process.pid, results, decisionsMs, cpuMs: (cpu.user + cpu.system) / 1000, wallMs: performance.now() - t0 };
   process.send!(report, () => process.exit(0));

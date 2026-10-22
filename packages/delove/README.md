@@ -85,8 +85,8 @@ npm run delove-seat -- --server https://risky.deanthoneeking.com --tournament AB
   next, until it is out or the tournament is over. The host starts the tournament as usual.
 - **Processes:** a Node process makes one decision at a time (a search blocks it), so the entrants are spread over
   `--procs` child processes (default min(6, N)), each loading its models once. The decisions of one process wait on
-  each other: keep entrants per process low enough for the turn timer (the end-of-run report gives each process's
-  decision latency p50 / p90 / max and its CPU use).
+  each other: keep entrants per process low enough for the turn timer. Each process logs its decision latency
+  (p50 / p90 / max) and CPU use so far every minute (`DELOVE_SEAT_REPORT_MS`), and the end-of-run report sums them up.
 - **Restarts:** every wait re-reads the tournament with the entrant token after a break (a server restart, a dropped
   connection), and each table re-attaches as the seat player does; a move refused because the state moved on (a turn
   timer skip) is dropped and the seat acts on the fresh state. `--tokens FILE` keeps the entrant tokens, so a runner

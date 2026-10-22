@@ -113,8 +113,10 @@ export function chooseZergAction(
 
   const prey = preyOf(state, horde);
   // No prey left: the strongest Zerg keeps the table and every other Zerg surrenders at once (the owner's rule: Zerg
-  // has its own agenda, and it ends the game quickly). The strongest keeps playing as an ally until it stands alone.
-  if (prey.length === 0 && state.phase !== 'setup' && state.phase !== 'capitals' && strongestZergOf(state, horde) !== me) {
+  // has its own agenda, and it ends the game quickly). The strongest keeps playing as an ally until it stands alone. A
+  // Zerg that has just taken the last prey territory occupies it first (the occupy below), so it never surrenders with
+  // its own conquest left empty.
+  if (prey.length === 0 && !state.pendingConquest && state.phase !== 'setup' && state.phase !== 'capitals' && strongestZergOf(state, horde) !== me) {
     return { type: 'surrender' };
   }
 

@@ -1,5 +1,5 @@
 import { chooseBotAction, chooseZergAction, ZERG_2_PARAMS, type Action, type PlayerId } from '@risk/engine';
-import { listenFeatures } from './features.js';
+import { listenFeatures, secondOrderFeatures } from './features.js';
 import type { TalkSeat, TalkView, Speech } from './game.js';
 import { predict, type ListenerModel } from './listener.js';
 
@@ -18,6 +18,18 @@ export const heuristicBelief: Belief = (view, target) => {
   const hitHorde = view.battles.some((b) => b.attacker === target && (b.defender === view.me || (claimers.has(b.defender) && b.defender !== target)));
   return hitHorde ? 0.1 : 0.9;
 };
+
+/**
+ * A stacked belief: the first-order listener's belief in every seat, then the second-order listener over the target's
+ * first-order features plus how its battles split between believed Zergs and the rest.
+ */
+export function stackedBelief(first: ListenerModel, second: ListenerModel): Belief {
+  return (view, target) => {
+    const p1 = (seat: PlayerId) => predict(first, listenFeatures(view.me, seat, view.chat, view.battles, view.state.round));
+    const x1 = listenFeatures(view.me, target, view.chat, view.battles, view.state.round);
+    return predict(second, [...x1, ...secondOrderFeatures(view.me, target, view.battles, view.state.round, p1)]);
+  };
+}
 
 /** The trained listener as a belief. */
 export function modelBelief(model: ListenerModel): Belief {

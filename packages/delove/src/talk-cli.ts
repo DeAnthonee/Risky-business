@@ -3,10 +3,10 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { parseArgs } from 'node:util';
 import { gameSeed, seededRandom } from '@risk/selfplay';
-import { listenFeatures } from './talk/features.js';
+import { FEATURE_NAMES, listenFeatures, SECOND_ORDER_NAMES, secondOrderFeatures } from './talk/features.js';
 import { playTalkGame, type Role, type TalkGameResult, type TalkSeat } from './talk/game.js';
 import { auc, predict, trainListener, type Example, type ListenerModel } from './talk/listener.js';
-import { heuristicBelief, impostorSeat, modelBelief, plainSeat, zergSeat, type Belief } from './talk/roles.js';
+import { heuristicBelief, impostorSeat, modelBelief, plainSeat, stackedBelief, zergSeat, type Belief } from './talk/roles.js';
 import { visibleTo } from './talk/vocab.js';
 
 /**
@@ -21,8 +21,11 @@ import { visibleTo } from './talk/vocab.js';
  *    and the true role. Train the listener (logistic regression).
  * 3. Held-out test: tables with the `mimic` impostor the listener never saw (it acts like a Zerg for 4 rounds, then
  *    betrays). AUC overall, Zerg vs impostor only, by round; against the heuristic.
- * 4. Play: the same held-out tables with the Zergs' belief from the heuristic, the trained listener, and the truth
- *    (an upper bound). Infighting share, hits on impostors, horde wins, turn limits.
+ * 4. Play: the same held-out tables with the Zergs' belief from the heuristic, the trained listener, the second-order
+ *    (stacked) listener, and the truth (an upper bound). Infighting share, hits on impostors, horde wins, turn limits.
+ * 5. Recognition scored on-policy (games where the Zergs act on that listener) and teacher-forced (they act on the
+ *    true roles). Step 3's test uses heuristic-acting Zergs, whose infighting makes true Zergs look like impostors:
+ *    keep it only for comparison; the gate reads the on-policy AUC.
  * Output: one JSON line on stdout, a summary on stderr. The model file is local only (hard rule 13).
  */
 
@@ -63,7 +66,11 @@ interface Row extends Example {
   targetRole: Role;
 }
 
-function rows(games: readonly TalkGameResult[]): Row[] {
+/**
+ * The listening rows. With `first` (a first-order listener), each row also carries the second-order features: the
+ * target's battles split by the observer's first-order belief in each defender at that round.
+ */
+function rows(games: readonly TalkGameResult[], first?: ListenerModel): Row[] {
   const out: Row[] = [];
   for (const g of games) {
     const outRound = new Map(g.eliminated.map((e) => [g.ids[e.seat], e.round]));
@@ -77,7 +84,12 @@ function rows(games: readonly TalkGameResult[]): Row[] {
         const battles = g.battles.filter((b) => b.round <= round);
         for (let j = 0; j < g.ids.length; j++) {
           if (j === o || (outRound.get(g.ids[j]) ?? Infinity) <= round) continue;
-          out.push({ x: listenFeatures(me, g.ids[j], chat, battles, round), y: g.roles[j] === 'zerg' ? 1 : 0, round, targetRole: g.roles[j] });
+          const x = listenFeatures(me, g.ids[j], chat, battles, round);
+          if (first) {
+            const p1 = (seat: string) => predict(first, listenFeatures(me, seat, chat, battles, round));
+            x.push(...secondOrderFeatures(me, g.ids[j], battles, round, p1));
+          }
+          out.push({ x, y: g.roles[j] === 'zerg' ? 1 : 0, round, targetRole: g.roles[j] });
         }
       }
     }
@@ -152,42 +164,68 @@ async function main() {
   // games where the Zergs act on the previous listener, and retrains on everything (DAgger-style).
   const truth = (ids: Set<string>): Belief => (_v, j) => (ids.has(j) ? 1 : 0);
   const trainGames = Number(values['train-games']);
-  let trainRows = rows(play('train', trainGames, seed, truth));
+  const trainSet = play('train', trainGames, seed, truth);
+  let trainRows = rows(trainSet);
   let model: ListenerModel = trainListener(trainRows);
   const iterationAuc: unknown[] = [];
   for (let it = 1; it < Number(values.iterations); it++) {
     const m = model;
-    trainRows = trainRows.concat(rows(play('train', trainGames, seed + 31 * it, () => modelBelief(m))));
+    const more = play('train', trainGames, seed + 31 * it, () => modelBelief(m));
+    trainSet.push(...more);
+    trainRows = trainRows.concat(rows(more));
     model = trainListener(trainRows);
     iterationAuc.push({ iteration: it, rows: trainRows.length });
   }
+  // Second order: the same games, each row extended by how the target's battles split by the first listener's belief.
+  const second = trainListener(rows(trainSet, model), 400, 0.5, 1e-3, [...FEATURE_NAMES, ...SECOND_ORDER_NAMES]);
   if (values.out) {
     mkdirSync(dirname(values.out), { recursive: true });
-    writeFileSync(values.out, JSON.stringify(model, null, 2) + '\n');
+    writeFileSync(values.out, JSON.stringify({ first: model, second }, null, 2) + '\n');
   }
   const test = play('test', Number(values['test-games']), seed + 7919, () => heuristicBelief);
   const testRows = rows(test);
+  const secondAuc = aucs(rows(test, model), (x) => predict(second, x));
   const heuristicScore = (x: number[]) => (x[0] === 1 ? (x[13] > 0 || x[11] > 0 ? 0.1 : 0.9) : 0.1);
   const listenerAuc = aucs(testRows, (x) => predict(model, x));
   const heuristicAuc = aucs(testRows, heuristicScore);
   const playGames = Number(values['play-games']);
   const playHeuristic = hordeStats(play('test', playGames, seed + 104729, () => heuristicBelief));
-  const playListener = hordeStats(play('test', playGames, seed + 104729, () => modelBelief(model)));
-  const playTruth = hordeStats(play('test', playGames, seed + 104729, truth));
-  const weights = Object.fromEntries(model.features.map((f, i) => [f, Math.round(model.weights[i] * 100) / 100]));
+  const listenerGames = play('test', playGames, seed + 104729, () => modelBelief(model));
+  const secondGames = play('test', playGames, seed + 104729, () => stackedBelief(model, second));
+  const truthGames = play('test', playGames, seed + 104729, truth);
+  const playListener = hordeStats(listenerGames);
+  const playSecond = hordeStats(secondGames);
+  const playTruth = hordeStats(truthGames);
+  // On-policy AUC: each listener scored on games where the Zergs act on that same listener. Teacher-forced AUC: on games
+  // where they act on the true roles, so a real Zerg's behaviour is clean (the listener's discrimination by itself).
+  const onPolicy = {
+    listener: aucs(rows(listenerGames), (x) => predict(model, x)),
+    second: aucs(rows(secondGames, model), (x) => predict(second, x)),
+  };
+  const teacherForced = {
+    listener: aucs(rows(truthGames), (x) => predict(model, x)),
+    second: aucs(rows(truthGames, model), (x) => predict(second, x)),
+  };
+  const weights = Object.fromEntries(second.features.map((f, i) => [f, Math.round(second.weights[i] * 100) / 100]));
   const result = {
     seconds: (Date.now() - t0) / 1000,
     trainRows: trainRows.length,
     iterations: iterationAuc,
     testRows: testRows.length,
     listenerAuc,
+    secondAuc,
     heuristicAuc,
-    play: { heuristic: playHeuristic, listener: playListener, truth: playTruth },
+    onPolicy,
+    teacherForced,
+    play: { heuristic: playHeuristic, listener: playListener, second: playSecond, truth: playTruth },
     weights,
   };
   console.log(JSON.stringify(result));
   console.error(`listener AUC (held-out mimic impostors): all ${listenerAuc.all}, Zerg vs impostor ${listenerAuc.zergVsImpostor} (heuristic ${heuristicAuc.all} / ${heuristicAuc.zergVsImpostor})`);
+  console.error(`second-order AUC: all ${secondAuc.all}, Zerg vs impostor ${secondAuc.zergVsImpostor}, by round ${JSON.stringify(secondAuc.zergVsImpostorByRound)}`);
   console.error(`  by round, Zerg vs impostor: listener ${JSON.stringify(listenerAuc.zergVsImpostorByRound)} heuristic ${JSON.stringify(heuristicAuc.zergVsImpostorByRound)}`);
+  console.error(`on-policy Zerg vs impostor: listener ${onPolicy.listener.zergVsImpostor} ${JSON.stringify(onPolicy.listener.zergVsImpostorByRound)}, second ${onPolicy.second.zergVsImpostor} ${JSON.stringify(onPolicy.second.zergVsImpostorByRound)}`);
+  console.error(`teacher-forced Zerg vs impostor: listener ${teacherForced.listener.zergVsImpostor} ${JSON.stringify(teacherForced.listener.zergVsImpostorByRound)}, second ${teacherForced.second.zergVsImpostor} ${JSON.stringify(teacherForced.second.zergVsImpostorByRound)}`);
   for (const [k, v] of Object.entries(result.play)) console.error(`play ${k.padEnd(9)} ${JSON.stringify(v)}`);
 }
 

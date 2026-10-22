@@ -74,3 +74,21 @@ describe('talking tables (learned Zerg, stages 0-1)', () => {
     expect(auc(s, data.map((e) => e.y))).toBeGreaterThan(0.95);
   });
 });
+
+describe('second-order listening features', () => {
+  it('split the target\'s battles by the observer\'s belief in each defender (the observer counts as a believed Zerg)', async () => {
+    const { secondOrderFeatures } = await import('../src/talk/features.js');
+    const battles = [
+      { attacker: 's3', defender: 's0', attackerLosses: 0, defenderLosses: 2, turn: 1, round: 1 },
+      { attacker: 's3', defender: 's1', attackerLosses: 1, defenderLosses: 1, turn: 2, round: 1 },
+      { attacker: 's3', defender: 's2', attackerLosses: 1, defenderLosses: 1, turn: 3, round: 3 },
+    ];
+    const p = (seat: string) => (seat === 's1' ? 0.8 : 0.1);
+    const [believed, unbelieved, share, recentBelieved, recentShare] = secondOrderFeatures('s0', 's3', battles, 3, p);
+    expect(believed).toBeCloseTo(Math.log1p(1 + 0.8 + 0.1));
+    expect(unbelieved).toBeCloseTo(Math.log1p(0 + 0.2 + 0.9));
+    expect(share).toBeCloseTo(1.9 / (1.9 + 1.1 + 1));
+    expect(recentBelieved).toBeCloseTo(Math.log1p(0.1));
+    expect(recentShare).toBeCloseTo(0.1 / 2);
+  });
+});

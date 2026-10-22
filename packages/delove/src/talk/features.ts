@@ -94,3 +94,29 @@ export function listenFeatures(observer: PlayerId, target: PlayerId, chat: reado
   };
   return FEATURE_NAMES.map((k) => f[k]);
 }
+
+/**
+ * Second-order listening features: how the target's battles split between seats the observer *believes* are Zergs
+ * and the rest, given a first-order belief `p` (another listener's output). "Claimers" lump impostors in with real
+ * Zergs; a true Zerg attacks claimers it believes are impostors, an impostor attacks claimers that really are Zergs.
+ * The observer counts as a believed Zerg (it knows its own role). Totals and the last two rounds.
+ */
+export const SECOND_ORDER_NAMES = ['believed_hits', 'unbelieved_hits', 'share_believed', 'recent_believed_hits', 'recent_share_believed'] as const;
+
+export function secondOrderFeatures(observer: PlayerId, target: PlayerId, battles: readonly BattleRecord[], round: number, p: (seat: PlayerId) => number): number[] {
+  let believed = 0;
+  let unbelieved = 0;
+  let recentBelieved = 0;
+  let recentAll = 0;
+  for (const b of battles) {
+    if (b.attacker !== target) continue;
+    const w = b.defender === observer ? 1 : p(b.defender);
+    believed += w;
+    unbelieved += 1 - w;
+    if (b.round >= round - 1) {
+      recentBelieved += w;
+      recentAll += 1;
+    }
+  }
+  return [l(believed), l(unbelieved), believed / (believed + unbelieved + 1), l(recentBelieved), recentBelieved / (recentAll + 1)];
+}

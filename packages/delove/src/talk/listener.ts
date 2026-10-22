@@ -28,15 +28,15 @@ export function predict(model: ListenerModel, x: readonly number[]): number {
 }
 
 /** Full-batch gradient descent with L2, on standardised features. Deterministic. */
-export function trainListener(data: readonly Example[], epochs = 400, lr = 0.5, l2 = 1e-3): ListenerModel {
-  const d = FEATURE_NAMES.length;
+export function trainListener(data: readonly Example[], epochs = 400, lr = 0.5, l2 = 1e-3, names: readonly string[] = FEATURE_NAMES): ListenerModel {
+  const d = names.length;
   const n = Math.max(1, data.length);
   const mean = new Array<number>(d).fill(0);
   const std = new Array<number>(d).fill(0);
   for (const e of data) for (let i = 0; i < d; i++) mean[i] += e.x[i] / n;
   for (const e of data) for (let i = 0; i < d; i++) std[i] += (e.x[i] - mean[i]) ** 2 / n;
   for (let i = 0; i < d; i++) std[i] = Math.sqrt(std[i]) || 1;
-  const model: ListenerModel = { version: 1, features: FEATURE_NAMES, mean, std, weights: new Array<number>(d).fill(0), bias: 0 };
+  const model: ListenerModel = { version: 1, features: names, mean, std, weights: new Array<number>(d).fill(0), bias: 0 };
   const xs = data.map((e) => e.x.map((v, i) => (v - mean[i]) / std[i]));
   for (let epoch = 0; epoch < epochs; epoch++) {
     const g = new Array<number>(d).fill(0);

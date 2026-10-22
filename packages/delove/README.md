@@ -545,22 +545,32 @@ The first steps of the learned Zerg (docs/zergs.md §7: chat and deduction, no s
 npm run delove:talk -- --train-games 600 --test-games 300 --play-games 300 --iterations 3 --out models/delove/listener@0.json
 ```
 
-First results (2026-10-22, classic 4-5p, 2 Zergs, single process, about 2 min):
+First results (2026-10-22, classic 4-5p, 2 Zergs, 300 games per arm, single process, a few minutes):
 
-| belief the Zergs act on | Zerg vs held-out mimic AUC (round 6+) | infighting | horde wins | turn limits |
+| belief the Zergs act on | horde wins | infighting | hits on the impostor | turn limits |
 | --- | --- | --- | --- | --- |
-| rule: "claimed and hasn't hit me or a claimer" | 0.46 (0.50) | 23% | 76% | 0/300 |
-| listener v0 (teacher forcing, 3 iterations) | 0.47 (0.54) | 20% | 90% | 6/300 |
-| the true roles (upper bound) | n/a | 0% | 99% | 0/300 |
+| rule: "claimed and hasn't hit me or a claimer" | 76% | 23% | 38% | 0/300 |
+| listener v0 (teacher forcing, 3 iterations) | 90% | 20% | 62% | 6/300 |
+| second-order listener (stacked) | 86% | 19% | 47% | 4/300 |
+| the true roles (upper bound) | 99% | 0% | 46% | 0/300 |
 
-- What works: the listener makes the horde far stronger than the rule (90% vs 76% wins), and its Zergs hit the
-  impostor in 62% of their battles.
-- What doesn't yet: the held-out mimic still fools it (AUC about 0.5, against the ≥0.75 gate), and infighting is above
-  the owner's 5-15% band.
-  - The cause: "claimers" lumps impostors in with real Zergs, so attacking a claimer is ambiguous (true Zergs rightly
-    attack claiming impostors too).
-  - Next: second-order features (attacks on seats *I* currently believe are Zergs), the recurrent head, and a learned
-    speaking head.
+Recognition, Zerg vs the held-out `mimic` impostor (AUC; 0.5 = chance, gate ≥ 0.75 by round 5):
+
+| scored on | rounds 1-2 | rounds 3-5 | round 6+ | all |
+| --- | --- | --- | --- | --- |
+| on-policy: games where the Zergs act on that listener | 0.63 | 0.83 | 0.94 | 0.87 |
+| teacher-forced: games where the Zergs act on the true roles | 0.60 | 0.90 | 1.00 | 0.93 |
+| second-order listener, on-policy | 0.57 | 0.72 | 0.90 | 0.78 |
+
+- The listener v0 passes the recognition gate on-policy: 0.83 by rounds 3-5, 0.94 from round 6, against an impostor
+  it never trained on. Rounds 1-2 can't be much better, since the mimic acts exactly like a Zerg until round 4.
+- Score a listener on-policy (or teacher-forced), not on games where the Zergs act on the rule. There, a Zerg that
+  rightly attacks a claiming impostor looks like a traitor to its fellow Zerg, the rule makes them fight each other
+  (23% infighting), and true Zergs end up behaving like impostors: that test gave about 0.47 for every listener.
+- The second-order listener (battles split by the first listener's belief) is no better, so the listener v0 stays
+  the default.
+- Still open: infighting is 20%, above the owner's 5-15% band. Next: the recurrent head, then the learned speaking
+  head and the team-spirit reward (stage 2 on T4's league, #297).
 - The model file stays local (hard rule 13).
 
 ### The searching Zerg (`zerg-branch@1`)

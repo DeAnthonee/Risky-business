@@ -261,8 +261,9 @@ ally list and no server flag in the model's inputs. Allies are a belief the mode
   ally rule in the engine: a learned Zerg *can* attack anyone. Until it passes its gates, live Zerg seats keep playing
   `zerg@2`.
 - **Status:** stages 0-1 are built: talking tables, scripted roles and the listener v0 (`npm run delove:talk`, with
-  first results in packages/delove/README.md). The held-out impostor still fools the listener (AUC about 0.5); the
-  recurrent head and the learned speaking head are next.
+  first results in packages/delove/README.md). Scored on-policy, the listener tells true Zergs from a held-out
+  impostor with AUC 0.83 by rounds 3-5 and 0.94 from round 6 (gate 0.75), and the horde wins 90% of its games.
+  Infighting (20%) is still above the 5-15% band; the recurrent head and the learned speaking head are next.
 - **The model.** A Delove network warm-started from the current best, with three parts:
   1. **Action policy:** the Delove net plus belief inputs (for each seat: how likely it is a Zerg, and whether it
      spoke), added with zero-initialised weights the way the fog inputs were, so it starts out playing like its parent.

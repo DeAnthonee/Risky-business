@@ -24,7 +24,18 @@ function ago(at: number, now: number): string {
  * refreshes whenever the tournament changes (the /wait long-poll), and stops once registration closes. `hostToken`:
  * this browser's host token; without it (open mode) the server answers anyone.
  */
-export function HostEntrants({ id, hostToken, onView }: { id: string; hostToken?: string; onView?: (v: HostEntrantsView) => void }) {
+export function HostEntrants({
+  id,
+  hostToken,
+  onView,
+  onPick,
+}: {
+  id: string;
+  hostToken?: string;
+  onView?: (v: HostEntrantsView) => void;
+  /** Nested tournaments: a click on a name finds that entrant on the globe. */
+  onPick?: (entrantId: string) => void;
+}) {
   const [view, setView] = useState<HostEntrantsView | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now());
@@ -93,7 +104,13 @@ export function HostEntrants({ id, hostToken, onView }: { id: string; hostToken?
           {view.entrants.map((e) => (
             <li key={e.id} className="ticket">
               <span className="ticket-stamp">{e.kind === 'agent' && e.agent ? e.agent : KIND[e.kind]}</span>
-              <span className="he-name">{e.name}</span>
+              {onPick ? (
+                <button type="button" className="he-name entrant-link" title={`Find ${e.name} on the globe`} onClick={() => onPick(e.id)}>
+                  {e.name}
+                </button>
+              ) : (
+                <span className="he-name">{e.name}</span>
+              )}
               <time className="muted" dateTime={new Date(e.joinedAt).toISOString()}>
                 {ago(e.joinedAt, now)}
               </time>

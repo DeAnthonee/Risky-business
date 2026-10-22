@@ -1,0 +1,1 @@
+docs: - 2026-10-22 #295 `docs/zergs.md` §7: the learned Zerg (chat and deduction) replaces the stealth-mode "learned offset signature" handshake, a shared secret the owner ruled out: allies are a belief from chat and behaviour (listening and speaking heads), a team-spirit reward allows a little infighting, impostors are allowed, and the endgame stays rule-based (end by standing)

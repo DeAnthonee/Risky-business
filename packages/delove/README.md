@@ -73,6 +73,28 @@ Jacob Sensei 2): Classic 6 players 0.17 s mean, 0.35 s at the 90th percentile, 1
 and their seats are named "Sensei 1" and "Sensei 2" unless `--names` says otherwise (#88). `jacob-sensei@1` (alias `jacob`)
 sits as "Jacob Sensei", `jacob-sensei@2` (alias `jacob2`) as "Jacob Sensei 2".
 
+**Tournaments** (many Delove entrants, e.g. 20 Delove among 80 Zergs): `--tournament CODE --entrants N`.
+
+```bash
+npm run delove-seat -- --server https://risky.deanthoneeking.com --tournament ABC123 --entrants 20 --procs 6   --agents delove-branch --tokens runs/cup-tokens.json
+```
+
+- The runner joins N entrants while the tournament registers ("Delove 1" ... "Delove N", or `--names`; the agents of
+  `--agents` in turn, each tagged for spectators as in a single game, e.g. "delove@10 + search"; give one id per
+  entrant to choose each one's player, and `<model>+search`, e.g. `delove@10+search`, for search ranked by that model), then every entrant plays like an agent over MCP (`src/tournament-seat.ts`, `playEntrant`):
+  wait for its table (the tournament long poll with its entrant token), play it with the seat player, wait for the
+  next, until it is out or the tournament is over. The host starts the tournament as usual.
+- **Processes:** a Node process makes one decision at a time (a search blocks it), so the entrants are spread over
+  `--procs` child processes (default min(6, N)), each loading its models once. The decisions of one process wait on
+  each other: keep entrants per process low enough for the turn timer. Each process logs its decision latency
+  (p50 / p90 / max) and CPU use so far every minute (`DELOVE_SEAT_REPORT_MS`), and the end-of-run report sums them up.
+- **Restarts:** every wait re-reads the tournament with the entrant token after a break (a server restart, a dropped
+  connection), and each table re-attaches as the seat player does; a move refused because the state moved on (a turn
+  timer skip) is dropped and the seat acts on the fresh state. `--tokens FILE` keeps the entrant tokens, so a runner
+  restarted with the same FILE plays on instead of joining again.
+- **Fog tables:** as any seat: a fog-trained network (or `delove-branch` with a fog-trained ranker, which plays the
+  ranker's move without searching) plays them; other versions sit them out.
+
 The seat rebuilds the board from its view (`stateFromView`): each opponent's hand gets its real size (`cardCount`),
 the deck and discard theirs, dealt at random from the cards the seat can't see. Before #143 the rebuilt board gave
 every opponent an empty hand, so the network and Jacob Sensei read every opponent's card count as 0 in live games

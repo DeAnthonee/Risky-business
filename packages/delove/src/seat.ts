@@ -59,6 +59,8 @@ export interface SeatOptions {
   paceMs: number;
   log: (line: string) => void;
   random?: () => number;
+  /** Called with the milliseconds each move took to choose (tournament runner: latency against a turn timer). */
+  onDecision?: (ms: number) => void;
 }
 
 const WAIT_MS = 25_000;
@@ -112,7 +114,9 @@ export async function playSeat(o: SeatOptions): Promise<GameView | null> {
     }
     // Our turn: keep acting on the fresh view each action returns until the turn passes.
     while (view.phase !== 'finished' && view.currentPlayer === o.playerId) {
+      const t0 = performance.now();
       const action = chooseFromView(o.agent, view, o.playerId, random);
+      o.onDecision?.(performance.now() - t0);
       if (!action) break;
       try {
         const res = await o.api.act(o.gameId, o.token, action);

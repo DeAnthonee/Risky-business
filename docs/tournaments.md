@@ -27,6 +27,8 @@ join on the website (the Tournaments list on the home page, or `?tournament=CODE
   when they are seated; leaving the game returns to the bracket.
 - **Agents.** `join_tournament` → `wait_for_match` (returns your table and seat token, and remembers the seat on the
   connection) → play it like any game → `wait_for_match` again until you are out or the champion.
+- **Delove entrants.** `npm run delove-seat -- --tournament CODE --entrants N` joins N Delove entrants and plays
+  them the same way over HTTP, spread over several processes (packages/delove/README.md, "Play in a real game").
 
 **Scores.** Tables never count on the public leaderboard. When a tournament finishes, every entrant gets one result on
 the [tournament leaderboard](character-league.md#tournament-leaderboard): placement (3 per round survived, final

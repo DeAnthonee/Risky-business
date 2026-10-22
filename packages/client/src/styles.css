@@ -2124,3 +2124,48 @@ label.check input {
 .turn-sheen {
   pointer-events: none;
 }
+
+/* ---------- Globe (hex-globe boards, GlobeMap.tsx) ----------
+   The three.js canvas fills the board; badges, region labels, floats and move tokens are HTML laid over it and
+   positioned every frame (transform), hidden on the far side of the globe. */
+.globe-wrap { background: radial-gradient(ellipse at 50% 45%, #10233a 0%, #070e18 70%); }
+.globe-canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; cursor: grab; outline: none; }
+.globe-canvas:active { cursor: grabbing; }
+.globe-overlay { position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 1; isolation: isolate; }
+.globe-overlay > * { position: absolute; left: 0; top: 0; will-change: transform, opacity; opacity: 0; }
+.globe-badge { pointer-events: auto; cursor: pointer; display: flex; flex-direction: column; align-items: center; }
+.globe-badge-body {
+  min-width: 22px; height: 22px; padding: 0 4px; border-radius: 11px; display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 800; color: #fff; border: 2px solid rgba(255, 255, 255, 0.85);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.6); text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7); box-sizing: border-box;
+}
+.globe-badge.fog .globe-badge-body { border-color: rgba(255, 255, 255, 0.35); }
+.globe-badge.blizzard .globe-badge-body { color: #4a6380; text-shadow: none; }
+.globe-badge.dim { filter: brightness(0.45); }
+.globe-badge.hl-place .globe-badge-body,
+.globe-badge.hl-source .globe-badge-body,
+.globe-badge.hl-hover-source .globe-badge-body { border-style: dashed; border-color: #fff; }
+.globe-badge.hl-selected .globe-badge-body { border-color: #fff; animation: globe-pulse 1s ease-in-out infinite; }
+.globe-badge.hl-target .globe-badge-body,
+.globe-badge.hl-hover-target .globe-badge-body { border-color: #ff5a5a; border-width: 3px; animation: globe-pulse 1s ease-in-out infinite; }
+.globe-badge.hl-pending-target .globe-badge-body { border-color: #ffd166; border-width: 3px; }
+.globe-capital { position: absolute; top: -15px; font-size: 13px; text-shadow: 0 0 3px #000; }
+.globe-pending { position: absolute; top: -10px; right: -16px; font-size: 11px; font-weight: 800; color: #ffd166; text-shadow: 0 0 3px #000; }
+.globe-name, .globe-hover-name { font-size: 11px; font-weight: 700; color: #fff; white-space: nowrap; text-shadow: 0 1px 3px #000, 0 0 2px #000; }
+.globe-name { position: absolute; top: 24px; }
+.globe-hover-name { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); padding: 3px 10px; border-radius: 6px; background: rgba(20, 28, 44, 0.85); pointer-events: none; z-index: 4; }
+.globe-region { display: flex; flex-direction: column; align-items: center; text-shadow: 0 1px 3px #000, 0 0 6px #000; white-space: nowrap; }
+.globe-region b { font-size: 24px; font-weight: 900; }
+.globe-region span { font-size: 11px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; }
+.globe-float { display: block; font-size: 16px; font-weight: 800; text-shadow: 0 0 3px #000, 0 0 2px #000; animation: globe-float-up 1.2s ease-out forwards; }
+.globe-float.burst { font-size: 20px; }
+.globe-move { width: 20px; height: 20px; border-radius: 50%; border: 2px solid #fff; color: #fff; font-size: 10px; font-weight: 800; display: flex; align-items: center; justify-content: center; box-sizing: border-box; }
+.globe-message { margin: auto; color: var(--muted); text-align: center; }
+.map-controls .globe-flat, .map-controls .globe-toggle { width: auto; padding: 0 10px; font-size: 13px; }
+.map-controls .globe-follow.active { background: var(--accent, #3b82f6); color: #fff; }
+@keyframes globe-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.12); } }
+@keyframes globe-float-up { 0% { opacity: 1; transform: translateY(0); } 100% { opacity: 0; transform: translateY(-28px); } }
+@media (prefers-reduced-motion: reduce) {
+  .globe-badge .globe-badge-body { animation: none !important; }
+  .globe-float { animation-name: fadeout; }
+}

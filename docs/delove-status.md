@@ -368,11 +368,12 @@ where Delove thought the game turned. Format and reading in packages/delove/READ
   train on rented pods (`REMOTE_TRAIN`), each capped at 1.5 GPU-hours, home training as the fallback.
 - The finished product is three separate specialists plus a housing that routes by players alive; fog of war is
   required (2026-10-20).
-- Cloud split (2026-10-20): games on about 10 rented RunPod pods, training and gates on the home PC. Cloud training
-  (#129's `REMOTE_TRAIN` with a network volume) was declined as not worth it (about 10 minutes saved a cycle); it stays
-  merged but off.
-- Promotions: better on multiplayer leaderboard points and not worse at 2 players; the coordinator promotes and
-  publishes to the private models repo (`DeAnthonee/delove-models`). Cloud GPUs up to about $20/day.
+- Cloud split (2026-10-20): games on about 10 rented RunPod pods, training and gates on the home PC. *Superseded for
+  training by "Cloud training from cycle 16" above:* cloud training (#129's `REMOTE_TRAIN` with a network volume) was
+  first declined as not worth it (about 10 minutes saved a cycle).
+- Promotions: the coordinator promotes and publishes to the private models repo (`DeAnthonee/delove-models`). Cloud
+  GPUs up to about $20/day. *Until cycle 14 the bar was better on multiplayer leaderboard points and not worse at 2
+  players; superseded from cycle 15 by "Promotion is decided with fog on" above.*
 - Delove is separate from the character models and named `delove` everywhere, so it never collides with a
   collaborator's model.
 - Train toward leaderboard points (placement plus kills), not wins.
@@ -384,7 +385,7 @@ where Delove thought the game turned. Format and reading in packages/delove/READ
 - `delove@3` promoted at 0.541 (just under the automatic 0.55 bar).
 - Work happens in separate sessions with their own context; one coordinator; one reviewer.
 
-## 8. Open work (as of 2026-10-21)
+## 8. Open work (as of 2026-10-22)
 
 | what | who | state |
 | --- | --- | --- |

@@ -26,9 +26,10 @@ import {
   type ScenarioSeat,
 } from '@risk/engine';
 import { timeoutSteps, timerOf } from '@risk/engine';
-import { chooseSeatAction, seatIdPrefix, zergName, type BotKind } from './bot.js';
+import { chooseSeatAction, isZergSeat, seatIdPrefix, zergName, type BotKind } from './bot.js';
 import { DEFAULT_TOURNAMENT_LIMITS, TournamentManager, type TournamentClock } from './tournaments.js';
 import { TournamentRankings } from './tournament-scoring.js';
+import { ZergTally, sumReports, zergReport, type ZergReport } from './zerg-report.js';
 import { Rankings } from './rankings.js';
 import { DEFAULT_KEEP, GameArchive, type CommitInfo } from './archive.js';
 
@@ -870,6 +871,7 @@ export class Store {
     this.rooms.set(room.id, room);
     this.rank(room);
     room.on('commit', (c: CommitInfo) => this.archive.onCommit(room, c));
+    room.on('commit', (c: CommitInfo) => this.tallyZergs(room, c));
     room.on('change', () => {
       this.rank(room);
       this.scheduleSave();
@@ -884,6 +886,58 @@ export class Store {
   private rank(room: GameRoom) {
     if (room.scenarioOf || room.tournamentId) return;
     this.board(room.board).record(room.state, room.characterIds, room.eliminationOrder);
+  }
+
+  /** Live Zerg reports, per room with Zerg seats, from its start (a room restored mid-game is not tallied). */
+  private zergTallies = new Map<string, { tally: ZergTally; room: GameRoom }>();
+  /** Reports of archived games, by record id (records never change). */
+  private recordReports = new Map<string, ZergReport>();
+
+  private tallyZergs(room: GameRoom, c: CommitInfo) {
+    if (c.action.type === 'start') {
+      if (!c.next.players.some((p) => isZergSeat(p.id))) return;
+      this.zergTallies.set(room.id, { tally: new ZergTally(c.next.players), room });
+    }
+    this.zergTallies.get(room.id)?.tally.add({ player: c.playerId, action: c.action, events: c.events });
+  }
+
+  /** The Zerg report of an archived game (GET /api/history/:id/report), or null for an unknown id. */
+  recordReport(id: string): ZergReport | null {
+    const cached = this.recordReports.get(id);
+    if (cached) return cached;
+    const record = this.archive.get(id);
+    if (!record) return null;
+    // The game's start is not a record step, but its first turn is: put it back first, as the live walk sees it (the
+    // territories come from that turn's board), so a record and a live room give the same report.
+    const t0 = record.turns[0];
+    const owner = t0 ? record.players.find((p) => p.id === t0.player)?.index : undefined;
+    const start = t0
+      ? [{ player: null, action: { type: 'start' }, events: [{ type: 'turn_started', player: t0.player, turnNumber: t0.turn, round: t0.round, reinforcements: { territories: t0.board.filter(([o]) => o === owner).length } }] as unknown as GameEvent[] }]
+      : [];
+    const report = zergReport([...start, ...record.steps.map((s) => ({ player: s.player, action: s.action, events: s.events }))], record.players);
+    this.recordReports.set(id, report);
+    return report;
+  }
+
+  /**
+   * The swarm over every game with Zergs (THE HOUSE): archived games from their records, plus games being played now
+   * (and, without an archive, finished ones still in memory).
+   */
+  swarmReport() {
+    const reports: ZergReport[] = [];
+    if (this.archive.enabled) {
+      for (const e of this.archive.list(Infinity)) {
+        if (!e.players.some((p) => isZergSeat(p.id))) continue;
+        const r = this.recordReport(e.id);
+        if (r) reports.push(r);
+      }
+    }
+    for (const { tally, room } of this.zergTallies.values()) {
+      if (this.archive.enabled && room.state.phase === 'finished') continue;
+      if (room.closed && this.archive.enabled) continue;
+      reports.push(tally.report());
+    }
+    return sumReports(reports);
   }
 
   /** The leaderboard for a board name: "training", or the public one when absent. */

@@ -168,7 +168,7 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
     res.json({ season: season || String(store.rankings.season), current: !season || season === String(store.rankings.season), rankings });
   });
   // House bots (the home-page widget): fun stats for the server's bots, aggregated from the tournament results. Not a ranking.
-  api.get('/house-bots', (_req, res) => res.json(store.tournamentBoard.houseBots()));
+  api.get('/house-bots', (_req, res) => res.json({ ...store.tournamentBoard.houseBots(), swarm: store.swarmReport() }));
   api.get('/rankings/seasons', (_req, res) => res.json({ current: store.rankings.season, seasons: store.rankings.seasons() }));
   // Match history for the home page: finished games from the archive index, newest first. Only the public outcome
   // (seats, places, winner, turns), never a board, so fog games are safe to list. Empty when records are off.
@@ -372,6 +372,14 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
       }
     }),
   );
+
+  // The Zerg report of a finished game (docs/zergs.md): swarm discipline, trades, knockouts, a per-seat table. Public:
+  // it only uses what every seat saw (battles, conquests, knockouts), never a hidden board.
+  api.get('/history/:id/report', (req, res) => {
+    const report = store.recordReport(String(req.params.id));
+    if (!report) return res.status(404).json({ error: 'No recorded game with that id' });
+    res.json(report);
+  });
 
   // ---- game archive: every recorded game, move by move, with fog of war views (admin only: it shows hidden boards) ----
   api.get(

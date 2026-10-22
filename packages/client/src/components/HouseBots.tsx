@@ -28,9 +28,23 @@ export interface HouseGroup {
   records: Record<RecordKey, HouseRecord | null>;
 }
 
+/** How the swarm behaved, summed over every game with Zergs (GET /api/house-bots `swarm`; docs/zergs.md). */
+export interface SwarmDiscipline {
+  games: number;
+  attacks: { onPrey: number; onZergs: number; onNeutral: number };
+  destroyed: { prey: number; zergs: number; neutral: number };
+  lost: number;
+  tradeRatio: number | null;
+  knockouts: { bySwarm: number; ofSwarm: number };
+  surrenders: { midGame: number; endgame: number; landLeft: number };
+  /** Both must read 0: a Zerg attacking a fellow Zerg, or surrendering, while a non-Zerg is alive. */
+  alarms: { zergOnZerg: number; midGameSurrenders: number };
+}
+
 export interface HouseBots {
   bots: HouseGroup;
   zergs: HouseGroup;
+  swarm?: SwarmDiscipline;
 }
 
 const RECORDS: { key: RecordKey; icon: string; label: string; unit: string }[] = [
@@ -120,6 +134,42 @@ function Team({ side, title, emoji, g }: { side: 'swarm' | 'machines'; title: st
   );
 }
 
+/** The swarm's discipline: attacks on prey vs on fellow Zergs, trades, knockouts, surrenders, and two alarms. */
+function Discipline({ s }: { s: SwarmDiscipline }) {
+  if (!s.games) return null;
+  const alarms = s.alarms.zergOnZerg + s.alarms.midGameSurrenders;
+  return (
+    <div className="house-discipline">
+      <span className="house-hall-label">Swarm discipline</span>
+      <span>
+        <strong>{s.attacks.onPrey.toLocaleString()}</strong> attacks on prey · <strong>{s.attacks.onZergs.toLocaleString()}</strong> on fellow Zergs
+      </span>
+      <span>
+        trade <strong>{s.tradeRatio ?? '–'}</strong>
+      </span>
+      <span>
+        knockouts <strong>{s.knockouts.bySwarm}</strong> by / <strong>{s.knockouts.ofSwarm}</strong> of the swarm
+      </span>
+      <span>
+        surrenders <strong>{s.surrenders.endgame}</strong> endgame · <strong>{s.surrenders.midGame}</strong> mid-game
+      </span>
+      {alarms > 0 ? (
+        <span
+          className="house-alarm"
+          title="A Zerg attacked a fellow Zerg, or surrendered, while a non-Zerg was still alive. The swarm should never do either."
+        >
+          ⚠ {s.alarms.zergOnZerg} Zerg-on-Zerg · {s.alarms.midGameSurrenders} mid-game surrenders
+        </span>
+      ) : (
+        <span className="house-ok" title="No Zerg attacked a fellow Zerg or surrendered while prey was alive.">
+          ✓ no alarms
+        </span>
+      )}
+      <span className="house-games">over {s.games} {s.games === 1 ? 'game' : 'games'}</span>
+    </div>
+  );
+}
+
 /** Records from both sides, in one rotating ticker. */
 function HallOfFame({ h }: { h: HouseBots }) {
   const items = RECORDS.flatMap((r) =>
@@ -182,7 +232,7 @@ export function HouseBotsWidget() {
       window.clearInterval(timer);
     };
   }, []);
-  if (!h || (!h.bots.entries && !h.zergs.entries)) return null;
+  if (!h || (!h.bots.entries && !h.zergs.entries && !h.swarm?.games)) return null;
   const total = h.zergs.kills + h.bots.kills;
   const swarmShare = total ? Math.round((100 * h.zergs.kills) / total) : 50;
   return (
@@ -205,6 +255,7 @@ export function HouseBotsWidget() {
           <span className="house-meter-label">body count</span>
         </div>
       )}
+      {h.swarm && <Discipline s={h.swarm} />}
       <HallOfFame h={h} />
     </section>
   );

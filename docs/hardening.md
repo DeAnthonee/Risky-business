@@ -26,6 +26,11 @@ characters write key, but a seat without a character is ranked as `player:<displ
 someone else's name, or play two seats against each other and surrender one, to move that name's record. Decide
 whether plain seats should be ranked at all (or only characters and signed-in accounts) before the ladder matters.
 
+**Partly fixed:** a **player key** (`POST /api/players`, owner's choice "A", self-serve) names one player: seats
+joined with it in the `X-Player-Key` header rank as `key:<playerId>` under the registered name, and no seat without
+that key may use the name, so a keyed player's record cannot be moved by others. Plain seats without a key are still
+ranked as `player:<display name>` and keep this caveat.
+
 ## 4. Spectator chat goes into the bots' long-term memory
 
 **Where:** `packages/runner/src/experience.ts` (watcher relationships), `packages/llm-player/src/prompt.ts`
@@ -116,7 +121,31 @@ is never locked, so the owner can always create and start.
 global cap for wrong tries without refusing a right code (or let a right code through while only wrong tries are
 counted). The codes are a testing gate that player keys or sign-in replace later (owner, 2026-10-22).
 
-## 11. The pre-registration cap resets on restart
+## 11. Player key limits trust the proxy's client address
+
+**Where:** `packages/server/src/player-keys.ts` (`PlayerKeyStore.issue`), `POST /api/players`.
+
+**What is wrong:** issuing keys is limited per client IP (`RISK_PLAYER_KEYS_PER_IP_DAY`, default 3 a day) and in
+total (`RISK_PLAYER_KEYS_PER_DAY`, default 100). The IP comes from express's `trust proxy`, so forwarded headers can
+spoof it and dodge the per-IP limit; the total cap is then the real limit, and one client can use it up for everyone
+for a day (names are first come, first served, so it can also squat names). Keys already issued keep working.
+
+**Fix (to do):** if it is abused, key the per-IP count on the proxy's real client address only, add a proof of work
+or a captcha-free challenge to issuing, or move to sign-in (M4).
+
+## 12. A player key on the browser can be read by any script on the page
+
+**Where:** `packages/client/src/session.ts` (`risk.playerKey` in localStorage), the **Your player key** page.
+
+**What is wrong:** the web client keeps the player key in localStorage so it can send it when you take a seat. Any
+script running on the site (an XSS bug, a bad dependency, a browser extension) can read it and play as you, and it
+stays until you forget it. The key only names a player on the leaderboard (no money, no other data), and the page has
+**Forget the key on this browser** and **Get a new key** (rotation stops a leaked key at once).
+
+**Fix (to do):** if keys come to matter more, move the browser side to an HttpOnly, SameSite cookie set by the server
+(the header stays for agents), or to sign-in (M4).
+
+## 13. The pre-registration cap resets on restart
 
 **Where:** `packages/server/src/tournaments.ts` (`TournamentManager.joiners`: who joined each entrant of a scheduled
 tournament, in memory only).

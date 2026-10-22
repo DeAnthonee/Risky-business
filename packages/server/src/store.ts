@@ -32,6 +32,7 @@ import { BigMoveTracker, ReactionPacer, bigMoveMessage } from './reactions.js';
 import { chooseSeatAction, isZergSeat, seatIdPrefix, zergName, type BotKind } from './bot.js';
 import { DEFAULT_TOURNAMENT_LIMITS, TournamentManager, type TournamentClock, type TournamentTableRef } from './tournaments.js';
 import { QuickPlayQueue, quickPlayConfigFromEnv } from './quick-play.js';
+import { PlayerKeyStore, playerKeyConfigFromEnv } from './player-keys.js';
 import { TournamentRankings } from './tournament-scoring.js';
 import type { TournamentScheduler } from './tournament-schedule.js';
 import { SwarmSum, ZergTally, zergReport, type SwarmTotal, type ZergReport } from './zerg-report.js';
@@ -125,6 +126,8 @@ export interface RoomSnapshot {
   botDelayMs?: number;
   /** Made by the quick-play queue (see quick-play.ts): no host, the turn timer on. */
   quickPlay?: true;
+  /** Seats joined with a player key: player id -> registered player id (player-keys.ts). Never the key itself. */
+  playerKeys?: Record<string, string>;
 }
 
 /** The leaderboard a room's result goes to when it is not the public one (see docs/character-league.md). */
@@ -245,6 +248,8 @@ function reportOfRecord(record: GameRecord): ZergReport {
 
 export class GameRoom extends EventEmitter {
   characterIds: Record<string, string> = {};
+  /** Seats joined with a player key: player id -> registered player id. They rank as `key:<registered id>`. */
+  playerKeys: Record<string, string> = {};
   /** Player-type labels by seat: spectators see them (`spectatorView`); a seated player's view never has them. */
   agents: Record<string, string> = {};
   eliminationOrder: string[] = [];
@@ -297,6 +302,7 @@ export class GameRoom extends EventEmitter {
     this.setMaxListeners(500);
     this.id = snapshot.id;
     this.characterIds = snapshot.characterIds ?? {};
+    this.playerKeys = snapshot.playerKeys ?? {};
     this.agents = snapshot.agents ?? {};
     this.eliminationOrder = snapshot.eliminationOrder ?? snapshot.history.flatMap(h => h.events.filter(e => e.type === 'eliminated').map(e => (e as { player: string }).player));
     this.name = snapshot.name;
@@ -322,6 +328,7 @@ export class GameRoom extends EventEmitter {
     return {
       id: this.id,
       characterIds: this.characterIds,
+      ...(Object.keys(this.playerKeys).length ? { playerKeys: this.playerKeys } : {}),
       ...(Object.keys(this.agents).length ? { agents: this.agents } : {}),
       eliminationOrder: this.eliminationOrder,
       name: this.name,
@@ -564,13 +571,17 @@ export class GameRoom extends EventEmitter {
    * Take a seat. `agent` is the seat's self-declared player type, shown to spectators only. A built-in bot or Zerg is
    * labelled by the server ("bot", "zerg"), whatever it declares.
    */
-  join(name: string, isBot = false, kind: BotKind = 'bot', agent?: string): { playerId: PlayerId; token: string } {
+  /** `playerKey`: the registered player (player-keys.ts) this seat plays as; one seat per registered player per room. */
+  join(name: string, isBot = false, kind: BotKind = 'bot', agent?: string, playerKey?: string): { playerId: PlayerId; token: string } {
+    if (playerKey && Object.values(this.playerKeys).includes(playerKey) && this.state.players.some((p) => this.playerKeys[p.id] === playerKey))
+      throw new RuleError('This player already has a seat in this game');
     const playerId = seatIdPrefix(isBot ? kind : null) + newId(6);
     const next = addPlayer(this.state, playerId, name, isBot);
     const token = newId(24);
     this.tokens.set(token, playerId);
     const label = isBot ? kind : agent;
     if (label) this.agents[playerId] = label;
+    if (playerKey && !isBot) this.playerKeys[playerId] = playerKey;
     if (!isBot) {
       this.touch();
       this.lastSeatSeen = Date.now();
@@ -581,6 +592,8 @@ export class GameRoom extends EventEmitter {
 
   leave(playerId: PlayerId) {
     const next = removePlayer(this.state, playerId);
+    // A lobby seat that leaves frees its player for another seat (a started game keeps the seat as it was).
+    if (this.state.phase === 'lobby') delete this.playerKeys[playerId];
     for (const [tok, pid] of this.tokens) if (pid === playerId) this.tokens.delete(tok);
     if (this.hostId === playerId) {
       const nextHost = next.players.find((p) => !p.isBot);
@@ -905,6 +918,8 @@ export class GameRoom extends EventEmitter {
 export class Store {
   rooms = new Map<string, GameRoom>();
   tournaments: TournamentManager;
+  /** Registered players and their keys (player-keys.json next to games.json): seats joined with a key rank as one player. */
+  playerKeys: PlayerKeyStore;
   /** The quick-play queue (POST /api/queue, MCP quick_play): seats waiting entrants in fresh rooms, filled with Zergs. */
   quickPlay: QuickPlayQueue;
   /** Scheduled nested tournaments (RISK_TOURNAMENT_SCHEDULE); null = no schedule (the default). */
@@ -980,6 +995,9 @@ export class Store {
     // A finished tournament goes on the tournament board once. On start, catch up on any that finished without being
     // recorded (a crash in between); tournaments that finished before the board existed have no table scores: skipped.
     this.quickPlay = new QuickPlayQueue(this, quickPlayConfigFromEnv(process.env));
+    const keys = playerKeyConfigFromEnv(process.env);
+    this.playerKeys = new PlayerKeyStore(file ? join(dirname(file), 'player-keys.json') : null, keys.limits);
+    this.playerKeys.enabled = keys.enabled;
     this.tournaments.onFinished = (t) => this.tournamentBoard.record(t);
     for (const t of this.tournaments.tournaments.values()) {
       if (t.status === 'finished' && t.rounds.some((r) => r.matches.some((m) => m.order))) this.tournamentBoard.record(t, t.updatedAt);
@@ -1011,7 +1029,9 @@ export class Store {
   private rank(room: GameRoom) {
     // A quick-play game is not ranked: its fill seats are Zergs, and house players never count on a leaderboard.
     if (room.scenarioOf || room.tournamentId || room.quickPlay) return;
-    this.board(room.board).record(room.state, room.characterIds, room.eliminationOrder);
+    // A seat with a player key is one named player (`key:<id>`); a bound character still wins over it.
+    const keyed = Object.fromEntries(Object.entries(room.playerKeys).map(([pid, id]) => [pid, `key:${id}`]));
+    this.board(room.board).record(room.state, { ...keyed, ...room.characterIds }, room.eliminationOrder);
   }
 
   /** Live Zerg reports, per room with Zerg seats, from its start (a room restored mid-game is not tallied). */
@@ -1129,7 +1149,7 @@ export class Store {
     return { gameId: id, room: !!room, result, records };
   }
 
-  create(name: string, options: Partial<GameOptions>, hostName: string, hostIsBot = false, board?: RankingBoard, agent?: string): { room: GameRoom; playerId: PlayerId; token: string } {
+  create(name: string, options: Partial<GameOptions>, hostName: string, hostIsBot = false, board?: RankingBoard, agent?: string, playerKey?: string): { room: GameRoom; playerId: PlayerId; token: string } {
     let id = joinCode();
     while (this.rooms.has(id)) id = joinCode();
     const state = createGame(id, options);
@@ -1145,7 +1165,7 @@ export class Store {
       ...(board ? { board } : {}),
     });
     this.attach(room);
-    const { playerId, token } = room.join(hostName, hostIsBot, 'bot', agent);
+    const { playerId, token } = room.join(hostName, hostIsBot, 'bot', agent, playerKey);
     room.hostId = playerId;
     this.scheduleSave();
     return { room, playerId, token };
@@ -1158,7 +1178,7 @@ export class Store {
   createTable(
     name: string,
     options: Partial<GameOptions>,
-    players: { name: string; isBot: boolean; kind?: BotKind; agent?: string }[],
+    players: { name: string; isBot: boolean; kind?: BotKind; agent?: string; playerKey?: string }[],
     /** The tournament that seats this table, or null for a quick-play room. */
     tournamentId: string | null,
     /**
@@ -1173,7 +1193,7 @@ export class Store {
     this.attach(room);
     // A Zerg entrant keeps its tournament name (a Zerg name, unique in the tournament, so unique at the table).
     // A Zerg with no name (a quick-play fill) gets a Zerg name nobody at the table has.
-    const seats = players.map((p) => room.join(p.kind === 'zerg' && !p.name ? zergName(room.state) : p.name, p.isBot, p.kind ?? 'bot', p.agent));
+    const seats = players.map((p) => room.join(p.kind === 'zerg' && !p.name ? zergName(room.state) : p.name, p.isBot, p.kind ?? 'bot', p.agent, p.playerKey));
     room.start(extra.prepare ? (lobby) => extra.prepare!(lobby, seats) : undefined);
     this.scheduleSave();
     return { room, seats };

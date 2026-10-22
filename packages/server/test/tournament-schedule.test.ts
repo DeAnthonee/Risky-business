@@ -290,9 +290,9 @@ describe('scheduled nested tournaments', () => {
     expect(fifth.status).toBe(400);
     expect(fifth.body.error).toMatch(/You already hold 4 open registrations/);
     // Another joiner (another IP or MCP session) is not counted; a host-made tournament is never capped.
-    expect(store.tournaments.join(id, 'B1', undefined, 'ip:10.0.0.2').token).toBeTruthy();
+    expect(store.tournaments.join(id, 'B1', undefined, undefined, 'ip:10.0.0.2').token).toBeTruthy();
     const open = store.tournaments.create({ name: 'Host made', format: 'nested' });
-    for (let i = 1; i <= 6; i++) store.tournaments.join(open.id, `H${i}`, undefined, 'ip:127.0.0.1');
+    for (let i = 1; i <= 6; i++) store.tournaments.join(open.id, `H${i}`, undefined, undefined, 'ip:127.0.0.1');
   });
 
   it('agents find and join it over MCP: next_tournament, list_tournaments, join_tournament', async () => {

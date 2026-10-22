@@ -78,6 +78,29 @@ Every spectator socket of a room gets the same message for a change, built once 
 Send `{"type":"action","reqId":"1","action":{…},"note":…}` (`note` optional, as on `POST /games/:id/actions`) and receive `{"type":"ack","reqId":"1","ok":true}`
 or `{"ok":false,"error":"…"}`.
 
+**Tournament feed** (for watchers of a tournament page). Send `{"type":"subscribe_tournament","id":"TAB12C"}`
+(`tournamentId` works too; no token: a socket that passes one of the tournament's entrant tokens is refused, since
+entrants follow their own table; the check is cosmetic, see [hardening #2](hardening.md#2-per-player-totals-under-fog-of-war)).
+A socket with more than 1 MB queued skips feed updates; once it has drained, the next update it gets is the whole feed
+again (`tournament` and a `tournament_tables` with `full: true`), so no table is lost. The reply is an ack, then `{"type":"tournament", tournamentId, tournament}` (the
+bracket, as `GET /tournaments/:id`, sent again whenever it changes) and
+`{"type":"tournament_tables", tournamentId, version, full, round, tables, follow}`: every current table first
+(`full: true`), then only the tables that changed, **each at most every 500 ms** (a burst is coalesced and its last
+change always arrives); merge them by `node` (nested) or `gameId`.
+- `round`: `{n, deadline, finished, needed}`, the round clock: tables finished so far, how many the round needs before
+  the rest are decided on standing (every table in a knockout), and its deadline (nested; null otherwise).
+- a table: `{node, gameId, version, round, status: "waiting"|"playing"|"finished"|"decided", players: [{name, color,
+  alive}], owners, leader, final, excitement: {score, why, signals}}`. `node` is the table's index in
+  `resolveNest(spec)` order (null for a knockout); `owners` gives each territory's owner, in
+  `getMap(map).territoryIds` order, as an index into `players` (null: nobody or a blizzard); `leader` is the winner
+  once finished or decided, else the leader (territories, then armies). From the public spectator view only: names,
+  no cards, tokens or player-type labels. `excitement.score` is the 0-100 "Follow the action" score.
+- `follow`: `{node, gameId, caption}` or null, the one table every watcher with "Follow the action" on is shown
+  (picked by the server: it stays 20 s and switches only for a table 15 or more ahead, or when its table ends).
+
+`{"type":"unsubscribe_tournament"}` leaves the feed; a socket can hold one tournament feed and one game subscription
+at once.
+
 ## Actions
 
 ```jsonc

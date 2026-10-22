@@ -35,12 +35,18 @@ the [tournament leaderboard](character-league.md#tournament-leaderboard): placem
 places 2 apart, champion +6), +2 per table won and +1 per kill. Entrants are ranked by name: they cannot be bound to a
 character yet ([hardening #6](hardening.md#6-tournament-entrants-cannot-be-characters-yet)).
 
-**Follow the action (server side, not wired yet).** `packages/server/src/excitement.ts` scores how exciting a table
+**Tournament feed.** Watchers of a tournament subscribe to its live feed over the WebSocket
+(`subscribe_tournament`, [http-api.md](http-api.md#websocket)): the bracket, the round clock and a summary of every
+current table (who holds each territory, the leader, its excitement score), each table at most twice a second, plus the
+one table the server picks for "Follow the action". Spectators only: entrants are refused.
+
+**Follow the action (server side; the client switch comes later).** `packages/server/src/excitement.ts` scores how exciting a table
 is, 0-100, from its public spectator view and recent events (owner decision 19): an elimination in the last 20 s +40
 fading, a player about to be knocked out +25, a capital about to fall +30 (and +30 for 20 s after one falls), a close
 race +15, two players left +15, heavy fighting up to +20, the final +20. `pickFollow` chooses the table an opted-in
 watcher sees: it stays at least 20 s and switches only for a table 15 or more ahead, or when the current one ends,
-with a "Following: Table 7 (capital under threat)" caption. The tournament feed and the client switch come later.
+with a "Following: Table 7 (capital under threat)" caption. The feed carries each table's score; the client switch
+comes later.
 
 **Zerg-only tables.** A table where only Zerg seats are left ends at once, decided by standing, and its strongest
 Zerg moves on (see [zergs.md](zergs.md)). A table seated with Zergs only ends right after the deal (owner,

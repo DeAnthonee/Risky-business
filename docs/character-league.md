@@ -124,6 +124,8 @@ game at a time. Results already there stay; new tables no longer add to it.
 
   Example: 4 entrants at tables of 2 (`L = 2`, a final of 2): the champion scores 3 + 2 + 6 = 11 for placement plus 2
   tables × 2 = 15 before kills; the runner-up 3 + 2 = 5; round-1 exits 0 plus kills.
+- **Who is on it:** people and Zerg entrants. Built-in fill bots (round 1's `fillBots`) never get a row (owner's
+  decision); that is keyed off the entrant's kind, not its "Bot N" name.
 - **The board** sums results over tournaments: points, tournaments played, championships, finals reached, tables won,
   kills and best finish, sorted by points, then championships. Identities are the entrant names, as on the other
   boards (`bot:<name>` for bots and Zergs, `player:<name>` otherwise), with the self-declared caveat of

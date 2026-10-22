@@ -2,3 +2,4 @@ server: - 2026-10-21 #183 tournament leaderboard: `rankings-tournament.json` (`T
 mcp: - 2026-10-21 #183 `leaderboard` and `ranked_profile` take `board: "tournament"`; new `RiskApi.tournamentRankings()` and `RiskApi.tournamentProfile(key)`
 client: - 2026-10-21 #183 leaderboard: a **Tournament** toggle beside **Training** shows the tournament board (points, played, championships, finals, tables, kills, best finish)
 docs: - 2026-10-22 #183 hardening.md item 6: tournament entrants cannot be characters yet, so the tournament board ranks by entrant name only
+server: - 2026-10-22 #183 the tournament board leaves built-in fill bots out (owner's decision); Zergs (`kind: "zerg"`) and people score

@@ -185,6 +185,20 @@ export interface CharacterMemory {
  * `HttpRiskApi` (stdio MCP talking to a remote server) and directly over the in-memory
  * store when the MCP endpoint is embedded in the game server itself.
  */
+/** One row of the tournament leaderboard (GET /rankings?board=tournament). */
+export interface TournamentRowInfo {
+  key: string;
+  name: string;
+  rank: number;
+  points: number;
+  tournaments: number;
+  championships: number;
+  finals: number;
+  tablesWon: number;
+  kills: number;
+  bestFinish: string;
+}
+
 /** One leaderboard season as GET /rankings/seasons lists it. */
 export interface RankingSeasonInfo { id: string; season: number; current: boolean; games: number }
 
@@ -198,6 +212,10 @@ export interface RiskApi {
   setCharacter(gameId: string, token: string, characterId: string, key?: string): Promise<unknown>;
   /** A season's leaderboard by id (from rankingSeasons); the current season when omitted. board "training": the training leaderboard (no seasons). */
   rankings(season?: string, board?: 'training'): Promise<{ board?: 'training'; season?: string; current?: boolean; rankings: import('@risk/engine').RankingRow[] }>;
+  /** The tournament leaderboard: one result per entrant per finished tournament, summed. */
+  tournamentRankings(): Promise<{ board: 'tournament'; current: true; rankings: TournamentRowInfo[] }>;
+  /** One identity's standing on the tournament leaderboard, with each tournament's finish and points. */
+  tournamentProfile(key: string): Promise<{ stats: TournamentRowInfo & { results: { tournamentId: string; name: string; finish: string; points: number }[] }; profile: string | null }>;
   /** Leaderboard seasons: the current one first, then archives newest first. */
   rankingSeasons(): Promise<{ current: number; seasons: RankingSeasonInfo[] }>;
   rankedProfile(key: string, board?: 'training'): Promise<{ stats: import('@risk/engine').RankingRow; profile: string | null }>;
@@ -439,6 +457,10 @@ export class HttpRiskApi implements RiskApi {
   rankings(season?: string, board?: 'training') {
     const q = board ? `?board=${board}` : season ? `?season=${encodeURIComponent(season)}` : '';
     return this.request<{ board?: 'training'; season?: string; current?: boolean; rankings: import('@risk/engine').RankingRow[] }>(`/rankings${q}`);
+  }
+  tournamentRankings() { return this.request<{ board: 'tournament'; current: true; rankings: TournamentRowInfo[] }>('/rankings?board=tournament'); }
+  tournamentProfile(key: string) {
+    return this.request<{ stats: TournamentRowInfo & { results: { tournamentId: string; name: string; finish: string; points: number }[] }; profile: string | null }>(`/rankings/profile?key=${encodeURIComponent(key)}&board=tournament`);
   }
   rankingSeasons() { return this.request<{ current: number; seasons: RankingSeasonInfo[] }>('/rankings/seasons'); }
   rankedProfile(key: string, board?: 'training') { return this.request<{ stats: import('@risk/engine').RankingRow; profile: string | null }>(`/rankings/profile?key=${encodeURIComponent(key)}${board ? `&board=${board}` : ''}`); }

@@ -107,6 +107,36 @@ by their key. It has no seasons.
   `room.board: "training"` (and their `index.jsonl` line `board`), so they are never pooled into Delove's training
   data by mistake.
 
+## Tournament leaderboard
+
+A third board, apart from the public and training ones, for **tournaments** (owner, decisions 16, 18 and 20). A
+tournament table never ranks on the public board (or the training one); when the tournament finishes, every entrant
+gets one result on this board. **This changed in #183:** before it, knockout tables were ranked on the public board one
+game at a time. Results already there stay; new tables no longer add to it.
+
+- **Scoring** (per tournament, `packages/server/src/tournament-scoring.ts`, never the engine's `ranking.ts`), with `L`
+  the number of rounds:
+  - placement: out in round `r` before the final = `3 × (r − 1)`; place `p` of `F` in the final =
+    `3 × (L − 1) + 2 × (F − p)`; the champion gets **+6** on top;
+  - **+2 per table won**, every round including the final (**+1** when a table is decided on standing at a nested
+    round's deadline: status `decided`, its standing order is the table's order; knockouts are always played out);
+  - **+1 per player eliminated** at your tables (surrenders and forfeits credit nobody).
+
+  Example: 4 entrants at tables of 2 (`L = 2`, a final of 2): the champion scores 3 + 2 + 6 = 11 for placement plus 2
+  tables × 2 = 15 before kills; the runner-up 3 + 2 = 5; round-1 exits 0 plus kills.
+- **The board** sums results over tournaments: points, tournaments played, championships, finals reached, tables won,
+  kills and best finish, sorted by points, then championships. Identities are the entrant names, as on the other
+  boards (`bot:<name>` for bots and Zergs, `player:<name>` otherwise), with the self-declared caveat of
+  [hardening #3](hardening.md#3-leaderboard-identities-for-plain-seats-are-self-declared).
+- **Reading it:** `GET /api/rankings?board=tournament` (`{board, current, rankings}`), `GET /api/rankings/profile?key=&board=tournament`
+  (`stats` adds the entrant's `results`: each tournament, finish and points), the MCP `leaderboard` and
+  `ranked_profile` tools with `board: "tournament"`, and the **Tournament** toggle beside **Training** on the web
+  leaderboard. `?board=tournament` on `/history` lists only tournament tables (and `?board=public` leaves them out).
+- **Stored** in `$RISK_DATA_DIR/rankings-tournament.json` (never `rankings.json`). Each table's final placings and
+  kills are saved on the bracket when the table ends (`order`, `kills` in `tournaments.json`), so a restart loses
+  nothing; on start, a finished tournament that was not recorded yet is recorded. Tournaments that finished before
+  this board existed have no table scores and are not backfilled. No seasons yet.
+
 ## Persistent personality and relationships
 
 Use one runner process with --lobbies 2 and --games 0 for two concurrent tables and a shared Ollama queue.

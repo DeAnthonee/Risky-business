@@ -562,8 +562,7 @@ class Group:
         e, dev, B, r = self.e, self.dev, self.B, self.r
         ar = torch.arange(B, device=dev)
         self.btag = torch.zeros(B, dtype=torch.int8, device=dev)  # this step's branch tag per game (Recorder)
-        # columns: the most options any branch seat compares (a Gumbel root's candidates, gumbel_k, can be more)
-        kq = max([b.cfg.gumbel_k if b.cfg.root == "gumbel" else b.cfg.options for b in self.branches.values()] or [1])
+        kq = branch_q_width([b.cfg for b in self.branches.values()])
         self.bq_opts = torch.full((B, kq), -1, dtype=torch.long, device=dev)  # this step's branch options and mean scores
         self.bq_means = torch.full((B, kq), float("nan"), dtype=torch.float64, device=dev)
         torch.cuda.reset_peak_memory_stats(dev)
@@ -617,9 +616,7 @@ class Group:
                     act1[bg] = d.act1
                     act2[bg] = d.act2
                     self.btag[bg] = d.branched.to(torch.int8) + d.changed.to(torch.int8)
-                    k = d.options.shape[1]
-                    self.bq_opts[bg, :k] = torch.where(d.branched[:, None], d.options, -1)
-                    self.bq_means[bg, :k] = torch.where(d.branched[:, None], d.means[:, :, 0], float("nan"))
+                    put_branch_q(self.bq_opts, self.bq_means, bg, d)
                     self._branch_stats(d)
             ordered, cnt = e.cand_order() if self.rec else (None, None)
             self._record(active.nonzero(as_tuple=True)[0], ordered, cnt, act1, terr, glob, (self.bq_opts, self.bq_means))
@@ -662,6 +659,19 @@ def option_q(ordered: torch.Tensor, q: tuple[torch.Tensor, torch.Tensor] | None,
     hit = (o[:, :, None] == opts[:, None, :]) & (opts[:, None, :] >= 0)
     val = means.gather(1, hit.long().argmax(2))
     return torch.where(hit.any(2), val, out)
+
+
+def branch_q_width(cfgs) -> int:
+    """Columns of a step's branch options and mean scores (branch_q.npy): the most options any branch seat compares
+    (a Gumbel root's candidates, gumbel_k, can be more than options)."""
+    return max([c.gumbel_k if c.root == "gumbel" else c.options for c in cfgs] or [1])
+
+
+def put_branch_q(bq_opts: torch.Tensor, bq_means: torch.Tensor, bg: torch.Tensor, d) -> None:
+    """A branch seat's Decision `d` for main games `bg` into the step's options and mean scores (nan: not branched)."""
+    k = d.options.shape[1]
+    bq_opts[bg, :k] = torch.where(d.branched[:, None], d.options, -1)
+    bq_means[bg, :k] = torch.where(d.branched[:, None], d.means[:, :, 0], float("nan"))
 
 
 def table_summary(results: list[dict]) -> list[dict]:

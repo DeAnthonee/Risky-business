@@ -10,7 +10,8 @@
 # that to 0.67 in the T1 sweep; the 2p Gumbel seats get the same budget (5 x 24 = 120 copies, k 8). One candidate from
 # delove@13 with soft targets and the confidence weight (train.py --confidence, near-tie labels count less), on
 # cycle 19 + cycle 18 at 0.5 + cycle 17 at 0.3, trained on a rented pod from the network volume. No gates here: the
-# A/B scorecard (npm run delove:abtest, fog tables) decides.
+# A/B scorecard (npm run delove:abtest, fog tables) decides. --confidence 0.01,0.5 is mild on purpose: at 24 rollouts the
+# median top-2 gap is still about 0.005, so 0.05,0.2 would have left two thirds of the searched labels at the floor.
 name=c19
 seed=319
 steps=(
@@ -27,5 +28,5 @@ train_data=(a1/classic a2/classic a2/skirmish a3/europe a3/usa a3/asia a4/bohemi
   "c17-a1/classic#0.3" "c17-a2/classic#0.3" "c17-a2/skirmish#0.3" "c17-a3/europe#0.3" "c17-a3/usa#0.3" "c17-a3/asia#0.3" "c17-a4/bohemia#0.3" "c17-a4/nine_realms#0.3" "c17-a4/world#0.3" "c17-b/world#0.3" "c17-b/world_large#0.3" "c17-b/greater_europe#0.3" "c17-b/fantasy#0.3" "c17-b/europe_classic#0.3" )
 train_init=delove@13
 candidate=c19-candidate
-train_args="--epochs 1.5 --batch 512 --lr 2e-4 --hidden 192 --rounds 6 --value-target points --amp --branch-weights 0.5,1,2 --soft-targets 5 --confidence 0.05,0.2 --fog-dropout 0.25"
+train_args="--epochs 1.5 --batch 512 --lr 2e-4 --hidden 192 --rounds 6 --value-target points --amp --branch-weights 0.5,1,2 --soft-targets 5 --confidence 0.01,0.5 --fog-dropout 0.25"
 gates=()

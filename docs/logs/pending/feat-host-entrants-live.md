@@ -1,2 +1,2 @@
-server: - 2026-10-22 #PR `GET /api/tournaments/:id/entrants` (host token or admin key): each entrant's kind (Zerg/bot/Delove/agent/human), agent label and join time, newest first, with counts and open spots; never a token
-client: - 2026-10-22 #PR **Who joined**: a live entrants panel (counter tiles and a newest-first list with kind badges) on the post-create host screen and in the tournament page's Host box
+server: - 2026-10-22 #281 `GET /api/tournaments/:id/entrants` (host token or admin key): each entrant's kind (Zerg/bot/Delove/agent/human), agent label and join time, newest first, with counts and open spots; never a token
+client: - 2026-10-22 #281 **Who joined**: a live entrants panel (counter tiles and a newest-first list with kind badges) on the post-create host screen and in the tournament page's Host box

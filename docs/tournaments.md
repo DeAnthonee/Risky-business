@@ -32,6 +32,8 @@ join on the website (the Tournaments list on the home page, or `?tournament=CODE
 the [tournament leaderboard](character-league.md#tournament-leaderboard): placement (3 per round survived, final
 places 2 apart, champion +6), +2 per table won and +1 per kill. Entrants are ranked by name: they cannot be bound to a
 character yet ([hardening #6](hardening.md#6-tournament-entrants-cannot-be-characters-yet)).
+Server bots (fill bots and Zergs) are scored but never ranked; their fun numbers show in **The House** on the home
+page ([playing.md](playing.md#the-house), `GET /api/house-bots`).
 
 **Follow the action (server side, not wired yet).** `packages/server/src/excitement.ts` scores how exciting a table
 is, 0-100, from its public spectator view and recent events (owner decision 19): an elimination in the last 20 s +40

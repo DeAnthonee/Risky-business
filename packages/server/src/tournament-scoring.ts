@@ -326,9 +326,9 @@ export interface HouseGroup {
 }
 
 export interface HouseBots {
-  /** Fill bots: not ranked on the tournament board. */
+  /** Fill bots: scored, never ranked on the tournament board. */
   bots: HouseGroup;
-  /** Zergs: ranked like anyone; here for the fun numbers only. */
+  /** Zergs: scored, never ranked on the tournament board either (only people are, #192). */
   zergs: HouseGroup;
 }
 

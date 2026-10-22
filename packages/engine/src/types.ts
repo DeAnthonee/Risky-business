@@ -82,19 +82,9 @@ export interface GameOptions {
   turnTimerSeconds: number;
   /**
    * Stall breaker (fog games): after this many full rounds in a row with no territory captured by anyone, the fog of
-   * war lifts for the rest of the game (0 = off).
+   * war lifts for the rest of the game (0 or absent = off). Absent by default, so games without it are unchanged.
    */
-  stallFogLift: number;
-  /**
-   * Stall breaker, step 2 (any game): once this many full rounds in a row passed with no territory captured, a storm
-   * wears down idle stacks at every round start (STORM_MIN, STORM_SHARE) until someone captures (0 = off).
-   */
-  stallStorm: number;
-  /**
-   * Stall breaker, the end: this many more stalled rounds after the last enabled stall breaker came on (stallFogLift in a
-   * fog game, stallStorm), the game ends decided on standing (reason "stalemate"; 0 = off).
-   */
-  stallEnd: number;
+  stallFogLift?: number;
 }
 
 /** Reinforcements per capital held when the capitals option is on. */
@@ -130,9 +120,6 @@ export const DEFAULT_OPTIONS: GameOptions = {
   blizzards: 0,
   turnTimer: 'off',
   turnTimerSeconds: 15,
-  stallFogLift: 0,
-  stallStorm: 0,
-  stallEnd: 0,
 };
 
 export interface PendingConquest {
@@ -168,15 +155,13 @@ export interface GameState {
   blizzards: TerritoryId[];
   /** Set once the player has fortified this turn. */
   fortifiedThisTurn: boolean;
-  /** The round of the last territory captured by anyone (0 = none yet). Absent in games saved before the stall breaker. */
-  lastCaptureRound?: number;
+  /**
+   * Stall relievers' counter (stall.ts), present only while a reliever is on: the round of the last territory captured
+   * by anyone (0 = none yet), and the round each reliever kicked in.
+   */
+  stall?: { lastCaptureRound: number; fogLiftedRound?: number };
   /** The stall breaker lifted the fog of war (stallFogLift): every view sees the whole board for the rest of the game. */
   fogLifted?: boolean;
-  /**
-   * The storm (stallStorm > 0 only; absent otherwise): territories attacked from, fortified from or to, or occupied since
-   * the last capture. A storm spares them. Cleared on every capture.
-   */
-  stallActive?: TerritoryId[];
   winner: PlayerId | null;
   seed: number;
   rngState: number;
@@ -284,10 +269,6 @@ export type GameEvent =
   | { type: 'turn_started'; player: PlayerId; turnNumber: number; round: number; reinforcements: ReinforcementBreakdown }
   /** The stall breaker: `rounds` full rounds passed with no territory captured, so the fog of war lifts for good. */
   | { type: 'fog_lifted'; rounds: number }
-  /** The storm (stallStorm): `rounds` stalled rounds; each idle stack listed lost that many armies. */
-  | { type: 'storm'; rounds: number; losses: Record<TerritoryId, number> }
-  /** The stall breaker's end (stallEnd): `rounds` stalled rounds, so the game ends decided on standing. */
-  | { type: 'stalemate'; rounds: number; standing: PlayerId[]; rolls: Record<PlayerId, number[]> }
   | { type: 'placed'; player: PlayerId; territory: TerritoryId; armies: number }
   /** auto: the game traded this set itself because the player held 5 or more cards. */
   | { type: 'traded'; player: PlayerId; cardIds: number[]; cards: Card[]; armies: number; bonusTerritory: TerritoryId | null; auto?: boolean }
@@ -322,7 +303,7 @@ export type GameEvent =
   /** The turn timer ran out: the moves in this step and the ones after it were made for the player (see timeout.ts). */
   | { type: 'timeout'; player: PlayerId; scope: 'move' | 'turn' }
   /** reason: 'domination' = last player standing; 'capitals' = held every capital (Capital Conquest). Older logs omit it. */
-  | { type: 'game_over'; winner: PlayerId; reason?: 'domination' | 'capitals' | 'stalemate' };
+  | { type: 'game_over'; winner: PlayerId; reason?: 'domination' | 'capitals' };
 
 export interface ActionResult {
   state: GameState;

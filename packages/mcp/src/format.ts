@@ -1,4 +1,4 @@
-import { nextTradeValue, CAPITAL_DEFENSE_DICE, TIMEOUT_RULE, blitzOdds, describeOptions, fixedSetValue, getMap, timerOf, visibleTerritories, type GameEvent, type GameView } from '@risk/engine';
+import { nextTradeValue, CAPITAL_DEFENSE_DICE, TIMEOUT_RULE, blitzOdds, describeOptions, fixedSetValue, getMap, timerOf, visibleTerritories, type AnyGameEvent, type GameEvent, type GameView } from '@risk/engine';
 
 /** The server's turn timer as the state carries it (`timer`; absent from older servers). */
 interface TimerView {
@@ -195,6 +195,17 @@ export function formatEvents(events: GameEvent[], view: GameView): string {
   const t = (id: string) => byId[id]?.name ?? id;
   const out: string[] = [];
   for (const e of events) {
+    // The stall relievers' own events (engine stall.ts), past GameEvent.
+    const se = e as AnyGameEvent;
+    if (se.type === 'storm') {
+      const hit = Object.entries(se.losses);
+      out.push(`Storm: no territory captured for ${se.rounds} rounds, so every stack of more than 10 armies loses a fifth: ${hit.length ? hit.map(([x, n]) => `${t(x)} -${n}`).join(', ') : 'none hit'}. It repeats every round until someone captures`);
+      continue;
+    }
+    if (se.type === 'stalemate') {
+      out.push(`Stalemate: no territory captured for ${se.rounds} rounds after every stall breaker came on, so the game ends decided on standing (territories, armies, dice): ${se.standing.map((p, i) => `${i + 1}. ${name(p)}`).join(', ')}`);
+      continue;
+    }
     switch (e.type) {
       case 'game_started':
         out.push(`Game started. Turn order: ${e.turnOrder.map(name).join(' -> ')}`);
@@ -237,14 +248,6 @@ export function formatEvents(events: GameEvent[], view: GameView): string {
         break;
       case 'fog_lifted':
         out.push(`The fog lifts: no territory captured for ${e.rounds} rounds, so everyone sees the whole board for the rest of the game`);
-        break;
-      case 'storm': {
-        const hit = Object.entries(e.losses);
-        out.push(`Storm: no territory captured for ${e.rounds} rounds, so idle stacks of more than 10 armies (no attack, fortify or move since the last capture) lose a fifth: ${hit.length ? hit.map(([x, n]) => `${t(x)} -${n}`).join(', ') : 'none hit'}. It repeats every round until someone captures`);
-        break;
-      }
-      case 'stalemate':
-        out.push(`Stalemate: no territory captured for ${e.rounds} rounds after every stall breaker came on, so the game ends decided on standing (territories, armies, dice): ${e.standing.map((p, i) => `${i + 1}. ${name(p)}`).join(', ')}`);
         break;
       case 'capital_chosen':
         out.push(e.auto ? `${name(e.player)}'s capital is ${t(e.territory)} (+${e.armies} armies there)` : `${name(e.player)} chose ${t(e.territory)} as their capital (+${e.armies} armies there)`);

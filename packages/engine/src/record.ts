@@ -2,6 +2,7 @@ import { applyAction, territoriesOf } from './engine.js';
 import { RuleError } from './types.js';
 import { getMap } from './maps.js';
 import { boardFor, redactEvents, viewFor, type GameView } from './view.js';
+import { stallOf } from './stall.js';
 import type { Action, Card, GameEvent, GameOptions, GameState, Phase, PlayerId, TerritoryId, TerritoryState } from './types.js';
 
 /**
@@ -293,6 +294,9 @@ export function assembleRecord(header: RecordHeader, entries: RecordEntry[], fin
   const placings = [...survivors, ...eliminations.map((e) => e.player).reverse().filter((id) => seats.has(id))];
   // Decided on standing: the order used is the result (only for a game the engine did not finish itself).
   const standing = !finished && decided ? decided.standing.filter((id) => seats.has(id)) : null;
+  // A stalemate (stall.ts, stallEnd): the engine finished the game on standing; its order is the result.
+  const ended = finished ? stallOf(final)?.stalemate : undefined;
+  const stalemate = ended ? { order: ended.standing.filter((id) => seats.has(id)), rolls: ended.rolls } : null;
   return {
     ...header,
     endedAt,
@@ -302,10 +306,11 @@ export function assembleRecord(header: RecordHeader, entries: RecordEntry[], fin
       finished,
       ...(finished ? {} : { endedBecause: endedBecause ?? (standing ? 'decided on standing' : 'closed before the end') }),
       winner: standing ? (standing[0] ?? null) : final.winner,
-      reason: standing ? (standing.length ? 'standing' : null) : (over?.reason ?? (final.winner ? 'domination' : null)),
+      reason: standing ? (standing.length ? 'standing' : null) : stalemate ? 'stalemate' : (over?.reason ?? (final.winner ? 'domination' : null)),
       eliminations,
-      placings: standing ? [...standing, ...placings.filter((id) => !standing.includes(id))] : placings,
+      placings: standing ? [...standing, ...placings.filter((id) => !standing.includes(id))] : stalemate ? [...stalemate.order, ...placings.filter((id) => !stalemate.order.includes(id))] : placings,
       ...(standing ? { decided: { standing, ...(decided!.rolls && Object.keys(decided!.rolls).length ? { rolls: decided!.rolls } : {}) } } : {}),
+      ...(stalemate ? { decided: { standing: stalemate.order, ...(Object.keys(stalemate.rolls).length ? { rolls: stalemate.rolls } : {}) } } : {}),
       board: boardOf(final, header),
     },
   };

@@ -1,7 +1,6 @@
 import { getMap, isMapId, type MapDef } from './maps.js';
 import { buildDeck, findSets, isValidSet, setValue } from './cards.js';
-import { createRng, nextFloat, nextInt, rollDie, shuffle, type Rng } from './rng.js';
-import { rankByStanding } from './standing.js';
+import { createRng, nextInt, rollDie, shuffle, type Rng } from './rng.js';
 import {
   CAPITAL_BONUS,
   FORCED_TRADE_CARDS,
@@ -25,6 +24,7 @@ import {
   type TerritoryState,
   type TradeAction,
 } from './types.js';
+import { checkStall, noteCapture, validateStallOptions } from './stall.js';
 
 export const PLAYER_COLORS = ['#e63946', '#2a9d8f', '#457bd9', '#f4a261', '#9b5de5', '#f9c74f', '#06d6a0', '#ff70a6', '#b5651d', '#00b4d8'];
 export const NEUTRAL_COLOR = '#8d8d8d';
@@ -93,12 +93,7 @@ export function validateOptions(o: GameOptions): void {
     throw new RuleError('neutralArmies must be an integer between 1 and 10');
   if (!Number.isInteger(o.maxPlayers) || o.maxPlayers < 2 || o.maxPlayers > map.maxPlayers)
     throw new RuleError(`maxPlayers must be between 2 and ${map.maxPlayers} on the ${map.name} map`);
-  const stall = o.stallFogLift ?? 0;
-  if (!Number.isInteger(stall) || stall < 0 || stall > 20) throw new RuleError('stallFogLift must be an integer between 0 and 20');
-  for (const key of ['stallStorm', 'stallEnd'] as const) {
-    const v = o[key] ?? 0;
-    if (!Number.isInteger(v) || v < 0 || v > 20) throw new RuleError(`${key} must be an integer between 0 and 20`);
-  }
+  validateStallOptions(o);
 }
 
 export function setOptions(state: GameState, options: Partial<GameOptions>): GameState {
@@ -890,7 +885,6 @@ function doAttack(state: GameState, playerId: PlayerId, action: AttackAction, ev
   if (action.dice !== undefined && !blitz && action.dice > Math.min(3, from.armies - 1))
     throw new RuleError(`You can roll at most ${Math.min(3, from.armies - 1)} dice from ${action.from}`);
 
-  markStallActive(state, action.from);
   const rng = rngOf(state);
   const defenderId = to.owner!;
   const defenseLimit = defenseDiceLimit(state, action.to);
@@ -925,8 +919,7 @@ function doAttack(state: GameState, playerId: PlayerId, action: AttackAction, ev
     to.owner = playerId;
     player.conqueredThisTurn = true;
     events.push({ type: 'conquered', player: playerId, from: action.from, to: action.to, previousOwner: defenderId });
-    state.lastCaptureRound = state.round;
-    if (state.stallActive) state.stallActive = [];
+    noteCapture(state);
     const minArmies = Math.min(lastAttackerDice, from.armies - 1);
     const maxArmies = from.armies - 1;
     state.pendingConquest = { from: action.from, to: action.to, minArmies: Math.max(1, minArmies), maxArmies };
@@ -971,7 +964,6 @@ function doOccupy(state: GameState, playerId: PlayerId, armies: number, events: 
     throw new RuleError(`Move between ${pc.minArmies} and ${pc.maxArmies} armies into ${pc.to}`);
   state.territories[pc.from].armies -= armies;
   state.territories[pc.to].armies += armies;
-  markStallActive(state, pc.from, pc.to);
   state.pendingConquest = null;
   events.push({ type: 'moved', player: playerId, from: pc.from, to: pc.to, armies });
   checkVictory(state, playerId, events);
@@ -987,7 +979,7 @@ function checkVictory(state: GameState, playerId: PlayerId, events: GameEvent[])
   }
 }
 
-function finishGame(state: GameState, winner: PlayerId, reason: 'domination' | 'capitals' | 'stalemate', events: GameEvent[]): void {
+function finishGame(state: GameState, winner: PlayerId, reason: 'domination' | 'capitals', events: GameEvent[]): void {
   state.phase = 'finished';
   state.winner = winner;
   state.finishedAt = Date.now();
@@ -1029,7 +1021,6 @@ function doFortify(state: GameState, playerId: PlayerId, action: FortifyAction, 
   }
   from.armies -= action.armies;
   to.armies += action.armies;
-  markStallActive(state, action.from, action.to);
   state.fortifiedThisTurn = true;
   events.push({ type: 'moved', player: playerId, from: action.from, to: action.to, armies: action.armies });
   doEndTurn(state, playerId, events);
@@ -1057,9 +1048,7 @@ function nextTurn(state: GameState, fromPlayer: PlayerId, events: GameEvent[]): 
     if (playerOf(state, cand).alive) {
       if (j <= idx) {
         state.round += 1;
-        checkStallFogLift(state, events);
-        checkStallStorm(state, events);
-        if (checkStalemate(state, events)) return;
+        checkStall(state, events);
       }
       beginTurn(state, cand, events);
       return;
@@ -1067,86 +1056,6 @@ function nextTurn(state: GameState, fromPlayer: PlayerId, events: GameEvent[]): 
   }
   // Should be unreachable (victory is detected on elimination).
   checkVictory(state, fromPlayer, events);
-}
-
-/**
- * The stall breaker (stallFogLift): when a round ends in a fog game and that many full rounds in a row passed with no
- * territory captured by anyone, the fog lifts for the rest of the game. Rounds are counted after the round of the last
- * capture (from the start if none), so a capture resets the count.
- */
-function checkStallFogLift(state: GameState, events: GameEvent[]): void {
-  const n = state.options.stallFogLift ?? 0;
-  if (!state.options.fogOfWar || n <= 0 || state.fogLifted) return;
-  const stalled = state.round - 1 - (state.lastCaptureRound ?? 0);
-  if (stalled < n) return;
-  state.fogLifted = true;
-  events.push({ type: 'fog_lifted', rounds: stalled });
-}
-
-/** The storm hits territories holding more than this many armies ... */
-export const STORM_MIN = 10;
-/** ... and each loses this share of them (rounded down; with more than STORM_MIN that is at least 2, never the last). */
-export const STORM_SHARE = 0.2;
-
-/** Full rounds in a row with no territory captured, counted after the round of the last capture (from the start if none). */
-function stalledRounds(state: GameState): number {
-  return state.round - 1 - (state.lastCaptureRound ?? 0);
-}
-
-/** The storm's record of territories that saw action since the last capture (only when stallStorm is on). */
-function markStallActive(state: GameState, ...territories: TerritoryId[]): void {
-  if (!((state.options.stallStorm ?? 0) > 0)) return;
-  const active = (state.stallActive ??= []);
-  for (const t of territories) if (!active.includes(t)) active.push(t);
-}
-
-/**
- * The stall breaker, step 2 (stallStorm): at each round start once that many rounds are stalled, every player's
- * territory holding more than STORM_MIN armies that saw no action since the last capture (no attack from it, no
- * fortify from or to it, no occupation) loses STORM_SHARE of its armies. Placing reinforcements is not action: piling
- * them up is the stall. Repeats every stalled round; a capture resets the count and the record.
- */
-function checkStallStorm(state: GameState, events: GameEvent[]): void {
-  const n = state.options.stallStorm ?? 0;
-  if (n <= 0) return;
-  const stalled = stalledRounds(state);
-  if (stalled < n) return;
-  const active = new Set(state.stallActive ?? []);
-  const neutral = new Set(state.players.filter((p) => p.isNeutral).map((p) => p.id));
-  const losses: Record<TerritoryId, number> = {};
-  for (const id of mapOf(state).territoryIds) {
-    const t = state.territories[id];
-    if (!t || t.owner === null || neutral.has(t.owner) || active.has(id) || t.armies <= STORM_MIN) continue;
-    const lost = Math.floor(t.armies * STORM_SHARE);
-    t.armies -= lost;
-    losses[id] = lost;
-  }
-  state.stallActive ??= [];
-  events.push({ type: 'storm', rounds: stalled, losses });
-}
-
-/**
- * The stall breaker's end (stallEnd): stallEnd more stalled rounds after the last enabled stall breaker came on
- * (stallFogLift, only in a fog game; stallStorm), the game ends, decided on standing (rankByStanding, the rule
- * tournaments use: territories, then armies, then dice from the game's own seeded dice). True when it ended the game.
- */
-function checkStalemate(state: GameState, events: GameEvent[]): boolean {
-  const n = state.options.stallEnd ?? 0;
-  if (n <= 0 || state.phase === 'finished') return false;
-  const fog = state.options.fogOfWar ? (state.options.stallFogLift ?? 0) : 0;
-  const stalled = stalledRounds(state);
-  if (stalled < Math.max(fog, state.options.stallStorm ?? 0) + n) return false;
-  const rng = rngOf(state);
-  const standing = rankByStanding(state, () => nextFloat(rng), eliminationOrder(state));
-  saveRng(state, rng);
-  events.push({ type: 'stalemate', rounds: stalled, standing: standing.order, rolls: standing.rolls });
-  finishGame(state, standing.order[0], 'stalemate', events);
-  return true;
-}
-
-/** Players already out, as far as the state tells (turn order; the engine keeps no elimination clock). */
-function eliminationOrder(state: GameState): PlayerId[] {
-  return state.turnOrder.filter((id) => !playerOf(state, id).alive);
 }
 
 function surrender(state: GameState, playerId: PlayerId): ActionResult {

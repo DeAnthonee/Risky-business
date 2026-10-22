@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import type { GameEvent, GameView } from '@risk/engine';
+import type { AnyGameEvent, GameEvent, GameView } from '@risk/engine';
 import type { EventBatch } from '../useGame';
 import { getMap } from '@risk/engine';
 import { territoryName } from './Map';
@@ -9,6 +9,14 @@ export function describe(e: GameEvent, view: GameView): string | null {
   const name = (id: string | null) => view.players.find((p) => p.id === id)?.name ?? id ?? '?';
   const map = getMap(view.options.map);
   const shortName = (id: string) => territoryName(map, id);
+  // The stall relievers' own events (engine stall.ts), past GameEvent.
+  const se = e as AnyGameEvent;
+  if (se.type === 'storm') {
+    const hit = Object.entries(se.losses);
+    return `⛈ Storm (no captures for ${se.rounds} rounds): ${hit.length ? hit.map(([t, n]) => `${shortName(t)} −${n}`).join(', ') : 'no stack big enough to hit'}`;
+  }
+  if (se.type === 'stalemate') return `⚖ Stalemate: no captures for ${se.rounds} rounds. The game is decided on standing: ${se.standing.map((p, i) => `${i + 1}. ${name(p)}`).join(', ')}`;
+  if (se.type === 'game_over' && se.reason === 'stalemate') return `🏆 ${name(se.winner)} wins the stalled game on standing!`;
   switch (e.type) {
     case 'game_started':
       return `Game started. Turn order: ${e.turnOrder.map(name).join(' → ')}`;
@@ -30,12 +38,6 @@ export function describe(e: GameEvent, view: GameView): string | null {
       return `❄ Blizzards: ${e.territories.map(shortName).join(', ')} are impassable`;
     case 'fog_lifted':
       return `🌫 The fog lifts: no battles for ${e.rounds} round${e.rounds === 1 ? '' : 's'}. Everyone sees the whole board now.`;
-    case 'storm': {
-      const hit = Object.entries(e.losses);
-      return `⛈ Storm (no captures for ${e.rounds} rounds): ${hit.length ? hit.map(([t, n]) => `${shortName(t)} −${n}`).join(', ') : 'no idle stack big enough to hit'}`;
-    }
-    case 'stalemate':
-      return `⚖ Stalemate: no captures for ${e.rounds} rounds. The game is decided on standing: ${e.standing.map((p, i) => `${i + 1}. ${name(p)}`).join(', ')}`;
     case 'capital_chosen':
       return e.auto ? `★ ${name(e.player)}'s capital is ${shortName(e.territory)} (+${e.armies})` : `★ ${name(e.player)} chose ${shortName(e.territory)} as their capital (+${e.armies})`;
     case 'capitals_assigned':
@@ -63,7 +65,6 @@ export function describe(e: GameEvent, view: GameView): string | null {
     case 'phase':
       return null;
     case 'game_over':
-      if (e.reason === 'stalemate') return `🏆 ${name(e.winner)} wins the stalled game on standing!`;
       return e.reason === 'capitals' ? `🏆 ${name(e.winner)} holds every capital and wins the game!` : `🏆 ${name(e.winner)} wins the game!`;
   }
 }

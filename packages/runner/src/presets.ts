@@ -20,11 +20,6 @@ export const DEFAULT_OPTIONS: Omit<GameOptions, 'map' | 'maxPlayers'> = {
   // League seats think with local models: no turn timer unless --options turns it on.
   turnTimer: 'off',
   turnTimerSeconds: 15,
-  // The stall breaker (fog lifts after N stalled rounds) stays off for league games unless --options sets it.
-  stallFogLift: 0,
-  // So do the storm and the stalemate end (stall breaker steps 2 and 3).
-  stallStorm: 0,
-  stallEnd: 0,
 };
 
 /** Most players a random lineup seats, and the fewest (when the roster and map allow). */

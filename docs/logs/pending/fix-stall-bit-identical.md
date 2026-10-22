@@ -1,0 +1,2 @@
+engine: - 2026-10-22 #292 stall breaker, bit-identical when off (training's condition, follow-up to #291): `stallFogLift` is optional and absent by default; the counter moves to the new stall.ts (not mirrored) and to one optional `stall {lastCaptureRound, fogLiftedRound}` kept only while a reliever is on, so with the option off the options and state carry no new keys and engine.ts only calls stall.ts; one counter for the later relievers (storms, stalemate end)
+server: - 2026-10-22 #292 no stallFogLift migration for old snapshots (absent means off)

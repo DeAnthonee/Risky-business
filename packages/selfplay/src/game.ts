@@ -175,8 +175,7 @@ export function playGame(cfg: GameConfig): GameResult {
     decisions++;
     for (const e of events) if (e.type === 'eliminated' && !eliminationOrder.includes(e.player)) eliminationOrder.push(e.player);
     const over = events.find((e) => e.type === 'game_over');
-    // A stalemate (stallEnd, off in self-play) is no win on the board: logged like the turn limit, so LOG_VERSION holds.
-    if (over && over.type === 'game_over') reason = over.reason === 'stalemate' ? 'turn_limit' : (over.reason ?? 'domination');
+    if (over && over.type === 'game_over') reason = over.reason ?? 'domination';
 
     if (state.turnNumber !== lastTurn) {
       lastTurn = state.turnNumber;

@@ -134,8 +134,7 @@ row in which nobody captures a territory, the fog lifts for the rest of the game
 sees the whole board from then on. Attacking keeps the fog; a long standoff lifts it.
 "stallStorm" (a number, 0 = off; tournaments use 5): any game. After that many full rounds in a row with no capture, a
 storm hits at the start of every round (a "storm" event) until someone captures: each territory with more than 10
-armies that has not attacked, fortified (from or to) or been occupied since the last capture loses a fifth of its
-armies (placing reinforcements does not count). Attack, or move your big stacks, to keep them.
+armies loses a fifth of them (rounded down; never the last). Piling up stacks only feeds the storm: capture to stop it.
 "stallEnd" (a number, 0 = off; tournaments use 5): that many more stalled rounds after the last stall breaker came on
 (fog lift in a fog game, storm), the game ends ("stalemate" event, then game over by "stalemate"): the winner is
 decided on standing, by territories, then armies, then dice.

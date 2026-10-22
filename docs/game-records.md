@@ -162,9 +162,10 @@ additive (a new optional field and a new `reason` value), so `RECORD_VERSION` st
 `finished: false` as "no result" keeps working, and one that wants the decided result reads `decided`.
 
 A game the **engine** ends as a stalemate (the `stallEnd` stall breaker, [playing.md](playing.md)) is different: it
-is finished in the engine (`finished: true`, the `game_over` event says `reason: "stalemate"`), so the record's
-outcome has `reason: "stalemate"` and the winner from the engine's `stalemate` event (its `standing` and `rolls`), and
-no `decided`. Also additive: `RECORD_VERSION` stays 1.
+is finished in the engine (`finished: true`; the server ends it with a system commit, which adds no step), so the
+record's outcome has `reason: "stalemate"`, the winner first in the standing, `placings` in standing order and
+`decided` with that standing and its dice (from the final state's `stall.stalemate`). Also additive: `RECORD_VERSION`
+stays 1.
 
 ## Replaying and scenarios
 

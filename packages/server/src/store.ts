@@ -5,7 +5,9 @@ import { dirname, join } from 'node:path';
 import {
   RuleError,
   endByStanding,
+  endInStalemate,
   onlySideLeft,
+  stalemateDue,
   addPlayer,
   applyAction,
   createGame,
@@ -531,6 +533,19 @@ export class GameRoom extends EventEmitter {
     for (const m of this.bigMoves.observe(next, events)) this.reactionPacer.push(bigMoveMessage(this.id, next, this.characterIds, m));
     this.scheduleBot();
     this.endIfOnlySwarm();
+    this.endIfStalemate();
+  }
+
+  /**
+   * The stall relievers' end (stallEnd, engine stall.ts): a game stalled long enough ends on standing, the engine's
+   * endInStalemate. Like the Zerg rule above it goes through commit, so records, replays, rankings and tournaments see
+   * a finished game (a tournament counts it as decided on standing: stall.stalemate).
+   */
+  private endIfStalemate() {
+    if (this.decidedAt !== null || !stalemateDue(this.state)) return;
+    const { state, events } = endInStalemate(this.state, this.eliminationOrder);
+    this.addChat(null, 'Game', 'Stalemate: nobody captured a territory for too long, so the game is decided on standing (territories, then armies, then dice).');
+    this.commit(state, events, null, { type: 'system', note: 'stalemate: the game ends on standing' });
   }
 
   /**
@@ -997,10 +1012,6 @@ export class Store {
           // The turn timer arrived later: off for games already saved.
           if (snap.state.options.turnTimer === undefined) snap.state.options.turnTimer = 'off';
           if (snap.state.options.turnTimerSeconds === undefined) snap.state.options.turnTimerSeconds = 15;
-          // The stall breaker arrived later: off for games already saved.
-          if (snap.state.options.stallFogLift === undefined) snap.state.options.stallFogLift = 0;
-          if (snap.state.options.stallStorm === undefined) snap.state.options.stallStorm = 0;
-          if (snap.state.options.stallEnd === undefined) snap.state.options.stallEnd = 0;
           const room = new GameRoom(snap);
           this.attach(room);
         }

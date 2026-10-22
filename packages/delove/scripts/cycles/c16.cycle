@@ -1,0 +1,51 @@
+# Cycle 16, run with (from the repo root; RUNPOD_API_KEY in the environment):
+#   DELOVE_BRANCH_RANKER=delove@11 DELOVE_BRANCH_TEACHER=jacob-sensei@2 DELOVE_BRANCH_HORIZON=1
+#   DELOVE_BRANCH_MARGIN=0.01 DELOVE_BRANCH_OPTIONS=5 REMOTE_GPUS=7 REMOTE_MAX_GPU_HOURS=8
+#   REMOTE_TRAIN=1 REMOTE_VOLUME=<volume id> REMOTE_HOME_COPY=1 REMOTE_TRAIN_DISK_GB=250 GATE_SPRT=1 PANEL=1
+#   REMOTE_TIMINGS="<runs>/c15/a1/gpu.log ... <runs>/c15/b/gpu.log"
+#   DELOVE_MODELS=<models> DATA=<data> OUT=<runs>/c16 PYTHON=<venv python>
+#   bash packages/delove/scripts/cycle.sh packages/delove/scripts/cycles/c16.cycle
+# Cycle 15's recipe one step on (research plan, fog first). delove@11 ranks the search's 5 options and fills the
+# network seats with delove@10: delove@12 has fog inputs (28/96 features) that the GPU mirror's encoder does not make
+# yet, so it cannot play on the GPU (both first launches failed at load). Training still starts from delove@12; Jacob Sensei 2 teaches; range-scored branch seats at 6-10p. No horde games, no specialists.
+# Generation writes to the RunPod network volume (REMOTE_TRAIN=1 REMOTE_VOLUME=..., REMOTE_HOME_COPY=1 keeps the home copy)
+# and this config's candidate (a), --fog-dropout 0.25, trains on a rented pod; candidate (b), --fog-dropout 0.5, trains
+# on a second pod at the same time (c16-train-b.sh). The deciding gate is fog on (c16-fog.cycle); this config's no-fog
+# gates are for the record.
+name=c16
+seed=316
+steps=(
+  "a1 packages/delove/scripts/cycles/c16-a1.jobs Cycle 16, step a1: Classic 4-player"
+  "a2 packages/delove/scripts/cycles/c16-a2.jobs Cycle 16, step a2: Classic 2p, Four Crowns 1v1, Classic 6p"
+  "a3 packages/delove/scripts/cycles/c16-a3.jobs Cycle 16, step a3: Europe 8p, USA 10p, Asia 8p"
+  "a4 packages/delove/scripts/cycles/c16-a4.jobs Cycle 16, step a4: Bohemia, Nine Realms, World 6p"
+  "b packages/delove/scripts/cycles/c16-b.jobs Cycle 16, step b: the huge boards"
+)
+gpu_steps=(all)
+export_agents=delove-branch@1,delove-branch@1:range
+train_data=(a1/classic a2/classic a2/skirmish a3/europe a3/usa a3/asia a4/bohemia a4/nine_realms a4/world
+  b/world b/world_large b/greater_europe b/fantasy b/europe_classic
+  "c15-a1/classic#0.4" "c15-a2/classic#0.4" "c15-a2/skirmish#0.4" "c15-a3/europe#0.4" "c15-a3/usa#0.4" "c15-a3/asia#0.4"
+  "c15-a4/bohemia#0.4" "c15-a4/nine_realms#0.4" "c15-a4/world#0.4" "c15-b/world#0.4" "c15-b/world_large#0.4"
+  "c15-b/greater_europe#0.4" "c15-b/fantasy#0.4" "c15-b/europe_classic#0.4"
+  "c14-a1/classic#0.2" "c14-a2/classic#0.2" "c14-a3/europe#0.2" "c14-a4/bohemia#0.2" "c14-b/world#0.2" "c14-b/greater_europe#0.2")
+train_init=delove@12
+candidate=c16-candidate
+train_args="--epochs 1.5 --batch 512 --lr 2e-4 --hidden 192 --rounds 6 --value-target points --amp --branch-weights 0.5,1,2 --fog-dropout 0.25"
+gates=(
+  "delove@12 2 800"
+  "delove@12 4 200"
+  "delove@12 6 200"
+  "delove@12 6 200 {\"map\":\"world\"}"
+  "delove@12 10 200 {\"map\":\"world\"}"
+  "delove@12 6 200 {\"autoSetup\":true,\"balancedBlitz\":true,\"chooseCapitals\":true,\"cardValues\":\"progressive\",\"capitals\":true,\"blizzards\":8}"
+  "delove@12 6 200 {\"map\":\"world\",\"autoSetup\":true,\"balancedBlitz\":true,\"chooseCapitals\":true,\"cardValues\":\"fixed\",\"capitals\":true}"
+  "delove@12 4 200 {\"autoSetup\":true,\"balancedBlitz\":true,\"chooseCapitals\":true,\"cardValues\":\"exponential\",\"blizzards\":8}"
+  "delove@12 2 400 {\"autoSetup\":true,\"balancedBlitz\":true,\"chooseCapitals\":true,\"cardValues\":\"exponential\",\"blizzards\":8}"
+  "delove@12 6 200 {\"map\":\"bohemia\",\"autoSetup\":true,\"balancedBlitz\":true,\"chooseCapitals\":true,\"cardValues\":\"progressive\"}"
+  "delove@12 8 200 {\"map\":\"nine_realms\",\"autoSetup\":true,\"balancedBlitz\":true,\"chooseCapitals\":true,\"cardValues\":\"fixed\",\"capitals\":true}"
+  "jacob-sensei@1 6 200 {\"map\":\"world\"}"
+  "jacob-sensei@2 6 200 {\"map\":\"world\"}"
+  "jacob-sensei@2 2 400"
+  "delove-teacher@2 2 400"
+)

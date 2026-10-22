@@ -1,6 +1,6 @@
 # Delove: our base model, a trained Risk player with no personality
 
-Status: Stage 2 under way. Current best: `delove@12` (cycle 15, 2026-10-22, the first trained for fog of war); the current state and each promotion's
+Status: Stage 2 under way. Current best: `delove@13` (cycle 16, 2026-10-22, promoted with fog on); the current state and each promotion's
 results are in `docs/delove-status.md` section 3. History and per-step stats: `packages/delove/CYCLES.md`.
 Where things stand, the training flow and why each step should work, what has been tried, open work and the
 roadmap: **`docs/delove-status.md`** (read that first when coordinating Delove's training). For Generation 5 game settings,

@@ -1,4 +1,4 @@
-import type { Action, GameEvent, GameOptions, GameView } from '@risk/engine';
+import type { Action, GameEvent, GameOptions, GameView, NestNode } from '@risk/engine';
 
 /** Root path of the app (supports hosting under a sub-path, e.g. /risk/). */
 const loc = typeof window !== 'undefined' ? window.location : { href: 'http://localhost/', protocol: 'http:', host: 'localhost' };
@@ -83,8 +83,36 @@ export interface TournamentView {
   maxEntrants: number;
   fillBots: boolean;
   entrants: { id: string; name: string; isBot: boolean; status: EntrantStatus }[];
-  rounds: { round: number; matches: { gameId: string | null; status: 'playing' | 'finished' | 'bye' | 'abandoned'; players: { entrantId: string; name: string }[]; winner: string | null }[] }[];
+  rounds: {
+    round: number;
+    /** Nested: the round's deadline and end (ms since the epoch). */
+    deadline?: number;
+    endedAt?: number;
+    matches: {
+      gameId: string | null;
+      /** decided: a nested table stopped at its round's end and decided on standing. */
+      status: 'playing' | 'finished' | 'bye' | 'abandoned' | 'decided';
+      players: { entrantId: string; name: string }[];
+      winner: string | null;
+      /** Nested: the table's board, its place in `nested.nodes`, and how it was decided on standing. */
+      map?: string;
+      node?: number;
+      standing?: { order: string[]; rolls: Record<string, number[]> };
+    }[];
+  }[];
   champion: { entrantId: string; name: string } | null;
+  /** "knockout" (absent on older servers) or "nested" (Inception tournaments). */
+  format?: 'knockout' | 'nested';
+  nested?: {
+    finalMap: string | null;
+    territoriesPerSeat: number;
+    roundMinutes: number;
+    finishShare: number;
+    plan: number[][] | null;
+    zergs: number;
+    /** The resolved boards (resolveNest order), once the tournament has started. */
+    nodes?: NestNode[] | null;
+  };
   version: number;
   you?: { entrantId: string; name: string; status: EntrantStatus; match: { gameId: string; playerId: string; token: string; round: number } | null };
 }

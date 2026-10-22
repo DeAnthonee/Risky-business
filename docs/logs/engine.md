@@ -3,8 +3,9 @@
 Covers `packages/engine/src` and its tests: rules, turn flow, settings (`options.ts`), views and fog, the built-in
 bot, ranking and the game-record format. Map data has its own log ([maps.md](maps.md)).
 
-Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. Changes from before pull requests carry the
-commit hash instead. **Append a line in the same PR** as any change to this area (README hard rule 12).
+Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. Changes from before pull requests carry the commit
+hash instead. **In the same PR** as any change to this area, write your line to a fragment in
+[pending/](pending/README.md), not to this file (README hard rule 12; folded in by `npm run logs:fold`).
 
 - 2026-10-22 #180 types only: `PlayerView.agent?` (never set by `viewFor`; the server adds it for spectators) and `RecordHeader.room.agents?` (written when a game is filed); no rule change, `RECORD_VERSION` unchanged
 - 2026-10-22 #175 `standing.ts` (new, not mirrored): `rankByStanding(state, random, eliminated)` orders an unfinished game for a nested tournament's round end: territories, then armies, then dice (re-rolled among the still tied), then players out (last out first); returns the dice rolled

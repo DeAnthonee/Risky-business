@@ -4,8 +4,9 @@ Covers `packages/delove` (teacher, network agent, seat player, trainer, cycle sc
 numbers go in [packages/delove/CYCLES.md](../../packages/delove/CYCLES.md) and the current state in
 [docs/delove-status.md](../delove-status.md); this log only lists the merged changes. GPU mirror: [delove-gpu.md](delove-gpu.md).
 
-Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. **Append a line in the same PR** as any change to
-this area (README hard rule 12).
+Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. **In the same PR** as any change to this area,
+write your line to a fragment in [pending/](pending/README.md), not to this file (README hard rule 12; folded in by
+`npm run logs:fold`).
 
 - 2026-10-22 #180 `delove-seat` and the yardstick `setup.mjs` declare each seat's player type on join (the search seat "<ranker> + search", e.g. "delove@10 + search", other seats their agent id; `claude-<tier>`), seen by spectators only
 - 2026-10-21 #176 strongest-keeps-the-table ending with the sacrifice back on: horde gate verdict unchanged (+0.118), games shorter (9.8 rounds against 15.7), turn limits 4/500 (10 with the sacrifice off); `zerg-branch@1`'s self term rewards being the strongest Zerg when the prey falls; horde-aware rollouts never attack a fellow Zerg; horde.jobs ~5.1 s a game, ~85 min for 4,000 games on 8 processes

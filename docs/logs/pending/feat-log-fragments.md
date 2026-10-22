@@ -1,0 +1,2 @@
+docs: - 2026-10-21 #PR log lines go in a per-PR fragment, `docs/logs/pending/<branch>.md`, folded into the logs by `npm run logs:fold` (`scripts/fold-logs.mjs`); `npm test` validates fragments (`logs:check`) and tests the fold (`logs:test`); README hard rule 12, the Running logs section, CONTRIBUTING, the PR template, conventions and every log header updated
+hosting: - 2026-10-21 #PR `npm test` also runs `logs:check` (validates `docs/logs/pending/` fragments, writes nothing) and `logs:test` (the fold script's tests)

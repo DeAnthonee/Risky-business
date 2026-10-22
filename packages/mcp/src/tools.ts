@@ -109,13 +109,17 @@ const tournamentIdSchema = z.string().min(4).max(12).describe('Tournament code, 
 
 /** A bracket as text: entrants, every round's tables and, with an entrant token, where you stand. */
 export function formatTournament(t: TournamentInfo): string {
-  const lines = [`TOURNAMENT ${t.id} "${t.name}" - ${t.status.toUpperCase()} - map ${t.map}, tables of up to ${t.groupSize}${t.fillBots ? ', round 1 filled with bots' : ''}`];
+  const lines = [
+    t.format === 'nested' && t.nested
+      ? `TOURNAMENT ${t.id} "${t.name}" - ${t.status.toUpperCase()} - nested: tables of 3-6 on their own boards, a final of 6-10${t.nested.finalMap ? ` on ${t.nested.finalMap}` : ''}; a round ends when ${Math.round(t.nested.finishShare * 100)}% of its tables finish or after ${t.nested.roundMinutes} min, and the rest are decided on standing (territories, armies, dice)${t.nested.plan ? `. Plan: ${t.nested.plan.map((r) => r.join('+')).join(' > ')} seats per table${t.nested.zergs ? `, ${t.nested.zergs} bots added` : ''}` : ''}`
+      : `TOURNAMENT ${t.id} "${t.name}" - ${t.status.toUpperCase()} - map ${t.map}, tables of up to ${t.groupSize}${t.fillBots ? ', round 1 filled with bots' : ''}`,
+  ];
   lines.push(`Entrants (${t.entrants.length}/${t.maxEntrants}): ${t.entrants.map((e) => `${e.name}${e.isBot ? ' [bot]' : ''} (${e.status})`).join(', ') || 'none yet'}`);
   for (const r of t.rounds) {
-    lines.push(`Round ${r.round}:`);
+    lines.push(`Round ${r.round}:${r.deadline && !r.endedAt ? ` (ends by ${new Date(r.deadline).toISOString()})` : ''}`);
     r.matches.forEach((m, i) => {
       const who = m.players.map((p) => (p.entrantId === m.winner ? `*${p.name}*` : p.name)).join(', ');
-      lines.push(`  ${m.gameId ? `table ${i + 1}, game ${m.gameId}` : 'bye'} [${m.status}]: ${who}`);
+      lines.push(`  ${m.gameId ? `table ${i + 1}, game ${m.gameId}` : 'bye'}${m.map ? ` on ${m.map}` : ''} [${m.status === 'decided' ? 'decided on standing' : m.status}]: ${who}`);
     });
   }
   if (t.champion) lines.push(`CHAMPION: ${t.champion.name}`);
@@ -715,11 +719,16 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
         groupSize: z.number().int().min(2).max(10).optional().describe('Players per table (default 4, or the map maximum if smaller)'),
         maxEntrants: z.number().int().min(2).max(256).optional().describe('Default 64'),
         fillBots: z.boolean().optional().describe('Fill round 1 with bots so every table is full (default true)'),
+        format: z.enum(['knockout', 'nested']).optional().describe('knockout (default), or nested: planned rounds of 3-6 seat tables on generated boards, a final of 6-10, bots only when the count needs them, and rounds that end at 51% of tables finished or a deadline'),
+        finalMap: z.string().optional().describe('nested: the final on an existing board (default a generated one)'),
+        territoriesPerSeat: z.number().int().min(4).max(6).optional().describe('nested: generated board size per seat (default 5)'),
+        roundMinutes: z.number().int().min(1).max(240).optional().describe('nested: round deadline in minutes (default 30)'),
+        finishShare: z.number().min(0.1).max(1).optional().describe('nested: share of tables that must finish to end a round (default 0.51)'),
       },
     },
-    async ({ adminKey, name, options, groupSize, maxEntrants, fillBots }) => {
+    async ({ adminKey, name, options, groupSize, maxEntrants, fillBots, format, finalMap, territoriesPerSeat, roundMinutes, finishShare }) => {
       try {
-        const { hostToken, tournament } = await api.createTournament(adminKey, { name, options: options as Partial<GameOptions> | undefined, groupSize, maxEntrants, fillBots });
+        const { hostToken, tournament } = await api.createTournament(adminKey, { name, options: options as Partial<GameOptions> | undefined, groupSize, maxEntrants, fillBots, format, finalMap, territoriesPerSeat, roundMinutes, finishShare });
         hosted.set(tournament.id, hostToken);
         return text(
           `Created tournament ${tournament.id}. HOST TOKEN: ${hostToken}  <- keep it secret: only it (or the admin key) starts this tournament. start_tournament remembers it on this connection; pass it as "hostToken" from another one.\n` +

@@ -26,7 +26,7 @@ import {
 } from '@risk/engine';
 import { timeoutSteps, timerOf } from '@risk/engine';
 import { chooseSeatAction, seatIdPrefix, zergName, type BotKind } from './bot.js';
-import { DEFAULT_TOURNAMENT_LIMITS, TournamentManager } from './tournaments.js';
+import { DEFAULT_TOURNAMENT_LIMITS, TournamentManager, type TournamentClock } from './tournaments.js';
 import { Rankings } from './rankings.js';
 import { DEFAULT_KEEP, GameArchive, type CommitInfo } from './archive.js';
 
@@ -91,6 +91,8 @@ export interface RoomSnapshot {
   scenarioOf?: ScenarioRef;
   /** "training": ranked on the training leaderboard (rankings-training.json), never the public one. Absent = public. */
   board?: RankingBoard;
+  /** A nested-tournament table stopped at its round's end and decided on standing: frozen from then on. */
+  decidedAt?: number;
 }
 
 /** The leaderboard a room's result goes to when it is not the public one (see docs/character-league.md). */
@@ -204,6 +206,8 @@ export class GameRoom extends EventEmitter {
   scenarioOf?: ScenarioRef;
   /** "training": ranked on the training leaderboard. Absent = public. */
   board?: RankingBoard;
+  /** Set when a nested tournament decided this table on standing at its round's end: no more moves. */
+  decidedAt: number | null = null;
   private botTimer: NodeJS.Timeout | null = null;
   /** The turn timer (turnTimer option): when the current human or agent decision runs out. In memory only. */
   private turnTimer: NodeJS.Timeout | null = null;
@@ -231,6 +235,7 @@ export class GameRoom extends EventEmitter {
     this.scenarioOf = snapshot.scenarioOf;
     // Rooms saved before the training board existed are public.
     if (snapshot.board === 'training') this.board = 'training';
+    this.decidedAt = snapshot.decidedAt ?? null;
     if (this.state.phase === 'finished') this.finishedAt = this.history.at(-1)?.at ?? this.updatedAt;
   }
 
@@ -251,7 +256,22 @@ export class GameRoom extends EventEmitter {
       ...(this.recordId ? { recordId: this.recordId } : {}),
       ...(this.scenarioOf ? { scenarioOf: this.scenarioOf } : {}),
       ...(this.board ? { board: this.board } : {}),
+      ...(this.decidedAt !== null ? { decidedAt: this.decidedAt } : {}),
     };
+  }
+
+  /**
+   * Freeze the table: its tournament decided it on standing at the round's end. Bots and the turn timer stop, every
+   * move is refused from now on, and `note` (the standing) is posted to the chat for spectators. The game itself is
+   * not finished in the engine (it has no adjudicated ending); the room closes like a finished one.
+   */
+  decide(note: string, at = Date.now()) {
+    if (this.decidedAt !== null) return;
+    this.decidedAt = at;
+    this.stopBot();
+    this.addChat(null, 'Tournament', note);
+    this.emit('decided');
+    this.releaseWaiters();
   }
 
   /** Mark human/agent activity (keeps the room from being swept). */
@@ -453,6 +473,7 @@ export class GameRoom extends EventEmitter {
   // ---- play ----
 
   act(playerId: PlayerId, action: Action): { state: GameState; events: GameEvent[] } {
+    if (this.decidedAt !== null) throw new RuleError("This table was decided at the round's end");
     const { state, events } = applyAction(this.state, playerId, action);
     if (!this.state.players.find((p) => p.id === playerId)?.isBot) this.touch();
     this.commit(state, events, playerId, action);
@@ -636,7 +657,7 @@ export class GameRoom extends EventEmitter {
     const s = this.state;
     const cur = s.currentPlayer;
     const p = cur ? s.players.find((x) => x.id === cur) : undefined;
-    if (!t || this.closed || !p || p.isBot || !p.alive || s.phase === 'lobby' || s.phase === 'finished') return this.clearTurnTimer();
+    if (!t || this.closed || this.decidedAt !== null || !p || p.isBot || !p.alive || s.phase === 'lobby' || s.phase === 'finished') return this.clearTurnTimer();
     const key = t.mode === 'move' || s.phase === 'setup' || s.phase === 'capitals' ? `v${s.version}` : `${cur}:${s.turnNumber}`;
     if (key === this.turnTimerKey && this.turnTimer) return;
     this.clearTurnTimer();
@@ -668,7 +689,7 @@ export class GameRoom extends EventEmitter {
   // ---- bots ----
 
   scheduleBot() {
-    if (this.botTimer || this.closed) return;
+    if (this.botTimer || this.closed || this.decidedAt !== null) return;
     const cur = this.state.currentPlayer;
     if (!cur || this.state.phase === 'finished' || this.state.phase === 'lobby') return;
     const p = this.state.players.find((x) => x.id === cur);
@@ -724,6 +745,8 @@ export class Store {
   constructor(
     private file: string | null,
     retention: Partial<RetentionPolicy> = {},
+    /** The clock nested tournaments run their round deadlines on (tests pass a fake one). */
+    opts: { clock?: TournamentClock } = {},
   ) {
     this.retention = { ...DEFAULT_RETENTION, ...retention };
     this.rankings = new Rankings(file ? join(dirname(file), 'rankings.json') : null);
@@ -772,7 +795,7 @@ export class Store {
     this.tournaments = new TournamentManager(this, file ? join(dirname(file), 'tournaments.json') : null, {
       maxActive: envInt('RISK_MAX_ACTIVE_TOURNAMENTS', DEFAULT_TOURNAMENT_LIMITS.maxActive, 0),
       keepFinished: envInt('RISK_TOURNAMENTS_KEEP', DEFAULT_TOURNAMENT_LIMITS.keepFinished, 1),
-    });
+    }, opts.clock);
     // A restored game's clock starts again in full (deadlines are not saved).
     for (const room of this.rooms.values()) {
       room.scheduleBot();
@@ -954,6 +977,7 @@ export class Store {
       this.sweepTimer = null;
     }
     for (const room of this.rooms.values()) room.stopBot();
+    this.tournaments.stopTimers();
   }
 
   /** Why a room would be swept right now, or null to keep it. */
@@ -964,6 +988,8 @@ export class Store {
     // A table its tournament is still waiting on stays until it is decided, even with only bots at it.
     if (this.tournaments.isManagedTable(room)) return null;
     const phase = room.state.phase;
+    // A table decided on standing closes like a finished game.
+    if (room.decidedAt !== null && r.finishedClose > 0 && now - room.decidedAt > r.finishedClose) return `decided ${fmt(now - room.decidedAt)} ago`;
     // Finished games close shortly after the end, even with spectators attached.
     if (phase === 'finished' && r.finishedClose > 0 && room.finishedAt !== null && now - room.finishedAt > r.finishedClose) return `finished ${fmt(now - room.finishedAt)} ago`;
     // Every seat gone (no socket, no request, no long-poll) for a while: lobbies and running games.

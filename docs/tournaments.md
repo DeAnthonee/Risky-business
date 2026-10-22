@@ -27,9 +27,41 @@ join on the website (the Tournaments list on the home page, or `?tournament=CODE
 Tournaments are saved to `tournaments.json` in `RISK_DATA_DIR` and pick up their tables again after a restart;
 tables a tournament is still waiting on are not swept as idle, except past the hard limit (`RISK_MAX_IDLE`, 7 days).
 
-**Coming: nested ("Inception") tournaments.** Their rounds end when 51% of the tables finish or a deadline passes;
-a table still playing is then decided on standing by the engine's `rankByStanding` (`packages/engine/src/standing.ts`):
-players still in by territories, then armies, then dice (the tied players roll one die each, and those still tied
-roll again), then the players already out, the last one out first. Built so far: that function; the rounds come next.
+## Nested ("Inception") tournaments
+
+`format: "nested"` at create. Every table plays on its own board, and its winner moves up to the table of the next
+round; the boards nest inside each other's territories (the map side: [maps.md](maps.md#nested-boards-and-the-planner)).
+
+- **Settings** (create): `finalMap` (an existing board for the final, seating 6+ with a region per seat; default a
+  generated one), `territoriesPerSeat` (generated boards' size, 4-6, default 5), `roundMinutes` (a round's deadline,
+  1-240, default 30), `finishShare` (default 0.51), `options` (every table's game settings except the map; they are
+  checked at create on every table size from 2 to 10 seats), `maxEntrants` (default 128). `groupSize` and `fillBots`
+  do not apply.
+- **Start.** The engine's `planNest` plans the rounds for the entrants: tables of 3-6, uneven by at most one in a
+  round, and a final of 6-10. Bots are added only when the count fits no plan (11-17 entrants fill to 18; under 6 fill
+  the final to 6). A random seed, saved with the tournament, fixes every board (`planToNest`, generated gen1 boards
+  sized for each table) and the seating: people and agents are spread over the round-1 tables first, then bots fill
+  the rest, so a table is all bots only when there are more tables than people. **Every round-1 table starts at
+  once.**
+- **The round clock.** A round ends at the first of: `ceil(finishShare × tables)` tables finished by a win (byes
+  count; tables decided on standing do not), no table left playing, or the round's deadline (`roundMinutes` after it
+  started; stored as an absolute time). A one-table round (the final) therefore ends only by its win or its deadline.
+- **Decided on standing.** When a round ends, every table still playing is frozen (bots and the turn timer stop,
+  every move is refused with "This table was decided at the round's end") and ranked by the engine's
+  `rankByStanding` (`packages/engine/src/standing.ts`): players still in by territories, then armies, then dice (the
+  tied players roll one die each, and those still tied roll again), then the players already out, the last one out
+  first. The dice come from the tournament seed, the round and the table, so the result can be replayed. The table's
+  status becomes `decided`, its `standing` (entrants in order, and the dice by entrant) is in the bracket, the order is
+  posted to the table's chat, and its first place moves on. The game is not finished in the engine (it has no
+  adjudicated ending); the room closes like a finished game (`RISK_FINISHED_CLOSE`).
+- **Moving up.** The next round is seated at once: each table's winner takes a seat at its parent table (in portal
+  order). For now the parent table starts like any game on its board; starting each winner on its portal
+  (`startOnSpots`) comes next. The final's winner, or its first place on standing at the deadline, is the champion.
+- **Contract for runners and agents** (unchanged from knockouts): `POST /tournaments/:id/join`, `GET /tournaments/:id`
+  with the entrant token (`you.match` = `{gameId, playerId, token, round}` of the entrant's current table, `you.status`,
+  `champion`) and `GET /tournaments/:id/wait`. `wait_for_match` (MCP) answers the same seat every round.
+- **Restarts.** The plan, boards, seed and each round's deadline are saved in `tournaments.json`; decided tables keep
+  `decidedAt` in the games snapshot. On restart the round clock is re-armed for the time left, and a deadline that
+  passed while the server was down ends the round at once, from the saved tables.
 
 HTTP routes: [http-api.md](http-api.md). Open items (anyone can create while testing): [hardening.md](hardening.md#1-anyone-can-create-tournaments-while-testing).

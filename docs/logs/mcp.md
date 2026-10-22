@@ -6,6 +6,7 @@ endpoint. Guide: [docs/mcp.md](../mcp.md).
 Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. Changes from before pull requests carry the
 commit hash instead. **Append a line in the same PR** as any change to this area (README hard rule 12).
 
+- 2026-10-22 #PR `create_tournament` takes the nested settings (`format`, `finalMap`, `territoriesPerSeat`, `roundMinutes`, `finishShare`); brackets show a nested plan, round deadlines, boards and tables decided on standing
 - 2026-10-21 #178 the `map` tool and the `map` game setting accept generated board ids (`gen1-s<seed>-p<seats>-t<territories>`)
 - 2026-10-21 #174 turn timer: `get_state`, `wait_for_turn` and `act` print a `TURN TIMER ... YOU HAVE Ns LEFT` line with the timeout rule, their descriptions warn agents, events show "skipped (timeout)"
 - 2026-10-22 #171 `add_bot` takes `kind: "zerg"` to seat a Zerg (reptile name, no `name`); `RiskApi.addBot(gameId, token, name?, kind?)` returns the seat's `name`

@@ -395,8 +395,11 @@ npm run delove:horde -- --candidate delove@10 --tables classic:4:3,classic:6:3 -
     identical.
   - Solo-table hold reads lower (4p vs 3 Zergs: 0.186, was 0.233) because survival is now the candidate's last round,
     not the game's length. Compare only results from #169 on.
-  - The games run on after the candidate falls: 13.7 rounds against its 7.4, and the gate takes about 3x longer. Neither survives a solo rush often: delove@10 wins about 1% of solo tables
-  (Jacob 0%) and 7-20% of the tables with fillers.
+  - With the strongest-keeps-the-table ending (#PR) the verdict is unchanged (+0.119), and the games are shorter
+    (10.9 rounds against 15.7 under #169's fight, Delove's own 8.4). The 10 turn limits in 500 games are turtle stalls
+    while Delove still stands.
+  - Neither survives a solo rush often: delove@10 wins 0-1% of solo tables (Jacob 0%) and 5-18% of the tables with
+    fillers.
 - For scenarios or training data, the agents play in any self-play command:
   `npm run delove -- play --agents delove@10,zerg@1,zerg@1,zerg@1`. `scripts/cycles/horde.jobs` is a ready job file
   for `generate.sh` (about 4,000 games, the branch seat against 2-3 Zergs with Jacob fillers, league settings), not
@@ -405,11 +408,13 @@ npm run delove:horde -- --candidate delove@10 --tables classic:4:3,classic:6:3 -
   back to the teacher's pick, never an attack on a fellow Zerg), so the search sees the gang-up coming. The plain
   branch seat imagines the Zergs as its teacher.
   - The file caps games at 250 turns (`#@max-turns 250`, read by `generate.sh`; `MAX_TURNS=N` overrides it, and files
-    without the line keep the 500-turn default). The Zergs fight on after the branch seat falls and a turtling seat can
-    stall the horde. In a 400-game check no finished game ran past 235 turns.
-  - CPU time with the cycle-13 branch settings (`range-horde`, falling-out, the cap): about 5.6 process-seconds a game
-    at 8 parallel processes (200 games in 254 s wall on the i7-14700F). All 4,000 games take about 85 min on 8
+    without the line keep the 500-turn default). A turtling seat can stall the horde (no Zerg ever sacrifices itself). In
+    a 400-game check no finished game ran past 235 turns.
+  - CPU time with the cycle-13 branch settings (`range-horde`, the cap): about 5.6-5.9 process-seconds a game at 8
+    parallel processes (200 games in 254-311 s wall on the i7-14700F). All 4,000 games take about 85 min on 8
     processes, or roughly 30-40 min on 14.
+  - The shorter ending (#PR) cut the mean game from about 39 to 31 turns. It didn't move the CPU: the turns it cut were
+    cheap Zerg-only ones, after the branch seat was out.
   - The plain `range` seat took 1.3 s a game before the falling-out; `range-horde`'s rollouts play the horde bot,
     which costs more per move.
 

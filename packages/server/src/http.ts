@@ -481,6 +481,17 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
       res.json({ tournament: store.tournaments.view(t.id) });
     }),
   );
+  // The host adds server bots while registering: { kind: "bot" | "zerg" (default "bot"), count (default 1) }.
+  api.post(
+    '/tournaments/:id/bots',
+    requireTournamentHost,
+    wrap((req, res) => {
+      const id = String(req.params.id);
+      const count = req.body?.count === undefined ? 1 : Number(req.body.count);
+      const added = store.tournaments.addBots(id, parseBotKind(req.body?.kind), count);
+      res.status(201).json({ added, tournament: store.tournaments.view(id) });
+    }),
+  );
   api.post(
     '/tournaments/:id/forfeit',
     requireTournamentHost,

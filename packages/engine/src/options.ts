@@ -155,6 +155,22 @@ export const OPTION_SPECS: { [K in OptionKey]: OptionSpec } = {
     description:
       'Fog of war games only: after this many full rounds in a row with no territory captured by anyone, the fog lifts for the rest of the game and everyone sees the whole board (0 = off). Breaks stalls where every player only reinforces.',
   },
+  stallStorm: {
+    kind: 'int',
+    label: 'Storm when stalled',
+    min: 0,
+    max: () => 20,
+    description:
+      'After this many full rounds in a row with no territory captured by anyone, a storm hits at every round start until someone captures: each stack of more than 10 armies loses a fifth of them (0 = off).',
+  },
+  stallEnd: {
+    kind: 'int',
+    label: 'End a stalled game',
+    min: 0,
+    max: () => 20,
+    description:
+      'This many more full rounds with no capture after the last stall breaker (fog lift, storm) came on, the game ends: decided on standing, by territories, then armies, then dice (0 = off).',
+  },
   turnTimer: {
     kind: 'enum',
     label: 'Turn timer',
@@ -210,7 +226,7 @@ export function optionCatalogue() {
     defaults: DEFAULT_OPTIONS,
     options: OPTION_KEYS.map((key) => {
       const spec = OPTION_SPECS[key];
-      // Optional settings (stallFogLift) are absent from DEFAULT_OPTIONS: their default is off (0).
+      // Optional settings (stallFogLift, stallStorm, stallEnd) are absent from DEFAULT_OPTIONS: their default is off (0).
       const base = { key, label: spec.label, kind: spec.kind, default: DEFAULT_OPTIONS[key] ?? 0, description: spec.description };
       if (spec.kind === 'enum') return { ...base, values: spec.values, valueLabels: spec.valueLabels };
       if (spec.kind === 'int') return { ...base, min: spec.min, max: globalMax(key) };
@@ -291,6 +307,8 @@ export function describeOptions(o: GameOptions, tradeCount = 0): string[] {
     `Neutral territories: ${o.neutrals > 0 ? `${o.neutrals} with ${o.neutralArmies} arm${o.neutralArmies === 1 ? 'y' : 'ies'} each (games of 3+ players)` : 'off'}`,
     `Blizzards: ${o.blizzards > 0 ? `${o.blizzards} frozen territories (max ${maxBlizzards(map)} on this map)` : 'off'}`,
     ...(o.fogOfWar ? [`Stall breaker: ${(o.stallFogLift ?? 0) > 0 ? `the fog lifts for good after ${o.stallFogLift} full round${o.stallFogLift === 1 ? '' : 's'} with no territory captured` : 'off'}`] : []),
+    ...((o.stallStorm ?? 0) > 0 ? [`Storm: after ${o.stallStorm} full round${o.stallStorm === 1 ? '' : 's'} with no territory captured, every round start each stack of more than 10 armies loses a fifth of them, until someone captures`] : []),
+    ...((o.stallEnd ?? 0) > 0 ? [`Stalemate: ${o.stallEnd} more round${o.stallEnd === 1 ? '' : 's'} with no capture after the last stall breaker came on, the game ends decided on standing (territories, armies, dice)`] : []),
     `Turn timer: ${timerOf(o) ? `${timerOf(o)!.seconds}s per ${timerOf(o)!.mode} for human and agent seats; on a timeout the player is skipped (armies placed for them, no attacks, no fortify)` : 'off'}`,
   ];
   return lines;

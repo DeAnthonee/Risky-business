@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import type { GameEvent, GameView } from '@risk/engine';
+import type { AnyGameEvent, GameEvent, GameView } from '@risk/engine';
 import type { EventBatch } from '../useGame';
 import { getMap } from '@risk/engine';
 import { territoryName } from './Map';
@@ -9,6 +9,14 @@ export function describe(e: GameEvent, view: GameView): string | null {
   const name = (id: string | null) => view.players.find((p) => p.id === id)?.name ?? id ?? '?';
   const map = getMap(view.options.map);
   const shortName = (id: string) => territoryName(map, id);
+  // The stall relievers' own events (engine stall.ts), past GameEvent.
+  const se = e as AnyGameEvent;
+  if (se.type === 'storm') {
+    const hit = Object.entries(se.losses);
+    return `⛈ Storm (no captures for ${se.rounds} rounds): ${hit.length ? hit.map(([t, n]) => `${shortName(t)} −${n}`).join(', ') : 'no stack big enough to hit'}`;
+  }
+  if (se.type === 'stalemate') return `⚖ Stalemate: no captures for ${se.rounds} rounds. The game is decided on standing: ${se.standing.map((p, i) => `${i + 1}. ${name(p)}`).join(', ')}`;
+  if (se.type === 'game_over' && se.reason === 'stalemate') return `🏆 ${name(se.winner)} wins the stalled game on standing!`;
   switch (e.type) {
     case 'game_started':
       return `Game started. Turn order: ${e.turnOrder.map(name).join(' → ')}`;

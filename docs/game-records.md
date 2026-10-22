@@ -161,6 +161,12 @@ record `decided: true`, and match history (`GET /api/history`) lists it with `re
 additive (a new optional field and a new `reason` value), so `RECORD_VERSION` stays 1: a reader that treats
 `finished: false` as "no result" keeps working, and one that wants the decided result reads `decided`.
 
+A game the **engine** ends as a stalemate (the `stallEnd` stall breaker, [playing.md](playing.md)) is different: it
+is finished in the engine (`finished: true`; the server ends it with a system commit, which adds no step), so the
+record's outcome has `reason: "stalemate"`, the winner first in the standing, `placings` in standing order and
+`decided` with that standing and its dice (from the final state's `stall.stalemate`). Also additive: `RECORD_VERSION`
+stays 1.
+
 ## Replaying and scenarios
 
 The engine has the start state, the dice seed and every action, so a record replays exactly:

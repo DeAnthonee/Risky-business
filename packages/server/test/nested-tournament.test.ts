@@ -13,7 +13,7 @@ const { Store } = await import('../src/store.js');
 const { createRiskServer } = await import('../src/app.js');
 type TournamentClock = import('../src/tournaments.js').TournamentClock;
 const { NESTED_BLIZZARD_SHARE, NESTED_DEFAULT_OPTIONS, blizzardsFor, isHouseAi, seatNestedRound } = await import('../src/tournaments.js');
-const { createRng, genMapId, nestSeed } = await import('@risk/engine');
+const { createRng, genMapId, legalMoves, nestSeed } = await import('@risk/engine');
 
 /** A clock the test moves by hand: round deadlines fire only when it is advanced past them. */
 class FakeClock implements TournamentClock {
@@ -560,9 +560,9 @@ describe('nested tournaments', () => {
     const clock = new FakeClock();
     const store = new Store(null, {}, { clock });
     const t = store.tournaments.create({ format: 'nested', finalMap: 'hexworld', botDelayMs: 2000 });
-    expect(t.options).toMatchObject({ autoSetup: true, capitals: true, stallFogLift: 3 }); // the stall breaker: fog lifts after 3 stalled rounds
+    expect(t.options).toMatchObject({ autoSetup: true, capitals: true, stallFogLift: 3, stallStorm: 5, stallEnd: 5 }); // the stall breaker: fog lifts after 3 stalled rounds
     expect(t.options.blizzards).toBeUndefined();
-    expect(NESTED_DEFAULT_OPTIONS).toEqual({ autoSetup: true, capitals: true, stallFogLift: 3 });
+    expect(NESTED_DEFAULT_OPTIONS).toEqual({ autoSetup: true, capitals: true, stallFogLift: 3, stallStorm: 5, stallEnd: 5 });
     // Blizzards scale with each table's board: 10%, at least 1 (lord of game development).
     expect(NESTED_BLIZZARD_SHARE).toBe(0.1);
     expect(t.nested!.blizzardShare).toBe(0.1);
@@ -577,7 +577,7 @@ describe('nested tournaments', () => {
       for (const m of t.rounds[r].matches) {
         const s = store.get(m.gameId!)!.state;
         const where = `round ${r + 1} ${m.map}`;
-        expect(s.options, where).toMatchObject({ autoSetup: true, capitals: true, stallFogLift: 3, blizzards: blizzardsFor(m.map!, 0.1) });
+        expect(s.options, where).toMatchObject({ autoSetup: true, capitals: true, stallFogLift: 3, stallStorm: 5, stallEnd: 5, blizzards: blizzardsFor(m.map!, 0.1) });
         expect(s.phase, where).not.toBe('setup'); // dealt and placed at once
         expect(s.blizzards.length, where).toBeGreaterThan(0);
         for (const p of s.players.filter((x) => !x.isNeutral)) expect(s.blizzards, where).not.toContain(s.capitals[p.id]);
@@ -657,5 +657,38 @@ describe('nested tournaments', () => {
     expect(t.rounds).toHaveLength(2);
     store.stopTimers();
     for (const room of store.rooms.values()) room.stopBot();
+  });
+});
+
+describe('stall relievers at a tournament table', () => {
+  it('a stalemate (stallEnd) ends the game through commit, and the tournament counts it as decided on standing (+1)', () => {
+    const clock = new FakeClock();
+    const store = new Store(null, {}, { clock });
+    // 18 people (six tables of 3, then a final of 6). Only the end is on here: one full round with no capture ends a table.
+    const t = store.tournaments.create({ format: 'nested', botDelayMs: 2000, options: { turnTimer: 'off', autoSetup: true, stallStorm: 0, stallEnd: 1 } });
+    for (let i = 1; i <= 18; i++) store.tournaments.join(t.id, `P${i}`);
+    store.tournaments.start(t.id);
+    const m = t.rounds[0].matches[0];
+    const room = store.get(m.gameId!)!;
+    // Everyone at the table places and ends the turn: a full round, no capture.
+    for (let i = 0; i < 3; i++) {
+      const me = room.state.currentPlayer!;
+      const lm = legalMoves(room.state, me);
+      if (lm.placeLimit > 0) room.act(me, { type: 'place', placements: { [lm.canPlaceOn[0]]: lm.placeLimit } });
+      room.act(me, { type: 'end_turn' });
+    }
+    expect(room.state.phase).toBe('finished');
+    const over = room.history.at(-1)!;
+    expect(over.action).toMatchObject({ type: 'system' });
+    expect(over.events.map((e) => e.type)).toEqual(['stalemate', 'game_over']);
+    expect(room.chat.at(-1)!.message).toMatch(/Stalemate/);
+    // The table is decided on standing: its winner moves on, its standing is on the bracket.
+    expect(m.status).toBe('decided');
+    expect(m.winner).toBe(m.standing!.order[0]);
+    expect([...m.standing!.order].sort()).toEqual([...m.entrants].sort());
+    expect(m.order).toEqual(m.standing!.order);
+    expect(m.seats[m.winner!].playerId).toBe(room.state.winner);
+    store.stopTimers();
+    for (const r of store.rooms.values()) r.stopBot();
   });
 });

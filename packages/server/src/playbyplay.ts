@@ -1,7 +1,7 @@
 // A human-readable play-by-play of a finished game record, turn by turn: reinforcements, card trades, attacks,
 // conquests, fortifies, knockouts, surrenders and the end. Pure: it only reads the record. Served behind the records
 // key (GET /api/records/:id/playbyplay), since a record holds hidden hands and boards; see docs/game-records.md.
-import { getMap, type GameEvent, type GameRecord, type PlayerId, type RecordStep } from '@risk/engine';
+import { getMap, type AnyGameEvent, type GameEvent, type GameRecord, type PlayerId, type RecordStep } from '@risk/engine';
 
 /**
  * A decision note on a step (G1, `step.note`: a string or any JSON the seat sent, no schema enforced). The fields
@@ -170,6 +170,13 @@ export function narrate(record: GameRecord, opts: NarrateOptions = {}): PlayByPl
   }
 
   function eventLine(e: GameEvent): string {
+    // The stall relievers' own events (engine stall.ts), past GameEvent.
+    const se = e as AnyGameEvent;
+    if (se.type === 'storm') {
+      const hit = Object.entries(se.losses);
+      return `  ⛈ Storm after ${se.rounds} rounds with no capture${hit.length ? `: ${hit.map(([t, n]) => `${where(t)} −${n}`).join(', ')}` : ''}`;
+    }
+    if (se.type === 'stalemate') return `  ⚖ Stalemate after ${se.rounds} rounds with no capture: decided on standing, ${se.standing.map((p, i) => `${i + 1}. ${who(p)}`).join(', ')}`;
     switch (e.type) {
       case 'eliminated':
         return e.by ? `  ✖ ${who(e.player)} is knocked out by ${who(e.by)}` : `  ✖ ${who(e.player)} is out (surrendered)`;

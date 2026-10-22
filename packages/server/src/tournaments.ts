@@ -19,6 +19,7 @@ import {
   shuffle as seededShuffle,
   startGame,
   startOnSpots,
+  stallOf,
   type GameOptions,
   type NestNode,
   type NestPlan,
@@ -373,7 +374,11 @@ const DEFAULT_MAX_NESTED_ENTRANTS = 128;
 export const NESTED_TURN_TIMER_SECONDS = 90;
 /** A nested (and so scheduled) round's deadline when the host sets none, in minutes (owner, 2026-10-22). */
 export const NESTED_ROUND_MINUTES = 15;
-export const NESTED_DEFAULT_OPTIONS: Partial<GameOptions> = { autoSetup: true, capitals: true, stallFogLift: 3 };
+/**
+ * The stall breakers (owner, 2026-10-22): the fog lifts after 3 stalled rounds, a storm wears down idle stacks from 5,
+ * and 5 stalled rounds after that (10 with no capture) the table ends on standing.
+ */
+export const NESTED_DEFAULT_OPTIONS: Partial<GameOptions> = { autoSetup: true, capitals: true, stallFogLift: 3, stallStorm: 5, stallEnd: 5 };
 /** Unless the host sets a blizzard count, each nested table freezes this share of its own board's territories. */
 export const NESTED_BLIZZARD_SHARE = 0.1;
 
@@ -1137,10 +1142,21 @@ export class TournamentManager extends EventEmitter {
         const winner = Object.entries(m.seats).find(([, s]) => s.playerId === room.state.winner)?.[0] ?? null;
         m.winner = winner;
         m.status = winner ? 'finished' : 'abandoned';
+        // A stalemate (the engine's stallEnd) is a decision on standing, not a win: 'decided' (+1 table point, owner's
+        // rule), with its standing on the bracket; the winner still moves on.
+        const stalemate = stallOf(room.state)?.stalemate;
+        if (winner && stalemate) {
+          const byPlayer = new Map(Object.entries(m.seats).map(([eid, s]) => [s.playerId, eid]));
+          const order = stalemate.standing.map((pid) => byPlayer.get(pid)).filter((eid): eid is string => !!eid);
+          m.status = 'decided';
+          m.standing = { order, rolls: Object.fromEntries(Object.entries(stalemate.rolls).filter(([pid]) => byPlayer.has(pid)).map(([pid, r]) => [byPlayer.get(pid)!, r])) };
+        }
       } else if (room.closed) {
         m.status = 'abandoned';
       } else return;
       this.scoreTable(m, room);
+      // A stalemate's table order is its standing, as for a table decided at a round's end.
+      if (m.status === 'decided' && m.standing) m.order = m.standing.order;
       room.off('change', settle);
       room.off('closed', settle);
       if (this.tournaments.get(t.id) !== t) return; // tournament deleted

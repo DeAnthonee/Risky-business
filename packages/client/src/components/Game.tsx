@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { CAPITAL_DEFENSE_DICE, getMap, tradeBonus, nextTradeValue, visibleTerritories, type Card, type GameEvent, type GameView } from '@risk/engine';
+import { CAPITAL_DEFENSE_DICE, getMap, tradeBonus, nextTradeValue, visibleTerritories, type AnyGameEvent, type Card, type GameEvent, type GameView } from '@risk/engine';
 import { api, tableBadge } from '../api';
 import { AutoAdvance, type AutoSpectate } from './AutoAdvance';
 import { CARD_FX_MS, CardFxPanel, type CardFx } from './CardFx';
@@ -1057,6 +1057,13 @@ function useAnimations(
       }
       let fogJustLifted = false;
       for (const e of b.events as GameEvent[]) {
+        // The stall relievers' own events (engine stall.ts), past GameEvent. A storm that hit nothing is only in the log.
+        const se = e as AnyGameEvent;
+        if (se.type === 'storm' && Object.keys(se.losses).length) {
+          fogJustLifted = true;
+          setBanner({ text: `⛈ Storm: big stacks lose a fifth (no captures for ${se.rounds} rounds)`, color: '#7a8fa6' });
+        }
+        if (se.type === 'stalemate') setBanner({ text: `⚖ Stalemate: decided on standing after ${se.rounds} rounds with no capture`, color: '#b8a36a' });
         switch (e.type) {
           case 'battle': {
             const prev = lastQueued.current;

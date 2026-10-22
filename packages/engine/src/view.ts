@@ -1,6 +1,7 @@
 import { getMap, type MapDef } from './maps.js';
 import { armiesOf, continentsOf, controlsContinent, isBlizzard, legalMoves, reinforcementsFor, territoriesOf, type LegalMoves } from './engine.js';
 import type { Card, GameEvent, GameState, Player, PlayerId, ReinforcementBreakdown, TerritoryId, TerritoryState } from './types.js';
+import type { AnyGameEvent } from './stall.js';
 
 /**
  * Territories a player can see under fog of war: everything they own plus every territory adjacent
@@ -97,6 +98,9 @@ export function redactEvents(state: GameState, viewer: PlayerId | null, events: 
         },
       };
     }
+    // A storm under fog (stallStorm below stallFogLift): only the losses on territories this player can see.
+    const se = e as AnyGameEvent;
+    if (se.type === 'storm') return { ...se, losses: Object.fromEntries(Object.entries(se.losses).filter(([t]) => visible.has(t))) } as unknown as GameEvent;
         if (e.type === 'capitals_assigned') return { type: 'capitals_assigned', capitals: Object.fromEntries(Object.entries(e.capitals).filter(([, t]) => visible.has(t))) };
     if (eventPlayers(e).includes(viewer)) return e;
     // Another player's card activity says something about them (they conquered, they traded): hide it.

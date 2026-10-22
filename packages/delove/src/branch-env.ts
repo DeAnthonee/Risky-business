@@ -2,7 +2,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { stepAgent, type Agent, type StepContext } from '@risk/selfplay';
 import { BRANCH_SCORES, branchAgent, DEFAULT_BRANCH, type BranchOptions, type BranchScore, type RolloutNet } from './branch.js';
-import { modelsDir, NetScorer } from './net-agent.js';
+import { modelsDir, NetScorer, setScorer } from './net-agent.js';
 import {
   DEFAULT_JACOB_PARAMS,
   jacob,
@@ -93,29 +93,39 @@ export function branchFromEnv(
   const valuePath = rankerPath.slice(0, -'.onnx'.length) + '.value.onnx';
   const valuer = existsSync(rankerPath) && existsSync(valuePath) ? new NetScorer(rankerPath, valuePath) : null;
   const num = (k: string, d: number) => (env[k] === undefined ? d : Number(env[k]));
+  const opts: BranchOptions = {
+    ...DEFAULT_BRANCH,
+    options: num('DELOVE_BRANCH_OPTIONS', DEFAULT_BRANCH.options),
+    rollouts: num('DELOVE_BRANCH_ROLLOUTS', DEFAULT_BRANCH.rollouts),
+    horizon: num('DELOVE_BRANCH_HORIZON', DEFAULT_BRANCH.horizon),
+    margin: num('DELOVE_BRANCH_MARGIN', DEFAULT_BRANCH.margin),
+    skip: env.DELOVE_BRANCH_SKIP === undefined ? DEFAULT_BRANCH.skip : env.DELOVE_BRANCH_SKIP.split(',').filter(Boolean),
+    valueWeight: num('DELOVE_BRANCH_VALUE', DEFAULT_BRANCH.valueWeight),
+    score: score ?? branchScore(env.DELOVE_BRANCH_SCORE),
+    killWeight: num('DELOVE_BRANCH_KILL_WEIGHT', DEFAULT_BRANCH.killWeight),
+    threat: num('DELOVE_BRANCH_THREAT', DEFAULT_BRANCH.threat),
+    closeRollouts: num('DELOVE_BRANCH_CLOSE_ROLLOUTS', DEFAULT_BRANCH.closeRollouts),
+    closeHorizon: num('DELOVE_BRANCH_CLOSE_HORIZON', DEFAULT_BRANCH.closeHorizon),
+    weights: env.DELOVE_STRENGTH ? JSON.parse(readFileSync(env.DELOVE_STRENGTH, 'utf8')).weights : DEFAULT_BRANCH.weights,
+  };
   const search = branchAgent(
     variant?.id ?? (score === undefined ? 'delove-branch@1' : `delove-branch@1:${score}`),
     rolloutPick,
     ranker,
-    {
-      ...DEFAULT_BRANCH,
-      options: num('DELOVE_BRANCH_OPTIONS', DEFAULT_BRANCH.options),
-      rollouts: num('DELOVE_BRANCH_ROLLOUTS', DEFAULT_BRANCH.rollouts),
-      horizon: num('DELOVE_BRANCH_HORIZON', DEFAULT_BRANCH.horizon),
-      margin: num('DELOVE_BRANCH_MARGIN', DEFAULT_BRANCH.margin),
-      skip: env.DELOVE_BRANCH_SKIP === undefined ? DEFAULT_BRANCH.skip : env.DELOVE_BRANCH_SKIP.split(',').filter(Boolean),
-      valueWeight: num('DELOVE_BRANCH_VALUE', DEFAULT_BRANCH.valueWeight),
-      score: score ?? branchScore(env.DELOVE_BRANCH_SCORE),
-      killWeight: num('DELOVE_BRANCH_KILL_WEIGHT', DEFAULT_BRANCH.killWeight),
-      threat: num('DELOVE_BRANCH_THREAT', DEFAULT_BRANCH.threat),
-      closeRollouts: num('DELOVE_BRANCH_CLOSE_ROLLOUTS', DEFAULT_BRANCH.closeRollouts),
-      closeHorizon: num('DELOVE_BRANCH_CLOSE_HORIZON', DEFAULT_BRANCH.closeHorizon),
-      weights: env.DELOVE_STRENGTH ? JSON.parse(readFileSync(env.DELOVE_STRENGTH, 'utf8')).weights : DEFAULT_BRANCH.weights,
-    },
+    opts,
     valuer,
     rolloutNet(env.DELOVE_BRANCH_ROLLOUT, dir, ranker),
   );
-  return fogSafe(search, ranker, rolloutPick);
+  const agent = fogSafe(search, ranker, rolloutPick);
+  if (ranker) setScorer(agent, ranker);
+  searches.set(agent, opts);
+  return agent;
+}
+
+/** A search seat's settings, for its decision notes (notes.ts): options, margin, rollouts (decisionScore). */
+const searches = new WeakMap<Agent, BranchOptions>();
+export function searchOf(agent: Agent): BranchOptions | undefined {
+  return searches.get(agent);
 }
 
 /**

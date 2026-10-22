@@ -1,5 +1,6 @@
 import { RiskHttpError, type RiskApi, type TournamentInfo } from '@risk/mcp';
 import type { Agent } from '@risk/selfplay';
+import type { Noter } from './notes.js';
 import { playSeat } from './seat.js';
 
 /**
@@ -25,6 +26,8 @@ export interface EntrantOptions {
   onDecision?: (ms: number) => void;
   /** Long-poll length for the tournament (default 25 s). */
   waitMs?: number;
+  /** Decision notes for every move (notes.ts). */
+  notes?: Noter | null;
 }
 
 export interface EntrantResult {
@@ -70,7 +73,7 @@ export async function playEntrant(o: EntrantOptions): Promise<EntrantResult> {
     if (match && !played.has(match.gameId)) {
       played.add(match.gameId);
       o.log(`${o.name}: round ${match.round}, table ${match.gameId}`);
-      await playSeat({ api: o.api, gameId: match.gameId, playerId: match.playerId, token: match.token, name: o.name, agent: o.agent, paceMs: o.paceMs, log: o.log, random: o.random, onDecision: o.onDecision });
+      await playSeat({ api: o.api, gameId: match.gameId, playerId: match.playerId, token: match.token, name: o.name, agent: o.agent, paceMs: o.paceMs, log: o.log, random: o.random, onDecision: o.onDecision, notes: o.notes });
       since = undefined; // the table is over (or left): see where the tournament stands now
       continue;
     }

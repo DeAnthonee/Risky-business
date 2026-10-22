@@ -77,6 +77,9 @@ export const ZERG_1_PARAMS: ZergParams = {
  *
  * `horde` is the set of Zerg player ids (including `me`), given by the caller: the self-play harness, or later the
  * server from a seat's faction. It is never read from chat or names here. Pure and seedable like `chooseBotAction`.
+ *
+ * The alliance lasts only while there is prey: once every non-Zerg is out, each Zerg plays for itself and the Zergs
+ * fight each other until one wins (the owner's rule, docs/zergs.md).
  */
 export function chooseZergAction(
   state: GameState,
@@ -88,12 +91,9 @@ export function chooseZergAction(
   const lm = legalMoves(state, me);
   if (!lm.yourTurn) return null;
 
+  // No prey left: the alliance is over. Every other Zerg is now prey, and I play for myself.
+  if (preyOf(state, horde).length === 0) horde = new Set([me]);
   const prey = preyOf(state, horde);
-  // Nobody but the horde is left: all but the first Zerg in turn order step aside so the game ends.
-  if (prey.length === 0 && state.phase !== 'setup' && state.phase !== 'capitals') {
-    const first = state.turnOrder.find((p) => horde.has(p) && state.players.find((x) => x.id === p)?.alive);
-    if (first !== me) return { type: 'surrender' };
-  }
 
   // Setup, claiming and capital picks: the built-in bot's choices are fine.
   if (state.phase === 'setup' || lm.capitalChoices.length > 0) return chooseBotAction(state, me, random);

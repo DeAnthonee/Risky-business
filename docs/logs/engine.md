@@ -6,7 +6,7 @@ bot, ranking and the game-record format. Map data has its own log ([maps.md](map
 Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. Changes from before pull requests carry the
 commit hash instead. **Append a line in the same PR** as any change to this area (README hard rule 12).
 
-- 2026-10-21 #167 `zerg.ts`: the Zerg's numbers in `ZergParams` (`ZERG_1_PARAMS` = zerg@1, pinned by a golden test) and four later behaviours off by default (synchronised strike, card hoarding, capital sniping, wall avoidance)
+- 2026-10-21 #167 `zerg.ts`: the alliance ends with the prey (once no non-Zerg is left the Zergs fight each other to a winner, no surrenders; golden test updated on purpose, alliance-phase moves pinned unchanged); the Zerg's numbers in `ZergParams` (`ZERG_1_PARAMS` = zerg@1, pinned by a golden test) and four later behaviours off by default (synchronised strike, card hoarding, capital sniping, wall avoidance)
 - 2026-10-21 #165 `zerg.ts`: `chooseZergAction` and `zergTarget`, the hand-coded Zerg horde bot (docs/zergs.md). The horde is passed in, not a rule yet; no mirrored file changed
 - 2026-10-20 #138 game records: optional `room.board: "training"` on `RecordHeader` for training-leaderboard games (optional field, no `RECORD_VERSION` bump)
 - 2026-10-20 #124 `record.ts`: `outcome.placings` holds real seats only; a neutral created by a mid-game surrender no longer gets a place (#123)

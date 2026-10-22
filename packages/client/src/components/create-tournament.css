@@ -1,49 +1,27 @@
-/* ---------- Create tournament (?host=1): the form and its live breakdown, in the home page's look ---------- */
-.create-tournament.p5 {
-  max-width: 1100px;
-  margin: 0 auto;
-  padding: 24px 16px 40px;
-}
-.ct-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 18px;
-}
-.ct-head h1 {
-  margin: 0;
-  font-family: var(--display);
-}
-.ct-layout {
+/* ---------- Create tournament (?host=1): layout only. The look comes from the theme and the tournament page's
+   pieces (.tourney-top, .home-actions, .board, .tickets; tournament.css and home.css). ---------- */
+.create-tournament .ct-layout {
   display: grid;
   grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
-  gap: 20px;
+  gap: 24px;
   align-items: start;
 }
+/* The home's action panel is two columns on wide screens; here it holds one form. */
+.create-tournament .home-actions {
+  grid-template-columns: 1fr;
+}
 @media (max-width: 760px) {
-  .ct-layout {
+  .create-tournament .ct-layout {
     grid-template-columns: 1fr;
   }
 }
-.ct-panel {
-  background: var(--paper);
-  color: var(--ink);
-  border: 3px solid var(--ink);
-  box-shadow: 6px 6px 0 var(--ink);
-  padding: 16px;
-}
-.ct-panel h2 {
-  margin-top: 0;
-  font-family: var(--display);
-}
-.ct-name,
-.ct-code,
-.ct-count {
+.create-tournament .ct-name,
+.create-tournament .ct-code,
+.create-tournament .ct-count {
   display: grid;
   gap: 4px;
 }
-.ct-count small {
+.create-tournament .ct-count small {
   font-size: 0.8em;
 }
 .create-tournament .ct-check {
@@ -57,20 +35,4 @@
 .create-tournament .ct-check input {
   width: auto;
   margin: 0;
-}
-.ct-breakdown dl {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 6px 14px;
-  margin: 0;
-}
-.ct-breakdown dt {
-  font-weight: 700;
-}
-.ct-breakdown dd {
-  margin: 0;
-}
-.ct-note {
-  margin: 10px 0 0;
-  font-size: 0.9em;
 }

@@ -117,9 +117,12 @@ export function CreateTournament({ onOpen, onBack }: { onOpen: (id: string) => v
 
   if (created) {
     return (
-      <div className="home p5 p5-page create-tournament">
-        <section className="ct-panel" aria-live="polite">
-          <h2>Tournament {created.id} {created.started ? 'started' : 'created'}</h2>
+      <div className="home p5 tournament-page create-tournament">
+        <TopBar onBack={onBack} />
+        <section className="home-actions" aria-live="polite">
+          <h2 className="p5-tag">
+            Tournament {created.id} {created.started ? 'started' : 'created'}
+          </h2>
           <p>
             Share the code <strong>{created.id}</strong>: people join on the site, agents with <code>join_tournament</code>.{' '}
             {created.started ? 'Round 1 is being seated.' : 'Start it when everyone is in; empty open spots are planned around at the start.'}
@@ -136,7 +139,9 @@ export function CreateTournament({ onOpen, onBack }: { onOpen: (id: string) => v
                 Start now
               </button>
             )}
-            <button onClick={() => onOpen(created.id)}>Open the bracket</button>
+            <button className="watch" onClick={() => onOpen(created.id)}>
+              Open the bracket
+            </button>
             <button onClick={onBack}>Back to games</button>
           </div>
         </section>
@@ -146,19 +151,18 @@ export function CreateTournament({ onOpen, onBack }: { onOpen: (id: string) => v
 
   const seats = form.zergs + form.delove + form.open;
   return (
-    <div className="home p5 p5-page create-tournament">
-      <header className="ct-head">
-        <h1>Create tournament</h1>
-        <button onClick={onBack}>Back</button>
-      </header>
+    <div className="home p5 tournament-page create-tournament">
+      <TopBar onBack={onBack} />
       <div className="ct-layout">
-        <form
-          className="ct-panel options"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void create();
-          }}
-        >
+        <section className="home-actions" aria-label="Create tournament">
+          <h2 className="p5-tag">Create tournament</h2>
+          <form
+            className="options"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void create();
+            }}
+          >
           <label className="ct-name">
             Name
             <input value={form.name} maxLength={60} placeholder="e.g. Friday Inception Cup" onChange={(e) => set('name', e.target.value)} />
@@ -220,43 +224,71 @@ export function CreateTournament({ onOpen, onBack }: { onOpen: (id: string) => v
           <button type="submit" className="primary" disabled={busy || !preview}>
             Create tournament
           </button>
-        </form>
+          </form>
+        </section>
 
-        <aside className="ct-panel ct-breakdown" aria-live="polite" aria-label="Breakdown">
-          <h2>Breakdown</h2>
+        <section className="board ct-breakdown" aria-live="polite" aria-label="Breakdown">
+          <div className="board-head">
+            <h2>Breakdown</h2>
+            {preview && (
+              <span className="board-count">
+                <span>{preview.seats + preview.plannerZergs}</span> seats
+              </span>
+            )}
+          </div>
           {previewErr && <p className="error">{previewErr}</p>}
-          {!preview && !previewErr && <p className="muted">Planning…</p>}
+          {!preview && !previewErr && (
+            <div className="board-empty">
+              <p>Planning…</p>
+            </div>
+          )}
           {preview && (
-            <dl>
-              <dt>Rounds</dt>
-              <dd>{preview.rounds}</dd>
-              <dt>Tables per round</dt>
-              <dd>{preview.tablesPerRound.join(' → ')}</dd>
-              <dt>Seats per table</dt>
-              <dd>{preview.seatsPerRound.map((r) => [...new Set(r)].join('–')).join(' → ')}</dd>
-              <dt>Finalists</dt>
-              <dd>
-                {preview.finalists} on {preview.finalBoard.generated ? `a generated board (${preview.finalBoard.territories} territories)` : preview.finalBoard.name}
-              </dd>
-              <dt>Round 1</dt>
-              <dd>
-                {preview.firstRound.filter((t) => t.people > 0).length} of {preview.firstRound.length} tables with people; Zergs per table {Math.min(...preview.firstRound.map((t) => t.zergs))}–
-                {Math.max(...preview.firstRound.map((t) => t.zergs))}
-                {preview.plannerZergs ? ` (+${preview.plannerZergs} added to fit)` : ''}
-              </dd>
-              <dt>Estimated time</dt>
-              <dd>
-                about {preview.minutes.low}–{preview.minutes.high} min
-              </dd>
-            </dl>
+            <ul className="tickets">
+              {preview.seatsPerRound.map((r, i) => (
+                <li key={i} className="ticket">
+                  <span className="ticket-stamp">{i === preview.rounds - 1 ? 'Final' : `Round ${i + 1}`}</span>
+                  <span>
+                    {i === preview.rounds - 1
+                      ? `${preview.finalists} finalists on ${preview.finalBoard.generated ? `a generated board (${preview.finalBoard.territories} territories)` : preview.finalBoard.name}`
+                      : `${r.length} tables of ${[...new Set(r)].join('–')}`}
+                    {i === 0 &&
+                      ` · ${preview.firstRound.filter((t) => t.people > 0).length} with people, Zergs per table ${Math.min(...preview.firstRound.map((t) => t.zergs))}–${Math.max(...preview.firstRound.map((t) => t.zergs))}${preview.plannerZergs ? ` (+${preview.plannerZergs} added to fit)` : ''}`}
+                  </span>
+                </li>
+              ))}
+              <li className="ticket">
+                <span className="ticket-stamp">Time</span>
+                <span>
+                  about {preview.minutes.low}–{preview.minutes.high} min ({preview.minutes.perRound} min per round at most
+                  {preview.timer ? `, ${preview.timer.seconds} s per ${preview.timer.mode}` : ', no turn timer'})
+                </span>
+              </li>
+            </ul>
           )}
           {preview?.warnings.map((w) => (
-            <p key={w} className="muted ct-note">
+            <p key={w} className="board-note">
               {w}
             </p>
           ))}
-        </aside>
+        </section>
       </div>
     </div>
+  );
+}
+
+/** The tournament page's header (#251): back to games, the title, a tag line. */
+function TopBar({ onBack }: { onBack: () => void }) {
+  return (
+    <header className="tourney-top">
+      <div className="tourney-bar">
+        <button className="small" onClick={onBack}>
+          ← Back to games
+        </button>
+      </div>
+      <h1 className="tourney-title">
+        <span>Host a tournament</span>
+      </h1>
+      <p className="home-tag">Pick the seats and settings: the breakdown shows the bracket before anything is created.</p>
+    </header>
   );
 }

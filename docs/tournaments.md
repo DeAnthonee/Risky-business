@@ -64,8 +64,8 @@ tables a tournament is still waiting on are not swept as idle, except past the h
 `format: "nested"` at create. Every table plays on its own board, and its winner moves up to the table of the next
 round; the boards nest inside each other's territories (the map side: [maps.md](maps.md#nested-boards-and-the-planner)).
 
-- **Settings** (create): `finalMap` (an existing board for the final, seating 6+ with a region per seat; default a
-  generated one), `territoriesPerSeat` (generated boards' size, 4-6, default 5), `roundMinutes` (a round's deadline,
+- **Settings** (create): `finalMap` (an existing board for the final, seating 6+ with a region per seat, e.g. `world` or
+  `hexworld`, whose 6-10 finalists start in different regions of the globe; default a generated one), `territoriesPerSeat` (generated boards' size, 4-6, default 5), `roundMinutes` (a round's deadline,
   1-240, default 30), `finishShare` (default 0.51), `options` (every table's game settings except the map; they are
   checked at create on every table size from 2 to 10 seats), `maxEntrants` (default 128), `botDelayMs` (the bots' pace
   at the tables, 0-2000 ms between moves, default 300). `groupSize` and `fillBots` do not apply.

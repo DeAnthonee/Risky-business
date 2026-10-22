@@ -22,6 +22,7 @@ import type { CreateTournamentSpec } from './tournaments.js';
 import { NO_TOURNEY_CAPS, TournamentAccess } from './tournament-access.js';
 import { SeasonKeyGuard } from './season-key.js';
 import { RateLimitedError } from './rate-limit.js';
+import { PLAYER_KEY_HEADER, PlayerKeyLimitError, type PlayerAccount } from './player-keys.js';
 import { QuickPlayBusyError } from './quick-play.js';
 
 /** Constant-time check of an admin token. 'disabled' when the server has none configured. */
@@ -102,6 +103,18 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
     if (h?.startsWith('Bearer ')) return h.slice(7);
     const q = req.query.token;
     return typeof q === 'string' ? q : undefined;
+  }
+
+  /**
+   * The registered player whose key is in the X-Player-Key header, or null without one. Never read from a query
+   * string (URLs end up in logs). A key that is malformed, unknown or revoked is a 401.
+   */
+  function playerOf(req: Request): PlayerAccount | null {
+    const raw = req.headers[PLAYER_KEY_HEADER];
+    if (raw === undefined) return null;
+    const p = store.playerKeys.verify(Array.isArray(raw) ? raw[0] : raw);
+    if (!p) throw new RiskHttpError('Unknown or revoked player key (X-Player-Key)', 401);
+    return p;
   }
 
   function loadRoom(req: Req, res: Response, next: NextFunction) {
@@ -285,7 +298,8 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
     '/games',
     wrap((req, res) => {
       const body = req.body ?? {};
-      const playerName = String(body.playerName ?? body.name ?? 'Player');
+      const player = playerOf(req);
+      const playerName = store.playerKeys.seatName(String(body.playerName ?? body.name ?? 'Player'), body.asBot ? null : player);
       const options = sanitizeOptions(body.options);
       // board "training": a yardstick game for the training leaderboard. Not a game setting (it changes no rule), and it
       // takes the characters write key, so nobody can hide a public game's result or fill the training board.
@@ -299,7 +313,7 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
           return res.status(403).json({ error: 'A training-board game needs the characters write key in the x-characters-key header' });
         }
       }
-      const { room, playerId, token } = store.create(String(body.gameName ?? body.name ?? ''), options, playerName, Boolean(body.asBot), board, parseAgent(body.agent));
+      const { room, playerId, token } = store.create(String(body.gameName ?? body.name ?? ''), options, playerName, Boolean(body.asBot), board, parseAgent(body.agent), body.asBot ? undefined : player?.id);
       res.status(201).json({ gameId: room.id, playerId, token, state: room.view(playerId), host: room.hostId });
     }),
   );
@@ -319,8 +333,10 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
     loadRoom,
     wrap((req, res) => {
       const room = req.room!;
-      const name = String(req.body?.playerName ?? req.body?.name ?? 'Player');
-      const { playerId, token } = room.join(name, Boolean(req.body?.asBot), 'bot', parseAgent(req.body?.agent));
+      const asBot = Boolean(req.body?.asBot);
+      const player = asBot ? null : playerOf(req);
+      const name = store.playerKeys.seatName(String(req.body?.playerName ?? req.body?.name ?? 'Player'), player);
+      const { playerId, token } = room.join(name, asBot, 'bot', parseAgent(req.body?.agent), player?.id);
       res.status(201).json({ gameId: room.id, playerId, token, state: room.view(playerId), host: room.hostId });
     }),
   );
@@ -389,6 +405,15 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
     if (check === 'bad') return res.status(401).json({ error: 'Invalid admin token' });
     next();
   }
+  api.get('/admin/players', requireAdmin, (_req, res) => res.json({ players: store.playerKeys.list() }));
+  api.delete(
+    '/admin/players/:id',
+    requireAdmin,
+    wrap((req, res) => {
+      if (!store.playerKeys.revoke(String(req.params.id))) return res.status(404).json({ error: 'Player not found' });
+      res.json({ ok: true, player: store.playerKeys.info(store.playerKeys.get(String(req.params.id))!) });
+    }),
+  );
   api.get(
     '/admin/games',
     requireAdmin,
@@ -623,13 +648,42 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
     }),
   );
 
+  // ---- player keys: one named player on the leaderboard (player-keys.ts). The key travels in X-Player-Key only. ----
+  api.post(
+    '/players',
+    wrap((req, res) => {
+      const { player, key } = store.playerKeys.issue(req.body?.name ?? req.body?.playerName, req.ip ?? 'unknown');
+      // The only time the key is ever sent: the server keeps its hash.
+      res.status(201).json({ ...player, key });
+    }),
+  );
+  api.get(
+    '/players/me',
+    wrap((req, res) => {
+      const player = playerOf(req);
+      if (!player) return res.status(401).json({ error: 'Send your player key in the X-Player-Key header' });
+      res.json(store.playerKeys.info(player));
+    }),
+  );
+  api.post(
+    '/players/me/rotate',
+    wrap((req, res) => {
+      const raw = req.headers[PLAYER_KEY_HEADER];
+      const r = store.playerKeys.rotate(Array.isArray(raw) ? raw[0] : raw);
+      if (!r) return res.status(401).json({ error: 'Unknown or revoked player key (X-Player-Key)' });
+      res.json({ ...r.player, key: r.key });
+    }),
+  );
+
   // ---- quick play: a queue that seats waiting entrants in a fresh room, the empty seats filled with Zergs ----
   api.get('/queue', (_req, res) => res.json({ waiting: store.quickPlay.list(), waitSeconds: store.quickPlay.config.waitMs / 1000 }));
   api.post(
     '/queue',
     wrap((req, res) => {
       const b = req.body ?? {};
-      const { token, ticket } = store.quickPlay.join({ playerName: b.playerName ?? b.name, agent: parseAgent(b.agent), map: b.map, seats: b.seats, fog: b.fog }, req.ip ?? null);
+      const player = playerOf(req);
+      const playerName = store.playerKeys.seatName(String(b.playerName ?? b.name ?? ''), player);
+      const { token, ticket } = store.quickPlay.join({ playerName, agent: parseAgent(b.agent), map: b.map, seats: b.seats, fog: b.fog, ...(player ? { playerKey: player.id } : {}) }, req.ip ?? null);
       res.status(201).json({ token, ticket });
     }),
   );
@@ -673,7 +727,9 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
     wrap((req, res) => {
       if (!store.tournaments.get(String(req.params.id))) return res.status(404).json({ error: 'Tournament not found' });
       // The joiner (this IP) is counted against the pre-registration cap of scheduled tournaments.
-      const { entrantId, token } = store.tournaments.join(String(req.params.id), req.body?.playerName ?? req.body?.name, parseAgent(req.body?.agent), `ip:${req.ip ?? 'unknown'}`);
+      const player = playerOf(req);
+      const name = store.playerKeys.seatName(String(req.body?.playerName ?? req.body?.name ?? ''), player);
+      const { entrantId, token } = store.tournaments.join(String(req.params.id), name, parseAgent(req.body?.agent), player ? { id: player.id, name: player.name } : undefined, `ip:${req.ip ?? 'unknown'}`);
       res.status(201).json({ entrantId, token, tournament: store.tournaments.view(String(req.params.id), token) });
     }),
   );
@@ -846,6 +902,10 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
   api.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
     if (err instanceof RuleError) return res.status(400).json({ error: err.message });
     if (err instanceof RateLimitedError) return res.status(429).json({ error: err.message });
+    if (err instanceof PlayerKeyLimitError) {
+      if (err.retryAfterSec) res.setHeader('Retry-After', String(err.retryAfterSec));
+      return res.status(err.status).json({ error: err.message });
+    }
     if (err instanceof QuickPlayBusyError) return res.status(err.status).json({ error: err.message });
     if (err instanceof RiskHttpError) return res.status(err.status).json({ error: err.message });
     if (err instanceof SyntaxError) return res.status(400).json({ error: 'Invalid JSON' });

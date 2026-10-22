@@ -10,7 +10,8 @@ import { RuleError, type ActionResult, type GameEvent, type GameState, type Play
  * It is the normal start (`startGame`: turn order, deck, blizzards, neutrals, a random deal), then each spot is
  * swapped, owner and armies together, with a territory its player was dealt elsewhere, so every player keeps the same
  * number of territories and armies. A blizzard that fell on a spot moves to another open territory where pickBlizzards
- * could have put it (or, with none left, thaws: one blizzard fewer, the spot the player's), and a spot dealt
+ * could have put it (or, when no single territory will do, the whole set is drawn again away from the spots, the
+ * territories trading holders so the deal stays even), and a spot dealt
  * to the neutral is swapped like any other. With `autoSetup` the remaining armies are then placed at random through
  * ordinary setup moves, and the game is at its first turn as usual; without it the game waits in setup as usual.
  *
@@ -32,6 +33,8 @@ export function startOnSpots(lobby: GameState, spots: Record<PlayerId, Territory
   const events: GameEvent[] = [...started.events];
   const pick = <T>(xs: T[]): T => xs[Math.floor(random() * xs.length)];
 
+  /** Spots already given to their players (in `wanted` order): never traded away again. */
+  const settled = new Set<TerritoryId>();
   for (const [player, spot] of wanted) {
     if (state.blizzards.includes(spot)) {
       // Move the blizzard to an open territory that is nobody's spot; that territory's holder takes the spot instead.
@@ -47,31 +50,33 @@ export function startOnSpots(lobby: GameState, spots: Record<PlayerId, Territory
         state.territories[moved] = { owner: null, armies: 0 };
         state.blizzards = state.blizzards.map((t) => (t === spot ? moved : t));
       } else {
-        // Nowhere it may go (the board already has as many blizzards as the rules allow): it thaws instead, one blizzard
-        // fewer. The spot is the player's with one army, taken from the armies they have left to place. A spot ringed
-        // by blizzards would be cut off once open, so the blizzards next to its open patch thaw too, one at a time,
-        // until the open territories are one network again; each goes the same way to its spot's player, else to this one.
-        state.blizzards = others;
-        const thawed = [spot];
-        while (!playable(map, new Set(state.blizzards))) {
-          const patch = reach(map, spot, new Set(state.blizzards));
-          const next = state.blizzards.find((b) => map.adjacency[b].some((n) => patch.has(n)));
-          // Only a board whose territories are not one network could get here; never loop on it.
-          if (next === undefined) throw new RuleError(`${state.options.map}: the open territories cannot be joined around ${spot}`);
-          state.blizzards = state.blizzards.filter((t) => t !== next);
-          thawed.push(next);
-        }
-        for (const t of thawed) {
-          const owner = t === spot ? player : (wanted.find(([, s]) => s === t)?.[0] ?? player);
-          state.territories[t] = { owner, armies: 1 };
-          const p = state.players.find((x) => x.id === owner)!;
+        // Nowhere it may go alone (e.g. the spot's only way out is another blizzard): the whole set is drawn again, as
+        // many as before where pickBlizzards could put them and never on a spot (fewer only if the board holds no
+        // more). Each territory that freezes hands its holder and armies to one that thaws, so every player keeps the
+        // same territories and armies; a thawed one left over goes, with an army from those left to place, to the
+        // player holding the fewest.
+        const fresh = redrawBlizzards(map, state.blizzards.length, spotSet, random);
+        const freezing = fresh.filter((t) => !state.blizzards.includes(t));
+        const thawing = state.blizzards.filter((t) => !fresh.includes(t));
+        thawing.forEach((t, i) => {
+          const from = freezing[i];
+          if (from) return void (state.territories[t] = { ...state.territories[from] });
+          const held = (id: PlayerId) => Object.values(state.territories).filter((x) => x.owner === id).length;
+          const p = state.players.filter((x) => !x.isNeutral).sort((x, y) => held(x.id) - held(y.id))[0];
+          state.territories[t] = { owner: p.id, armies: 1 };
           p.armiesToPlace = Math.max(0, p.armiesToPlace - 1);
-        }
+        });
+        for (const t of freezing) state.territories[t] = { owner: null, armies: 0 };
+        state.blizzards = fresh;
       }
       for (const e of events) if (e.type === 'blizzards') e.territories = [...state.blizzards];
     }
+    settled.add(spot);
     if (state.territories[spot].owner === player) continue;
-    const mine = Object.keys(state.territories).filter((t) => state.territories[t].owner === player && !spotSet.has(t));
+    // Trade one of the player's other territories for the spot: a non-spot one if they hold any, else another
+    // player's spot not settled yet (that player takes it back by the same trade when their turn here comes).
+    const held = Object.keys(state.territories).filter((t) => state.territories[t].owner === player && !settled.has(t));
+    const mine = held.some((t) => !spotSet.has(t)) ? held.filter((t) => !spotSet.has(t)) : held;
     if (mine.length === 0) throw new RuleError(`${player} has no territory to trade for its start spot`);
     const other = pick(mine);
     const a = state.territories[spot];
@@ -115,10 +120,24 @@ function playable(map: MapDef, blocked: Set<TerritoryId>): boolean {
   return seen.size === open.length;
 }
 
-/** The open territories reachable from `from` (itself included) without crossing `blocked`. */
-function reach(map: MapDef, from: TerritoryId, blocked: Set<TerritoryId>): Set<TerritoryId> {
-  const seen = new Set<TerritoryId>([from]);
-  const queue = [from];
-  while (queue.length) for (const n of map.adjacency[queue.pop()!]) if (!blocked.has(n) && !seen.has(n)) (seen.add(n), queue.push(n));
-  return seen;
+/**
+ * `count` blizzards drawn again where pickBlizzards could put them (one open network, two open per continent), never
+ * on `avoid`. The best of a few shuffles, so it falls short only when the board really holds no more. Map order.
+ */
+function redrawBlizzards(map: MapDef, count: number, avoid: Set<TerritoryId>, random: RandomSource): TerritoryId[] {
+  let best: TerritoryId[] = [];
+  for (let attempt = 0; attempt < 20 && best.length < count; attempt++) {
+    const order = map.territoryIds.filter((t) => !avoid.has(t));
+    for (let i = order.length - 1; i > 0; i--) {
+      const j = Math.floor(random() * (i + 1));
+      [order[i], order[j]] = [order[j], order[i]];
+    }
+    const chosen = new Set<TerritoryId>();
+    for (const t of order) {
+      if (chosen.size >= count) break;
+      if (playable(map, new Set([...chosen, t]))) chosen.add(t);
+    }
+    if (chosen.size > best.length) best = map.territoryIds.filter((t) => chosen.has(t));
+  }
+  return best;
 }

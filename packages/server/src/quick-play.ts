@@ -81,7 +81,7 @@ export interface QuickPlayHost {
   createTable(
     name: string,
     options: Partial<GameOptions>,
-    players: { name: string; isBot: boolean; kind?: BotKind; agent?: string }[],
+    players: { name: string; isBot: boolean; kind?: BotKind; agent?: string; playerKey?: string }[],
     tournamentId: string | null,
     extra: { quickPlay?: boolean },
   ): { room: { id: string }; seats: { playerId: PlayerId; token: string }[] };
@@ -122,6 +122,8 @@ interface Ticket {
   token: string;
   name: string;
   agent?: string;
+  /** The registered player (player key) this entrant plays as. */
+  playerKey?: string;
   /** Who opened it (the client's IP address), for the per-client cap. */
   client: string | null;
   key: QuickPlayKey;
@@ -182,7 +184,7 @@ export class QuickPlayQueue {
   }
 
   /** Enter the queue. Starts the bucket at once when this entrant fills it. */
-  join(input: { playerName?: unknown; agent?: string; map?: unknown; seats?: unknown; fog?: unknown }, client: string | null = null): { token: string; ticket: QuickPlayTicketView } {
+  join(input: { playerName?: unknown; agent?: string; map?: unknown; seats?: unknown; fog?: unknown; playerKey?: string }, client: string | null = null): { token: string; ticket: QuickPlayTicketView } {
     const key = this.parseKey(input);
     if (client !== null) {
       let open = 0;
@@ -207,7 +209,8 @@ export class QuickPlayQueue {
     const taken = new Set(bucket.tickets.map((t) => t.name.toLowerCase()));
     let name = raw || 'Player';
     for (let n = 2; taken.has(name.toLowerCase()); n++) name = `${(raw || 'Player').slice(0, 21)} ${n}`;
-    const ticket: Ticket = { id: newId(9), token: newId(24), name, ...(input.agent ? { agent: input.agent } : {}), client, key, status: 'waiting', lastSeen: Date.now(), polling: 0 };
+    if (input.playerKey && bucket.tickets.some((t) => t.playerKey === input.playerKey)) throw new RuleError('This player is already waiting for this game');
+    const ticket: Ticket = { id: newId(9), token: newId(24), name, ...(input.agent ? { agent: input.agent } : {}), ...(input.playerKey ? { playerKey: input.playerKey } : {}), client, key, status: 'waiting', lastSeen: Date.now(), polling: 0 };
     this.tickets.set(ticket.id, ticket);
     bucket.tickets.push(ticket);
     if (bucket.tickets.length >= key.seats) this.start(bucket);
@@ -298,7 +301,7 @@ export class QuickPlayQueue {
       turnTimer: 'move',
       turnTimerSeconds: this.config.timerSeconds,
     };
-    const players = [...tickets.map((t) => ({ name: t.name, isBot: false, ...(t.agent ? { agent: t.agent } : {}) })), ...fill];
+    const players = [...tickets.map((t) => ({ name: t.name, isBot: false, ...(t.agent ? { agent: t.agent } : {}), ...(t.playerKey ? { playerKey: t.playerKey } : {}) })), ...fill];
     try {
       const { room, seats } = this.host.createTable(`Quick play · ${getMap(key.map).name}`, options, players, null, { quickPlay: true });
       tickets.forEach((t, i) => {

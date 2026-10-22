@@ -336,6 +336,11 @@ export interface RiskApi {
   /** Long-poll until the ticket is seated or its table changes, up to timeoutMs. */
   quickPlayWait(ticket: string, token: string, timeoutMs: number): Promise<{ ticket: QuickPlayTicketInfo }>;
   quickPlayLeave(ticket: string, token: string): Promise<unknown>;
+  /**
+   * Bind a player key to this connection (for clients that cannot send the X-Player-Key header, e.g. claude.ai
+   * connectors): its later seats play as that registered player. Returns who that is, never the key.
+   */
+  usePlayerKey(key: string): Promise<{ playerId: string; name: string }>;
   /** Seat server bots as entrants while registering (`key`: the host token or the admin key). */
   addTournamentBots(key: string | undefined, tournamentId: string, kind: 'bot' | 'zerg', count: number): Promise<{ added: { entrantId: string; name: string }[]; tournament: TournamentInfo }>;
 }
@@ -448,6 +453,8 @@ export class HttpRiskApi implements RiskApi {
     public baseUrl: string,
     /** Default characters write key for saves (a tool's own "key" wins). */
     private charactersKey?: string,
+    /** This agent's player key (RISK_PLAYER_KEY): sent as X-Player-Key, so its seats play as that registered player. */
+    private playerKey?: string,
   ) {
     this.baseUrl = baseUrl.replace(/\/+$/, '');
   }
@@ -456,6 +463,7 @@ export class HttpRiskApi implements RiskApi {
     const headers: Record<string, string> = { 'content-type': 'application/json' };
     if (token) headers.authorization = `Bearer ${token}`;
     if (charactersKey) headers['x-characters-key'] = charactersKey;
+    if (this.playerKey) headers['x-player-key'] = this.playerKey;
     const res = await fetch(`${this.baseUrl}/api${path}`, { ...init, headers });
     const text = await res.text();
     let body: Record<string, unknown> = {};
@@ -525,6 +533,17 @@ export class HttpRiskApi implements RiskApi {
   }
   quickPlayWait(ticket: string, token: string, timeoutMs: number) {
     return this.request<{ ticket: QuickPlayTicketInfo }>(`/queue/${encodeURIComponent(ticket)}?timeoutMs=${Math.max(0, Math.round(timeoutMs))}`, {}, token);
+  }
+  async usePlayerKey(key: string) {
+    const previous = this.playerKey;
+    this.playerKey = key;
+    try {
+      const me = await this.request<{ playerId: string; name: string }>('/players/me');
+      return { playerId: me.playerId, name: me.name };
+    } catch (e) {
+      this.playerKey = previous;
+      throw e;
+    }
   }
   quickPlayLeave(ticket: string, token: string) {
     return this.request(`/queue/${encodeURIComponent(ticket)}`, { method: 'DELETE' }, token);

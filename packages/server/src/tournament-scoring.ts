@@ -28,7 +28,7 @@ export interface ScoredBracket {
   format?: string;
   /** `kind` "zerg" marks a Zerg entrant; any other bot is a built-in fill bot. */
   /** `isBot`: a server bot (a built-in fill bot, or `kind` "zerg" for a Zerg). Bots are scored but never ranked. */
-  entrants: { id: string; name: string; isBot: boolean; kind?: string }[];
+  entrants: { id: string; name: string; isBot: boolean; kind?: string; playerKey?: string }[];
   rounds: {
     matches: {
       entrants: string[];
@@ -114,8 +114,12 @@ export function placementPoints(rounds: number, round: number, final: { place: n
   return ROUND_POINTS * (rounds - 1) + FINAL_PLACE_POINTS * (final.of - final.place) + (champion ? CHAMPION_BONUS : 0);
 }
 
-/** The leaderboard key, as on the other boards: `bot:<name>` for bots and Zergs, `player:<name>` otherwise. */
-export function entrantKey(e: { name: string; isBot: boolean }): string {
+/**
+ * The leaderboard key, as on the other boards: `key:<id>` for a registered player (player key), `bot:<name>` for bots
+ * and Zergs, `player:<name>` otherwise.
+ */
+export function entrantKey(e: { name: string; isBot: boolean; playerKey?: string }): string {
+  if (e.playerKey && !e.isBot) return `key:${e.playerKey}`;
   return `${e.isBot ? 'bot' : 'player'}:${e.name.trim().toLowerCase()}`;
 }
 

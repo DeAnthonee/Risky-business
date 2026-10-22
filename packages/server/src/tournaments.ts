@@ -75,6 +75,8 @@ export interface Entrant {
   kind?: BotKind;
   /** Self-declared player type, passed to every table seat; spectators see it, no view of the tournament does. */
   agent?: string;
+  /** The registered player (player key) this entrant plays as: its seats and the tournament board rank as `key:<id>`. */
+  playerKey?: string;
   joinedAt: number;
   /** Scheduled tournaments: when this entrant checked in (polled the bracket inside the check-in window). */
   checkedInAt?: number;
@@ -740,23 +742,25 @@ export class TournamentManager extends EventEmitter {
   }
 
   /**
-   * Join while registering. `joiner` (an IP, or an MCP session) is counted for scheduled tournaments: pre-registration
+   * Join while registering. `player`: the registered player (from its key) joining: they enter under the registered
+   * name, once per tournament. `joiner` (an IP, or an MCP session) is counted for scheduled tournaments: pre-registration
    * needs no code, so one joiner holds at most `preregPerJoiner` open registrations across them (kept in memory).
    */
-  join(id: string, rawName: unknown, agent?: string, joiner?: string | null): { entrantId: string; token: string } {
+  join(id: string, rawName: unknown, agent?: string, player?: { id: string; name: string }, joiner?: string | null): { entrantId: string; token: string } {
     const t = this.require(id);
     if (t.status !== 'registering') throw new RuleError('Registration is closed: this tournament has started');
     if (t.entrants.length >= t.maxEntrants) throw new RuleError('This tournament is full');
     const cap = this.limits.preregPerJoiner;
     if (t.scheduled && joiner && cap > 0 && this.openRegistrations(joiner) >= cap)
       throw new RuleError(`You already hold ${cap} open registrations for scheduled tournaments; join more once one has started`);
-    const name = String(rawName ?? '').replace(/\s+/g, ' ').trim().slice(0, MAX_NAME);
+    const name = (player ? player.name : String(rawName ?? '')).replace(/\s+/g, ' ').trim().slice(0, MAX_NAME);
     if (!name) throw new RuleError('A name is required');
+    if (player && t.entrants.some((e) => e.playerKey === player.id)) throw new RuleError('This player has already joined this tournament');
     if (t.entrants.some((e) => e.name.toLowerCase() === name.toLowerCase())) throw new RuleError(`The name "${name}" is taken in this tournament`);
     // The site-wide daily cap on pre-registrations, counted last so a refused join costs nothing (429).
     if (t.scheduled && joiner && this.preregDaily && !this.preregDaily.take('site'))
       throw new RateLimitedError(`Too many tournament registrations on this site today (at most ${this.limits.preregPerDay} in 24 h); try again later`);
-    const entrant: Entrant = { id: `e_${newId(6)}`, name, isBot: false, token: newId(24), joinedAt: Date.now(), ...(agent ? { agent } : {}) };
+    const entrant: Entrant = { id: `e_${newId(6)}`, name, isBot: false, token: newId(24), joinedAt: Date.now(), ...(agent ? { agent } : {}), ...(player ? { playerKey: player.id } : {}) };
     // Joining inside the check-in window is checking in.
     if (this.checkinOpen(t)) entrant.checkedInAt = this.clock.now();
     t.entrants.push(entrant);
@@ -812,6 +816,8 @@ export class TournamentManager extends EventEmitter {
       e.missed = missed;
       delete e.token;
       delete e.agent;
+      // The seat is a Zerg now: no player key's record gets its results.
+      delete e.playerKey;
       noShows++;
     }
     if (t.scheduled) t.scheduled.noShows = noShows;
@@ -1046,7 +1052,7 @@ export class TournamentManager extends EventEmitter {
       const players = entrants.map((eid) => this.entrant(t, eid)!);
       const tables = tableSizes(order.length, t.groupSize).length;
       const label = tables === 1 ? (round === 1 ? 'Table 1' : 'Final') : `Table ${i + 1}`;
-      const { room, seats } = this.store.createTable(`${t.name} · R${round} ${label}`.slice(0, 40), { ...t.options, maxPlayers: entrants.length }, players.map((p) => ({ name: p.name, isBot: p.isBot, ...(p.kind ? { kind: p.kind } : {}), agent: p.agent })), t.id);
+      const { room, seats } = this.store.createTable(`${t.name} · R${round} ${label}`.slice(0, 40), { ...t.options, maxPlayers: entrants.length }, players.map((p) => ({ name: p.name, isBot: p.isBot, ...(p.kind ? { kind: p.kind } : {}), agent: p.agent, ...(p.playerKey ? { playerKey: p.playerKey } : {}) })), t.id);
       const match: TournamentMatch = { gameId: room.id, entrants, seats: Object.fromEntries(entrants.map((eid, k) => [eid, seats[k]])), winner: null, status: 'playing' };
       matches.push(match);
     }
@@ -1199,7 +1205,7 @@ export class TournamentManager extends EventEmitter {
       const { room, seats } = this.store.createTable(
         `${t.name} · R${r + 1} ${label}`.slice(0, 40),
         { ...t.options, ...(n.blizzardShare !== undefined ? { blizzards: blizzardsFor(map, n.blizzardShare) } : {}), map: map as GameOptions['map'], maxPlayers: entrants.length },
-        players.map((p) => ({ name: p.name, isBot: p.isBot, ...(p.kind ? { kind: p.kind } : {}), agent: p.agent })),
+        players.map((p) => ({ name: p.name, isBot: p.isBot, ...(p.kind ? { kind: p.kind } : {}), agent: p.agent, ...(p.playerKey ? { playerKey: p.playerKey } : {}) })),
         t.id,
         {
           ...(n.botDelayMs !== undefined ? { botDelayMs: n.botDelayMs } : {}),

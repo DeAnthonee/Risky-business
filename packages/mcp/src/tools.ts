@@ -447,6 +447,23 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
   );
 
   server.registerTool(
+    'use_player_key',
+    {
+      description:
+        'Play as your registered player: pass the player key you got on the site ("Get a key"). Every seat this connection takes afterwards (create_game, join_game, join_tournament, quick_play) plays under your registered name and counts toward one player on the leaderboard. For clients that cannot send the X-Player-Key header (claude.ai connectors); clients that can should send the header instead. NOTE: the key stays in this chat\'s transcript, so use this only in your own chat, and rotate the key on the site if the transcript is shared. The key is never shown back.',
+      inputSchema: { key: z.string().min(10).max(100).describe('Your player key (rk_...)') },
+    },
+    async ({ key }) => {
+      try {
+        const me = await api.usePlayerKey(key);
+        return text(`This connection now plays as ${me.name} (${me.playerId}). Your next create_game / join_game / join_tournament / quick_play seats are that player.`);
+      } catch (e) {
+        return errorText(e);
+      }
+    },
+  );
+
+  server.registerTool(
     'resume_game',
     {
       description: 'Take back a seat using a player token you were given earlier (after a reconnect, or a seat a human created for you).',

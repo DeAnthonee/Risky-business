@@ -154,16 +154,16 @@ describe('testing mode (RISK_TOURNEY_STRICT off)', () => {
     expect(JSON.parse(readFileSync(file, 'utf8'))).toMatchObject({ byIp: {}, globalFails: [] });
   });
 
-  it('a code sent to a server with no codes set says so (400), and is not a wrong try', () => {
-    const { access } = setup({ adminCode: null, limitedCode: null });
-    let err: { status?: number; message?: string } = {};
-    try {
-      access.checkCode('5.5.5.5', 'anything');
-    } catch (e) {
-      err = e as typeof err;
-    }
-    expect(err).toMatchObject({ status: 400, message: expect.stringMatching(/No tournament codes are set on this server/) });
-    for (let i = 0; i < 10; i++) expect(status(() => access.checkCode('5.5.5.5', 'anything'))).toBe(400); // never 429
+  it('with no codes set on the server, a typed code is ignored: never checked, never counted (owner: no code blocks testing)', () => {
+    const { access } = setup({ adminCode: null, limitedCode: null, attempts: { ...DEFAULT_TOURNEY_ACCESS.attempts } });
+    // Create: open mode as if no code were given; with open mode off, the usual "host only".
+    for (let i = 0; i < 10; i++) expect(access.hostTier('5.5.5.5', 'anything', true)).toBe('open');
+    expect(status(() => access.hostTier('5.5.5.5', 'anything', false))).toBe(403);
+    expect(access.usable('anything')).toBe(false);
+    // Start: open mode lets anyone start while no codes are set; once a code is set, it does not.
+    expect(access.openStart(true)).toBe(true);
+    expect(access.openStart(false)).toBe(false);
+    expect(setup().access.openStart(true)).toBe(false);
   });
 
   it('with no codes set and open mode on, a typed code is ignored and the create is open', () => {
@@ -275,6 +275,36 @@ describe('expiry', () => {
 });
 
 describe('over HTTP and MCP', () => {
+  it('with no codes set and open mode on: a typed code is ignored, create works, and anyone can start (HTTP and MCP)', async () => {
+    const store = new Store(null);
+    const risk = createRiskServer(store, { clientDir: null, openTournaments: true, tourneyAccess: TESTING_TOURNEY_ACCESS, sweepIntervalMs: 0 });
+    await new Promise<void>((resolve) => risk.server.listen(0, '127.0.0.1', resolve));
+    const base = `http://127.0.0.1:${(risk.server.address() as AddressInfo).port}`;
+    const call = async (path: string, body: unknown) => {
+      const res = await fetch(`${base}/api${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+      return { status: res.status, body: (await res.json()) as any };
+    };
+    const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+    const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
+    const agent = new Client({ name: 'tester', version: '0' });
+    await agent.connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`)));
+    try {
+      const made = await call('/tournaments', { name: 'Typed code', maxEntrants: 4, code: 'whatever-the-owner-typed' });
+      expect(made.status).toBe(201);
+      const id = made.body.tournament.id;
+      for (const n of ['A', 'B']) await call(`/tournaments/${id}/join`, { playerName: n });
+      expect((await call(`/tournaments/${id}/start`, { code: 'whatever' })).status).toBe(200); // no host token needed
+      const second = (await call('/tournaments', { name: 'Second', maxEntrants: 4 })).body.tournament.id;
+      for (const n of ['C', 'D']) await call(`/tournaments/${second}/join`, { playerName: n });
+      const r = (await agent.callTool({ name: 'start_tournament', arguments: { tournamentId: second, code: 'whatever' } })) as { content: { text: string }[]; isError?: boolean };
+      expect(r.isError).toBeFalsy();
+      expect(r.content[0].text).toMatch(/Tournament started/);
+    } finally {
+      await agent.close();
+      await risk.shutdown('test');
+    }
+  });
+
   it('creates and starts with a code; the limited code starts only its own tournaments', async () => {
     const store = new Store(null);
     const risk = createRiskServer(store, { clientDir: null, openTournaments: false, tourneyAccess: { ...CODES, maxActive: 5, maxActiveLimited: 5 }, sweepIntervalMs: 0 });

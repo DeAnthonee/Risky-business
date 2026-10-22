@@ -81,8 +81,10 @@ testing gate (owner, 2026-10-22); player keys or sign-in replace them later. The
   1000 seats reserved. The codes, the seat and Delove caps, expiry and the lag brake stay. `RISK_TOURNEY_STRICT=1`
   restores the launch levers listed below. Each lever's own variable wins in either mode. The startup log says
   `[tourney] codes: admin set|unset, limited set|unset, strict on|off` (never a value).
-- **No codes on the server**: a code sent to a server with neither code set answers **400** "No tournament codes are
-  set on this server", and it isn't counted as a wrong try.
+- **No codes on the server** (owner: "I dont care to have some code block our testing right now"): with neither code
+  set, a typed `code` is **ignored**, never checked or counted (logged once: "code given but no codes set; ignored").
+  Create goes ahead in open mode, and in open mode **anyone may start** a tournament; otherwise start needs the host
+  token as usual.
 
 - **Creating** (`POST /api/tournaments`, MCP `create_tournament`): once either code is set, a create needs `code` in
   the body (or the admin key on `/api/admin/tournaments`). Open mode, `RISK_TOURNAMENTS_OPEN`, lets anyone create with

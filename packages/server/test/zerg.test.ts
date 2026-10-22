@@ -2,7 +2,7 @@ import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { GameEvent } from '@risk/engine';
 
-type AttackEvent = Extract<GameEvent, { type: 'attack' }>;
+type BattleEvent = Extract<GameEvent, { type: 'battle' }>;
 
 // Bots move without the 700 ms pause, so a whole game plays out in the test. Set before the store module loads.
 vi.hoisted(() => {
@@ -63,14 +63,16 @@ describe('Zerg seats', () => {
     const bot = (await api(`/games/${gameId}/bots`, { method: 'POST', body: '{}' }, token)).body.playerId as string;
 
     const room = store.get(gameId)!;
-    const zergOnZerg: AttackEvent[] = [];
+    const zergOnZerg: BattleEvent[] = [];
     let fallingOut = 0;
+    let zergBattles = 0;
     let bothZergsLeft = false;
     const zergSurrenders: string[] = [];
     room.on('commit', ({ before, next, events, playerId, action }) => {
       const botAlive = before.players.find((p) => p.id === bot)!.alive;
       for (const e of events) {
-        if (e.type !== 'attack' || !isZergSeat(e.attacker) || !isZergSeat(e.defender)) continue;
+        if (e.type === 'battle' && isZergSeat(e.attacker)) zergBattles++;
+        if (e.type !== 'battle' || !isZergSeat(e.attacker) || !isZergSeat(e.defender)) continue;
         if (botAlive) zergOnZerg.push(e);
         else fallingOut++;
       }
@@ -85,6 +87,7 @@ describe('Zerg seats', () => {
     await finished;
 
     expect(room.state.phase).toBe('finished');
+    expect(zergBattles).toBeGreaterThan(0);
     expect(zergOnZerg).toEqual([]);
     // The horde hunts the bot down first, and a Zerg takes the game.
     expect(room.eliminationOrder).toContain(bot);

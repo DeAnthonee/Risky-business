@@ -1,4 +1,5 @@
 import { createServer, type Server } from 'node:http';
+import { monitorEventLoopDelay } from 'node:perf_hooks';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -61,6 +62,8 @@ export interface HealthReport {
   /** "disk" when games are saved under RISK_DATA_DIR, "disabled" otherwise; never the path. */
   persistence: 'disk' | 'disabled';
   shuttingDown: boolean;
+  /** Event-loop lag: the 99th percentile over the last full minute (the current one until a minute has passed), in ms. */
+  loopLagMs: number;
 }
 
 /** The repo's AI/ folder: three levels up from packages/server/src (tsx) or packages/server/dist (built). */
@@ -88,6 +91,17 @@ export function createRiskServer(store: Store, opts: AppOptions = {}): RiskServe
   const mcp = createMcpRouter(store, characters, opts.mcpLabel ?? 'Risky Business', opts.adminToken ?? null, opts.openTournaments ?? true);
   app.use('/mcp', mcp.router);
 
+  // Event-loop lag for /healthz: a histogram read and reset every minute.
+  const loopDelay = monitorEventLoopDelay({ resolution: 20 });
+  loopDelay.enable();
+  let lastMinuteLagMs: number | null = null;
+  const lagTimer = setInterval(() => {
+    lastMinuteLagMs = loopDelay.count ? Math.round(loopDelay.percentile(99) / 1e6) : 0;
+    loopDelay.reset();
+  }, 60_000);
+  lagTimer.unref();
+  const loopLagMs = () => lastMinuteLagMs ?? (loopDelay.count ? Math.round(loopDelay.percentile(99) / 1e6) : 0);
+
   const health = (): HealthReport => {
     const info = buildInfo();
     let playing = 0;
@@ -114,6 +128,7 @@ export function createRiskServer(store: Store, opts: AppOptions = {}): RiskServe
       mcpSessions: mcp.sessions.size,
       persistence: store.describePersistence(),
       shuttingDown,
+      loopLagMs: loopLagMs(),
     };
   };
 
@@ -181,6 +196,8 @@ export function createRiskServer(store: Store, opts: AppOptions = {}): RiskServe
         setTimeout(resolve, 3000).unref();
       });
       store.stopTimers();
+      clearInterval(lagTimer);
+      loopDelay.disable();
       console.log('shutdown complete');
     })();
     return shutdownPromise;

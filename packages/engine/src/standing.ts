@@ -1,6 +1,7 @@
 import type { RandomSource } from './bot.js';
 import { armiesOf, territoriesOf } from './engine.js';
-import type { GameState, PlayerId } from './types.js';
+import { RuleError, type ActionResult, type GameState, type PlayerId } from './types.js';
+import { strongestZergOf } from './zerg.js';
 
 /** The order a game stopped before its end is decided in, and the dice rolled to break ties (each roll is 1-6). */
 export interface Standing {
@@ -48,4 +49,23 @@ function breakTie(ids: PlayerId[], random: RandomSource, rolls: Record<PlayerId,
   }
   const faces = [...new Set(roll.values())].sort((a, b) => b - a);
   return faces.flatMap((f) => breakTie(ids.filter((id) => roll.get(id) === f), random, rolls));
+}
+
+/**
+ * End a game as it stands when only one side is left: the swarm of a live game (owner's rule A, docs/zergs.md). The
+ * strongest player of `side` wins (most territories, then most armies, then the lowest seat: zerg.ts's
+ * strongestZergOf, so a live game and a self-play game, where the weaker Zergs surrender instead, crown the same
+ * Zerg). Nothing else changes: nobody surrenders, no land turns neutral, the others stay in and are placed by the
+ * public board's own order (finalPlacements: territories, armies, seat). Emits the usual `game_over` (no reason).
+ *
+ * Called by the server only (a live room ends the game through its commit); self-play never calls it.
+ */
+export function endByStanding(state: GameState, side: ReadonlySet<PlayerId>, at = Date.now()): ActionResult {
+  if (state.phase === 'lobby' || state.phase === 'finished') throw new RuleError('Only a game in progress can end by standing');
+  const winner = strongestZergOf(state, side);
+  if (!winner) throw new RuleError('Nobody of that side is left to win');
+  return {
+    state: { ...state, phase: 'finished', winner, currentPlayer: null, finishedAt: at, version: state.version + 1 },
+    events: [{ type: 'game_over', winner }],
+  };
 }

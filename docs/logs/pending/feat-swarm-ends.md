@@ -1,0 +1,2 @@
+engine: - 2026-10-22 #PR `standing.ts`: `endByStanding(state, side)` ends a game as it stands, the strongest of the side winning (`strongestZergOf` order), with the usual `game_over`; not mirrored, called by the server only
+server: - 2026-10-22 #PR a live game ends at once when every living seat is a Zerg (owner's rule A): `GameRoom.commit` commits `endByStanding` with a system note and a chat line; no surrenders, no land turned neutral; a Zerg-only table ends right after the deal (`ALL_ZERG_TABLES_END_AT_ONCE`, default on)

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addPlayer, createGame, createRng, nextFloat, rankByStanding, startGame, type GameState } from '../src/index.js';
+import { addPlayer, createGame, createRng, endByStanding, finalPlacements, nextFloat, rankByStanding, startGame, type GameState } from '../src/index.js';
 
 function seeded(seed: number) {
   const rng = createRng(seed);
@@ -66,5 +66,32 @@ describe('rankByStanding', () => {
     expect(one.order).toHaveLength(4);
     expect(one.order).not.toContain('neutral');
     expect(new Set(one.order)).toEqual(new Set(['a', 'b', 'c', 'd']));
+  });
+});
+
+describe('endByStanding (only one side left in a live game)', () => {
+  it('ends the game as it stands: the strongest of the side wins, the board and the others are untouched', () => {
+    // a and b are "the swarm" (with c out); b holds the most land.
+    const s = board([['a', 8, 2], ['b', 20, 3], ['d', 14, 2]], ['c']);
+    const side = new Set(['a', 'b', 'd']);
+    const { state, events } = endByStanding(s, side, 123);
+    expect(state).toMatchObject({ phase: 'finished', winner: 'b', currentPlayer: null, finishedAt: 123, version: s.version + 1 });
+    expect(events).toEqual([{ type: 'game_over', winner: 'b' }]);
+    expect(state.territories).toEqual(s.territories);
+    expect(state.players.map((p) => p.alive)).toEqual(s.players.map((p) => p.alive));
+    // The public board's places follow the standing: b, then d (14 territories), then a (8), then c (out).
+    expect(finalPlacements(state, ['c']).map((p) => p.id)).toEqual(['b', 'd', 'a', 'c']);
+  });
+
+  it('breaks ties like strongestZergOf: armies, then the lowest seat', () => {
+    expect(endByStanding(board([['a', 14, 2], ['b', 14, 3], ['d', 14, 2]], ['c']), new Set(['a', 'b', 'd'])).state.winner).toBe('b');
+    expect(endByStanding(board([['d', 14, 2], ['a', 14, 2], ['b', 14, 2]], ['c']), new Set(['a', 'b', 'd'])).state.winner).toBe('a');
+  });
+
+  it('only ends a game in progress, with someone of the side alive', () => {
+    const s = board([['a', 21, 2], ['b', 21, 2]], ['c', 'd']);
+    const done = endByStanding(s, new Set(['a', 'b'])).state;
+    expect(() => endByStanding(done, new Set(['a', 'b']))).toThrow(/in progress/);
+    expect(() => endByStanding(s, new Set(['c']))).toThrow(/Nobody/);
   });
 });

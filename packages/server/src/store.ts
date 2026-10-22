@@ -4,6 +4,7 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync, renameSync } from '
 import { dirname, join } from 'node:path';
 import {
   RuleError,
+  endByStanding,
   addPlayer,
   applyAction,
   createGame,
@@ -24,7 +25,7 @@ import {
   type ScenarioRef,
   type ScenarioSeat,
 } from '@risk/engine';
-import { chooseSeatAction, seatIdPrefix, zergName, type BotKind } from './bot.js';
+import { chooseSeatAction, isZergSeat, seatIdPrefix, zergName, type BotKind } from './bot.js';
 import { DEFAULT_TOURNAMENT_LIMITS, TournamentManager } from './tournaments.js';
 import { TournamentRankings } from './tournament-scoring.js';
 import { Rankings } from './rankings.js';
@@ -142,6 +143,11 @@ export interface ChangeMessage {
 }
 
 const BOT_DELAY_MS = Number(process.env.RISK_BOT_DELAY_MS ?? 700);
+/**
+ * Whether a game seated with Zergs only ends right after the deal (true) or plays out (false). Default true until the
+ * owner decides (Lord of game development, 2026-10-22); games with any non-Zerg seat always end once only Zergs are left.
+ */
+const ALL_ZERG_TABLES_END_AT_ONCE = true;
 const MAX_HISTORY = 2000;
 /** A tournament table saves only its newest history entries: the game record already journals the whole game. */
 export const TABLE_SAVED_HISTORY = 500;
@@ -363,6 +369,24 @@ export class GameRoom extends EventEmitter {
     const msg: ChangeMessage = { state: next, events, version: next.version, playerId };
     this.emit('change', msg);
     this.scheduleBot();
+    this.endIfOnlySwarm();
+  }
+
+  /**
+   * Owner's rule A (docs/zergs.md): when every living seat is a Zerg, the game ends at once, as it stands. The
+   * strongest Zerg wins (the engine's endByStanding), nobody surrenders and no land turns neutral. It goes through
+   * commit like any move, so records, replays, rankings and tournaments see an ordinary finished game.
+   */
+  private endIfOnlySwarm() {
+    const s = this.state;
+    if (s.phase === 'lobby' || s.phase === 'finished') return;
+    const living = s.players.filter((p) => !p.isNeutral && p.alive);
+    if (!living.length || !living.every((p) => isZergSeat(p.id))) return;
+    // A table seated with Zergs only (e.g. a tournament table) ends right after the deal too, unless switched off.
+    if (!ALL_ZERG_TABLES_END_AT_ONCE && s.players.every((p) => p.isNeutral || isZergSeat(p.id))) return;
+    const { state, events } = endByStanding(s, new Set(living.map((p) => p.id)));
+    this.addChat(null, 'Game', 'Only Zergs are left: the swarm has won, and the game ends as it stands.');
+    this.commit(state, events, null, { type: 'system', note: 'only Zergs are left: the swarm has won, the game ends by standing' });
   }
 
   bindCharacter(playerId: string, characterId: string) {

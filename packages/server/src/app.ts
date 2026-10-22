@@ -21,6 +21,8 @@ export interface AppOptions {
   mcpLabel?: string;
   /** Enables /api/admin/* when set. */
   adminToken?: string | null;
+  /** Read-only key for full game records (/api/records/*); unset turns those routes off. Never logged. */
+  recordsKey?: string | null;
   /** AI character profiles; defaults to the repo's AI/ folder with saves kept in memory. */
   characters?: CharacterStore;
   /**
@@ -89,7 +91,7 @@ export function createRiskServer(store: Store, opts: AppOptions = {}): RiskServe
     next();
   });
   const characters = opts.characters ?? new CharacterStore(DEFAULT_AI_DIR, null);
-  app.use('/api', createApi(store, { adminToken: opts.adminToken, openTournaments: opts.openTournaments ?? true, characters, seasonKey: opts.seasonKey, seasonGuard: opts.seasonGuard }));
+  app.use('/api', createApi(store, { adminToken: opts.adminToken, recordsKey: opts.recordsKey, openTournaments: opts.openTournaments ?? true, characters, seasonKey: opts.seasonKey, seasonGuard: opts.seasonGuard }));
   if (opts.sweepIntervalMs !== 0) store.startSweeper(opts.sweepIntervalMs ?? 30_000);
 
   // Remote MCP endpoint for AI agents (claude.ai connectors, any Streamable HTTP MCP client).

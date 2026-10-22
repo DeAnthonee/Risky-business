@@ -1,0 +1,1 @@
+delove: - 2026-10-21 #207 cycle 14: `delove@11` (+0.11 points per seat at 4-10p, SPRT-gated with the reference panel, #160); a candidate grown to 8 rounds (#161) and Close Range came out even; first attempt lost to a full disk, rerun with #153 salvage; `c14*.cycle`, `c14-specialists.sh`; cycle 15 configs (fog dropout, horde variant, `c15-extra-gates.sh`)

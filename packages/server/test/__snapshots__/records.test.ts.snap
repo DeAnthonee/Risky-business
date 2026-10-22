@@ -1,0 +1,34 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`narrate (play-by-play) > is stable: the same record always reads the same (snapshot of the opening) 1`] = `
+"Snapshot (SNAP01): Four Crowns (24), 3 players
+Players: Ann, Bob, Cat
+Winner: Cat (domination) after 38 turns
+
+t1 (round 1) Bob: +3 armies
+  Bob places 3 on Deepwood
+  Bob attacks Glacier Bay (Cat) from Stormwatch, 5 vs 1: 1 roll, loses 0, kills 1, conquers
+    ↳ Bob chose this attack (.62) over hold (.58), value .41
+  Bob moves 3 in
+  Bob attacks Mossgate (Ann) from Deepwood, 4 vs 1: 1 roll, loses 0, kills 1, conquers
+  Bob moves 3 in
+  Bob attacks Crownhold (Ann) from Riverhall, 3 vs 1: 1 roll, loses 0, kills 1, conquers
+  Bob moves 2 in
+  Bob attacks Kingsfield (Ann) from Mossgate, 3 vs 1: 2 rolls, loses 2, kills 0
+  Bob attacks Dunecrest (Cat) from Saltpan, 4 vs 2: 3 rolls, loses 3, kills 1
+  Bob attacks Dunecrest (Cat) from Sungate, 3 vs 1: 1 roll, loses 0, kills 1, conquers
+  Bob moves 2 in
+  Bob fortifies 1 from Dunecrest to Snowfield
+t2 (round 1) Cat: +3 armies
+  Cat places 3 on Scorchfield
+  Cat attacks Deepwood (Bob) from Fernwatch, 5 vs 1: 1 roll, loses 0, kills 1, conquers
+  Cat moves 3 in
+  Cat attacks Amber Coast (Bob) from Tidewatch, 4 vs 1: 3 rolls, loses 3, kills 0
+  Cat attacks Mossgate (Bob) from Deepwood, 3 vs 1: 1 roll, loses 0, kills 1, conquers
+  Cat moves 2 in
+  Cat attacks Ashcrown (Ann) from Scorchfield, 4 vs 2: 3 rolls, loses 3, kills 1
+  Cat fortifies 1 from Fernwatch to Mossgate
+t3 (round 1) Ann: +3 armies
+  Ann places 3 on Kingsfield
+  Ann attacks Tidewatch (Cat) from Willowmere, 5 vs 1: 1 roll, loses 0, kills 1, conquers"
+`;

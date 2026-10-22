@@ -25,6 +25,7 @@
     "build:map": "node scripts/build-map.mjs",
     "maps:status": "node scripts/map-status.mjs",
     "logs:fold": "node scripts/fold-logs.mjs",
+    "records:playbyplay": "node scripts/records-playbyplay.mjs",
     "logs:check": "node scripts/fold-logs.mjs --check",
     "logs:test": "node --test scripts/fold-logs.test.mjs",
     "selfplay": "node packages/selfplay/dist/cli.js",

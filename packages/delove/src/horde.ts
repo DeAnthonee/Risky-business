@@ -1,10 +1,10 @@
 import type { GameOptions, MapId } from '@risk/engine';
-import { gameSeed, playGame, zergBot, type Agent, type Seat } from '@risk/selfplay';
+import { gameSeed, isZergName, playGame, zergBot, type Agent, type Seat } from '@risk/selfplay';
 import { interval, type Interval } from './stage-eval.js';
 
 /**
  * The Zerg-horde table (docs/zergs.md, section 5): one candidate seat against a horde of 2-3 coordinated Zergs
- * (zerg@1, the engine's hand-coded horde bot), the other seats filled by a filler player (default Jacob Sensei 2).
+ * (default zerg@1, the engine's hand-coded horde bot; any Zerg agent such as zerg-branch@1), the other seats filled by a filler player (default Jacob Sensei 2).
  * Does the candidate survive being ganged up on? Two candidates are compared on the same seeds and seat layouts.
  *
  * A table is `map:players:zergs`. With no fillers (players = zergs + 1) the Zergs hunt only the candidate and the game
@@ -46,6 +46,11 @@ export interface HordeGame {
   /** Players the candidate eliminated (only Zergs at a solo table; Zergs or fillers otherwise). */
   kills: number;
   /**
+   * Leaderboard points of the seat (placement + kills, engine `gamePoints`), counting every seat including the Zergs, as
+   * self-play scores any game (Zergs are not excluded from placements until the open-mode PR).
+   */
+  points: number;
+  /**
    * The deciding score, 0 to 1. Solo tables: 1 for a win, else rounds survived / HOLD_ROUNDS (capped below 1).
    * With fillers: the non-Zerg place score.
    */
@@ -54,7 +59,7 @@ export interface HordeGame {
 }
 
 /** The seats of one game: the candidate at `shift % players`, then the Zergs, then fillers, wrapping around. */
-export function hordeSeats(candidate: Agent, filler: Agent, table: HordeTable, shift: number): { seats: Seat[]; me: number; zergSeats: number[] } {
+export function hordeSeats(candidate: Agent, filler: Agent, table: HordeTable, shift: number, zerg: Agent = zergBot): { seats: Seat[]; me: number; zergSeats: number[] } {
   const me = shift % table.players;
   const seats: Seat[] = new Array(table.players);
   const zergSeats: number[] = [];
@@ -62,16 +67,17 @@ export function hordeSeats(candidate: Agent, filler: Agent, table: HordeTable, s
     const i = (me + k) % table.players;
     if (k === 0) seats[i] = { agent: candidate };
     else if (k <= table.zergs) {
-      seats[i] = { agent: zergBot };
+      seats[i] = { agent: zerg };
       zergSeats.push(i);
     } else seats[i] = { agent: filler };
   }
   return { seats, me, zergSeats };
 }
 
-export function playHordeGame(candidate: Agent, filler: Agent, table: HordeTable, seed: number, shift: number, options: Partial<GameOptions> = {}, maxTurns = 500): HordeGame {
-  if (candidate.id.startsWith('zerg@') || filler.id.startsWith('zerg@')) throw new Error('the candidate and filler must not be Zergs');
-  const { seats, me, zergSeats } = hordeSeats(candidate, filler, table, shift);
+export function playHordeGame(candidate: Agent, filler: Agent, table: HordeTable, seed: number, shift: number, options: Partial<GameOptions> = {}, maxTurns = 500, zerg: Agent = zergBot): HordeGame {
+  if (isZergName(candidate.id) || isZergName(filler.id)) throw new Error('the candidate and filler must not be Zergs');
+  if (!isZergName(zerg.id)) throw new Error(`the Zerg seat must be a Zerg agent (got ${zerg.id})`);
+  const { seats, me, zergSeats } = hordeSeats(candidate, filler, table, shift, zerg);
   const r = playGame({ seed, seats, options: { map: table.map, ...options, maxPlayers: table.players }, maxTurns, onIllegal: 'surrender' });
   const win = Number(r.winner === me);
   const survived = Number(win === 1 || (r.winner === null && r.territories[me] > 0));
@@ -81,11 +87,13 @@ export function playHordeGame(candidate: Agent, filler: Agent, table: HordeTable
   const better = nonZerg.filter((i) => i !== me && r.placement[i] < r.placement[me]).length;
   const place = solo ? win : 1 - better / (nonZerg.length - 1);
   const hold = solo ? (win ? 1 : Math.min(0.99, r.rounds / HOLD_ROUNDS)) : place;
-  return { table: tableName(table), seed, win, survived, rounds: r.rounds, place, kills: r.kills[me], hold, turnLimit: Number(r.winner === null) };
+  return { table: tableName(table), seed, win, survived, rounds: r.rounds, place, kills: r.kills[me], points: r.points[me], hold, turnLimit: Number(r.winner === null) };
 }
 
-export type HordeMetric = 'hold' | 'win' | 'place' | 'rounds' | 'kills';
-export const HORDE_METRICS: HordeMetric[] = ['hold', 'win', 'place', 'rounds', 'kills'];
+export type HordeMetric = 'hold' | 'win' | 'place' | 'rounds' | 'kills' | 'points';
+export const HORDE_METRICS: HordeMetric[] = ['hold', 'win', 'place', 'rounds', 'kills', 'points'];
+/** Metrics on an open scale: no variance floor (the floor keeps a few identical 0/1 results from reading as certain). */
+const unbounded = (m: HordeMetric) => m === 'rounds' || m === 'kills' || m === 'points';
 
 export interface HordeSummary {
   games: number;
@@ -94,15 +102,20 @@ export interface HordeSummary {
 }
 
 export function summarizeHorde(games: HordeGame[]): HordeSummary {
-  const metrics = Object.fromEntries(HORDE_METRICS.map((m) => [m, interval(games.map((g) => g[m]), m === 'rounds' || m === 'kills' ? 0 : 0.045)])) as Record<HordeMetric, Interval>;
+  const metrics = Object.fromEntries(HORDE_METRICS.map((m) => [m, interval(games.map((g) => g[m]), unbounded(m) ? 0 : 0.045)])) as Record<HordeMetric, Interval>;
   return { games: games.length, turnLimit: games.reduce((a, g) => a + g.turnLimit, 0), metrics };
 }
 
 /** Candidate minus base on the same games (same seed, table and seat layout): the number that decides a gate. */
-export function compareHorde(cand: HordeGame[], base: HordeGame[], metric: HordeMetric = 'hold'): { diff: Interval; verdict: 'better' | 'worse' | 'even' } {
+export function compareHorde(
+  cand: HordeGame[],
+  base: HordeGame[],
+  metric: HordeMetric = 'hold',
+): { diff: Interval; verdict: 'better' | 'worse' | 'even'; diffs: Record<HordeMetric, Interval> } {
   if (cand.length !== base.length) throw new Error('compareHorde needs the same games for both');
-  const diff = interval(cand.map((g, i) => g[metric] - base[i][metric]), metric === 'rounds' || metric === 'kills' ? 0 : 0.045);
-  return { diff, verdict: diff.low > 0 ? 'better' : diff.high < 0 ? 'worse' : 'even' };
+  const diffs = Object.fromEntries(HORDE_METRICS.map((m) => [m, interval(cand.map((g, i) => g[m] - base[i][m]), unbounded(m) ? 0 : 0.045)])) as Record<HordeMetric, Interval>;
+  const diff = diffs[metric];
+  return { diff, verdict: diff.low > 0 ? 'better' : diff.high < 0 ? 'worse' : 'even', diffs };
 }
 
 /** The games of a run: `games` per table, seeds from `seed` (gameSeed), the candidate's seat rotating. */

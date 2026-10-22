@@ -37,14 +37,15 @@ export const riskyBot: Agent = {
 
 /**
  * A Zerg (docs/zergs.md): the engine's hand-coded horde bot. Its horde is every seat this harness sat a Zerg agent in:
- * self-play names each player after its agent id (game.ts), which no seat can change, so `zerg@...` names are the
- * horde. The live server will use a seat's faction instead.
+ * self-play names each player after its agent id (game.ts), which no seat can change, so names starting with `zerg` are
+ * the horde. The live server will use a seat's faction instead.
  */
-export const ZERG_PREFIX = 'zerg@';
+/** A Zerg agent's id starts with "zerg" (zerg@1, zerg-branch@1, ...): self-play seats named so are one horde. */
+export const isZergName = (name: string) => name.startsWith('zerg');
 export const zergBot: Agent = {
   id: 'zerg@1',
   choose: (ctx) => {
-    const horde = new Set(ctx.state.players.filter((p) => p.name.startsWith(ZERG_PREFIX)).map((p) => p.id));
+    const horde = new Set(ctx.state.players.filter((p) => isZergName(p.name)).map((p) => p.id));
     horde.add(ctx.me);
     return chooseZergAction(ctx.state, ctx.me, horde, ctx.random);
   },

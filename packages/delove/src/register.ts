@@ -6,6 +6,7 @@ import { branchSeatsFromEnv, tunedParams } from './branch-env.js';
 import { discoverNetAgents, modelsDir } from './net-agent.js';
 import { jacob, jacob2, makeJacob } from './jacob.js';
 import { makeTeacher, teacher } from './teacher.js';
+import { DEFAULT_ZERG_BRANCH, zergBranchAgent } from './zerg-branch.js';
 
 /**
  * Loaded with `node --import` in front of the self-play CLI (`npm run delove -- ...`), so Delove's players can be
@@ -36,3 +37,18 @@ const statsDir = process.env.DELOVE_BRANCH_STATS;
 if (statsDir) process.on('exit', () => void (branchStats.decisions > 0 && writeBranchStats(join(statsDir, `stats-${process.pid}-${randomUUID().slice(0, 8)}.json`))));
 
 for (const agent of discoverNetAgents()) registerAgent(agent);
+
+/**
+ * zerg-branch@1: the searching Zerg (src/zerg-branch.ts, docs/zergs.md), its prey modelled by Jacob Sensei 2.
+ * ZERG_BRANCH_OPTIONS, _ROLLOUTS, _HORIZON, _KILL_WEIGHT and _MARGIN override DEFAULT_ZERG_BRANCH.
+ */
+const zenv = (k: string, d: number) => (process.env[`ZERG_BRANCH_${k}`] !== undefined ? Number(process.env[`ZERG_BRANCH_${k}`]) : d);
+registerAgent(
+  zergBranchAgent('zerg-branch@1', jacob2, null, {
+    options: zenv('OPTIONS', DEFAULT_ZERG_BRANCH.options),
+    rollouts: zenv('ROLLOUTS', DEFAULT_ZERG_BRANCH.rollouts),
+    horizon: zenv('HORIZON', DEFAULT_ZERG_BRANCH.horizon),
+    killWeight: zenv('KILL_WEIGHT', DEFAULT_ZERG_BRANCH.killWeight),
+    margin: zenv('MARGIN', DEFAULT_ZERG_BRANCH.margin),
+  }),
+);

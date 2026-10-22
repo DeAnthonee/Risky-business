@@ -380,13 +380,35 @@ npm run delove:horde -- --candidate delove@10 --tables classic:4:3,classic:6:3 -
   solo table (no fillers) ends as soon as the candidate is out, since the last Zergs step aside.
 - `hold` (the default `--metric`): at a solo table, 1 for a win, else rounds survived / 30 (capped at 0.99); with
   fillers, the candidate's place among the non-Zerg seats (1 = best, 0 = first out). Also reported: `win`, `place`,
-  `rounds`, `kills`.
+  `rounds`, `kills` and `points` (leaderboard points, Zerg seats ranked like any seat for now). With `--base` every
+  metric gets a paired 95% interval; the verdict is on `--metric`. Seeds are fixed by `--seed` (default 1), so keep
+  the default to compare successive Delove versions on the same games.
+- `--zerg` picks the horde (default `zerg@1`, the fixed reference opponent; `zerg-branch@1` is the searching Zerg).
+  `--base-zerg` plays the same candidate against a second horde on the same games: a negative difference means the
+  `--zerg` horde is the stronger one.
 - Worker threads (`--procs`, default all cores but one): 1000 games in about 17 s for delove@10.
 - First result (2026-10-21, 100 games per table): delove@10 vs jacob-sensei@2, pooled hold 0.477 vs 0.361, diff
   +0.115 (95% +0.081 to +0.150), better. Neither survives a solo rush often: delove@10 wins about 1% of solo tables
   (Jacob 0%) and 7-20% of the tables with fillers.
 - For scenarios or training data, the agents play in any self-play command:
-  `npm run delove -- play --agents delove@10,zerg@1,zerg@1,zerg@1`.
+  `npm run delove -- play --agents delove@10,zerg@1,zerg@1,zerg@1`. `scripts/cycles/horde.jobs` is a ready job file
+  for `generate.sh` (about 4,000 games, the branch seat against 2-3 Zergs with Jacob fillers, league settings), not
+  part of any cycle until the captain adds it.
+
+### The searching Zerg (`zerg-branch@1`)
+
+Branch and score for the horde (src/zerg-branch.ts): the Zerg's own move and up to 3 alternatives (never an attack on a
+fellow Zerg) are each played on 8 copies of the board with common dice, 2 rounds forward, Zergs playing `zerg@1` and the
+prey modelled by Jacob Sensei 2, and scored for the horde: prey knocked out × kill weight + the horde's share of the
+alive players' armies and income. It is the teacher for a trained Zerg network (docs/zergs.md). Its numbers come from
+`ZERG_BRANCH_OPTIONS`, `_ROLLOUTS`, `_HORIZON`, `_KILL_WEIGHT` and `_MARGIN`. A Zerg agent's id must start with `zerg`:
+self-play seats named so are one horde.
+
+First result (2026-10-21, delove@10 as the candidate, `--base-zerg zerg@1`, same games): **no gain yet**. Defaults
+(4 options, 8 rollouts, horizon 2, kill weight 1) over the 5 default tables: Delove's hold diff +0.003 (95% -0.028 to
++0.035). Kill weight 3, 12 rollouts, horizon 3 on classic:4:2, 6:3 and 6:2: +0.006 (-0.051 to +0.062). Both are even
+with the hand-coded Zerg, so the search is not yet a better teacher. Next: tune `zerg@1`'s numbers (a `zerg@2`) and
+give the search a network's alternatives.
 
 ## Jacob Sensei (`jacob-sensei@1`): a teacher that doesn't stall
 

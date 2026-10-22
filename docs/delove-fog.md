@@ -132,8 +132,9 @@ against bare delove@12, 95% interval over pairs):
 | search with full sight (no fog, `configs/gen5-nofog.json`) | Classic 4p | +0.17 (-0.28 to +0.61) | 110 / 4 |
 | search with full sight | World 6p | +0.42 (-0.12 to +0.95) | 377 / 6 |
 
-The oracle swings 4p from -0.92 (sampled boards) to +0.32 (true boards), with nothing else changed: the search
-machinery is sound and **the sampler is the weak link**. Without fog, js2-range search still leans positive against
+The oracle moves 4p from -0.92 (sampled boards) to +0.32 (true boards, interval -0.08 to +0.71), with nothing else
+changed: **the sampler, not the search, is what loses**. On the true board the search no longer loses, though it
+isn't shown to win either. Without fog, js2-range search still leans positive against
 the stronger delove@12, but neither interval clears 0 at 100 games, far below the +1.17 (Classic 4p) and +2.33
 (World 6p) it measured against delove@8 (#164). Jacob Sensei 2 rollouts are no longer clearly stronger than the network
 they search for. That bears on the live seat's default preset, not only on fog (packages/delove/README.md).

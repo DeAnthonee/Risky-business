@@ -1,5 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { getMap } from '@risk/engine';
 import type { TournamentView } from '../api';
+import { entrantSpot, spotMessage } from '../entrantFocus';
 import { toSnapshot, useTournamentFeed } from '../useTournamentFeed';
 import { Inception, type TableSnapshot } from './Inception';
 
@@ -26,8 +28,11 @@ function saveFollow(on: boolean) {
  * live tables. "Follow the action" is opt-in, off by default, and never offered to a viewer holding a seat in this
  * tournament (README hard rule 10).
  */
-export function NestedTournament({ t, onWatch }: { t: TournamentView; onWatch: (gameId: string) => void }) {
+export function NestedTournament({ t, onWatch, pick }: { t: TournamentView; onWatch: (gameId: string) => void; pick?: { id: string; seq: number } | null }) {
   const [tab, setTab] = useState<Tab>('map');
+  const sectionRef = useRef<HTMLElement>(null);
+  const [toast, setToast] = useState<string | null>(null);
+  const [request, setRequest] = useState<{ node: number; name: string; seq: number } | null>(null);
   const feed = useTournamentFeed(t);
   const seated = !!t.you;
   const [followOn, setFollowOn] = useState(() => !seated && loadFollow());
@@ -44,9 +49,38 @@ export function NestedTournament({ t, onWatch }: { t: TournamentView; onWatch: (
   }, [feed.tables, nodes]);
   const following = !seated && followOn && feed.live ? feed.follow : null;
 
+  // A click on an entrant's name (the Entrants chips or the host's list): open the Map tab and send the globe to their
+  // table, focused (the viewer clicks Watch table from there). Knocked out: their last table, with a note.
+  useEffect(() => {
+    if (!pick) return;
+    const spot = entrantSpot(t, pick.id);
+    const labelOf = (node: number) => {
+      const n = nodes?.[node];
+      if (!n || n.parent === null) return 'the final';
+      return getMap(nodes![n.parent].map).territoryById[n.portal ?? '']?.name ?? 'their table';
+    };
+    setToast(spotMessage(spot, labelOf) || null);
+    if (spot.kind !== 'waiting' && spot.kind !== 'nowhere' && nodes) {
+      setTab('map');
+      setRequest({ node: spot.node, name: spot.name, seq: pick.seq });
+      const reduce = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+      sectionRef.current?.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
+    }
+    // Only a new click acts; the tournament view refreshing does not re-run it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pick?.seq]);
+  useEffect(() => {
+    if (!toast) return;
+    const timer = window.setTimeout(() => setToast(null), 6000);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
+
   return (
-    <section className="card wide nested-tournament">
+    <section ref={sectionRef} className="card wide nested-tournament">
       <RoundClock t={t} />
+      <p className="entrant-toast" role="status" aria-live="polite">
+        {toast}
+      </p>
       <div className="nested-tabs" role="tablist">
         {(['map', 'bracket', 'live'] as Tab[]).map((x) => (
           <button key={x} role="tab" aria-selected={tab === x} className={tab === x ? 'active' : ''} onClick={() => setTab(x)}>
@@ -67,10 +101,10 @@ export function NestedTournament({ t, onWatch }: { t: TournamentView; onWatch: (
                 {!feed.live && <span className="muted small"> (needs the live feed)</span>}
               </label>
             )}
-            <Inception nodes={nodes} tables={tables} onWatch={onWatch} follow={following} onManualZoom={() => followOn && setFollow(false)} />
+            <Inception nodes={nodes} tables={tables} onWatch={onWatch} follow={following} onManualZoom={() => followOn && setFollow(false)} request={request} />
           </>
         ) : (
-          <p className="muted">{t.status === 'registering' ? 'The boards appear here when the tournament starts.' : 'This server does not send the boards yet; the bracket and live tables have every table.'}</p>
+          <p className="muted">{t.status === 'registering' ? 'The boards appear when the tournament starts.' : 'This server does not send the boards yet; the bracket and live tables have every table.'}</p>
         ))}
 
       {tab === 'bracket' && <Bracket t={t} onWatch={onWatch} />}

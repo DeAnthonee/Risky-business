@@ -38,6 +38,9 @@ export function Tournament({
   const [code, setCode] = useState('');
   // The host bar's live entrants (HostEntrants shares what it fetches), for the seat count beside Start now.
   const [hostView, setHostView] = useState<HostEntrantsView | null>(null);
+  // Nested: a click on an entrant's name asks the Map tab's globe to find their table (the count makes repeats fire).
+  const [pick, setPick] = useState<{ id: string; seq: number } | null>(null);
+  const findEntrant = (entrantId: string) => setPick((p) => ({ id: entrantId, seq: (p?.seq ?? 0) + 1 }));
   const start = async () => {
     setBusy(true);
     try {
@@ -154,7 +157,7 @@ export function Tournament({
             onStart={() => void start()}
           />
           {err && <p className="error">{err}</p>}
-          <HostEntrants id={id} hostToken={hostToken ?? undefined} onView={setHostView} />
+          <HostEntrants id={id} hostToken={hostToken ?? undefined} onView={setHostView} onPick={t.format === 'nested' ? findEntrant : undefined} />
         </section>
       )}
 
@@ -245,7 +248,13 @@ export function Tournament({
               {t.entrants.map((e) => (
                 <li key={e.id} className={e.status}>
                   {e.status === 'champion' ? '👑 ' : ''}
-                  {e.name}
+                  {nested ? (
+                    <button type="button" className="entrant-link" title={`Find ${e.name} on the globe`} onClick={() => findEntrant(e.id)}>
+                      {e.name}
+                    </button>
+                  ) : (
+                    e.name
+                  )}
                   {e.isBot && <span className="bot-tag">BOT</span>}
                   {you?.entrantId === e.id ? ' (you)' : ''}
                 </li>
@@ -255,7 +264,7 @@ export function Tournament({
         </section>
       </div>
 
-      {nested && <NestedTournament t={t} onWatch={onWatch} />}
+      {nested && <NestedTournament t={t} onWatch={onWatch} pick={pick} />}
 
       {!nested &&
         t.rounds

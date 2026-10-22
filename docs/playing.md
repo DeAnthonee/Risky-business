@@ -214,6 +214,12 @@ there has taken the same number of turns, and are then decided on standing; see
 - **Bracket:** every round from the final down; a table decided on standing lists its order and the tie-break dice.
 - **Live tables:** the tables being played, the most exciting first.
 
+**Find an entrant:** on a nested tournament's page every entrant's name (the Entrants list, and the host's "Who joined"
+list) is a button. It opens the Map tab's globe and turns it to that entrant's current table, focused (gold circle,
+**Watch table** to click in), and lights up their territories for a moment. A knocked-out entrant gets a note ("out:
+round 2, at Fennoscandia") and their last table; before the start, a note that the boards appear when it starts. With
+reduced motion the globe jumps instead of turning.
+
 **Follow the action** (Map tab) is an opt-in switch, off by default. While it is on, the view moves by itself to the
 most exciting table, with a caption saying why. Any zoom by hand turns it off. It needs the server's live tournament
 feed, and it is never offered to someone holding a seat in the tournament. The page also links to the tournament

@@ -62,6 +62,7 @@ export function Inception({
   onWatch,
   follow,
   onManualZoom,
+  request,
 }: {
   nodes: NestNode[];
   tables: Record<number, TableSnapshot>;
@@ -70,6 +71,11 @@ export function Inception({
   follow?: { node: number; caption: string } | null;
   /** The viewer zoomed by hand (click, Esc, breadcrumb): the page turns following off. */
   onManualZoom?: () => void;
+  /**
+   * The viewer clicked an entrant's name: show the globe, focus that table and light up the entrant's territories
+   * for a moment (`seq` changes on every click).
+   */
+  request?: { node: number; name: string; seq: number } | null;
 }) {
   const ready = useReadyBoards(nodes);
   const shown = useMemo(() => nodes.slice(0, ready), [nodes, ready]);
@@ -159,11 +165,31 @@ export function Inception({
       current = false;
     };
   }, [rootMap, webgl, flat, finalOnGlobe, globe]);
+  const [glow, setGlow] = useState<{ node: number; seat: number } | null>(null);
+  const requestSeq = request?.seq;
+  useEffect(() => {
+    if (!request) return;
+    onManualZoom?.();
+    if (webgl) setFlat(false); // this view only: the remembered choice stays as it was
+    zoomTo(request.node);
+    const seat = tables[request.node]?.players.findIndex((p) => p.name === request.name) ?? -1;
+    if (seat < 0) return;
+    setGlow({ node: request.node, seat });
+    const timer = window.setTimeout(() => setGlow(null), 3000);
+    return () => window.clearTimeout(timer);
+    // A new click (seq) acts once; later table updates do not re-run it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requestSeq]);
   const colourIn = useCallback(
     (node: number, t: string) => {
       const board = getMap(nodes[node].map);
       const snap = tables[node];
       const owner = snap?.owners?.[t];
+      // The entrant just picked by name: their territories glow for a moment.
+      if (glow && glow.node === node && owner !== undefined && owner !== null && owner === glow.seat) {
+        const c = snap!.players[owner]?.color ?? '#999';
+        return mixWhite(c, 0.5);
+      }
       if (owner === undefined) {
         // Not dealt yet: a portal shows the colour of the winner (or leader) of the table inside it, so a round's
         // winners are seen arriving at their starting territories on the next boards.
@@ -174,7 +200,7 @@ export function Inception({
       }
       return owner === null ? '#cfc6b8' : (snap!.players[owner]?.color ?? '#999');
     },
-    [nodes, tables, children],
+    [nodes, tables, children, glow],
   );
   // A Hex Earth final waits for its globe file; every board must be generated before the round is drawn.
   const mode = !webgl || flat || ready < nodes.length || (finalOnGlobe && globe?.id !== rootMap) ? 'flat' : 'live';
@@ -283,3 +309,10 @@ const Board = memo(function Board({ map, table, portals }: { map: MapDef; table?
   );
 });
 
+/** A colour mixed `k` of the way to white (#rrggbb in, #rrggbb out). */
+function mixWhite(hex: string, k: number): string {
+  const n = parseInt(hex.slice(1, 7), 16);
+  if (Number.isNaN(n)) return hex;
+  const ch = (shift: number) => Math.round(((n >> shift) & 255) + (255 - ((n >> shift) & 255)) * k);
+  return `#${[16, 8, 0].map((x) => ch(x).toString(16).padStart(2, '0')).join('')}`;
+}

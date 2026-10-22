@@ -202,3 +202,31 @@
   color: #f2c14e;
   font-size: 13px;
 }
+/* Entrant names on a nested tournament's page: buttons that find the entrant on the globe. */
+.entrant-link {
+  all: unset;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+.entrant-link:hover {
+  text-decoration-style: solid;
+}
+.entrant-link:focus-visible {
+  outline: 2px solid var(--accent, #4f8cff);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+/* What a click on a name found ("X is out: round 2, at Fennoscandia"); empty most of the time. */
+.entrant-toast:empty {
+  display: none;
+}
+.entrant-toast {
+  margin: 6px 0;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(242, 193, 78, 0.15);
+  border: 1px solid rgba(242, 193, 78, 0.5);
+}

@@ -26,12 +26,36 @@ def load_delove(path: str | Path, device) -> torch.nn.Module:
 
     ck = torch.load(path, map_location=device, weights_only=False)
     cfg = ck["config"]
-    if (cfg["f_territory"], cfg["f_global"], cfg["f_cand"]) != (F_TERRITORY, F_GLOBAL, F_CAND):
-        raise ValueError(f"{path}: network expects features {cfg}, the encoder makes {F_TERRITORY}/{F_GLOBAL}/{F_CAND}")
+    fog = (cfg["f_territory"], cfg["f_global"], cfg["f_cand"]) == (F_TERRITORY + FOG_TERRITORY, F_GLOBAL + FOG_GLOBAL, F_CAND)
+    if not fog and (cfg["f_territory"], cfg["f_global"], cfg["f_cand"]) != (F_TERRITORY, F_GLOBAL, F_CAND):
+        raise ValueError(f"{path}: network expects features {cfg}, the encoder makes {F_TERRITORY}/{F_GLOBAL}/{F_CAND}"
+                         f" (or {F_TERRITORY + FOG_TERRITORY}/{F_GLOBAL + FOG_GLOBAL}/{F_CAND} with fog inputs)")
     net = DeloveNet(**cfg).to(device)
     net.load_state_dict(ck["state"])
     net.eval()
-    return net
+    return FogInputs(net).eval() if fog else net
+
+
+# fog inputs (packages/selfplay/src/fog.ts FOG_TERRITORY_FEATURES / FOG_GLOBAL_FEATURES, FOG_INPUT_VERSION 1): one
+# column appended to each territory (hidden) and one to the globals (hidden_share)
+FOG_TERRITORY, FOG_GLOBAL = 1, 1
+
+
+class FogInputs(torch.nn.Module):
+    """A network trained with fog inputs (train.py --fog-dropout; "fogInputs" in its .json), fed the mirror's full-board
+    features. The GPU plays without fog, so every position is a full board, and fog.ts fogInputs(f, map, fogged=false)
+    gives exactly the full-board features with the fog columns at 0 (net-agent.ts feeds a fog model that on the CPU).
+    So the fog columns are appended here as zeros."""
+
+    def __init__(self, net: torch.nn.Module):
+        super().__init__()
+        self.net = net
+        self.config = net.config
+
+    def forward(self, territory, glob, *args, **kw):
+        t = torch.cat([territory, territory.new_zeros(*territory.shape[:-1], FOG_TERRITORY)], -1)
+        g = torch.cat([glob, glob.new_zeros(*glob.shape[:-1], FOG_GLOBAL)], -1)
+        return self.net(t, g, *args, **kw)
 
 
 class NetPlayer:

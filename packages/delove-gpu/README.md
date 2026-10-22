@@ -255,6 +255,17 @@ What is not on the GPU: fog of war, `risky@1` opponents and `-explore` (sampling
 replay tests do replay `risky@1` games), and `DELOVE_BRANCH_VALUE` (the value blend). A step with any of those stays on
 the CPU; `generate.py` refuses it.
 
+**Fog-trained networks** (`train.py --fog-dropout`, `"fogInputs"` in the model's `.json`, e.g. `delove@12`) do play on
+the GPU, on full boards: such a network takes one more column per territory and one more global (28/96 against the
+encoder's 27/95), and on a full board `fog.ts` `fogInputs(f, map, fogged=false)` is exactly the full-board features with
+those columns at 0, which is what `net-agent.ts` feeds it on the CPU. `load_delove` (`delove_gpu/play.py`) recognises
+the wider network and wraps it in `FogInputs`, which appends the zeros, so it works as a seat, ranker or rollout network
+anywhere a network does. Before this (2026-10-22) `load_delove` refused it ("network expects features ... 28/96"), and
+every cycle-16 lane on 21 pods failed at once. `tests/fog_model_check.py --model <models>/delove@12.pt` checks it: the
+load, the wrapper's inputs against `packages/delove/python/fog.py` (`fogged=False`) bit for bit, and CPU games with the
+ONNX seat replayed on the GPU (20/20 games, 4,752/4,752 top moves the same on the RTX 4060). `verify.py --model` with a
+fog model replays such games too.
+
 ### Proof that they match the TypeScript
 
 ```bash

@@ -22,26 +22,90 @@ from pathlib import Path
 import numpy as np
 
 
+class Dataset:
+    """One map folder of a dataset: its arrays and each game's rows (in order)."""
+
+    def __init__(self, d: Path, q: bool = False):
+        d = Path(d)
+        L = lambda n: np.load(d / f"{n}.npy", mmap_mode="r")  # noqa: E731
+        self.terr, self.glob, self.cand, self.cf, self.ct = L("territory"), L("global"), L("cand"), L("cand_from"), L("cand_to")
+        self.off = np.asarray(L("cand_offset"))
+        self.choice, self.z, game, self.seat = (np.asarray(L(n)) for n in ("choice", "z", "game", "seat"))
+        # leaderboard points (log v3 exports and the GPU writer); absent in older exports
+        self.pts = {n: np.asarray(L(n)) for n in ("points", "points01") if (d / f"{n}.npy").exists()}
+        self.bq = L("branch_q") if q else None
+        self.rows = defaultdict(list)
+        for k, g in enumerate(game.tolist()):
+            self.rows[g].append(k)
+
+    def fields(self, k: int) -> list[tuple[str, np.ndarray]]:
+        """Row k's fields, named, in the order they are hashed."""
+        lo, hi = int(self.off[k]), int(self.off[k + 1])
+        out = [("territory", self.terr[k]), ("global", self.glob[k]), ("cand", self.cand[lo:hi]), ("cand_from", self.cf[lo:hi]),
+               ("cand_to", self.ct[lo:hi]), ("choice", self.choice[k:k + 1]), ("z", self.z[k:k + 1]), ("seat", self.seat[k:k + 1])]
+        out += [(n, p[k:k + 1]) for n, p in self.pts.items()]
+        return out + ([("branch_q", self.bq[lo:hi])] if self.bq is not None else [])
+
+    def hashes(self) -> dict[int, str]:
+        """Each game's hash, by game index."""
+        out = {}
+        for g, ks in self.rows.items():
+            h = hashlib.sha256()
+            for k in ks:
+                for _, a in self.fields(k):
+                    h.update(np.ascontiguousarray(a).tobytes())
+            out[g] = h.hexdigest()
+        return out
+
+
 def game_hashes(d: Path, q: bool = False) -> Counter:
-    L = lambda n: np.load(d / f"{n}.npy", mmap_mode="r")  # noqa: E731
-    terr, glob, cand, cf, ct, off = L("territory"), L("global"), L("cand"), L("cand_from"), L("cand_to"), np.asarray(L("cand_offset"))
-    choice, z, game, seat = (np.asarray(L(n)) for n in ("choice", "z", "game", "seat"))
-    # leaderboard points (log v3 exports and the GPU writer); absent in older exports
-    pts = [np.asarray(L(n)) for n in ("points", "points01") if (d / f"{n}.npy").exists()]
-    bq = [L("branch_q")] if q else []
-    rows = defaultdict(list)
-    for k, g in enumerate(game.tolist()):
-        rows[g].append(k)
-    out = Counter()
-    for ks in rows.values():
-        h = hashlib.sha256()
-        for k in ks:
-            lo, hi = int(off[k]), int(off[k + 1])
-            for a in (terr[k], glob[k], cand[lo:hi], cf[lo:hi], ct[lo:hi], choice[k:k + 1], z[k:k + 1], seat[k:k + 1], *(p[k:k + 1] for p in pts),
-                      *(x[lo:hi] for x in bq)):
-                h.update(np.ascontiguousarray(a).tobytes())
-        out[h.hexdigest()] += 1
-    return out
+    return Counter(Dataset(d, q).hashes().values())
+
+
+def _differ(a: Dataset, ka: int, b: Dataset, kb: int) -> list[str]:
+    return [n for (n, x), (_, y) in zip(a.fields(ka), b.fields(kb)) if np.ascontiguousarray(x).tobytes() != np.ascontiguousarray(y).tobytes()]
+
+
+def first_difference(a: Dataset, ga: int, b: Dataset, gb: int) -> tuple[int, int, int, list[str]] | None:
+    """The first row that differs between game ga of a and game gb of b: (row number in the game, row in a, row in b,
+    the fields that differ; "rows" when one side has fewer), or None when the games are identical."""
+    ra, rb = a.rows.get(ga, []), b.rows.get(gb, [])
+    for i, (ka, kb) in enumerate(zip(ra, rb)):
+        if diff := _differ(a, ka, b, kb):
+            return i, ka, kb, diff
+    n = min(len(ra), len(rb))
+    return None if len(ra) == len(rb) else (n, ra[n] if n < len(ra) else -1, rb[n] if n < len(rb) else -1, ["rows"])
+
+
+def pair_differing(a: Dataset, b: Dataset) -> list[tuple[int | None, int | None]]:
+    """The games of a and b that have no identical game on the other side, paired: the two writers number games
+    differently, so each game of a goes with the unpaired game of b that shares its longest run of identical first rows
+    (None when nothing is left)."""
+    ha, hb = a.hashes(), b.hashes()
+    left_b = Counter(hb.values())
+    lone_a = []
+    for g, h in sorted(ha.items()):
+        if left_b[h] > 0:
+            left_b[h] -= 1
+        else:
+            lone_a.append(g)
+    lone_b = []
+    for g, h in sorted(hb.items()):
+        if left_b[h] > 0:
+            left_b[h] -= 1
+            lone_b.append(g)
+
+    def prefix(ga: int, gb: int) -> int:
+        d = first_difference(a, ga, b, gb)
+        return len(a.rows[ga]) if d is None else d[0]
+
+    out = []
+    for ga in lone_a:
+        gb = max(lone_b, key=lambda x: prefix(ga, x), default=None)
+        if gb is not None:
+            lone_b.remove(gb)
+        out.append((ga, gb))
+    return out + [(None, gb) for gb in lone_b]
 
 
 def main():

@@ -1,5 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { getMap, type GameView, type MapDef } from '@risk/engine';
+import { hasGlobe, loadGlobe, preferFlat, setPreferFlat, webglAvailable, type GlobeData } from '../globeData';
+
+// The 3D globe for hex-globe boards: three.js is a separate chunk, loaded only when a globe is shown.
+const GlobeMap = lazy(() => import('./GlobeMap'));
 
 export type Highlight = 'source' | 'target' | 'place' | 'selected' | 'pending-target' | 'hover-source' | 'hover-target';
 
@@ -139,7 +143,43 @@ function shortLabel(name: string): string {
     .replace('Territory', 'Terr.');
 }
 
+/**
+ * The board. Hex-globe boards (a generated globe file, see globeData.ts) show the rotatable 3D globe by default,
+ * with a button to the flat map and back (remembered per browser); without WebGL, or while the globe loads, they
+ * use the flat map. Every other board is the flat map.
+ */
 export function GameMap(props: MapProps) {
+  const mapId = props.view.options.map;
+  const globeable = hasGlobe(mapId) && webglAvailable();
+  const [flat, setFlat] = useState(preferFlat);
+  const [globe, setGlobe] = useState<GlobeData | null>(null);
+  useEffect(() => {
+    if (!globeable || flat || globe?.id === mapId) return;
+    let current = true;
+    loadGlobe(mapId)
+      .then((g) => current && setGlobe(g))
+      .catch(() => {
+        // The globe chunk failed to load (offline, a new deploy): keep the flat map.
+      });
+    return () => {
+      current = false;
+    };
+  }, [mapId, globeable, flat, globe]);
+  const choose = (toFlat: boolean) => {
+    setFlat(toFlat);
+    setPreferFlat(toFlat);
+  };
+  if (globeable && !flat && globe?.id === mapId)
+    return (
+      <Suspense fallback={<FlatMap {...props} />}>
+        <GlobeMap {...props} globe={globe} onShowFlat={() => choose(true)} />
+      </Suspense>
+    );
+  return <FlatMap {...props} onShowGlobe={globeable ? () => choose(false) : undefined} />;
+}
+
+function FlatMap(props: MapProps & { onShowGlobe?: () => void }) {
+  const { onShowGlobe } = props;
   const { view, highlights, pendingPlacements, attackArrow, flashes, moves, floats, sweeps, onTerritoryClick, dimOthers, hidden, bonusView, onToggleBonusView } = props;
   // The bonuses view shows regions only: no fog, owners or armies.
   const isHidden = (id: string) => !bonusView && !!(hidden?.has(id) || view.territories[id]?.hidden);
@@ -713,6 +753,11 @@ export function GameMap(props: MapProps) {
       {onToggleBonusView && (
         <button className={`bonus-toggle ${bonusView ? 'active' : ''}`} aria-pressed={!!bonusView} title="Show region bonuses, colour-coded (shortcut: B)" onClick={onToggleBonusView}>
           {bonusView ? 'Back to board' : 'Bonuses'}
+        </button>
+      )}
+      {onShowGlobe && (
+        <button className="globe-toggle" title="Show the rotatable globe" onClick={onShowGlobe}>
+          Globe
         </button>
       )}
       {dense && !showNames && <span className="map-hint">zoom in or hover for names</span>}

@@ -38,6 +38,9 @@ for (const agent of branchSeatsFromEnv(dir)) registerAgent(agent);
 // delove-branch@1:range-horde: the range-score branch seat whose rollouts play Zerg seats with the horde bot
 // (horde-branch.ts), for the Zerg-horde scenarios (scripts/cycles/horde.jobs).
 registerAgent(branchFromEnv(dir, process.env, 'range', { id: 'delove-branch@1:range-horde', rolloutPick: hordeRolloutPick }));
+// delove-branch@1:fog: the same seat with fog search on (DELOVE_BRANCH_FOG=determinize, src/fog-sampler.ts), so one
+// table can seat it against delove-branch@1's fog fallback.
+registerAgent(branchFromEnv(dir, process.env, undefined, { id: 'delove-branch@1:fog', rolloutPick: (pick) => pick }, 'determinize'));
 const statsDir = process.env.DELOVE_BRANCH_STATS;
 if (statsDir) process.on('exit', () => void (branchStats.decisions > 0 && writeBranchStats(join(statsDir, `stats-${process.pid}-${randomUUID().slice(0, 8)}.json`))));
 

@@ -41,12 +41,18 @@ character yet ([hardening #6](hardening.md#6-tournament-entrants-cannot-be-chara
 Server bots (fill bots and Zergs) are scored but never ranked; their fun numbers show in **The House** on the home
 page ([playing.md](playing.md#the-house), `GET /api/house-bots`).
 
-**Follow the action (server side, not wired yet).** `packages/server/src/excitement.ts` scores how exciting a table
+**Tournament feed.** Watchers of a tournament subscribe to its live feed over the WebSocket
+(`subscribe_tournament`, [http-api.md](http-api.md#websocket)): the bracket, the round clock and a summary of every
+current table (who holds each territory, the leader, its excitement score), each table at most twice a second, plus the
+one table the server picks for "Follow the action". Spectators only: entrants are refused.
+
+**Follow the action (server side; the client switch comes later).** `packages/server/src/excitement.ts` scores how exciting a table
 is, 0-100, from its public spectator view and recent events (owner decision 19): an elimination in the last 20 s +40
 fading, a player about to be knocked out +25, a capital about to fall +30 (and +30 for 20 s after one falls), a close
 race +15, two players left +15, heavy fighting up to +20, the final +20. `pickFollow` chooses the table an opted-in
 watcher sees: it stays at least 20 s and switches only for a table 15 or more ahead, or when the current one ends,
-with a "Following: Table 7 (capital under threat)" caption. The tournament feed and the client switch come later.
+with a "Following: Table 7 (capital under threat)" caption. The feed carries each table's score; the client switch
+comes later.
 
 **Zerg-only tables.** A table where only Zerg seats are left ends at once, decided by standing, and its strongest
 Zerg moves on (see [zergs.md](zergs.md)). A table seated with Zergs only ends right after the deal (owner,
@@ -95,6 +101,20 @@ round; the boards nest inside each other's territories (the map side: [maps.md](
   connected and every continent keeps two open), or, with none left, thaws. If that start cannot be built, the table
   starts normally. The other entrants of a table are **out**: their `you.status` is `out` and `you.match` is `null`, and they
   can watch. The final's winner, or its first place on standing at the deadline, is the champion.
+- **Simulation: `npm run nested:sim`** (`scripts/nested-sim.mjs`, after `npm run build`). It plays a whole nested
+  tournament with server bots and no website.
+  - **Headless (default):** one process, a fake clock that jumps to a round's deadline when nothing can move, and
+    the bots driven step by step (`GameRoom.stepBot`). With the same `--seed` (a fixed tournament seed, plus a seeded
+    `Math.random` for game dice and bot choices) it gives the same bracket and champion; `--runs 2` checks that.
+    100 seats take well under a second.
+  - **Live (`--live --delay 300 --spectators 20 --minutes 3`):** a real server on 127.0.0.1, real timers, fake
+    WebSocket spectators on every table. It prints event-loop lag, commits/s, spectator messages/s, snapshot save time
+    and heap every 10 s: the load check before a live 100-seat event.
+  - Seats are server bots for now; the 80-Zerg + 20-Delove event seats Zerg entrants (#182) and Delove over `/api`.
+- **Fixed seed (admin only).** `seed` at create (0-4294967295) fixes the boards, the seating and the tie-break dice (for
+  replays and the simulation). Since it decides the draw before anyone joins, only `POST /admin/tournaments` takes it
+  (the open create answers 403), and only for nested tournaments (a knockout with `seed` is a 400); the default is a random seed drawn at start. The tie-break dice come from the seed, the round
+  and the table's place in the plan.
 - **Follow-up:** a host-written tree of boards (existing maps inside chosen portals, as the owner asked for) through
   `resolveNest`; today the boards always come from the plan (`planToNest`), with an optional existing board for the
   final.

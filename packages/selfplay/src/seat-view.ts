@@ -45,6 +45,11 @@ export function stateFromView(view: GameView, random?: () => number): GameState 
  */
 const incomes = new WeakMap<GameState, Record<PlayerId, number>>();
 
+/** Each player's public income total, for a state made by stateFromView (undefined for any other state). */
+export function publicIncomes(state: GameState): Readonly<Record<PlayerId, number>> | undefined {
+  return incomes.get(state);
+}
+
 /**
  * The encoder input of a decision on `state` (decisionInput), with each seat's income the public total when the state
  * was rebuilt from a view. On a full state it is decisionInput itself. Networks build their input with this, so in a

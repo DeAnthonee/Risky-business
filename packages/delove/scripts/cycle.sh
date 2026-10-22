@@ -26,6 +26,8 @@
 #                              same gates/g<i>-<k>.json as on the CPU); the others stay on the CPU, and so does every
 #                              fog gate ("fogOfWar":true: the GPU mirror has no fog). GPU_GATES
 #                              (space-separated indices or all; 1 = all, 0 = none) overrides it.
+#   league=<league.json>       optional: jobs seats "@league" / "@league:<kind>" sampled from this league by PFSP
+#                              (src/league.ts); the expanded jobs files go to OUT/<step>.league.jobs
 # Environment: CYCLE_NAME (overrides name, e.g. for a trial run), DELOVE_MODELS (models folder, default models/delove), OUT (default runs/delove/<name>), DATA (default
 # data/delove), PYTHON (default .venv/Scripts/python), PARALLEL, CHUNKS (chunks per process and step, default 4; or
 # CHUNK = fixed games per chunk), GATE_CHUNK (games per gate chunk, default 20), GPU_BATCH (games in flight on the
@@ -75,6 +77,19 @@ export DELOVE_MODELS=$models
 export DELOVE_TEMPERATURE=${DELOVE_TEMPERATURE:-0.7}
 mkdir -p "$out"
 [[ -n ${GPU_STEPS:-} ]] && read -r -a gpu_steps <<< "$GPU_STEPS"
+# league=<league.json> (packages/delove/README.md "League"): a step whose jobs file has "@league" seats plays
+# OUT/<step>.league.jobs instead, its league seats sampled by PFSP (src/league.ts) from the cycle's seed; a resumed
+# cycle keeps the file it already wrote, so it plays the same games.
+if [[ -n ${league:-} ]]; then
+  for i in "${!steps[@]}"; do
+    read -r step jobs title <<< "${steps[$i]}"
+    grep -q '@league' "$jobs" || continue
+    expanded="$out/$step.league.jobs"
+    [[ -f $expanded ]] || node packages/delove/dist/league-cli.js expand --league "$league" --jobs "$jobs" --seed "$seed" --out "$expanded" \
+      || { echo "FAILED league expansion of $jobs"; exit 1; }
+    steps[$i]="$step $expanded $title"
+  done
+fi
 on_gpu() { [[ " ${gpu_steps[*]} " == *" all "* || " ${gpu_steps[*]} " == *" $1 "* ]]; }
 # Absolute paths for Python (on Windows Git Bash, C:/... rather than /c/...).
 absdir() { (cd "$1" || exit 1; pwd -W 2>/dev/null || pwd); }

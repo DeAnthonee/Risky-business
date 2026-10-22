@@ -765,6 +765,78 @@ table on a cloud RTX 4090 (2026-10-21). The branch seat's points per game, `@1` 
 On the GPU mirror it is the same kernel (`packages/delove-gpu` README, "Jacob Sensei 2"), so `generate.py --teacher
 jacob-sensei@2` (`DELOVE_BRANCH_TEACHER=jacob-sensei@2` in `cycle.sh`) makes it a cycle's rollout teacher.
 
+## A/B scorecard (`npm run delove:abtest`)
+
+One command scores a candidate against a base version (default `delove@13`) on a frozen gate pool and prints one
+scorecard. Every change in the overhaul is judged this way, with the fog tables deciding.
+
+    npm run delove:abtest -- <candidate> [--base delove@13] [--workers 6] [--scale 1] [--tables a,b] [--out <dir>]
+
+`<candidate>` is an agent id (`c19-candidate`, `delove@14`, `delove-branch@1`, ...) or a path to a `.onnx` network.
+`--out` writes `scorecard.json` (with every deal) and `scorecard.md`. `--scale 0.25` is a quick look; the verdict
+needs the full pool. It runs on the CPU (worker threads), so it can run on the home PC or on a pod.
+
+**The frozen pool** (`configs/abtest-pool.json`, `abtest-pool@1`). Its seeds come from the pool's own `seed`, and no
+jobs file plays it, so no training run ever sees these deals. A changed table is a new pool: bump its name, because
+scorecards compare only within one pool (the scorecard prints the pool file's hash). The tables:
+
+| table | players | field (the other seats) | settings | deals | decides |
+| --- | --- | --- | --- | --- | --- |
+| fog-classic-4 | 4 | delove@13, @12, @10 | league fog (`gen5-randomfog`) | 40 + SPRT | yes |
+| fog-classic-6 | 6 | delove@13, @12, @13, @10, @8 | league fog | 40 + SPRT | yes |
+| fog-hexworld-6 | 6 | delove@13, @12, jacob-sensei@2, @13, @10 | league fog, Hex Earth | 40 + SPRT | yes |
+| fog-europe-8 | 8 | delove@13, @12, @13, jacob-sensei@1, @10, @13, @12 | league fog, Europe | 40 + SPRT | yes |
+| fog-duel-2 | 2 | delove@13 | league fog without capitals | 100 | 2p rule |
+| zerg-horde-4 | 4 | zerg@2, delove@13, zerg@2 | live tournament settings, a generated 20-territory board per deal | 100 | |
+| zerg-mixed-3 | 3 | zerg@2, delove@13 | live tournament settings, a generated 15-territory board per deal | 100 | |
+| nofog-classic-6 | 6 | delove@13, jacob-sensei@2, @12, jacob-sensei@1, @13 | league settings without fog | 60 | |
+
+The duel plays without capitals: with capitals, 2-player fog games end on turn 2 more often than not (the first capital
+taken), so both versions get the same result on almost every deal and the table measures nothing.
+
+**Duplicate deals.** Deal k of a table is played twice with the same seed (same board, dice and turn order): once with
+the candidate in seat r and once with the base there, every other seat the table's field. The unit is the candidate's
+leaderboard points in that seat minus the base's, so the luck of the deal and the field cancel. The seat rotates with
+the deal (r = k mod players), so every seat and turn position is played. The base against itself scores exactly 0 on
+every deal (a test checks it).
+
+**The verdict** is the sequential test of `scripts/sprt.mjs` over the deciding (fog) tables, pooled with equal weight
+per table: H0 "no gain" against H1 "at least 0.15 points per seat", at 5% error each way. Every table plays its deals;
+then the deciding tables go on, a few chunks at a time, until the test decides or they reach `maxDeals` (400). The
+verdict is **better**, **not better** or **undecided**, and 2-player tables must not be significantly worse (the owner's
+rule). Every table also reports its paired 95% interval, mean place in the seat and wins.
+
+**Ratings.** A Plackett-Luce fit over the finishing order of every game played (Hunter's MM algorithm, with one
+virtual win and loss against the base as a weak prior) puts the candidate, the base and the whole field on one scale
+(Elo-like, the base at 0), with a bootstrap 95% interval over deals. The league takes its ratings from here.
+
+## League (`npm run delove:league`)
+
+A cycle's jobs file can seat league opponents instead of a fixed list. A seat written `@league` samples a past version
+(kind `snapshot`), or the exploiter for its share; `@league:<kind>` samples a member of that kind (`zerg` today;
+`impostor` or any other seat type later, for the learned Zerg). The league is `configs/league.json`:
+
+- `members`: `{id, kind, elo?, active?}`. `delove@13`, `@12`, `@10` and `@8` are snapshots. `delove-exploit@1` is the
+  exploiter slot, off until one is trained (a version trained to beat the main). `zerg@2` is kind `zerg`.
+- `pfsp`: how opponents are weighted (prioritized fictitious self-play, as in AlphaStar). p is the main's chance of
+  finishing above a member, from the ratings. `hard` weighs (1 - p)^power, so the opponents the main still loses to
+  come up most; `variance` weighs p (1 - p), the even matches; `even` weighs all alike. Every member keeps at least 2%
+  of the top weight, so an old version still comes up now and then.
+- `exploiterShare` (0.15): the share of `@league` seats an active exploiter takes.
+- `splitGames` (250): each league line is split into sub-lines of this many games. Each sub-line has its own opponents
+  and its own game numbers, so no two play the same games.
+
+Members without a rating count as even with the main. `rate` takes the ratings from an A/B scorecard:
+
+    npm run delove:league -- rate --league packages/delove/configs/league.json --scorecard <dir>/scorecard.json --out <league.json>
+    npm run delove:league -- weights --league <league.json>
+    npm run delove:league -- expand --league <league.json> --jobs <file.jobs> --seed 318 [--out <file>]
+
+In a cycle config, `league=<league.json>` makes `cycle.sh` expand every step whose jobs file has `@league` seats into
+`OUT/<step>.league.jobs` (seeded by the cycle's seed, kept on a resumed run). The steps then play those files, an
+ordinary jobs file for the CPU and GPU generators alike. A GPU step can only seat networks the mirror loads, so check
+that every snapshot in the league loads there before a GPU cycle uses it.
+
 ## Stage 2: self-play rounds
 
 A round: generate games with a jobs file, export the groups, train from the current best with `--init`, then gate

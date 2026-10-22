@@ -27,4 +27,9 @@ join on the website (the Tournaments list on the home page, or `?tournament=CODE
 Tournaments are saved to `tournaments.json` in `RISK_DATA_DIR` and pick up their tables again after a restart;
 tables a tournament is still waiting on are not swept as idle, except past the hard limit (`RISK_MAX_IDLE`, 7 days).
 
+**Coming: nested ("Inception") tournaments.** Their rounds end when 51% of the tables finish or a deadline passes;
+a table still playing is then decided on standing by the engine's `rankByStanding` (`packages/engine/src/standing.ts`):
+players still in by territories, then armies, then dice (the tied players roll one die each, and those still tied
+roll again), then the players already out, the last one out first. Built so far: that function; the rounds come next.
+
 HTTP routes: [http-api.md](http-api.md). Open items (anyone can create while testing): [hardening.md](hardening.md#1-anyone-can-create-tournaments-while-testing).

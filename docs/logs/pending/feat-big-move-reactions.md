@@ -1,2 +1,0 @@
-server: - 2026-10-22 #238 big-move reactions (G7 step 1): `reactions.ts` (BigMoveTracker per room, ReactionPacer 1 per 5 s per game, queue 3) and `reaction-lines.ts` (canned generic lines + 13 character voices); WebSocket `big_move` only to sockets whose view shows the whole board (fog: spectators and the eliminated); thresholds `BIG_MOVE` in excitement.ts; presentation only, not in state, events or records
-client: - 2026-10-22 #238 a big-move pop-up over the map (Reactions.tsx) with a 💬 Reactions toggle, on by default, remembered in localStorage

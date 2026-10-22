@@ -8,7 +8,24 @@ Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. **In the sam
 write your line to a fragment in [pending/](pending/README.md), not to this file (README hard rule 12; folded in by
 `npm run logs:fold`).
 
+- 2026-10-22 #243 playing.md: the live globe in the Inception view
+- 2026-10-22 #241 tournaments.md: tournament-mode defaults and the thaw rule
+- 2026-10-22 #239 docs/delove-fog.md: the oracle control's reading matches its interval ("the sampler, not the search, is what loses")
+- 2026-10-22 #234 tournaments.md "Scheduled tournaments", playing.md "Next tournament", http-api.md and mcp.md
+- 2026-10-22 #233 hardening items 8 (the open quick-play queue, per-IP cap only) and 9 (the queue is lost on restart)
+- 2026-10-22 #229 playing.md: the Inception globe
+- 2026-10-22 #227 tournaments.md: `hexworld` as a final board
+- 2026-10-22 #221 playing.md: the globe view
+- 2026-10-22 #220 maps.md (thirteen boards, Hex Earth row), playing.md, game-settings.md map pool, README count
+- 2026-10-22 #218 map-making.md section 8 (hex-globe maps), conventions.md and maps.md on the new map kind; `npm run maps:test` in `npm test`
+- 2026-10-22 #213 hardening item 7: anyone can trip the season-archive lockout for 15 minutes (the admin route still works); the per-IP count trusts the proxy's forwarded address
+- 2026-10-22 #212 game-records.md lists the decision-note keys the play-by-play reads
+- 2026-10-22 #208 game-records.md (play-by-play, records key) and the roadmap (G2)
+- 2026-10-22 #206 game-records-roadmap.md: decision notes (G1) in the Done table
+- 2026-10-22 #191 README hard rule 10 (owner's wording): the client moves a spectator to another game only when they turned that on, and never moves a player; the one exception is runner generation training matches (`Generation <tag> Match <n>`), which stay automatic. The features that move a spectator (auto-spectate, Generation matches, the nested tournament page's opt-in Follow the action) are described in docs/playing.md ("Features that move a spectator") and docs/tournaments.md
+- 2026-10-22 #190 hardening.md item 2: the tournament feed shows every table to anyone, entrants included
 - 2026-10-22 #183 hardening.md item 6: tournament entrants cannot be characters yet, so the tournament board ranks by entrant name only
+- 2026-10-21 #178 README hard rule 9: procedural boards come only from the seeded engine generator (`procgen.ts`), are never written to `generated/`, and a released generator version never changes its output (owner-approved); docs/maps.md and docs/map-making.md section 8 on generated boards
 - 2026-10-21 #195 log lines go in a per-PR fragment, `docs/logs/pending/<branch>.md`, folded into the logs by `npm run logs:fold` (`scripts/fold-logs.mjs`); `npm test` validates fragments (`logs:check`) and tests the fold (`logs:test`); README hard rule 12, the Running logs section, CONTRIBUTING, the PR template, every log header and a table-of-contents line for `docs/logs/pending/README.md`
 - 2026-10-21 #165 new [docs/zergs.md](../zergs.md): the Zerg hordes design (open and stealth modes), with its table-of-contents line
 - 2026-10-20 #137 game-records.md: starting positions for training (`npm run selfplay -- positions`)

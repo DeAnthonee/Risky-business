@@ -174,6 +174,17 @@ RISK_SEAT_POOL_KEY=<from the server owner> DELOVE_MODELS=~/delove-models   npm r
     room, those seats play `delove@N + search` (the live preset, `--preset`);
   - **fog:** a fog request is always bare, and only a fog-trained network (its `.json` has `fogInputs`) takes one. A
     pool on a fog-blind network leaves fog requests alone, and never seats an older model in a fog game.
+- **Takeovers** (docs/tournaments.md "Disconnected seats"): the pool polls with `modes=takeover`, so it also sees the
+  takeover requests the server opens when it drops a disconnected tournament seat. For one of those it:
+  - claims it (`n: 1`), and gets back the seat's `gameId`, `playerId` and a fresh seat token; the server has renamed
+    the seat "<name>-Delove";
+  - checks that the token plays the seat (`GET /api/games/:id` with it), then reports `done` (`{joined: 1}`), or
+    `failed` with a reason, and the server's house bot keeps the seat;
+  - plays that one game seat through the ordinary game API to the end of the table (`src/pool-play.ts`; a stand-in
+    never moves on in the tournament). It takes one seat of `--max-seats`, and is bare under fog (the same fog rule as
+    joins).
+
+  If the pool goes silent on a seat it took, the server drops it like anyone, and the house bot finishes the table.
 - **The key** (`RISK_SEAT_POOL_KEY`, the same value as the server's) is read from the environment only and sent in
   the `x-seat-pool-key` header. It is never printed or saved. A server without it answers 404 (the pool logs that
   seat requests are off); a wrong key gets 403, and repeated wrong keys get the server's one-hour lockout.

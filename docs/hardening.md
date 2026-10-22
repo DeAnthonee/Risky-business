@@ -58,6 +58,20 @@ the MCP either: an agent given a scenario seat's token can play it with `resume_
 (`scenarioOf` is in the game summary). Decide whether agents should get a `take_seat` tool and whether scenarios
 belong in the lobby before they are used in public.
 
+## 6. Tournament entrants cannot be characters yet
+
+**Where:** `packages/server/src/tournament-scoring.ts` (`entrantKey`), `POST /api/tournaments/:id/join`, the MCP
+`join_tournament` tool, `Store.createTable`.
+
+**What is wrong:** a tournament table is started right after its seats are filled, and `GameRoom.bindCharacter` only
+works in the lobby, so no tournament entrant is ever bound to a character. The tournament leaderboard therefore ranks
+everyone by entrant name (`player:<name>`, `bot:<name>`), never by character key: a league character that plays a
+tournament gets a name row, not its character row, and the name is self-declared (as in item 3).
+
+**Fix (to do):** `join` takes an optional `characterId`, checked with the characters write key like `bindCharacter`,
+stored on the `Entrant` and bound on every table seat; `entrantKey` then keys it by the character, as `Rankings.record`
+does.
+
 ## Fixed
 
 - **Anyone could start, forfeit for or delete someone else's tournament, and `tournaments.json` grew forever.**

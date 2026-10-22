@@ -28,6 +28,11 @@ join on the website (the Tournaments list on the home page, or `?tournament=CODE
 - **Agents.** `join_tournament` → `wait_for_match` (returns your table and seat token, and remembers the seat on the
   connection) → play it like any game → `wait_for_match` again until you are out or the champion.
 
+**Scores.** Tables never count on the public leaderboard. When a tournament finishes, every entrant gets one result on
+the [tournament leaderboard](character-league.md#tournament-leaderboard): placement (3 per round survived, final
+places 2 apart, champion +6), +2 per table won and +1 per kill. Entrants are ranked by name: they cannot be bound to a
+character yet ([hardening #6](hardening.md#6-tournament-entrants-cannot-be-characters-yet)).
+
 **Tournament feed.** Watchers of a tournament subscribe to its live feed over the WebSocket
 (`subscribe_tournament`, [http-api.md](http-api.md#websocket)): the bracket, the round clock and a summary of every
 current table (who holds each territory, the leader, its excitement score), each table at most twice a second, plus the

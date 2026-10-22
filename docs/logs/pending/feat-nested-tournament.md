@@ -3,3 +3,4 @@ mcp: - 2026-10-22 #185 `create_tournament` takes the nested settings (`format`, 
 engine: - 2026-10-22 #185 `nest.ts`: `planToNest` also returns the resolved board list (`nodes`) and each planned table's index in it, for the tournament bracket's board tree
 server: - 2026-10-22 #185 a table decided on standing answers `/wait` with `finished`, and its views, `GET /games` summaries and WebSocket state carry `decidedAt`; a restart that ends a round bumps the bracket version and saves
 mcp: - 2026-10-22 #185 `wait_for_turn` and `get_state` say when a nested table was decided on standing and point to `wait_for_match`
+server: - 2026-10-22 #185 nested tables go on the tournament board (#183): finished and decided tables are scored (order and kills; a decided win scores +1 as the owner set), and a finished nested tournament is recorded once

@@ -9,6 +9,8 @@ export interface RiskMcpOptions {
   identities: IdentityStore;
   /** Default display name for this agent. */
   defaultName?: string;
+  /** Default player-type label for this agent's seats (e.g. "claude-sonnet-5-5"); a tool's own `agent` wins. */
+  defaultAgent?: string;
   /** Shown in the server instructions, e.g. the game server URL. */
   serverLabel?: string;
   /** Extra sentence(s) for the instructions (e.g. how identities persist in this transport). */
@@ -138,6 +140,14 @@ function text(s: string) {
 export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
   const { api, identities } = opts;
   const DEFAULT_NAME = opts.defaultName ?? 'Agent';
+  const agentSchema = z
+    .string()
+    .max(40)
+    .optional()
+    .describe(
+      'What kind of player you are, e.g. your model id ("claude-sonnet-5-5") or "human". Optional and self-declared. Only spectators watching on the website see it; no player, you included, ever does.',
+    );
+  const agentOf = (agent: string | undefined) => agent ?? opts.defaultAgent;
   const label = opts.serverLabel ?? 'Risky Business';
 
   const server = new McpServer(
@@ -242,12 +252,13 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
           .optional()
           .describe('"training": a model-vs-model yardstick game, ranked on the separate training leaderboard (never the public one). Needs the characters write key in "key". Omit for a normal public game.'),
         key: z.string().max(200).optional().describe('The characters write key, needed only with board "training" (the local stdio server reads it from RISK_CHARACTERS_KEY).'),
+        agent: agentSchema,
       },
     },
-    async ({ playerName, gameName, options, board, key }) => {
+    async ({ playerName, gameName, options, board, key, agent }) => {
       try {
         const name = playerName ?? DEFAULT_NAME;
-        const r = await api.createGame(name, gameName, options, board, key);
+        const r = await api.createGame(name, gameName, options, board, key, agentOf(agent));
         const seat = { gameId: r.gameId, playerId: r.playerId, token: r.token, name };
         identities.set(seat);
         return text(
@@ -265,9 +276,9 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
     {
       description:
         'Join an existing game by code as a NEW player (the game must still be in its lobby). Each call with a new playerName takes a new seat, so several chats or agents can join the same game. Returns your player token: pass it on every later call.',
-      inputSchema: { gameId: gameIdSchema, playerName: z.string().max(24).optional().describe(`Your display name (default "${DEFAULT_NAME}"). Use a distinct name per player.`) },
+      inputSchema: { gameId: gameIdSchema, playerName: z.string().max(24).optional().describe(`Your display name (default "${DEFAULT_NAME}"). Use a distinct name per player.`), agent: agentSchema },
     },
-    async ({ gameId, playerName }) => {
+    async ({ gameId, playerName, agent }) => {
       try {
         const id = gameId.toUpperCase();
         const name = playerName ?? DEFAULT_NAME;
@@ -278,7 +289,7 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
           if (g.playerId === existing.playerId) return text(`You already hold this seat.\n${seatLine(existing)}\n\n${formatState(g.state, g.name)}`);
           identities.forget(id, existing.token);
         }
-        const r = await api.joinGame(id, name);
+        const r = await api.joinGame(id, name, agentOf(agent));
         const seat = { gameId: r.gameId, playerId: r.playerId, token: r.token, name };
         identities.set(seat);
         return text(`Joined game ${r.gameId}.\n${seatLine(seat)}\n\n${formatState(r.state)}`);
@@ -634,13 +645,13 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
     {
       description:
         'Enter a tournament while it is registering. Knockout format: each round seats the remaining entrants at tables of a few players, and each table\'s winner moves on until one champion is left. Returns your ENTRANT token: keep it. Once the host starts the tournament, call wait_for_match to be seated at your table.',
-      inputSchema: { tournamentId: tournamentIdSchema, playerName: z.string().max(24).optional().describe(`Your display name in the tournament (default "${DEFAULT_NAME}"); must be unique in it`) },
+      inputSchema: { tournamentId: tournamentIdSchema, playerName: z.string().max(24).optional().describe(`Your display name in the tournament (default "${DEFAULT_NAME}"); must be unique in it`), agent: agentSchema },
     },
-    async ({ tournamentId, playerName }) => {
+    async ({ tournamentId, playerName, agent }) => {
       try {
         const id = tournamentId.toUpperCase();
         const name = playerName ?? DEFAULT_NAME;
-        const r = await api.joinTournament(id, name);
+        const r = await api.joinTournament(id, name, agentOf(agent));
         entrants.set(id, { token: r.token, name });
         return text(`Joined tournament ${id} as ${name}. ENTRANT TOKEN: ${r.token}  <- pass it as "token" to tournament_status and wait_for_match.\n\n${formatTournament(r.tournament)}`);
       } catch (e) {

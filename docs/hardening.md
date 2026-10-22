@@ -23,6 +23,11 @@ number of sets traded and each player's total reinforcement income are public by
 gives away territory count and continent captures behind the fog, a trade-off accepted for threat assessment). Any seated player can also open the spectator view (or
 `spectate_game`) and see the whole board. Decide whether fog games should restrict spectating by seated players.
 
+The same gap applies to **player-type labels** (who is Claude Sonnet, who is Delove; [http-api.md](http-api.md#player-type-labels)):
+web spectators see them and seated players never do, but a seated player who reads their own game over plain HTTP
+without their seat token gets the spectator view, labels included. The MCP never shows labels, so agents playing
+through it cannot see them. Labels are also **self-declared** (like item 3): a seat can claim to be any model.
+
 ## 3. Leaderboard identities for plain seats are self-declared
 
 **Where:** `packages/server/src/rankings.ts`, `GET /api/rankings`. Binding a seat to a character needs the

@@ -11,6 +11,10 @@ join on the website (the Tournaments list on the home page, or `?tournament=CODE
   another fails until one finishes or is deleted. Only the newest `RISK_TOURNAMENTS_KEEP` (default 100) finished
   tournaments are kept; older ones are pruned from `tournaments.json`.
 
+- **Server bots.** While registering, the host adds built-in bots or **Zergs** as entrants
+  (`POST /api/tournaments/:id/bots {kind: "bot" | "zerg", count}`, host token). A Zerg entrant has a reptile name
+  unique in the tournament and plays as a Zerg at every table it sits at: the Zergs at one table are one horde, in
+  every round (docs/zergs.md). Bots and Zergs are entrants like anyone else and can win.
 - **Tables.** Each round seats the remaining entrants at tables of up to `groupSize` (default 4, on Four Crowns by
   default), split as evenly as possible; a lone entrant gets a bye. With `fillBots` (default on) round 1 is topped up
   with bots so every table is full. Bots are entrants like anyone else and can win.
@@ -24,8 +28,15 @@ join on the website (the Tournaments list on the home page, or `?tournament=CODE
 - **Agents.** `join_tournament` → `wait_for_match` (returns your table and seat token, and remembers the seat on the
   connection) → play it like any game → `wait_for_match` again until you are out or the champion.
 
+**Follow the action (server side, not wired yet).** `packages/server/src/excitement.ts` scores how exciting a table
+is, 0-100, from its public spectator view and recent events (owner decision 19): an elimination in the last 20 s +40
+fading, a player about to be knocked out +25, a capital about to fall +30 (and +30 for 20 s after one falls), a close
+race +15, two players left +15, heavy fighting up to +20, the final +20. `pickFollow` chooses the table an opted-in
+watcher sees: it stays at least 20 s and switches only for a table 15 or more ahead, or when the current one ends,
+with a "Following: Table 7 (capital under threat)" caption. The tournament feed and the client switch come later.
+
 Tournaments are saved to `tournaments.json` in `RISK_DATA_DIR` and pick up their tables again after a restart;
-tables a tournament is still waiting on are not swept as idle, except past the hard limit (`RISK_MAX_IDLE`, 7 days).
+tables a tournament is still waiting on are not swept as idle, except past the hard limit of 7 days idle (the Store's fixed `max`; no env var changes it).
 
 ## Nested ("Inception") tournaments
 

@@ -195,7 +195,7 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
           winner: g.winner,
           reason: g.reason,
           turns: g.turns,
-          players: g.players.map((p) => ({ id: p.id, name: p.name, isBot: p.isBot, characterId: p.characterId, place: p.place })),
+          players: g.players.map((p) => ({ id: p.id, name: p.name, isBot: p.isBot, characterId: p.characterId, place: p.place, ...(p.agent ? { agent: p.agent } : {}) })),
         }));
       res.json({ enabled: store.archive.enabled, games });
     }),
@@ -247,7 +247,7 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
           return res.status(403).json({ error: 'A training-board game needs the characters write key in the x-characters-key header' });
         }
       }
-      const { room, playerId, token } = store.create(String(body.gameName ?? body.name ?? ''), options, playerName, Boolean(body.asBot), board);
+      const { room, playerId, token } = store.create(String(body.gameName ?? body.name ?? ''), options, playerName, Boolean(body.asBot), board, parseAgent(body.agent));
       res.status(201).json({ gameId: room.id, playerId, token, state: room.view(playerId), host: room.hostId });
     }),
   );
@@ -257,7 +257,8 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
     loadRoom,
     wrap((req, res) => {
       const room = req.room!;
-      res.json({ state: room.view(req.playerId ?? null), host: room.hostId, name: room.name, playerId: req.playerId ?? null });
+      // Only a watcher with no seat token sees the player-type labels.
+      res.json({ state: req.playerId ? room.view(req.playerId) : room.spectatorView(), host: room.hostId, name: room.name, playerId: req.playerId ?? null });
     }),
   );
 
@@ -267,7 +268,7 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
     wrap((req, res) => {
       const room = req.room!;
       const name = String(req.body?.playerName ?? req.body?.name ?? 'Player');
-      const { playerId, token } = room.join(name, Boolean(req.body?.asBot));
+      const { playerId, token } = room.join(name, Boolean(req.body?.asBot), 'bot', parseAgent(req.body?.agent));
       res.status(201).json({ gameId: room.id, playerId, token, state: room.view(playerId), host: room.hostId });
     }),
   );
@@ -488,6 +489,17 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
       res.json({ tournament: store.tournaments.view(t.id) });
     }),
   );
+  // The host adds server bots while registering: { kind: "bot" | "zerg" (default "bot"), count (default 1) }.
+  api.post(
+    '/tournaments/:id/bots',
+    requireTournamentHost,
+    wrap((req, res) => {
+      const id = String(req.params.id);
+      const count = req.body?.count === undefined ? 1 : Number(req.body.count);
+      const added = store.tournaments.addBots(id, parseBotKind(req.body?.kind), count);
+      res.status(201).json({ added, tournament: store.tournaments.view(id) });
+    }),
+  );
   api.post(
     '/tournaments/:id/forfeit',
     requireTournamentHost,
@@ -517,7 +529,7 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
     '/tournaments/:id/join',
     wrap((req, res) => {
       if (!store.tournaments.get(String(req.params.id))) return res.status(404).json({ error: 'Tournament not found' });
-      const { entrantId, token } = store.tournaments.join(String(req.params.id), req.body?.playerName ?? req.body?.name);
+      const { entrantId, token } = store.tournaments.join(String(req.params.id), req.body?.playerName ?? req.body?.name, parseAgent(req.body?.agent));
       res.status(201).json({ entrantId, token, tournament: store.tournaments.view(String(req.params.id), token) });
     }),
   );
@@ -645,7 +657,7 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
       res.json({
         reason,
         yourTurn: !!req.playerId && room.state.currentPlayer === req.playerId,
-        state: room.view(req.playerId ?? null),
+        state: req.playerId ? room.view(req.playerId) : room.spectatorView(),
         events: since !== undefined ? room.eventsSince(since).map((h) => ({ ...h, events: redactEvents(room.state, req.playerId ?? null, h.events) })) : [],
       });
     }),
@@ -702,6 +714,20 @@ export function parseBoard(raw: unknown, allowPublic = false): RankingBoard | un
   if (raw === undefined || raw === null || (allowPublic && raw === 'public')) return undefined;
   if (raw === 'training') return 'training';
   throw new RiskHttpError(`board must be "training"${allowPublic ? ' or "public"' : ''}`, 400);
+}
+
+const AGENT = /^[A-Za-z0-9 @._:/()+-]{1,40}$/;
+
+/**
+ * A seat's self-declared player type from an untrusted body ("claude-sonnet-5-5", "delove@10", "human"): up to 40
+ * letters, digits, spaces and @ . _ : / ( ) + -. Absent or empty is undefined (unknown); anything else is a 400.
+ */
+export function parseAgent(raw: unknown): string | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  const label = typeof raw === 'string' ? raw.replace(/\s+/g, ' ').trim() : '';
+  if (label === '' && typeof raw === 'string') return undefined;
+  if (!AGENT.test(label)) throw new RiskHttpError('agent must be 1-40 letters, digits, spaces or @ . _ : / ( ) + -', 400);
+  return label;
 }
 
 /** A bot kind from an untrusted body: "bot" (the default) or "zerg", or a 400 for anything else. */

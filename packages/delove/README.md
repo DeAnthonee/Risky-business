@@ -822,15 +822,17 @@ jacob-sensei@2` (`DELOVE_BRANCH_TEACHER=jacob-sensei@2` in `cycle.sh`) makes it 
 One command scores a candidate against a base version (default `delove@13`) on a frozen gate pool and prints one
 scorecard. Every change in the overhaul is judged this way, with the fog tables deciding.
 
-    npm run delove:abtest -- <candidate> [--base delove@13] [--workers 6] [--scale 1] [--tables a,b] [--out <dir>]
+    npm run delove:abtest -- <candidate> [--promotion] [--base delove@13] [--workers 6] [--scale 1] [--tables a,b] [--out <dir>]
 
 `<candidate>` is an agent id (`c19-candidate`, `delove@14`, `delove-branch@1`, ...) or a path to a `.onnx` network.
 `--out` writes `scorecard.json` (with every deal) and `scorecard.md`. `--scale 0.25` is a quick look; the verdict
 needs the full pool. It runs on the CPU (worker threads), so it can run on the home PC or on a pod.
 
-**The frozen pool** (`configs/abtest-pool.json`, `abtest-pool@1`). Its seeds come from the pool's own `seed`, and no
-jobs file plays it, so no training run ever sees these deals. A changed table is a new pool: bump its name, because
-scorecards compare only within one pool (the scorecard prints the pool file's hash). The tables:
+**The frozen pool** (`configs/abtest-pool-2.json`, `abtest-pool@2`, the default; `--pool configs/abtest-pool-1.json`
+plays `abtest-pool@1`). Its seeds come from the pool's own `seed`, and no jobs file plays it, so no training run ever
+sees these deals. A changed table is a new pool with a new file and name, because scorecards compare only within one pool
+(the scorecard prints the pool file's hash). @2 keeps @1's seed, so the tables it did not change play the same deals.
+The tables:
 
 | table | players | field (the other seats) | settings | deals | decides |
 | --- | --- | --- | --- | --- | --- |
@@ -839,7 +841,7 @@ scorecards compare only within one pool (the scorecard prints the pool file's ha
 | fog-hexworld-6 | 6 | delove@13, @12, jacob-sensei@2, @13, @10 | league fog, Hex Earth | 40 + SPRT | yes |
 | fog-europe-8 | 8 | delove@13, @12, @13, jacob-sensei@1, @10, @13, @12 | league fog, Europe | 40 + SPRT | yes |
 | fog-duel-2 | 2 | delove@13 | league fog without capitals | 100 | 2p rule |
-| zerg-horde-4 | 4 | zerg@2, delove@13, zerg@2 | live tournament settings, a generated 20-territory board per deal | 100 | |
+| zerg-horde-4 | 4 | zerg@2, delove@13, zerg@2 | live tournament settings, a generated 20-territory board per deal; @2: 200 turns at most | 100 | |
 | zerg-mixed-3 | 3 | zerg@2, delove@13 | live tournament settings, a generated 15-territory board per deal | 100 | |
 | nofog-classic-6 | 6 | delove@13, jacob-sensei@2, @12, jacob-sensei@1, @13 | league settings without fog | 60 | |
 
@@ -853,14 +855,28 @@ the deal (r = k mod players), so every seat and turn position is played. The bas
 every deal (a test checks it).
 
 **The verdict** is the sequential test of `scripts/sprt.mjs` over the deciding (fog) tables, pooled with equal weight
-per table: H0 "no gain" against H1 "at least 0.15 points per seat", at 5% error each way. Every table plays its deals;
-then the deciding tables go on, a few chunks at a time, until the test decides or they reach `maxDeals` (400). The
-verdict is **better**, **not better** or **undecided**, and 2-player tables must not be significantly worse (the owner's
-rule). Every table also reports its paired 95% interval, mean place in the seat and wins.
+per table: H0 "no gain" against H1 "a gain of at least h1 points per seat", at 5% error each way. Every table plays
+its deals; then the deciding tables go on, a few chunks at a time, until the test decides or they reach `maxDeals`.
+The verdict is **better**, **not better** or **undecided**, and 2-player tables must not be significantly worse (the
+owner's rule). Every table also reports its paired 95% interval, mean place in the seat and wins. Two tests (pool@2):
+
+- **Quick check** (the default): h1 = 0.25, up to 400 deals per deciding table, about 40 minutes on 6 home CPU threads.
+- **Promotion call** (`--promotion`): h1 = 0.15, up to 1,200 deals per deciding table, about 30 minutes on a pod (with
+  the Lord of resources' OK). Each fog table's paired interval is about +/-0.3 points per seat at 400 deals (fog
+  makes the two games of a deal drift apart quickly), so a 0.15 gain needs about 1,000-1,200 deals per table.
 
 **Ratings.** A Plackett-Luce fit over the finishing order of every game played (Hunter's MM algorithm, with one
 virtual win and loss against the base as a weak prior) puts the candidate, the base and the whole field on one scale
 (Elo-like, the base at 0), with a bootstrap 95% interval over deals. The league takes its ratings from here.
+
+**Baseline (2026-10-22, `abtest-pool@1`): `delove@13` against `delove@12`**, 3,920 games in 39 minutes on 6 home CPU
+threads. Undecided: the fog tables pooled +0.06 points per seat (se 0.08) after 400 deals each. Classic 4p -0.06,
+Classic 6p 0.00, Hex Earth 6p -0.13, Europe 8p +0.43 (+0.01 to +0.85, the only one clear of 0). The duel was even, the
+Zerg tables +0.15 / +0.13 (not significant), no fog Classic 6p -0.28 (wide). Ratings (`delove@12` = 0): zerg@2 +118,
+`delove@13` +3 (-6 to +11), Jacob Sensei 2 -34, Jacob Sensei 1 -98, `delove@10` -108, `delove@8` -112. Cycle 16
+promoted `delove@13` on +0.17 (+0.04 to +0.31) with fog on against `delove@12` (CYCLES.md, "c16: the deciding gate, fog
+on"); that gain did not reproduce here (+0.06, not significant), so a single gate can mislead. On pool@1 the
+zerg-horde-4 table hit the 500-turn limit in 112 of its 200 games; pool@2 stops it at 200 turns.
 
 ## League (`npm run delove:league`)
 

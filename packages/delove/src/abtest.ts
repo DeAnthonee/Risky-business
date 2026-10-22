@@ -54,8 +54,17 @@ export interface GatePool {
   /** Seeds of this pool's deals come from this number, far from the small seeds training cycles use. */
   seed: number;
   base: string;
+  /** The quick check's test (the default). */
   sprt: SprtConfig;
+  /** A promotion call (`--promotion`): these fields replace the quick check's (pool@2: h1 0.15 up to 1200 deals). */
+  promotion?: Partial<SprtConfig>;
   tables: GateTable[];
+}
+
+/** The test a run uses: the quick check, or with `promotion` the pool's promotion settings over it. */
+export function sprtConfig(pool: GatePool, promotion: boolean): SprtConfig {
+  if (promotion && !pool.promotion) throw new Error(`pool ${pool.name} has no promotion settings`);
+  return promotion ? { ...pool.sprt, ...pool.promotion } : pool.sprt;
 }
 
 /** One deal: the same seed played with the candidate and with the base in the same seat. */
@@ -271,6 +280,8 @@ export interface Scorecard {
   poolHash: string;
   /** 'better': the deciding tables accepted H1; 'not better': H0; 'undecided': stopped at maxDeals. */
   verdict: 'better' | 'not better' | 'undecided';
+  /** The test's settings (quick check or promotion call) and its result. */
+  test: SprtConfig & { kind: 'quick' | 'promotion' };
   sprt: SprtResult;
   /** Tables of 2 players: not significantly worse (the owner's rule at 2 players). */
   duelsOk: boolean;
@@ -280,15 +291,17 @@ export interface Scorecard {
   seconds: number;
 }
 
-export function scorecard(pool: GatePool, hash: string, candidate: string, base: string, deals: DealResult[][], seconds: number, resamples = 200): Scorecard {
+export function scorecard(pool: GatePool, hash: string, candidate: string, base: string, deals: DealResult[][], seconds: number, resamples = 200, promotion = false): Scorecard {
   const tables = pool.tables.map((t, i) => tableStats(t, deals[i])).filter((t) => t.deals > 0);
-  const sprt = pooledSprt(tables, pool.sprt);
+  const cfg = sprtConfig(pool, promotion);
+  const sprt = pooledSprt(tables, cfg);
   return {
     candidate,
     base,
     pool: pool.name,
     poolHash: hash,
     verdict: sprt.status === 'H1' ? 'better' : sprt.status === 'H0' ? 'not better' : 'undecided',
+    test: { ...cfg, kind: promotion ? 'promotion' : 'quick' },
     sprt,
     duelsOk: tables.filter((t) => t.players === 2 && t.deals > 1).every((t) => t.high >= 0),
     tables,
@@ -307,7 +320,7 @@ export function scorecardMarkdown(c: Scorecard): string {
     `Pool ${c.pool} (${c.poolHash}), ${c.games} games, ${Math.round(c.seconds / 60)} min.`,
     '',
     (c.tables.some((t) => t.decides)
-      ? `**Verdict: ${c.verdict}** (deciding tables pooled: ${sign(c.sprt.mean)} points per seat, se ${c.sprt.se}, LLR ${c.sprt.llr} in [${c.sprt.lower}, ${c.sprt.upper}]).`
+      ? `**Verdict (${c.test.kind === 'promotion' ? 'promotion call' : 'quick check'}, H1 +${c.test.h1}): ${c.verdict}** (deciding tables pooled: ${sign(c.sprt.mean)} points per seat, se ${c.sprt.se}, LLR ${c.sprt.llr} in [${c.sprt.lower}, ${c.sprt.upper}]).`
       : '**No verdict:** no deciding (fog) table was played.') +
       ` 2-player tables ${c.duelsOk ? 'not worse' : 'significantly worse'}.`,
     '',

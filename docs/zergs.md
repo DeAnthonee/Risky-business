@@ -125,6 +125,54 @@ Order, by the owner's direction (the Zerg model and training come first; game-mo
 - **PR 4:** client (badges, banner, lobby setting) + the demo game (2 Zergs vs 2 bots on the training board).
 - **PR 5 onward:** stealth mode (section 7), once the owner settles its product rules.
 
+## 6a. Tuning results and the trained Zerg (draft recipe)
+
+**Tuning `zerg@1` (2026-10-21): flat.** Three runs, all scored against delove@10 on the five horde tables with paired
+games and a confirmation on fresh seeds:
+
+| run | what moved | fitness | result |
+| --- | --- | --- | --- |
+| 1 | 2 of the 12 original numbers | prey `hold` | 15 generations, nothing beyond ±0.02 |
+| 2 | 3 of 12, 8 children per generation | horde `rush` | 6 generations, every best child within ±0.04 on fresh games |
+| 3 | the 4 new behaviours (strike, hoard, capitals, walls) | horde `rush` | 2 generations, within ±0.01 |
+
+`zerg@1` already plays near what hand-set numbers reach, and it is strong enough for Delove: delove@10 wins about 1%
+alone against 3 Zergs. The new behaviours stay as off-by-default terms (a golden test pins `zerg@1`). Zerg tuning is
+paused until cycle 15 has trained Delove on the horde games (`horde.jobs`) and the horde gate shows whether Delove
+moves.
+
+**The trained Zerg network (next, draft for the training lead).** Delove's route: a network warm-started from
+delove@10 that learns a horde objective from a stronger teacher.
+
+1. **Ally inputs**, the fog way (`packages/selfplay/src/fog.ts` is the precedent).
+   - A new unmirrored `packages/delove/src/zerg-inputs.ts` appends a territory column `ally` (owned by a fellow Zerg)
+     and global `ally_slot0..9` (that seat slot is a fellow Zerg).
+   - Every one is 0 on a board without a horde, so delove@10 widened with zero weights for them plays exactly as
+     before. A `ZERG_INPUT_VERSION` goes in the model's .json, as `fogInputs` does.
+   - No `ENCODER_VERSION` change and no mirrored file.
+   - The columns are computed from the decision log as it is: which seat slots are Zergs follows from the game's
+     agent ids. To check: that every needed field is in the record.
+   - A matching `zerg_inputs.py` with a test against the TypeScript, like `test_fog.py`.
+2. **Data on the CPU.**
+   - Horde tables (2-3 Zerg seats, the prey a mix of delove@10, `delove-branch@1:range-horde` and jacob-sensei@2 at
+     3/4/6p), Zerg decisions recorded.
+   - `zerg@1` games run about 30 a second per core, so 50k games take minutes. No pod.
+3. **Iteration 0, behaviour cloning:** imitate `zerg@1`, giving an ally-aware network that plays about like
+   `zerg@1`. `train.py --init delove@10.pt`, with a widening flag for the ally columns and the value target set to
+   the horde's outcome (`rush`).
+4. **Iteration 1, a stronger teacher:**
+   - `zerg-branch@1` with the iteration-0 network as its ranker and rollout policy, and the prey modelled by delove@10
+     instead of Jacob 2. Its no-gain result came from hand-coded rollouts and a weak prey model.
+   - Distil the searched choices, then repeat (the AlphaZero loop, at Delove's scale).
+5. **Gate.** `npm run delove:horde -- --candidate delove@10 --zerg zergnet@N --base-zerg zerg@1` (`rush` and `hold`,
+   500+ games per table, fixed seeds). `zerg@1` stays the fixed reference. A passing network becomes `zerg@2`
+   alongside it.
+6. **Costs and owners.**
+   - Training is a short home-GPU run (minutes to an hour), booked through the captain and the Lord of Resources.
+   - No engine or server change; game-side work goes to the Lord of Game Development first.
+   - Data and weights stay on the training PC or in the private models repo.
+   - The stealth mode's recogniser can reuse the same ally inputs.
+
 ## 7. Stealth mode (surprise social-deduction game)
 
 The point is the surprise: say, a game with the owner's cousin where two seats are secretly Zergs. They have to find

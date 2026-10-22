@@ -316,8 +316,10 @@ export class TournamentManager extends EventEmitter {
       // Nested: the round clock starts again from its saved deadline (a deadline passed while down ends the round now).
       if (t.format === 'nested' && t.status === 'running') {
         const round = this.currentRound(t);
-        if (round && !round.endedAt && round.deadline !== undefined && this.clock.now() >= round.deadline) this.endRound(t);
-        else this.armRound(t);
+        if (round && !round.endedAt && round.deadline !== undefined && this.clock.now() >= round.deadline) {
+          this.endRound(t);
+          this.changed(t);
+        } else this.armRound(t);
       }
     }
     this.prune();
@@ -789,9 +791,11 @@ export class TournamentManager extends EventEmitter {
       const { room, seats } = this.store.createTable(`${t.name} · R${r + 1} ${label}`.slice(0, 40), { ...t.options, map: map as GameOptions['map'], maxPlayers: entrants.length }, players.map((p) => ({ name: p.name, isBot: p.isBot })), t.id);
       return { gameId: room.id, entrants, seats: Object.fromEntries(entrants.map((eid, k) => [eid, seats[k]])), winner: null, status: 'playing', table: j, map, node };
     });
-    t.rounds.push({ round: r + 1, matches, deadline: this.clock.now() + n.roundMinutes * 60_000 });
+    const round: TournamentRound = { round: r + 1, matches, deadline: this.clock.now() + n.roundMinutes * 60_000 };
+    t.rounds.push(round);
     for (const m of matches) if (m.status === 'playing') this.watch(t, m, this.store.get(m.gameId!)!);
-    if (this.currentRound(t)!.matches.length === matches.length && !this.currentRound(t)!.endedAt) {
+    // A table already over (a bye-only round, or a game that ended while being watched) may have ended this round.
+    if (this.currentRound(t) === round && !round.endedAt) {
       this.armRound(t);
       this.checkRound(t);
     }

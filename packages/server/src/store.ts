@@ -146,6 +146,8 @@ export interface GameSummary {
   scenarioOf?: ScenarioRef;
   /** Set on a tournament table: the tournament it belongs to. */
   tournamentId?: string;
+  /** A nested-tournament table decided on standing at its round's end (ms): the game will not go on. */
+  decidedAt?: number;
   /** "training": a yardstick game ranked on the training leaderboard. Absent = public. */
   board?: RankingBoard;
 }
@@ -285,7 +287,9 @@ export class GameRoom extends EventEmitter {
     this.stopBot();
     this.addChat(null, 'Tournament', note);
     this.emit('decided');
-    this.releaseWaiters();
+    // Long-polls and sockets hear it as a change: waiters answer 'finished', clients get the view with decidedAt.
+    const msg: ChangeMessage = { state: this.state, events: [], version: this.state.version, playerId: null };
+    this.emit('change', msg);
   }
 
   /** Mark human/agent activity (keeps the room from being swept). */
@@ -362,6 +366,7 @@ export class GameRoom extends EventEmitter {
       ...(this.scenarioOf ? { scenarioOf: this.scenarioOf } : {}),
       ...(this.tournamentId ? { tournamentId: this.tournamentId } : {}),
       ...(this.board ? { board: this.board } : {}),
+      ...this.decidedField(),
     };
   }
 
@@ -373,17 +378,22 @@ export class GameRoom extends EventEmitter {
   }
 
   /** The game as a seat (or, with null, an anonymous spectator) sees it, with the turn timer. Never carries player-type labels. */
-  view(playerId: PlayerId | null): GameView & { timer: TurnTimerInfo | null } {
-    return { ...viewFor(this.state, playerId), timer: this.timerInfo() };
+  view(playerId: PlayerId | null): GameView & { timer: TurnTimerInfo | null; decidedAt?: number } {
+    return { ...viewFor(this.state, playerId), timer: this.timerInfo(), ...this.decidedField() };
+  }
+
+  /** `decidedAt` for views and summaries, only on a table decided on standing. */
+  private decidedField(): { decidedAt?: number } {
+    return this.decidedAt !== null ? { decidedAt: this.decidedAt } : {};
   }
 
   /**
    * The spectator view plus each seat's player-type label (`agent`), with the turn timer. Only for watchers on the web
    * (HTTP or WebSocket with no seat token); a seated player's view, the MCP and chat never get labels.
    */
-  spectatorView(): GameView & { timer: TurnTimerInfo | null } {
+  spectatorView(): GameView & { timer: TurnTimerInfo | null; decidedAt?: number } {
     const v = viewFor(this.state, null);
-    return { ...v, players: v.players.map((p) => (this.agents[p.id] ? { ...p, agent: this.agents[p.id] } : p)), timer: this.timerInfo() };
+    return { ...v, players: v.players.map((p) => (this.agents[p.id] ? { ...p, agent: this.agents[p.id] } : p)), timer: this.timerInfo(), ...this.decidedField() };
   }
 
   timerInfo(now = Date.now()): TurnTimerInfo | null {
@@ -614,7 +624,8 @@ export class GameRoom extends EventEmitter {
       this.markSeat(playerId);
     }
     const check = (): 'turn' | 'change' | 'finished' | null => {
-      if (this.state.phase === 'finished') return 'finished';
+      // A table decided on standing at its round's end is over for every seat (no move will come).
+      if (this.state.phase === 'finished' || this.decidedAt !== null) return 'finished';
       if (since !== undefined && this.state.version > since) return 'change';
       if (playerId && this.state.currentPlayer === playerId) return 'turn';
       return null;

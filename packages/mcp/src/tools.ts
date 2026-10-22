@@ -466,7 +466,9 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
           r.reason === 'turn'
             ? 'It is your turn.'
             : r.reason === 'finished'
-              ? 'The game is over.'
+              ? (r.state as { decidedAt?: number }).decidedAt
+                ? "This tournament table was decided on standing at its round's end: no more moves. Call wait_for_match (or tournament_status) for your next table."
+                : 'The game is over.'
               : r.reason === 'change'
                 ? 'The state changed.'
                 : 'Timed out while waiting; it is still not your turn. Call wait_for_turn again.';

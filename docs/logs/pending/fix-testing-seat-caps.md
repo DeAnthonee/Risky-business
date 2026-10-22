@@ -1,1 +1,1 @@
-server: - 2026-10-22 #PR tournament testing mode also loosens seats (256 per tournament for any code or open mode) and Delove seats (256 per tournament, 1000 at once); STRICT=1 keeps 64/128/200 and 16/40/48 (owner: "30 zerg, 50 deloves, and 10 open slots")
+server: - 2026-10-22 #286 tournament testing mode also loosens seats (256 per tournament for any code or open mode) and Delove seats (256 per tournament, 1000 at once); STRICT=1 keeps 64/128/200 and 16/40/48 (owner: "30 zerg, 50 deloves, and 10 open slots")

@@ -192,6 +192,14 @@ export class LocalRiskApi implements RiskApi {
     if (!t) throw new RiskHttpError('Ticket not found (or not yours): join the queue again', 404);
     return { ticket: t };
   }
+  /** Bind a key to this connection (use_player_key): limited per client like a code, the key never echoed. */
+  async usePlayerKey(key: string) {
+    if (!this.store.playerKeys.tryLimiter.take(this.client ?? 'mcp')) throw new RiskHttpError('Too many player-key tries: wait a few minutes', 429);
+    const p = this.store.playerKeys.verify(key);
+    if (!p) throw new RiskHttpError('That player key does not work (unknown, rotated or revoked)', 401);
+    this.playerKey = key;
+    return { playerId: p.id, name: p.name };
+  }
   async quickPlayLeave(ticket: string, token: string) {
     if (!this.store.quickPlay.leave(ticket, token)) throw new RiskHttpError('Ticket not found (or not yours)', 404);
     return { ok: true };

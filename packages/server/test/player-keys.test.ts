@@ -126,6 +126,36 @@ describe('player keys', () => {
     expect((await call('/players', { body: { name: 'Rotor' } })).status).toBe(400);
   });
 
+  it('use_player_key binds a key to an MCP connection that cannot send headers, never echoes it, and is rate-limited', async () => {
+    const { key, playerId } = (await call('/players', { body: { name: 'Juno' } })).body;
+    const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+    const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
+    const { RateLimiter } = await import('../src/rate-limit.js');
+    const mcp = new Client({ name: 'connector', version: '0' });
+    await mcp.connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`)));
+    const call_ = async (name: string, args: Record<string, unknown>) => ((await mcp.callTool({ name, arguments: args })) as { content: { text: string }[] }).content.map((c) => c.text).join('\n');
+    try {
+      expect((await mcp.listTools()).tools.find((t) => t.name === 'use_player_key')!.description).toMatch(/transcript/);
+      expect(await call_('use_player_key', { key: 'rk_wrongwrongwrongwrongwrongwrong' })).toMatch(/does not work/);
+      const ok = await call_('use_player_key', { key });
+      expect(ok).toMatch(/now plays as Juno/);
+      expect(ok).not.toContain(key);
+      const out = await call_('create_game', { playerName: 'Somebody' });
+      expect(out).not.toContain(key);
+      const gameId = /game ([A-Z0-9]{6})/i.exec(out)![1];
+      const room = risk.store.get(gameId)!;
+      const seat = room.state.players.find((p) => !p.isBot)!;
+      expect(seat.name).toBe('Juno');
+      expect(room.playerKeys[seat.id]).toBe(playerId);
+      // Tries are limited per client.
+      risk.store.playerKeys.tryLimiter = new RateLimiter(1, 60_000);
+      await call_('use_player_key', { key });
+      expect(await call_('use_player_key', { key })).toMatch(/Too many player-key tries/);
+    } finally {
+      await mcp.close();
+    }
+  });
+
   it('tournaments, quick play and MCP connections use the key from the header', async () => {
     const { key, playerId } = (await call('/players', { body: { name: 'Mira' } })).body;
     const t = (await call('/tournaments', { body: { format: 'nested' } })).body.tournament;

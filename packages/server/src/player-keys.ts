@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from '
 import { dirname } from 'node:path';
 import { RuleError } from '@risk/engine';
 import { ZERG_NAMES } from './bot.js';
+import { RateLimiter } from './rate-limit.js';
 
 /**
  * Player keys (owner's choice "A": self-serve, rate-limited, no invite). A key names one player on the leaderboard:
@@ -91,6 +92,8 @@ export class PlayerKeyStore {
   /** Recent issues (last 24 h), for the limits. The IP is kept only for the window. */
   private issued: { at: number; ip: string }[] = [];
   enabled = true;
+  /** Key tries per client (the MCP use_player_key tool), so keys cannot be guessed through it: 10 per 15 minutes. */
+  tryLimiter = new RateLimiter(10, 15 * 60_000);
   /** Extra reserved names (the app adds the AI characters' ids and names). Returns why, or null. */
   reserved: (name: string) => string | null = builtInReservedName;
 

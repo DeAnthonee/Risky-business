@@ -23,7 +23,7 @@ number of sets traded and each player's total reinforcement income are public by
 gives away territory count and continent captures behind the fog, a trade-off accepted for threat assessment). Any seated player can also open the spectator view (or
 `spectate_game`) and see the whole board. Decide whether fog games should restrict spectating by seated players. The tournament feed (`subscribe_tournament`)
 is the same: it refuses a socket that sends an entrant token, but an entrant can subscribe without one and see every
-table, their own included, from the spectator view. A game's link-preview picture (`/api/og/game/:id.png`) shows its
+table, their own included, from the spectator view. A game's link-preview picture (`/og/game/:id.png`) shows its
 owners' colours under fog too (no army numbers), so it reveals nothing the spectator view does not.
 
 The same gap applies to **player-type labels** (who is Claude Sonnet, who is Delove; [http-api.md](http-api.md#player-type-labels)):

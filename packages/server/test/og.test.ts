@@ -48,7 +48,7 @@ describe('link previews', () => {
     expect(meta(html, 'og:title')).toBe('Friday night · Risky Business');
     expect(meta(html, 'og:description')).toMatch(/^Four Crowns, 2 seats\. Playing, turn 1: 2 of 2 players left\.$/);
     expect(meta(html, 'og:url')).toBe(`${base}/?game=${room.id}`);
-    expect(meta(html, 'og:image')).toBe(`${base}/api/og/game/${room.id}.png?v=${room.state.version}`);
+    expect(meta(html, 'og:image')).toBe(`${base}/og/game/${room.id}.png?v=${room.state.version}`);
     expect(meta(html, 'twitter:card')).toBe('summary_large_image');
   });
 
@@ -74,13 +74,13 @@ describe('link previews', () => {
     store.tournaments.start(t.id);
     html = await (await fetch(`${base}/?tournament=${t.id}`)).text();
     expect(meta(html, 'og:description')).toMatch(/Round 1 in play\.$/);
-    expect(meta(html, 'og:image')).toContain(`/api/og/game/${t.rounds[0].matches[0].gameId}.png`);
+    expect(meta(html, 'og:image')).toContain(`/og/game/${t.rounds[0].matches[0].gameId}.png`);
     for (const m of t.rounds[0].matches) if (m.gameId) store.get(m.gameId)!.close('admin');
   });
 
-  it('the board picture is a PNG, cacheable for a minute; lobbies and unknown games are 404', async () => {
+  it('the board picture is a PNG outside /api, cacheable for a minute; lobbies and unknown games are 404', async () => {
     const room = started();
-    const res = await fetch(`${base}/api/og/game/${room.id}.png`);
+    const res = await fetch(`${base}/og/game/${room.id}.png`);
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toBe('image/png');
     expect(res.headers.get('cache-control')).toBe('public, max-age=60');
@@ -89,11 +89,12 @@ describe('link previews', () => {
     expect(png.readUInt32BE(16)).toBe(1200); // IHDR width
     expect(png.readUInt32BE(20)).toBe(630); // IHDR height
     const { room: lobby } = store.create('Lobby', {}, 'Host');
-    expect((await fetch(`${base}/api/og/game/${lobby.id}.png`)).status).toBe(404);
-    expect((await fetch(`${base}/api/og/game/NOPE12.png`)).status).toBe(404);
-    expect((await fetch(`${base}/api/og/game/${room.id}.jpg`)).status).toBe(404);
-    // Every other /api route stays no-store.
+    expect((await fetch(`${base}/og/game/${lobby.id}.png`)).status).toBe(404);
+    expect((await fetch(`${base}/og/game/NOPE12.png`)).status).toBe(404);
+    expect((await fetch(`${base}/og/game/${room.id}.jpg`)).status).toBe(404);
+    // /api stays no-store throughout (hard rule 6), and the old /api path is not the picture.
     expect((await fetch(`${base}/api/games`)).headers.get('cache-control')).toBe('no-store');
+    expect((await fetch(`${base}/api/og/game/${room.id}.png`)).headers.get('content-type')).not.toBe('image/png');
   });
 
   it('renders once per game version', async () => {

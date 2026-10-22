@@ -5,7 +5,7 @@ import type { GameRoom, Store } from './store.js';
 
 /**
  * Link previews (Open Graph / Twitter cards) for shared links: the tags the server puts in index.html for
- * `/?game=ID`, `/?tournament=ID` and the home page, and the board picture at `GET /api/og/game/:id.png`.
+ * `/?game=ID`, `/?tournament=ID` and the home page, and the board picture at `GET /og/game/:id.png` (outside /api).
  *
  * The picture is built from the spectator view and shows only who holds each territory (owner colours), plus an army
  * dot per territory in games without fog. Under fog of war there are no army dots at all, so it shows nothing the
@@ -45,7 +45,7 @@ export function ogTags(store: Store, query: Record<string, unknown>, origin: str
     title = `${room.name} · ${SITE}`;
     description = `${map.name.replace(/ \(\d+\)$/, '')}, ${room.state.options.maxPlayers} seats${room.state.options.fogOfWar ? ', fog of war' : ''}. ${gameStatus(room)}.`;
     url = `${origin}/?game=${encodeURIComponent(room.id)}`;
-    image = `${origin}/api/og/game/${encodeURIComponent(room.id)}.png?v=${room.state.version}`;
+    image = `${origin}/og/game/${encodeURIComponent(room.id)}.png?v=${room.state.version}`;
   } else if (tournament) {
     const people = tournament.entrants.filter((e) => !e.isBot).length;
     const champion = tournament.champion ? tournament.entrants.find((e) => e.id === tournament.champion)?.name : null;
@@ -56,7 +56,7 @@ export function ogTags(store: Store, query: Record<string, unknown>, origin: str
     url = `${origin}/?tournament=${encodeURIComponent(tournament.id)}`;
     // The picture is the board of its newest table being played (or last played), if any.
     const table = [...(tournament.rounds.at(-1)?.matches ?? [])].reverse().find((m) => m.gameId && store.get(m.gameId));
-    if (table?.gameId) image = `${origin}/api/og/game/${encodeURIComponent(table.gameId)}.png?v=${store.get(table.gameId)!.state.version}`;
+    if (table?.gameId) image = `${origin}/og/game/${encodeURIComponent(table.gameId)}.png?v=${store.get(table.gameId)!.state.version}`;
   }
   const tags: [string, string, string][] = [
     ['property', 'og:site_name', SITE],

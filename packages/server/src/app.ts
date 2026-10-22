@@ -93,10 +93,10 @@ export function createRiskServer(store: Store, opts: AppOptions = {}): RiskServe
     res.setHeader('Cache-Control', 'no-store');
     next();
   });
-  // Link previews: the board picture for a shared game link. The one /api route a cache may keep, for a minute
-  // (crawlers fetch it rarely; the page's og:image URL carries the game version, so a new move is a new URL).
+  // Link previews: the board picture for a shared game link, outside /api (which stays no-store, hard rule 6). A cache
+  // may keep it for a minute: crawlers fetch it rarely, and the page's og:image URL carries the game version.
   const ogImages = new OgImages();
-  app.get('/api/og/game/:file', (req, res, next) => {
+  app.get('/og/game/:file', (req, res, next) => {
     const m = /^([A-Za-z0-9]+)\.png$/.exec(String(req.params.file));
     const room = m ? store.get(m[1]) : undefined;
     if (!room || room.closed || room.state.phase === 'lobby') return res.status(404).json({ error: 'Game not found' });
@@ -177,7 +177,7 @@ export function createRiskServer(store: Store, opts: AppOptions = {}): RiskServe
     // The page carries link-preview tags for the game or tournament in its query (og:/twitter:, see og.ts). The built
     // index.html is read once; absolute URLs come from this request (no hard-coded host).
     const indexHtml = readFileSync(join(clientDir, 'index.html'), 'utf8');
-    app.get(/^(?!\/api|\/ws|\/healthz|\/mcp).*/, (req, res) => {
+    app.get(/^(?!\/api|\/ws|\/healthz|\/mcp|\/og\/).*/, (req, res) => {
       noCache(res);
       const origin = `${req.protocol}://${req.get('host')}`;
       res.type('html').send(withOgTags(indexHtml, ogTags(store, req.query, origin)));

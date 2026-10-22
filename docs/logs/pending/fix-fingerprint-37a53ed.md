@@ -1,0 +1,1 @@
+delove-gpu: - 2026-10-22 #299 engine fingerprint re-verified at `37a53ed` (#291 stall fog lift, made bit-identical when off by #292; #293 changes no RULE_FILES): `verify.py --models --ranker delove@2 --model delove@12.pt` on the RTX 4060, 5,868,391 steps identical, stage check 324/324 with 0 near-tie flips, delove@12 20,229/20,229 top moves the same as its ONNX seat.

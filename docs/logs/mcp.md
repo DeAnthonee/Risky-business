@@ -8,6 +8,7 @@ commit hash instead. **Append a line in the same PR** as any change to this area
 
 - 2026-10-21 #178 the `map` tool and the `map` game setting accept generated board ids (`gen1-s<seed>-p<seats>-t<territories>`)
 - 2026-10-21 #174 turn timer: `get_state`, `wait_for_turn` and `act` print a `TURN TIMER ... YOU HAVE Ns LEFT` line with the timeout rule, their descriptions warn agents, events show "skipped (timeout)"
+- 2026-10-22 #171 `add_bot` takes `kind: "zerg"` to seat a Zerg (reptile name, no `name`); `RiskApi.addBot(gameId, token, name?, kind?)` returns the seat's `name`
 - 2026-10-21 #166 `create_tournament` returns the HOST TOKEN (remembered on the connection); `start_tournament` needs it (`hostToken`) or the admin key; `RiskApi.createTournament` returns `hostToken`, `startTournament(key, id)` takes the host token or the admin key
 - 2026-10-20 #138 `leaderboard` and `ranked_profile` take an optional `board: "training"`; `create_game` takes `board: "training"` + the characters write `key` for yardstick games
 - 2026-10-20 #119 `leaderboard` takes an optional `season` and lists the seasons; `RiskApi.rankings(season?)`, `RiskApi.rankingSeasons()`

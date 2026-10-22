@@ -307,13 +307,23 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
 
   server.registerTool(
     'add_bot',
-    { description: 'Add a built-in computer player to a game you host (lobby only).', inputSchema: { gameId: gameIdSchema, name: z.string().max(24).optional(), token: tokenSchema, as: asSchema } },
-    async ({ gameId, name, token, as }) => {
+    {
+      description:
+        'Add a computer player to a game you host (lobby only). kind "bot" (default) is the built-in bot. kind "zerg" is a Zerg: a rushing house bot that never attacks a fellow Zerg while anyone else is alive. Each Zerg gets a reptile name (Godzilla, Cobra, Komodo, ...), so leave name out. Zergs are regular players and rank like any seat.',
+      inputSchema: {
+        gameId: gameIdSchema,
+        name: z.string().max(24).optional(),
+        kind: z.enum(['bot', 'zerg']).optional().describe('"bot" (default) or "zerg"'),
+        token: tokenSchema,
+        as: asSchema,
+      },
+    },
+    async ({ gameId, name, kind, token, as }) => {
       try {
         const id = gameId.toUpperCase();
         const t = requireToken(id, token, as);
-        const r = await api.addBot(id, t, name);
-        return text(`Added bot ${r.playerId}.\n\n${await stateText(id, t)}`);
+        const r = await api.addBot(id, t, name, kind);
+        return text(`Added ${kind === 'zerg' ? 'Zerg' : 'bot'} ${r.name ? `${r.name} (${r.playerId})` : r.playerId}.\n\n${await stateText(id, t)}`);
       } catch (e) {
         return errorText(e);
       }

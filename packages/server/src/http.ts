@@ -15,6 +15,7 @@ export function mapInfo(m: MapDef) {
 }
 import { CHARACTER_DATA_NOTICE, RiskHttpError } from '@risk/mcp';
 import type { GameRoom, RankingBoard, Store } from './store.js';
+import { BOT_KINDS, type BotKind } from './bot.js';
 import type { CharacterStore } from './characters.js';
 import type { CreateTournamentSpec } from './tournaments.js';
 
@@ -269,10 +270,11 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
     requireHost,
     wrap((req, res) => {
       const room = req.room!;
-      const n = room.state.players.filter((p) => p.isBot).length + 1;
-      const name = String(req.body?.name ?? `Bot ${n}`);
-      const { playerId } = room.join(name, true);
-      res.status(201).json({ playerId, state: room.view(req.playerId!) });
+      const kind = parseBotKind(req.body?.kind);
+      const name = req.body?.name == null ? undefined : String(req.body.name);
+      const { playerId } = room.addBot(kind, name);
+      const seat = room.state.players.find((p) => p.id === playerId)!;
+      res.status(201).json({ playerId, name: seat.name, state: room.view(req.playerId!) });
     }),
   );
 
@@ -692,6 +694,13 @@ export function parseBoard(raw: unknown, allowPublic = false): RankingBoard | un
   if (raw === undefined || raw === null || (allowPublic && raw === 'public')) return undefined;
   if (raw === 'training') return 'training';
   throw new RiskHttpError(`board must be "training"${allowPublic ? ' or "public"' : ''}`, 400);
+}
+
+/** A bot kind from an untrusted body: "bot" (the default) or "zerg", or a 400 for anything else. */
+export function parseBotKind(raw: unknown): BotKind {
+  if (raw === undefined || raw === null) return 'bot';
+  if (BOT_KINDS.includes(raw as BotKind)) return raw as BotKind;
+  throw new RiskHttpError(`kind must be one of ${BOT_KINDS.map((k) => `"${k}"`).join(', ')}`, 400);
 }
 
 /** Options from an untrusted body: unknown keys and wrong types are a 400 with a message listing them. */

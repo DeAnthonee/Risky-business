@@ -380,13 +380,76 @@ npm run delove:horde -- --candidate delove@10 --tables classic:4:3,classic:6:3 -
   solo table (no fillers) ends as soon as the candidate is out, since the last Zergs step aside.
 - `hold` (the default `--metric`): at a solo table, 1 for a win, else rounds survived / 30 (capped at 0.99); with
   fillers, the candidate's place among the non-Zerg seats (1 = best, 0 = first out). Also reported: `win`, `place`,
-  `rounds`, `kills`.
+  `rounds`, `kills` and `points` (leaderboard points, Zerg seats ranked like any seat for now). With `--base` every
+  metric gets a paired 95% interval; the verdict is on `--metric`. Seeds are fixed by `--seed` (default 1), so keep
+  the default to compare successive Delove versions on the same games.
+- `--zerg` picks the horde (default `zerg@1`, the fixed reference opponent; `zerg-branch@1` is the searching Zerg).
+  `--base-zerg` plays the same candidate against a second horde on the same games: a negative difference means the
+  `--zerg` horde is the stronger one.
 - Worker threads (`--procs`, default all cores but one): 1000 games in about 17 s for delove@10.
 - First result (2026-10-21, 100 games per table): delove@10 vs jacob-sensei@2, pooled hold 0.477 vs 0.361, diff
   +0.115 (95% +0.081 to +0.150), better. Neither survives a solo rush often: delove@10 wins about 1% of solo tables
   (Jacob 0%) and 7-20% of the tables with fillers.
 - For scenarios or training data, the agents play in any self-play command:
-  `npm run delove -- play --agents delove@10,zerg@1,zerg@1,zerg@1`.
+  `npm run delove -- play --agents delove@10,zerg@1,zerg@1,zerg@1`. `scripts/cycles/horde.jobs` is a ready job file
+  for `generate.sh` (about 4,000 games, the branch seat against 2-3 Zergs with Jacob fillers, league settings), not
+  part of any cycle until the captain adds it. Its seat is `delove-branch@1:range-horde`: `delove-branch@1:range`
+  whose rollouts play the Zerg seats with the horde bot (src/horde-branch.ts; a Zerg move off the candidate list falls
+  back to the teacher's pick, never an attack on a fellow Zerg), so the search sees the gang-up coming. The plain
+  branch seat imagines the Zergs as its teacher. CPU time: about 22 CPU-minutes per 1,000 games with the cycle-13
+  branch settings (0.7 s a game at 4p vs 3 Zergs, 2.4 s with a Jacob filler, 1.2 s at 6p).
+
+### The searching Zerg (`zerg-branch@1`)
+
+Branch and score for the horde (src/zerg-branch.ts): the Zerg's own move and up to 3 alternatives (never an attack on a
+fellow Zerg) are each played on 8 copies of the board with common dice, 2 rounds forward, Zergs playing `zerg@1` and the
+prey modelled by Jacob Sensei 2, and scored for the horde: prey knocked out × kill weight + the horde's share of the
+alive players' armies and income. It is the teacher for a trained Zerg network (docs/zergs.md). Its numbers come from
+`ZERG_BRANCH_OPTIONS`, `_ROLLOUTS`, `_HORIZON`, `_KILL_WEIGHT` and `_MARGIN`. A Zerg agent's id must start with `zerg`:
+self-play seats named so are one horde.
+
+First result (2026-10-21, delove@10 as the candidate, `--base-zerg zerg@1`, same games): **no gain yet**. Defaults
+(4 options, 8 rollouts, horizon 2, kill weight 1) over the 5 default tables: Delove's hold diff +0.003 (95% -0.028 to
++0.035). Kill weight 3, 12 rollouts, horizon 3 on classic:4:2, 6:3 and 6:2: +0.006 (-0.051 to +0.062). Both are even
+with the hand-coded Zerg, so the search is not yet a better teacher. Next: tune `zerg@1`'s numbers (a `zerg@2`) and
+give the search a network's alternatives.
+
+### Tuning the Zerg (`npm run delove:zerg-tune`)
+
+`zerg@1`'s judgement numbers are `ZERG_1_PARAMS` in packages/engine/src/zerg.ts (attack odds per kind of target, the
+knock-out bonus, the target rule's weights, occupation share, staging pull, the sacrifice switch). Four later
+behaviours are terms that are 0 (off) in `ZERG_1_PARAMS`, so `zerg@1` plays exactly as recorded (a golden test guards it):
+
+- `strikeRatio`: synchronised strike. The horde holds its attacks on the target until its border armies reach that
+  multiple of the target's armies, then all Zergs hit it.
+- `cardHoard` / `hoardFinish`: trade only when forced until the target is down to `hoardFinish` territories next to me,
+  then cash in to finish it.
+- `capitalBonus`: snipe prey capitals under Capital Conquest.
+- `wallWeight`: don't stage reinforcements against big stacks.
+
+The tuner can switch them on. The tuner climbs from
+them with joint moves. Each generation makes `--children` candidates (default 8), each moving `--knobs` numbers at once
+(default 3), and plays every child and the current best on the same fresh games against each `--prey` (default
+delove@10) on the default horde tables. The best child goes to confirmation on `--confirm-games` fresh games per table
+(default 80), and replaces the best when that 95% interval clears 0. Confirmation uses fresh games only, since the first
+set picked the winner.
+
+- Fitness `--fitness rush` (the default) is the horde's own goal per game: 1 if the prey was knocked out, up to +0.5
+  for doing it fast (by 40 rounds), -1 at the turn limit. The gate reports it as `rush` too.
+- `--fitness hold` (the prey's survival) saturates: a first run of 15 single-pair generations on it found nothing
+  beyond ±0.02.
+- `--knob-set new` moves only the later behaviours' knobs.
+- Run 2 (2026-10-21, rush fitness, the 12 original numbers): 6 generations of 8 joint children, nothing confirmed. On
+  fresh games every best child landed within ±0.04 of `zerg@1`, so re-tuning the existing numbers is at a ceiling and
+  new behaviour is the lever (as Jacob Sensei 2's new terms were for Jacob).
+
+```bash
+npm run delove:zerg-tune -- --out models/delove/zerg-tune-run2.json --generations 15
+```
+
+The file holds the numbers and every generation's result; it stays on the training PC. Once the result passes a gate
+(`npm run delove:horde -- --candidate delove@10 --zerg zerg@2 --base-zerg zerg@1`), copy it to `models/delove/zerg@2.json`:
+register.ts loads `zerg@N.json` (N >= 2) as agent `zerg@N`. `zerg@1` stays fixed as the reference horde.
 
 ## Jacob Sensei (`jacob-sensei@1`): a teacher that doesn't stall
 

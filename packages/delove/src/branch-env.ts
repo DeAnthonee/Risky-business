@@ -75,11 +75,18 @@ function rolloutNet(v: string | undefined, models: string, ranker: NetScorer | n
  * DELOVE_BRANCH_ROLLOUT=<model> has that network (e.g. delove@5) play the rollouts in every seat instead of the teacher,
  * <model>:self in the decider's seat only (unset: the teacher).
  */
-export function branchFromEnv(dir = modelsDir(), env: NodeJS.ProcessEnv = process.env, score?: BranchScore): Agent {
+export function branchFromEnv(
+  dir = modelsDir(),
+  env: NodeJS.ProcessEnv = process.env,
+  score?: BranchScore,
+  /** Wraps the rollout teacher's pick (e.g. horde-branch.ts: Zerg seats play the horde bot) for a seat with its own id. */
+  variant?: { id: string; rolloutPick: (pick: (ctx: StepContext) => number) => (ctx: StepContext) => number },
+): Agent {
   const tuned = tunedParams(dir);
   const teacherId = env.DELOVE_BRANCH_TEACHER ?? [...tuned.sensei.keys()].pop() ?? 'delove-teacher@1';
   const jacobParams = tuned.jacob.get(teacherId);
-  const rolloutPick = jacobParams ? jacobPickWith(jacobParams.params, jacobParams.duel) : teacherPickWith(tuned.sensei.get(teacherId) ?? DEFAULT_TEACHER_PARAMS);
+  const teacherPick = jacobParams ? jacobPickWith(jacobParams.params, jacobParams.duel) : teacherPickWith(tuned.sensei.get(teacherId) ?? DEFAULT_TEACHER_PARAMS);
+  const rolloutPick = variant ? variant.rolloutPick(teacherPick) : teacherPick;
   const rankerPath = join(dir, `${env.DELOVE_BRANCH_RANKER ?? 'delove@2'}.onnx`);
   const ranker = existsSync(rankerPath) ? new NetScorer(rankerPath) : null;
   // DELOVE_BRANCH_VALUE > 0 blends the ranker's win chance into branch scores (needs its .value.onnx).
@@ -87,7 +94,7 @@ export function branchFromEnv(dir = modelsDir(), env: NodeJS.ProcessEnv = proces
   const valuer = existsSync(rankerPath) && existsSync(valuePath) ? new NetScorer(rankerPath, valuePath) : null;
   const num = (k: string, d: number) => (env[k] === undefined ? d : Number(env[k]));
   const search = branchAgent(
-    score === undefined ? 'delove-branch@1' : `delove-branch@1:${score}`,
+    variant?.id ?? (score === undefined ? 'delove-branch@1' : `delove-branch@1:${score}`),
     rolloutPick,
     ranker,
     {

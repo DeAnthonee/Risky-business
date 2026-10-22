@@ -45,6 +45,11 @@ Boards are compact. `territories` lists the territory ids once; a board is an ar
 `[owner, armies]` cell per territory, where `owner` is an index into `players` (`-1` = nobody, e.g. a blizzard).
 A **seen** board is the same, with `null` where the territory was hidden from that player by fog.
 
+When a game is filed, `room.agents` maps each seat to its self-declared [player type](http-api.md#player-type-labels)
+(only seats that declared one, plus `"bot"` and `"zerg"` seats); the `index.jsonl` line has it as each player's
+`agent`. It is written only when the game is over, never into the live journal. Optional, so `RECORD_VERSION` is
+unchanged.
+
 A training game ([training leaderboard](character-league.md#training-leaderboard)) has `"board": "training"` in
 `room` and on its `index.jsonl` line: leave these out of Delove's training data unless you mean to use them.
 

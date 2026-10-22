@@ -11,7 +11,7 @@ const spectatorFrames = new WeakMap<GameRoom, { change: ChangeMessage; json: str
 export function spectatorFrame(room: GameRoom, m: ChangeMessage, commit: string): string {
   const cached = spectatorFrames.get(room);
   if (cached && cached.change === m) return cached.json;
-  const json = JSON.stringify({ type: 'state', state: room.view(null), events: redactEvents(m.state, null, m.events), version: m.version, host: room.hostId, name: room.name, you: null, commit });
+  const json = JSON.stringify({ type: 'state', state: room.spectatorView(), events: redactEvents(m.state, null, m.events), version: m.version, host: room.hostId, name: room.name, you: null, commit });
   spectatorFrames.set(room, { change: m, json });
   return json;
 }
@@ -148,7 +148,7 @@ export function attachWebSocket(server: Server, store: Store, commit: () => stri
             };
             r.on('closed', onClosed);
             enter(r, playerId);
-            send({ type: 'state', state: r.view(playerId), events: [], version: r.state.version, host: r.hostId, name: r.name, you: playerId, commit: commit(), reqId: msg.reqId });
+            send({ type: 'state', state: playerId ? r.view(playerId) : r.spectatorView(), events: [], version: r.state.version, host: r.hostId, name: r.name, you: playerId, commit: commit(), reqId: msg.reqId });
             send({ type: 'chat_history', messages: r.chatFor(playerId).slice(-100) });
             return;
           }

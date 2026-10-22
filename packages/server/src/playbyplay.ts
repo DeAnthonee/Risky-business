@@ -174,7 +174,7 @@ export function narrate(record: GameRecord, opts: NarrateOptions = {}): PlayByPl
     const se = e as AnyGameEvent;
     if (se.type === 'storm') {
       const hit = Object.entries(se.losses);
-      return `  ⛈ Storm after ${se.rounds} rounds with no capture${hit.length ? `: ${hit.map(([t, n]) => `${where(t)} −${n}`).join(', ')}` : ''}`;
+      return `  ⛈ Storm on all big stacks after ${se.rounds} rounds with no capture${hit.length ? `: ${hit.map(([t, n]) => `${where(t)} −${n}`).join(', ')}` : ''}`;
     }
     if (se.type === 'stalemate') return `  ⚖ Stalemate after ${se.rounds} rounds with no capture: decided on standing, ${se.standing.map((p, i) => `${i + 1}. ${who(p)}`).join(', ')}`;
     switch (e.type) {

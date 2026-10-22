@@ -1,0 +1,1 @@
+engine: - 2026-10-22 #294 the storm's texts say it hits "all big stacks" (the lord's option b: no idle exemption); the off test covers all three stall options, and a capture is recorded with only stallEnd on

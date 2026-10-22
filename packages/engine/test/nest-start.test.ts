@@ -175,6 +175,31 @@ describe('blizzards on generated nested boards', () => {
     }
   }
 
+  it('a blizzard on a spot that cannot move alone thaws with its neighbour, and the board gets both back elsewhere (CI flake on #258)', () => {
+    // On this board t13's only way out runs through t14: with both frozen, the blizzard on t13 can go nowhere alone.
+    const mapId = 'gen1-s1533255644-p3-t15';
+    const seats = ['a', 'b', 'c'];
+    const spots = { a: 't04', b: 't09', c: 't13' };
+    let hits = 0;
+    const opts: Partial<GameOptions> = { map: mapId as GameOptions['map'], autoSetup: true, capitals: true, blizzards: 2 };
+    for (let seed = 1; seed <= 3000; seed++) {
+      // The deal startOnSpots starts from; only the seeds that freeze t13 and t14 are the case (about 1 in 180).
+      const l = lobby(seats, opts, seed);
+      const before = startGame({ ...l, options: { ...l.options, randomDeal: true, autoSetup: false } }).state.blizzards;
+      if (!(before.includes('t13') && before.includes('t14'))) continue;
+      hits++;
+      const s = startOnSpots(lobby(seats, opts, seed), spots, seeded(seed)).state;
+      const where = `seed ${seed} (${before.join(',')} -> ${s.blizzards.join(',')})`;
+      expect(s.blizzards, where).toHaveLength(2);
+      expectPlayable(s, seats, where);
+      for (const [id, t] of Object.entries(spots)) expect(s.territories[t].owner, where).toBe(id);
+      // The deal stays even: territories differ by at most one, as in a plain start.
+      const held = seats.map((id) => count(s, id));
+      expect(Math.max(...held) - Math.min(...held), where).toBeLessThanOrEqual(1);
+    }
+    expect(hits).toBeGreaterThan(0); // the case really came up
+  });
+
   it('max blizzards never split a generated board (2-10 seats, every board size, many seeds), with capitals and auto setup', () => {
     let tables = 0;
     for (let n = 2; n <= 10; n++)

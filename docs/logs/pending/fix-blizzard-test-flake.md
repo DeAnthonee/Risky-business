@@ -1,0 +1,2 @@
+engine: - 2026-10-22 #PR `startOnSpots`: when a blizzard on a spot can only thaw together with its neighbour, as many blizzards freeze again elsewhere where the rule allows (taken from the players who gained the thawed territories), so a parent table no longer ends with no blizzards (CI flake on #258)
+server: - 2026-10-22 #PR nested-tournament test: a fixed tournament seed, and the per-table blizzard check allows fewer than asked (never more) instead of requiring at least one

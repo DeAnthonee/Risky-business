@@ -10,7 +10,8 @@ import { RuleError, type ActionResult, type GameEvent, type GameState, type Play
  * It is the normal start (`startGame`: turn order, deck, blizzards, neutrals, a random deal), then each spot is
  * swapped, owner and armies together, with a territory its player was dealt elsewhere, so every player keeps the same
  * number of territories and armies. A blizzard that fell on a spot moves to another open territory where pickBlizzards
- * could have put it (or, with none left, thaws: one blizzard fewer, the spot the player's), and a spot dealt
+ * could have put it (or, with none left, thaws with any blizzards that would cut it off, and as many freeze again
+ * elsewhere where the rule allows, taken from the players who gained the thawed ones), and a spot dealt
  * to the neutral is swapped like any other. With `autoSetup` the remaining armies are then placed at random through
  * ordinary setup moves, and the game is at its first turn as usual; without it the game waits in setup as usual.
  *
@@ -47,10 +48,10 @@ export function startOnSpots(lobby: GameState, spots: Record<PlayerId, Territory
         state.territories[moved] = { owner: null, armies: 0 };
         state.blizzards = state.blizzards.map((t) => (t === spot ? moved : t));
       } else {
-        // Nowhere it may go (the board already has as many blizzards as the rules allow): it thaws instead, one blizzard
-        // fewer. The spot is the player's with one army, taken from the armies they have left to place. A spot ringed
-        // by blizzards would be cut off once open, so the blizzards next to its open patch thaw too, one at a time,
-        // until the open territories are one network again; each goes the same way to its spot's player, else to this one.
+        // Nowhere it may go alone (no single open territory keeps the rule, e.g. the spot's only way out is another
+        // blizzard): it thaws. A spot ringed by blizzards would be cut off once open, so the blizzards next to its open
+        // patch thaw too, one at a time, until the open territories are one network again. Each thawed territory goes,
+        // with one army from the armies left to place, to its spot's player, else to this one.
         state.blizzards = others;
         const thawed = [spot];
         while (!playable(map, new Set(state.blizzards))) {
@@ -61,11 +62,26 @@ export function startOnSpots(lobby: GameState, spots: Record<PlayerId, Territory
           state.blizzards = state.blizzards.filter((t) => t !== next);
           thawed.push(next);
         }
+        const gainers: PlayerId[] = [];
         for (const t of thawed) {
           const owner = t === spot ? player : (wanted.find(([, s]) => s === t)?.[0] ?? player);
           state.territories[t] = { owner, armies: 1 };
           const p = state.players.find((x) => x.id === owner)!;
           p.armiesToPlace = Math.max(0, p.armiesToPlace - 1);
+          gainers.push(owner);
+        }
+        // Then the board gets its blizzards back where the rule allows: for each thawed territory, one of its new
+        // owner's other territories (never a spot) freezes and its army goes back to place, so the deal stays even.
+        // With none that fits, the board keeps fewer blizzards.
+        for (const g of gainers) {
+          const fits = Object.keys(state.territories).filter(
+            (t) => state.territories[t].owner === g && !spotSet.has(t) && !thawed.includes(t) && playable(map, new Set([...state.blizzards, t])),
+          );
+          if (fits.length === 0) continue;
+          const t = pick(fits);
+          state.players.find((x) => x.id === g)!.armiesToPlace += state.territories[t].armies;
+          state.territories[t] = { owner: null, armies: 0 };
+          state.blizzards = map.territoryIds.filter((x) => x === t || state.blizzards.includes(x));
         }
       }
       for (const e of events) if (e.type === 'blizzards') e.territories = [...state.blizzards];

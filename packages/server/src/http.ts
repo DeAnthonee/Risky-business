@@ -219,7 +219,8 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
       const boardOfGame = (g: { board?: string; tournamentId?: string }) => (g.board === 'training' ? 'training' : g.tournamentId ? 'tournament' : 'public');
       const games = store.archive
         .list(Infinity)
-        .filter((g) => g.finished && g.winner)
+        // Won games, and tables decided on standing (nested tournaments), which have a decided winner.
+        .filter((g) => (g.finished || g.decided) && g.winner)
         .filter((g) => filter === null || boardOfGame(g) === filter)
         .slice(0, limit)
         .map((g) => ({
@@ -235,6 +236,7 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
           endedAt: g.endedAt,
           winner: g.winner,
           reason: g.reason,
+          ...(g.decided ? { decided: true } : {}),
           turns: g.turns,
           players: g.players.map((p) => ({ id: p.id, name: p.name, isBot: p.isBot, characterId: p.characterId, place: p.place, ...(p.agent ? { agent: p.agent } : {}) })),
         }));

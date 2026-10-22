@@ -13,6 +13,7 @@ import {
   type RecordEntry,
   type RecordHeader,
   type ScenarioRef,
+  type RecordDecision,
 } from '@risk/engine';
 
 /** One committed change to a room, as the archive needs it. */
@@ -63,8 +64,10 @@ export interface ArchiveIndexEntry {
   endedAt: number;
   finished: boolean;
   endedBecause?: string;
+  /** Stopped and decided on standing (a nested tournament table at its round's end): `winner` is the decided winner. */
+  decided?: true;
   winner: { id: string; name: string } | null;
-  reason: 'domination' | 'capitals' | null;
+  reason: 'domination' | 'capitals' | 'standing' | null;
   turns: number;
   steps: number;
   players: { id: string; name: string; isBot: boolean; characterId: string | null; place: number | null; agent?: string }[];
@@ -160,7 +163,7 @@ export class GameArchive {
   }
 
   /** Turn a room's journal into its finished record. endedBecause: why it stopped, when nobody won. */
-  finish(room: ArchivedRoom, endedBecause?: string) {
+  finish(room: ArchivedRoom, endedBecause?: string, decided?: RecordDecision) {
     const id = room.recordId;
     if (!this.dir || !id) return;
     room.recordId = undefined;
@@ -174,7 +177,7 @@ export class GameArchive {
       // The game is over, so the seats' player types can go public with the record.
       if (Object.keys(room.agents).length) header.room = { ...header.room, agents: { ...room.agents } };
       const entries = lines.slice(1).map((l) => JSON.parse(l) as RecordEntry);
-      const record = assembleRecord(header, entries, room.state, Date.now(), endedBecause);
+      const record = assembleRecord(header, entries, room.state, Date.now(), endedBecause, decided);
       const month = new Date(record.startedAt).toISOString().slice(0, 7);
       const rel = `games/${month}/${id}.json`;
       mkdirSync(join(this.dir, 'games', month), { recursive: true });
@@ -316,6 +319,7 @@ function indexEntry(r: GameRecord, file: string): ArchiveIndexEntry {
     endedAt: r.endedAt,
     finished: r.outcome.finished,
     ...(r.outcome.endedBecause ? { endedBecause: r.outcome.endedBecause } : {}),
+    ...(r.outcome.decided ? { decided: true as const } : {}),
     winner: winner ? { id: winner.id, name: winner.name } : null,
     reason: r.outcome.reason,
     turns: r.turns.length,

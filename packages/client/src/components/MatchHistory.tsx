@@ -77,7 +77,7 @@ export function MatchHistory({ openRooms, onWatch }: { openRooms: Set<string>; o
                   <span className="match-winner">
                     {winner ? <CharacterName name={winner.name} profileKey={profileKey(winner)} /> : g.winner.name}
                   </span>
-                  <span className="match-how">{g.reason === 'capitals' ? 'took every capital' : 'conquered the world'}</span>
+                  <span className="match-how">{g.reason === 'capitals' ? 'took every capital' : g.reason === 'standing' ? 'decided on standing' : 'conquered the world'}</span>
                   <time className="match-when" dateTime={new Date(g.endedAt).toISOString()} title={new Date(g.endedAt).toLocaleString()}>
                     {ago(g.endedAt, now)}
                   </time>

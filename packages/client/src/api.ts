@@ -78,7 +78,9 @@ export interface MatchSummary {
   startedAt: number;
   endedAt: number;
   winner: { id: string; name: string };
-  reason: 'domination' | 'capitals' | null;
+  /** 'standing': a nested tournament table decided on standing at its round's end (`decided`). */
+  reason: 'domination' | 'capitals' | 'standing' | null;
+  decided?: boolean;
   turns: number;
   players: { id: string; name: string; isBot: boolean; characterId: string | null; place: number | null }[];
 }

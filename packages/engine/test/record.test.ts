@@ -19,11 +19,12 @@ import {
   verifyRecord,
   type GameRecord,
   type GameState,
+  type RecordDecision,
   type RecordEntry,
 } from '../src/index.js';
 
 /** A bot game played to the end (or maxSteps), recorded the way the server records it. */
-function recordedGame(options: { fogOfWar: boolean }, maxSteps = 6000, surrender?: { player: string; atStep: number }): { record: GameRecord; final: GameState } {
+function recordedGame(options: { fogOfWar: boolean }, maxSteps = 6000, surrender?: { player: string; atStep: number }, decided?: RecordDecision): { record: GameRecord; final: GameState } {
   let s = createGame('REC', options, 7);
   s = addPlayer(s, 'a', 'Alice', true);
   s = addPlayer(s, 'b', 'Bob', true);
@@ -48,7 +49,7 @@ function recordedGame(options: { fogOfWar: boolean }, maxSteps = 6000, surrender
     s = state;
   }
   // Through JSON, as it is stored on disk.
-  return { record: JSON.parse(JSON.stringify(assembleRecord(header, entries, s, 1))), final: s };
+  return { record: JSON.parse(JSON.stringify(assembleRecord(header, entries, s, 1, undefined, decided))), final: s };
 }
 
 describe('game records', () => {
@@ -75,6 +76,23 @@ describe('game records', () => {
     expect(record.outcome.eliminations.every((e) => record.steps[e.step].events.some((ev) => ev.type === 'eliminated'))).toBe(true);
     expect(record.outcome.placings).toHaveLength(3);
     expect(record.outcome.board).toEqual(boardOf(final, record));
+  });
+
+  it('records a game stopped and decided on standing: the decided winner, the standing as placings, still replayable', () => {
+    const { record, final } = recordedGame({ fogOfWar: false }, 200, undefined, { standing: ['c', 'a', 'b', 'neutral'], rolls: { a: [3], b: [5] } });
+    expect(final.phase).not.toBe('finished');
+    expect(record.outcome).toMatchObject({ finished: false, endedBecause: 'decided on standing', winner: 'c', reason: 'standing' });
+    // Only real seats: an id that is not a seat is left out.
+    expect(record.outcome.decided).toEqual({ standing: ['c', 'a', 'b'], rolls: { a: [3], b: [5] } });
+    expect(record.outcome.placings).toEqual(['c', 'a', 'b']);
+    expect(verifyRecord(record)).toBeNull();
+    // A game the engine finished itself keeps its own result: a decision is ignored.
+    const won = recordedGame({ fogOfWar: false }, 6000, undefined, { standing: ['b', 'a', 'c'] });
+    expect(won.final.phase).toBe('finished');
+    expect(won.record.outcome.decided).toBeUndefined();
+    expect(won.record.outcome.winner).toBe(won.final.winner);
+    // Without a decision, an unfinished game has no winner, as before.
+    expect(recordedGame({ fogOfWar: false }, 200).record.outcome).toMatchObject({ finished: false, winner: null, reason: null, endedBecause: 'closed before the end' });
   });
 
   it('places only the real seats when a surrender brings a neutral into the game', () => {

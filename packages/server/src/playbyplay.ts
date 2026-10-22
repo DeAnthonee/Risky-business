@@ -97,7 +97,7 @@ export function narrate(record: GameRecord, opts: NarrateOptions = {}): PlayByPl
   const header = [
     `${record.room.name} (${record.room.id}): ${map?.name ?? record.map}, ${seats.length} players${record.fog ? ', fog of war' : ''}`,
     `Players: ${seats.map((p) => p.name).join(', ')}`,
-    winner ? `Winner: ${winner}${record.outcome.reason ? ` (${record.outcome.reason})` : ''} after ${record.turns.length} turns` : `Not finished${record.outcome.endedBecause ? `: ${record.outcome.endedBecause}` : ''}`,
+    winner ? `Winner: ${winner}${record.outcome.reason ? ` (${record.outcome.reason === 'standing' ? "decided on standing at its round's end" : record.outcome.reason})` : ''} after ${record.turns.length} turns` : `Not finished${record.outcome.endedBecause ? `: ${record.outcome.endedBecause}` : ''}`,
     ...(opts.summary ? opts.summary(record) : []),
   ];
 

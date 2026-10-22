@@ -19,7 +19,9 @@ Under `RISK_DATA_DIR/archive/` (persistence on; set `RISK_ARCHIVE=0` to turn rec
 | `index.jsonl` | one line per finished record: map, fog, players and characters, placings, winner, turn and step counts, and the record's file |
 
 A game is recorded from the moment it starts; lobbies that never start leave nothing. A game whose room is closed
-before anyone wins is still filed, with `outcome.finished: false` and `endedBecause`. Records hold every hand and
+before anyone wins is still filed, with `outcome.finished: false` and `endedBecause`. A nested tournament table
+**decided on standing** at its round's end is filed the moment it is decided, like a finished game: see
+[Decided on standing](#decided-on-standing). Records hold every hand and
 the hidden board, so they are only served to the admin. A game takes roughly 0.3 MB (2 players) to 1.6 MB (6 players).
 
 Only the newest 1000 records are kept (`RISK_ARCHIVE_KEEP`; `0` keeps them all), so the archive stays around
@@ -130,6 +132,27 @@ eliminated players from last out to first out. The neutral army is never placed,
 mid-way when a player surrendered (its territories go to a neutral). `outcome.eliminations` still lists that neutral
 when it is wiped out. Records filed before #124 can carry an extra `"neutral"` id in `placings` after a surrender;
 read places by seat (the archive index's `players[].place`) or by finishing order rather than by position.
+
+### Decided on standing
+
+A nested tournament table still playing when its round ends is stopped and decided on standing
+([tournaments.md](tournaments.md)). Its record is filed at that moment (not when the room is swept later), in the same
+format, with the game left where it stopped (`finished: false`: the engine never ended it) and the result the
+tournament used:
+
+```jsonc
+"outcome": { "finished": false, "endedBecause": "decided on standing at its round's end",
+  "winner": "p_ab12", "reason": "standing",
+  "decided": { "standing": ["p_ab12", "p_ef56", "p_cd34"], "rolls": { "p_ab12": [5], "p_ef56": [2] } },
+  "eliminations": [], "placings": ["p_ab12", "p_ef56", "p_cd34"], "board": [[0, 5], [0, 1]] }
+```
+
+`decided.standing` is the order `rankByStanding` gave (territories, then armies, then tie-break dice, then the
+players already out); `rolls` holds the dice of the tied players, when there were any. `winner` is its first and
+`placings` follows it. The steps replay exactly like any record (`verifyRecord`). The archive index marks such a
+record `decided: true`, and match history (`GET /api/history`) lists it with `reason: "standing"`. This is
+additive (a new optional field and a new `reason` value), so `RECORD_VERSION` stays 1: a reader that treats
+`finished: false` as "no result" keeps working, and one that wants the decided result reads `decided`.
 
 ## Replaying and scenarios
 

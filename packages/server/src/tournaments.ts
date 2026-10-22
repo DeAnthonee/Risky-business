@@ -1032,7 +1032,7 @@ export class TournamentManager extends EventEmitter {
       this.scoreTable(m, room);
       m.order = order;
       const names = order.map((eid, i) => `${i + 1}. ${this.entrant(t, eid)?.name ?? '?'}`).join(', ');
-      room.decide(`Round ${round.round} is over: this table was decided on standing (territories, then armies, then dice): ${names}.`, now);
+      room.decide(`Round ${round.round} is over: this table was decided on standing (territories, then armies, then dice): ${names}.`, now, { standing: standing.order, rolls: standing.rolls });
     }
     round.endedAt = now;
     const plan = n.plan!;

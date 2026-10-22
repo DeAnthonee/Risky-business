@@ -101,7 +101,9 @@ round; the boards nest inside each other's territories (the map side: [maps.md](
   first. The dice come from the tournament seed, the round and the table, so the result can be replayed. The table's
   status becomes `decided`, its `standing` (entrants in order, and the dice by entrant) is in the bracket, the order is
   posted to the table's chat, and its first place moves on. The game is not finished in the engine (it has no
-  adjudicated ending); the room closes like a finished game (`RISK_FINISHED_CLOSE`).
+  adjudicated ending); the room closes like a finished game (`RISK_FINISHED_CLOSE`). Its game record is filed the
+  moment it is decided, with the standing used (`outcome.reason: "standing"`, `outcome.decided`; see
+  [game-records.md](game-records.md#decided-on-standing)), so it has a play-by-play and is in match history.
 - **Moving up.** The next round is seated at once: each table's winner takes a seat at its parent table, which sits
   on the board whose territories hold the child tables ("portals", one per child, in different regions). The parent
   table starts with every winner **on the portal territory it came up through**: the engine's `startOnSpots` deals as

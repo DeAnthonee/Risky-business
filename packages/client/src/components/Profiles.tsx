@@ -110,47 +110,79 @@ export function CharacterName({ name, gameId, playerId, profileKey, season, trai
 
 interface SeasonInfo { id: string; season: number; current: boolean; games: number }
 
+/** A row of the tournament leaderboard (GET /rankings?board=tournament). */
+interface TournamentRow { key: string; name: string; rank: number; points: number; tournaments: number; championships: number; finals: number; tablesWon: number; kills: number; bestFinish: string }
+
 export function Leaderboard() {
   const [rows, setRows] = useState<RankingRow[]>([]);
+  const [tournamentRows, setTournamentRows] = useState<TournamentRow[]>([]);
   const [error, setError] = useState('');
   const [loaded, setLoaded] = useState(false);
   const [retry, setRetry] = useState(0);
   // '' is the current season; archived seasons come from /rankings/seasons and never change, so they load once.
   const [season, setSeason] = useState('');
   const [seasons, setSeasons] = useState<SeasonInfo[]>([]);
-  // The training board: model-vs-model yardstick games (Delove against Claude seats), apart from the public one, no seasons.
-  const [training, setTraining] = useState(false);
+  // Other boards, apart from the public one, no seasons: training (model-vs-model yardstick games, Delove against Claude
+  // seats) and tournament (one result per entrant per finished tournament; tournament tables never count publicly).
+  const [board, setBoard] = useState<'' | 'training' | 'tournament'>('');
+  const training = board === 'training';
+  const tournament = board === 'tournament';
+  const toggle = (b: 'training' | 'tournament') => setBoard(cur => (cur === b ? '' : b));
   useEffect(() => {
     let alive = true;
     setLoaded(false);
-    const query = training ? '?board=training' : season ? `?season=${encodeURIComponent(season)}` : '';
+    const query = board ? `?board=${board}` : season ? `?season=${encodeURIComponent(season)}` : '';
     const load = () => Promise.all([
-      read<{ rankings: RankingRow[] }>(`${API}/rankings${query}`),
+      read<{ rankings: RankingRow[] | TournamentRow[] }>(`${API}/rankings${query}`),
       read<{ seasons: SeasonInfo[] }>(`${API}/rankings/seasons`),
-    ]).then(([r, s]) => { if (alive) { setRows(r.rankings); setSeasons(s.seasons); setLoaded(true); setError(''); } }).catch(e => { if (alive) setError(e.message); });
+    ]).then(([r, s]) => {
+      if (!alive) return;
+      if (board === 'tournament') setTournamentRows(r.rankings as TournamentRow[]);
+      else setRows(r.rankings as RankingRow[]);
+      setSeasons(s.seasons); setLoaded(true); setError('');
+    }).catch(e => { if (alive) setError(e.message); });
     void load();
-    const timer = season && !training ? undefined : setInterval(load, 15_000);
+    const timer = season && !board ? undefined : setInterval(load, 15_000);
     return () => { alive = false; clearInterval(timer); };
-  }, [retry, season, training]);
+  }, [retry, season, board]);
+  const shown = tournament ? tournamentRows : rows;
   const current = seasons.find(s => s.current);
   return <section className="board leaderboard" aria-labelledby="leaderboard-title">
-    <div className="board-head"><h2 id="leaderboard-title">{training ? 'Training board' : 'Leaderboard'}</h2>
+    <div className="board-head"><h2 id="leaderboard-title">{training ? 'Training board' : tournament ? 'Tournament board' : 'Leaderboard'}</h2>
       <div className="board-controls">
-        {seasons.length > 1 && !training && <label className="board-season">Season{' '}
+        {seasons.length > 1 && !board && <label className="board-season">Season{' '}
           <select value={season} onChange={e => setSeason(e.target.value)}>
             <option value="">{current ? `${current.season} (current)` : 'Current'}</option>
             {seasons.filter(s => !s.current).map(s => <option key={s.id} value={s.id}>{s.id} ({s.games} games)</option>)}
           </select>
         </label>}
-        <button type="button" className={`board-toggle${training ? ' on' : ''}`} aria-pressed={training} onClick={() => setTraining(t => !t)}
+        <button type="button" className={`board-toggle${training ? ' on' : ''}`} aria-pressed={training} onClick={() => toggle('training')}
           title="Model-vs-model yardstick games, ranked apart from the public leaderboard">Training</button>
+        <button type="button" className={`board-toggle${tournament ? ' on' : ''}`} aria-pressed={tournament} onClick={() => toggle('tournament')}
+          title="Tournament results, ranked apart from the public leaderboard">Tournament</button>
       </div>
     </div>
     {training && <p className="small muted board-note">Yardstick games between AI models (e.g. Delove against Claude seats), ranked by seat name. They never count on the public leaderboard.</p>}
+    {tournament && <p className="small muted board-note">One result per player per finished tournament. Tournament tables never count on the public leaderboard.</p>}
     {error && <p role="alert">{error} <button onClick={() => setRetry(n => n + 1)}>Retry</button></p>}
     {!loaded && !error && <p role="status">Loading leaderboard…</p>}
-    {loaded && !rows.length && <p className="board-empty">{training ? 'No training games yet.' : season ? 'No games were ranked in this season.' : 'No completed games yet this season. The first finished game starts the standings.'}</p>}
-    {!!rows.length && <ol className="ranks">
+    {loaded && !shown.length && <p className="board-empty">{training ? 'No training games yet.' : tournament ? 'No finished tournaments yet.' : season ? 'No games were ranked in this season.' : 'No completed games yet this season. The first finished game starts the standings.'}</p>}
+    {tournament && !!tournamentRows.length && <ol className="ranks">
+      {tournamentRows.map(r => <li key={r.key} className={`rank-row${r.rank <= 3 ? ` podium podium-${r.rank}` : ''}`}>
+        <span className="rank-num" aria-label={`Rank ${r.rank}`}>{r.rank}</span>
+        <span className="rank-name">{r.name}</span>
+        <span className="rank-points"><strong>{r.points}</strong> pts</span>
+        <span className="rank-stats">
+          <span title="Tournaments played">{r.tournaments} played</span>
+          <span title="Championships">🏆 {r.championships}</span>
+          <span title="Finals reached">{r.finals} finals</span>
+          <span title="Tables won">{r.tablesWon} tables</span>
+          <span title="Players eliminated">{r.kills} kills</span>
+          <span title="Best finish">best: {r.bestFinish}</span>
+        </span>
+      </li>)}
+    </ol>}
+    {!tournament && !!rows.length && <ol className="ranks">
       {rows.map(r => <li key={r.key} className={`rank-row${r.rank <= 3 ? ` podium podium-${r.rank}` : ''}`}>
         <span className="rank-num" aria-label={`Rank ${r.rank}`}>{r.rank}</span>
         <span className="rank-name"><CharacterName name={r.name} profileKey={r.key} season={season || undefined} training={training} /></span>
@@ -164,7 +196,9 @@ export function Leaderboard() {
       </li>)}
     </ol>}
     <details className="rank-rules"><summary>How points work</summary>
-      <p>Placement points plus 1 for each player you eliminate. Everyone starts at 0 and never drops below it. In a six-player game the places score +3, +2, +1, −1, −2, −3; scores scale with lobby size.</p>
+      {tournament
+        ? <p>Per tournament: 3 points for each round you survive before the final; in the final, 3 per earlier round plus 2 for each finalist you finish above, and +6 for the champion. Plus 2 for each table you win (1 if it was decided on standing) and 1 for each player you eliminate.</p>
+        : <p>Placement points plus 1 for each player you eliminate. Everyone starts at 0 and never drops below it. In a six-player game the places score +3, +2, +1, −1, −2, −3; scores scale with lobby size.</p>}
     </details>
   </section>;
 }

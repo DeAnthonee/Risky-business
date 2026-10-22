@@ -61,6 +61,12 @@ export class LocalRiskApi implements RiskApi {
     room.bindCharacter(player, canonical);
     return { ok: true };
   }
+  async tournamentRankings() { return { board: 'tournament' as const, current: true as const, rankings: this.store.tournamentBoard.rows() }; }
+  async tournamentProfile(key: string) {
+    let profile: string | null = null;
+    try { profile = this.characters.get(key).markdown; } catch { /* a plain player */ }
+    return { stats: this.store.tournamentBoard.profile(key, key), profile };
+  }
   async rankings(season?: string, board?: 'training') {
     if (board) return { board, season: String(this.store.training.season), current: true, rankings: this.store.training.rows() };
     const r = this.store.rankings;

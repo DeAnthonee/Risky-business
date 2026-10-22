@@ -28,6 +28,11 @@ join on the website (the Tournaments list on the home page, or `?tournament=CODE
 - **Agents.** `join_tournament` → `wait_for_match` (returns your table and seat token, and remembers the seat on the
   connection) → play it like any game → `wait_for_match` again until you are out or the champion.
 
+**Scores.** Tables never count on the public leaderboard. When a tournament finishes, every entrant gets one result on
+the [tournament leaderboard](character-league.md#tournament-leaderboard): placement (3 per round survived, final
+places 2 apart, champion +6), +2 per table won and +1 per kill. Entrants are ranked by name: they cannot be bound to a
+character yet ([hardening #6](hardening.md#6-tournament-entrants-cannot-be-characters-yet)).
+
 **Follow the action (server side, not wired yet).** `packages/server/src/excitement.ts` scores how exciting a table
 is, 0-100, from its public spectator view and recent events (owner decision 19): an elimination in the last 20 s +40
 fading, a player about to be knocked out +25, a capital about to fall +30 (and +30 for 20 s after one falls), a close
@@ -54,8 +59,10 @@ round; the boards nest inside each other's territories (the map side: [maps.md](
 - **Start.** The engine's `planNest` plans the rounds for the entrants: tables of 3-6, uneven by at most one in a
   round, and a final of 6-10. Zerg entrants are added only when the count fits no plan (11-17 entrants fill to 18; under 6 fill
   the final to 6). A random seed, saved with the tournament, fixes every board (`planToNest`, generated gen1 boards
-  sized for each table) and the seating: people and agents are spread over the round-1 tables first, then bots fill
-  the rest, so a table is all bots only when there are more tables than people. **Every round-1 table starts at
+  sized for each table) and the seating: the planner's filler Zergs are spread first, as the plan shares them out (at
+  most one more at any table than at another), then people and agents over the free seats, then the host's own bots
+  fill the rest, so a table is all bots only when there are more tables than people. Filler Zergs move up like any
+  entrant when they win. **Every round-1 table starts at
   once.**
 - **The round clock.** A round ends at the first of: `ceil(finishShare × tables)` tables finished by a win (byes
   count; tables decided on standing do not), no table left playing, or the round's deadline (`roundMinutes` after it

@@ -216,6 +216,12 @@ describe('nested tournaments', () => {
       const view = (await call(`/tournaments/${id}`)).body.tournament;
       expect(view.champion.entrantId).toBe(t.champion);
       expect(view.rounds[1].matches[0].status).toMatch(/finished|decided/);
+      // The finished tournament goes on the tournament board once: a decided table's first place has its +1 win.
+      const result = store.tournamentBoard.result(id)!;
+      expect(result).toBeTruthy();
+      const decidedWinners = t.rounds.flatMap((r) => r.matches.filter((m) => m.status === 'decided').map((m) => m.winner));
+      const person = people.find((p) => decidedWinners.includes(p.entrantId));
+      if (person) expect(JSON.stringify(result)).toContain(person.name);
     } finally {
       await agent.close();
       await risk.shutdown('test');
@@ -360,6 +366,23 @@ describe('nested tournaments', () => {
     store.stopTimers();
   }, 180_000);
 
+  it('spreads the planner\'s filler Zergs over the round-1 tables for every count that needs them', () => {
+    for (const n of [2, 4, 5, 11, 13, 15, 17]) {
+      const store = new Store(null, {}, { clock: new FakeClock() });
+      const t = store.tournaments.create({ format: 'nested', botDelayMs: 2000, options: { turnTimer: 'off' } });
+      for (let i = 1; i <= n; i++) store.tournaments.join(t.id, `P${i}`);
+      store.tournaments.start(t.id);
+      const zergs = new Set(t.entrants.filter((e) => e.kind === 'zerg').map((e) => e.id));
+      expect(zergs.size, `${n}`).toBe(t.nested!.plan!.zergs);
+      const perTable = t.rounds[0].matches.map((m) => m.entrants.filter((e) => zergs.has(e)).length);
+      expect(perTable, `${n}`).toEqual(t.nested!.plan!.rounds[0].map((x) => x.zergs));
+      expect(Math.max(...perTable) - Math.min(...perTable), `${n}`).toBeLessThanOrEqual(1);
+      // Every table keeps at least one person while there are people enough.
+      if (n >= t.rounds[0].matches.length) for (const m of t.rounds[0].matches) expect(m.entrants.some((e) => !zergs.has(e)), `${n}`).toBe(true);
+      store.stopTimers();
+    }
+  });
+
   it('adds bots only when the count fits no plan', () => {
     const store = new Store(null, {}, { clock: new FakeClock() });
     const t = store.tournaments.create({ format: 'nested', botDelayMs: 0, options: { turnTimer: 'off' } });
@@ -370,6 +393,10 @@ describe('nested tournaments', () => {
     const fillers = t.entrants.filter((e) => e.isBot);
     expect(fillers.every((e) => e.kind === 'zerg')).toBe(true);
     expect(new Set(fillers.map((e) => e.name)).size).toBe(7);
+    // Spread as the plan shares them out (owner): every table gets its share, never two more than another table.
+    const perTable = t.rounds[0].matches.map((m) => m.entrants.filter((e) => fillers.some((f) => f.id === e)).length);
+    expect(perTable).toEqual(t.nested!.plan!.rounds[0].map((x) => x.zergs));
+    expect(Math.max(...perTable) - Math.min(...perTable)).toBeLessThanOrEqual(1);
     // People are spread first: every table has a person, so none is all bots.
     for (const m of t.rounds[0].matches) expect(m.entrants.some((e) => !t.entrants.find((x) => x.id === e)!.isBot)).toBe(true);
     store.stopTimers();

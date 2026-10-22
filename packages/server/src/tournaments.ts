@@ -6,6 +6,7 @@ import {
   RuleError,
   createGame,
   createRng,
+  finalPlacements,
   genMapId,
   getMap,
   isMapId,
@@ -91,6 +92,10 @@ export interface TournamentMatch {
   node?: number;
   /** Nested, a decided table: every entrant in standing order, and the dice rolled to break ties (by entrant). */
   standing?: { order: string[]; rolls: Record<string, number[]> };
+  /** Set when the table settles: its entrants best first (the game's final placings, or the standing), for the tournament board. */
+  order?: string[];
+  /** Set when the table settles: players each entrant eliminated there (surrenders credit nobody). */
+  kills?: Record<string, number>;
 }
 
 export interface TournamentRound {
@@ -292,6 +297,8 @@ export function tableSizes(n: number, size: number): number[] {
 
 export class TournamentManager extends EventEmitter {
   tournaments = new Map<string, TournamentSnapshot>();
+  /** Called once when a tournament finishes (the store records it on the tournament leaderboard). */
+  onFinished: ((t: TournamentSnapshot) => void) | null = null;
 
   limits: TournamentLimits;
 
@@ -741,6 +748,7 @@ export class TournamentManager extends EventEmitter {
       } else if (room.closed) {
         m.status = 'abandoned';
       } else return;
+      this.scoreTable(m, room);
       room.off('change', settle);
       room.off('closed', settle);
       if (this.tournaments.get(t.id) !== t) return; // tournament deleted
@@ -750,6 +758,14 @@ export class TournamentManager extends EventEmitter {
     room.on('change', settle);
     room.on('closed', settle);
     settle();
+  }
+
+  /** The table's final placings and kills, by entrant, for the tournament leaderboard. */
+  private scoreTable(m: TournamentMatch, room: GameRoom) {
+    const entrantOf = new Map(Object.entries(m.seats).map(([eid, s]) => [s.playerId, eid]));
+    const placings = finalPlacements(room.state, room.eliminationOrder).filter((p) => entrantOf.has(p.id));
+    m.order = placings.map((p) => entrantOf.get(p.id)!);
+    m.kills = Object.fromEntries(placings.map((p) => [entrantOf.get(p.id)!, p.killed.filter((v) => entrantOf.has(v)).length]));
   }
 
   /** When every table of the current round is decided: crown the champion or seat the next round. */
@@ -762,6 +778,7 @@ export class TournamentManager extends EventEmitter {
     if (winners.length <= 1) {
       t.champion = winners[0] ?? null;
       t.status = 'finished';
+      this.onFinished?.(t);
       return;
     }
     this.buildRound(t, winners);
@@ -774,7 +791,12 @@ export class TournamentManager extends EventEmitter {
     const n = t.nested!;
     const plan = planNest(t.entrants.length, { maxFinal: n.finalMap ? this.maxFinal(n.finalMap) : NESTED_FINAL.max });
     // The bots the plan needs are Zerg entrants (docs/zergs.md), with reptile names unique in the tournament.
-    for (let i = 1; i <= plan.zergs; i++) t.entrants.push({ id: `e_${newId(6)}`, name: freeZergName(t.entrants.map((e) => e.name)), isBot: true, kind: 'zerg', joinedAt: Date.now() });
+    const fillers: string[] = [];
+    for (let i = 1; i <= plan.zergs; i++) {
+      const entrant: Entrant = { id: `e_${newId(6)}`, name: freeZergName(t.entrants.map((e) => e.name)), isBot: true, kind: 'zerg', joinedAt: Date.now() };
+      t.entrants.push(entrant);
+      fillers.push(entrant.id);
+    }
     n.seed = n.fixedSeed ?? randomBytes(4).readUInt32LE(0);
     n.plan = plan;
     const { boards, nodes, index } = planToNest(plan, { seed: n.seed, final: n.finalMap ? { map: n.finalMap } : undefined, boards: { territoriesPerSeat: n.territoriesPerSeat } });
@@ -782,12 +804,16 @@ export class TournamentManager extends EventEmitter {
     n.portals = boards.map((round) => round.map((node) => node.portals));
     n.nodes = nodes;
     n.nodeOf = index;
-    // Seating, from the tournament seed: people and agents first, spread over the tables, then bots fill the rest,
-    // so a table is all bots only when there are more tables than people.
+    // Seating, from the tournament seed. The planner's filler Zergs first, spread as the plan shares them out (at most
+    // one more at any table than at another; owner's rule), then people and agents, spread over the free seats, then
+    // the host's own bots fill the rest, so a table is all bots only when there are more tables than people.
     const rng = createRng(nestSeed(n.seed, 'seats'));
+    const filler = new Set(fillers);
     const people = seededShuffle(rng, t.entrants.filter((e) => !e.isBot).map((e) => e.id));
-    const bots = seededShuffle(rng, t.entrants.filter((e) => e.isBot).map((e) => e.id));
+    const bots = seededShuffle(rng, t.entrants.filter((e) => e.isBot && !filler.has(e.id)).map((e) => e.id));
     const tables = plan.rounds[0].map(() => [] as string[]);
+    const spread = seededShuffle(rng, fillers);
+    plan.rounds[0].forEach((table, j) => tables[j].push(...spread.splice(0, table.zergs)));
     for (const eid of [...people, ...bots]) {
       let best = -1;
       for (let j = 0; j < tables.length; j++) {
@@ -886,6 +912,9 @@ export class TournamentManager extends EventEmitter {
       m.standing = { order, rolls: Object.fromEntries(Object.entries(standing.rolls).filter(([pid]) => byPlayer.has(pid)).map(([pid, r]) => [byPlayer.get(pid)!, r])) };
       m.winner = order[0] ?? null;
       m.status = m.winner ? 'decided' : 'abandoned';
+      // The tournament board: kills from the game so far, and the standing as the table's order.
+      this.scoreTable(m, room);
+      m.order = order;
       const names = order.map((eid, i) => `${i + 1}. ${this.entrant(t, eid)?.name ?? '?'}`).join(', ');
       room.decide(`Round ${round.round} is over: this table was decided on standing (territories, then armies, then dice): ${names}.`, now);
     }
@@ -895,6 +924,7 @@ export class TournamentManager extends EventEmitter {
     if (r === plan.rounds.length - 1) {
       t.champion = round.matches[0]?.winner ?? null;
       t.status = 'finished';
+      this.onFinished?.(t);
       return;
     }
     // Every table's winner takes its seat at the parent table, on the portal its table sits in.

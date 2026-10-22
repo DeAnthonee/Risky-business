@@ -28,6 +28,7 @@ import {
 import { timeoutSteps, timerOf } from '@risk/engine';
 import { chooseSeatAction, seatIdPrefix, zergName, type BotKind } from './bot.js';
 import { DEFAULT_TOURNAMENT_LIMITS, TournamentManager, type TournamentClock } from './tournaments.js';
+import { TournamentRankings } from './tournament-scoring.js';
 import { Rankings } from './rankings.js';
 import { DEFAULT_KEEP, GameArchive, type CommitInfo } from './archive.js';
 
@@ -801,6 +802,8 @@ export class Store {
   rankings: Rankings;
   /** The training leaderboard: model-vs-model yardstick games (rooms with board "training"), same scoring, no seasons. */
   training: Rankings;
+  /** The tournament leaderboard (rankings-tournament.json): one result per entrant per finished tournament. */
+  tournamentBoard: TournamentRankings;
   /** Every game's record, move by move (under <data dir>/archive; off without persistence). */
   archive: GameArchive;
   private saveTimer: NodeJS.Timeout | null = null;
@@ -817,6 +820,7 @@ export class Store {
     this.retention = { ...DEFAULT_RETENTION, ...retention };
     this.rankings = new Rankings(file ? join(dirname(file), 'rankings.json') : null);
     this.training = new Rankings(file ? join(dirname(file), 'rankings-training.json') : null, 1);
+    this.tournamentBoard = new TournamentRankings(file ? join(dirname(file), 'rankings-tournament.json') : null);
     const keep = Number(process.env.RISK_ARCHIVE_KEEP || DEFAULT_KEEP);
     this.archive = new GameArchive(
       file && process.env.RISK_ARCHIVE !== '0' ? join(dirname(file), 'archive') : null,
@@ -862,6 +866,12 @@ export class Store {
       maxActive: envInt('RISK_MAX_ACTIVE_TOURNAMENTS', DEFAULT_TOURNAMENT_LIMITS.maxActive, 0),
       keepFinished: envInt('RISK_TOURNAMENTS_KEEP', DEFAULT_TOURNAMENT_LIMITS.keepFinished, 1),
     }, opts.clock);
+    // A finished tournament goes on the tournament board once. On start, catch up on any that finished without being
+    // recorded (a crash in between); tournaments that finished before the board existed have no table scores: skipped.
+    this.tournaments.onFinished = (t) => this.tournamentBoard.record(t);
+    for (const t of this.tournaments.tournaments.values()) {
+      if (t.status === 'finished' && t.rounds.some((r) => r.matches.some((m) => m.order))) this.tournamentBoard.record(t, t.updatedAt);
+    }
     // A restored game's clock starts again in full (deadlines are not saved).
     for (const room of this.rooms.values()) {
       room.scheduleBot();
@@ -880,9 +890,12 @@ export class Store {
     room.on('chat', () => this.scheduleSave());
   }
 
-  /** Record a finished room's result on its board. A scenario starts from someone else's position, so it is not ranked. */
+  /**
+   * Record a finished room's result on its board. A scenario starts from someone else's position, so it is not ranked.
+   * A tournament table is never ranked on its own: its tournament scores it on the tournament board when it finishes.
+   */
   private rank(room: GameRoom) {
-    if (room.scenarioOf) return;
+    if (room.scenarioOf || room.tournamentId) return;
     this.board(room.board).record(room.state, room.characterIds, room.eliminationOrder);
   }
 

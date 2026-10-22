@@ -111,6 +111,11 @@ export function createRiskServer(store: Store, opts: AppOptions = {}): RiskServe
       .catch(next);
   });
   const characters = opts.characters ?? new CharacterStore(DEFAULT_AI_DIR, null);
+  // Nobody may register an AI character's id or name as a player name (player-keys.ts).
+  store.playerKeys.reserved = (name) => {
+    const n = name.trim().toLowerCase();
+    return characters.list().some((c) => c.id.toLowerCase() === n || c.name.toLowerCase() === n || c.id.split('/').pop()!.toLowerCase() === n) ? 'that is an AI character' : null;
+  };
   app.use('/api', createApi(store, { adminToken: opts.adminToken, recordsKey: opts.recordsKey, openTournaments: opts.openTournaments ?? true, characters, seasonKey: opts.seasonKey, seasonGuard: opts.seasonGuard, seasonLockFile: opts.seasonLockFile }));
   if (opts.sweepIntervalMs !== 0) store.startSweeper(opts.sweepIntervalMs ?? 30_000);
   if (opts.tournamentSchedule?.length) store.schedule = new TournamentScheduler(store.tournaments, opts.tournamentSchedule, opts.scheduleFile ?? null);

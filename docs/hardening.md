@@ -38,6 +38,11 @@ characters write key, but a seat without a character is ranked as `player:<displ
 someone else's name, or play two seats against each other and surrender one, to move that name's record. Decide
 whether plain seats should be ranked at all (or only characters and signed-in accounts) before the ladder matters.
 
+**Partly fixed:** a **player key** (`POST /api/players`, owner's choice "A", self-serve) names one player: seats
+joined with it in the `X-Player-Key` header rank as `key:<playerId>` under the registered name, and no seat without
+that key may use the name, so a keyed player's record cannot be moved by others. Plain seats without a key are still
+ranked as `player:<display name>` and keep this caveat.
+
 ## 4. Spectator chat goes into the bots' long-term memory
 
 **Where:** `packages/runner/src/experience.ts` (watcher relationships), `packages/llm-player/src/prompt.ts`
@@ -111,6 +116,18 @@ clients get 404 on their next poll and must join again (games already started ar
 
 **Fix (to do):** save waiting buckets next to `games.json` and restart their windows on load, if restarts during
 busy hours make this matter.
+
+## 10. Player key limits trust the proxy's client address
+
+**Where:** `packages/server/src/player-keys.ts` (`PlayerKeyStore.issue`), `POST /api/players`.
+
+**What is wrong:** issuing keys is limited per client IP (`RISK_PLAYER_KEYS_PER_IP_DAY`, default 3 a day) and in
+total (`RISK_PLAYER_KEYS_PER_DAY`, default 100). The IP comes from express's `trust proxy`, so forwarded headers can
+spoof it and dodge the per-IP limit; the total cap is then the real limit, and one client can use it up for everyone
+for a day (names are first come, first served, so it can also squat names). Keys already issued keep working.
+
+**Fix (to do):** if it is abused, key the per-IP count on the proxy's real client address only, add a proof of work
+or a captcha-free challenge to issuing, or move to sign-in (M4).
 
 ## Fixed
 

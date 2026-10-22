@@ -54,7 +54,8 @@ export function createMcpRouter(store: Store, characters: CharacterStore, label:
       };
       const server = createRiskMcpServer({
         // Per connection, so quick play can cap tickets by the client's address.
-        api: new LocalRiskApi(store, characters, adminToken, openTournaments, req.ip ?? null),
+        // Per connection: the client's address for per-client limits, and its player key (X-Player-Key header) if any.
+        api: new LocalRiskApi(store, characters, adminToken, openTournaments, req.ip ?? null, playerKeyHeader(req)),
         identities: new MemoryIdentityStore(),
         defaultName: 'Agent',
         serverLabel: label,
@@ -100,4 +101,11 @@ export function createMcpRouter(store: Store, characters: CharacterStore, label:
   };
 
   return { router, sessions, closeAll };
+}
+
+/** The X-Player-Key header of an MCP request (never a query string), or null. */
+function playerKeyHeader(req: Request): string | null {
+  const raw = req.headers['x-player-key'];
+  const v = Array.isArray(raw) ? raw[0] : raw;
+  return typeof v === 'string' && v ? v : null;
 }

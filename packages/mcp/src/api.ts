@@ -445,6 +445,8 @@ export class HttpRiskApi implements RiskApi {
     public baseUrl: string,
     /** Default characters write key for saves (a tool's own "key" wins). */
     private charactersKey?: string,
+    /** This agent's player key (RISK_PLAYER_KEY): sent as X-Player-Key, so its seats play as that registered player. */
+    private playerKey?: string,
   ) {
     this.baseUrl = baseUrl.replace(/\/+$/, '');
   }
@@ -453,6 +455,7 @@ export class HttpRiskApi implements RiskApi {
     const headers: Record<string, string> = { 'content-type': 'application/json' };
     if (token) headers.authorization = `Bearer ${token}`;
     if (charactersKey) headers['x-characters-key'] = charactersKey;
+    if (this.playerKey) headers['x-player-key'] = this.playerKey;
     const res = await fetch(`${this.baseUrl}/api${path}`, { ...init, headers });
     const text = await res.text();
     let body: Record<string, unknown> = {};

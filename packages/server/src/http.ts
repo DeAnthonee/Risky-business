@@ -50,6 +50,7 @@ export function parseTournamentSpec(body: Record<string, unknown>): CreateTourna
     roundMinutes: int(body.roundMinutes, 'roundMinutes'),
     finishShare: body.finishShare as number | undefined,
     botDelayMs: int(body.botDelayMs, 'botDelayMs'),
+    seed: int(body.seed, 'seed'),
   };
 }
 

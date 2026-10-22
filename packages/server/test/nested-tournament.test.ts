@@ -309,6 +309,25 @@ describe('nested tournaments', () => {
     third.stopTimers();
   });
 
+  it('replays the same boards and seating from a fixed seed, and stepBot drives a table headless', () => {
+    const run = () => {
+      const store = new Store(null, {}, { clock: new FakeClock() });
+      const t = store.tournaments.create({ format: 'nested', seed: 42, botDelayMs: 2000, options: { turnTimer: 'off', autoSetup: true } });
+      for (let i = 1; i <= 30; i++) t.entrants.push({ id: `e_${i}`, name: `B${i}`, isBot: true, joinedAt: 0 });
+      store.tournaments.start(t.id);
+      const out = { seed: t.nested!.seed, boards: t.nested!.boards, seating: t.rounds[0].matches.map((m) => m.entrants) };
+      const room = store.get(t.rounds[0].matches[0].gameId!)!;
+      const v = room.state.version;
+      expect(room.stepBot()).toBe(true);
+      expect(room.state.version).toBeGreaterThan(v);
+      store.stopTimers();
+      return out;
+    };
+    const a = run();
+    expect(a.seed).toBe(42);
+    expect(run()).toEqual(a);
+  });
+
   it('adds bots only when the count fits no plan', () => {
     const store = new Store(null, {}, { clock: new FakeClock() });
     const t = store.tournaments.create({ format: 'nested', botDelayMs: 0, options: { turnTimer: 'off' } });

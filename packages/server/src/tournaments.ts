@@ -105,6 +105,8 @@ export interface NestedSettings {
   finishShare: number;
   /** Bots' pace at this tournament's tables, ms between moves. Absent on tournaments saved before it: the server default. */
   botDelayMs?: number;
+  /** A seed the host fixed at create (else one is drawn at start). */
+  fixedSeed?: number;
   /** Set at start: the seed of every board and of the seating, the plan, each table's board, and each table's portals
    * (the territories its children's winners start on, in portal order). */
   seed?: number;
@@ -170,6 +172,8 @@ export interface CreateTournamentSpec {
   finishShare?: number;
   /** Nested: bots' pace at the tables, ms between moves (0-2000, default 300). */
   botDelayMs?: number;
+  /** Nested: fix the seed of the boards, seating and tie-break dice (replays and simulations); default random. */
+  seed?: number;
 }
 
 /** Public view; `you` is filled in when the caller passed their entrant token. */
@@ -381,6 +385,7 @@ export class TournamentManager extends EventEmitter {
       options.turnTimer = 'move';
       if (options.turnTimerSeconds === undefined) options.turnTimerSeconds = 15;
     }
+    if (spec.seed !== undefined && (!Number.isInteger(spec.seed) || spec.seed < 0 || spec.seed > 0xffffffff)) throw new RuleError('seed must be a whole number from 0 to 4294967295');
     const maxEntrants = spec.maxEntrants ?? DEFAULT_MAX_NESTED_ENTRANTS;
     if (!Number.isInteger(maxEntrants) || maxEntrants < 2 || maxEntrants > MAX_ENTRANTS) throw new RuleError(`maxEntrants must be a whole number from 2 to ${MAX_ENTRANTS}`);
     let finalMap: string | null = null;
@@ -411,7 +416,7 @@ export class TournamentManager extends EventEmitter {
       updatedAt: now,
       version: 1,
       format: 'nested',
-      nested: { finalMap, territoriesPerSeat: tps, roundMinutes, finishShare, botDelayMs },
+      nested: { finalMap, territoriesPerSeat: tps, roundMinutes, finishShare, botDelayMs, ...(spec.seed !== undefined ? { fixedSeed: spec.seed } : {}) },
     };
     this.tournaments.set(id, t);
     this.changed(t);
@@ -733,7 +738,7 @@ export class TournamentManager extends EventEmitter {
     const n = t.nested!;
     const plan = planNest(t.entrants.length, { maxFinal: n.finalMap ? this.maxFinal(n.finalMap) : NESTED_FINAL.max });
     for (let i = 1; i <= plan.zergs; i++) t.entrants.push({ id: `e_${newId(6)}`, name: `Bot ${i}`, isBot: true, joinedAt: Date.now() });
-    n.seed = randomBytes(4).readUInt32LE(0);
+    n.seed = n.fixedSeed ?? randomBytes(4).readUInt32LE(0);
     n.plan = plan;
     const { boards, nodes, index } = planToNest(plan, { seed: n.seed, final: n.finalMap ? { map: n.finalMap } : undefined, boards: { territoriesPerSeat: n.territoriesPerSeat } });
     n.boards = boards.map((round) => round.map((node) => node.map));
@@ -823,7 +828,7 @@ export class TournamentManager extends EventEmitter {
         continue;
       }
       // Engine rules (rankByStanding), with dice seeded from the tournament, the round and the table: replayable.
-      const rng = createRng(nestSeed(n.seed!, `${round.round}:${m.gameId}`));
+      const rng = createRng(nestSeed(n.seed!, `${round.round}:${m.table}`));
       const standing = rankByStanding(room.state, () => nextFloat(rng), room.eliminationOrder);
       const byPlayer = new Map(Object.entries(m.seats).map(([eid, s]) => [s.playerId, eid]));
       const order = standing.order.map((pid) => byPlayer.get(pid)).filter((eid): eid is string => !!eid);

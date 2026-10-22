@@ -63,6 +63,19 @@ round; the boards nest inside each other's territories (the map side: [maps.md](
   usual, then swaps each spot (owner and armies) with a territory its player was dealt, so everyone keeps the same
   share. The other entrants of a table are **out**: their `you.status` is `out` and `you.match` is `null`, and they
   can watch. The final's winner, or its first place on standing at the deadline, is the champion.
+- **Simulation: `npm run nested:sim`** (`scripts/nested-sim.mjs`, after `npm run build`). It plays a whole nested
+  tournament with server bots and no website.
+  - **Headless (default):** one process, a fake clock that jumps to a round's deadline when nothing can move, and
+    the bots driven step by step (`GameRoom.stepBot`). With the same `--seed` (a fixed tournament seed, plus a seeded
+    `Math.random` for game dice and bot choices) it gives the same bracket and champion; `--runs 2` checks that.
+    100 seats take well under a second.
+  - **Live (`--live --delay 300 --spectators 20 --minutes 3`):** a real server on 127.0.0.1, real timers, fake
+    WebSocket spectators on every table. It prints event-loop lag, commits/s, spectator messages/s, snapshot save time
+    and heap every 10 s: the load check before a live 100-seat event.
+  - Seats are server bots for now; the 80-Zerg + 20-Delove event seats Zerg entrants (#182) and Delove over `/api`.
+- **Fixed seed.** `seed` at create (0-4294967295) fixes the boards, the seating and the tie-break dice (for replays
+  and the simulation); the default is a random seed drawn at start. The tie-break dice come from the seed, the round
+  and the table's place in the plan.
 - **Follow-up:** a host-written tree of boards (existing maps inside chosen portals, as the owner asked for) through
   `resolveNest`; today the boards always come from the plan (`planToNest`), with an optional existing board for the
   final.

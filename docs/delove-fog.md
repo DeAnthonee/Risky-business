@@ -123,8 +123,23 @@ opponents alive. Armies: with front share 0.5 the sampled hidden territories ave
 true board (0.25 is about unbiased, and is the default since); a flat guess of 1.5 has a lower mean absolute error (1.1
 against 1.3-1.6), as most hidden territories hold 1 army and a few hold large stacks.
 
+**Controls** (2026-10-22, same machine and preset, ranker delove@12, 100 games each, mirrored; points per seat
+against bare delove@12, 95% interval over pairs):
+
+| control | table | result | ms per decision, search / bare |
+| --- | --- | --- | --- |
+| **oracle**: the same fog search, but every rollout copy is the TRUE board (dice and deck order still per copy) | fog, Classic 4p | +0.32 (-0.08 to +0.71) | |
+| search with full sight (no fog, `configs/gen5-nofog.json`) | Classic 4p | +0.17 (-0.28 to +0.61) | 110 / 4 |
+| search with full sight | World 6p | +0.42 (-0.12 to +0.95) | 377 / 6 |
+
+The oracle swings 4p from -0.92 (sampled boards) to +0.32 (true boards), with nothing else changed: the search
+machinery is sound and **the sampler is the weak link**. Without fog, js2-range search still leans positive against
+the stronger delove@12, but neither interval clears 0 at 100 games, far below the +1.17 (Classic 4p) and +2.33
+(World 6p) it measured against delove@8 (#164). Jacob Sensei 2 rollouts are no longer clearly stronger than the network
+they search for. That bears on the live seat's default preset, not only on fog (packages/delove/README.md).
+
 **Reading:** determinized search does not help under fog with these settings; with the fog-trained delove@12 it
-clearly hurts at every table size. Decision (Lord of training, 2026-10-22): the GPU-mirror part of fog search
+clearly hurts at every table size, and an oracle shows that a better hidden-board guess is what's missing. Decision (Lord of training, 2026-10-22): the GPU-mirror part of fog search
 (section 5's sampler) is **parked**; the switch stays opt-in and off. The next lever is better guesses of the hidden
 board (the learned fog model, [game-records-roadmap.md](game-records-roadmap.md) step 2) rather than more search on
 today's sampler. Section 8 step 4's "done when" is not met.

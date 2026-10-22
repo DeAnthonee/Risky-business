@@ -3,8 +3,9 @@
 Covers `packages/selfplay` (headless games, ladder, decision log `LOG_VERSION`, board encoder `ENCODER_VERSION`,
 dataset export). Guides: [packages/selfplay/README.md](../../packages/selfplay/README.md), [docs/training.md](../training.md).
 
-Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. Changes from before pull requests carry the
-commit hash instead. **Append a line in the same PR** as any change to this area (README hard rule 12). Say when a
+Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. Changes from before pull requests carry the commit
+hash instead. **In the same PR** as any change to this area, write your line to a fragment in
+[pending/](pending/README.md), not to this file (README hard rule 12; folded in by `npm run logs:fold`). Say when a
 change bumps `LOG_VERSION` or `ENCODER_VERSION`.
 
 - 2026-10-21 #167 `makeZergAgent(id, params)` and `isZergName` (Zerg agent ids start with `zerg`: zerg@N, zerg-branch@1); no `LOG_VERSION` or `ENCODER_VERSION` change

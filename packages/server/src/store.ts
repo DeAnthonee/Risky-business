@@ -30,7 +30,7 @@ import {
   type ScenarioSeat,
 } from '@risk/engine';
 import { timeoutSteps, timerOf, type RecordDecision } from '@risk/engine';
-import { BigMoveTracker, ReactionPacer, bigMoveMessage } from './reactions.js';
+import { BigMoveTracker, ReactionPacer, bigMoveMessage, reactionsOn } from './reactions.js';
 import { chooseSeatAction, isZergSeat, seatIdPrefix, zergName, type BotKind } from './bot.js';
 import { DEFAULT_TOURNAMENT_LIMITS, TournamentManager, type TournamentClock, type TournamentTableRef } from './tournaments.js';
 import { QuickPlayQueue, quickPlayConfigFromEnv } from './quick-play.js';
@@ -530,7 +530,8 @@ export class GameRoom extends EventEmitter {
     const msg: ChangeMessage = { state: next, events, version: next.version, playerId };
     this.emit('change', msg);
     // A big move ends with its turn: the pop-up follows the change that showed it (presentation only, not state).
-    for (const m of this.bigMoves.observe(next, events)) this.reactionPacer.push(bigMoveMessage(this.id, next, this.characterIds, m));
+    // Off by default (RISK_REACTIONS=1 turns them back on): the tally still runs, nothing is sent.
+    for (const m of this.bigMoves.observe(next, events)) if (reactionsOn()) this.reactionPacer.push(bigMoveMessage(this.id, next, this.characterIds, m));
     this.scheduleBot();
     this.endIfOnlySwarm();
     this.endIfStalemate();

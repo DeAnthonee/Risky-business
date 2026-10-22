@@ -6,6 +6,7 @@ bot, ranking and the game-record format. Map data has its own log ([maps.md](map
 Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. Changes from before pull requests carry the
 commit hash instead. **Append a line in the same PR** as any change to this area (README hard rule 12).
 
+- 2026-10-22 #177 `nest-start.ts` (new, not mirrored): `startOnSpots(lobby, spots, random)` starts a game with each player on a fixed territory (a nested tournament's parent table): `startGame` with a random deal, then owner+army swaps (and a blizzard moved off a spot); with `autoSetup` the rest is placed through ordinary setup moves
 - 2026-10-22 #175 `standing.ts` (new, not mirrored): `rankByStanding(state, random, eliminated)` orders an unfinished game for a nested tournament's round end: territories, then armies, then dice (re-rolled among the still tied), then players out (last out first); returns the dice rolled
 - 2026-10-21 #181 new unmirrored `nest.ts` exported from the engine: the nested-tournament planner and nested board specs, with engine tests (worked examples, every field 2-400 players, trees of existing and generated boards)
 - 2026-10-21 #178 `GameOptions.map` and `parseOptions` accept generated board ids (`gen1-...`, procgen.ts); `getMap`/`isMapId` resolve them (64-board cache); `describeOptions` names a generated board; engine tests for the generator (determinism, golden hashes, quality over 3-10 seats, full bot games, fog)

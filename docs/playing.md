@@ -48,7 +48,7 @@ remain. Only that exact name counts (a room a person names that way counts too),
 and players are never moved.
 
 **Follow the action** on a nested tournament's page (see [Watching a nested tournament](#watching-a-nested-tournament)):
-an opt-in switch, off by default, that moves the page's view between that tournament's tables by itself. It is never
+an opt-in switch, off by default, that moves the view between that tournament's tables by itself, inside the tournament page only (it never opens another page). It is never
 offered to someone holding a seat in the tournament.
 
 Players can **whisper**: pick a player in the chat's "To" menu (or tap a whisper you got to answer it)

@@ -38,6 +38,33 @@ export interface EventsResult {
 }
 
 /** A tournament as the server describes it (see the server's TournamentView). */
+/** A quick-play ticket as its holder sees it (POST /api/queue, GET /api/queue/:ticket). */
+export interface QuickPlayTicketInfo {
+  ticket: string;
+  status: 'waiting' | 'seated';
+  name: string;
+  map: string;
+  seats: number;
+  fog: boolean;
+  /** Entrants waiting for this table, you included (while waiting). */
+  waiting: number;
+  /** When the table starts at the latest (epoch ms, while waiting). */
+  startsAt: number | null;
+  /** Once seated: your game, player id and seat token. */
+  gameId?: string;
+  playerId?: string;
+  seatToken?: string;
+}
+
+/** What a quick-play entrant asks for: every field optional (classic, 4 seats, no fog). */
+export interface QuickPlaySpec {
+  playerName?: string;
+  agent?: string;
+  map?: string;
+  seats?: number;
+  fog?: boolean;
+}
+
 export interface TournamentInfo {
   id: string;
   name: string;
@@ -266,6 +293,12 @@ export interface RiskApi {
   createTournament(adminKey: string | undefined, spec: TournamentSpec): Promise<{ hostToken: string; tournament: TournamentInfo }>;
   /** `key`: the tournament's host token or the admin key. */
   startTournament(key: string | undefined, tournamentId: string): Promise<{ tournament: TournamentInfo }>;
+
+  /** Quick play: enter the queue; the returned token is the ticket's (to wait or leave), not a seat token. */
+  quickPlayJoin(spec: QuickPlaySpec): Promise<{ token: string; ticket: QuickPlayTicketInfo }>;
+  /** Long-poll until the ticket is seated or its table changes, up to timeoutMs. */
+  quickPlayWait(ticket: string, token: string, timeoutMs: number): Promise<{ ticket: QuickPlayTicketInfo }>;
+  quickPlayLeave(ticket: string, token: string): Promise<unknown>;
 }
 
 /** Seats held by one agent connection. Several seats per game are allowed (one chat can run two players). */
@@ -447,6 +480,15 @@ export class HttpRiskApi implements RiskApi {
   }
   leave(gameId: string, token: string) {
     return this.request(`/games/${gameId}/leave`, { method: 'POST', body: '{}' }, token);
+  }
+  quickPlayJoin(spec: QuickPlaySpec) {
+    return this.request<{ token: string; ticket: QuickPlayTicketInfo }>('/queue', { method: 'POST', body: JSON.stringify(spec) });
+  }
+  quickPlayWait(ticket: string, token: string, timeoutMs: number) {
+    return this.request<{ ticket: QuickPlayTicketInfo }>(`/queue/${encodeURIComponent(ticket)}?timeoutMs=${Math.max(0, Math.round(timeoutMs))}`, {}, token);
+  }
+  quickPlayLeave(ticket: string, token: string) {
+    return this.request(`/queue/${encodeURIComponent(ticket)}`, { method: 'DELETE' }, token);
   }
   closeGame(gameId: string, token: string) {
     return this.request(`/games/${gameId}/close`, { method: 'POST', body: '{}' }, token);

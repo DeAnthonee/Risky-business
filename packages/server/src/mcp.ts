@@ -22,7 +22,6 @@ const SESSION_IDLE_MS = Number(process.env.RISK_MCP_SESSION_IDLE_MS ?? 6 * 3600_
  */
 export function createMcpRouter(store: Store, characters: CharacterStore, label: string, adminToken: string | null = null, openTournaments = true) {
   const router = express.Router();
-  const api = new LocalRiskApi(store, characters, adminToken, openTournaments);
   const sessions = new Map<string, McpSession>();
 
   router.use(express.json({ limit: '1mb' }));
@@ -54,7 +53,8 @@ export function createMcpRouter(store: Store, characters: CharacterStore, label:
         if (transport.sessionId) sessions.delete(transport.sessionId);
       };
       const server = createRiskMcpServer({
-        api,
+        // Per connection, so quick play can cap tickets by the client's address.
+        api: new LocalRiskApi(store, characters, adminToken, openTournaments, req.ip ?? null),
         identities: new MemoryIdentityStore(),
         defaultName: 'Agent',
         serverLabel: label,

@@ -43,6 +43,9 @@ Environment variables:
 | `RISK_ARCHIVE`             | `0` turns off game records (on by default whenever `RISK_DATA_DIR` persists; see [game records](game-records.md)) |
 | `RISK_ARCHIVE_KEEP`        | how many finished game records to keep, newest first (default 1000; `0` keeps them all). Older records and their index lines are deleted as new games are filed |
 | `RISK_TOURNAMENTS_OPEN`    | **temporary, for testing**: anyone can create tournaments without the admin key (default on); each creator gets that tournament's host token, which starts, forfeits for and deletes it. Set to `0` before launch so only the host creates them |
+| `RISK_QUICKPLAY_WAIT_S` | quick play: how long a waiting table waits for more entrants after its first one before it starts with whoever is there, the empty seats filled with Zergs (seconds, 1-600, default 60) |
+| `RISK_QUICKPLAY_TIMER_S` | quick play: the per-move turn timer of a quick-play game (seconds, 5-600, default 60) |
+| `RISK_QUICKPLAY_MAX_ROOMS` | quick play: most quick-play rooms at once, running games plus tables waiting to start (default 20; `0` turns quick play off). Joining for a new table past the cap answers 503. A running quick-play room is not closed by `RISK_ABANDONED_CLOSE_MIN`: its turn timer skips absent seats and the Zergs finish the game (the other limits still apply) |
 | `RISK_MAX_ACTIVE_TOURNAMENTS` | most tournaments registering or running at once (default 20; `0` = no cap). Creating another answers 400 until one finishes or is deleted |
 | `RISK_TOURNAMENTS_KEEP`    | how many finished tournaments to keep in `tournaments.json`, newest first (default 100, at least 1). Older ones are pruned when another finishes and on startup |
 

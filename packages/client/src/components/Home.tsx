@@ -7,6 +7,7 @@ import { MAPS, MAP_IDS, getMap, isMapId, maxBlizzards, type GameOptions } from '
 import { api, type GameSummary, type TournamentSummary } from '../api';
 import type { Session } from '../session';
 import { pickLiveGame } from './AutoAdvance';
+import { QuickPlay } from './QuickPlay';
 
 const TITLE = 'Risky Business';
 /** Ransom-note letter styles and tilts, cycled through the title so every letter looks cut from a different page. */
@@ -193,13 +194,14 @@ export function Home({
               </button>
             </div>
           </form>
+          <QuickPlay name={name} disabled={busy || !hasName} onEnter={onEnter} />
           <button className={`create-toggle${creating ? ' open' : ''}`} aria-expanded={creating} aria-controls="create-panel" onClick={() => setCreating((c) => !c)}>
             <span className="create-plus" aria-hidden="true">
               +
             </span>
             {creating ? 'Close room setup' : 'Create room'}
           </button>
-          {!hasName && <p className="home-hint">Enter your name to create or join a room. Watching needs no name.</p>}
+          {!hasName && <p className="home-hint">Enter your name to play, create or join a room. Watching needs no name.</p>}
           {err && (
             <p className="error" role="alert">
               {err}

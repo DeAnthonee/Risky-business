@@ -30,6 +30,7 @@ import {
 import { timeoutSteps, timerOf } from '@risk/engine';
 import { chooseSeatAction, isZergSeat, seatIdPrefix, zergName, type BotKind } from './bot.js';
 import { DEFAULT_TOURNAMENT_LIMITS, TournamentManager, type TournamentClock } from './tournaments.js';
+import { QuickPlayQueue, quickPlayConfigFromEnv } from './quick-play.js';
 import { TournamentRankings } from './tournament-scoring.js';
 import { SwarmSum, ZergTally, zergReport, type SwarmTotal, type ZergReport } from './zerg-report.js';
 import { Rankings } from './rankings.js';
@@ -120,6 +121,8 @@ export interface RoomSnapshot {
   decidedAt?: number;
   /** This room's bots wait this long between moves (a tournament's botDelayMs); absent = the server default. */
   botDelayMs?: number;
+  /** Made by the quick-play queue (see quick-play.ts): no host, the turn timer on. */
+  quickPlay?: true;
 }
 
 /** The leaderboard a room's result goes to when it is not the public one (see docs/character-league.md). */
@@ -175,6 +178,8 @@ export interface GameSummary {
   decidedAt?: number;
   /** "training": a yardstick game ranked on the training leaderboard. Absent = public. */
   board?: RankingBoard;
+  /** A quick-play game (seated by the queue, filled with house players). */
+  quickPlay?: true;
 }
 
 export interface ChangeMessage {
@@ -270,6 +275,8 @@ export class GameRoom extends EventEmitter {
   decidedAt: number | null = null;
   /** Bot pace in this room (ms between moves); null = RISK_BOT_DELAY_MS. */
   botDelayMs: number | null = null;
+  /** Seated by the quick-play queue: the sweep leaves it running while its turn timer moves for absent seats. */
+  quickPlay = false;
   private botTimer: NodeJS.Timeout | null = null;
   /** The turn timer (turnTimer option): when the current human or agent decision runs out. In memory only. */
   private turnTimer: NodeJS.Timeout | null = null;
@@ -300,6 +307,7 @@ export class GameRoom extends EventEmitter {
     if (snapshot.board === 'training') this.board = 'training';
     this.decidedAt = snapshot.decidedAt ?? null;
     this.botDelayMs = snapshot.botDelayMs ?? null;
+    this.quickPlay = snapshot.quickPlay === true;
     if (this.state.phase === 'finished') this.finishedAt = this.history.at(-1)?.at ?? this.updatedAt;
   }
 
@@ -324,6 +332,7 @@ export class GameRoom extends EventEmitter {
       ...(this.board ? { board: this.board } : {}),
       ...(this.decidedAt !== null ? { decidedAt: this.decidedAt } : {}),
       ...(this.botDelayMs !== null ? { botDelayMs: this.botDelayMs } : {}),
+      ...(this.quickPlay ? { quickPlay: true as const } : {}),
     };
   }
 
@@ -417,6 +426,7 @@ export class GameRoom extends EventEmitter {
       ...(this.scenarioOf ? { scenarioOf: this.scenarioOf } : {}),
       ...(this.tournamentId ? { tournamentId: this.tournamentId } : {}),
       ...(this.board ? { board: this.board } : {}),
+      ...(this.quickPlay ? { quickPlay: true as const } : {}),
       ...this.decidedField(),
     };
   }
@@ -884,6 +894,8 @@ export class GameRoom extends EventEmitter {
 export class Store {
   rooms = new Map<string, GameRoom>();
   tournaments: TournamentManager;
+  /** The quick-play queue (POST /api/queue, MCP quick_play): seats waiting entrants in fresh rooms, filled with Zergs. */
+  quickPlay: QuickPlayQueue;
   rankings: Rankings;
   /** The training leaderboard: model-vs-model yardstick games (rooms with board "training"), same scoring, no seasons. */
   training: Rankings;
@@ -953,6 +965,7 @@ export class Store {
     }, opts.clock);
     // A finished tournament goes on the tournament board once. On start, catch up on any that finished without being
     // recorded (a crash in between); tournaments that finished before the board existed have no table scores: skipped.
+    this.quickPlay = new QuickPlayQueue(this, quickPlayConfigFromEnv(process.env));
     this.tournaments.onFinished = (t) => this.tournamentBoard.record(t);
     for (const t of this.tournaments.tournaments.values()) {
       if (t.status === 'finished' && t.rounds.some((r) => r.matches.some((m) => m.order))) this.tournamentBoard.record(t, t.updatedAt);
@@ -981,7 +994,8 @@ export class Store {
    * A tournament table is never ranked on its own: its tournament scores it on the tournament board when it finishes.
    */
   private rank(room: GameRoom) {
-    if (room.scenarioOf || room.tournamentId) return;
+    // A quick-play game is not ranked: its fill seats are Zergs, and house players never count on a leaderboard.
+    if (room.scenarioOf || room.tournamentId || room.quickPlay) return;
     this.board(room.board).record(room.state, room.characterIds, room.eliminationOrder);
   }
 
@@ -1130,16 +1144,21 @@ export class Store {
     name: string,
     options: Partial<GameOptions>,
     players: { name: string; isBot: boolean; kind?: BotKind; agent?: string }[],
-    tournamentId: string,
-    /** `prepare(lobby, seats)` builds the start from the seated lobby (engine rules, e.g. startOnSpots); `botDelayMs` sets the bots' pace. */
-    extra: { prepare?: (lobby: GameState, seats: { playerId: PlayerId; token: string }[]) => ActionResult; botDelayMs?: number } = {},
+    /** The tournament that seats this table, or null for a quick-play room. */
+    tournamentId: string | null,
+    /**
+     * `prepare(lobby, seats)` builds the start from the seated lobby (engine rules, e.g. startOnSpots); `botDelayMs` sets the
+     * bots' pace; `quickPlay` marks a room the quick-play queue made.
+     */
+    extra: { prepare?: (lobby: GameState, seats: { playerId: PlayerId; token: string }[]) => ActionResult; botDelayMs?: number; quickPlay?: boolean } = {},
   ): { room: GameRoom; seats: { playerId: PlayerId; token: string }[] } {
     let id = joinCode();
     while (this.rooms.has(id)) id = joinCode();
-    const room = new GameRoom({ id, name, hostId: '', state: createGame(id, options), tokens: {}, chat: [], history: [], updatedAt: Date.now(), tournamentId, ...(extra.botDelayMs !== undefined ? { botDelayMs: extra.botDelayMs } : {}) });
+    const room = new GameRoom({ id, name, hostId: '', state: createGame(id, options), tokens: {}, chat: [], history: [], updatedAt: Date.now(), ...(tournamentId ? { tournamentId } : {}), ...(extra.botDelayMs !== undefined ? { botDelayMs: extra.botDelayMs } : {}), ...(extra.quickPlay ? { quickPlay: true as const } : {}) });
     this.attach(room);
     // A Zerg entrant keeps its tournament name (a Zerg name, unique in the tournament, so unique at the table).
-    const seats = players.map((p) => room.join(p.name, p.isBot, p.kind ?? 'bot', p.agent));
+    // A Zerg with no name (a quick-play fill) gets a Zerg name nobody at the table has.
+    const seats = players.map((p) => room.join(p.kind === 'zerg' && !p.name ? zergName(room.state) : p.name, p.isBot, p.kind ?? 'bot', p.agent));
     room.start(extra.prepare ? (lobby) => extra.prepare!(lobby, seats) : undefined);
     this.scheduleSave();
     return { room, seats };
@@ -1237,6 +1256,14 @@ export class Store {
     }
     for (const room of this.rooms.values()) room.stopBot();
     this.tournaments.stopTimers();
+    this.quickPlay.stop();
+  }
+
+  /** Quick-play rooms still being played (the queue's room cap counts these). */
+  liveQuickPlayRooms(): number {
+    let n = 0;
+    for (const room of this.rooms.values()) if (room.quickPlay && !room.closed && room.state.phase !== 'finished') n++;
+    return n;
   }
 
   /** Why a room would be swept right now, or null to keep it. */
@@ -1252,7 +1279,10 @@ export class Store {
     // Finished games close shortly after the end, even with spectators attached.
     if (phase === 'finished' && r.finishedClose > 0 && room.finishedAt !== null && now - room.finishedAt > r.finishedClose) return `finished ${fmt(now - room.finishedAt)} ago`;
     // Every seat gone (no socket, no request, no long-poll) for a while: lobbies and running games.
-    if (phase !== 'finished' && r.abandonedClose > 0 && room.hasLivingSeats() && !room.seatAttached() && now - room.lastSeatSeen > r.abandonedClose) {
+    // A quick-play game runs on its turn timer: a seat that is thinking or gone is skipped, and the house players finish
+    // the game, so it is not closed as abandoned (the hard limit above still applies).
+    const timed = room.quickPlay && timerOf(room.state.options) !== null;
+    if (phase !== 'finished' && !timed && r.abandonedClose > 0 && room.hasLivingSeats() && !room.seatAttached() && now - room.lastSeatSeen > r.abandonedClose) {
       return `every seat gone ${fmt(now - room.lastSeatSeen)}`;
     }
     if (room.isWatched()) return null;

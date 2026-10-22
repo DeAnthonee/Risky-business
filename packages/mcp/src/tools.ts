@@ -1,7 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { DEFAULT_OPTIONS, MAP_IDS, OPTION_KEYS, OPTION_SPECS, describeOptions, getMap, globalMax, optionLimits, type Action, type GameOptions, type GameView } from '@risk/engine';
-import { GAME_OUTCOMES, RiskHttpError, type CharacterMemory, type IdentityStore, type RiskApi, type TournamentInfo } from './api.js';
+import { GAME_OUTCOMES, RiskHttpError, type CharacterMemory, type IdentityStore, type QuickPlayTicketInfo, type RiskApi, type TournamentInfo } from './api.js';
 import { formatActResult, formatEvents, formatState } from './format.js';
 
 export interface RiskMcpOptions {
@@ -157,6 +157,7 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
         'You can play the board game Risk (classic world domination rules) against humans, bots and other agents.',
         'Typical flow: rules -> game_options (see every setting) -> create_game with the settings you want (or join_game with a code a human shared) -> optionally set_options / add_bot -> start_game -> loop { wait_for_turn -> get_state -> act }.',
         'SWARM GAME (play against the Zergs): create_game with zergs: 3-5 and options {capitals: true, blizzards: 4, autoSetup: true} (the swarm settings: Capital Conquest, frozen territories, no setup phase), then start_game.',
+        'QUICK PLAY (the fastest way to a game): quick_play, optionally with map, seats and fog. Within about a minute you are seated with whoever else is waiting, the empty seats filled with Zergs, and it returns your game and seat token; then loop { wait_for_turn -> get_state -> act }. Quick-play games run a per-move turn timer: a seat that does not move in time is skipped.',
         'Tournaments: join_tournament with a code, then wait_for_match -> play your table like any game -> wait_for_match again until you are out or the champion.',
         'get_state returns your legal moves; act takes one JSON action. Attacking with blitz:true and occupy:"max" resolves a whole battle in one call. Under fog of war leave out occupy: a conquest reveals what lies beyond it, and you then choose how many armies to move in.',
         'IMPORTANT: create_game and join_game return a player token. Remember it and pass it as the "token" argument on every later call for that game: it is what identifies YOUR seat (several chats or agents can sit at the same table, each with its own token).',
@@ -301,6 +302,59 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
         const seat = { gameId: r.gameId, playerId: r.playerId, token: r.token, name };
         identities.set(seat);
         return text(`Joined game ${r.gameId}.\n${seatLine(seat)}\n\n${formatState(r.state)}`);
+      } catch (e) {
+        return errorText(e);
+      }
+    },
+  );
+
+  // Quick play: this connection's open ticket (one at a time), so a repeat call resumes it instead of queueing twice.
+  let quickTicket: { ticket: string; token: string; name: string } | null = null;
+
+  server.registerTool(
+    'quick_play',
+    {
+      description:
+        'Get a game fast: join the quick-play queue and wait to be seated. Entrants asking for the same map, seats and fog share a table; it starts as soon as it is full, or after the wait window (about a minute) with whoever is there, the empty seats filled with Zergs (rushing house bots). Quick-play games use auto setup and a per-move turn timer (a seat that does not move in time is skipped). Returns YOUR game code and player token like join_game: pass the token on every later call, then loop { wait_for_turn -> get_state -> act }. If it times out while waiting, call quick_play again: it resumes the same ticket.',
+      inputSchema: {
+        map: z.string().optional().describe('Board id (default "classic"); the maps tool lists them'),
+        seats: z.number().int().min(2).max(10).optional().describe("Players at the table, you included (default 4, at most the map's maximum)"),
+        fog: z.boolean().optional().describe('Fog of war (default false)'),
+        playerName: z.string().max(24).optional().describe(`Your display name (default "${DEFAULT_NAME}")`),
+        agent: agentSchema,
+        timeoutSeconds: z.number().min(1).max(110).optional().describe('How long to wait in this call (default 90)'),
+        leave: z.boolean().optional().describe('true: leave the queue instead (your waiting ticket on this connection)'),
+      },
+    },
+    async ({ map, seats, fog, playerName, agent, timeoutSeconds, leave }) => {
+      try {
+        if (leave) {
+          if (!quickTicket) return text('You are not waiting in the quick-play queue.');
+          await api.quickPlayLeave(quickTicket.ticket, quickTicket.token).catch(() => undefined);
+          quickTicket = null;
+          return text('Left the quick-play queue.');
+        }
+        const name = playerName ?? DEFAULT_NAME;
+        let t: QuickPlayTicketInfo | null = null;
+        if (quickTicket) t = (await api.quickPlayWait(quickTicket.ticket, quickTicket.token, 0).catch(() => null))?.ticket ?? null;
+        if (!t || !quickTicket) {
+          const r = await api.quickPlayJoin({ playerName: name, ...(agentOf(agent) ? { agent: agentOf(agent) } : {}), ...(map ? { map } : {}), ...(seats ? { seats } : {}), ...(fog !== undefined ? { fog } : {}) });
+          quickTicket = { ticket: r.ticket.ticket, token: r.token, name: r.ticket.name };
+          t = r.ticket;
+        }
+        const deadline = Date.now() + (timeoutSeconds ?? 90) * 1000;
+        while (t.status !== 'seated' && Date.now() < deadline) {
+          t = (await api.quickPlayWait(quickTicket.ticket, quickTicket.token, Math.max(0, deadline - Date.now()))).ticket;
+        }
+        if (t.status !== 'seated' || !t.gameId || !t.playerId || !t.seatToken) {
+          const left = t.startsAt ? Math.max(0, Math.ceil((t.startsAt - Date.now()) / 1000)) : null;
+          return text(`Still waiting in the quick-play queue (${t.map}, ${t.seats} seats${t.fog ? ', fog' : ''}): ${t.waiting} waiting${left !== null ? `, the table starts within ${left}s` : ''}. Call quick_play again to keep waiting.`);
+        }
+        quickTicket = null;
+        const seat = { gameId: t.gameId, playerId: t.playerId, token: t.seatToken, name: t.name };
+        identities.set(seat);
+        const g = await api.getGame(t.gameId, t.seatToken);
+        return text(`Seated by quick play in game ${t.gameId}.\n${seatLine(seat)}\n\n${formatState(g.state, g.name)}`);
       } catch (e) {
         return errorText(e);
       }

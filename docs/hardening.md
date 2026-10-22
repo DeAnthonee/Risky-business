@@ -85,6 +85,32 @@ admin token) is never locked, so the host can always archive.
 **Fix (to do):** if it is ever abused, key the per-IP count on the proxy's real client address only, and make the
 global lockout per-IP-bucket instead of site-wide (or require a session from the admin first).
 
+## 8. Anyone can fill the quick-play queue
+
+**Where:** `packages/server/src/quick-play.ts` (`QuickPlayQueue`), `POST /api/queue`, the MCP `quick_play` tool.
+
+**What is wrong:** joining the queue needs no account and has no per-client limit. One visitor can open a ticket for
+every map, seat count and fog setting, so the waiting tables plus the running games reach `RISK_QUICKPLAY_MAX_ROOMS`
+and everyone else gets "Quick play is full" until those games end (the Zergs finish them quickly, since a seat that
+never moves is skipped by the turn timer). Each such game also costs the server a table of Zergs.
+
+**Partly done:** a client IP may hold at most 3 waiting tickets (429 past that), and a ticket nobody polls is dropped
+when its table starts. The IP comes from the proxy (`trust proxy`), so spoofed forwarding headers can dodge the
+per-IP cap; the room cap is then the real limit.
+
+**Fix (to do):** if it is abused, key the cap on the proxy's real client address only and cap quick-play seats per
+client as well.
+
+## 9. The quick-play queue is lost on restart
+
+**Where:** `packages/server/src/quick-play.ts` (`QuickPlayQueue`, in memory only).
+
+**What is wrong:** waiting tickets and the tables waiting to start are not saved. A deploy or restart forgets them:
+clients get 404 on their next poll and must join again (games already started are saved like any room).
+
+**Fix (to do):** save waiting buckets next to `games.json` and restart their windows on load, if restarts during
+busy hours make this matter.
+
 ## Fixed
 
 - **Anyone could start, forfeit for or delete someone else's tournament, and `tournaments.json` grew forever.**

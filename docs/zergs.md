@@ -16,7 +16,7 @@ Zergs are house bots that rush, never attack each other and hunt eliminations to
   outsiders tell which seats are Zergs; there is no badge or banner.
 - **Allies until the prey is gone.** A Zerg never attacks a fellow Zerg while any non-Zerg is alive.
 - **The Zerg endgame (owner, 2026-10-22).** When only Zergs are left, the weaker Zergs surrender at once to the
-  strongest (most territories, then armies, then the lowest seat). That is the only time a Zerg surrenders (#PR removed
+  strongest (most territories, then armies, then the lowest seat). That is the only time a Zerg surrenders (#198 removed
   the walled-in sacrifice, a bug in the owner's eyes). This replaces
   #169's fight to one winner and landed in `zerg@1` in #176; section 4 says what is built. Live seats play
   `ZERG_1_PARAMS`, the same as training and the horde gate, so they follow `zerg@1` with no server change.
@@ -63,7 +63,7 @@ All Zergs run the same deterministic **target rule** on the same public board, s
 - **Walled in: mass toward the prey.** A Zerg walled in by its allies (no front of its own) reinforces, and fortifies
   toward, its territory nearest the prey (counted through any land), ready for when the front opens. It never
   surrenders while prey is alive.
-  - The old "feed the swarm" surrender, and its `sacrifice` parameter, were removed in #PR. In a live 10-player game, 6
+  - The old "feed the swarm" surrender, and its `sacrifice` parameter, were removed in #198. In a live 10-player game, 6
     of 8 Zergs surrendered mid-game that way and the owner called it a bug.
   - The cost: a turtling prey can stall the horde. At 4p against 3 Zergs, 12 of 100 games against delove@10 reach the
     turn limit (3 with the sacrifice).

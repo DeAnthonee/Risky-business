@@ -98,7 +98,43 @@ The same lineup, settings, seat brief and stop rule as games 1-6 (game 7 again u
   baselines compare; whether naming the bot invites the gang-up is a separate experiment (a neutral brief).
 - Two to three games per tier: the swings are large and the sample small.
 
-## Rerun it for a new model (delove@9, the range specialists)
+### Baseline 3: delove@10 + search (js2-range), neutral brief (games 13-18)
+
+Played 2026-10-22 under the **neutral protocol** (#157): Delove sits as "<Tier> Garen" and the brief doesn't say which
+seat is the trained model. The seat is the default live seat since #164, branch and score with `delove@10` ranking the
+moves (pinned with `DELOVE_BRANCH_RANKER=delove@10`), Jacob Sensei 2 rollouts, 5 options, the range score, horizon 2,
+margin 0.02. Two games per tier, **all six with the fixed setup (capitals and 8 blizzards)**, including Haiku: the
+Haiku rows here are not directly comparable with games 1 and 7, which used the pilot settings (no capitals, no
+blizzards). "Attacked early" is from the server's event log (`monitor.mjs`). All rooms were public; games that finished
+(13 and 16) count on public season 4, the owner's call.
+
+| # | game | opponents | Delove place | points | kills | out (round) | knocked out by / winner | attacked early | length | tokens per LLM seat |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 13 | TD7VDM | 5 × Claude Haiku | **1st (won, every capital)** | +7 | 4 | won, round 9 | - | 2 | 15 min | 170k-248k, mean 204k |
+| 14 | 8WZ3RC | 5 × Claude Haiku | 5th | -1 | 1 | 7 | Haiku Leona | 3 | 11 min | 128k-197k, mean 177k |
+| 15 | KDX7JE | 5 × Claude Sonnet | 4th | -1 | 0 | 5 | Sonnet Jinx | 2 | 10 min | 146k-175k, mean 159k |
+| 16 | 7YS96P | 5 × Claude Sonnet | 2nd | +6 | 4 | alive at the end, round 9 | Sonnet Shen won (every capital) | 2 | 15 min | 155k-258k, mean 188k |
+| 17 | AFUX5E | 5 × Claude Opus | 6th | -3 | 0 | 5 | Opus Leona | 2 | 9 min | 148k-161k, mean 152k |
+| 18 | JBZMBU | 5 × Claude Opus | 6th | -3 | 0 | 2 | Opus Shen | 2 | 5 min | 116k-133k, mean 122k |
+
+**By tier:**
+
+| tier | baseline 2 (delove@8 + search, brief names the bot) | baseline 3 (delove@10 + search, neutral brief) |
+| --- | --- | --- |
+| Haiku | 1 game, pilot settings: 1st, +7 | 2 games, fixed setup: mean +3.0, place 3.0, 5 kills |
+| Sonnet | 3 games: mean -3.0, place 6.0, 0 kills | 2 games: mean +2.5, place 3.0, 4 kills |
+| Opus | 2 games: mean +3.0, place 2.5, 4 kills | 2 games: mean -3.0, place 6.0, 0 kills |
+| all six games | mean +0.67, place 4.0, 8 kills | mean +0.83, place 4.0, 9 kills |
+
+- The neutral brief did not stop early attacks: two or three LLM seats hit Delove in rounds 1-2 in every game, so the
+  gang-up of baseline 2 was at least partly the board (Delove's starting spots and capital), not only the brief.
+- Sonnet improved sharply (last in all three baseline-2 games; 4th and 2nd with 4 kills here), Opus went the other way
+  (two early exits). With two games per tier and early attacks deciding most games, single games swing by 6-9 points:
+  read the tiers together, not one by one.
+- Game 16 shows the capitals win: Delove led with 21 territories and 96 armies after taking out four seats, and Sonnet
+  Shen won by taking the last capital it was missing.
+
+## Rerun it for a new model (delove@11, the range specialists)
 
 Same lineup, settings and stop rule, so the new rows compare with the ones above. Runtime files go to
 `$YARDSTICK_DIR` (default `~/risk-yardstick`), never into the repo.
@@ -118,7 +154,7 @@ Same lineup, settings and stop rule, so the new rows compare with the ones above
    the model, and use `--agents delove@N` for the bare network:
 
    ```bash
-   DELOVE_MODELS=<models folder> DELOVE_BRANCH_RANKER=delove@9 npm run delove-seat -- --server https://risky.deanthoneeking.com --join <gameId> --preset js2-range --names "<Tier> Garen" --pace 400
+   DELOVE_MODELS=<models folder> DELOVE_BRANCH_RANKER=delove@11 npm run delove-seat -- --server https://risky.deanthoneeking.com --join <gameId> --preset js2-range --names "<Tier> Garen" --pace 400
    ```
 
 3. Start one agent per LLM seat on the tier's model (Haiku, Sonnet, Opus, Fable), each with

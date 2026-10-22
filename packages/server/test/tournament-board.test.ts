@@ -86,7 +86,7 @@ describe('tournament scoring (owner decisions 18 and 20)', () => {
     expect(rows[3].bestFinish).toBe('out in round 1');
   });
 
-  it('no server bot is ranked, neither fill bots nor Zergs; people named "Bot 1" or "Zerg 1" still score', () => {
+  it('only people are ranked: fill bots and Zergs are scored (for bot stats) but get no row; a person named "Bot 1" does', () => {
     const bracket: ScoredBracket = {
       id: 'TFILL1',
       name: 'Fill',
@@ -100,10 +100,15 @@ describe('tournament scoring (owner decisions 18 and 20)', () => {
       champion: 'z',
     };
     const r = scoreTournament(bracket, 1)!;
-    expect(r.entrants.map((e) => e.key).sort()).toEqual(['player:bot 1', 'player:zerg 1']);
+    // Everyone is scored, flagged.
+    expect(r.entrants.map((e) => [e.name, e.bot, e.kind])).toEqual([['Bot 1', false, undefined], ['Zerg 1', false, undefined], ['Zerg 2', true, 'zerg'], ['Bot 2', true, 'bot']]);
+    expect(r.entrants.find((e) => e.name === 'Zerg 2')).toMatchObject({ champion: true, tablesWon: 1, kills: 1 });
     // The people keep their real places in the final (the Zerg won it): 2nd and 3rd of 4.
     expect(r.entrants.find((e) => e.name === 'Bot 1')!.final).toEqual({ place: 2, of: 4 });
     expect(rankTournaments([r]).map((x) => x.name)).toEqual(['Bot 1', 'Zerg 1']);
+    // Results saved before the flag existed: a bot key is a bot.
+    const old = { ...r, entrants: r.entrants.map(({ bot: _b, kind: _k, ...e }) => e) } as unknown as typeof r;
+    expect(rankTournaments([old]).map((x) => x.name)).toEqual(['Bot 1', 'Zerg 1']);
   });
 
   it('sums results over tournaments, sorted by points then championships', () => {
@@ -144,6 +149,24 @@ describe('the tournament leaderboard', () => {
       const p = (await call(`/rankings/profile?key=${encodeURIComponent(`player:${champion}`)}&board=tournament`)).body;
       expect(p).toMatchObject({ board: 'tournament', stats: { rank: 1, championships: 1, results: [{ tournamentId: id, finish: 'champion', points: 15 }] } });
       expect((await call('/rankings?board=nope')).status).toBe(400);
+    } finally {
+      await risk.shutdown('test');
+    }
+  });
+
+  it('a knockout with a fill bot: the bot is scored but only the person is ranked', async () => {
+    const { risk, call, store } = await server(null);
+    try {
+      const id = (await call('/admin/tournaments', post({ name: 'Solo Cup', groupSize: 2, fillBots: true }), ADMIN)).body.tournament.id;
+      const me = (await call(`/tournaments/${id}/join`, post({ playerName: 'Solo' }))).body;
+      await call(`/admin/tournaments/${id}/start`, post(), ADMIN);
+      await call(`/admin/tournaments/${id}/forfeit`, post({ entrantId: me.entrantId }), ADMIN);
+      expect((await call(`/tournaments/${id}`)).body.tournament.status).toBe('finished');
+      const result = store.tournamentBoard.result(id)!;
+      expect(result.entrants.map((e) => [e.name, e.bot])).toEqual([['Solo', false], ['Bot 1', true]]);
+      expect(result.entrants[1]).toMatchObject({ champion: true, kind: 'bot' });
+      expect((await call('/rankings?board=tournament')).body.rankings.map((r: any) => r.name)).toEqual(['Solo']);
+      expect((await call('/rankings/profile?key=bot%3Abot%201&board=tournament')).body.stats).toMatchObject({ rank: 0, results: [] });
     } finally {
       await risk.shutdown('test');
     }

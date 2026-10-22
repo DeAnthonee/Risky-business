@@ -75,7 +75,7 @@ export interface Entrant {
   kind?: BotKind;
   /**
    * Self-declared player type, passed to every table seat; spectators see it. The public tournament view never shows it;
-   * the host's live entrants list does (GET /api/tournaments/:id/entrants, and for anyone in open mode: hardening #2).
+   * the host's live entrants list does (GET /api/tournaments/:id/entrants: hardening #2; for anyone in open mode: #15).
    */
   agent?: string;
   /** The registered player (player key) this entrant plays as: its seats and the tournament board rank as `key:<id>`. */

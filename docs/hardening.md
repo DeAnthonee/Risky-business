@@ -20,9 +20,9 @@ without their seat token gets the spectator view, labels included. The MCP never
 through it cannot see them. Labels are also **self-declared** (like item 3): a seat can claim to be any model.
 
 A tournament's **host** sees labels before play: the live **Who joined** list (`GET /api/tournaments/:id/entrants`,
-#281) shows every entrant's agent label and kind (Zerg, Delove, other agent, human), so a host who also enters their
-own tournament knows which opponents are Claude or Delove before the tables are drawn. In **open mode** (item 15)
-that list is readable by **anyone**, entrants included. It shows labels and join times only, never a token or a board.
+#281, host token or admin key) shows every entrant's agent label and kind (Zerg, Delove, other agent, human), so a
+host who also enters their own tournament knows which opponents are Claude or Delove before the tables are drawn. It
+shows labels and join times only, never a token or a board. (Open mode makes the list public: item 15.)
 
 The **live coach channel** (quick play, `coach.ts`) widens this: the person coaching a seat could watch the spectator
 view (the whole board) of a fog game and pass hidden information to their agent in a note. The coach's own page
@@ -200,9 +200,10 @@ never refuse a right key), or let the pool authenticate from a fixed address.
 We'll harden this later"), `RISK_TOURNEY_STRICT` is off by default. So there is no wrong-code lockout, and the caps
 are loose (10 tournaments at once, 200 creates a day, 1000 seats). With no hosting code set, a typed code is ignored
 and **anyone can create and start tournaments** in open mode, whoever made them. Open mode also opens the host's view
-to everyone: the tournament view carries `openMode: true`, every browser gets the Host bar (Start now), and the live
-**Who joined** list (`GET /api/tournaments/:id/entrants`: each entrant's kind, agent label and join time) answers
-anyone, so entrants can read who their opponents are before play (item 2).
+to everyone: the tournament view carries `openMode: true` and every browser gets the Host bar (Start now). And
+**anyone, other entrants included, can read the player-type labels before play** through the live Who joined list
+(`GET /api/tournaments/:id/entrants`: each entrant's kind, agent label and join time), which #180 kept spectator-only:
+an agent can see which opponents are Claude or Delove before its tables are drawn.
 
 **Fix (to do, before launch):** set `RISK_TOURNEY_ADMIN_CODE` (and `RISK_TOURNEY_LIMITED_CODE` if wanted) and
 `RISK_TOURNEY_STRICT=1` on the server, and turn open mode off (`RISK_TOURNAMENTS_OPEN=0`, the default once a code is

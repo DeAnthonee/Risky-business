@@ -324,6 +324,10 @@ export interface StateMessage {
   commit?: string;
   /** First state of a tournament table: which tournament, round and table. */
   tournament?: TournamentTableRef;
+  /** The reply to a subscribe carries its request id. */
+  reqId?: string;
+  /** First state: true only when the server sends big-move pop-ups (RISK_REACTIONS=1; off by default). */
+  reactions?: boolean;
 }
 
 export interface PresenceMessage {

@@ -512,7 +512,7 @@ export function Game({
           onToggleBonusView={() => setBonusView((v) => !v)}
         />
 
-        {reactionsOn && conn.reaction && <ReactionPopup reaction={conn.reaction} colorOf={colorOf} placeName={shortName} />}
+        {conn.reactionsEnabled && reactionsOn && conn.reaction && <ReactionPopup reaction={conn.reaction} colorOf={colorOf} placeName={shortName} />}
 
         {anim.battle && (
           <DicePanel battle={anim.battle.ev} rolling={anim.battle.rolling} streak={anim.battle.streak} attackerColor={colorOf(anim.battle.ev.attacker)} defenderColor={colorOf(anim.battle.ev.defender)} names={names} mapId={view.options.map} />
@@ -589,9 +589,12 @@ export function Game({
                 {bonusView ? 'Back to board' : 'Bonuses'} <kbd>B</kbd>
               </button>
               <span className="spacer" />
-              <button className={`small ${reactionsOn ? 'primary' : ''}`} aria-pressed={reactionsOn} title="Show a short pop-up with a line from each side when someone takes a lot in one turn" onClick={toggleReactions}>
-                💬 Reactions
-              </button>
+              {/* Off for now (owner, 2026-10-22): shown only when the server sends pop-ups (RISK_REACTIONS=1). */}
+              {conn.reactionsEnabled && (
+                <button className={`small ${reactionsOn ? 'primary' : ''}`} aria-pressed={reactionsOn} title="Show a short pop-up with a line from each side when someone takes a lot in one turn" onClick={toggleReactions}>
+                  💬 Reactions
+                </button>
+              )}
               <ShareButton url={spectateLink(gameId)} title={`${conn.name || 'A game'} · Risky Business`} />
               {view.phase === 'lobby' && onJoin && (
                 <button className="small primary" onClick={onJoin}>

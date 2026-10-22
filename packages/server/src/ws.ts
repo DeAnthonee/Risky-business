@@ -3,7 +3,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { RuleError, redactEvents, type Action } from '@risk/engine';
 import { parseDecisionNote, type ChangeMessage, type ChatMessage, type GameRoom, type Store } from './store.js';
 import { TournamentFeeds } from './tournament-feed.js';
-import { seesWholeBoard, type BigMoveMessage } from './reactions.js';
+import { reactionsOn, seesWholeBoard, type BigMoveMessage } from './reactions.js';
 
 /** A tournament-feed socket with more than this queued gets no more feed updates until it drains. */
 const FEED_BACKLOG_BYTES = 1_000_000;
@@ -205,7 +205,7 @@ export function attachWebSocket(server: Server, store: Store, commit: () => stri
             r.on('presence', onPresence);
             // Big-move pop-ups only to a socket whose view shows the whole board (fog: spectators and the eliminated).
             onBigMove = (m) => {
-              if (seesWholeBoard(r.state, viewer)) send(m);
+              if (reactionsOn() && seesWholeBoard(r.state, viewer)) send(m);
             };
             r.on('big_move', onBigMove);
             onClosed = (reason) => {
@@ -216,7 +216,7 @@ export function attachWebSocket(server: Server, store: Store, commit: () => stri
             enter(r, playerId);
             // The first state says which tournament table this is, if any (the in-game banner); it never changes.
             const table = r.tournamentId ? store.tournaments.tableOf(r.tournamentId, r.id) : null;
-            send({ type: 'state', state: viewer ? r.view(viewer) : r.spectatorView(), events: [], version: r.state.version, host: r.hostId, name: r.name, you: playerId, commit: commit(), reqId: msg.reqId, ...(table ? { tournament: table } : {}), ...(coachOf ? { coaching: coachOf } : {}) });
+            send({ type: 'state', state: viewer ? r.view(viewer) : r.spectatorView(), events: [], version: r.state.version, host: r.hostId, name: r.name, you: playerId, commit: commit(), reqId: msg.reqId, ...(table ? { tournament: table } : {}), ...(coachOf ? { coaching: coachOf } : {}), ...(reactionsOn() ? { reactions: true } : {}) });
             send({ type: 'chat_history', messages: r.chatFor(playerId).slice(-100) });
             return;
           }

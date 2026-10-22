@@ -6,6 +6,7 @@ import { nameSkeleton } from './player-keys.js';
 import { SeasonKeyGuard } from './season-key.js';
 import type { HostTier, TourneyAccessConfig } from './tournament-access.js';
 import type { TournamentManager, TournamentSnapshot } from './tournaments.js';
+import type { GameRoom } from './store.js';
 
 /**
  * Delove seats on request (tournament-hosting P3; docs/tournaments.md "Delove seats on request"). A tournament created
@@ -30,6 +31,12 @@ export interface SeatRequest {
   joined: number;
   /** Entrants the pool joined for this request (join with seatRequestId and the pool key): the seats that count. */
   bound?: string[];
+  /**
+   * A takeover (disconnected seats, seat-health.ts): one seat of a game in progress whose player was dropped; the pool
+   * plays that existing seat with the token its claim returns, instead of joining the tournament. Absent = a join.
+   */
+  mode?: 'takeover';
+  takeover?: { gameId: string; playerId: string; name: string };
   /** Names the pool gives its seats: "<labelPrefix> 1", "<labelPrefix> 2", ... */
   labelPrefix: string;
   /** The tournament plays with fog of war (Delove's search is fog-off only). */
@@ -72,8 +79,23 @@ interface Saved {
   pool: { free: number; freeSearch: number; at: number } | null;
 }
 
+/** What a takeover claim answers: the seat to play, with its fresh token (the game API, as resume_game). */
+export interface TakeoverClaim {
+  requestId: string;
+  mode: 'takeover';
+  tournamentId: string;
+  gameId: string;
+  playerId: string;
+  token: string;
+  n: 1;
+  search: number;
+  options: Partial<GameOptions>;
+}
+
 export class SeatRequests {
   private saved: Saved = { requests: [], pool: null };
+  /** The game rooms, for takeovers (the app sets it: store.get). */
+  rooms: ((gameId: string) => GameRoom | undefined) | null = null;
   private guard: SeasonKeyGuard;
 
   constructor(
@@ -167,9 +189,39 @@ export class SeatRequests {
     return r;
   }
 
-  /** The request of a tournament, if it has one still taking seats. */
+  /** The join request of a tournament, if it has one still taking seats (takeovers are never this). */
   private requestOf(tournamentId: string): SeatRequest | undefined {
-    return this.saved.requests.find((r) => r.tournamentId === tournamentId.toUpperCase() && (r.status === 'open' || r.status === 'claimed' || r.status === 'done'));
+    return this.saved.requests.find((r) => !r.mode && r.tournamentId === tournamentId.toUpperCase() && (r.status === 'open' || r.status === 'claimed' || r.status === 'done'));
+  }
+
+  /**
+   * A seat was dropped as disconnected (the house bot already plays it): ask the pool to take it over. Nothing with no
+   * pool configured, or with no Delove seat free under the at-once cap (the house bot just plays on).
+   */
+  openTakeover(tournamentId: string, gameId: string, playerId: string, name: string, fog: boolean): SeatRequest | null {
+    if (!this.key) return null;
+    if (this.caps.deloveAtOnce > 0 && this.seatsAtOnce() + 1 > this.caps.deloveAtOnce) return null;
+    const r: SeatRequest = {
+      id: `TK${gameId}${this.now().toString(36)}`.toUpperCase(),
+      kind: 'delove',
+      mode: 'takeover',
+      takeover: { gameId, playerId, name },
+      tournamentId,
+      n: 1,
+      claimed: 0,
+      joined: 0,
+      labelPrefix: 'Delove',
+      fog,
+      searchAllowed: !fog,
+      search: 0,
+      createdAt: this.now(),
+      expiresAt: null,
+      status: 'open',
+    };
+    this.saved.requests = [...this.saved.requests, r];
+    this.prune();
+    this.save();
+    return r;
   }
 
   /**
@@ -202,11 +254,15 @@ export class SeatRequests {
     this.save();
   }
 
-  /** Requests the pool may still claim from. */
-  list(kind: string | undefined): SeatRequest[] {
+  /**
+   * Requests the pool may still claim from. Takeovers only with `modes` including "takeover", so a pool that does not
+   * know them never sees one.
+   */
+  list(kind: string | undefined, modes?: string): SeatRequest[] {
     if (kind !== undefined && kind !== 'delove') throw new RiskHttpError('kind must be "delove"', 400);
+    const takeovers = (modes ?? '').split(',').map((m) => m.trim()).includes('takeover');
     this.closeGone();
-    return this.saved.requests.filter((r) => r.status === 'open' || (r.status === 'claimed' && r.claimed < r.n));
+    return this.saved.requests.filter((r) => (r.mode === 'takeover' ? takeovers : true) && (r.status === 'open' || (r.status === 'claimed' && r.claimed < r.n)));
   }
 
   /** The pool's free capacity, sent on each poll. */
@@ -236,10 +292,11 @@ export class SeatRequests {
    * The pool takes `n` seats of a request: what it needs to join them. `search` says how many of them may run search
    * (fog off, within the search seats at once).
    */
-  claim(id: string, rawN: unknown): { requestId: string; tournamentId: string; n: number; search: number; labelPrefix: string; firstLabel: number; options: Partial<GameOptions> } {
+  claim(id: string, rawN: unknown): { requestId: string; tournamentId: string; n: number; search: number; labelPrefix: string; firstLabel: number; options: Partial<GameOptions> } | TakeoverClaim {
     this.closeGone();
     const r = this.require(id);
     if (r.status !== 'open' && r.status !== 'claimed') throw new RiskHttpError(`This request is ${r.status}`, 409);
+    if (r.mode === 'takeover') return this.claimTakeover(r);
     const left = r.n - r.claimed;
     const n = rawN === undefined ? left : rawN;
     if (typeof n !== 'number' || !Number.isInteger(n) || n < 1) throw new RiskHttpError('n must be a whole number of at least 1', 400);
@@ -255,9 +312,45 @@ export class SeatRequests {
     return { requestId: r.id, tournamentId: r.tournamentId, n, search, labelPrefix: r.labelPrefix, firstLabel, options: { ...t.options } };
   }
 
+  /** A takeover claim: the seat is the pool's now ("<name>-Delove"), with a fresh token to play it. */
+  private claimTakeover(r: SeatRequest): TakeoverClaim {
+    const room = this.rooms?.(r.takeover!.gameId);
+    if (r.status !== 'open' || !room) throw new RiskHttpError('That seat is no longer waiting for a takeover', 409);
+    let token: string;
+    try {
+      token = room.grantStandIn(r.takeover!.playerId, 'delove');
+    } catch (err) {
+      r.status = 'expired';
+      r.reason = (err as Error).message;
+      this.save();
+      throw new RiskHttpError('That seat is no longer in play', 409);
+    }
+    const searchUsed = this.live().reduce((k, x) => k + x.search, 0);
+    const search = r.searchAllowed && searchUsed < (this.caps.deloveSearchAtOnce || Infinity) ? 1 : 0;
+    r.claimed = 1;
+    r.search = search;
+    r.status = 'claimed';
+    this.save();
+    return { requestId: r.id, mode: 'takeover', tournamentId: r.tournamentId, gameId: r.takeover!.gameId, playerId: r.takeover!.playerId, token, n: 1, search, options: { ...room.state.options } };
+  }
+
   /** The pool reports how a claim went: `done` with the seats joined, or `failed` with a reason. */
   finish(id: string, outcome: 'done' | 'failed', joined: unknown, reason: unknown) {
     const r = this.require(id);
+    if (r.mode === 'takeover') {
+      if (r.status !== 'claimed' && r.status !== 'done') throw new RiskHttpError(`This request is ${r.status}`, 409);
+      if (outcome === 'failed') {
+        // The pool could not play it: back to the house bot for the rest of the table (no second request).
+        r.status = 'failed';
+        r.reason = String(reason ?? '').slice(0, 200) || 'the Delove takeover failed';
+        this.rooms?.(r.takeover!.gameId)?.handBackToBot(r.takeover!.playerId, r.reason);
+      } else {
+        r.joined = 1;
+        r.status = 'done';
+      }
+      this.save();
+      return r;
+    }
     if (r.status !== 'claimed' && r.status !== 'done') throw new RiskHttpError(`This request is ${r.status}`, 409);
     const j = joined === undefined ? 0 : joined;
     if (typeof j !== 'number' || !Number.isInteger(j) || j < 0 || j > r.claimed) throw new RiskHttpError(`joined must be a whole number from 0 to ${r.claimed}`, 400);
@@ -292,10 +385,20 @@ export class SeatRequests {
     this.save();
   }
 
-  /** Requests whose tournament is gone or no longer registering close (expired). */
+  /** Requests whose tournament is gone or no longer registering close (expired); a takeover when its table ends. */
   private closeGone() {
     let changed = false;
     for (const r of this.live()) {
+      if (r.mode === 'takeover') {
+        const room = this.rooms?.(r.takeover!.gameId);
+        if (!room || room.closed || room.decidedAt !== null || room.state.phase === 'finished') {
+          // The table ended: an unclaimed takeover lapses; a claimed one is over (it no longer holds a Delove seat).
+          r.status = r.status === 'claimed' ? 'done' : 'expired';
+          if (r.status === 'expired') r.reason ??= 'the table ended';
+          changed = true;
+        }
+        continue;
+      }
       const t = this.tournaments.get(r.tournamentId);
       if (!t || t.status !== 'registering') {
         r.status = 'expired';

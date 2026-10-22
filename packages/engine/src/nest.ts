@@ -235,10 +235,14 @@ function boardId(board: NestBoard, seed: number, hasChildren: boolean): string {
 
 /**
  * The boards for a planned tournament: the final on `final` (a generated board by default, or an existing one that
- * seats the final), every other table on a generated board for its seat count. Returns the spec and, per table of the
- * plan, its resolved board ([round][index]).
+ * seats the final), every other table on a generated board for its seat count. Returns the spec, its resolved boards
+ * (`nodes`, as resolveNest lists them) and, per table of the plan, its board ([round][index]) and that board's index in
+ * `nodes`.
  */
-export function planToNest(plan: NestPlan, opts: { seed: number; final?: { map: string }; boards?: GenBoardOptions }): { spec: NestSpec; boards: NestNode[][] } {
+export function planToNest(
+  plan: NestPlan,
+  opts: { seed: number; final?: { map: string }; boards?: GenBoardOptions },
+): { spec: NestSpec; nodes: NestNode[]; boards: NestNode[][]; index: number[][] } {
   const R = plan.rounds.length;
   const gen = (seats: number): NestBoard => ({ gen: { ...opts.boards, seats } });
   const build = (round: number, index: number): NestNodeSpec => {
@@ -252,12 +256,14 @@ export function planToNest(plan: NestPlan, opts: { seed: number; final?: { map: 
   const nodes = resolveNest(spec);
   // Breadth-first order from the final down: map nodes back to [round][index] by walking the plan the same way.
   const boards: NestNode[][] = plan.rounds.map((r) => new Array<NestNode>(r.length));
+  const index: number[][] = plan.rounds.map((r) => new Array<number>(r.length));
   const order: Array<[number, number]> = [[R - 1, 0]];
   for (let q = 0; q < order.length; q++) {
-    const [round, index] = order[q];
-    boards[round][index] = nodes[q];
+    const [round, at] = order[q];
+    boards[round][at] = nodes[q];
+    index[round][at] = q;
     if (round > 0)
-      for (const c of plan.rounds[round - 1].filter((c) => c.parent === index).sort((a, b) => a.portal! - b.portal!)) order.push([round - 1, c.index]);
+      for (const c of plan.rounds[round - 1].filter((c) => c.parent === at).sort((a, b) => a.portal! - b.portal!)) order.push([round - 1, c.index]);
   }
-  return { spec, boards };
+  return { spec, nodes, boards, index };
 }

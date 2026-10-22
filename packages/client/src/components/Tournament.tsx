@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { MAPS } from '@risk/engine';
 import { api, ApiError, type TournamentView } from '../api';
-import { getEntrantToken, saveEntrantToken, type Session } from '../session';
+import { getEntrantToken, getHostToken, saveEntrantToken, type Session } from '../session';
 import { NestedTournament } from './NestedTournament';
 import { ShareButton } from './Share';
 
@@ -31,6 +31,21 @@ export function Tournament({
   const [t, setT] = useState<TournamentView | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // The host's start: this browser's host token (from the create form), or a hosting code from anywhere.
+  const hostToken = getHostToken(id);
+  const [code, setCode] = useState('');
+  const start = async () => {
+    setBusy(true);
+    try {
+      const r = hostToken ? await api.startTournament(id, hostToken) : await api.startTournamentWithCode(id, code.trim());
+      setT(r.tournament);
+      setErr(null);
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   // Follow the bracket with a long-poll: it returns as soon as anything changes.
   useEffect(() => {
@@ -168,6 +183,26 @@ export function Tournament({
               </h2>
               <p>Registration is closed. Watch any table below.</p>
             </>
+          )}
+          {t.status === 'registering' && !t.scheduled && (
+            <div className="tourney-host">
+              <h3>Host</h3>
+              {hostToken ? (
+                <button className="primary" disabled={busy} onClick={start}>
+                  Start now
+                </button>
+              ) : (
+                <>
+                  <label className="ct-code">
+                    Hosting code
+                    <input value={code} autoComplete="off" spellCheck={false} placeholder="from the site owner" onChange={(e) => setCode(e.target.value)} />
+                  </label>
+                  <button disabled={busy || !code.trim()} onClick={start}>
+                    Start with code
+                  </button>
+                </>
+              )}
+            </div>
           )}
           {err && <p className="error">{err}</p>}
         </section>

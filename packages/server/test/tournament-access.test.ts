@@ -9,6 +9,8 @@ import type { TournamentClock } from '../src/tournaments.js';
 import {
   CANCEL_EXPIRED,
   DEFAULT_TOURNEY_ACCESS,
+  TESTING_TOURNEY_ACCESS,
+  describeTourneyAccess,
   TournamentAccess,
   openModeFromEnv,
   tourneyAccessFromEnv,
@@ -62,8 +64,10 @@ function status(fn: () => unknown): number | 'ok' {
 
 describe('hosting codes', () => {
   it('reads every setting from the environment, and open mode defaults off once a code is set', () => {
-    expect(tourneyAccessFromEnv({})).toEqual(DEFAULT_TOURNEY_ACCESS);
-    const c = tourneyAccessFromEnv({ RISK_TOURNEY_ADMIN_CODE: ADMIN_CODE, RISK_TOURNEY_LIMITED_PER_DAY: '3', RISK_TOURNEY_MAX_LIVE_SEATS: '90', RISK_TOURNEY_EXPIRE_HOURS: '6', RISK_TOURNEY_MAX_ACTIVE: 'lots' });
+    // Unset RISK_TOURNEY_STRICT: testing mode (owner, 2026-10-22). STRICT=1: the launch levers.
+    expect(tourneyAccessFromEnv({})).toEqual(TESTING_TOURNEY_ACCESS);
+    expect(tourneyAccessFromEnv({ RISK_TOURNEY_STRICT: '1' })).toEqual(DEFAULT_TOURNEY_ACCESS);
+    const c = tourneyAccessFromEnv({ RISK_TOURNEY_STRICT: '1', RISK_TOURNEY_ADMIN_CODE: ADMIN_CODE, RISK_TOURNEY_LIMITED_PER_DAY: '3', RISK_TOURNEY_MAX_LIVE_SEATS: '90', RISK_TOURNEY_EXPIRE_HOURS: '6', RISK_TOURNEY_MAX_ACTIVE: 'lots' });
     expect(c).toMatchObject({ adminCode: ADMIN_CODE, limitedCode: null, limitedPerDay: 3, maxLiveSeats: 90, expireMs: 6 * H, maxActive: 2 });
     expect(DEFAULT_TOURNEY_ACCESS).toMatchObject({ limitedPerDay: 5, createsPerDay: 20, maxActive: 2, maxActiveLimited: 1, seatsAdmin: 128, seatsLimited: 64, maxLiveSeats: 200, deloveAdmin: 40, deloveLimited: 16, deloveAtOnce: 48, lagBrakeMs: 100 });
     expect(openModeFromEnv({}, { adminCode: null, limitedCode: null })).toBe(true);
@@ -122,6 +126,55 @@ describe('hosting codes', () => {
     const b = new TournamentAccess(a.store.tournaments, CODES, file);
     expect(status(() => b.checkCode('7.7.7.7', ADMIN_CODE))).toBe(429);
     expect(JSON.parse(saved)).toMatchObject({ creates: 1, limited: 1 });
+  });
+});
+
+describe('testing mode (RISK_TOURNEY_STRICT off)', () => {
+  it('loosens the caps and turns the lockout off; each lever still has its own variable', () => {
+    const t = tourneyAccessFromEnv({});
+    expect(t).toMatchObject({ strict: false, maxActive: 10, maxActiveLimited: 5, createsPerDay: 200, limitedPerDay: 50, maxLiveSeats: 1000, lagBrakeMs: 100, seatsLimited: 64, attempts: { perIp: 0, global: 0 } });
+    expect(tourneyAccessFromEnv({ RISK_TOURNEY_MAX_ACTIVE: '3', RISK_TOURNEY_ATTEMPTS_PER_IP: '5' })).toMatchObject({ strict: false, maxActive: 3, attempts: { perIp: 5, global: 0 } });
+    expect(tourneyAccessFromEnv({ RISK_TOURNEY_STRICT: '1' }).attempts).toMatchObject({ perIp: 5, global: 50 });
+    // The startup line names what is set, never a value.
+    const line = describeTourneyAccess({ ...t, adminCode: ADMIN_CODE });
+    expect(line).toBe('[tourney] codes: admin set, limited unset, strict off');
+    expect(line).not.toContain(ADMIN_CODE);
+  });
+
+  it('never locks anyone out, and drops lockouts saved by a strict run', () => {
+    const file = join(dir, 'testing.json');
+    const strict = setup({}, file);
+    for (let i = 0; i < 5; i++) status(() => strict.access.checkCode('6.6.6.6', 'bad'));
+    expect(status(() => strict.access.checkCode('6.6.6.6', ADMIN_CODE))).toBe(429);
+    // Back in testing mode: the saved lockout is gone, and 60 wrong codes lock nobody out.
+    const testing = new TournamentAccess(strict.store.tournaments, { ...TESTING_TOURNEY_ACCESS, ...CODES }, file);
+    expect(testing.checkCode('6.6.6.6', ADMIN_CODE)).toBe('admin');
+    for (let i = 0; i < 60; i++) expect(status(() => testing.checkCode('6.6.6.6', 'bad'))).toBe(403);
+    expect(testing.checkCode('6.6.6.6', LIMITED_CODE)).toBe('limited');
+    expect(JSON.parse(readFileSync(file, 'utf8'))).toMatchObject({ byIp: {}, globalFails: [] });
+  });
+
+  it('a code sent to a server with no codes set says so (400), and is not a wrong try', () => {
+    const { access } = setup({ adminCode: null, limitedCode: null });
+    let err: { status?: number; message?: string } = {};
+    try {
+      access.checkCode('5.5.5.5', 'anything');
+    } catch (e) {
+      err = e as typeof err;
+    }
+    expect(err).toMatchObject({ status: 400, message: expect.stringMatching(/No tournament codes are set on this server/) });
+    for (let i = 0; i < 10; i++) expect(status(() => access.checkCode('5.5.5.5', 'anything'))).toBe(400); // never 429
+  });
+
+  it('the limited code starts its own tournaments, open-mode ones and ones made before the codes; not the admin code\'s', () => {
+    const { store, access, create } = setup({ maxActive: 0, maxActiveLimited: 0 });
+    const own = create(LIMITED_CODE, { maxEntrants: 4 });
+    const open = create(undefined, { maxEntrants: 4 }, '1.1.1.1', true);
+    const before = store.tournaments.create({ name: 'Before codes', maxEntrants: 4 }); // no record: made before the codes
+    const admins = create(ADMIN_CODE, { maxEntrants: 4 });
+    for (const t of [own, open, before]) expect(access.canStart('4.4.4.4', LIMITED_CODE, t.id), t.name).toBe(true);
+    expect(access.canStart('4.4.4.4', LIMITED_CODE, admins.id)).toBe(false);
+    expect(access.canStart('4.4.4.4', ADMIN_CODE, admins.id)).toBe(true);
   });
 });
 

@@ -195,3 +195,10 @@
     grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
   }
 }
+
+/* The host's start box (registering): Start now with this browser's host token, or a hosting code. */
+.tourney-host {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}

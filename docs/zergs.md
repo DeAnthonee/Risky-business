@@ -77,7 +77,9 @@ All Zergs run the same deterministic **target rule** on the same public board, s
   - Zergs take neutral land at good odds.
 - **Ending: the strongest keeps the table.** When only Zergs are left, every Zerg but the strongest (`strongestZergOf`:
   most territories, then most armies, then the lowest seat index) surrenders on its turn, and the strongest wins. It
-  keeps playing as an ally until it stands alone, so no Zerg attacks another.
+  keeps playing as an ally until it stands alone, so no Zerg attacks another. A Zerg that has just taken the last prey
+  territory occupies it before it surrenders (#PR; before that it could surrender with the conquest left empty, at 0
+  armies).
   - The history: until #169 all but the first Zerg in turn order surrendered; #169 had them fight to one winner;
     #176 is this rule.
   - Each change updated the golden test on purpose, with the alliance phase's moves pinned as unchanged.

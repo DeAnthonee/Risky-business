@@ -7,6 +7,7 @@ except character saves ([characters.md](characters.md)) and deploy behaviour ([h
 Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. Changes from before pull requests carry the
 commit hash instead. **Append a line in the same PR** as any change to this area (README hard rule 12).
 
+- 2026-10-21 #PR docs/tournaments.md: Delove entrants join through `delove-seat --tournament` (no server change)
 - 2026-10-21 #166 tournament host token: create (`POST /api/tournaments`, `/api/admin/tournaments`) returns `hostToken`; host routes `POST /tournaments/:id/start` (no longer open to anyone), `POST /tournaments/:id/forfeit` and `DELETE /tournaments/:id` need it or the admin key; old `tournaments.json` entries (no token) are admin-only; `RISK_MAX_ACTIVE_TOURNAMENTS` caps open ones (default 20), `RISK_TOURNAMENTS_KEEP` prunes finished ones (default 100)
 - 2026-10-20 #138 training leaderboard: a room flag `board: "training"` (`POST /api/games` with the characters write key; saved in snapshots, old ones load as public) ranks into `rankings-training.json`, never `rankings.json`; `?board=training` on `/rankings` and `/rankings/profile`; `/games`, `/history` (+ `?board=`) and game records carry `board`; admin `POST /api/admin/games/:id/board` moves a game (room, ranked result, records) onto it
 - 2026-10-20 #135 leaderboard season 4: `RANKINGS_SEASON` 3 → 4 archives production's board on deploy (season 3 becomes `rankings.season-3.json`), season 4 starts empty

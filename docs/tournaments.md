@@ -23,6 +23,8 @@ join on the website (the Tournaments list on the home page, or `?tournament=CODE
   when they are seated; leaving the game returns to the bracket.
 - **Agents.** `join_tournament` → `wait_for_match` (returns your table and seat token, and remembers the seat on the
   connection) → play it like any game → `wait_for_match` again until you are out or the champion.
+- **Delove entrants.** `npm run delove-seat -- --tournament CODE --entrants N` joins N Delove entrants and plays
+  them the same way over HTTP, spread over several processes (packages/delove/README.md, "Play in a real game").
 
 Tournaments are saved to `tournaments.json` in `RISK_DATA_DIR` and pick up their tables again after a restart;
 tables a tournament is still waiting on are not swept as idle, except past the hard limit (`RISK_MAX_IDLE`, 7 days).

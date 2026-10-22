@@ -1,18 +1,23 @@
 #!/usr/bin/env node
+import { fork } from 'node:child_process';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import type { GameOptions } from '@risk/engine';
 import { HttpRiskApi } from '@risk/mcp';
-import type { Agent } from '@risk/selfplay';
+import { seededRandom, type Agent } from '@risk/selfplay';
 import { branchFromEnv, LIVE_BRANCH_DEFAULT_PRESET, LIVE_BRANCH_PRESETS, liveBranchEnv, type LiveBranchPresetName } from './branch-env.js';
 import { discoverNetAgents } from './net-agent.js';
 import { defaultName, discoverTunedTeachers, playSeat } from './seat.js';
 import { jacob, jacob2 } from './jacob.js';
 import { teacher } from './teacher.js';
+import { latencySummary, playEntrant, type EntrantResult } from './tournament-seat.js';
 
 const USAGE = `delove-seat: seat Delove players in a real game over the HTTP API (no chat, no character)
 
   npm run delove-seat -- --join CODE [--agents delove-branch,delove@8]
   npm run delove-seat -- --create [--agents delove-branch,delove-teacher@1] [--bots 2] [--options '{"map":"classic"}'] [--no-start]
+  npm run delove-seat -- --tournament CODE --entrants 20 [--procs 6] [--agents delove-branch] [--names ...] [--tokens FILE]
 
   --server URL     game server (default RISK_SERVER_URL or http://localhost:8080)
   --agents IDS     Delove versions, one seat each (default delove-branch: Delove with search at
@@ -32,6 +37,14 @@ const USAGE = `delove-seat: seat Delove players in a real game over the HTTP API
   --join CODE      join a game someone created; the host starts it
   --create         create a game (the first seat hosts), add --bots built-in bots, start it (unless --no-start)
   --pace MS        pause after each move so spectators can follow (default 400)
+
+Tournaments (docs/tournaments.md; join while it is registering, the host starts it):
+  --tournament CODE  join it with --entrants N entrants ("Delove 1" ... "Delove N", or --names), the agents of
+                   --agents in turn; each entrant waits for its table, plays it, waits for the next, until it is
+                   out or the tournament is over
+  --procs P        child processes the entrants are spread over (default min(6, N)): one process thinks for its
+                   seats one after another, so P is how many decisions are made at once
+  --tokens FILE    keep the entrant tokens here: a restarted runner reuses them instead of joining again
 
 Fog of war: only Delove networks trained for it (fog inputs: train.py --fog-dropout, "fogInputs" in the model's
 .json) take fog seats, playing on what their seat can see; other versions sit fog games out.`;
@@ -54,39 +67,21 @@ async function main() {
       options: { type: 'string' },
       'no-start': { type: 'boolean' },
       pace: { type: 'string' },
+      tournament: { type: 'string' },
+      entrants: { type: 'string' },
+      procs: { type: 'string' },
+      tokens: { type: 'string' },
       help: { type: 'boolean' },
     },
   });
   if (values.help) return console.log(USAGE);
-  if (!values.join === !values.create) fail('give exactly one of --join CODE or --create');
-
-  const tuned = discoverTunedTeachers();
-  const allAgents = [teacher, ...tuned, jacob, jacob2, ...discoverNetAgents()];
-  const known = new Map<string, Agent>(
-    allAgents.flatMap((a) => {
-      const entries: [string, Agent][] = [[a.id, a]];
-      if (a.id === 'delove-teacher@1') entries.push(['sensei@1', a], ['sensei', a]);
-      if (a.id === 'delove-teacher@2') entries.push(['sensei@2', a]);
-      if (a.id === jacob.id) entries.push(['jacob', a]);
-      if (a.id === jacob2.id) entries.push(['jacob2', a]);
-      return entries;
-    }),
-  );
+  if ([values.join, values.create, values.tournament].filter(Boolean).length !== 1) fail('give exactly one of --join CODE, --create or --tournament CODE');
+  if (values.tournament) return tournament(values);
   const ids = (values.agents ?? 'delove-branch').split(',').map((s) => s.trim()).filter(Boolean);
-  // Branch and score loads its ranker network, so it is only built when a seat asks for it.
-  if (ids.some((id) => id === 'delove-branch' || id === 'delove-branch@1')) {
-    const preset = (values.preset ?? LIVE_BRANCH_DEFAULT_PRESET) as LiveBranchPresetName;
-    if (!(preset in LIVE_BRANCH_PRESETS)) fail(`--preset must be one of ${Object.keys(LIVE_BRANCH_PRESETS).join(', ')}`);
-    const env = liveBranchEnv(undefined, process.env, preset);
-    const branch = branchFromEnv(undefined, env);
-    console.log(`delove-branch (${preset}): ranker ${env.DELOVE_BRANCH_RANKER ?? 'none'}, rollouts by ${env.DELOVE_BRANCH_TEACHER}, ${env.DELOVE_BRANCH_OPTIONS} options, ${env.DELOVE_BRANCH_SCORE} score, horizon ${env.DELOVE_BRANCH_HORIZON}, margin ${env.DELOVE_BRANCH_MARGIN}`);
-    known.set(branch.id, branch).set('delove-branch', branch);
-  }
-  const agents = ids.map((id) => known.get(id) ?? fail(`unknown Delove version "${id}" (known: ${[...known.keys()].join(', ')})`));
+  const agents = buildAgents(ids, values.preset);
   const names = values.names ? values.names.split(',').map((s) => s.trim()) : ids.map(defaultName);
   if (names.length !== agents.length) fail('--names needs one name per agent');
-  const pace = values.pace === undefined ? 400 : Number(values.pace);
-  if (!Number.isFinite(pace) || pace < 0) fail('--pace must be a number of milliseconds');
+  const pace = paceOf(values.pace);
   let options: Partial<GameOptions> | undefined;
   try {
     options = values.options ? JSON.parse(values.options) : undefined;
@@ -98,7 +93,6 @@ async function main() {
 
   const server = values.server ?? process.env.RISK_SERVER_URL ?? 'http://localhost:8080';
   const api = new HttpRiskApi(server);
-  const log = (line: string) => console.log(`[${new Date().toLocaleTimeString()}] ${line}`);
 
   const seats: { gameId: string; playerId: string; token: string; name: string; agent: Agent }[] = [];
   let gameId = values.join?.trim().toUpperCase() ?? '';
@@ -135,7 +129,143 @@ async function main() {
   process.exit(0);
 }
 
-main().catch((err) => {
+const log = (line: string) => console.log(`[${new Date().toLocaleTimeString()}] ${line}`);
+
+function paceOf(v: string | undefined): number {
+  const pace = v === undefined ? 400 : Number(v);
+  if (!Number.isFinite(pace) || pace < 0) fail('--pace must be a number of milliseconds');
+  return pace;
+}
+
+/** The players for these ids (the teachers, every network in the models folder, and delove-branch with its preset). */
+function buildAgents(ids: string[], presetName: string | undefined): Agent[] {
+  const tuned = discoverTunedTeachers();
+  const allAgents = [teacher, ...tuned, jacob, jacob2, ...discoverNetAgents()];
+  const known = new Map<string, Agent>(
+    allAgents.flatMap((a) => {
+      const entries: [string, Agent][] = [[a.id, a]];
+      if (a.id === 'delove-teacher@1') entries.push(['sensei@1', a], ['sensei', a]);
+      if (a.id === 'delove-teacher@2') entries.push(['sensei@2', a]);
+      if (a.id === jacob.id) entries.push(['jacob', a]);
+      if (a.id === jacob2.id) entries.push(['jacob2', a]);
+      return entries;
+    }),
+  );
+  // Branch and score loads its ranker network, so it is only built when a seat asks for it.
+  if (ids.some((id) => id === 'delove-branch' || id === 'delove-branch@1')) {
+    const preset = (presetName ?? LIVE_BRANCH_DEFAULT_PRESET) as LiveBranchPresetName;
+    if (!(preset in LIVE_BRANCH_PRESETS)) fail(`--preset must be one of ${Object.keys(LIVE_BRANCH_PRESETS).join(', ')}`);
+    const env = liveBranchEnv(undefined, process.env, preset);
+    const branch = branchFromEnv(undefined, env);
+    console.log(`delove-branch (${preset}): ranker ${env.DELOVE_BRANCH_RANKER ?? 'none'}, rollouts by ${env.DELOVE_BRANCH_TEACHER}, ${env.DELOVE_BRANCH_OPTIONS} options, ${env.DELOVE_BRANCH_SCORE} score, horizon ${env.DELOVE_BRANCH_HORIZON}, margin ${env.DELOVE_BRANCH_MARGIN}`);
+    known.set(branch.id, branch).set('delove-branch', branch);
+  }
+  return ids.map((id) => known.get(id) ?? fail(`unknown Delove version "${id}" (known: ${[...known.keys()].join(', ')})`));
+}
+
+interface Entrant {
+  name: string;
+  token: string;
+  agentId: string;
+}
+
+/** A child process's job: its entrants (tokens included), sent over IPC, never on the command line. */
+interface ChildJob {
+  server: string;
+  tournamentId: string;
+  entrants: Entrant[];
+  preset?: string;
+  pace: number;
+}
+
+interface ChildReport {
+  pid: number;
+  results: EntrantResult[];
+  decisionsMs: number[];
+  cpuMs: number;
+  wallMs: number;
+}
+
+/** --tournament: join the entrants (or reuse --tokens), spread them over --procs child processes, report latency. */
+async function tournament(values: Record<string, string | boolean | undefined>): Promise<void> {
+  const id = String(values.tournament).trim().toUpperCase();
+  const server = (values.server as string | undefined) ?? process.env.RISK_SERVER_URL ?? 'http://localhost:8080';
+  const api = new HttpRiskApi(server);
+  const n = Number(values.entrants ?? 1);
+  if (!Number.isInteger(n) || n < 1) fail('--entrants must be a whole number of at least 1');
+  const ids = String(values.agents ?? 'delove-branch').split(',').map((s) => s.trim()).filter(Boolean);
+  const names = values.names ? String(values.names).split(',').map((s) => s.trim()) : Array.from({ length: n }, (_, i) => `Delove ${i + 1}`);
+  if (names.length !== n) fail('--names needs one name per entrant');
+  buildAgents(ids, values.preset as string | undefined); // fail now on an unknown id, before anyone joins
+  const procs = values.procs === undefined ? Math.min(6, n) : Number(values.procs);
+  if (!Number.isInteger(procs) || procs < 1) fail('--procs must be a whole number of at least 1');
+  const pace = paceOf(values.pace as string | undefined);
+
+  const tokensFile = values.tokens as string | undefined;
+  let entrants: Entrant[] = tokensFile && existsSync(tokensFile) ? JSON.parse(readFileSync(tokensFile, 'utf8')).entrants : [];
+  if (entrants.length) log(`reusing ${entrants.length} entrants from ${tokensFile}`);
+  else {
+    for (let i = 0; i < n; i++) {
+      const r = await api.joinTournament(id, names[i]);
+      entrants.push({ name: names[i], token: r.token, agentId: ids[i % ids.length] });
+      log(`${names[i]} (${ids[i % ids.length]}) joined tournament ${id}`);
+    }
+    if (tokensFile) writeFileSync(tokensFile, JSON.stringify({ tournament: id, entrants }, null, 1));
+  }
+  log(`watch: ${server.replace(/\/+$/, '')}/?tournament=${id}; ${entrants.length} entrants over ${Math.min(procs, entrants.length)} processes`);
+
+  const groups = Array.from({ length: Math.min(procs, entrants.length) }, (_, k) => entrants.filter((_, i) => i % procs === k));
+  const self = fileURLToPath(import.meta.url);
+  const reports = await Promise.all(
+    groups.map(
+      (group) =>
+        new Promise<ChildReport | null>((resolve) => {
+          const child = fork(self, ['--child'], { stdio: 'inherit' });
+          let report: ChildReport | null = null;
+          child.on('message', (m) => (report = m as ChildReport));
+          child.on('exit', (code) => {
+            if (code) log(`process ${child.pid} exited with ${code}`);
+            resolve(report);
+          });
+          const job: ChildJob = { server, tournamentId: id, entrants: group, preset: values.preset as string | undefined, pace };
+          child.send(job);
+        }),
+    ),
+  );
+  const all: number[] = [];
+  for (const r of reports) {
+    if (!r) continue;
+    all.push(...r.decisionsMs);
+    const l = latencySummary(r.decisionsMs);
+    log(`process ${r.pid}: ${r.results.map((e) => `${e.name} ${e.status} (${e.tables} tables)`).join(', ')}; ${l.decisions} decisions, ms p50 ${l.p50} p90 ${l.p90} max ${l.max}; CPU ${(r.cpuMs / 1000).toFixed(0)} s in ${(r.wallMs / 1000).toFixed(0)} s (${Math.round((100 * r.cpuMs) / Math.max(1, r.wallMs))}%)`);
+  }
+  const l = latencySummary(all);
+  log(`all: ${l.decisions} decisions, ms p50 ${l.p50} p90 ${l.p90} max ${l.max}`);
+  process.exit(0);
+}
+
+/** A child process: build the agents once, play every entrant of the job at once, send the report back. */
+async function child(): Promise<void> {
+  const job = await new Promise<ChildJob>((resolve) => process.once('message', (m) => resolve(m as ChildJob)));
+  const api = new HttpRiskApi(job.server);
+  const ids = [...new Set(job.entrants.map((e) => e.agentId))];
+  const agents = new Map(buildAgents(ids, job.preset).map((a, i) => [ids[i], a]));
+  const decisionsMs: number[] = [];
+  const t0 = performance.now();
+  const cpu0 = process.cpuUsage();
+  const results = await Promise.all(
+    job.entrants.map((e, i) =>
+      playEntrant({ api, tournamentId: job.tournamentId, entrantToken: e.token, name: e.name, agent: agents.get(e.agentId)!, paceMs: job.pace, log,
+        random: seededRandom((Date.now() + i * 7919) >>> 0), onDecision: (ms) => decisionsMs.push(ms) }),
+    ),
+  );
+  const cpu = process.cpuUsage(cpu0);
+  const report: ChildReport = { pid: process.pid, results, decisionsMs, cpuMs: (cpu.user + cpu.system) / 1000, wallMs: performance.now() - t0 };
+  process.send!(report, () => process.exit(0));
+}
+
+// A child process (forked by --tournament) gets its job over IPC; otherwise this is the command itself.
+(process.argv.includes('--child') ? child() : main()).catch((err) => {
   console.error(err instanceof Error ? err.message : err);
   process.exit(1);
 });

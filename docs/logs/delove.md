@@ -7,6 +7,7 @@ numbers go in [packages/delove/CYCLES.md](../../packages/delove/CYCLES.md) and t
 Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. **Append a line in the same PR** as any change to
 this area (README hard rule 12).
 
+- 2026-10-21 #PR `delove-seat --tournament CODE --entrants N [--procs P] [--tokens FILE]`: N Delove entrants in a tournament (`src/tournament-seat.ts` `playEntrant`: wait for the table, play it with playSeat, wait again; re-reads after breaks), spread over child processes, with a latency / CPU report; `playSeat` reports each decision's time; docs/tournaments.md agents
 - 2026-10-22 #170 live yardstick control: jacob-sensei@2 in Delove's seat, 2 games vs Sonnet under the neutral protocol (6th -3, 3rd +1; attacked early by 3 and 1 seats) in docs/delove-yardstick.md
 - 2026-10-21 #169 horde gate with the falling-out and no sacrifice: delove@10 vs jacob-sensei@2 hold diff +0.119 (+0.084 to +0.154), unchanged; turn limits at 4p vs 3 Zergs 9/100 (3 with the sacrifice): a turtling prey can stall the horde
 - 2026-10-21 #169 Zerg falling-out: the horde gate reads the candidate's survival from its own last decision (the Zergs now fight on after it falls; solo hold re-baselined) and reports game length; `zerg-branch@1` scores its own standing too (`ZERG_BRANCH_SELF_WEIGHT`); horde-aware rollouts drop the alliance once the prey is gone

@@ -990,6 +990,7 @@ export class Store {
     this.tournaments = new TournamentManager(this, file ? join(dirname(file), 'tournaments.json') : null, {
       maxActive: envInt('RISK_MAX_ACTIVE_TOURNAMENTS', DEFAULT_TOURNAMENT_LIMITS.maxActive, 0),
       keepFinished: envInt('RISK_TOURNAMENTS_KEEP', DEFAULT_TOURNAMENT_LIMITS.keepFinished, 1),
+      preregPerJoiner: envInt('RISK_PREREG_PER_JOINER', DEFAULT_TOURNAMENT_LIMITS.preregPerJoiner, 0),
     }, opts.clock);
     // A finished tournament goes on the tournament board once. On start, catch up on any that finished without being
     // recorded (a crash in between); tournaments that finished before the board existed have no table scores: skipped.

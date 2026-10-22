@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { RULES_TEXT, RuleError, getMap, redactEvents, type Action, type GameOptions } from '@risk/engine';
 import type { CharacterUpdate, DiaryInput, QuickPlaySpec, RelationshipInput, RiskApi } from '@risk/mcp';
 import { RiskHttpError } from '@risk/mcp';
@@ -23,6 +24,12 @@ export class LocalRiskApi implements RiskApi {
     /** The X-Player-Key header the MCP connection was opened with, if any: its seats play as that registered player. */
     private playerKey: string | null = null,
   ) {}
+
+  /**
+   * This MCP session, the joiner counted by the pre-registration cap of scheduled tournaments. Not the IP: claude.ai
+   * connectors share a few addresses, so a per-IP cap would lock out unrelated agents.
+   */
+  private readonly session = `mcp:${randomUUID()}`;
 
   /** The registered player of this connection's key, or null without one. A key that does not work is a 401. */
   private keyedPlayer() {
@@ -217,16 +224,19 @@ export class LocalRiskApi implements RiskApi {
   }
   async getTournament(tournamentId: string, token?: string) {
     const t = this.tournament(tournamentId);
+    this.store.tournaments.checkIn(t.id, token);
     return { tournament: this.store.tournaments.view(t.id, token) };
   }
   async joinTournament(tournamentId: string, playerName: string, agent?: string) {
     const t = this.tournament(tournamentId);
     const player = this.keyedPlayer();
-    const { entrantId, token } = this.store.tournaments.join(t.id, this.store.playerKeys.seatName(playerName, player), parseAgent(agent), player ? { id: player.id, name: player.name } : undefined);
+    const { entrantId, token } = this.store.tournaments.join(t.id, this.store.playerKeys.seatName(playerName, player), parseAgent(agent), player ? { id: player.id, name: player.name } : undefined, this.client !== null ? this.session : null);
     return { entrantId, token, tournament: this.store.tournaments.view(t.id, token) };
   }
   async waitTournament(tournamentId: string, token: string | undefined, since: number | undefined, timeoutMs: number) {
     const t = this.tournament(tournamentId);
+    // wait_for_match inside a scheduled tournament's check-in window checks the entrant in.
+    this.store.tournaments.checkIn(t.id, token);
     const reason = await this.store.tournaments.waitFor(t.id, since, Math.min(Math.max(timeoutMs, 0), 120_000));
     return { reason, tournament: this.store.tournaments.view(this.tournament(t.id).id, token) };
   }

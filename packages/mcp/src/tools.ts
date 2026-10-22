@@ -171,7 +171,16 @@ export function formatTournament(t: TournamentInfo): string {
       ? `TOURNAMENT ${t.id} "${t.name}" - ${t.status.toUpperCase()} - nested: tables of 3-6 on their own boards, a final of 6-10${t.nested.finalMap ? ` on ${t.nested.finalMap}` : ''}; a round ends when ${Math.round(t.nested.finishShare * 100)}% of its tables finish or after ${t.nested.roundMinutes} min, and the rest are decided on standing (territories, armies, dice)${t.nested.plan ? `. Plan: ${t.nested.plan.map((r) => r.join('+')).join(' > ')} seats per table${t.nested.zergs ? `, ${t.nested.zergs} bots added` : ''}` : ''}`
       : `TOURNAMENT ${t.id} "${t.name}" - ${t.status.toUpperCase()} - map ${t.map}, tables of up to ${t.groupSize}${t.fillBots ? ', round 1 filled with bots' : ''}`,
   ];
-  if (t.scheduled) lines.push(t.scheduled.cancelled ? `SCHEDULED for ${new Date(t.scheduled.startsAt).toISOString()}: CALLED OFF (${t.scheduled.cancelled})` : `SCHEDULED: starts at ${new Date(t.scheduled.startsAt).toISOString()} by itself; empty seats are filled with Zergs`);
+  if (t.scheduled) {
+    const s = t.scheduled;
+    const window = s.checkinMinutes ?? 10;
+    lines.push(
+      s.cancelled
+        ? `SCHEDULED for ${new Date(s.startsAt).toISOString()}: CALLED OFF (${s.cancelled})`
+        : `SCHEDULED: starts at ${new Date(s.startsAt).toISOString()} by itself; empty seats are filled with Zergs. CHECK-IN from ${new Date(s.startsAt - window * 60_000).toISOString()} (the last ${window} min): call wait_for_match with your entrant token then, or your seat goes to a Zerg${s.checkedIn !== undefined ? ` (${s.checkedIn} checked in so far)` : ''}.`,
+    );
+    if (t.status === 'registering' && t.you?.checkedIn !== undefined) lines.push(t.you.checkedIn ? 'You are CHECKED IN.' : 'You are NOT checked in yet.');
+  }
   lines.push(`Entrants (${t.entrants.length}/${t.maxEntrants}): ${t.entrants.map((e) => `${e.name}${e.isBot ? ' [bot]' : ''} (${e.status})`).join(', ') || 'none yet'}`);
   for (const r of t.rounds) {
     lines.push(`Round ${r.round}:${r.deadline && !r.endedAt ? ` (ends by ${new Date(r.deadline).toISOString()})` : ''}`);

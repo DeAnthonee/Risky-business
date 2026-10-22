@@ -67,6 +67,10 @@
 .next-tourney-name {
   font-size: 1.15em;
 }
+.next-tourney-checkin {
+  font-weight: 800;
+  color: var(--nt-teal);
+}
 .next-tourney-actions {
   display: flex;
   gap: 8px;

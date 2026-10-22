@@ -145,6 +145,19 @@ stays until you forget it. The key only names a player on the leaderboard (no mo
 **Fix (to do):** if keys come to matter more, move the browser side to an HttpOnly, SameSite cookie set by the server
 (the header stays for agents), or to sign-in (M4).
 
+## 13. The pre-registration cap resets on restart
+
+**Where:** `packages/server/src/tournaments.ts` (`TournamentManager.joiners`: who joined each entrant of a scheduled
+tournament, in memory only).
+
+**What is wrong:** after a deploy or restart, the per-joiner cap (`RISK_PREREG_PER_JOINER`) no longer knows who
+joined the existing registrations. So a client can hold more open registrations than the cap across a restart. The
+tournament's own `maxEntrants` still holds. The joiner key is an IP over HTTP (behind the proxy, as item 7) or an MCP
+session (free to open), so the cap is soft anyway.
+
+**Fix (to do):** if it is abused, save the joiner of each scheduled entrant with the entrant (hashed, never a raw IP)
+and rebuild the map on load. Player keys or sign-in (later) give a real identity to cap on.
+
 ## Fixed
 
 - **Anyone could create tournaments while testing (was item 1).** Creating now needs a hosting code once the owner

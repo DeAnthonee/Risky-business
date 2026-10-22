@@ -154,7 +154,7 @@ def check_run(data: Path, jobs: str) -> bool:
     scenarios = {"success": (2, 0, 20), "unreachable pod": (3, 0, 20), "upload fails": (3, 0, 20), "worker fails": (3, 0, 20),
                  "lane delivers nothing": (3, 0, 20), "delete fails once": (3, 0, 20), "slot never works": (4, 1, 0), "crash": (2, "interrupted", 0),
                  "volume": (3, 0, 20), "volume, home copy": (2, 0, 20), "late pods": (2, 0, 20), "cut, then rerun": (3, 0, 20),
-                 "cut, accept partial": (2, 0, 10), "no stock": (0, 1, 0)}
+                 "cut, accept partial": (2, 0, 10), "no stock": (0, 1, 0), "systematic": (2, 1, 0)}
     tables = ["w10a", "w10b", "ge6a", "ge6b"]
     for scenario, (want_pods, want_rc, want_games) in scenarios.items():
         tmp = Path(tempfile.mkdtemp(prefix="cloud-run-"))
@@ -202,6 +202,8 @@ def check_run(data: Path, jobs: str) -> bool:
 
             def run(self, pod, cmd, timeout=0, check=True):
                 if cmd.startswith("cat /root/job/status"):
+                    if scenario == "systematic":  # every lane of every pod failed at once (2026-10-22: a model it could not load)
+                        return "failed: systematic: every lane failed within 4 s, nothing delivered: every gpu.log is empty\nalive\n"
                     if scenario in ("worker fails", "lane delivers nothing", "volume") and pod.id == "pod1":
                         return "failed: a lane failed\nalive\n"
                     if scenario == "late pods" and Clock.now < pod.started + 45 * 60:
@@ -230,7 +232,7 @@ def check_run(data: Path, jobs: str) -> bool:
                                           for m in t.getmembers() if m.name.startswith("lanes/") and m.name.endswith(".jobs")]
 
             def get(self, pod, remote_path, local, timeout=0):
-                if scenario == "worker fails" and pod.id == "pod1":
+                if scenario == "systematic" or (scenario == "worker fails" and pod.id == "pod1"):
                     raise sp.CalledProcessError(1, "ssh")  # the worker left nothing
                 stage = tmp / f"stage-{pod.id}"
                 for li, key, table in self.units[pod.id]:
@@ -340,6 +342,8 @@ def check_run(data: Path, jobs: str) -> bool:
             good = good and sorted(t for u in res.get("partial", {}).get("missing", []) for t in u["tables"]) == ["ge6a", "ge6b"]
         if scenario == "no stock":
             good = good and not any(c[0] == "POST" for c in calls)
+        if scenario == "systematic":  # no replacement rented: one POST per planned pod, both terminated
+            good = good and sum(c[0] == "POST" for c in calls) == 2
         if use_volume and s:  # pinned to the volume's data center; the archives on it are what volume.json says, in merge order
             small = scenario == "volume"
             good = good and all(b.get("networkVolumeId") == "vol1" and b.get("dataCenterIds") == ["EU-RO-1"] for b in pods.values())

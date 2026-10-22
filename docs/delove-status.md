@@ -361,6 +361,9 @@ where Delove thought the game turned. Format and reading in packages/delove/READ
   is better with fog on (fog tables from `packages/delove/configs/gen5-randomfog.json`, SPRT on pooled leaderboard
   points vs the current best). No-fog points, 2p and the horde gate are reported but do not block. "The end result is
   the model needs to play with the fog on." Cycles 16-18 put fog first, $35 for the three.
+- **Yardstick games stay on the public board** (2026-10-21): live yardstick rooms are public rooms, not moved to the
+  training board. A room closed when Delove is out is never ranked; one that finishes with Delove still in counts on
+  the public season (e.g. baseline 4's games 21, 23-25 in season 4). Moving a game to another board stays the owner's call.
 - **Specialist training paused** (2026-10-21, from cycle 15): no Long / Mid / Close Range training or gates. Resume when
   the base gains less than +0.10 over two cycles. The specialist models and eval sets are kept.
 - **Cloud training from cycle 16** (2026-10-21, replacing the 2026-10-20 decline): one 50 GB RunPod network volume
@@ -482,7 +485,10 @@ tables with LLM characters, with fog of war on. In order:
    per tier): Haiku mean +3.0 (a capital win), Sonnet +2.5 (2nd with 4 kills), Opus -3.0 (two early exits); 2-3 seats
    still attacked Delove in rounds 1-2 in every game. A control (#170, 2 games, 2026-10-22) put the plain bot
    `jacob-sensei@2` in Delove's seat against five Sonnet seats: it drew early attacks too (3 seats, then 1), so the
-   seat gets attacked early, not Delove's play alone. Rerun the same lineup for every new model.
+   seat gets attacked early, not Delove's play alone. Baseline 4 (2026-10-22, #245, fog on, bare `delove@12`: under
+   fog the seat doesn't search): Haiku +1.5, Sonnet +1.0, Opus -1.5, mean +0.33 (baseline 3: +0.83 with search, no
+   fog); fog cut the early attacks to 0-2 seats a game. No fog-search set: on the ladder determinized fog search scored
+   below bare `delove@12`. Rerun the same lineup for every new model.
 5. **Faster cycles** (no strength change): the faster big-table search (#117, 2.5-5x, merged), 10 cloud pods for a
    whole cycle's generation (about 47 minutes, about $7), and a training pod fed directly by the generation pods
    through a RunPod network volume (`REMOTE_TRAIN=1`, built, not yet run for pay: about 10 minutes and $0.40-0.50 a

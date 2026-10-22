@@ -1061,7 +1061,7 @@ function useAnimations(
         const se = e as AnyGameEvent;
         if (se.type === 'storm' && Object.keys(se.losses).length) {
           fogJustLifted = true;
-          setBanner({ text: `⛈ Storm: big stacks lose a fifth (no captures for ${se.rounds} rounds)`, color: '#7a8fa6' });
+          setBanner({ text: `⛈ Storm: all big stacks lose a fifth (no captures for ${se.rounds} rounds)`, color: '#7a8fa6' });
         }
         if (se.type === 'stalemate') setBanner({ text: `⚖ Stalemate: decided on standing after ${se.rounds} rounds with no capture`, color: '#b8a36a' });
         switch (e.type) {

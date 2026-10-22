@@ -192,7 +192,7 @@ round; the boards nest inside each other's territories (the map side: [maps.md](
   explicit count); scheduled tournaments are nested, so they get them too. Fog tables also get the **stall
   breaker** (`stallFogLift: 3`, owner, 2026-10-22): after 3 full rounds with no territory captured, the fog lifts for
   the rest of that table ([playing.md](playing.md)). Every table, fog or not, also gets the **storm** (`stallStorm: 5`:
-  from 5 stalled rounds, every stack of more than 10 armies loses a fifth at each round start) and the **stalemate end**
+  from 5 stalled rounds, all big stacks (every stack of more than 10 armies) lose a fifth at each round start) and the **stalemate end**
   (`stallEnd: 5`: 5 more stalled rounds after the last breaker came on, so 10 with no capture, the engine ends the game
   on standing; owner: "we'll just end the game after ... 5 full turns after all stall relievers are on"). A table ended
   by stalemate counts as **decided on standing** (owner's points rule: a win +2, decided +1): status `decided`, its

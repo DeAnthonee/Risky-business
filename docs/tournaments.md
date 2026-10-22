@@ -57,13 +57,18 @@ round; the boards nest inside each other's territories (the map side: [maps.md](
 - **Settings** (create): `finalMap` (an existing board for the final, seating 6+ with a region per seat; default a
   generated one), `territoriesPerSeat` (generated boards' size, 4-6, default 5), `roundMinutes` (a round's deadline,
   1-240, default 30), `finishShare` (default 0.51), `options` (every table's game settings except the map; they are
-  checked at create on every table size from 2 to 10 seats), `maxEntrants` (default 128). `groupSize` and `fillBots`
-  do not apply.
+  checked at create on every table size from 2 to 10 seats), `maxEntrants` (default 128), `botDelayMs` (the bots' pace
+  at the tables, 0-2000 ms between moves, default 300). `groupSize` and `fillBots` do not apply.
+- **Turn timer on by default.** Unless `options` set `turnTimer`, the tables run a per-move timer of 90 s (the owner's default), so a
+  stalled seat cannot hold a round (on timeout the seat is skipped: see [playing.md](playing.md)). Bots and models
+  move well inside it.
 - **Start.** The engine's `planNest` plans the rounds for the entrants: tables of 3-6, uneven by at most one in a
-  round, and a final of 6-10. Bots are added only when the count fits no plan (11-17 entrants fill to 18; under 6 fill
+  round, and a final of 6-10. Zerg entrants are added only when the count fits no plan (11-17 entrants fill to 18; under 6 fill
   the final to 6). A random seed, saved with the tournament, fixes every board (`planToNest`, generated gen1 boards
-  sized for each table) and the seating: people and agents are spread over the round-1 tables first, then bots fill
-  the rest, so a table is all bots only when there are more tables than people. **Every round-1 table starts at
+  sized for each table) and the seating: the planner's filler Zergs are spread first, as the plan shares them out (at
+  most one more at any table than at another), then people and agents over the free seats, then the host's own bots
+  fill the rest, so a table is all bots only when there are more tables than people. Filler Zergs move up like any
+  entrant when they win. **Every round-1 table starts at
   once.**
 - **The round clock.** A round ends at the first of: `ceil(finishShare × tables)` tables finished by a win (byes
   count; tables decided on standing do not), no table left playing, or the round's deadline (`roundMinutes` after it
@@ -76,9 +81,17 @@ round; the boards nest inside each other's territories (the map side: [maps.md](
   status becomes `decided`, its `standing` (entrants in order, and the dice by entrant) is in the bracket, the order is
   posted to the table's chat, and its first place moves on. The game is not finished in the engine (it has no
   adjudicated ending); the room closes like a finished game (`RISK_FINISHED_CLOSE`).
-- **Moving up.** The next round is seated at once: each table's winner takes a seat at its parent table (in portal
-  order). For now the parent table starts like any game on its board; starting each winner on its portal
-  (`startOnSpots`) comes next. The final's winner, or its first place on standing at the deadline, is the champion.
+- **Moving up.** The next round is seated at once: each table's winner takes a seat at its parent table, which sits
+  on the board whose territories hold the child tables ("portals", one per child, in different regions). The parent
+  table starts with every winner **on the portal territory it came up through**: the engine's `startOnSpots` deals as
+  usual, then swaps each spot (owner and armies) with a territory its player was dealt, so everyone keeps the same
+  share; a blizzard on a spot moves to a territory where the blizzard rule allows one (the open territories stay
+  connected and every continent keeps two open), or, with none left, thaws. If that start cannot be built, the table
+  starts normally. The other entrants of a table are **out**: their `you.status` is `out` and `you.match` is `null`, and they
+  can watch. The final's winner, or its first place on standing at the deadline, is the champion.
+- **Follow-up:** a host-written tree of boards (existing maps inside chosen portals, as the owner asked for) through
+  `resolveNest`; today the boards always come from the plan (`planToNest`), with an optional existing board for the
+  final.
 - **Contract for runners and agents** (unchanged from knockouts): `POST /tournaments/:id/join`, `GET /tournaments/:id`
   with the entrant token (`you.match` = `{gameId, playerId, token, round}` of the entrant's current table, `you.status`,
   `champion`) and `GET /tournaments/:id/wait`. `wait_for_match` (MCP) answers the same seat every round.

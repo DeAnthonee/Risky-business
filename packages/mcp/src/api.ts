@@ -56,7 +56,7 @@ export interface TournamentInfo {
   champion: { entrantId: string; name: string } | null;
   version: number;
   format?: 'knockout' | 'nested';
-  nested?: { finalMap: string | null; territoriesPerSeat: number; roundMinutes: number; finishShare: number; plan: number[][] | null; zergs: number };
+  nested?: { finalMap: string | null; territoriesPerSeat: number; roundMinutes: number; finishShare: number; botDelayMs?: number | null; plan: number[][] | null; zergs: number };
   you?: { entrantId: string; name: string; status: string; match: { gameId: string; playerId: string; token: string; round: number } | null };
 }
 
@@ -71,6 +71,7 @@ export interface TournamentSpec {
   territoriesPerSeat?: number;
   roundMinutes?: number;
   finishShare?: number;
+  botDelayMs?: number;
 }
 
 export interface ChatResult {

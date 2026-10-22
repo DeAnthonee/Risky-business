@@ -16,6 +16,8 @@ import {
   planToNest,
   rankByStanding,
   shuffle as seededShuffle,
+  startGame,
+  startOnSpots,
   type GameOptions,
   type NestNode,
   type NestPlan,
@@ -112,10 +114,14 @@ export interface NestedSettings {
   roundMinutes: number;
   /** Share of a round's tables that must finish before the rest are decided on standing. */
   finishShare: number;
-  /** Set at start: the seed of every board and of the seating, the plan, and each table's board. */
+  /** Bots' pace at this tournament's tables, ms between moves. Absent on tournaments saved before it: the server default. */
+  botDelayMs?: number;
+  /** Set at start: the seed of every board and of the seating, the plan, each table's board, and each table's portals
+   * (the territories its children's winners start on, in portal order). */
   seed?: number;
   plan?: NestPlan;
   boards?: string[][];
+  portals?: string[][][];
   /** The board tree (resolveNest's list): every table's board, seats, portals and parent, known from the start. */
   nodes?: NestNode[];
   /** Index in `nodes` of each table's board ([round][table]). */
@@ -173,6 +179,8 @@ export interface CreateTournamentSpec {
   roundMinutes?: number;
   /** Nested: share of a round's tables that must finish before the rest are decided (0.1-1, default 0.51). */
   finishShare?: number;
+  /** Nested: bots' pace at the tables, ms between moves (0-2000, default 300). */
+  botDelayMs?: number;
 }
 
 /** Public view; `you` is filled in when the caller passed their entrant token. */
@@ -211,6 +219,7 @@ export interface TournamentView {
     territoriesPerSeat: number;
     roundMinutes: number;
     finishShare: number;
+    botDelayMs: number | null;
     plan: number[][] | null;
     zergs: number;
     /** The board tree from the start (null before): each table's board, seats, portals, parent board and portal. */
@@ -386,6 +395,13 @@ export class TournamentManager extends EventEmitter {
     if (!Number.isInteger(roundMinutes) || roundMinutes < 1 || roundMinutes > 240) throw new RuleError('roundMinutes must be a whole number from 1 to 240');
     const finishShare = spec.finishShare ?? 0.51;
     if (typeof finishShare !== 'number' || !(finishShare >= 0.1 && finishShare <= 1)) throw new RuleError('finishShare must be a number from 0.1 to 1');
+    const botDelayMs = spec.botDelayMs ?? 300;
+    if (!Number.isInteger(botDelayMs) || botDelayMs < 0 || botDelayMs > 2000) throw new RuleError('botDelayMs must be a whole number from 0 to 2000');
+    // Tables run on a per-move turn timer unless the host says otherwise, so a stalled seat cannot hold a round.
+    if (options.turnTimer === undefined) {
+      options.turnTimer = 'move';
+      if (options.turnTimerSeconds === undefined) options.turnTimerSeconds = 90;
+    }
     const maxEntrants = spec.maxEntrants ?? DEFAULT_MAX_NESTED_ENTRANTS;
     if (!Number.isInteger(maxEntrants) || maxEntrants < 2 || maxEntrants > MAX_ENTRANTS) throw new RuleError(`maxEntrants must be a whole number from 2 to ${MAX_ENTRANTS}`);
     let finalMap: string | null = null;
@@ -416,7 +432,7 @@ export class TournamentManager extends EventEmitter {
       updatedAt: now,
       version: 1,
       format: 'nested',
-      nested: { finalMap, territoriesPerSeat: tps, roundMinutes, finishShare },
+      nested: { finalMap, territoriesPerSeat: tps, roundMinutes, finishShare, botDelayMs },
     };
     this.tournaments.set(id, t);
     this.changed(t);
@@ -571,6 +587,7 @@ export class TournamentManager extends EventEmitter {
               territoriesPerSeat: t.nested.territoriesPerSeat,
               roundMinutes: t.nested.roundMinutes,
               finishShare: t.nested.finishShare,
+              botDelayMs: t.nested.botDelayMs ?? null,
               plan: t.nested.plan ? t.nested.plan.rounds.map((r) => r.map((x) => x.seats)) : null,
               zergs: t.nested.plan?.zergs ?? 0,
               nodes: t.nested.nodes ?? null,
@@ -770,19 +787,30 @@ export class TournamentManager extends EventEmitter {
   private startNested(t: TournamentSnapshot): TournamentSnapshot {
     const n = t.nested!;
     const plan = planNest(t.entrants.length, { maxFinal: n.finalMap ? this.maxFinal(n.finalMap) : NESTED_FINAL.max });
-    for (let i = 1; i <= plan.zergs; i++) t.entrants.push({ id: `e_${newId(6)}`, name: `Bot ${i}`, isBot: true, joinedAt: Date.now() });
+    // The bots the plan needs are Zerg entrants (docs/zergs.md), with reptile names unique in the tournament.
+    const fillers: string[] = [];
+    for (let i = 1; i <= plan.zergs; i++) {
+      const entrant: Entrant = { id: `e_${newId(6)}`, name: freeZergName(t.entrants.map((e) => e.name)), isBot: true, kind: 'zerg', joinedAt: Date.now() };
+      t.entrants.push(entrant);
+      fillers.push(entrant.id);
+    }
     n.seed = randomBytes(4).readUInt32LE(0);
     n.plan = plan;
     const { boards, nodes, index } = planToNest(plan, { seed: n.seed, final: n.finalMap ? { map: n.finalMap } : undefined, boards: { territoriesPerSeat: n.territoriesPerSeat } });
     n.boards = boards.map((round) => round.map((node) => node.map));
+    n.portals = boards.map((round) => round.map((node) => node.portals));
     n.nodes = nodes;
     n.nodeOf = index;
-    // Seating, from the tournament seed: people and agents first, spread over the tables, then bots fill the rest,
-    // so a table is all bots only when there are more tables than people.
+    // Seating, from the tournament seed. The planner's filler Zergs first, spread as the plan shares them out (at most
+    // one more at any table than at another; owner's rule), then people and agents, spread over the free seats, then
+    // the host's own bots fill the rest, so a table is all bots only when there are more tables than people.
     const rng = createRng(nestSeed(n.seed, 'seats'));
+    const filler = new Set(fillers);
     const people = seededShuffle(rng, t.entrants.filter((e) => !e.isBot).map((e) => e.id));
-    const bots = seededShuffle(rng, t.entrants.filter((e) => e.isBot).map((e) => e.id));
+    const bots = seededShuffle(rng, t.entrants.filter((e) => e.isBot && !filler.has(e.id)).map((e) => e.id));
     const tables = plan.rounds[0].map(() => [] as string[]);
+    const spread = seededShuffle(rng, fillers);
+    plan.rounds[0].forEach((table, j) => tables[j].push(...spread.splice(0, table.zergs)));
     for (const eid of [...people, ...bots]) {
       let best = -1;
       for (let j = 0; j < tables.length; j++) {
@@ -792,23 +820,52 @@ export class TournamentManager extends EventEmitter {
       tables[best].push(eid);
     }
     t.status = 'running';
-    this.buildNestedRound(t, 0, tables);
+    this.buildNestedRound(t, 0, tables.map((g) => g.map((entrant) => ({ entrant, portal: null }))));
     this.changed(t);
     return t;
   }
 
-  /** Seat plan round `r` (0-based) with `groups[j]` at table j, start its clock. */
-  private buildNestedRound(t: TournamentSnapshot, r: number, groups: string[][]) {
+  /**
+   * Seat plan round `r` (0-based) with `groups[j]` at table j, start its clock. From round 2 each entrant comes with
+   * the portal (child table index) it won: the table starts with every player on that portal territory (startOnSpots).
+   */
+  private buildNestedRound(t: TournamentSnapshot, r: number, groups: { entrant: string; portal: number | null }[][]) {
     const n = t.nested!;
     const last = r === n.plan!.rounds.length - 1;
-    const matches: TournamentMatch[] = groups.map((entrants, j) => {
+    const matches: TournamentMatch[] = groups.map((group, j) => {
+      const entrants = group.map((g) => g.entrant);
       const map = n.boards![r][j];
       const node = n.nodeOf?.[r]?.[j];
       if (entrants.length === 0) return { gameId: null, entrants, seats: {}, winner: null, status: 'abandoned', table: j, map, node };
       if (entrants.length === 1) return { gameId: null, entrants, seats: {}, winner: entrants[0], status: 'bye', table: j, map, node };
       const players = entrants.map((eid) => this.entrant(t, eid)!);
       const label = last ? 'Final' : `Table ${j + 1}`;
-      const { room, seats } = this.store.createTable(`${t.name} · R${r + 1} ${label}`.slice(0, 40), { ...t.options, map: map as GameOptions['map'], maxPlayers: entrants.length }, players.map((p) => ({ name: p.name, isBot: p.isBot })), t.id);
+      const portals = n.portals?.[r]?.[j] ?? [];
+      const onPortals = group.every((g) => g.portal !== null && portals[g.portal] !== undefined);
+      const rng = createRng(nestSeed(n.seed!, `start:${r + 1}:${j}`));
+      const { room, seats } = this.store.createTable(
+        `${t.name} · R${r + 1} ${label}`.slice(0, 40),
+        { ...t.options, map: map as GameOptions['map'], maxPlayers: entrants.length },
+        players.map((p) => ({ name: p.name, isBot: p.isBot, ...(p.kind ? { kind: p.kind } : {}), agent: p.agent })),
+        t.id,
+        {
+          ...(n.botDelayMs !== undefined ? { botDelayMs: n.botDelayMs } : {}),
+          // Engine rules: every winner starts on the portal territory it came up through. If that start cannot be
+          // built, the table starts as usual rather than leave the tournament stuck between rounds.
+          ...(onPortals
+            ? {
+                prepare: (lobby, seated) => {
+                  try {
+                    return startOnSpots(lobby, Object.fromEntries(seated.map((s, k) => [s.playerId, portals[group[k].portal!]])), () => nextFloat(rng));
+                  } catch (err) {
+                    console.error(`[tournament ${t.id}] start on portals failed, starting normally:`, err);
+                    return startGame(lobby);
+                  }
+                },
+              }
+            : {}),
+        },
+      );
       return { gameId: room.id, entrants, seats: Object.fromEntries(entrants.map((eid, k) => [eid, seats[k]])), winner: null, status: 'playing', table: j, map, node };
     });
     const round: TournamentRound = { round: r + 1, matches, deadline: this.clock.now() + n.roundMinutes * 60_000 };
@@ -867,13 +924,12 @@ export class TournamentManager extends EventEmitter {
       this.onFinished?.(t);
       return;
     }
-    // Every table's winner takes its seat at the parent table, in portal order.
+    // Every table's winner takes its seat at the parent table, on the portal its table sits in.
     const groups = plan.rounds[r + 1].map((parent) =>
       round.matches
-        .filter((m) => plan.rounds[r][m.table!].parent === parent.index)
+        .filter((m) => plan.rounds[r][m.table!].parent === parent.index && m.winner)
         .sort((a, b) => plan.rounds[r][a.table!].portal! - plan.rounds[r][b.table!].portal!)
-        .map((m) => m.winner)
-        .filter((w): w is string => !!w),
+        .map((m) => ({ entrant: m.winner!, portal: plan.rounds[r][m.table!].portal })),
     );
     this.buildNestedRound(t, r + 1, groups);
   }

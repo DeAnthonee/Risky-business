@@ -17,6 +17,7 @@ import {
   startGame,
   viewFor,
   type Action,
+  type ActionResult,
   type GameEvent,
   type GameOptions,
   type GameState,
@@ -116,6 +117,8 @@ export interface RoomSnapshot {
   board?: RankingBoard;
   /** A nested-tournament table stopped at its round's end and decided on standing: frozen from then on. */
   decidedAt?: number;
+  /** This room's bots wait this long between moves (a tournament's botDelayMs); absent = the server default. */
+  botDelayMs?: number;
 }
 
 /** The leaderboard a room's result goes to when it is not the public one (see docs/character-league.md). */
@@ -249,6 +252,8 @@ export class GameRoom extends EventEmitter {
   board?: RankingBoard;
   /** Set when a nested tournament decided this table on standing at its round's end: no more moves. */
   decidedAt: number | null = null;
+  /** Bot pace in this room (ms between moves); null = RISK_BOT_DELAY_MS. */
+  botDelayMs: number | null = null;
   private botTimer: NodeJS.Timeout | null = null;
   /** The turn timer (turnTimer option): when the current human or agent decision runs out. In memory only. */
   private turnTimer: NodeJS.Timeout | null = null;
@@ -278,6 +283,7 @@ export class GameRoom extends EventEmitter {
     // Rooms saved before the training board existed are public.
     if (snapshot.board === 'training') this.board = 'training';
     this.decidedAt = snapshot.decidedAt ?? null;
+    this.botDelayMs = snapshot.botDelayMs ?? null;
     if (this.state.phase === 'finished') this.finishedAt = this.history.at(-1)?.at ?? this.updatedAt;
   }
 
@@ -301,6 +307,7 @@ export class GameRoom extends EventEmitter {
       ...(this.scenarioOf ? { scenarioOf: this.scenarioOf } : {}),
       ...(this.board ? { board: this.board } : {}),
       ...(this.decidedAt !== null ? { decidedAt: this.decidedAt } : {}),
+      ...(this.botDelayMs !== null ? { botDelayMs: this.botDelayMs } : {}),
     };
   }
 
@@ -558,8 +565,9 @@ export class GameRoom extends EventEmitter {
     this.commit(next, [], null, { type: 'system', note: 'options changed' });
   }
 
-  start() {
-    const { state, events } = startGame(this.state);
+  /** Start the game; `prepare` builds the start instead of startGame (engine rules, e.g. startOnSpots). */
+  start(prepare?: (lobby: GameState) => ActionResult) {
+    const { state, events } = prepare ? prepare(this.state) : startGame(this.state);
     this.touch();
     this.commit(state, events, null, { type: 'start' });
   }
@@ -808,7 +816,8 @@ export class GameRoom extends EventEmitter {
     if (!cur || this.state.phase === 'finished' || this.state.phase === 'lobby') return;
     const p = this.state.players.find((x) => x.id === cur);
     if (!p?.isBot) return;
-    const delay = this.state.phase === 'setup' ? Math.min(BOT_DELAY_MS, 250) : BOT_DELAY_MS;
+    const pace = this.botDelayMs ?? BOT_DELAY_MS;
+    const delay = this.state.phase === 'setup' ? Math.min(pace, 250) : pace;
     this.botTimer = setTimeout(() => {
       this.botTimer = null;
       this.runBotStep();
@@ -1004,14 +1013,21 @@ export class Store {
    * A tournament table: a room nobody hosts (so no seat can close it, kick or add players), seated with
    * the given players in order and started at once. Returns each player's seat in the same order.
    */
-  createTable(name: string, options: Partial<GameOptions>, players: { name: string; isBot: boolean; kind?: BotKind; agent?: string }[], tournamentId: string): { room: GameRoom; seats: { playerId: PlayerId; token: string }[] } {
+  createTable(
+    name: string,
+    options: Partial<GameOptions>,
+    players: { name: string; isBot: boolean; kind?: BotKind; agent?: string }[],
+    tournamentId: string,
+    /** `prepare(lobby, seats)` builds the start from the seated lobby (engine rules, e.g. startOnSpots); `botDelayMs` sets the bots' pace. */
+    extra: { prepare?: (lobby: GameState, seats: { playerId: PlayerId; token: string }[]) => ActionResult; botDelayMs?: number } = {},
+  ): { room: GameRoom; seats: { playerId: PlayerId; token: string }[] } {
     let id = joinCode();
     while (this.rooms.has(id)) id = joinCode();
-    const room = new GameRoom({ id, name, hostId: '', state: createGame(id, options), tokens: {}, chat: [], history: [], updatedAt: Date.now(), tournamentId });
+    const room = new GameRoom({ id, name, hostId: '', state: createGame(id, options), tokens: {}, chat: [], history: [], updatedAt: Date.now(), tournamentId, ...(extra.botDelayMs !== undefined ? { botDelayMs: extra.botDelayMs } : {}) });
     this.attach(room);
     // A Zerg entrant keeps its tournament name (a Zerg name, unique in the tournament, so unique at the table).
     const seats = players.map((p) => room.join(p.name, p.isBot, p.kind ?? 'bot', p.agent));
-    room.start();
+    room.start(extra.prepare ? (lobby) => extra.prepare!(lobby, seats) : undefined);
     this.scheduleSave();
     return { room, seats };
   }

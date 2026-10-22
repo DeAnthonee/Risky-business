@@ -51,6 +51,7 @@ export function parseTournamentSpec(body: Record<string, unknown>): CreateTourna
     territoriesPerSeat: int(body.territoriesPerSeat, 'territoriesPerSeat'),
     roundMinutes: int(body.roundMinutes, 'roundMinutes'),
     finishShare: body.finishShare as number | undefined,
+    botDelayMs: int(body.botDelayMs, 'botDelayMs'),
   };
 }
 

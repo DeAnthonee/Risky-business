@@ -27,4 +27,11 @@ join on the website (the Tournaments list on the home page, or `?tournament=CODE
 Tournaments are saved to `tournaments.json` in `RISK_DATA_DIR` and pick up their tables again after a restart;
 tables a tournament is still waiting on are not swept as idle, except past the hard limit (`RISK_MAX_IDLE`, 7 days).
 
+**Coming: nested ("Inception") tournaments.** A table of a later round seats the winners of the tables inside its
+territories, each starting on their own territory (their "portal"). The engine's `startOnSpots`
+(`packages/engine/src/nest-start.ts`) builds that start: the normal start and random deal, then each spot is swapped
+(owner and armies together) with a territory its player was dealt elsewhere, so every player keeps the same number of
+territories and armies; a blizzard on a spot moves to another open territory. Built so far: that function; the
+rounds come next.
+
 HTTP routes: [http-api.md](http-api.md). Open items (anyone can create while testing): [hardening.md](hardening.md#1-anyone-can-create-tournaments-while-testing).

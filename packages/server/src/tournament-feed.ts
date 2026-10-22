@@ -119,9 +119,11 @@ function roundClock(t: TournamentSnapshot): FeedRound | null {
   return { n: r.round, deadline: r.deadline ?? null, finished: Math.min(finished, r.matches.length), needed: tables.length ? needed : 0 };
 }
 
-interface Socket {
-  send(json: string): void;
+/** A watcher's socket. `send` returns false when it skipped the message because the socket is backed up. */
+export interface FeedSocket {
+  send(json: string): boolean;
 }
+type Socket = FeedSocket;
 
 interface Watched {
   room: GameRoom;
@@ -186,8 +188,23 @@ class TournamentHub {
     ];
   }
 
+  /**
+   * Updates are per-table deltas, so a socket that skipped one (backed up) is stale: it gets no more deltas, and the
+   * next time a message goes out and it has drained, it gets the whole feed again (bracket and every table) instead.
+   */
+  private stale = new Set<Socket>();
+
   private broadcast(json: string) {
-    for (const s of this.sockets) s.send(json);
+    for (const s of this.sockets) {
+      if (this.stale.has(s)) {
+        if (this.snapshot().every((m) => s.send(m))) this.stale.delete(s);
+      } else if (!s.send(json)) this.stale.add(s);
+    }
+  }
+
+  drop(socket: Socket) {
+    this.sockets.delete(socket);
+    this.stale.delete(socket);
   }
 
   /** The bracket changed (a table settled, a round began): watch the current round's tables and send the news. */
@@ -279,7 +296,7 @@ export class TournamentFeeds {
     const id = tournamentId.toUpperCase();
     const hub = this.hubs.get(id);
     if (!hub) return;
-    hub.sockets.delete(socket);
+    hub.drop(socket);
     if (!hub.sockets.size) {
       hub.dispose();
       this.hubs.delete(id);

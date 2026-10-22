@@ -58,7 +58,8 @@ export function formatState(view: GameView, gameName?: string): string {
     lines.push('Waiting in lobby. The host must start the game.');
     return lines.join('\n');
   }
-  if (view.phase === 'finished') lines.push(`GAME OVER — winner: ${name(view.winner)}`);
+  if ((view as { decidedAt?: number }).decidedAt) lines.push("TABLE DECIDED on standing at its tournament round's end: no more moves here. Use wait_for_match / tournament_status for your next table.");
+  else if (view.phase === 'finished') lines.push(`GAME OVER — winner: ${name(view.winner)}`);
   else lines.push(`Current player: ${name(view.currentPlayer)}${view.currentPlayer === view.you ? ' (YOU)' : ''}`);
   const timer = view.phase === 'finished' ? null : formatTimer(view);
   if (timer) lines.push(timer);

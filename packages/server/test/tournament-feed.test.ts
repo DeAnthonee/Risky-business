@@ -180,6 +180,39 @@ describe('tournament feed over WebSocket', () => {
   });
 });
 
+describe('a backed-up socket', () => {
+  it('skips deltas while backed up, then gets the whole feed again so no table is lost', async () => {
+    const { TournamentFeeds } = await import('../src/tournament-feed.js');
+    const store = new Store(null);
+    const t = store.tournaments.create({ name: 'Slow Cup', groupSize: 2, fillBots: false });
+    for (const n of ['A', 'B', 'C', 'D']) store.tournaments.join(t.id, n);
+    store.tournaments.start(t.id);
+    const feeds = new TournamentFeeds(store);
+    const got: any[] = [];
+    let backedUp = false;
+    const sock = { send: (json: string) => (backedUp ? false : (got.push(JSON.parse(json)), true)) };
+    const first = feeds.subscribe(t.id, sock);
+    expect(first.ok).toBe(true);
+    const [g1, g2] = t.rounds[0].matches.map((m) => store.get(m.gameId!)!);
+    backedUp = true;
+    move(g1); // a delta for table 1 is skipped
+    expect(got).toHaveLength(0);
+    backedUp = false;
+    move(g2); // the next message: the whole feed instead of table 2's delta
+    expect(got.map((m) => m.type)).toEqual(['tournament', 'tournament_tables']);
+    expect(got[1].full).toBe(true);
+    expect(got[1].tables.map((x: any) => x.gameId).sort()).toEqual([g1.id, g2.id].sort());
+    expect(got[1].tables.find((x: any) => x.gameId === g1.id).version).toBe(g1.state.version);
+    // Back to deltas after that.
+    await new Promise((r) => setTimeout(r, FEED_TABLE_MS + 50));
+    move(g1);
+    expect(got.at(-1)).toMatchObject({ type: 'tournament_tables', full: false });
+    feeds.unsubscribe(t.id, sock);
+    expect(feeds.size).toBe(0);
+    for (const r of [g1, g2]) r.close('admin');
+  });
+});
+
 describe('nested node numbering', () => {
   it('matches the engine planToNest: each table points at its board in resolveNest order', async () => {
     const { planNest, planToNest, resolveNest } = await import('@risk/engine');

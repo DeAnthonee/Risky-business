@@ -8,8 +8,8 @@ import { interval, type Interval } from './stage-eval.js';
  * Does the candidate survive being ganged up on? Two candidates are compared on the same seeds and seat layouts.
  *
  * A table is `map:players:zergs`. With no fillers (players = zergs + 1) the Zergs hunt only the candidate. Once it is
- * out the alliance ends and the Zergs fight each other to a winner (docs/zergs.md), so the candidate's survival time is
- * the last round it made a decision in, not the game's length.
+ * out the strongest Zerg keeps the table and the others surrender as their turns come (docs/zergs.md), so the game
+ * runs on a little; the candidate's survival time is the last round it made a decision in.
  */
 export interface HordeTable {
   map: MapId;

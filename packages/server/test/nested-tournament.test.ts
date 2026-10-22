@@ -151,6 +151,7 @@ describe('nested tournaments', () => {
       const waited = await mcp('wait_for_match', { tournamentId: id, timeoutSeconds: 5 });
       expect(waited.text).toMatch(/Your table is ready/);
       expect(waited.text).toMatch(/YOUR TABLE: game [A-Z0-9]+ \(round 1\)\. Seat token: \S+/);
+      const claudeGame = /YOUR TABLE: game ([A-Z0-9]+)/.exec(waited.text)![1];
 
       // Nobody human moves, so their three tables wait; the seven bot tables play out. The 6th finish (51% of 10)
       // ends the round: the tables still playing are decided on standing, and the final is seated at once.
@@ -168,14 +169,21 @@ describe('nested tournaments', () => {
         expect(room.decidedAt).not.toBeNull();
         expect(room.chat.at(-1)!.message).toMatch(/decided on standing/);
       }
-      // A decided table refuses moves.
-      const humanDecided = decided.find((m) => m.entrants.includes(people[0].entrantId)) ?? decided.find((m) => m.entrants.includes(people[1].entrantId));
-      if (humanDecided) {
-        const who = people.find((p) => humanDecided.entrants.includes(p.entrantId))!;
-        const r = await call(`/games/${who.match.gameId}/actions`, post({ action: { type: 'end_turn' } }), who.match.token);
-        expect(r.status).toBe(400);
-        expect(r.body.error).toMatch(/decided at the round's end/);
-      }
+      // A decided table refuses moves, and tells waiting agents and every view that it is over. (Nobody human moves, so
+      // the people's and the agent's tables are always among the decided ones.)
+      const who = people[0];
+      expect(decided.some((m) => m.gameId === who.match.gameId)).toBe(true);
+      const r = await call(`/games/${who.match.gameId}/actions`, post({ action: { type: 'end_turn' } }), who.match.token);
+      expect(r.status).toBe(400);
+      expect(r.body.error).toMatch(/decided at the round's end/);
+      const wait = await call(`/games/${who.match.gameId}/wait?timeoutMs=5000`, {}, who.match.token);
+      expect(wait.body.reason).toBe('finished');
+      expect(wait.body.state.decidedAt).toBe(store.get(who.match.gameId)!.decidedAt);
+      expect((await call(`/games/${who.match.gameId}`)).body.state.decidedAt).toBeTypeOf('number');
+      expect((await call('/games')).body.games.find((g: any) => g.id === who.match.gameId).decidedAt).toBeTypeOf('number');
+      const agentWait = await mcp('wait_for_turn', { gameId: claudeGame, timeoutSeconds: 5 });
+      expect(agentWait.text).toMatch(/decided on standing/);
+      expect(agentWait.text).toMatch(/wait_for_match/);
 
       // The final: the ten table winners, one per table, in table order (portals come with PR 6).
       const final = t.rounds[1].matches[0];

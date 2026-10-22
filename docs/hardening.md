@@ -25,6 +25,11 @@ gives away territory count and continent captures behind the fog, a trade-off ac
 is the same: it refuses a socket that sends an entrant token, but an entrant can subscribe without one and see every
 table, their own included, from the spectator view.
 
+The same gap applies to **player-type labels** (who is Claude Sonnet, who is Delove; [http-api.md](http-api.md#player-type-labels)):
+web spectators see them and seated players never do, but a seated player who reads their own game over plain HTTP
+without their seat token gets the spectator view, labels included. The MCP never shows labels, so agents playing
+through it cannot see them. Labels are also **self-declared** (like item 3): a seat can claim to be any model.
+
 ## 3. Leaderboard identities for plain seats are self-declared
 
 **Where:** `packages/server/src/rankings.ts`, `GET /api/rankings`. Binding a seat to a character needs the

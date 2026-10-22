@@ -376,8 +376,10 @@ npm run delove:horde -- --candidate delove@10 --base jacob-sensei@2 --games 100
 npm run delove:horde -- --candidate delove@10 --tables classic:4:3,classic:6:3 --options '{"fogOfWar":true}'
 ```
 
-- Tables are `map:players:zergs`; the default is `classic:3:2,classic:4:3,classic:4:2,classic:6:3,classic:6:2`. A
-  solo table (no fillers) ends as soon as the candidate is out, since the last Zergs step aside.
+- Tables are `map:players:zergs`; the default is `classic:3:2,classic:4:3,classic:4:2,classic:6:3,classic:6:2`. At a
+  solo table (no fillers) the Zergs hunt only the candidate. Once it is out the alliance ends and the Zergs fight each
+  other to a winner (docs/zergs.md), so the gate measures the candidate's survival as the last round it made a decision
+  in. `game` reports the whole games' length.
 - `hold` (the default `--metric`): at a solo table, 1 for a win, else rounds survived / 30 (capped at 0.99); with
   fillers, the candidate's place among the non-Zerg seats (1 = best, 0 = first out). Also reported: `win`, `place`,
   `rounds`, `kills` and `points` (leaderboard points, Zerg seats ranked like any seat for now). With `--base` every
@@ -388,7 +390,12 @@ npm run delove:horde -- --candidate delove@10 --tables classic:4:3,classic:6:3 -
   `--zerg` horde is the stronger one.
 - Worker threads (`--procs`, default all cores but one): 1000 games in about 17 s for delove@10.
 - First result (2026-10-21, 100 games per table): delove@10 vs jacob-sensei@2, pooled hold 0.477 vs 0.361, diff
-  +0.115 (95% +0.081 to +0.150), better. Neither survives a solo rush often: delove@10 wins about 1% of solo tables
+  +0.115 (95% +0.081 to +0.150), better.
+  - Re-run with the falling-out (#PR): 0.459 vs 0.342, diff +0.118 (+0.083 to +0.152); win, place and kills are
+    identical.
+  - Solo-table hold reads lower (4p vs 3 Zergs: 0.186, was 0.233) because survival is now the candidate's last round,
+    not the game's length. Compare only results from #PR on.
+  - The games run on after the candidate falls: 13.7 rounds against its 7.4, and the gate takes about 3x longer. Neither survives a solo rush often: delove@10 wins about 1% of solo tables
   (Jacob 0%) and 7-20% of the tables with fillers.
 - For scenarios or training data, the agents play in any self-play command:
   `npm run delove -- play --agents delove@10,zerg@1,zerg@1,zerg@1`. `scripts/cycles/horde.jobs` is a ready job file

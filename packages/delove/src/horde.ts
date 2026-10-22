@@ -7,8 +7,9 @@ import { interval, type Interval } from './stage-eval.js';
  * (default zerg@1, the engine's hand-coded horde bot; any Zerg agent such as zerg-branch@1), the other seats filled by a filler player (default Jacob Sensei 2).
  * Does the candidate survive being ganged up on? Two candidates are compared on the same seeds and seat layouts.
  *
- * A table is `map:players:zergs`. With no fillers (players = zergs + 1) the Zergs hunt only the candidate and the game
- * ends as soon as it is out (the last Zergs step aside), so the game's rounds are the candidate's survival time.
+ * A table is `map:players:zergs`. With no fillers (players = zergs + 1) the Zergs hunt only the candidate. Once it is
+ * out the alliance ends and the Zergs fight each other to a winner (docs/zergs.md), so the candidate's survival time is
+ * the last round it made a decision in, not the game's length.
  */
 export interface HordeTable {
   map: MapId;
@@ -40,7 +41,10 @@ export interface HordeGame {
   win: number;
   /** Alive at the end (won, or still standing at the turn limit). */
   survived: number;
+  /** Rounds the candidate lasted: the last round it made a decision in (the game's rounds if it is still alive). */
   rounds: number;
+  /** The whole game's rounds (longer than `rounds` when the Zergs fight on after the candidate is out). */
+  gameRounds: number;
   /** Place among the non-Zerg seats, as a score: 1 = best of them, 0 = first out. Solo tables: the win. */
   place: number;
   /** Players the candidate eliminated (only Zergs at a solo table; Zergs or fillers otherwise). */
@@ -57,7 +61,8 @@ export interface HordeGame {
   hold: number;
   /**
    * The horde's side (the Zerg tuner's fitness): 1 if the candidate was knocked out, plus up to 0.5 for doing it fast
-   * (0.5 × (1 − rounds / RUSH_ROUNDS), floored at 0), minus 1 at the turn limit. Higher = a stronger horde.
+   * (0.5 × (1 − rounds / RUSH_ROUNDS), floored at 0); -1 if it was still standing at the turn limit. Higher = a
+   * stronger horde.
    */
   rush: number;
   turnLimit: number;
@@ -85,7 +90,10 @@ export function hordeSeats(candidate: Agent, filler: Agent, table: HordeTable, s
 export function playHordeGame(candidate: Agent, filler: Agent, table: HordeTable, seed: number, shift: number, options: Partial<GameOptions> = {}, maxTurns = 500, zerg: Agent = zergBot): HordeGame {
   if (isZergName(candidate.id) || isZergName(filler.id)) throw new Error('the candidate and filler must not be Zergs');
   if (!isZergName(zerg.id)) throw new Error(`the Zerg seat must be a Zerg agent (got ${zerg.id})`);
-  const { seats, me, zergSeats } = hordeSeats(candidate, filler, table, shift, zerg);
+  // Track the candidate's last round from its own decisions (game.ts, mirrored, does not report when a seat fell).
+  let lastRound = 0;
+  const watched: Agent = { ...candidate, choose: (ctx) => ((lastRound = Math.max(lastRound, ctx.state.round)), candidate.choose(ctx)) };
+  const { seats, me, zergSeats } = hordeSeats(watched, filler, table, shift, zerg);
   const r = playGame({ seed, seats, options: { map: table.map, ...options, maxPlayers: table.players }, maxTurns, onIllegal: 'surrender' });
   const win = Number(r.winner === me);
   const survived = Number(win === 1 || (r.winner === null && r.territories[me] > 0));
@@ -94,11 +102,13 @@ export function playHordeGame(candidate: Agent, filler: Agent, table: HordeTable
   // Non-Zerg places in finishing order (placement counts Zergs too; only the order among non-Zergs matters here).
   const better = nonZerg.filter((i) => i !== me && r.placement[i] < r.placement[me]).length;
   const place = solo ? win : 1 - better / (nonZerg.length - 1);
-  const hold = solo ? (win ? 1 : Math.min(0.99, r.rounds / HOLD_ROUNDS)) : place;
   const turnLimit = Number(r.winner === null);
   const knocked = r.territories[me] === 0 ? 1 : 0;
-  const rush = knocked + (knocked ? 0.5 * Math.max(0, 1 - r.rounds / RUSH_ROUNDS) : 0) - turnLimit;
-  return { table: tableName(table), seed, win, survived, rounds: r.rounds, place, kills: r.kills[me], points: r.points[me], hold, rush, turnLimit };
+  const rounds = knocked ? lastRound : r.rounds;
+  const hold = solo ? (win ? 1 : Math.min(0.99, rounds / HOLD_ROUNDS)) : place;
+  // The turn-limit penalty only when the candidate was still standing (a Zerg-vs-Zerg stall after it fell is no stall on it).
+  const rush = knocked ? 1 + 0.5 * Math.max(0, 1 - rounds / RUSH_ROUNDS) : turnLimit ? -1 : 0;
+  return { table: tableName(table), seed, win, survived, rounds, gameRounds: r.rounds, place, kills: r.kills[me], points: r.points[me], hold, rush, turnLimit };
 }
 
 export type HordeMetric = 'hold' | 'win' | 'place' | 'rounds' | 'kills' | 'points' | 'rush';
@@ -109,12 +119,15 @@ const unbounded = (m: HordeMetric) => m === 'rounds' || m === 'kills' || m === '
 export interface HordeSummary {
   games: number;
   turnLimit: number;
+  /** Mean length of the whole games (the Zergs fight on after the candidate is out). */
+  gameRounds: number;
   metrics: Record<HordeMetric, Interval>;
 }
 
 export function summarizeHorde(games: HordeGame[]): HordeSummary {
   const metrics = Object.fromEntries(HORDE_METRICS.map((m) => [m, interval(games.map((g) => g[m]), unbounded(m) ? 0 : 0.045)])) as Record<HordeMetric, Interval>;
-  return { games: games.length, turnLimit: games.reduce((a, g) => a + g.turnLimit, 0), metrics };
+  const gameRounds = Math.round((games.reduce((a, g) => a + g.gameRounds, 0) / Math.max(1, games.length)) * 10) / 10;
+  return { games: games.length, turnLimit: games.reduce((a, g) => a + g.turnLimit, 0), gameRounds, metrics };
 }
 
 /** Candidate minus base on the same games (same seed, table and seat layout): the number that decides a gate. */

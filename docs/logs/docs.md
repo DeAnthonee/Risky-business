@@ -7,6 +7,7 @@ in `docs/http-api.md`) goes in that area's log instead.
 Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. **Append a line in the same PR** as any change to
 this area (README hard rule 12).
 
+- 2026-10-21 #178 README hard rule 9: procedural boards come only from the seeded engine generator (`procgen.ts`), are never written to `generated/`, and a released generator version never changes its output (owner-approved); docs/maps.md and docs/map-making.md section 8 on generated boards
 - 2026-10-21 #165 new [docs/zergs.md](../zergs.md): the Zerg hordes design (open and stealth modes), with its table-of-contents line
 - 2026-10-20 #137 game-records.md: starting positions for training (`npm run selfplay -- positions`)
 - 2026-10-20 #119 new docs/leaderboard-seasons.md (archive the board with one admin call or a `RANKINGS_SEASON` bump, view past seasons, never touch `ranking.ts` or `RULE_FILES`); README table of contents line; conventions.md server pointer

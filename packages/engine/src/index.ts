@@ -1,5 +1,6 @@
 export * from './types.js';
 export * from './maps.js';
+export * from './procgen.js';
 export * from './cards.js';
 export * from './rng.js';
 export * from './engine.js';

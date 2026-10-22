@@ -63,7 +63,7 @@ Every documentation file in the repo, what it covers and when to read it.
 | file | what it covers | read it when |
 | --- | --- | --- |
 | [docs/playing.md](docs/playing.md) | the web client for players and spectators (spectating, auto-spectate, whispers, animations, commit slider, views), the rules implemented and every game setting | changing the client, the rules text or a setting |
-| [docs/map-making.md](docs/map-making.md) | making a new board: design rules (original names, chokepoints, bonuses), tracing a picture, chokepoint techniques, `scripts/preview-map.mjs`, the registration checklist, owner approval, review and GPU verification, the map status tracker (`npm run maps:status`) | making or reworking a board; checking which maps GPU training covers |
+| [docs/map-making.md](docs/map-making.md) | making a new board: design rules (original names, chokepoints, bonuses), tracing a picture, chokepoint techniques, `scripts/preview-map.mjs`, the registration checklist, owner approval, review and GPU verification, the map status tracker (`npm run maps:status`), procedural boards (`procgen.ts`, `gen1-...` ids) | making or reworking a board; checking which maps GPU training covers; changing the board generator |
 | [docs/maps.md](docs/maps.md) | the twelve boards, starting armies, legacy maps, how map data is generated | changing or adding a map |
 | [docs/http-api.md](docs/http-api.md) | every `/api` route, the WebSocket protocol, the action JSON | changing or calling the API |
 | [docs/mcp.md](docs/mcp.md) | the MCP tools, remote `/mcp` connector, the stdio CLI and its env vars, an agent's loop | changing MCP tools or connecting an agent |
@@ -164,7 +164,10 @@ These keep the deploy, the game and the training pipeline from breaking. Everyth
    (`packages/delove-gpu/engine-fingerprint.json`) after changing a mirrored rule file.
 9. **Define things once.** Game settings only in `OPTION_SPECS` (`packages/engine/src/options.ts`; server parsing is
    strict, unknown keys are errors). MCP tools only in `packages/mcp/src/tools.ts` over `RiskApi`. Map data only in
-   `scripts/maps/*.mjs`: run `npm run build:map` and commit the output, never edit the generated JSON.
+   `scripts/maps/*.mjs`: run `npm run build:map` and commit the output, never edit the generated JSON. The one
+   exception is procedural boards: they come only from the seeded engine generator `packages/engine/src/procgen.ts`
+   (seed and size in the map id, `gen1-s<seed>-p<seats>-t<territories>`), are never written to `generated/`, and a
+   released generator version never changes its output (a change is a new version, `gen2`).
 10. **Keep the boundaries.** Self-play stays deterministic from the seed (no `Math.random`, no clocks in decisions).
     `packages/selfplay`, `llm-player`, `runner`, `delove` and `delove-gpu` are never imported by the server; Delove is
     never imported by the character code. The web client moves a spectator to another game only in opt-in

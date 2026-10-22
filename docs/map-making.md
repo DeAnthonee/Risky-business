@@ -195,3 +195,26 @@ offered map that is not GPU-verified, next to the GPU fingerprint warning.
 
 Where it fits: after registration a new map shows `offered`, `RULE_FILES` yes, matrix yes, GPU-verified no. After the
 batched `verify.py` run and its fingerprint PR it shows GPU-verified yes, and the New map issue can be closed.
+
+## 8. Procedural boards
+
+Generated boards (`gen1-s<seed>-p<seats>-t<territories>`, [maps.md](maps.md#generated-boards)) skip this whole
+workflow: they have no map file, no registration and no owner approval per board, because the generator itself is
+what was approved (hex style, 5 territories per seat, owner decisions of 2026-10-21). Preview them with the same
+script, after `npm run build` (it loads the built engine):
+
+```bash
+node scripts/preview-map.mjs gen1-s42-p4-t20
+node scripts/preview-map.mjs --sheet seats=3,4,6,10 seeds=1-4 tps=5
+```
+
+`--sheet` renders a contact sheet of every seat count and seed in one page. Rules for changing the generator:
+
+- `procgen.ts` uses only `createRng`/`nextInt` (`rng.ts`) and integer arithmetic, with fixed iteration orders: no
+  `Math.random`, no clocks and no `Math.sin`/`cos`/`sqrt`/`exp` (not bit-identical across JS engines, and the client
+  builds the same board in the browser). A test scans the file for them.
+- **Never change what a released version outputs.** The golden hashes in `procgen.test.ts` pin gen1. A change that
+  moves them is a new version: add `gen2` next to gen1 (its own function, chosen by the id's prefix) and leave gen1
+  as it is. Changes that do not move the hashes (speed, comments) are fine.
+- `procgen.ts` is not in the GPU mirror's `RULE_FILES`, so changing it needs no `verify.py` run.
+

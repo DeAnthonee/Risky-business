@@ -8,6 +8,7 @@
  * enforces one spec per option), and add any map-dependent bound to validateOptions/optionLimits.
  */
 import { getMap, MAP_IDS, type MapDef } from './maps.js';
+import { looksLikeGenId, parseGenId } from './procgen.js';
 import { maxBlizzards } from './engine.js';
 import { tradeBonus } from './cards.js';
 import { timerOf } from './timeout.js';
@@ -51,7 +52,7 @@ export const OPTION_SPECS: { [K in OptionKey]: OptionSpec } = {
       }),
     ),
     description:
-      'Which board to play on: classic (the Hasbro board), world (finer world), world_large (Grand World, the biggest board, made for 8-10 players), europe, greater_europe (Greater Europe: 116 smaller territories, up to 10 players), europe_classic (Europe Advanced: 84 territories in 14 regions such as the Russian Empire and the Orient, 2-6 players), usa (US states), asia, fantasy (Realms of Halvaren, an original fantasy world), skirmish (Four Crowns: a small, fast 24-territory board for up to 4 players), bohemia (Bohemia: an inland kingdom of 42 territories in 8 regions cut by a river, crossed only at fords, 2-6 players) or nine_realms (The Nine Realms: 58 territories on one long north-south continent whose regions meet only at narrow passes, up to 8 players). Changing it clamps maxPlayers, neutrals and blizzards to the new map.',
+      'Which board to play on: classic (the Hasbro board), world (finer world), world_large (Grand World, the biggest board, made for 8-10 players), europe, greater_europe (Greater Europe: 116 smaller territories, up to 10 players), europe_classic (Europe Advanced: 84 territories in 14 regions such as the Russian Empire and the Orient, 2-6 players), usa (US states), asia, fantasy (Realms of Halvaren, an original fantasy world), skirmish (Four Crowns: a small, fast 24-territory board for up to 4 players), bohemia (Bohemia: an inland kingdom of 42 territories in 8 regions cut by a river, crossed only at fords, 2-6 players) or nine_realms (The Nine Realms: 58 territories on one long north-south continent whose regions meet only at narrow passes, up to 8 players). A generated board is also accepted by its id, gen1-s<seed>-p<seats>-t<territories> (e.g. gen1-s42-p4-t20: a hex board for up to 4 players with 20 territories, built from seed 42; the same id is always the same board). Changing it clamps maxPlayers, neutrals and blizzards to the new map.',
   },
   maxPlayers: {
     kind: 'int',
@@ -244,6 +245,14 @@ export function parseOptions(raw: unknown): Partial<GameOptions> {
       // A bound that is the same on every map is checked here; map-dependent ones in validateOptions.
       else if (fixedMax(key as OptionKey) !== null && n > fixedMax(key as OptionKey)!) problems.push(`${key} must be at most ${fixedMax(key as OptionKey)}`);
       else out[key] = n;
+    } else if (key === 'map' && looksLikeGenId(value)) {
+      // A generated board: the id carries its seed and size (procgen.ts).
+      try {
+        parseGenId(value);
+        out[key] = value;
+      } catch (e) {
+        problems.push(e instanceof Error ? e.message : String(e));
+      }
     } else {
       if (typeof value !== 'string' || !spec.values.includes(value)) problems.push(`${key} must be one of ${spec.values.map((v) => `"${v}"`).join(', ')}`);
       else out[key] = value;
@@ -257,7 +266,7 @@ export function parseOptions(raw: unknown): Partial<GameOptions> {
 export function describeOptions(o: GameOptions, tradeCount = 0): string[] {
   const map = getMap(o.map);
   const lines = [
-    `Map: ${(OPTION_SPECS.map as EnumSpec).valueLabels[o.map] ?? `${map.name}: ${map.territoryIds.length} territories, 2-${map.maxPlayers} players (legacy board, not offered for new games)`}`,
+    `Map: ${(OPTION_SPECS.map as EnumSpec).valueLabels[o.map] ?? `${map.name}: ${map.territoryIds.length} territories, ${looksLikeGenId(o.map) ? `${map.continents.length} regions, 2-${map.maxPlayers} players (generated from its id)` : `2-${map.maxPlayers} players (legacy board, not offered for new games)`}`}`,
     `Seats: ${o.maxPlayers}`,
     o.autoSetup
       ? 'Setup: skipped; starting armies are scattered randomly and turn 1 starts at once'

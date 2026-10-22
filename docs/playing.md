@@ -79,7 +79,7 @@ Host-selectable options:
 
 | option        | values                        | default     |
 | ------------- | ----------------------------- | ----------- |
-| `map`         | `classic` \| `world` \| `world_large` \| `europe` \| `greater_europe` \| `europe_classic` \| `usa` \| `asia` \| `fantasy` \| `skirmish` \| `bohemia` \| `nine_realms` | `classic` |
+| `map`         | `classic` \| `world` \| `world_large` \| `europe` \| `greater_europe` \| `europe_classic` \| `usa` \| `asia` \| `fantasy` \| `skirmish` \| `bohemia` \| `nine_realms`, or a generated board's id such as `gen1-s42-p4-t20` (API and MCP only; see [maps.md](maps.md#generated-boards)) | `classic` |
 | `maxPlayers`  | 2–4 (skirmish) / 2–6 (classic, europe_classic, bohemia) / 2–8 (europe, asia, nine_realms) / 2–10 (world, world_large, greater_europe, usa, fantasy) | 6 |
 | `setupBatch`  | armies placed per setup turn  | 1 (classic) |
 | `fortifyMode` | `connected` \| `adjacent`     | `connected` |

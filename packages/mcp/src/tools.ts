@@ -22,6 +22,12 @@ const tokenSchema = z
   .describe('Your player token for this game (returned by create_game/join_game). Always pass it: it identifies your seat even after a reconnect or when this connection holds several seats.');
 const asSchema = z.string().optional().describe('Alternative to token: the player name of the seat to act as, when this connection holds several seats in the game');
 
+/** A board: one of MAP_IDS, or a generated board's id (gen1-s<seed>-p<seats>-t<territories>, see procgen.ts). */
+function mapIdSchema() {
+  return z.union([z.enum(MAP_IDS as [string, ...string[]]), z.string().regex(GEN_ID_PATTERN, 'a generated board id such as gen1-s42-p4-t20')]);
+}
+const GEN_ID_PATTERN = /^gen\d+-s\d+-p\d+-t\d+(-r\d+)?(-c\d+)?$/;
+
 /** Zod schema for game settings, generated from the engine's OPTION_SPECS so it can never drift. */
 function buildOptionsSchema() {
   const shape: Record<string, z.ZodTypeAny> = {};
@@ -31,7 +37,7 @@ function buildOptionsSchema() {
     let field: z.ZodTypeAny;
     let desc = spec.description;
     if (spec.kind === 'enum') {
-      field = z.enum(spec.values as [string, ...string[]]);
+      field = key === 'map' ? mapIdSchema() : z.enum(spec.values as [string, ...string[]]);
       desc += ' Values: ' + spec.values.map((v) => `"${v}" = ${spec.valueLabels[v]}`).join('; ') + '.';
     } else if (spec.kind === 'boolean') {
       field = z.boolean();
@@ -198,7 +204,7 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
     'map',
     {
       description: 'Return a static map: territories, continents with bonuses, and adjacency (which territories border which). Pass the map a game uses (get_state shows options.map).',
-      inputSchema: { map: z.enum(MAP_IDS as [string, ...string[]]).optional().describe(`Default classic. One of: ${MAP_IDS.join(', ')} (fantasy = Realms of Halvaren, an original fantasy world; skirmish = Four Crowns, a small fast 4-player board; bohemia = Bohemia, a 42-territory inland kingdom whose regions meet only at river fords; nine_realms = The Nine Realms, a 58-territory north-south continent whose regions meet only at narrow passes, up to 8)`) },
+      inputSchema: { map: mapIdSchema().optional().describe(`Default classic. One of: ${MAP_IDS.join(', ')} (fantasy = Realms of Halvaren, an original fantasy world; skirmish = Four Crowns, a small fast 4-player board; bohemia = Bohemia, a 42-territory inland kingdom whose regions meet only at river fords; nine_realms = The Nine Realms, a 58-territory north-south continent whose regions meet only at narrow passes, up to 8), or a generated board's id such as gen1-s42-p4-t20 (a hex board built from seed 42 for up to 4 players, 20 territories; tournament tables use these)`) },
     },
     async ({ map }) => {
     try {

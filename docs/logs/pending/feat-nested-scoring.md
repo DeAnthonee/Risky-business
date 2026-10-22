@@ -1,0 +1,1 @@
+server: - 2026-10-22 #192 nested tournaments on the tournament board: #197's people-only ranking on top of #185's decided-table scoring; the 40-seat nested run checks it (40 results with the 37 bots flagged, only the three people ranked, +2 per played-out and +1 per decided table win, nothing on the public board)

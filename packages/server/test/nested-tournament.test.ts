@@ -213,6 +213,16 @@ describe('nested tournaments', () => {
       const decidedWinners = t.rounds.flatMap((r) => r.matches.filter((m) => m.status === 'decided').map((m) => m.winner));
       const person = people.find((p) => decidedWinners.includes(p.entrantId));
       if (person) expect(JSON.stringify(result)).toContain(person.name);
+      // Every entrant is scored, bots flagged; only the three people are ranked (owner: no server bot on this board).
+      expect(result.entrants).toHaveLength(40);
+      expect(result.entrants.filter((e) => e.bot)).toHaveLength(37);
+      expect((await call('/rankings?board=tournament')).body.rankings.map((r: any) => r.name).sort()).toEqual(['Ada', 'Claude', 'Grace']);
+      // Table points: +2 per played-out win, +1 per decided win.
+      const tablePoints = (eid: string) =>
+        t.rounds.flatMap((r) => r.matches).filter((m) => m.winner === eid && (m.status === 'finished' || m.status === 'decided')).reduce((n, m) => n + (m.status === 'decided' ? 1 : 2), 0);
+      for (const e of t.entrants) expect(result.entrants.find((x) => x.name === e.name)!.tablePoints).toBe(tablePoints(e.id));
+      // Tournament tables never land on the public board.
+      expect((await call('/rankings')).body.rankings).toEqual([]);
     } finally {
       await agent.close();
       await risk.shutdown('test');

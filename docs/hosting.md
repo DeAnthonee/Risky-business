@@ -36,6 +36,7 @@ Environment variables:
 | `RISK_FINISHED_TTL_MIN`    | delete a finished game nobody is connected to (default 120) |
 | `RISK_FINISHED_CLOSE_MIN`  | close a finished game this many minutes after it ended, spectators or not (default 2; `0` disables) |
 | `RISK_ABANDONED_CLOSE_MIN` | close a lobby or running game once no player seat has had a WebSocket, a long-poll or an authenticated request for this many minutes (default 2; `0` disables). Bots and spectators do not count; tournament tables and bots-only games keep their own rules |
+| `RISK_SEASON_KEY`          | set to a value of your choice to show the leaderboard's **Archive season** button: that password (or the admin key) archives the public board's season from the site ([leaderboard-seasons.md](leaderboard-seasons.md)). Wrong tries lock out (5 per IP, 20 in total, 15 minutes). Unset = no button, the route answers 403 |
 | `RISK_ADMIN_TOKEN`         | the host's admin key: enables `/api/admin/*` (list rooms with idle time, delete a room, run a sweep, create/start/forfeit/delete tournaments); unset = disabled |
 | `RISK_CHARACTERS_KEY`      | write key for AI character saves (profiles, diaries, relationships); the admin token also works. Unset (and no admin token) = characters are read-only |
 | `RISK_ARCHIVE`             | `0` turns off game records (on by default whenever `RISK_DATA_DIR` persists; see [game records](game-records.md)) |

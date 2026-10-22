@@ -1,0 +1,3 @@
+server: - 2026-10-22 #189 nested tournaments, part 2: parent tables start every winner on its portal (`startOnSpots` through `Store.createTable`'s new `prepare`), losers out, the final crowns the champion; `botDelayMs` per tournament (room `botDelayMs`, saved); tables default to a 90 s per-move turn timer (owner); contract test follows one entrant to the champion through `you.match` alone
+mcp: - 2026-10-22 #189 `create_tournament` takes `botDelayMs` for nested tournaments
+server: - 2026-10-22 #189 nested tables seat Zerg entrants as Zergs and keep agent labels (createTable kind/agent); the plan's filler entrants are Zergs; a parent table whose portal start cannot be built starts normally

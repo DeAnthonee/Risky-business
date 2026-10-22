@@ -53,8 +53,12 @@ waiters, bots and the on-disk snapshot all see it.
    `RiskApi`. Keep descriptions explicit: agents only know what the description says.
 5. **UI.** `packages/client/src/components/*`. Game events drive the animations (`useAnimations` in
    `Game.tsx`), so emit a `GameEvent` from the engine rather than guessing in the client.
-6. **Docs and log.** Update the doc that describes the area (find it in the README's table of contents), append
-   a dated line with the PR number to the area's running log in `docs/logs/`, and add a table-of-contents line for
+6. **Docs and log.** Update the doc that describes the area (find it in the README's table of contents), write
+   a dated line with the PR number for the area's running log to your own fragment,
+   `docs/logs/pending/<branch>.md` (slashes in the branch name become `-`; one line per area,
+   `<area>: - YYYY-MM-DD #123 what changed`, `#PR` until the PR is open; see
+   [docs/logs/pending/README.md](docs/logs/pending/README.md)). Never edit the logs themselves: that is what made every
+   PR conflict. Add a table-of-contents line for
    any new doc. A new hard rule goes in the README; a convention in `docs/conventions.md`; this file if the workflow
    changes.
 7. **Gate.** `npm test` (typecheck + engine + server tests) must be green. Build the client too
@@ -90,6 +94,8 @@ npm ci               # install (devDependencies are required to build)
 npm run build        # builds every package; writes packages/server/dist/build-info.json
 npm run build:map    # regenerates packages/engine/src/generated/<id>.json for every map; commit the output
 npm test             # the deploy gate: builds the engine, then typecheck + engine + server tests (no fixed ports, no browser)
+npm run logs:check   # validates the log fragments in docs/logs/pending/ (also part of npm test); writes nothing
+npm run logs:fold    # reviewer only, in a docs PR: folds every fragment into docs/logs/*.md and deletes them
 npm run dev          # server :8080 + Vite client :5173 (proxies /api, /ws)
 npm start            # production-style: node packages/server/dist/index.js, serves the built client on PORT (default 8080)
 ```
@@ -107,5 +113,5 @@ Keep PRs focused; one feature per PR.
 ## 8. Hosting bugs
 
 They arrive as GitHub issues titled `[OPS] ...` (README hard rule 14). Reproduce locally (server tests or a scratch
-server on a random port), fix on a branch, reference the issue in the commit, PR as usual, and log the fix in
-[docs/logs/hosting.md](docs/logs/hosting.md).
+server on a random port), fix on a branch, reference the issue in the commit, PR as usual, and log the fix for
+[docs/logs/hosting.md](docs/logs/hosting.md) in your fragment (`hosting: - ...` in `docs/logs/pending/<branch>.md`).

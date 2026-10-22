@@ -1,5 +1,6 @@
 import type { RandomSource } from './bot.js';
 import { applyAction, legalMoves, startGame } from './engine.js';
+import { getMap, type MapDef } from './maps.js';
 import { RuleError, type ActionResult, type GameEvent, type GameState, type PlayerId, type TerritoryId } from './types.js';
 
 /**
@@ -8,7 +9,8 @@ import { RuleError, type ActionResult, type GameEvent, type GameState, type Play
  *
  * It is the normal start (`startGame`: turn order, deck, blizzards, neutrals, a random deal), then each spot is
  * swapped, owner and armies together, with a territory its player was dealt elsewhere, so every player keeps the same
- * number of territories and armies. A blizzard that fell on a spot moves to another open territory, and a spot dealt
+ * number of territories and armies. A blizzard that fell on a spot moves to another open territory where pickBlizzards
+ * could have put it (or, with none left, thaws: one blizzard fewer, the spot the player's), and a spot dealt
  * to the neutral is swapped like any other. With `autoSetup` the remaining armies are then placed at random through
  * ordinary setup moves, and the game is at its first turn as usual; without it the game waits in setup as usual.
  *
@@ -33,12 +35,25 @@ export function startOnSpots(lobby: GameState, spots: Record<PlayerId, Territory
   for (const [player, spot] of wanted) {
     if (state.blizzards.includes(spot)) {
       // Move the blizzard to an open territory that is nobody's spot; that territory's holder takes the spot instead.
-      const open = Object.keys(state.territories).filter((t) => !spotSet.has(t) && !state.blizzards.includes(t) && state.territories[t].owner !== player);
-      if (open.length === 0) throw new RuleError('No open territory to move a blizzard to');
-      const moved = pick(open);
-      state.territories[spot] = { ...state.territories[moved] };
-      state.territories[moved] = { owner: null, armies: 0 };
-      state.blizzards = state.blizzards.map((t) => (t === spot ? moved : t));
+      // Only where pickBlizzards could have put it: the open territories stay one network and every continent keeps two.
+      const map = getMap(state.options.map);
+      const others = state.blizzards.filter((t) => t !== spot);
+      const open = Object.keys(state.territories).filter(
+        (t) => !spotSet.has(t) && !state.blizzards.includes(t) && playable(map, new Set([...others, t])),
+      );
+      if (open.length > 0) {
+        const moved = pick(open);
+        state.territories[spot] = { ...state.territories[moved] };
+        state.territories[moved] = { owner: null, armies: 0 };
+        state.blizzards = state.blizzards.map((t) => (t === spot ? moved : t));
+      } else {
+        // Nowhere it may go (the board already has as many blizzards as the rules allow): it thaws instead, one blizzard
+        // fewer. The spot is the player's with one army, taken from the armies they have left to place.
+        state.blizzards = others;
+        state.territories[spot] = { owner: player, armies: 1 };
+        const p = state.players.find((x) => x.id === player)!;
+        p.armiesToPlace = Math.max(0, p.armiesToPlace - 1);
+      }
       for (const e of events) if (e.type === 'blizzards') e.territories = [...state.blizzards];
     }
     if (state.territories[spot].owner === player) continue;
@@ -67,4 +82,21 @@ export function startOnSpots(lobby: GameState, spots: Record<PlayerId, Territory
   }
   // The deal was random whatever the table asked for (a parent table always deals), so only autoSetup is restored.
   return { state: { ...state, options: { ...state.options, autoSetup } }, events };
+}
+
+/**
+ * The rule `pickBlizzards` keeps for any set of blizzards: the open territories are one connected network and every
+ * continent keeps at least two open territories, so the game stays winnable and every bonus reachable.
+ */
+function playable(map: MapDef, blocked: Set<TerritoryId>): boolean {
+  for (const c of map.continents) if (c.territories.filter((t) => !blocked.has(t)).length < 2) return false;
+  const open = map.territoryIds.filter((t) => !blocked.has(t));
+  if (open.length === 0) return false;
+  const seen = new Set<TerritoryId>([open[0]]);
+  const queue = [open[0]];
+  while (queue.length) {
+    const t = queue.pop()!;
+    for (const n of map.adjacency[t]) if (!blocked.has(n) && !seen.has(n)) (seen.add(n), queue.push(n));
+  }
+  return seen.size === open.length;
 }

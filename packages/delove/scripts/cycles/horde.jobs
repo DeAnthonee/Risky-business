@@ -5,8 +5,8 @@
 # settings (docs/game-settings.md) in two card/capitals variants; the branch seat moves round the table. About 4,000
 # games, recorded like any self-play job, to mix into a cycle's training at about 0.3 (the captain decides when).
 #
-# The Zergs fight on after the branch seat falls (no surrenders), and a turtling seat can stall the horde, so games are
-# capped at 250 turns (real horde games finish well inside: in a 400-game check the longest finished game was 235 turns
+# Once the branch seat (and every filler) is out, the strongest Zerg keeps the table and the others surrender. A
+# turtling seat can still stall the horde now and then, so games are capped at 250 turns (real horde games finish well inside: in a 400-game check the longest finished game was 235 turns
 # at 3p and 131 at 6p). A capped game is a draw.
 #
 #   bash packages/delove/scripts/generate.sh packages/delove/scripts/cycles/horde.jobs runs/horde 1501

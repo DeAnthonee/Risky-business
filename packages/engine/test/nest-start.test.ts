@@ -24,10 +24,10 @@ function lobby(seats: string[], options: Partial<GameOptions> = {}, seed = 3): G
   return s;
 }
 
-/** One spot per player, each in a different continent of classic. */
-function spotsFor(seats: string[]): Record<string, string> {
-  const continents = getMap('classic').continents;
-  return Object.fromEntries(seats.map((id, i) => [id, continents[i].territories[0]]));
+/** One spot per player, each in a different continent of the map (classic by default). */
+function spotsFor(seats: string[], mapId = 'classic'): Record<string, string> {
+  const continents = getMap(mapId).continents;
+  return Object.fromEntries(seats.map((id, i) => [id, continents[i % continents.length].territories[i < continents.length ? 0 : 1]]));
 }
 
 const count = (s: GameState, p: string) => Object.values(s.territories).filter((t) => t.owner === p).length;
@@ -68,6 +68,51 @@ describe('startOnSpots', () => {
     expect(state.blizzards).not.toContain(spots.a);
     for (const t of state.blizzards) expect(state.territories[t].owner).toBeNull();
     expect(events.find((e) => e.type === 'blizzards')).toMatchObject({ territories: state.blizzards });
+  });
+
+  it('moves a blizzard only where pickBlizzards could have put it: the board stays connected and every continent keeps two open territories', () => {
+    /** The two rules pickBlizzards keeps, checked from scratch. */
+    const playable = (mapId: string, blocked: Set<string>) => {
+      const map = getMap(mapId);
+      if (map.continents.some((c) => c.territories.filter((t) => !blocked.has(t)).length < 2)) return false;
+      const open = map.territoryIds.filter((t) => !blocked.has(t));
+      const seen = new Set([open[0]]);
+      const queue = [open[0]];
+      while (queue.length) for (const n of map.adjacency[queue.pop()!]) if (!blocked.has(n) && !seen.has(n)) (seen.add(n), queue.push(n));
+      return seen.size === open.length;
+    };
+    let naiveWouldBreak = 0;
+    let moved = 0;
+    let thawed = 0;
+    for (const mapId of ['skirmish', 'classic'] as const) {
+      const options = { map: mapId, randomDeal: true, blizzards: 8 };
+      for (let seed = 1; seed <= 40; seed++) {
+        const plain = startGame(lobby(seats, options, seed)).state;
+        const spot = plain.blizzards[0];
+        if (!spot) continue;
+        // Would the old rule (any open territory) have been able to break the board here?
+        const others = plain.blizzards.filter((t) => t !== spot);
+        const naive = Object.keys(plain.territories).filter((t) => !plain.blizzards.includes(t) && t !== spot);
+        if (naive.some((t) => !playable(mapId, new Set([...others, t])))) naiveWouldBreak++;
+
+        const spots = { ...spotsFor(seats, mapId), a: spot };
+        if (new Set(Object.values(spots)).size !== seats.length) continue;
+        const { state } = startOnSpots(lobby(seats, options, seed), spots, seeded(seed));
+        expect(state.territories[spot].owner).toBe('a');
+        // Moved (same count) or, with nowhere legal to go, thawed (one fewer).
+        expect(state.blizzards.length === plain.blizzards.length || state.blizzards.length === plain.blizzards.length - 1).toBe(true);
+        if (state.blizzards.length < plain.blizzards.length) thawed++;
+        else moved++;
+        expect(state.blizzards).not.toContain(spot);
+        expect(playable(mapId, new Set(state.blizzards))).toBe(true);
+        for (const t of state.blizzards) expect(state.territories[t].owner).toBeNull();
+      }
+    }
+    // The check matters: on these boards an unchecked move could have split the board or emptied a continent.
+    expect(naiveWouldBreak).toBeGreaterThan(0);
+    // Both paths ran.
+    expect(moved).toBeGreaterThan(0);
+    expect(thawed).toBeGreaterThan(0);
   });
 
   it('takes a spot the neutral was dealt in a two-player game', () => {

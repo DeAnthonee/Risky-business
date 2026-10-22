@@ -202,8 +202,9 @@ export interface RiskApi {
   rankingSeasons(): Promise<{ current: number; seasons: RankingSeasonInfo[] }>;
   rankedProfile(key: string, board?: 'training'): Promise<{ stats: import('@risk/engine').RankingRow; profile: string | null }>;
   /** board "training" makes a yardstick game for the training leaderboard; it needs the characters write key. */
-  createGame(playerName: string, gameName: string | undefined, options: Partial<GameOptions> | undefined, board?: 'training', key?: string): Promise<JoinResult>;
-  joinGame(gameId: string, playerName: string): Promise<JoinResult>;
+  /** agent: this seat's self-declared player type ("claude-sonnet-5-5"), shown to web spectators only, never to players. */
+  createGame(playerName: string, gameName: string | undefined, options: Partial<GameOptions> | undefined, board?: 'training', key?: string, agent?: string): Promise<JoinResult>;
+  joinGame(gameId: string, playerName: string, agent?: string): Promise<JoinResult>;
   /** kind "zerg" seats a Zerg (named from the reptile list, so no name); default "bot", the built-in bot. */
   addBot(gameId: string, token: string, name?: string, kind?: 'bot' | 'zerg'): Promise<{ playerId: string; name?: string }>;
   setOptions(gameId: string, token: string, options: Partial<GameOptions>): Promise<{ state: GameView }>;
@@ -236,7 +237,7 @@ export interface RiskApi {
   listTournaments(): Promise<{ tournaments: unknown[] }>;
   /** Pass your entrant token to get `you` (your status and your current table's seat). */
   getTournament(tournamentId: string, token?: string): Promise<{ tournament: TournamentInfo }>;
-  joinTournament(tournamentId: string, playerName: string): Promise<{ entrantId: string; token: string; tournament: TournamentInfo }>;
+  joinTournament(tournamentId: string, playerName: string, agent?: string): Promise<{ entrantId: string; token: string; tournament: TournamentInfo }>;
   /** Long-poll until the tournament changes past `since`. */
   waitTournament(tournamentId: string, token: string | undefined, since: number | undefined, timeoutMs: number): Promise<{ reason: string; tournament: TournamentInfo }>;
   // TEMPORARY (testing): while the server has tournaments open, no admin key is needed to create; otherwise pass the
@@ -372,7 +373,7 @@ export class HttpRiskApi implements RiskApi {
       throw new RiskHttpError(`Non-JSON response from server (${res.status}): ${text.slice(0, 200)}`, res.status);
     }
     if (!res.ok) throw new RiskHttpError(String(body.error ?? `HTTP ${res.status}`), res.status);
-    return body as T;
+    return withoutAgents(body) as T;
   }
 
   rules() {
@@ -389,11 +390,11 @@ export class HttpRiskApi implements RiskApi {
   listGames() {
     return this.request<{ games: unknown[] }>('/games');
   }
-  createGame(playerName: string, gameName: string | undefined, options: Partial<GameOptions> | undefined, board?: 'training', key?: string) {
-    return this.request<JoinResult>('/games', { method: 'POST', body: JSON.stringify({ playerName, gameName, options, ...(board ? { board } : {}) }) }, undefined, board ? key ?? this.charactersKey : undefined);
+  createGame(playerName: string, gameName: string | undefined, options: Partial<GameOptions> | undefined, board?: 'training', key?: string, agent?: string) {
+    return this.request<JoinResult>('/games', { method: 'POST', body: JSON.stringify({ playerName, gameName, options, ...(board ? { board } : {}), ...(agent ? { agent } : {}) }) }, undefined, board ? key ?? this.charactersKey : undefined);
   }
-  joinGame(gameId: string, playerName: string) {
-    return this.request<JoinResult>(`/games/${gameId}/join`, { method: 'POST', body: JSON.stringify({ playerName }) });
+  joinGame(gameId: string, playerName: string, agent?: string) {
+    return this.request<JoinResult>(`/games/${gameId}/join`, { method: 'POST', body: JSON.stringify({ playerName, ...(agent ? { agent } : {}) }) });
   }
   addBot(gameId: string, token: string, name?: string, kind?: 'bot' | 'zerg') {
     return this.request<{ playerId: string; name?: string }>(`/games/${gameId}/bots`, { method: 'POST', body: JSON.stringify({ name, ...(kind ? { kind } : {}) }) }, token);
@@ -475,8 +476,8 @@ export class HttpRiskApi implements RiskApi {
   getTournament(tournamentId: string, token?: string) {
     return this.request<{ tournament: TournamentInfo }>(`/tournaments/${tournamentId}`, {}, token);
   }
-  joinTournament(tournamentId: string, playerName: string) {
-    return this.request<{ entrantId: string; token: string; tournament: TournamentInfo }>(`/tournaments/${tournamentId}/join`, { method: 'POST', body: JSON.stringify({ playerName }) });
+  joinTournament(tournamentId: string, playerName: string, agent?: string) {
+    return this.request<{ entrantId: string; token: string; tournament: TournamentInfo }>(`/tournaments/${tournamentId}/join`, { method: 'POST', body: JSON.stringify({ playerName, ...(agent ? { agent } : {}) }) });
   }
   waitTournament(tournamentId: string, token: string | undefined, since: number | undefined, timeoutMs: number) {
     const q = new URLSearchParams({ timeoutMs: String(timeoutMs) });
@@ -493,3 +494,15 @@ export class HttpRiskApi implements RiskApi {
 
 /** URL-encodes each part of "universe/name"; the slash stays a path separator. */
 const characterPath = (id: string) => id.split('/').map(encodeURIComponent).join('/');
+
+/**
+ * Agents never see player-type labels: drop `agent` from every player of a game state in a server response. (The
+ * server gives labels to tokenless web spectators only, and an agent spectating over HTTP would be one.)
+ */
+function withoutAgents(body: Record<string, unknown>): Record<string, unknown> {
+  const state = body.state as { players?: Record<string, unknown>[] } | undefined;
+  if (state && Array.isArray(state.players) && state.players.some((p) => p && 'agent' in p)) {
+    body.state = { ...state, players: state.players.map(({ agent: _agent, ...p }) => p) };
+  }
+  return body;
+}

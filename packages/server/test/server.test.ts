@@ -53,6 +53,21 @@ describe('healthz', () => {
     expect(typeof h.loopLagMs).toBe('number');
     expect(h.loopLagMs).toBeGreaterThanOrEqual(0);
   });
+
+  it('never shows the data dir path, only whether games are saved', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'risk-healthz-'));
+    const own = await startServer(join(dir, 'games.json'));
+    try {
+      const text = await (await fetch(`${own.base}/healthz`)).text();
+      expect(JSON.parse(text).persistence).toBe('disk');
+      expect(text).not.toContain(dir);
+      expect(text).not.toContain(JSON.stringify(dir).slice(1, -1)); // the JSON-escaped form too (Windows backslashes)
+      expect(text).not.toContain('games.json');
+    } finally {
+      await own.risk.shutdown('test');
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('game lifecycle over HTTP', () => {

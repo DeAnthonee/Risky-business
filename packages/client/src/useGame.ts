@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Action, GameEvent, GameView } from '@risk/engine';
-import { GameSocket, type ChatMessage, type PresenceMessage, type StateMessage } from './api';
+import { GameSocket, type ChatMessage, type PresenceMessage, type StateMessage, type TournamentTableRef } from './api';
 import type { BigMoveMessage } from './api';
 
 /** How long a big-move pop-up stays up. */
@@ -16,6 +16,8 @@ export interface GameConnection {
   view: GameView | null;
   host: string | null;
   name: string;
+  /** A tournament table: which tournament, round and table (null for any other game). */
+  tournament: TournamentTableRef | null;
   you: string | null;
   connected: boolean;
   batches: EventBatch[];
@@ -88,6 +90,8 @@ export function useGame(gameId: string | null, token: string | undefined): GameC
   const [view, setView] = useState<GameView | null>(null);
   const [host, setHost] = useState<string | null>(null);
   const [name, setName] = useState('');
+  // A tournament table: which tournament, round and table (sent with the first state; it never changes).
+  const [tournament, setTournament] = useState<TournamentTableRef | null>(null);
   const [you, setYou] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
   const [batches, setBatches] = useState<EventBatch[]>([]);
@@ -121,10 +125,12 @@ export function useGame(gameId: string | null, token: string | undefined): GameC
     // A new connection (another game, or a spectator taking a seat) starts at normal speed.
     playback.current.fast = false;
     setFastForwardState(false);
+    setTournament(null);
     const apply = (m: StateMessage) => {
       setView(m.state);
       setHost(m.host);
       setName(m.name);
+      if (m.tournament) setTournament(m.tournament);
       setYou(m.you);
       if (m.events.length) setBatches((b) => [...b.slice(-200), { id: ++seq.current, version: m.version, events: m.events }]);
     };
@@ -207,5 +213,5 @@ export function useGame(gameId: string | null, token: string | undefined): GameC
     await sockRef.current?.chat(msg, name, to);
   }, []);
 
-  return { view, host, name, you, connected, batches, chat, act, sendChat, error, clearError: () => setError(null), updateAvailable, presence, closedReason, fastForward, setFastForward, reaction };
+  return { view, host, name, tournament, you, connected, batches, chat, act, sendChat, error, clearError: () => setError(null), updateAvailable, presence, closedReason, fastForward, setFastForward, reaction };
 }

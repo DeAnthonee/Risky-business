@@ -38,6 +38,23 @@ export interface GameSummary {
   turnNumber: number;
   /** Set on a tournament table. */
   tournamentId?: string;
+  /** A tournament table: which tournament, round and table (the badge). */
+  tournament?: TournamentTableRef;
+}
+
+/** Which tournament table a game is (the server's TournamentTableRef). */
+export interface TournamentTableRef {
+  id: string;
+  name: string;
+  round: number;
+  table: number;
+  tables: number;
+  final: boolean;
+}
+
+/** "🏆 Cup · Round 2, table 3", or "🏆 Cup · the final". */
+export function tableBadge(t: TournamentTableRef): string {
+  return `🏆 ${t.name} · ${t.final ? 'the final' : t.tables > 1 ? `Round ${t.round}, table ${t.table}` : `Round ${t.round}`}`;
 }
 
 export interface TournamentSummary {
@@ -211,6 +228,8 @@ export interface StateMessage {
   you: string | null;
   /** Git commit the server was built from; differs from the client's after a deploy. */
   commit?: string;
+  /** First state of a tournament table: which tournament, round and table. */
+  tournament?: TournamentTableRef;
 }
 
 export interface PresenceMessage {

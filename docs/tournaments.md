@@ -26,7 +26,10 @@ round's tables as tickets with a Watch button.
   room is deleted before anyone wins is *abandoned*: nobody from it moves on.
 - **No-shows.** Games have no turn timer, so the host (host token or admin key) can `forfeit` an entrant who will not
   play (they surrender at their table).
-- **Watching.** The bracket page updates live; every table has a Watch button. A nested tournament's page also has
+- **Watching.** The bracket page updates live; every table has a Watch button. A table is marked everywhere else too:
+  a "🏆 Cup · Round 2, table 3" badge in the open games list, in the game's top bar (both open the bracket) and in its
+  link preview ([playing.md](playing.md#tournaments-on-the-home-page)); the API carries it as `tournament` on the games
+  list and in the game socket's first state. A nested tournament's page also has
   **Follow the action**: an opt-in switch, off by default, that moves the view to the most exciting table by itself
   (the server picks it from the tables' excitement scores; it stays at least 20 s and switches only for a clearly
   better table). It is never offered to someone holding a seat in the tournament, and any zoom by hand turns it off

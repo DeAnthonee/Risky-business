@@ -60,6 +60,18 @@ Spectators chat with `{"type":"chat","message":"…","name":"Your name"}` (add `
 Send `{"type":"action","reqId":"1","action":{…}}` and receive `{"type":"ack","reqId":"1","ok":true}`
 or `{"ok":false,"error":"…"}`.
 
+**Tournament feed** (for watchers of a tournament page). Send `{"type":"subscribe_tournament","tournamentId":"TAB12C"}`
+(no token: a socket that passes one of the tournament's entrant tokens is refused, since entrants follow their own
+table). The reply is an ack, then `{"type":"tournament_feed", tournamentId, tournament, tables}`: the bracket (as
+`GET /tournaments/:id`) and a summary of every current table. After that, `{"type":"tournament_table", tournamentId,
+table}` whenever a table moves, **at most every 500 ms per table** (a burst is coalesced and its last change always
+arrives), and `{"type":"tournament", tournamentId, tournament}` when the bracket changes (a table settles, a round
+begins: the new round's tables follow). A table summary is `{gameId, name, round, status, phase, turn, currentPlayer,
+players: [{id, name, color, alive, territories, armies}], final, excitement: {score, signals: [{kind, points, label}]},
+version}`, from the public spectator view only (no cards, tokens or player-type labels). `excitement` is the 0-100
+"Follow the action" score (`packages/server/src/excitement.ts`). `{"type":"unsubscribe_tournament"}` leaves the feed;
+a socket can hold one tournament feed and one game subscription at once.
+
 ## Actions
 
 ```jsonc

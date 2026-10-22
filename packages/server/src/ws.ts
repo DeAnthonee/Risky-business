@@ -2,11 +2,14 @@ import type { Server } from 'node:http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { RuleError, redactEvents, type Action } from '@risk/engine';
 import type { ChangeMessage, ChatMessage, GameRoom, Store } from './store.js';
+import { TournamentFeeds } from './tournament-feed.js';
 
 interface ClientMsg {
-  type: 'subscribe' | 'action' | 'chat' | 'ping';
+  type: 'subscribe' | 'action' | 'chat' | 'ping' | 'subscribe_tournament' | 'unsubscribe_tournament';
   reqId?: string;
   gameId?: string;
+  /** subscribe_tournament: the tournament code. */
+  tournamentId?: string;
   token?: string;
   action?: Action;
   message?: string;
@@ -26,6 +29,11 @@ let socketSeq = 0;
  *  client -> {type:'action', reqId, action}  server -> {type:'ack', reqId, ok, error?}
  *  client -> {type:'chat', message, name?, to?}   (name: display name when chatting as a spectator;
  *                                              to: whisper to one player, from a seat or as a spectator)
+ *  client -> {type:'subscribe_tournament', tournamentId, reqId?}   (spectators only: an entrant token is refused)
+ *  server -> {type:'tournament_feed', tournamentId, tournament, tables}   then, as things change,
+ *            {type:'tournament_table', tournamentId, table} (each table at most every 500 ms) and
+ *            {type:'tournament', tournamentId, tournament} (the bracket)
+ *  client -> {type:'unsubscribe_tournament'}
  */
 /** Who is connected to each room over WebSocket: player ids and anonymous spectators. */
 interface Presence {
@@ -35,6 +43,9 @@ interface Presence {
 
 export function attachWebSocket(server: Server, store: Store, commit: () => string = () => 'unknown') {
   const wss = new WebSocketServer({ server, path: '/ws' });
+  // The tournament feed: spectators of a tournament get its live table summaries (tournament-feed.ts).
+  const feeds = new TournamentFeeds(store);
+  wss.on('close', () => feeds.close());
   const presence = new Map<string, Presence>();
   const presenceOf = (gameId: string): Presence => {
     let p = presence.get(gameId);
@@ -83,6 +94,13 @@ export function attachWebSocket(server: Server, store: Store, commit: () => stri
       if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
     };
 
+    let feedId: string | null = null;
+    const feedSocket = { send: (json: string) => ws.readyState === WebSocket.OPEN && ws.send(json) };
+    const leaveFeed = () => {
+      if (feedId) feeds.unsubscribe(feedId, feedSocket);
+      feedId = null;
+    };
+
     const unsubscribe = () => {
       if (room && onChange) room.off('change', onChange);
       if (room && onChat) room.off('chat', onChat);
@@ -109,6 +127,18 @@ export function attachWebSocket(server: Server, store: Store, commit: () => stri
         switch (msg.type) {
           case 'ping':
             return send({ type: 'pong' });
+          case 'subscribe_tournament': {
+            // One tournament feed per socket, alongside (or instead of) one game subscription.
+            leaveFeed();
+            const r = feeds.subscribe(String(msg.tournamentId ?? '').toUpperCase(), feedSocket, msg.token);
+            if (!r.ok) return send({ type: 'ack', reqId: msg.reqId, ok: false, error: r.error });
+            feedId = String(msg.tournamentId).toUpperCase();
+            send({ type: 'ack', reqId: msg.reqId, ok: true });
+            return feedSocket.send(r.first);
+          }
+          case 'unsubscribe_tournament':
+            leaveFeed();
+            return send({ type: 'ack', reqId: msg.reqId, ok: true });
           case 'subscribe': {
             unsubscribe();
             const r = store.get(String(msg.gameId ?? ''));
@@ -163,6 +193,8 @@ export function attachWebSocket(server: Server, store: Store, commit: () => stri
 
     ws.on('close', unsubscribe);
     ws.on('error', unsubscribe);
+    ws.on('close', leaveFeed);
+    ws.on('error', leaveFeed);
 
     const interval = setInterval(() => {
       if (!alive) {

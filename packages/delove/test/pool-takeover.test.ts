@@ -27,7 +27,7 @@ async function droppedSeat(fog = false) {
   const risk = createRiskServer(store, { clientDir: null, sweepIntervalMs: 0, seatPoolKey: KEY });
   await new Promise<void>((resolve) => risk.server.listen(0, '127.0.0.1', resolve));
   const server = `http://127.0.0.1:${(risk.server.address() as AddressInfo).port}`;
-  // Two timeouts in a row with Ann silent and Bob present: Ann is dropped, the house bot stands in, a takeover opens.
+  // Two timeouts in a row with Ann silent and Bob present: Ann is dropped, a Zerg stands in (#304), a takeover opens.
   vi.setSystemTime(Date.now() + 10 * 60_000);
   for (let drops = 0; drops < 2; drops++) {
     for (let i = 0; i < 50 && room.state.currentPlayer !== ann.playerId; i++) {
@@ -54,7 +54,7 @@ describe('the Delove seat pool takes dropped seats over (takeover mode)', () => 
   it('claims the takeover, checks the seat token, reports done and plays the game seat as "<name>-Delove"', async () => {
     const d = await droppedSeat();
     try {
-      expect(d.seat()).toMatchObject({ name: 'Ann-bot', isBot: true });
+      expect(d.seat()).toMatchObject({ name: 'Ann-Zerg', isBot: true });
       const st = stubPlay();
       const logs: string[] = [];
       const pool = new SeatPool({ server: d.server, key: KEY, model: 'delove@13', modelFog: true, maxSeats: 10, maxSearch: 0, play: st.play, log: (l) => logs.push(l) });
@@ -75,7 +75,7 @@ describe('the Delove seat pool takes dropped seats over (takeover mode)', () => 
     }
   });
 
-  it('a seat token that does not play is reported failed, and the house bot keeps the seat', async () => {
+  it('a seat token that does not play is reported failed, and the Zerg stand-in keeps the seat', async () => {
     const d = await droppedSeat();
     try {
       const st = stubPlay();
@@ -84,7 +84,7 @@ describe('the Delove seat pool takes dropped seats over (takeover mode)', () => 
       const pool = new SeatPool({ server: d.server, key: KEY, model: 'delove@13', modelFog: true, maxSeats: 10, maxSearch: 0, play: st.play, fetch: refuse });
       await pool.tick();
       expect(st.playing).toEqual([]);
-      expect(d.seat()).toMatchObject({ name: 'Ann-bot', isBot: true });
+      expect(d.seat()).toMatchObject({ name: 'Ann-Zerg', isBot: true });
       expect(await d.requests()).toEqual([]); // failed: no second request
     } finally {
       d.store.stopTimers();

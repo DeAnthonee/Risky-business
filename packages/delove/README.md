@@ -179,7 +179,7 @@ RISK_SEAT_POOL_KEY=<from the server owner> DELOVE_MODELS=~/delove-models   npm r
   - claims it (`n: 1`), and gets back the seat's `gameId`, `playerId` and a fresh seat token; the server has renamed
     the seat "<name>-Delove";
   - checks that the token plays the seat (`GET /api/games/:id` with it), then reports `done` (`{joined: 1}`), or
-    `failed` with a reason, and the server's house bot keeps the seat;
+    `failed` with a reason, and the server's Zerg stand-in ("<name>-Zerg") keeps the seat;
   - plays that one game seat through the ordinary game API to the end of the table (`src/pool-play.ts`; a stand-in
     never moves on in the tournament). It takes one seat of `--max-seats`, and is bare under fog (the same fog rule as
     joins).

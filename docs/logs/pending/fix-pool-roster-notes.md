@@ -1,0 +1,1 @@
+delove: - 2026-10-23 #PR a house roster seat sends no decision notes (each note named its model, the roster's secret); a test checks a roster seat's notes never name a delove version while a plain seat's still do

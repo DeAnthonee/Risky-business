@@ -182,7 +182,7 @@ export function formatTournament(t: TournamentInfo): string {
     if (t.status === 'registering' && t.you?.checkedIn !== undefined) lines.push(t.you.checkedIn ? 'You are CHECKED IN.' : 'You are NOT checked in yet.');
   }
   if (t.aborted) lines.push(`ABORTED at ${new Date(t.aborted.at).toISOString()}: no champion; the tables then being played were recorded with their standing so far.`);
-  lines.push(`Entrants (${t.entrants.length}/${t.maxEntrants}):${t.entrants.map((e) => `${e.name}${e.isBot ? ' [bot]' : ''} (${e.status})`).join(', ') || 'none yet'}`);
+  lines.push(`Entrants (${t.entrants.length}/${t.maxEntrants}): ${t.entrants.map((e) => `${e.name}${e.isBot ? ' [bot]' : ''} (${e.status})`).join(', ') || 'none yet'}`);
   for (const r of t.rounds) {
     lines.push(`Round ${r.round}:${r.deadline && !r.endedAt ? ` (ends by ${new Date(r.deadline).toISOString()})` : ''}`);
     r.matches.forEach((m, i) => {

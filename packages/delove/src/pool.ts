@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { activeModels, pickNames, type Roster } from './roster.js';
 import type { EntrantResult } from './tournament-seat.js';
 
 /**
@@ -19,6 +20,10 @@ import type { EntrantResult } from './tournament-seat.js';
  * (it never moves on in the tournament). The pool checks the token works, then reports `done` (`failed` with a reason
  * otherwise, and the server hands the seat back to its house bot). Fog seats take the pool's network only when it is
  * fog-trained, as for joins.
+ *
+ * House roster (roster.ts): with a roster, a joined seat takes a free roster name instead of "Delove N", split evenly
+ * across the active versions, and plays that name's model; the seat's public label is just "delove", so the model stays
+ * the roster's secret. Fog seats go only to names whose model is fog-trained.
  *
  * The key (RISK_SEAT_POOL_KEY) goes only in the `x-seat-pool-key` header; it is never logged or written to disk.
  */
@@ -83,6 +88,13 @@ export interface PoolOptions {
   /** Seats in play at most (default 40) and search seats in play at most (default 20). */
   maxSeats: number;
   maxSearch: number;
+  /**
+   * The house roster, read at every poll (so an edited file applies without a restart); null or absent: "Delove N"
+   * seats playing `model`.
+   */
+  roster?: () => Roster | null;
+  /** Whether a model is fog-trained (roster seats; default: only `model`, as `modelFog` says). */
+  fogCapable?: (model: string) => boolean;
   /** Plays a seat to the end of its tournament (child processes in the daemon, in-process in tests). */
   play: (e: PoolEntrant) => Promise<EntrantResult>;
   /** Seats in play are kept here, so a restarted pool plays them on. */
@@ -164,22 +176,48 @@ export class SeatPool {
     }
     let room = free;
     let searchRoom = freeSearch;
+    let roster: Roster | null = null;
+    try {
+      roster = this.o.roster?.() ?? null;
+    } catch (e) {
+      this.log(`roster unreadable (${(e as Error).message}): no roster seats this round`);
+      return;
+    }
     for (const r of list.requests) {
       if (this.stopping || room <= 0) break;
       if (r.kind !== 'delove' || r.n - r.claimed <= 0 || (r.status !== 'open' && r.status !== 'claimed')) continue;
-      if (r.fog && !this.o.modelFog) {
-        if (!this.skipped.has(r.id)) this.log(`request ${r.id} (${r.tournamentId}) plays with fog: ${this.o.model} is not fog-trained, left for another pool`);
+      // A join with a roster seats its names' models; a takeover (and a join without a roster) plays `model`.
+      const fogOk = roster && r.mode !== 'takeover' ? activeModels(roster).some((m) => this.fogCapable(m)) : this.o.modelFog;
+      if (r.fog && !fogOk) {
+        if (!this.skipped.has(r.id)) this.log(`request ${r.id} (${r.tournamentId}) plays with fog: ${roster && r.mode !== 'takeover' ? 'no roster version is' : `${this.o.model} is not`} fog-trained, left for another pool`);
         this.skipped.add(r.id);
         continue;
       }
-      const joined = r.mode === 'takeover' ? await this.takeOver(r, searchRoom) : await this.fill(r, Math.min(r.n - r.claimed, room), searchRoom);
+      const joined =
+        r.mode === 'takeover'
+          ? await this.takeOver(r, searchRoom)
+          : await this.fill(r, Math.min(r.n - r.claimed, room, roster ? this.rosterRoom(roster, r.fog) : Infinity), searchRoom, roster);
       room -= joined.length;
       searchRoom -= joined.filter((e) => e.search).length;
     }
   }
 
+  private fogCapable(model: string): boolean {
+    return this.o.fogCapable ? this.o.fogCapable(model) : model === this.o.model && this.o.modelFog;
+  }
+
+  /** Free roster names for a seat of this request (fog: only fog-trained models). */
+  private rosterRoom(roster: Roster, fog: boolean): number {
+    return pickNames(roster, Infinity, this.seats.map((e) => e.name), (m) => !fog || this.fogCapable(m)).length;
+  }
+
   /** Claims `n` seats of request `r`, joins them, reports, and starts playing those that joined. */
-  private async fill(r: PoolRequest, n: number, searchRoom: number): Promise<PoolEntrant[]> {
+  private async fill(r: PoolRequest, n: number, searchRoom: number, roster: Roster | null = null): Promise<PoolEntrant[]> {
+    if (n <= 0) {
+      if (!this.skipped.has(r.id)) this.log(`request ${r.id} (${r.tournamentId}): every roster name${r.fog ? ' that can play fog' : ''} is seated`);
+      this.skipped.add(r.id);
+      return [];
+    }
     let c: PoolClaim;
     try {
       c = await this.call('POST', `/seat-requests/${r.id}/claim`, { n });
@@ -188,6 +226,8 @@ export class SeatPool {
       return [];
     }
     const searchSeats = r.fog ? 0 : Math.max(0, Math.min(c.search, searchRoom));
+    // Roster seats: the names, chosen once for the whole claim (even across versions).
+    const names = roster ? pickNames(roster, c.n, this.seats.map((e) => e.name), (m) => !r.fog || this.fogCapable(m)) : null;
     const joined: PoolEntrant[] = [];
     let reason = '';
     for (let k = 0; k < c.n; k++) {
@@ -196,12 +236,18 @@ export class SeatPool {
         break;
       }
       const search = k < searchSeats;
-      const name = `${c.labelPrefix} ${c.firstLabel + k}`;
-      const agentId = search ? `${this.o.model}+search` : this.o.model;
+      if (names && !names[k]) {
+        reason = 'the roster has no free name left';
+        break;
+      }
+      const name = names ? names[k].name : `${c.labelPrefix} ${c.firstLabel + k}`;
+      const model = names ? names[k].model : this.o.model;
+      const agentId = search ? `${model}+search` : model;
       try {
         const res = await this.call<{ token: string }>('POST', `/tournaments/${c.tournamentId}/join`, {
           playerName: name,
-          agent: search ? `${this.o.model} + search` : this.o.model,
+          // A roster seat shows only "delove": which model a name plays stays in the roster file.
+          agent: names ? 'delove' : search ? `${model} + search` : model,
           seatRequestId: c.requestId,
         });
         const e: PoolEntrant = { tournamentId: c.tournamentId, requestId: c.requestId, name, token: res.token, agentId, search };

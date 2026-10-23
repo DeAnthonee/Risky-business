@@ -41,7 +41,9 @@
     "delove:horde": "node --import ./packages/delove/dist/register.js packages/delove/dist/horde-cli.js",
     "delove:stages": "node --import ./packages/delove/dist/register.js packages/delove/dist/stages.js",
     "delove:abtest": "node --import ./packages/delove/dist/register.js packages/delove/dist/abtest-cli.js",
-    "delove:league": "node packages/delove/dist/league-cli.js"
+    "delove:league": "node packages/delove/dist/league-cli.js",
+    "delove:roster": "node packages/delove/dist/roster-cli.js",
+    "delove:roster-yardstick": "node packages/delove/dist/roster-yardstick-cli.js"
   },
   "devDependencies": {
     "concurrently": "^9.2.1",

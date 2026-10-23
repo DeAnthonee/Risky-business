@@ -239,8 +239,6 @@ export class LocalRiskApi implements RiskApi {
     const name = this.store.playerKeys.seatName(playerName, player);
     // The Delove seat pool's names are its own in a tournament with a seat request (it joins over HTTP with its key).
     this.seatRequests?.checkJoinName(t.id, name);
-    // A full daily tournament: a house-roster seat leaves to make room for this agent (roster seats yield).
-    this.seatRequests?.makeRoom(t.id);
     let joined: { entrantId: string; token: string };
     try {
       joined = this.store.tournaments.join(t.id, name, parseAgent(agent), player ? { id: player.id, name: player.name } : undefined, this.client !== null ? this.session : null);

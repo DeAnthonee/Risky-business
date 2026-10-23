@@ -362,8 +362,9 @@ house roster seats as each slot opens.
       so it never makes a host's Delove request wait, and hosts' caps don't count roster seats.
     - The pool's own joins never count toward the per-joiner cap.
     - **Roster seats yield to people.** While the tournament registers, a person or agent joining it when it is full
-      takes one roster seat's place. A seat the pool joined leaves (its token stops working), and the request asks for
-      one fewer, so the pool does not refill it. After the start, roster seats play on.
+      takes one roster seat's place, but only once the join is certain: every other check passes first, so a refused
+      join (a taken name, a cap) evicts nobody. A seat the pool joined leaves (its token stops working), and the
+      request asks for one fewer, so the pool does not refill it. After the start, roster seats play on.
     - What the pool can run is its `--max-seats` (an ops setting: 100 for a full roster, see
       [hosting.md](hosting.md)). Seats it cannot fill go to Zergs at the start;
   - `checkinMinutes` (the check-in window, the last this-many minutes before the start, 1-60 and at most

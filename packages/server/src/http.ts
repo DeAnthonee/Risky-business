@@ -857,11 +857,7 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
       if (req.body?.seatRequestId !== undefined) {
         pool(req);
         request = seatReqs.checkBind(req.body.seatRequestId, id);
-      } else {
-        seatReqs.checkJoinName(id, name);
-        // A full daily tournament: a house-roster seat leaves to make room for this person (roster seats yield).
-        seatReqs.makeRoom(id);
-      }
+      } else seatReqs.checkJoinName(id, name);
       // The pool's own seats are not anyone's pre-registrations: they never count toward the per-joiner cap.
       const joiner = request ? null : `ip:${req.ip ?? 'unknown'}`;
       const { entrantId, token } = store.tournaments.join(id, name, parseAgent(req.body?.agent), player ? { id: player.id, name: player.name } : undefined, joiner);

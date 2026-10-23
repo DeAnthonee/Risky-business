@@ -840,7 +840,11 @@ export class TournamentManager extends EventEmitter {
   join(id: string, rawName: unknown, agent?: string, player?: { id: string; name: string }, joiner?: string | null): { entrantId: string; token: string } {
     const t = this.require(id);
     if (t.status !== 'registering') throw new RuleError('Registration is closed: this tournament has started');
-    if (t.entrants.length >= t.maxEntrants) throw new RuleError('This tournament is full');
+    // Full: a person or agent (an outside joiner, never the pool) may still take a house-roster seat's place. The seat
+    // is freed only after every check below has passed, just before the push, so a refused join evicts nobody.
+    const full = t.entrants.length >= t.maxEntrants;
+    const freeSeat = full && joiner ? (this.roomFor?.(t) ?? null) : null;
+    if (full && !freeSeat) throw new RuleError('This tournament is full');
     const cap = this.limits.preregPerJoiner;
     if (t.scheduled && joiner && cap > 0 && this.openRegistrations(joiner) >= cap)
       throw new RuleError(`You already hold ${cap} open registrations for scheduled tournaments; join more once one has started`);
@@ -852,6 +856,7 @@ export class TournamentManager extends EventEmitter {
     if (t.scheduled && joiner && this.preregDaily && !this.preregDaily.take('site'))
       throw new RateLimitedError(`Too many tournament registrations on this site today (at most ${this.limits.preregPerDay} in 24 h); try again later`);
     const entrant: Entrant = { id: `e_${newId(6)}`, name, isBot: false, token: newId(24), joinedAt: Date.now(), ...(agent ? { agent } : {}), ...(player ? { playerKey: player.id } : {}) };
+    freeSeat?.();
     // Joining inside the check-in window is checking in.
     if (this.checkinOpen(t)) entrant.checkedInAt = this.clock.now();
     t.entrants.push(entrant);
@@ -932,6 +937,11 @@ export class TournamentManager extends EventEmitter {
 
   /** The entrants the Delove seat pool joined for a tournament (app.ts wires SeatRequests.boundEntrants); null: none. */
   houseAiEntrants: ((tournamentId: string) => ReadonlySet<string>) | null = null;
+  /**
+   * A full scheduled tournament: the way to free one house-roster seat for an outside joiner, or null when there is
+   * none to free (app.ts wires SeatRequests.roomFor). join() calls the returned function only once the join is certain.
+   */
+  roomFor: ((t: TournamentSnapshot) => (() => void) | null) | null = null;
 
   /** The tournament's house AI entrants (isHouseAi): seat-pool joined, or labelled delove@ / jacob-sensei@. */
   private houseAiIds(t: TournamentSnapshot): Set<string> {

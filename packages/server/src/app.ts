@@ -140,6 +140,8 @@ export function createRiskServer(store: Store, opts: AppOptions = {}): RiskServe
   store.tournaments.onSeatDropped = (d) => seatRequests.openTakeover(d.tournamentId, d.gameId, d.playerId, d.name, d.fog);
   // House AI (nested seating and round close): the seats the Delove seat pool joined.
   store.tournaments.houseAiEntrants = (id) => seatRequests.boundEntrants(id);
+  // A full daily tournament: a person or agent joining takes a house-roster seat's place (roster seats yield).
+  store.tournaments.roomFor = (t) => seatRequests.roomFor(t.id);
   store.tournaments.delovePool = seatRequests.enabled ? () => seatRequests.pool() : null;
   app.use('/api', createApi(store, { adminToken: opts.adminToken, recordsKey: opts.recordsKey, openTournaments: opts.openTournaments ?? true, tourneyAccess, seatRequests, characters, seasonKey: opts.seasonKey, seasonGuard: opts.seasonGuard, seasonLockFile: opts.seasonLockFile }));
   if (opts.sweepIntervalMs !== 0) store.startSweeper(opts.sweepIntervalMs ?? 30_000);

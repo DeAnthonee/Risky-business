@@ -166,26 +166,28 @@ export class SeatRequests {
   }
 
   /**
-   * A person or agent is about to join (never the pool itself): if a scheduled tournament still registering is full,
-   * one house-roster seat leaves to make room. The request then asks for one seat fewer, so the pool does not refill
-   * it. After the start, roster seats play on. True when a seat was freed.
+   * A person or agent wants into a full scheduled tournament still registering (never the pool itself): the way to free
+   * one house-roster seat the pool joined, or null when there is none. TournamentManager.join calls it only once every
+   * other check has passed, so a refused join evicts nobody. The request then asks for one seat fewer, so the pool does
+   * not refill it. After the start, roster seats play on.
    */
-  makeRoom(tournamentId: string): boolean {
+  roomFor(tournamentId: string): (() => void) | null {
     const t = this.tournaments.get(tournamentId);
-    if (!t || t.status !== 'registering' || !t.scheduled || t.entrants.length < t.maxEntrants) return false;
+    if (!t || t.status !== 'registering' || !t.scheduled || t.entrants.length < t.maxEntrants) return null;
     const r = this.requestOf(t.id);
-    if (!r || !this.isRoster(r)) return false;
+    if (!r || !this.isRoster(r)) return null;
     const seat = [...(r.bound ?? [])].reverse().find((id) => t.entrants.some((e) => e.id === id));
-    if (!seat) return false;
-    this.tournaments.removeEntrant(t.id, seat);
-    r.bound = (r.bound ?? []).filter((id) => id !== seat);
-    r.n = Math.max(0, r.n - 1);
-    r.claimed = Math.max(0, r.claimed - 1);
-    r.joined = Math.min(Math.max(0, r.joined - 1), r.claimed);
-    r.search = Math.min(r.search, r.claimed);
-    if (r.status === 'open' && r.claimed >= r.n) r.status = r.joined >= r.n ? 'done' : 'claimed';
-    this.save();
-    return true;
+    if (!seat) return null;
+    return () => {
+      this.tournaments.removeEntrant(t.id, seat);
+      r.bound = (r.bound ?? []).filter((id) => id !== seat);
+      r.n = Math.max(0, r.n - 1);
+      r.claimed = Math.max(0, r.claimed - 1);
+      r.joined = Math.min(Math.max(0, r.joined - 1), r.claimed);
+      r.search = Math.min(r.search, r.claimed);
+      if (r.status === 'open' && r.claimed >= r.n) r.status = r.joined >= r.n ? 'done' : 'claimed';
+      this.save();
+    };
   }
 
   /** Before a create: the Delove count fits the caps (per tournament for the tier, and at once). */

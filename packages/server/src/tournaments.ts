@@ -29,6 +29,7 @@ import type { GameRoom, Store } from './store.js';
 import type { CommitInfo } from './archive.js';
 import { freeZergName, type BotKind } from './bot.js';
 import { RateLimitedError, RateLimiter } from './rate-limit.js';
+import { ROSTER_AGENT } from './roster.js';
 
 /**
  * Knockout tournaments. The host creates one and gets its host token; players and agents join while it is
@@ -82,6 +83,11 @@ export interface Entrant {
   agent?: string;
   /** The registered player (player key) this entrant plays as: its seats and the tournament board rank as `key:<id>`. */
   playerKey?: string;
+  /**
+   * A house roster name (roster.ts), joined by the seat pool: its seats and the tournament board rank as `roster:<id>`,
+   * and its agent label is "AI agent" (never its model). Absent = not a roster seat.
+   */
+  rosterId?: string;
   joinedAt: number;
   /** Scheduled tournaments: when this entrant checked in (polled the bracket inside the check-in window). */
   checkedInAt?: number;
@@ -772,6 +778,20 @@ export class TournamentManager extends EventEmitter {
     return t;
   }
 
+  /**
+   * Take an entrant out while registering (a house-roster seat making room for a person: SeatRequests.makeRoom). Its
+   * token stops working; nothing else changes.
+   */
+  removeEntrant(id: string, entrantId: string): void {
+    const t = this.require(id);
+    if (t.status !== 'registering') throw new RuleError('Registration is closed: this tournament has started');
+    const before = t.entrants.length;
+    t.entrants = t.entrants.filter((e) => e.id !== entrantId);
+    if (t.entrants.length === before) return;
+    this.joiners.delete(entrantId);
+    this.changed(t);
+  }
+
   /** Delete a tournament: a running one is aborted first (its live tables filed as "aborted"), then it is removed. */
   delete(id: string): boolean {
     const t = this.tournaments.get(id.toUpperCase());
@@ -823,21 +843,27 @@ export class TournamentManager extends EventEmitter {
    * name, once per tournament. `joiner` (an IP, or an MCP session) is counted for scheduled tournaments: pre-registration
    * needs no code, so one joiner holds at most `preregPerJoiner` open registrations across them (kept in memory).
    */
-  join(id: string, rawName: unknown, agent?: string, player?: { id: string; name: string }, joiner?: string | null): { entrantId: string; token: string } {
+  join(id: string, rawName: unknown, agent?: string, player?: { id: string; name: string }, joiner?: string | null, rosterId?: string): { entrantId: string; token: string } {
     const t = this.require(id);
     if (t.status !== 'registering') throw new RuleError('Registration is closed: this tournament has started');
-    if (t.entrants.length >= t.maxEntrants) throw new RuleError('This tournament is full');
+    // Full: a person or agent (an outside joiner, never the pool) may still take a house-roster seat's place. The seat
+    // is freed only after every check below has passed, just before the push, so a refused join evicts nobody.
+    const full = t.entrants.length >= t.maxEntrants;
+    const freeSeat = full && joiner ? (this.roomFor?.(t) ?? null) : null;
+    if (full && !freeSeat) throw new RuleError('This tournament is full');
     const cap = this.limits.preregPerJoiner;
     if (t.scheduled && joiner && cap > 0 && this.openRegistrations(joiner) >= cap)
       throw new RuleError(`You already hold ${cap} open registrations for scheduled tournaments; join more once one has started`);
     const name = (player ? player.name : String(rawName ?? '')).replace(/\s+/g, ' ').trim().slice(0, MAX_NAME);
     if (!name) throw new RuleError('A name is required');
     if (player && t.entrants.some((e) => e.playerKey === player.id)) throw new RuleError('This player has already joined this tournament');
+    if (rosterId && t.entrants.some((e) => e.rosterId === rosterId)) throw new RuleError('This roster name has already joined this tournament');
     if (t.entrants.some((e) => e.name.toLowerCase() === name.toLowerCase())) throw new RuleError(`The name "${name}" is taken in this tournament`);
     // The site-wide daily cap on pre-registrations, counted last so a refused join costs nothing (429).
     if (t.scheduled && joiner && this.preregDaily && !this.preregDaily.take('site'))
       throw new RateLimitedError(`Too many tournament registrations on this site today (at most ${this.limits.preregPerDay} in 24 h); try again later`);
-    const entrant: Entrant = { id: `e_${newId(6)}`, name, isBot: false, token: newId(24), joinedAt: Date.now(), ...(agent ? { agent } : {}), ...(player ? { playerKey: player.id } : {}) };
+    const entrant: Entrant = { id: `e_${newId(6)}`, name, isBot: false, token: newId(24), joinedAt: Date.now(), ...(rosterId ? { agent: ROSTER_AGENT, rosterId } : agent ? { agent } : {}), ...(player ? { playerKey: player.id } : {}) };
+    freeSeat?.();
     // Joining inside the check-in window is checking in.
     if (this.checkinOpen(t)) entrant.checkedInAt = this.clock.now();
     t.entrants.push(entrant);
@@ -893,8 +919,9 @@ export class TournamentManager extends EventEmitter {
       e.missed = missed;
       delete e.token;
       delete e.agent;
-      // The seat is a Zerg now: no player key's record gets its results.
+      // The seat is a Zerg now: no player key's (or roster name's) record gets its results.
       delete e.playerKey;
+      delete e.rosterId;
       noShows++;
     }
     if (t.scheduled) t.scheduled.noShows = noShows;
@@ -918,6 +945,11 @@ export class TournamentManager extends EventEmitter {
 
   /** The entrants the Delove seat pool joined for a tournament (app.ts wires SeatRequests.boundEntrants); null: none. */
   houseAiEntrants: ((tournamentId: string) => ReadonlySet<string>) | null = null;
+  /**
+   * A full scheduled tournament: the way to free one house-roster seat for an outside joiner, or null when there is
+   * none to free (app.ts wires SeatRequests.roomFor). join() calls the returned function only once the join is certain.
+   */
+  roomFor: ((t: TournamentSnapshot) => (() => void) | null) | null = null;
 
   /** The tournament's house AI entrants (isHouseAi): seat-pool joined, or labelled delove@ / jacob-sensei@. */
   private houseAiIds(t: TournamentSnapshot): Set<string> {
@@ -934,6 +966,8 @@ export class TournamentManager extends EventEmitter {
     const t = this.require(id);
     const kindOf = (e: Entrant): HostEntrantKind => {
       if (e.isBot) return e.kind === 'zerg' ? 'zerg' : 'bot';
+      // A house roster name is an "AI agent" here too: this list is public in open mode, and the roster stays blind.
+      if (e.rosterId) return 'agent';
       if (deloveIds.has(e.id) || /^delove(@|$)/i.test(e.agent ?? '')) return 'delove';
       return e.agent ? 'agent' : 'human';
     };
@@ -1171,7 +1205,7 @@ export class TournamentManager extends EventEmitter {
       const players = entrants.map((eid) => this.entrant(t, eid)!);
       const tables = tableSizes(order.length, t.groupSize).length;
       const label = tables === 1 ? (round === 1 ? 'Table 1' : 'Final') : `Table ${i + 1}`;
-      const { room, seats } = this.store.createTable(`${t.name} · R${round} ${label}`.slice(0, 40), { ...t.options, maxPlayers: entrants.length }, players.map((p) => ({ name: p.name, isBot: p.isBot, ...(p.kind ? { kind: p.kind } : {}), agent: p.agent, ...(p.playerKey ? { playerKey: p.playerKey } : {}) })), t.id);
+      const { room, seats } = this.store.createTable(`${t.name} · R${round} ${label}`.slice(0, 40), { ...t.options, maxPlayers: entrants.length }, players.map((p) => ({ name: p.name, isBot: p.isBot, ...(p.kind ? { kind: p.kind } : {}), agent: p.agent, ...(p.playerKey ? { playerKey: p.playerKey } : {}), ...(p.rosterId ? { rosterId: p.rosterId } : {}) })), t.id);
       const match: TournamentMatch = { gameId: room.id, entrants, seats: Object.fromEntries(entrants.map((eid, k) => [eid, seats[k]])), winner: null, status: 'playing' };
       matches.push(match);
     }
@@ -1359,7 +1393,7 @@ export class TournamentManager extends EventEmitter {
       const { room, seats } = this.store.createTable(
         `${t.name} · R${r + 1} ${label}`.slice(0, 40),
         { ...t.options, ...(n.blizzardShare !== undefined ? { blizzards: blizzardsFor(map, n.blizzardShare) } : {}), map: map as GameOptions['map'], maxPlayers: entrants.length },
-        players.map((p) => ({ name: p.name, isBot: p.isBot, ...(p.kind ? { kind: p.kind } : {}), agent: p.agent, ...(p.playerKey ? { playerKey: p.playerKey } : {}) })),
+        players.map((p) => ({ name: p.name, isBot: p.isBot, ...(p.kind ? { kind: p.kind } : {}), agent: p.agent, ...(p.playerKey ? { playerKey: p.playerKey } : {}), ...(p.rosterId ? { rosterId: p.rosterId } : {}) })),
         t.id,
         {
           ...(n.botDelayMs !== undefined ? { botDelayMs: n.botDelayMs } : {}),

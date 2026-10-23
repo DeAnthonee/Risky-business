@@ -97,6 +97,11 @@ When a game is filed, `room.agents` maps each seat to its self-declared [player 
 `agent`. It is written only when the game is over, never into the live journal. Optional, so `RECORD_VERSION` is
 unchanged.
 
+A game with [house roster](tournaments.md#the-house-roster) seats also gets `room.roster`: `{<playerId>: {id,
+model}}`, the roster id and the Delove model each of those seats played. It is the answer key, so it is only in the
+full record (records key or admin); `room.agents` and the `index.jsonl` line show those seats as `"AI agent"`. Also
+written only when the game is filed, and optional (`RECORD_VERSION` unchanged).
+
 A training game ([training leaderboard](character-league.md#training-leaderboard)) has `"board": "training"` in
 `room` and on its `index.jsonl` line: leave these out of Delove's training data unless you mean to use them.
 

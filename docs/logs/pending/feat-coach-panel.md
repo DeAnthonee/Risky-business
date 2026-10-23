@@ -1,1 +1,0 @@
-client: - 2026-10-22 #276 coach panel (G5): Expand opens a bigger coach panel (right column, phone bottom sheet, every note; `?coach=panel`), and a mic button using the browser's Web Speech API puts speech into the text field for review, never auto-sends; hidden where unsupported

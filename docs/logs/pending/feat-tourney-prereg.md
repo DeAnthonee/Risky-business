@@ -1,5 +1,0 @@
-server: - 2026-10-22 #259 scheduled tournaments: pre-registration up to 7 days ahead (`signupMinutes` up to 10080), no code but a per-joiner cap (`RISK_PREREG_PER_JOINER`, default 4: an IP over HTTP, an MCP session over /mcp); check-in (`checkinMinutes`, default 10) by polling the bracket with the entrant token; no-shows swapped for Zergs at the start (`scheduled.noShows`, the old token says why); `minEntrants` counts checked-in people
-client: - 2026-10-22 #259 Next tournament card: "Checked in N / M" and when check-in opens; the tournament page tells a registered entrant when to check in, or that they are
-hosting: - 2026-10-22 #259 new env var `RISK_PREREG_PER_JOINER`; the schedule takes `signupMinutes` up to 7 days and `checkinMinutes`
-docs: - 2026-10-22 #259 tournaments.md (pre-registration, check-in, no-shows), mcp.md, playing.md, http-api.md; hardening.md item 13 (the per-joiner cap resets on restart) and its README line
-mcp: - 2026-10-22 #259 the bracket text of a scheduled tournament gives its check-in window and whether you are checked in; `wait_for_match` / `tournament_status` check in

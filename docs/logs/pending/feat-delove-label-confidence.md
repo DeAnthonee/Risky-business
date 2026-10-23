@@ -1,1 +1,0 @@
-delove: - 2026-10-22 #306 `train.py --confidence TAU[,FLOOR]`: near-tie branch labels (top two compared scores in branch_q.npy within TAU) count less; `python/confidence.py`, `test_confidence.py` (overhaul T1, cleaner labels)

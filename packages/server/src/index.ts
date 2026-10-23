@@ -39,17 +39,18 @@ const store = new Store(DATA_DIR ? join(DATA_DIR, 'games.json') : null, retentio
 // Scheduled nested tournaments: off unless the owner sets a schedule. A bad schedule is logged and stays off.
 let schedule: ScheduleEntry[] | null = null;
 let scheduleNote = 'off (set RISK_TOURNAMENT_SCHEDULE or RISK_TOURNAMENT_SCHEDULE_FILE)';
+const tourneyAccess = tourneyAccessFromEnv(process.env);
 try {
   const found = scheduleFromEnv(process.env);
   if (found) {
-    schedule = parseSchedule(found.raw, store.tournaments);
+    // A slot's house roster can never ask for more Delove seats than may play at once.
+    schedule = parseSchedule(found.raw, store.tournaments, { maxRoster: tourneyAccess.deloveAtOnce });
     scheduleNote = `${schedule.length} entr${schedule.length === 1 ? 'y' : 'ies'} from ${found.source}: ${schedule.map((e) => `${e.at} ${e.tz ?? 'UTC'}${e.roster ? ` (+${e.roster} roster seats)` : ''}`).join('; ')}`;
   }
 } catch (err) {
   scheduleNote = `OFF: the schedule is invalid: ${(err as Error).message}`;
   console.error(`tournament schedule: ${scheduleNote}`);
 }
-const tourneyAccess = tourneyAccessFromEnv(process.env);
 const risk = createRiskServer(store, {
   clientDir: CLIENT_DIR,
   mcpLabel: process.env.RISK_PUBLIC_URL ?? 'Risky Business',

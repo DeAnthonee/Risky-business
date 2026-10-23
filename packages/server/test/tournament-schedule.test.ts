@@ -6,6 +6,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { Store } from '../src/store.js';
 import { createRiskServer, type RiskServer } from '../src/app.js';
 import type { TournamentClock } from '../src/tournaments.js';
+import { NO_SEAT_CAPS, SeatRequests } from '../src/seat-requests.js';
 import { CANCEL_CHANGED, CANCEL_MISSED, CANCEL_NOT_ENOUGH, TournamentScheduler, nextStart, parseAt, parseSchedule, scheduleFromEnv } from '../src/tournament-schedule.js';
 
 const H = 60 * 60_000;
@@ -434,5 +435,30 @@ describe('the daily tournament: a daily slot in a time zone, sign-up days ahead,
     expect(store.tournaments.get(id)!.status).toBe('registering');
     sched.stop();
     store.stopTimers();
+  });
+});
+
+describe('the house roster and the Delove at-once cap', () => {
+  it('a daily slot\'s roster request holds its seats only from check-in, so sign-up days lock no host out', () => {
+    const clock = new FakeClock(); // Thu 22 Oct 12:00 UTC
+    const store = new Store(null, {}, { clock });
+    const seats = new SeatRequests(store.tournaments, { ...NO_SEAT_CAPS, deloveAtOnce: 10 });
+    const entries = parseSchedule({ daily: '19:00', tz: 'America/Los_Angeles', name: 'Daily Nest', signupDays: 2, roster: 8, maxEntrants: 40 }, store.tournaments, { maxRoster: 10 });
+    const sched = new TournamentScheduler(store.tournaments, entries, null, (t) => seats.openFor(t));
+    // The slot (02:00 UTC Fri) is open with its 8 roster seats asked for; a host may still ask for up to 10.
+    expect(() => seats.checkCreate('admin', 10)).not.toThrow();
+    // From check-in (01:50 UTC) the roster seats count: only 2 are left for hosts.
+    clock.advance(Date.UTC(2026, 9, 23, 1, 50) - clock.t);
+    expect(() => seats.checkCreate('admin', 3)).toThrow(/Only 2 Delove seats are free right now \(of 10\)/);
+    expect(() => seats.checkCreate('admin', 2)).not.toThrow();
+    sched.stop();
+    store.stopTimers();
+  });
+
+  it('a roster bigger than the Delove seats allowed at once is a startup error', () => {
+    const t = new Store(null).tournaments;
+    expect(() => parseSchedule({ daily: '19:00', roster: 49 }, t, { maxRoster: 48 })).toThrow(/roster \(49\) is more than the Delove seats allowed at once \(RISK_TOURNEY_DELOVE_AT_ONCE=48\)/);
+    expect(parseSchedule({ daily: '19:00', roster: 48 }, t, { maxRoster: 48 })[0].roster).toBe(48);
+    expect(parseSchedule({ daily: '19:00', roster: 60 }, t, { maxRoster: 0 })[0].roster).toBe(60);
   });
 });

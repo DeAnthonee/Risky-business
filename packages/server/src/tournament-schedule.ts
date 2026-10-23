@@ -126,7 +126,12 @@ export function nextStart(e: Pick<ScheduleEntry, 'days' | 'minuteOfDay'> & { tz?
  * Parse and check the schedule (one entry or a list). Every entry's tournament settings go through the same strict
  * parser as POST /tournaments, then the nested checks, so a bad schedule fails here, at startup, not at sign-up time.
  */
-export function parseSchedule(raw: unknown, tournaments: Pick<TournamentManager, 'checkNested'>): ScheduleEntry[] {
+export function parseSchedule(
+  raw: unknown,
+  tournaments: Pick<TournamentManager, 'checkNested'>,
+  /** `maxRoster`: the Delove seats allowed at once (RISK_TOURNEY_DELOVE_AT_ONCE; 0 = no cap): no slot's roster may pass it. */
+  limits: { maxRoster?: number } = {},
+): ScheduleEntry[] {
   const list = Array.isArray(raw) ? raw : [raw];
   if (!list.length) throw new RuleError('the schedule is empty');
   return list.map((item, i) => {
@@ -156,6 +161,7 @@ export function parseSchedule(raw: unknown, tournaments: Pick<TournamentManager,
       const spec: CreateTournamentSpec = { ...parseTournamentSpec({ ...specRest, format: 'nested' }), name: String(e.name ?? 'Scheduled tournament') };
       tournaments.checkNested(spec);
       if (roster > (spec.maxEntrants ?? DEFAULT_SCHEDULED_MAX)) throw new RuleError(`roster (${roster}) is more than maxEntrants (${spec.maxEntrants ?? DEFAULT_SCHEDULED_MAX})`);
+      if (limits.maxRoster && roster > limits.maxRoster) throw new RuleError(`roster (${roster}) is more than the Delove seats allowed at once (RISK_TOURNEY_DELOVE_AT_ONCE=${limits.maxRoster})`);
       const key = JSON.stringify({ at: e.at, signupMinutes, minEntrants, ...rest });
       return { key, at, tz: e.tz ?? null, days, minuteOfDay, roster, signupMinutes, checkinMinutes, minEntrants, spec };
     } catch (err) {

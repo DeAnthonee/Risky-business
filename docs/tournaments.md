@@ -340,7 +340,10 @@ house roster seats as each slot opens.
     `maxEntrants`; with `roster` and no `maxEntrants`, a slot has 128 seats. Until the house roster (named AI seats,
     each bound to a Delove version) lands, they are plain Delove seat requests to the seat pool (`delove: N`, see
     "Delove seats on request"). Seats the pool does not fill go to Zergs at the start, and a failed request never stops
-    the slot;
+    the slot. A roster request counts toward the Delove at-once cap (`RISK_TOURNEY_DELOVE_AT_ONCE`, default 48) only
+    from the slot's check-in window, when its seats are about to play, so days of sign-up lock no host out. Hosts who
+    took the cap meanwhile keep their seats, and the pool's free seats decide what it fills. A `roster` above that cap
+    is a startup error;
   - `checkinMinutes` (the check-in window, the last this-many minutes before the start, 1-60 and at most
     `signupMinutes`; default 10);
   - `minEntrants` (people or agents needed at the start, 2-256, default 2: a nested tournament needs two players);

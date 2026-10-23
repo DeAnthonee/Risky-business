@@ -150,9 +150,11 @@ export function createRiskServer(store: Store, opts: AppOptions = {}): RiskServe
   store.tournaments.delovePool = seatRequests.enabled ? () => seatRequests.pool() : null;
   app.use('/api', createApi(store, { adminToken: opts.adminToken, recordsKey: opts.recordsKey, openTournaments: opts.openTournaments ?? true, tourneyAccess, seatRequests, characters, seasonKey: opts.seasonKey, seasonGuard: opts.seasonGuard, seasonLockFile: opts.seasonLockFile }));
   if (opts.sweepIntervalMs !== 0) store.startSweeper(opts.sweepIntervalMs ?? 30_000);
-  // The daily tournament's house roster: when a slot with `roster: N` opens, its seat request goes out. Until the house
-  // roster (named seats bound to a Delove version) lands, these are plain Delove seat requests for the pool.
-  if (opts.tournamentSchedule?.length) store.schedule = new TournamentScheduler(store.tournaments, opts.tournamentSchedule, opts.scheduleFile ?? null, (t) => seatRequests.openFor(t));
+  // The daily tournament's house roster: when a slot with `roster: N` opens, its seat request goes out with N roster
+  // names (roster.ts pick: spread over the models, rotating day to day). The pool seats those names with their models
+  // first; with fewer active names than N, the rest are plain "Delove N" seats.
+  if (opts.tournamentSchedule?.length)
+    store.schedule = new TournamentScheduler(store.tournaments, opts.tournamentSchedule, opts.scheduleFile ?? null, (t, e) => seatRequests.openFor(t, store.roster.pick(e.roster)));
 
   // Remote MCP endpoint for AI agents (claude.ai connectors, any Streamable HTTP MCP client).
   const mcp = createMcpRouter(store, characters, opts.mcpLabel ?? 'Risky Business', opts.adminToken ?? null, opts.openTournaments ?? true, tourneyAccess, seatRequests);

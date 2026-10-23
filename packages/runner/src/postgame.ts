@@ -1,4 +1,5 @@
-import { normalizeLeaderboardKey, rankLeaderboard } from '@risk/engine';
+import { rankLeaderboard } from '@risk/engine';
+import { normalizeLeaderboardKey } from './leaderboard-keys.js';
 import { updateExperience } from './experience.js';
 import { addPersonalityMemory, withLearningLock } from './shared-memory.js';
 import { copyFile, mkdir, readFile, rename, writeFile, appendFile } from 'node:fs/promises';
@@ -272,14 +273,20 @@ export function normalizeLeaderboardKeyStr(raw: string): string {
 
 export function computeLeaderboard(results: GameResult[]): Leaderboard {
   results = [...new Map(results.filter(r => r.winner && r.reason !== 'unfinished').map(r => [r.gameId, r])).values()];
+  const keyOf = (s: { character?: string | null; name: string }) => normalizeLeaderboardKey(s.character ?? s.name).key;
+  const playerIds = new Map<string, Set<string>>();
+  for (const r of results) for (const s of r.seats) {
+    const ids = playerIds.get(keyOf(s)) ?? new Set<string>();
+    if (s.playerId) ids.add(s.playerId);
+    playerIds.set(keyOf(s), ids);
+  }
   const ratings = rankLeaderboard(results.map(r => ({
     gameId: r.gameId,
     seats: r.seats.map(s => ({
-      key: s.character ?? s.name,
+      key: keyOf(s),
       name: s.name,
-      playerId: s.playerId,
       placement: s.placement,
-      killed: r.seats.filter(v => v.eliminatedBy === s.name).map(v => v.character ?? v.name),
+      killed: r.seats.filter(v => v.eliminatedBy === s.name).map(keyOf),
     })),
   })));
   const chars = new Map<string, { games: number; wins: number; place: number }>();
@@ -304,7 +311,7 @@ export function computeLeaderboard(results: GameResult[]): Leaderboard {
   }
   return {
     games: results.length,
-    byCharacter: ratings.map(r => ({ key: r.key, games: r.games, wins: r.wins, avgPlacement: r.avgPlacement, points: r.points, losses: r.losses, rank: r.rank, kills: r.kills, victims: r.victims, playerIds: r.playerIds })),
+    byCharacter: ratings.map(r => ({ key: r.key, games: r.games, wins: r.wins, avgPlacement: r.avgPlacement, points: r.points, losses: r.losses, rank: r.rank, kills: r.kills, victims: r.victims, playerIds: [...(playerIds.get(r.key) ?? [])] })),
     byMap: [...maps].map(([map, m]) => ({ map, ...m })).sort((a, b) => b.games - a.games),
   };
 }
@@ -479,7 +486,7 @@ async function writeNote(llm: Llm | null, r: GameResult, seat: SeatReport, board
             ].join('\n'),
           },
         ],
-        { maxTokens: 700, temperature: 0.5, timeoutMs: 240_000 },
+        { maxTokens: 700, temperature: 0.5, timeoutMs: 240_000, label: 'postgame:note' },
       );
       if (raw.trim()) text = normalizeNote(raw, seat.name, r.gameId, result, seat.privateLog);
     } catch (e) {
@@ -889,7 +896,7 @@ export async function curateLearnings(i: CurateInput): Promise<'updated' | 'kept
           ].join('\n'),
         },
       ],
-      { maxTokens: 3500, temperature: 0.4, timeoutMs: 420_000 },
+      { maxTokens: 3500, temperature: 0.4, timeoutMs: 420_000, label: 'postgame:curator' },
     );
   } catch (e) {
     i.log(`Curator call failed (${(e as Error).message}); learnings left as they were`);
@@ -993,14 +1000,16 @@ async function runPostGameLocked(i: PostGameInput): Promise<PostGameOutput> {
         if (!i.skipRivalries) {
           await addPersonalityMemory(i.learningsDir, seat.characterId, i.gameId, note.text);
         }
-        const own = result.seats.find(s => s.character === seat.characterId)!;
-        const opponents = result.seats.filter(s => s !== own).map(s => ({ key: s.character ?? 'player:' + s.name.toLowerCase(), name: s.name }));
-        const watchers = extractWatchers(seat.chat);
-        await updateExperience({ dir: i.learningsDir, id: seat.characterId, name: seat.name, gameId: i.gameId, note: note.text,
-          ownWon: own.placement === 1, myPlacement: own.placement,
-          opponentResults: Object.fromEntries(result.seats.filter(s=>s!==own).map(s=>[s.character ?? 'player:' + s.name.toLowerCase(), {won:s.placement===1,placement:s.placement}])),
-          opponents, watchers, deals: seat.observedDeals ?? [], llm: i.skipRivalries ? null : i.llm, log: i.log,
-          chat: seat.chat, eliminatedBy: own?.eliminatedBy ?? null });
+        const own = result.seats.find(s => s.character === seat.characterId || s.name === seat.name);
+        if (own) {
+          const opponents = result.seats.filter(s => s !== own).map(s => ({ key: s.character ?? 'player:' + s.name.toLowerCase(), name: s.name }));
+          const watchers = extractWatchers(seat.chat);
+          await updateExperience({ dir: i.learningsDir, id: seat.characterId, name: seat.name, gameId: i.gameId, note: note.text,
+            ownWon: own.placement === 1, myPlacement: own.placement,
+            opponentResults: Object.fromEntries(result.seats.filter(s=>s!==own).map(s=>[s.character ?? 'player:' + s.name.toLowerCase(), {won:s.placement===1,placement:s.placement}])),
+            opponents, watchers, deals: seat.observedDeals ?? [], llm: i.skipRivalries ? null : i.llm, log: i.log,
+            chat: seat.chat, eliminatedBy: own.eliminatedBy ?? null });
+        }
       }
     }
 

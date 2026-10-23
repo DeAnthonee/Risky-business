@@ -88,6 +88,8 @@ export interface LoopOptions {
   skipRivalries?: boolean;
   /** Explicit generation tag for results (e.g. 'gen5', 'gen6'). */
   generation?: string;
+  /** Whether the match is a knockout tournament table. */
+  isTournament?: boolean;
   /** Seats to leave open in the lobby for external players; the host waits until the lobby fills before starting. */
   openSeats?: number;
   /** Printed in the "watch" line. */

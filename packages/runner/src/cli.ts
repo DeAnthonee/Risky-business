@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { MAPS, type GameOptions } from '@risk/engine';
 import { HttpRiskApi } from '@risk/mcp';
-import { OllamaLlm } from './llm.js';
+import { llmStatsSink, OllamaLlm } from './llm.js';
 import { LoopControl, runLoop } from './loop.js';
 import { mapMaxPlayers, RANDOM_MAX_PLAYERS, RANDOM_MIN_PLAYERS, rotationMaps, type MapChoice, type PlayerCount } from './presets.js';
 import { withRetry } from './resilient.js';
@@ -34,6 +34,7 @@ sets plans, talks, and writes up what it learned after every game)
   --ollama URL            Ollama base URL (default http://localhost:11434)
   --ctx N                 Ollama context window, num_ctx (default 12288)
   --llm-concurrency N     simultaneous model requests (default 1)
+  --llm-stats FILE        append one JSON line per model call (queue wait, prompt/output tokens and times) to FILE
   --plan-timeout SEC      how long a move waits for the commander's plan (default 45)
   --no-commander          plain planned bot, no model call per turn
   --no-learn              skip every post-game write (results, notes, learnings file, scouting log)
@@ -77,6 +78,7 @@ async function main() {
       ollama: { type: 'string', default: 'http://localhost:11434' },
       ctx: { type: 'string', default: '12288' },
       'llm-concurrency': { type: 'string', default: '1' },
+      'llm-stats': { type: 'string' },
       'plan-timeout': { type: 'string', default: '45' },
       'no-commander': { type: 'boolean', default: false },
       'no-learn': { type: 'boolean', default: false },
@@ -141,7 +143,13 @@ async function main() {
   const chat = !v['no-chat'] && !mechanicsOnly;
   const needLlm = commander || chat || learn;
   const llm = needLlm
-    ? new OllamaLlm({ baseUrl: v.ollama, model: v.model, concurrency: num(v['llm-concurrency']!, 'llm-concurrency'), numCtx: num(v.ctx!, 'ctx') })
+    ? new OllamaLlm({
+        baseUrl: v.ollama,
+        model: v.model,
+        concurrency: num(v['llm-concurrency']!, 'llm-concurrency'),
+        numCtx: num(v.ctx!, 'ctx'),
+        onStats: llmStatsSink(v['llm-stats'], v.verbose ? log : undefined),
+      })
     : null;
   const paceMs = v.pace !== undefined ? num(v.pace, 'pace') : mechanicsOnly ? 0 : 800;
   const maxChatPerTurn = num(v['max-chat-per-turn']!, 'max-chat-per-turn');

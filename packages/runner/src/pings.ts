@@ -24,10 +24,16 @@ export interface ParsedPing {
   raw: string;
 }
 
-/** Check if a name belongs to a neural net / Delove model player (e.g. Ronny@3, Ronny@4, Sensei@3, etc.) */
+/** Check if a name belongs to a bot / model player that cannot chat or read pings (e.g. Delove, Zergs, RL models) */
 export function isModelName(name: string): boolean {
   if (!name) return false;
-  return /(@\d+|delove|sensei@|jacob-sensei)/i.test(name);
+  return /(@\d+|delove|sensei@|jacob-sensei|zerg)/i.test(name);
+}
+
+/** Check if a name belongs to a Zerg bot (e.g. Mark Zergburg, Zerggy Pop, Shaquille O'Zerg, etc.) */
+export function isZergName(name: string): boolean {
+  if (!name) return false;
+  return /zerg/i.test(name);
 }
 
 /** Format a ping action into its standardized bracketed chat message with visual tags for spectators. */

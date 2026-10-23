@@ -99,6 +99,24 @@ describe('Commander', () => {
     expect(c.planText()).toContain('Hold Australia');
   });
 
+  it('puts the text shared by every seat first, so the model can reuse its cached prompt across seats', async () => {
+    const reply = JSON.stringify({ plan: 'p', aggression: 0.5 });
+    const shen = llmReturning(reply);
+    const shaco = llmReturning(reply);
+    const view = makeView({ capitals: false });
+    await base(shen.llm).planFor(view);
+    await base(shaco.llm, { seatName: 'Shaco', playerId: 'b', profile: 'Sneaky.' }).planFor(view);
+    const [a, b] = [shen.calls[0], shaco.calls[0]];
+    let common = 0;
+    while (common < a.length && a[common] === b[common]) common++;
+    const seatAt = a.indexOf('YOUR SEAT: you are the commander of the Risk player "Shen"');
+    expect(a.slice(0, common)).toContain('hold bonuses'); // learnings are in the shared part
+    expect(a.slice(0, common)).toContain('Use only ids and names');
+    expect(seatAt).toBeGreaterThan(a.indexOf('Use only ids and names')); // the seat comes after the shared part
+    expect(common).toBeGreaterThan(seatAt); // and the prompts only part ways inside the seat's own text
+    expect(a.indexOf('Calm.')).toBeGreaterThan(seatAt);
+  });
+
   it('falls back to the previous plan on bad JSON and to null when there is none', async () => {
     const { llm } = llmReturning('no json here', JSON.stringify({ plan: 'Second', aggression: 0.2 }), 'garbage again');
     const c = base(llm);

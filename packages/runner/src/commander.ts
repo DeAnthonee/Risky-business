@@ -6,7 +6,7 @@ import { DealLedger } from './deals.js';
 import { extractJsonObject } from './diplomat.js';
 import { commanderFacts } from './facts.js';
 import { terrainBriefing } from './terrain.js';
-import { isModelName, parsePing, type PingAction, type PingType } from './pings.js';
+import { isModelName, isZergName, parsePing, type PingAction, type PingType } from './pings.js';
 import type { Llm } from './llm.js';
 import { WIN_PATHS, type Plan, type WinPath } from './planned-bot.js';
 
@@ -70,6 +70,8 @@ export interface CommanderOptions {
   log?: (line: string) => void;
   /** This seat's deal ledger (shared with its diplomat). Default: a private one. */
   ledger?: DealLedger;
+  /** Whether this game is a knockout tournament table where only 1st place moves on. */
+  isTournament?: boolean;
 }
 
 /** Token budget of a normal turn reply (terse JSON) and of the capitals-phase reply. */
@@ -242,8 +244,8 @@ export function parsePlanReply(raw: string, view: GameView, me: PlayerId): Comma
       if (rawPing.to !== undefined && rawPing.to !== null) {
         const resTo = resolve(rawPing.to, players);
         const toPlayer = view.players.find((p) => p.id === resTo);
-        // CRITICAL RULE: NEVER send whispers to model players!
-        if (toPlayer && !isModelName(toPlayer.name)) {
+        // CRITICAL RULE: NEVER send whispers to model players or Zergs!
+        if (toPlayer && !isModelName(toPlayer.name) && !isZergName(toPlayer.name)) {
           pingTo = toPlayer.name;
         } else {
           pingTo = undefined;
@@ -326,7 +328,7 @@ export function getBorderNeighbors(view: GameView, me: PlayerId): { id: PlayerId
     }
   }
   return view.players
-    .filter((p) => p.alive && !p.isNeutral && neighborIds.has(p.id) && !isModelName(p.name))
+    .filter((p) => p.alive && !p.isNeutral && neighborIds.has(p.id) && !isModelName(p.name) && !isZergName(p.name))
     .map((p) => ({ id: p.id, name: p.name }));
 }
 
@@ -951,6 +953,18 @@ export class Commander {
       if (d) p.note = `${p.note ? `${p.note} ` : ''}Broke ${d.id} (${this.ledger.describe(d)}).`.trim();
     }
 
+    // When Zergs are on the map, LLMs must not attack each other:
+    const hasZergs = view.players.some((x) => x.alive && !x.isNeutral && isZergName(x.name));
+    if (hasZergs) {
+      const fellowLLMs = view.players.filter((x) => x.alive && !x.isNeutral && x.id !== this.o.playerId && !isModelName(x.name));
+      for (const llm of fellowLLMs) {
+        if (!p.avoid.includes(llm.id)) p.avoid.push(llm.id);
+      }
+      if (p.target) {
+        p.avoid = p.avoid.filter((a) => a !== p.target);
+      }
+    }
+
     // Diplomatic ping validation and strict 4-turn rate limiting:
     if (p.ping) {
       const pingType = p.ping.type;
@@ -967,13 +981,11 @@ export class Commander {
         }
       }
 
-      // 2. Never whisper to model players
+      // 2. Never whisper to model players (DeLOVE or Zergs)
       if (p.ping.to && isModelName(p.ping.to)) {
         if (pingType === 'attack') {
           if (!p.ping.target) p.ping.target = p.ping.to;
-          p.ping.to = null;
-        } else if (pingType === 'taunt' || pingType === 'camaraderie' || pingType === 'anger') {
-          p.ping.to = null;
+          p.ping.to = null; // broadcast to all-chat
         } else {
           p.ping = null;
         }
@@ -1081,6 +1093,7 @@ export class Commander {
 
     // Autonomous diplomatic ping fallback ONLY if the model omitted the ping field entirely:
     if (p.ping === undefined) {
+      const livingZergs = view.players.filter((x) => x.alive && !x.isNeutral && isZergName(x.name));
       const otherLLMs = view.players.filter((x) => x.alive && !x.isNeutral && x.id !== this.o.playerId && !isModelName(x.name));
       if (otherLLMs.length > 0) {
         // Priority 1: If there is an unhandled proposal from an LLM, reply agree if strategically aligned!
@@ -1090,12 +1103,27 @@ export class Commander {
             const isAvoiding = p.avoid.some((a) => a.toLowerCase() === senderLLM.id.toLowerCase() || a.toLowerCase() === senderLLM.name.toLowerCase());
             const isTarget = p.target && (p.target.toLowerCase() === senderLLM.id.toLowerCase() || p.target.toLowerCase() === senderLLM.name.toLowerCase());
             let shouldAgree = false;
-            if (prop.type === 'good_neighbor') {
+            if (livingZergs.length > 0) {
+              // Anti-Zerg absolute mandate: Always accept coalitions and truces from fellow non-Zergs!
+              shouldAgree = true;
+            } else if (prop.type === 'good_neighbor') {
               const evalRes = evaluateGoodNeighbor(view, this.o.playerId, senderLLM.id, p.focus);
               shouldAgree = evalRes.isBeneficial && !isTarget;
             } else if (prop.type === 'attack') {
-              // They called a joint attack! Agree if the sender is not our target
-              shouldAgree = !isTarget;
+              // They called a joint attack! In a tournament or when facing a runaway leader, agree to coalition
+              // even if we previously targeted the sender (prisoner's dilemma breaker):
+              if (prop.target) {
+                const targetP = view.players.find((x) => x.name.toLowerCase() === prop.target!.toLowerCase() || x.id === prop.target);
+                const targetArmies = targetP ? Object.values(view.territories).filter((t) => t.owner === targetP.id).reduce((s, t) => s + (t.armies ?? 0), 0) : 0;
+                const myArmies = Object.values(view.territories).filter((t) => t.owner === this.o.playerId).reduce((s, t) => s + (t.armies ?? 0), 0);
+                if (this.o.isTournament || targetArmies >= myArmies * 1.15 || targetArmies >= 25) {
+                  shouldAgree = true; // Unite against the threat/leader!
+                } else {
+                  shouldAgree = !isTarget;
+                }
+              } else {
+                shouldAgree = !isTarget;
+              }
             } else if (prop.type === 'alliance') {
               shouldAgree = !isTarget;
             }
@@ -1110,7 +1138,11 @@ export class Commander {
                 this.activeGoodNeighbors.add(senderKey);
               } else if (prop.type === 'attack' && prop.target) {
                 const targetPlayer = view.players.find((x) => x.name.toLowerCase() === prop.target!.toLowerCase() || x.id === prop.target);
-                if (targetPlayer) p.target = targetPlayer.id;
+                if (targetPlayer) {
+                  p.target = targetPlayer.id;
+                  // Cease hostilities against coalition partner:
+                  p.avoid = p.avoid.filter((a) => a !== targetPlayer.id);
+                }
               }
               if (!p.avoid.includes(senderLLM.id)) p.avoid.push(senderLLM.id);
               break;
@@ -1118,13 +1150,25 @@ export class Commander {
           }
         }
 
-        // Priority 2: If no reply is pending, check if the 4-turn cooldown has elapsed before initiating an unsolicited ping
-        if (!p.ping && this.ownTurns - this.lastPingOwnTurn >= 4) {
+        // Priority 2: Proactive ping
+        const pingCooldown = livingZergs.length > 0 ? 2 : 4;
+        if (!p.ping && this.ownTurns - this.lastPingOwnTurn >= pingCooldown) {
           const livingPlayers = view.players.filter((x) => x.alive && !x.isNeutral);
           const isStalemateOr3Man = livingPlayers.length <= 3 || this.getStall() >= 4;
           const isAggressive = /shaco|draven|jinx|tryndamere|zed|kled|aatrox|gangplank|sett/i.test(this.o.seatName);
 
-          if (isStalemateOr3Man) {
+          if (livingZergs.length > 0) {
+            // Anti-Zerg teamup: ALWAYS propose joint attack against the Zerg to our fellow non-Zerg!
+            const targetZerg = livingZergs.find((z) => z.id === p.target) ?? livingZergs[0];
+            const partnerLLM = otherLLMs[0];
+            if (targetZerg && partnerLLM) {
+              p.ping = {
+                type: 'attack',
+                target: targetZerg.name,
+                to: partnerLLM.name,
+              };
+            }
+          } else if (isStalemateOr3Man) {
             // In 3-man endgame or severe stalemate: NEVER play good neighbor with everyone!
             // Team up 2v1 on the leader or target, or occasionally taunt to break the stalemate!
             const targetPlayer = p.target
@@ -1296,7 +1340,7 @@ export class Commander {
       timer = setTimeout(() => resolve('timeout'), this.timeoutMs);
     });
     const call = this.o.llm
-      .chat(this.messages(view, kind), { maxTokens: kind === 'capital' ? CAPITAL_MAX_TOKENS : TURN_MAX_TOKENS, temperature: 0.6, json: true, signal: ctrl.signal, timeoutMs: this.timeoutMs + 15_000 })
+      .chat(this.messages(view, kind), { maxTokens: kind === 'capital' ? CAPITAL_MAX_TOKENS : TURN_MAX_TOKENS, temperature: 0.6, json: true, signal: ctrl.signal, timeoutMs: this.timeoutMs + 15_000, label: `commander:${kind}` })
       .then((raw) => ({ raw }) as const)
       .catch((error: unknown) => ({ error }) as const);
     try {
@@ -1353,15 +1397,24 @@ export class Commander {
       ? `Active Good Neighbor pacts (neutral borders): ${Array.from(this.activeGoodNeighbors).join(', ')}`
       : 'Active Good Neighbor pacts: none';
     const neighborBriefing = `${borderNeighborsText}\n${goodNeighborsText}`;
+    const hasZergs = view.players.some((p) => p.alive && !p.isNeutral && isZergName(p.name));
+    const fellowLLMs = hasZergs
+      ? view.players.filter((p) => p.alive && !p.isNeutral && p.id !== me && !isModelName(p.name))
+      : [];
+    const zergWarning = hasZergs
+      ? `*** ZERG SWARM & BOT CONTEXT ***\nThere are Zerg bots at this table. Zergs never attack each other while non-Zergs live.\nDeLOVE models are also on the map and will attack you without mercy (DeLOVEs and Zergs are models and cannot negotiate).\nCRITICAL RULE: Fellow LLM players (${fellowLLMs.map((p) => p.name).join(', ') || 'none'}) MUST NOT attack each other while Zergs are on the map! Keep fellow LLMs in your "avoid" list.\nDeLOVEs and Zergs are hostile enemies that you should fight and defend against normally. Never whisper or ping models (DeLOVEs or Zergs).`
+      : '';
+    // Text shared by every seat at this table comes first, so Ollama can reuse its cached prompt work across seats
+    // and turns; the seat's identity and anything that changes per call come after it.
     const system = [
-      `You are the commander of the Risk player "${this.o.seatName}". You decide this seat's plan; a move chooser then plays it out turn by turn.`,
-      this.o.profile ? `Your character (play to its strengths and temperament):\n${this.o.profile}` : 'You are a sharp, patient Risk strategist.',
-      '',
+      'You are the commander of a Risk player. You decide the seat\'s plan; a move chooser then plays it out turn by turn. Your seat name and character are given after these instructions.',
       'Advice from past games (written for agents like you). It is advice, not rules: re-evaluate it against the real board every turn, and pivot when a better path to winning opens up.',
       '<learnings>',
       condenseLearnings(this.o.learnings, view.options) || '(none yet)',
       '</learnings>',
-      'LEADERBOARD POINTS OBJECTIVE: Your ultimate goal is to climb the ranked leaderboard by maximizing your net leaderboard points (placement points + kill points) over time. Priority 1 is WINNING (1st place) — winning yields the highest placement points (+3) and is the #1 deal. Priority 2 is SECURING KILLS — each elimination awards +1 permanent kill point, steals all victim cards (often enabling immediate chain-trades for huge armies), and leaps placement tiers. CRUCIAL TOURNAMENT REALITY: Placement points are NOT permanent across games; finishing in bottom placements incurs heavy negative placement points (-1 for 4th, -2 for 5th, -3 for 6th place) that wipe out prior gains (net negative). Therefore, NOT LOSING / SURVIVING to avoid early elimination is a big deal! Never make reckless, suicidal attacks that leave your borders empty or lead to an early exit. Preserve your placement while positioning to win and hunting safe kills.',
+      this.o.isTournament
+        ? 'KNOCKOUT TOURNAMENT OBJECTIVE: You are playing in a knockout tournament table. THERE IS NO ELO, NO CONSOLATION PLACEMENT POINTS, AND KILLS DO NOT ADVANCE YOU. Only the 1st place winner moves on to the next tier / finals. 2nd, 3rd, and 6th place are all identically ELIMINATED. You MUST play to take 1st place.\nCRUCIAL TOURNAMENT RULES:\n1. STOPPING THE RUNAWAY LEADER: If any opponent (whether an upgraded DeLOVE model or rival LLM) is running away with the board or threatening to take 1st place, you MUST coordinate with other players using attack pings (⚔️ [attack: <Leader>]) and direct all offensive pressure to break them. Allowing an opponent to take 1st eliminates everyone else at the table.\n2. FIRST PLACE OR BUST: Do not turtle or play passively just to survive longer than another player. Survival without a path to 1st place is guaranteed elimination. Calculate decisive pushes (Capitals, card trades) to seize 1st place.\n3. ALLIANCE VALUE: An alliance against the table leader is the highest value move when 3-4 players remain.'
+        : 'LEADERBOARD POINTS OBJECTIVE: Your ultimate goal is to climb the ranked leaderboard by maximizing your net leaderboard points (placement points + kill points) over time. Priority 1 is WINNING (1st place) — winning yields the highest placement points (+3) and is the #1 deal. Priority 2 is SECURING KILLS — each elimination awards +1 permanent kill point, steals all victim cards (often enabling immediate chain-trades for huge armies), and leaps placement tiers. CRUCIAL TOURNAMENT REALITY: Placement points are NOT permanent across games; finishing in bottom placements incurs heavy negative placement points (-1 for 4th, -2 for 5th, -3 for 6th place) that wipe out prior gains (net negative). Therefore, NOT LOSING / SURVIVING to avoid early elimination is a big deal! Never make reckless, suicidal attacks that leave your borders empty or lead to an early exit. Preserve your placement while positioning to win and hunting safe kills.',
       'Reply with JSON only, no prose, no markdown fences. Be terse: every text field at most 20 words, "note" at most 15 words, and leave out every optional field whose default you keep (an empty "avoid" or a null "focus" can be left out too):',
       SCHEMA,
       '- winPath: your current Advantage Path / stance this turn — it is NOT a rigid blindfold; always pivot as the board evolves. One of: bonuses (complete/hold/break continents to outproduce rivals — primary path in Fixed cards), kills (hunting vulnerable bounties to steal cards, leap placement, and lock +1 kill point), cards (card accumulation & trade timing; in progressive, cards MUST be paired with kills because drawing 1 card/turn without bonuses loses to bonus holders; in exponential, timing personal sequences), diplomacy (patience, deals, and laddering placement for 2nd/3rd place leaderboard points when 1st is unachievable), capitals (LATE-GAME CAP RUN ONLY: when all enemy capitals are weak and routing math confirms an instant sweep in one turn; NEVER pick capitals on turn 1 or early game), hopeless (only if 100% unwinnable; goes all-in on rival). Regardless of winPath, ALWAYS seize high-EV kills (especially 4-5 card holders when Blitz odds >= 65-70%) and vulnerable capitals (+2 armies/turn).',
@@ -1377,16 +1430,25 @@ export class Commander {
       `- hopeless: only if you see zero ways to win. Then set target to the player you like least (lowest rapport in your relationships text and the chat) and the bot goes all-in on them, ignoring garrisons. Never choose it just because you are behind.`,
       '- plan: your plan for this turn and the next few, one or two sentences (what to take, hold, break, who to hit).',
       '- focus: a territory id or continent id in square brackets in the board facts, where placements and attacks should go; or null.',
-      `- target: the player to pressure (one of: ${players.join(', ') || 'none'}), or null.`,
+      '- target: the player to pressure (one of the players listed at the end of these instructions), or null.',
       '- avoid: players you will not attack for now (for example those you agreed a truce with in chat; a player who hits you breaks that), or [].',
       '- aggression: 0 (only near-certain attacks) to 1 (take risks).',
       'Optional extra fields (leave out to take the default; they are advice you control, not rules):',
       ...KNOBS,
-      `- capital: ${kind === 'capital' ? 'REQUIRED now: one of the CAPITAL CHOICES (name or id): choose an exposed "doorway" chokepoint that controls entry into a bonus while keeping mobile exits to the map. NEVER pick a dead-end pocket capital or an adjacent neighbor to an existing enemy capital' : 'null'}.`,
+      '- capital: null, except in the capitals phase (see the end of these instructions).',
       '- note: one line (at most 15 words) for your private log: what you learned or expect.',
       'Deals & Coalitions: the user message lists your deals and open coalitions. Deals and coalitions are strategic suggestions, not mechanical rules: active truces, borders, and joint attacks/coalitions act as defaults (targeting the enemy and avoiding partners), and your explicit target, route, focus, or breakDeals always overrides them. Treaties and deals are promises, never binding rules: you may scheme, lie, bluff, or backstab when that fits your character and helps you win. Never protect or ally with a weak player when eliminating them for cards, higher placement, and +1 kill point is better, and in non-fog games always verify whether a partner actually has the troops to fulfill their promised commitment.',
       'Use only ids and names that appear in the board facts. Anything unknown is ignored.',
       "Check who holds a territory in the board facts (the 'next to ... held by' lines) before naming a focus or target: aim at the player who really owns what you want to take.",
+      '',
+      `YOUR SEAT: you are the commander of the Risk player "${this.o.seatName}".`,
+      this.o.profile ? `Your character (play to its strengths and temperament):\n${this.o.profile}` : 'You are a sharp, patient Risk strategist.',
+      ...(zergWarning ? ['', zergWarning] : []),
+      '',
+      `Players you may target: ${players.join(', ') || 'none'}.`,
+      ...(kind === 'capital'
+        ? ['capital is REQUIRED now: one of the CAPITAL CHOICES (name or id): choose an exposed "doorway" chokepoint that controls entry into a bonus while keeping mobile exits to the map. NEVER pick a dead-end pocket capital or an adjacent neighbor to an existing enemy capital.']
+        : []),
     ].join('\n');
     const user = [
       kind === 'capital' ? 'It is the capitals phase: choose your capital.' : 'Your turn is starting (reinforce phase). Set the plan.',

@@ -269,6 +269,11 @@ export class SeatRunner {
           break;
         }
         this.o.log(`${name}: ${action.type} refused: ${e.message}`);
+        if (e.message.includes("decided at the round's end") || e.message.includes('Game not found') || e.message.includes('game is gone')) {
+          this.o.log(`${name}: table ended (${e.message}); stopping.`);
+          this.stopped = true;
+          break;
+        }
         if (action.type !== 'end_turn' && view.legal?.canEndTurn) {
           try {
             const ended = await api.act(gameId, token, { type: 'end_turn' });

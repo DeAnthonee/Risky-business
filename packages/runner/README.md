@@ -259,6 +259,7 @@ engine bot (41-58) because it turtled, so the purpose requirement is deliberatel
 | `--model` / `--ollama` | `qwen3:14b` / `http://localhost:11434` | the local model |
 | `--ctx` | 16384 | Ollama `num_ctx` |
 | `--llm-concurrency` | 2 | simultaneous model requests (all seats share one model) |
+| `--llm-stats FILE` | none | append one JSON line per model call to FILE: its label (`commander:turn`, `diplomat`, `postgame:note`, ...), queue wait, prompt tokens Ollama had to read and how long that took, output tokens and their time, total time. `--verbose` also prints one line per call. Prompt tokens well below the prompt's size mean Ollama reused its cache: the commander and diplomat prompts put the text every seat shares first and the seat's own identity last so that it can |
 | `--plan-timeout SEC` | 45 | how long a move waits for the commander |
 | `--no-commander` | off | pure planned bot, no model call per turn |
 | `--no-learn` | off | skip every post-game write and the scouting log |

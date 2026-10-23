@@ -2,6 +2,7 @@ import { blitzOdds, commitForOdds, getMap, type Action, type GameView, type MapD
 import { chooseMove } from './view-state.js';
 import { planElimination, type KillPlan } from './eliminations.js';
 import { planConquest, findCapRun, type Campaign, type CampaignOptions } from './campaigns.js';
+import { isModelName, isZergName } from './pings.js';
 
 export type WinPath = 'diplomacy' | 'bonuses' | 'cards' | 'capitals' | 'kills' | 'hopeless';
 export const WIN_PATHS: readonly WinPath[] = ['diplomacy', 'bonuses', 'cards', 'capitals', 'kills', 'hopeless'];
@@ -115,6 +116,28 @@ export function cleanPlan(plan: Plan | null | undefined, view: GameView, me: Pla
   const capital = str(raw.capital);
   const path = WIN_PATHS.find((w) => w === raw.winPath) ?? null;
   const cleanTarget = target && players.has(target) ? target : null;
+  const avoidList = (Array.isArray(raw.avoid) ? raw.avoid : []).filter((x): x is string => typeof x === 'string' && players.has(x));
+
+  // Swarm coordination: Only when MULTIPLE Zergs are present (horde) do fellow LLMs avoid each other
+  const livingZergs = view.players.filter((p) => p.alive && !p.isNeutral && isZergName(p.name));
+  const hasZergSwarm = livingZergs.length >= 2;
+  if (hasZergSwarm) {
+    // When multiple Zergs swarm, fellow LLMs must not attack each other!
+    const fellowLLMs = view.players.filter((p) => p.alive && !p.isNeutral && p.id !== me && !isModelName(p.name));
+    for (const llm of fellowLLMs) {
+      if (!avoidList.includes(llm.id)) avoidList.push(llm.id);
+    }
+  }
+
+  // Never avoid models (Deloves / Zergs) who never negotiate or answer pings
+  const avoidFiltered = avoidList.filter((id) => {
+    const p = view.players.find((x) => x.id === id);
+    return p && !isModelName(p.name);
+  });
+
+  const avoidSet = new Set(avoidFiltered);
+  if (cleanTarget) avoidSet.delete(cleanTarget);
+
   // "Hopeless" without a valid target to hit is not a plan the chooser can follow.
   const winPath = path === 'hopeless' && !cleanTarget ? null : path;
   const quiet = winPath === 'cards' || winPath === 'diplomacy';
@@ -125,7 +148,7 @@ export function cleanPlan(plan: Plan | null | undefined, view: GameView, me: Pla
     focusTerritory: focus && map.isTerritory(focus) ? focus : null,
     focusContinent: focus && map.continentById[focus] ? focus : null,
     target: cleanTarget,
-    avoid: new Set((Array.isArray(raw.avoid) ? raw.avoid : []).filter((x): x is string => typeof x === 'string' && players.has(x))),
+    avoid: avoidSet,
     noAttack: new Set((Array.isArray(raw.noAttack) ? raw.noAttack : []).filter((x): x is string => typeof x === 'string' && map.isTerritory(x))),
     aggression,
     riskTolerance: num(raw.riskTolerance, 0, 1) ?? aggression,
@@ -561,10 +584,12 @@ class Chooser {
 
   private elimination(reinforcements = 0, transfer?: CampaignOptions['transfer']): KillPlan | null {
     const opts = this.campaignOptions(reinforcements, transfer);
+    const hasZergs = this.view.players.some((p) => p.alive && !p.isNeutral && isZergName(p.name));
     // Kills take supreme EV priority; avoid lists protect against routine border skirmishes, not game-changing eliminations.
-    // If the victim has 3+ cards or <= 2 territories, allow elimination even if informally listed in avoid:
+    // If the victim has 3+ cards or <= 2 territories, allow elimination even if informally listed in avoid (UNLESS Zergs live and victim is non-Zerg):
     const avoid = new Set([...opts.avoid].filter((id) => {
       const p = this.view.players.find((x) => x.id === id);
+      if (hasZergs && p && !isZergName(p.name)) return true; // Keep fellow non-Zergs in avoid!
       return p && p.cardCount < 3 && (p.territoryCount ?? 99) > 2;
     }));
     return planElimination(this.view, this.me, { ...opts, avoid, targetOnly: this.hopeless() ? this.plan.target : null });
@@ -684,8 +709,10 @@ class Chooser {
       const myCardCount = this.view.players.find((p) => p.id === this.me)?.cardCount ?? 0;
       const victimCardCount = victim?.cardCount ?? 0;
       const setsMe = (myCardCount + victimCardCount) >= 5;
+      const hasZergs = this.view.players.some((p) => p.alive && !p.isNeutral && isZergName(p.name));
+      const victimIsZerg = victim && isZergName(victim.name);
       const isHighValueKill = (isElimination || isNearElimination) && (victimCardCount >= 3 || (setsMe && isScalingCards));
-      if ((this.plan.avoid.has(toOwner) || this.plan.noAttack.has(a.to)) && !wins && !isElimination && !isHighValueKill) continue;
+      if ((this.plan.avoid.has(toOwner) || this.plan.noAttack.has(a.to)) && !wins && !(victimIsZerg && (isElimination || isHighValueKill))) continue;
       // All-in against the one player chosen: nobody else is touched unless it wins the game.
       if (hopeless && toOwner !== this.plan.target && !wins) continue;
 
@@ -830,7 +857,9 @@ class Chooser {
       const victim = this.view.players.find((p) => p.id === toOwner);
       const isElimination = victim?.territoryCount === 1;
       const wins = this.winsGame(a.to);
-      if ((this.plan.avoid.has(toOwner) || this.plan.noAttack.has(a.to)) && !wins && !isElimination) continue;
+      const hasZergs = this.view.players.some((p) => p.alive && !p.isNeutral && isZergName(p.name));
+      const victimIsZerg = victim && isZergName(victim.name);
+      if ((this.plan.avoid.has(toOwner) || this.plan.noAttack.has(a.to)) && !wins && !(victimIsZerg && isElimination)) continue;
       if (this.hopeless() && toOwner !== this.plan.target && !wins) continue;
       const have = this.armies(a.from);
       const d = this.armies(a.to);

@@ -462,3 +462,41 @@ describe('the house roster and the Delove at-once cap', () => {
     expect(parseSchedule({ daily: '19:00', roster: 60 }, t, { maxRoster: 0 })[0].roster).toBe(60);
   });
 });
+
+describe('every N minutes', () => {
+  it('lines the starts up on `at` (UTC) and checks the entry', () => {
+    const t = new Store(null).tournaments;
+    const [e] = parseSchedule({ every: 30, at: '00:03', signupMinutes: 6, checkinMinutes: 6 }, t);
+    expect(e).toMatchObject({ every: 30, minuteOfDay: 3, signupMinutes: 6, checkinMinutes: 6 });
+    expect(nextStart(e, NOON)).toBe(NOON + 3 * 60_000);
+    expect(nextStart(e, NOON + 3 * 60_000)).toBe(NOON + 33 * 60_000);
+    // Across midnight: 23:33, then 00:03 the next day.
+    expect(nextStart(e, Date.UTC(2026, 9, 22, 23, 10, 30))).toBe(Date.UTC(2026, 9, 22, 23, 33));
+    expect(nextStart(e, Date.UTC(2026, 9, 22, 23, 33))).toBe(Date.UTC(2026, 9, 23, 0, 3));
+    expect(() => parseSchedule({ every: 7, at: '00:00' }, t)).toThrow(/every must divide a day/);
+    expect(() => parseSchedule({ every: 2, at: '00:00' }, t)).toThrow(/every must be a whole number from 5 to 1440/);
+    expect(() => parseSchedule({ every: 30, at: 'Mon 00:00', signupMinutes: 5 }, t)).toThrow(/not with daily, tz or day names/);
+    expect(() => parseSchedule({ every: 30, at: '00:00', tz: 'America/Los_Angeles', signupMinutes: 5 }, t)).toThrow(/not with daily, tz or day names/);
+    expect(() => parseSchedule({ every: 30, at: '00:00' }, t)).toThrow(/signupMinutes \(60\) must be at most every \(30\)/);
+  });
+
+  it('a slot with only house Delove seats starts on time, and the next half hour opens after it', () => {
+    const clock = new FakeClock(); // 12:00 UTC: the 12:03 slot's sign-up (11:57) has passed, so it opens at once
+    const store = new Store(null, {}, { clock });
+    const entries = parseSchedule({ every: 30, at: '00:03', name: 'Half-hourly', signupMinutes: 6, checkinMinutes: 6, roster: 4, maxEntrants: 20, roundMinutes: 20, botDelayMs: 2000 }, store.tournaments);
+    const sched = new TournamentScheduler(store.tournaments, entries, null);
+    const [id] = [...store.tournaments.tournaments.keys()];
+    expect(sched.next().next).toMatchObject({ id, startsAt: NOON + 3 * 60_000, roster: 4 });
+    // The seat pool joins its seats inside the window (joining there checks in); no person signs up.
+    for (let i = 1; i <= 4; i++) store.tournaments.join(id, `Delove ${i}`, 'delove@13');
+    clock.advance(3 * 60_000);
+    const t = store.tournaments.get(id)!;
+    expect(t.status).toBe('running');
+    expect(t.scheduled?.noShows).toBe(0);
+    expect(sched.next().next).toMatchObject({ id: null, startsAt: NOON + 33 * 60_000, opensAt: NOON + 27 * 60_000 });
+    clock.advance(24 * 60_000);
+    expect(sched.next().next?.id).not.toBeNull();
+    sched.stop();
+    store.stopTimers();
+  });
+});

@@ -15,6 +15,11 @@ export interface ScheduleEntryInput {
   at?: string;
   /** The daily tournament: "HH:MM" every day, in `tz` (the same as `at` without day names). */
   daily?: string;
+  /**
+   * A start every this-many minutes (5-1440, dividing 1440), on the UTC clock, lined up on `at` ("HH:MM", no day names):
+   * `{"every": 30, "at": "00:03"}` starts at :03 and :33 of every hour. Not with `daily` or `tz`.
+   */
+  every?: number;
   /** IANA time zone of `at` / `daily` (e.g. "America/Los_Angeles"; summer time followed); default UTC. */
   tz?: string;
   name?: string;
@@ -40,6 +45,8 @@ export interface ScheduleEntry {
   tz: string | null;
   days: number[] | null;
   minuteOfDay: number;
+  /** Minutes between starts (UTC clock, lined up on minuteOfDay), or null: once a day. */
+  every: number | null;
   /** House roster seats asked for each slot (0 = none). */
   roster: number;
   signupMinutes: number;
@@ -49,7 +56,7 @@ export interface ScheduleEntry {
 }
 
 const DAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
-const ENTRY_KEYS = new Set(['at', 'daily', 'tz', 'signupDays', 'roster', 'name', 'signupMinutes', 'checkinMinutes', 'minEntrants', 'finalMap', 'maxEntrants', 'roundMinutes', 'territoriesPerSeat', 'finishShare', 'botDelayMs', 'options']);
+const ENTRY_KEYS = new Set(['at', 'daily', 'every', 'tz', 'signupDays', 'roster', 'name', 'signupMinutes', 'checkinMinutes', 'minEntrants', 'finalMap', 'maxEntrants', 'roundMinutes', 'territoriesPerSeat', 'finishShare', 'botDelayMs', 'options']);
 /** A scheduled tournament's seats when its entry gives no maxEntrants (the nested default). */
 export const DEFAULT_SCHEDULED_MAX = 128;
 export const CANCEL_NOT_ENOUGH = 'not enough entrants';
@@ -104,7 +111,13 @@ export function validTimeZone(tz: unknown): tz is string {
 }
 
 /** The first start strictly after `after` (ms, UTC); in the entry's time zone when it has one. */
-export function nextStart(e: Pick<ScheduleEntry, 'days' | 'minuteOfDay'> & { tz?: string | null }, after: number): number {
+export function nextStart(e: Pick<ScheduleEntry, 'days' | 'minuteOfDay'> & { tz?: string | null; every?: number | null }, after: number): number {
+  if (e.every) {
+    // Whole UTC minutes since the epoch (a UTC midnight), so `every` dividing 1440 lines up the same every day.
+    const first = Math.floor(after / 60_000) + 1;
+    const off = (((first - e.minuteOfDay) % e.every) + e.every) % e.every;
+    return (off ? first + e.every - off : first) * 60_000;
+  }
   if (e.tz) {
     const today = zoned(after, e.tz);
     for (let i = 0; i <= 8; i++) {
@@ -150,20 +163,28 @@ export function parseSchedule(
         if (typeof v !== 'number' || !Number.isInteger(v) || v < lo || v > hi) throw new RuleError(`${name} must be a whole number from ${lo} to ${hi}`);
         return v;
       };
+      let every: number | null = null;
+      if (e.every !== undefined) {
+        every = whole(e.every, 'every', 5, 1440, 0);
+        if (1440 % every) throw new RuleError('every must divide a day (1440 minutes): 5, 10, 15, 20, 30, 60, 120, ...');
+        if (e.daily !== undefined || e.tz !== undefined || days) throw new RuleError('every goes with a plain "at": "HH:MM" (UTC), not with daily, tz or day names');
+      }
       if (e.signupDays !== undefined && e.signupMinutes !== undefined) throw new RuleError('give signupMinutes or signupDays, not both');
       const signupMinutes = e.signupDays !== undefined ? whole(e.signupDays, 'signupDays', 1, 7, 1) * 1440 : whole(e.signupMinutes, 'signupMinutes', 1, 10080, 60);
+      // One slot open at a time: the next one opens after this one starts.
+      if (every && signupMinutes > every) throw new RuleError(`signupMinutes (${signupMinutes}) must be at most every (${every})`);
       const roster = whole(e.roster, 'roster', 0, 100, 0);
       const checkinMinutes = whole(e.checkinMinutes, 'checkinMinutes', 1, Math.min(60, signupMinutes), Math.min(DEFAULT_CHECKIN_MINUTES, signupMinutes));
       const minEntrants = whole(e.minEntrants, 'minEntrants', 2, 256, 2);
       // The key keeps its #234 shape (checkinMinutes only when the entry sets it), so a deploy restarts no open slot.
       const { at: _at, signupMinutes: _s, minEntrants: _m, ...rest } = e;
-      const { checkinMinutes: _c, daily: _d, tz: _t, signupDays: _sd, roster: _r, ...specRest } = rest;
+      const { checkinMinutes: _c, daily: _d, every: _ev, tz: _t, signupDays: _sd, roster: _r, ...specRest } = rest;
       const spec: CreateTournamentSpec = { ...parseTournamentSpec({ ...specRest, format: 'nested' }), name: String(e.name ?? 'Scheduled tournament') };
       tournaments.checkNested(spec);
       if (roster > (spec.maxEntrants ?? DEFAULT_SCHEDULED_MAX)) throw new RuleError(`roster (${roster}) is more than maxEntrants (${spec.maxEntrants ?? DEFAULT_SCHEDULED_MAX})`);
       if (limits.maxRoster && roster > limits.maxRoster) throw new RuleError(`roster (${roster}) is more than the Delove seats allowed at once (RISK_TOURNEY_DELOVE_AT_ONCE=${limits.maxRoster})`);
       const key = JSON.stringify({ at: e.at, signupMinutes, minEntrants, ...rest });
-      return { key, at, tz: e.tz ?? null, days, minuteOfDay, roster, signupMinutes, checkinMinutes, minEntrants, spec };
+      return { key, at, tz: e.tz ?? null, days, minuteOfDay, every, roster, signupMinutes, checkinMinutes, minEntrants, spec };
     } catch (err) {
       throw new RuleError(`${where}: ${(err as Error).message}`);
     }

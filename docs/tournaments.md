@@ -347,6 +347,14 @@ house roster seats as each slot opens.
 - **An entry** (one object, or a list):
   - `at`: `"HH:MM"` every day, or `"Mon,Thu HH:MM"` on those days, in **UTC** unless `tz` is set;
   - or `daily`: `"HH:MM"` every day, the same as `at` without day names (give one of the two);
+  - `every`: a start every this-many minutes (5-1440, dividing a day: 5, 10, 15, 20, 30, 60, ...), on the **UTC**
+    clock, lined up on a plain `at` (no day names, no `tz`, no `daily`). `signupMinutes` must be at most `every`, so
+    one slot is open at a time and the next opens after it starts. The half-hourly tournament (the owner's request,
+    2026-10-22): `{ "every": 30, "at": "00:03", "signupMinutes": 6, "checkinMinutes": 6, "roster": 48, "maxEntrants": 100 }`
+    opens at :57 and :27, fills its roster from the seat pool during those 6 minutes, and starts at :03 and :33. Its
+    Delove seats check in by joining inside the window, so they count toward `minEntrants`: a slot nobody signs up for
+    still plays, with Deloves (and Zergs for the seats the pool did not fill). With the pool offline and no one signed
+    up, it is called off;
   - `tz`: an IANA time zone for `at` / `daily`, e.g. `"America/Los_Angeles"`; summer time is followed, so the start
     stays at 19:00 local all year;
   - `name`;

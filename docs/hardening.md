@@ -209,6 +209,24 @@ an agent can see which opponents are Claude or Delove before its tables are draw
 `RISK_TOURNEY_STRICT=1` on the server, and turn open mode off (`RISK_TOURNAMENTS_OPEN=0`, the default once a code is
 set). That restores the launch caps, the lockout and host-only starts. Then make strict the default in code.
 
+## 16. The house roster is blind by name only
+
+**Where:** `packages/server/src/roster.ts`, the tournament views and `requested` counts (`tournaments.ts`), the seat
+pool's plain "Delove N" seats (`seat-requests.ts`).
+
+**What is wrong:** no public route names a roster seat's model ([tournaments.md](tournaments.md#the-house-roster)),
+but the roster can still be guessed:
+- A tournament's public view keeps `requested: {zergs, delove, open}`, so watchers know how many house seats a
+  tournament holds, and the unfamiliar names on the roster list are easy to spot.
+- Plain Delove seats in the same tournament still show their label (`delove@13`), so a watcher learns which models
+  are around, though not which name plays which.
+- Play style (move speed, timing, Delove's habits) may give a model away to anyone who watches long enough.
+
+None of this reveals the answer key (name → model), which is what the yardstick needs to stay blind.
+
+**Fix (when it matters):** leave `delove` out of the public `requested` counts for tournaments with roster seats, and
+seat only roster names (no plain Delove seats) in daily tournaments.
+
 ## Fixed
 
 - **Anyone could create tournaments while testing (was item 1).** Creating now needs a hosting code once the owner

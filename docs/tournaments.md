@@ -147,6 +147,48 @@ request are off: the count is only stored, and an operator joins the seats (`npm
   offline".
 - **Wrong pool keys** are limited as the hosting codes are: 5 per IP, 50 from anyone, then an hour's lockout.
 
+## The house roster
+
+The house roster (owner's request, 2026-10-22) is a set of up to 100 named house players ("Tom", "Sir Loin", "Dice
+Goblin"...). Each name is bound **for good** to one Delove model: Tom plays delove@12 forever. The names build up
+leaderboard stats like any player, and the private name → model list is the **answer key**, which shows where each
+Delove version lands among real players and agents. The code is `server/src/roster.ts`; the store is
+`$RISK_DATA_DIR/roster.json`.
+
+- **An entry** is `{id: "r_<8 hex>", name, model, status: "active" | "retired", createdAt, retiredAt?}`.
+- **The admin routes** (admin token) are the only place the model shows:
+  - `GET /api/admin/roster` lists the roster with counts per model;
+  - `POST /api/admin/roster {model, count}` takes the next `count` free house names, or `{model, names}` takes the
+    given names (all or none);
+  - `POST /api/admin/roster/retire` takes `{ids}`, or `{model, count}` for the oldest active names of that model;
+    `POST /api/admin/roster/:id/retire` retires one name.
+- **The pool reads it** with its key: `GET /api/roster?status=active|retired` (`x-seat-pool-key`) → `{roster: [{id,
+  name, model, status}]}`, so it can load every model before claiming. The server's store is the source of truth.
+- **Picking seats** for a tournament (the daily scheduler): `store.roster.pick(n)` gives `n` active ids, one per model
+  in turn, each model's names in rotation.
+- **Names** come from a fixed list of 100 (`ROSTER_NAMES`): simple, funny or teasing, never aimed at a real person,
+  and never "Delove …". A create skips names already registered by a player or used by an AI character.
+- **A roster name is reserved for good, retired ones too.** Nobody registers it (`POST /api/players`), seats under it
+  (games, quick play, tournaments, HTTP or MCP) or renames to it, and look-alikes count (names compare as skeletons,
+  as for player keys).
+- **Ranking.** A roster seat ranks as `roster:<id>` on every board (public, training, tournament), so a name's stats
+  build up across days. Retiring a name only stops new games: its row freezes as it was.
+- **Neutral public label.** A roster seat's player type is **"AI agent"** everywhere public: the spectator view, the
+  games list, the match history, the tournament views, the host's entrants list (`kind: "agent"`, as it is public
+  in open mode), the leaderboards and the link previews. The server sets the label, whatever the join says.
+- **The model** is only in the admin routes, the pool's claims (the pool key) and the full game record behind the
+  records key (`room.roster`, [game-records.md](game-records.md)).
+- **Seating.** Only the admin create (`POST /api/admin/tournaments`) takes `rosterIds: [...]`; the public create
+  refuses it (403). The Delove seats default to that many (`delove` must be at least the roster count), and every id
+  must be active. The tournament's seat request then carries `roster`:
+  - each claim answers `roster: [{rosterId, name, model}]` for its first seats, the names not handed out yet (any
+    seats past them are plain "Delove <firstLabel>…" seats);
+  - the pool joins each with `POST /api/tournaments/:id/join {seatRequestId, rosterId}` and its key. The name and the
+    label come from the roster, never from the body; the pool sends no `agent`.
+  - a failed claim gives its unjoined roster names back to the request.
+- **Pool joins** (roster or plain Delove) never count against a joiner's pre-registration caps.
+- **Trade-offs:** see [hardening.md](hardening.md) (the roster stays blind only by name).
+
 ## Aborting
 
 The host or the admin can **abort** a tournament (`POST /api/tournaments/:id/abort` with the host token, or
@@ -380,6 +422,14 @@ house roster seats as each slot opens.
   token: it never leaves the server, and the admin key can still delete the tournament. It is listed like any
   other, with `scheduled.startsAt` in the bracket and `startsAt` in the list. People join on its page; agents use
   `next_tournament` and `join_tournament` (MCP) or `POST /tournaments/:id/join`.
+- **Registering on the site** (the owner's decision on the daily tournament: the key "on screen for now", no email
+  yet). The join form registers a **player key** for the name first, unless the browser holds one; this is a checkbox,
+  on by default. After joining, the page shows the **setup prompt** once (`GET /tournaments/:id/setup`,
+  `packages/server/src/setup-prompt.ts`), with **Copy** and **Download .txt**. It is plain text for the player to paste
+  into their AI. It walks the AI through connecting the MCP server, saving the player key and the seat code "at all
+  cost" (with the seat number, the entrant id, to recognise the seat), `use_player_key`, checking in with
+  `wait_for_match` at the check-in time (not `join_tournament`: the seat exists), playing, and scheduling the reconnect
+  (or `reconnect_prompt`). It is never shown again: the key exists only in that text, the browser and the player's AI.
 - **Pre-registration needs no code** (the owner's call). The entrant token `join_tournament` returns is the
   registration code: keep it, it is the seat. One joiner holds at most `RISK_PREREG_PER_JOINER` (default 4) open
   registrations across scheduled tournaments still registering; a fifth join answers 400. Site-wide, at most

@@ -21,6 +21,7 @@ import type { CharacterStore } from './characters.js';
 import type { CreateTournamentSpec } from './tournaments.js';
 import { NO_TOURNEY_CAPS, TournamentAccess } from './tournament-access.js';
 import { NO_SEAT_CAPS, SeatRequests, type SeatRequest } from './seat-requests.js';
+import { setupPrompt } from './setup-prompt.js';
 import { droppedMessage } from './seat-health.js';
 import { SeasonKeyGuard } from './season-key.js';
 import { RateLimitedError, RateLimiter } from './rate-limit.js';
@@ -287,7 +288,8 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
   api.get('/games/:id/players/:player/profile', loadRoom, (req: Req, res) => {
     const player = req.room!.state.players.find(p => p.id === req.params.player && !p.isNeutral);
     if (!player) return res.status(404).json({ error: 'Player not found' });
-    const key = req.room!.characterIds[player.id] ?? `${player.isBot ? 'bot' : 'player'}:${player.name.trim().toLowerCase()}`;
+    const roster = req.room!.rosterIds[player.id];
+    const key = req.room!.characterIds[player.id] ?? (roster ? `roster:${roster}` : `${player.isBot ? 'bot' : 'player'}:${player.name.trim().toLowerCase()}`);
     // A training game shows its seats' training standing.
     res.json(rankedProfile(key, player.name, undefined, req.room!.board));
   });
@@ -417,6 +419,39 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
     next();
   }
   api.get('/admin/players', requireAdmin, (_req, res) => res.json({ players: store.playerKeys.list() }));
+
+  // ---- the house roster (roster.ts): names bound to Delove models. These routes are the only place the model shows ----
+  const rosterView = () => {
+    const roster = store.roster.list();
+    const byModel: Record<string, { active: number; retired: number }> = {};
+    for (const e of roster) (byModel[e.model] ??= { active: 0, retired: 0 })[e.status]++;
+    return { roster, byModel };
+  };
+  api.get('/admin/roster', requireAdmin, (_req, res) => res.json(rosterView()));
+  // {model, count}: the next free house names; or {model, names}: these names. All or none.
+  api.post(
+    '/admin/roster',
+    requireAdmin,
+    wrap((req, res) => {
+      const b = (req.body ?? {}) as { model?: unknown; count?: unknown; names?: unknown };
+      res.status(201).json({ created: store.roster.create(b.model, b.count, b.names), ...rosterView() });
+    }),
+  );
+  // {ids}, or {model, count}: the oldest active names of that model. Their rows freeze; the names stay reserved.
+  api.post(
+    '/admin/roster/retire',
+    requireAdmin,
+    wrap((req, res) => {
+      res.json({ retired: store.roster.retire((req.body ?? {}) as { ids?: unknown; model?: unknown; count?: unknown }), ...rosterView() });
+    }),
+  );
+  api.post(
+    '/admin/roster/:id/retire',
+    requireAdmin,
+    wrap((req, res) => {
+      res.json({ retired: store.roster.retire({ ids: [String(req.params.id)] }), ...rosterView() });
+    }),
+  );
   api.delete(
     '/admin/players/:id',
     requireAdmin,
@@ -563,9 +598,17 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
     requireAdmin,
     wrap((req, res) => {
       const spec = parseTournamentSpec(req.body ?? {}, true);
+      // House roster names to seat (admin only): the Delove seats default to that many, and must hold them all.
+      const roster = parseRosterIds(req.body?.rosterIds);
+      if (roster) {
+        store.roster.activeEntries(roster);
+        if (!seatReqs.enabled) throw new RiskHttpError('Roster seats need the Delove seat pool (RISK_SEAT_POOL_KEY)', 400);
+        spec.delove ??= roster.length;
+        if (spec.delove < roster.length) throw new RuleError(`delove (${spec.delove}) must be at least the ${roster.length} roster names`);
+      }
       seatReqs.checkCreate('key', spec.delove);
       const t = store.tournaments.create(spec);
-      seatReqs.openFor(t);
+      seatReqs.openFor(t, roster);
       created(res, t);
     }),
   );
@@ -607,6 +650,7 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
     '/tournaments',
     wrap((req, res) => {
       const { code, ...body } = (req.body ?? {}) as Record<string, unknown>;
+      if (body.rosterIds !== undefined) throw new RiskHttpError('Only the admin key can seat house roster names (POST /api/admin/tournaments)', 403);
       const tier = access.hostTier(req.ip ?? '', code, !!opts.openTournaments);
       const spec = access.checkCreate(tier, parseTournamentSpec(body));
       seatReqs.checkCreate(tier, spec.delove);
@@ -627,6 +671,16 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
       pool(req);
       if (req.query.free !== undefined || req.query.freeSearch !== undefined) seatReqs.report(num(req.query.free), num(req.query.freeSearch));
       res.json({ requests: seatReqs.list(typeof req.query.kind === 'string' ? req.query.kind : undefined, typeof req.query.modes === 'string' ? req.query.modes : undefined), pool: seatReqs.pool() });
+    }),
+  );
+  // The house roster for the pool (its key holds the answer key): which model each name plays, to load them all.
+  api.get(
+    '/roster',
+    wrap((req, res) => {
+      pool(req);
+      const status = req.query.status === undefined ? undefined : String(req.query.status);
+      if (status !== undefined && status !== 'active' && status !== 'retired') throw new RuleError('status must be "active" or "retired"');
+      res.json({ roster: store.roster.list().filter((e) => !status || e.status === status).map(({ id, name, model, status: s }) => ({ id, name, model, status: s })) });
     }),
   );
   api.post(
@@ -849,20 +903,47 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
       if (!store.tournaments.get(String(req.params.id))) return res.status(404).json({ error: 'Tournament not found' });
       const id = String(req.params.id);
       // The joiner (this IP) is counted against the pre-registration cap of scheduled tournaments.
-      const player = playerOf(req);
-      const name = store.playerKeys.seatName(String(req.body?.playerName ?? req.body?.name ?? ''), player);
+      // A house roster seat: the pool joins it with seatRequestId, its key and the rosterId a claim handed out. It plays
+      // under the roster name, labelled "AI agent"; its name, model and agent fields are never taken from the body.
+      const rosterId = req.body?.rosterId === undefined ? undefined : String(req.body.rosterId);
+      if (rosterId !== undefined && req.body?.seatRequestId === undefined) throw new RiskHttpError('A roster seat joins with its seatRequestId (the Delove seat pool)', 400);
+      const player = rosterId === undefined ? playerOf(req) : null;
+      const rosterName = rosterId === undefined ? null : store.roster.get(rosterId)?.name;
+      if (rosterId !== undefined && !rosterName) throw new RiskHttpError('No roster name has that id', 404);
+      const name = rosterName ?? store.playerKeys.seatName(String(req.body?.playerName ?? req.body?.name ?? ''), player);
       // The Delove seat pool joins its claimed seats with seatRequestId and its key; those entrants are the request's.
       // Anyone else is refused the pool's names in a tournament with a seat request.
       let request: SeatRequest | null = null;
       if (req.body?.seatRequestId !== undefined) {
         pool(req);
-        request = seatReqs.checkBind(req.body.seatRequestId, id);
+        request = seatReqs.checkBind(req.body.seatRequestId, id, rosterId);
       } else seatReqs.checkJoinName(id, name);
-      // The pool's own seats are not anyone's pre-registrations: they never count toward the per-joiner cap.
+      const agent = rosterId === undefined ? parseAgent(req.body?.agent) : undefined;
+      // Pool seats are the house's: they never count against a joiner's pre-registration caps.
       const joiner = request ? null : `ip:${req.ip ?? 'unknown'}`;
-      const { entrantId, token } = store.tournaments.join(id, name, parseAgent(req.body?.agent), player ? { id: player.id, name: player.name } : undefined, joiner);
-      if (request) seatReqs.bind(request, entrantId);
+      const { entrantId, token } = store.tournaments.join(id, name, agent, player ? { id: player.id, name: player.name } : undefined, joiner, rosterId);
+      if (request) seatReqs.bind(request, entrantId, rosterId);
       res.status(201).json({ entrantId, token, tournament: store.tournaments.view(id, token) });
+    }),
+  );
+  // The setup prompt a registered entrant pastes into their AI (setup-prompt.ts): the seat code (entrant token) as the
+  // bearer token; with X-Player-Key the text carries the key too, but only the entrant's own key, back to its holder.
+  api.get(
+    '/tournaments/:id/setup',
+    wrap((req, res) => {
+      const id = String(req.params.id);
+      const t = store.tournaments.get(id);
+      if (!t) return res.status(404).json({ error: 'Tournament not found' });
+      const token = tokenOf(req);
+      if (!token) return res.status(401).json({ error: 'Your seat code (entrant token) is required' });
+      const tournament = store.tournaments.view(id, token);
+      const player = playerOf(req);
+      const entrant = t.entrants.find((e) => e.token === token);
+      const raw = req.headers[PLAYER_KEY_HEADER];
+      const key = player && entrant?.playerKey === player.id ? String(Array.isArray(raw) ? raw[0] : raw) : null;
+      const tz = typeof req.query.tz === 'string' ? req.query.tz.slice(0, 64) : undefined;
+      const text = setupPrompt({ tournament, seatCode: token, playerKey: key, mcpUrl: `${req.protocol}://${req.get('host')}/mcp`, tz });
+      res.json({ text, filename: `risky-business-${t.id}-seat.txt` });
     }),
   );
   api.get(
@@ -929,7 +1010,11 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
     requirePlayer,
     wrap((req, res) => {
       const room = req.room!;
-      room.rename(req.playerId!, String(req.body?.name ?? ''));
+      const name = String(req.body?.name ?? '');
+      // Nobody renames into a house roster name (or a look-alike).
+      const why = name.trim() ? store.playerKeys.seatReserved(name) : null;
+      if (why) throw new RuleError(`"${name.trim()}" cannot be used: ${why}; pick another name`);
+      room.rename(req.playerId!, name);
       res.json({ state: room.view(req.playerId!) });
     }),
   );
@@ -1069,6 +1154,14 @@ export function parseBoard(raw: unknown, allowPublic = false): RankingBoard | un
 }
 
 const AGENT = /^[A-Za-z0-9 @._:/()+-]{1,40}$/;
+
+/** House roster ids for a tournament (admin create): undefined when absent, else 1-256 distinct strings. */
+export function parseRosterIds(raw: unknown): string[] | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (!Array.isArray(raw) || !raw.length || raw.length > 256 || raw.some((x) => typeof x !== 'string'))
+    throw new RuleError('rosterIds must be a list of 1-256 roster ids');
+  return raw as string[];
+}
 
 /**
  * A seat's self-declared player type from an untrusted body ("claude-sonnet-5-5", "delove@10", "human"): up to 40

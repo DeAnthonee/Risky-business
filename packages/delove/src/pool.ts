@@ -20,6 +20,13 @@ import type { EntrantResult } from './tournament-seat.js';
  * otherwise, and the server hands the seat back to its house bot). Fog seats take the pool's network only when it is
  * fog-trained, as for joins.
  *
+ * House roster (docs/tournaments.md "House roster"; the roster lives on the server): a claim may hand the pool roster
+ * entries `{rosterId, name, model}` for its first seats. Each joins with its `rosterId` (the server sets the name and
+ * shows only "AI agent"; the model goes only into the game record) and plays that entry's model, bare. Seats past the
+ * roster entries are plain "Delove N" seats. An entry whose model this pool cannot play (not in its models folder, or
+ * fog-blind at a fog table) is skipped and the rest are seated; the report is then `failed`, which gives that entry
+ * back to the server.
+ *
  * The key (RISK_SEAT_POOL_KEY) goes only in the `x-seat-pool-key` header; it is never logged or written to disk.
  */
 
@@ -57,6 +64,8 @@ export interface PoolClaim {
   search: number;
   labelPrefix: string;
   firstLabel: number;
+  /** House roster entries for the claim's first seats (the server's roster; absent or empty: none). */
+  roster?: { rosterId: string; name: string; model: string }[];
 }
 
 /** A seat the pool joined and plays: everything needed to play it again after a restart. */
@@ -83,6 +92,11 @@ export interface PoolOptions {
   /** Seats in play at most (default 40) and search seats in play at most (default 20). */
   maxSeats: number;
   maxSearch: number;
+  /**
+   * Whether this pool can play `model` at a table with or without fog (house roster seats: their model is the roster
+   * entry's). Default: only `model`, and under fog only when `modelFog`.
+   */
+  canPlay?: (model: string, fog: boolean) => boolean;
   /** Plays a seat to the end of its tournament (child processes in the daemon, in-process in tests). */
   play: (e: PoolEntrant) => Promise<EntrantResult>;
   /** Seats in play are kept here, so a restarted pool plays them on. */
@@ -106,6 +120,8 @@ export class SeatPool {
   private readonly inPlay = new Map<string, PoolEntrant>();
   private stopping = false;
   private readonly skipped = new Set<string>();
+  /** Roster models this pool could not play (logged once each). */
+  private readonly unplayable = new Set<string>();
   private readonly log: (line: string) => void;
   private readonly http: typeof fetch;
   /** The last poll's outcome, for the CLI and the tests. */
@@ -187,7 +203,10 @@ export class SeatPool {
       this.log(`claim of request ${r.id} failed: ${(e as Error).message}`);
       return [];
     }
-    const searchSeats = r.fog ? 0 : Math.max(0, Math.min(c.search, searchRoom));
+    const roster = c.roster ?? [];
+    // Search seats are the plain ones (roster seats play their model bare), after the roster entries.
+    const searchSeats = r.fog ? 0 : Math.max(0, Math.min(c.search, searchRoom, c.n - roster.length));
+    const canPlay = this.o.canPlay ?? ((m: string, fog: boolean) => m === this.o.model && (!fog || this.o.modelFog));
     const joined: PoolEntrant[] = [];
     let reason = '';
     for (let k = 0; k < c.n; k++) {
@@ -195,15 +214,26 @@ export class SeatPool {
         reason = 'the pool is stopping';
         break;
       }
-      const search = k < searchSeats;
-      const name = `${c.labelPrefix} ${c.firstLabel + k}`;
-      const agentId = search ? `${this.o.model}+search` : this.o.model;
+      const entry = roster[k];
+      const search = !entry && k - roster.length < searchSeats;
+      if (entry && !canPlay(entry.model, r.fog)) {
+        // Skip it and seat the rest: the failed report gives back only the ids that did not join (this one), and
+        // the server hands it out first again, until its model is in the models folder or the admin retires it.
+        reason = `${entry.name} plays ${entry.model}, which this pool cannot play${r.fog ? ' at a fog table' : ''}`;
+        if (!this.unplayable.has(entry.model)) this.log(`roster model ${entry.model} cannot be played here: copy it into the models folder, or ask the admin to retire it`);
+        this.unplayable.add(entry.model);
+        continue;
+      }
+      const name = entry ? entry.name : `${c.labelPrefix} ${c.firstLabel + k - roster.length}`;
+      const model = entry ? entry.model : this.o.model;
+      const agentId = search ? `${model}+search` : model;
       try {
-        const res = await this.call<{ token: string }>('POST', `/tournaments/${c.tournamentId}/join`, {
-          playerName: name,
-          agent: search ? `${this.o.model} + search` : this.o.model,
-          seatRequestId: c.requestId,
-        });
+        // A roster seat joins by its id: the server sets its name and label (no agent sent).
+        const res = await this.call<{ token: string }>(
+          'POST',
+          `/tournaments/${c.tournamentId}/join`,
+          entry ? { seatRequestId: c.requestId, rosterId: entry.rosterId } : { playerName: name, agent: search ? `${model} + search` : model, seatRequestId: c.requestId },
+        );
         const e: PoolEntrant = { tournamentId: c.tournamentId, requestId: c.requestId, name, token: res.token, agentId, search };
         joined.push(e);
         this.start(e);

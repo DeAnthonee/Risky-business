@@ -78,6 +78,9 @@ export interface CommanderOptions {
 export const TURN_MAX_TOKENS = 300;
 export const CAPITAL_MAX_TOKENS = 400;
 
+/** Turns without a conquest after which good-neighbor pacts dissolve (a stalemate breaker). */
+export const STALL_BREAK = 4;
+
 export const LEARNINGS_CHARS = 10_000;
 const LOG_TAIL_CHARS = 1_500;
 const CHAT_KEPT = 25;
@@ -729,8 +732,10 @@ export class Commander {
       }
     }
     const livingCount = view.players.filter((p) => p.alive && !p.isNeutral).length;
-    // In a 3-man endgame (or fewer), neutral border pacts are dissolved to avoid total stalemate!
-    if (livingCount <= 3 && this.activeGoodNeighbors.size > 0) {
+    // In a 3-man endgame (or fewer), neutral border pacts are dissolved to avoid total stalemate! The same happens
+    // after STALL_BREAK turns without a conquest: pacts on every border would otherwise freeze the table for good.
+    if ((livingCount <= 3 || this.getStall() >= STALL_BREAK) && this.activeGoodNeighbors.size > 0) {
+      this.o.log?.(`${this.o.seatName}: good neighbor pacts dissolved (${livingCount <= 3 ? '3 or fewer players left' : 'stalemate'})`);
       this.activeGoodNeighbors.clear();
     }
     for (const name of this.activeGoodNeighbors) {
@@ -1154,7 +1159,7 @@ export class Commander {
         const pingCooldown = livingZergs.length > 0 ? 2 : 4;
         if (!p.ping && this.ownTurns - this.lastPingOwnTurn >= pingCooldown) {
           const livingPlayers = view.players.filter((x) => x.alive && !x.isNeutral);
-          const isStalemateOr3Man = livingPlayers.length <= 3 || this.getStall() >= 4;
+          const isStalemateOr3Man = livingPlayers.length <= 3 || this.getStall() >= STALL_BREAK;
           const isAggressive = /shaco|draven|jinx|tryndamere|zed|kled|aatrox|gangplank|sett/i.test(this.o.seatName);
 
           if (livingZergs.length > 0) {

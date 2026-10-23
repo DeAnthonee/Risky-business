@@ -227,6 +227,9 @@ froze the game (nobody could spare anything, no cards, progressive sets never gr
 - **Stall pressure**: each seat counts its own turns since it last conquered something (`StallTracker`). From 2
   turns on, every further turn lowers the attack threshold by 0.05 (down to 0.5) and the card-attack chance by 0.04,
   and raises the allowed dip by 10 points of the floor (up to 90%). `stallPressure: false` in the plan turns it off.
+- **Pacts dissolve in a stalemate**: agreed good-neighbor pacts put that neighbour on the seat's avoid list, so pacts
+  on every border could freeze a 4-6 player table for good. They dissolve with 3 or fewer players left, and also once
+  the seat has gone `STALL_BREAK` (4) of its turns without a conquest; they stay off until it conquers again.
 - Attack scoring prefers a near-certain win over a big stack to nibbling small territories (two giant stacks
   trading Australia forever never finished one headless game).
 - The commander facts list, for each border territory, the enemy territories next to it with owner and armies

@@ -1,0 +1,3 @@
+server: - 2026-10-22 #PR the daily tournament: schedule entries take `daily: "HH:MM"` with an IANA `tz` (summer time followed), `signupDays` (1-7) and `roster` (0-100 house roster seats, inside maxEntrants); each slot opens by itself and its roster seats are requested through a new `TournamentScheduler` onOpened hook (plain Delove seat requests until the house roster lands); `/tournaments/next` adds `roster` and `tz`
+client: - 2026-10-22 #PR the scheduled card reads "Today's tournament" when it starts today, "N registered / M seats", the roster seats, and a Register button
+docs: - 2026-10-22 #PR tournaments.md (the daily tournament, `daily`/`tz`/`signupDays`/`roster`), hosting.md, playing.md

@@ -371,3 +371,68 @@ describe('a slot whose tournament is gone', () => {
     }
   });
 });
+
+describe('the daily tournament: a daily slot in a time zone, sign-up days ahead, the house roster', () => {
+  it("finds 19:00 in the entry's zone, across a summer-time change", () => {
+    const la = { ...parseAt('19:00'), tz: 'America/Los_Angeles' };
+    // Thu 22 Oct 2026, 12:00 UTC (05:00 in LA, summer time): today 19:00 PDT = 02:00 UTC the next day.
+    expect(nextStart(la, NOON)).toBe(Date.UTC(2026, 9, 23, 2, 0));
+    // Sun 1 Nov 2026, 12:00 UTC (after the change to winter time): 19:00 PST = 03:00 UTC the next day.
+    expect(nextStart(la, Date.UTC(2026, 10, 1, 12, 0))).toBe(Date.UTC(2026, 10, 2, 3, 0));
+    // Day names count in the zone: Fri 19:00 in LA is Sat 02:00 UTC.
+    expect(nextStart({ ...parseAt('Fri 19:00'), tz: 'America/Los_Angeles' }, NOON)).toBe(Date.UTC(2026, 9, 24, 2, 0));
+    // No zone: UTC, as before.
+    expect(nextStart({ ...parseAt('19:00'), tz: null }, NOON)).toBe(Date.UTC(2026, 9, 22, 19, 0));
+  });
+
+  it('checks the daily keys at startup; "at" entries keep their key', () => {
+    const t = new Store(null).tournaments;
+    const [e] = parseSchedule({ daily: '19:00', tz: 'America/Los_Angeles', name: 'Daily Nest', signupDays: 2, roster: 20, maxEntrants: 64 }, t);
+    expect(e).toMatchObject({ at: '19:00', tz: 'America/Los_Angeles', days: null, signupMinutes: 2880, roster: 20, spec: { maxEntrants: 64 } });
+    expect(e.spec).not.toHaveProperty('roster');
+    expect(parseSchedule(DAILY, t)[0]).toMatchObject({ tz: null, roster: 0 });
+    expect(parseSchedule(DAILY, t)[0].key).toBe(JSON.stringify({ at: '14:00', signupMinutes: 60, minEntrants: 2, name: 'Daily Nest', roundMinutes: 20, botDelayMs: 2000 }));
+    expect(() => parseSchedule({ at: '19:00', daily: '19:00' }, t)).toThrow(/either "at" or "daily"/);
+    expect(() => parseSchedule({ name: 'x' }, t)).toThrow(/either "at" or "daily"/);
+    expect(() => parseSchedule({ daily: 'Mon 19:00' }, t)).toThrow(/daily must be "HH:MM"/);
+    expect(() => parseSchedule({ daily: '19:00', tz: 'Mars/Olympus' }, t)).toThrow(/unknown time zone "Mars\/Olympus"/);
+    expect(() => parseSchedule({ daily: '19:00', signupDays: 2, signupMinutes: 60 }, t)).toThrow(/not both/);
+    expect(() => parseSchedule({ daily: '19:00', signupDays: 8 }, t)).toThrow(/signupDays must be a whole number from 1 to 7/);
+    expect(() => parseSchedule({ daily: '19:00', roster: 101 }, t)).toThrow(/roster must be a whole number from 0 to 100/);
+    expect(() => parseSchedule({ daily: '19:00', roster: 30, maxEntrants: 20 }, t)).toThrow(/roster \(30\) is more than maxEntrants \(20\)/);
+  });
+
+  it('a slot opens by itself days ahead, asks for its roster seats, and the next day opens again', () => {
+    // Thu 22 Oct 12:00 UTC; the daily slot is 19:00 in LA (02:00 UTC Fri), sign-up 2 days ahead: open at once.
+    const clock = new FakeClock();
+    const store = new Store(null, {}, { clock });
+    const opened: { id: string; delove: number; maxEntrants: number; roster: number }[] = [];
+    const entries = parseSchedule({ daily: '19:00', tz: 'America/Los_Angeles', name: 'Daily Nest', signupDays: 2, roster: 3, maxEntrants: 20, botDelayMs: 2000 }, store.tournaments);
+    const sched = new TournamentScheduler(store.tournaments, entries, null, (t, e) => opened.push({ id: t.id, delove: t.requested?.delove ?? 0, maxEntrants: t.maxEntrants, roster: e.roster }));
+    const [id] = [...store.tournaments.tournaments.keys()];
+    expect(opened).toEqual([{ id, delove: 3, maxEntrants: 20, roster: 3 }]);
+    expect(sched.next().next).toMatchObject({ id, startsAt: Date.UTC(2026, 9, 23, 2, 0), roster: 3, tz: 'America/Los_Angeles', maxEntrants: 20, entrants: 0 });
+    // Two people register now and check in at 01:55 UTC; at 02:00 it starts, and the next day's slot opens by itself.
+    const tokens = ['Ann', 'Bob'].map((n) => store.tournaments.join(id, n).token);
+    clock.advance(Date.UTC(2026, 9, 23, 1, 55) - clock.t);
+    for (const token of tokens) store.tournaments.checkIn(id, token);
+    clock.advance(5 * 60_000);
+    expect(store.tournaments.get(id)!.status).toBe('running');
+    expect(opened).toHaveLength(2);
+    expect(sched.next().next).toMatchObject({ startsAt: Date.UTC(2026, 9, 24, 2, 0), roster: 3 });
+    sched.stop();
+    store.stopTimers();
+  });
+
+  it('a roster hook that throws does not stop the slot', () => {
+    const clock = new FakeClock(NOON + H);
+    const store = new Store(null, {}, { clock });
+    const sched = new TournamentScheduler(store.tournaments, parseSchedule({ ...DAILY, roster: 2 }, store.tournaments), null, () => {
+      throw new Error('pool down');
+    });
+    const [id] = [...store.tournaments.tournaments.keys()];
+    expect(store.tournaments.get(id)!.status).toBe('registering');
+    sched.stop();
+    store.stopTimers();
+  });
+});

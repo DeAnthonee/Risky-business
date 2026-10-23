@@ -7,15 +7,23 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from '
 import { dirname } from 'node:path';
 import { RuleError } from '@risk/engine';
 import { parseTournamentSpec } from './http.js';
-import { DEFAULT_CHECKIN_MINUTES, NESTED_ROUND_MINUTES, type CreateTournamentSpec, type TournamentManager } from './tournaments.js';
+import { DEFAULT_CHECKIN_MINUTES, NESTED_ROUND_MINUTES, type CreateTournamentSpec, type TournamentManager, type TournamentSnapshot } from './tournaments.js';
 
 /** One schedule entry as the owner writes it. */
 export interface ScheduleEntryInput {
-  /** "HH:MM" every day, or "Mon,Thu HH:MM" on those days; UTC. */
-  at: string;
+  /** "HH:MM" every day, or "Mon,Thu HH:MM" on those days; in `tz`, else UTC. */
+  at?: string;
+  /** The daily tournament: "HH:MM" every day, in `tz` (the same as `at` without day names). */
+  daily?: string;
+  /** IANA time zone of `at` / `daily` (e.g. "America/Los_Angeles"; summer time followed); default UTC. */
+  tz?: string;
   name?: string;
   /** Sign-up opens this many minutes before the start (1-10080, i.e. up to 7 days ahead; default 60). */
   signupMinutes?: number;
+  /** The same in days (1-7); not with signupMinutes. */
+  signupDays?: number;
+  /** House roster seats asked for each slot (0-100, default 0): seat requests go out when the slot opens. */
+  roster?: number;
   /** The check-in window, the last this-many minutes before the start (1-60, at most signupMinutes; default 10). */
   checkinMinutes?: number;
   /** Fewer people or agents than this at the start calls the slot off (2-256, default 2: a nested tournament needs 2). */
@@ -28,8 +36,12 @@ export interface ScheduleEntry {
   /** Stable id of the entry (its normalized JSON): a changed entry starts afresh. */
   key: string;
   at: string;
+  /** The time zone of `at` (IANA), or null for UTC. */
+  tz: string | null;
   days: number[] | null;
   minuteOfDay: number;
+  /** House roster seats asked for each slot (0 = none). */
+  roster: number;
   signupMinutes: number;
   checkinMinutes: number;
   minEntrants: number;
@@ -37,7 +49,9 @@ export interface ScheduleEntry {
 }
 
 const DAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
-const ENTRY_KEYS = new Set(['at', 'name', 'signupMinutes', 'checkinMinutes', 'minEntrants', 'finalMap', 'maxEntrants', 'roundMinutes', 'territoriesPerSeat', 'finishShare', 'botDelayMs', 'options']);
+const ENTRY_KEYS = new Set(['at', 'daily', 'tz', 'signupDays', 'roster', 'name', 'signupMinutes', 'checkinMinutes', 'minEntrants', 'finalMap', 'maxEntrants', 'roundMinutes', 'territoriesPerSeat', 'finishShare', 'botDelayMs', 'options']);
+/** A scheduled tournament's seats when its entry gives no maxEntrants (the nested default). */
+export const DEFAULT_SCHEDULED_MAX = 128;
 export const CANCEL_NOT_ENOUGH = 'not enough entrants';
 export const CANCEL_MISSED = 'missed: the server was down at the start';
 export const CANCEL_CHANGED = 'the schedule changed';
@@ -62,8 +76,44 @@ export function parseAt(at: unknown): { days: number[] | null; minuteOfDay: numb
   return { days, minuteOfDay: h * 60 + min };
 }
 
-/** The first start strictly after `after` (ms, UTC). */
-export function nextStart(e: Pick<ScheduleEntry, 'days' | 'minuteOfDay'>, after: number): number {
+/** The wall clock in `tz` at a UTC instant: its date, weekday and how far the zone is ahead of UTC (minutes). */
+function zoned(utcMs: number, tz: string): { y: number; m: number; d: number; offset: number } {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric' }).formatToParts(utcMs);
+  const p = Object.fromEntries(parts.map((x) => [x.type, Number(x.value)])) as Record<string, number>;
+  const asUtc = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second);
+  return { y: p.year, m: p.month - 1, d: p.day, offset: Math.round((asUtc - Math.floor(utcMs / 1000) * 1000) / 60_000) };
+}
+
+/** The UTC instant of a wall-clock time in `tz` (a summer-time gap moves it on by the gap; an overlap takes the first). */
+function zonedInstant(y: number, m: number, d: number, minuteOfDay: number, tz: string): number {
+  const wall = Date.UTC(y, m, d, 0, minuteOfDay);
+  let t = wall - zoned(wall, tz).offset * 60_000;
+  t = wall - zoned(t, tz).offset * 60_000;
+  return t;
+}
+
+/** Whether `tz` is a time zone this runtime knows. */
+export function validTimeZone(tz: unknown): tz is string {
+  if (typeof tz !== 'string' || !tz) return false;
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The first start strictly after `after` (ms, UTC); in the entry's time zone when it has one. */
+export function nextStart(e: Pick<ScheduleEntry, 'days' | 'minuteOfDay'> & { tz?: string | null }, after: number): number {
+  if (e.tz) {
+    const today = zoned(after, e.tz);
+    for (let i = 0; i <= 8; i++) {
+      const t = zonedInstant(today.y, today.m, today.d + i, e.minuteOfDay, e.tz);
+      const weekday = new Date(Date.UTC(today.y, today.m, today.d + i)).getUTCDay();
+      if (t > after && (!e.days || e.days.includes(weekday))) return t;
+    }
+    throw new Error('unreachable: no start within 8 days');
+  }
   const d = new Date(after);
   for (let i = 0; i <= 8; i++) {
     const t = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + i, 0, e.minuteOfDay);
@@ -82,25 +132,32 @@ export function parseSchedule(raw: unknown, tournaments: Pick<TournamentManager,
   return list.map((item, i) => {
     const where = `schedule entry ${i + 1}`;
     try {
-      if (!item || typeof item !== 'object' || Array.isArray(item)) throw new RuleError('must be an object with "at"');
+      if (!item || typeof item !== 'object' || Array.isArray(item)) throw new RuleError('must be an object with "at" or "daily"');
       const e = item as ScheduleEntryInput;
       for (const k of Object.keys(e)) if (!ENTRY_KEYS.has(k)) throw new RuleError(`unknown key "${k}"`);
-      const { days, minuteOfDay } = parseAt(e.at);
+      if ((e.at === undefined) === (e.daily === undefined)) throw new RuleError('give either "at" or "daily"');
+      if (e.daily !== undefined && (typeof e.daily !== 'string' || !/^\s*\d{1,2}:\d{2}\s*$/.test(e.daily))) throw new RuleError('daily must be "HH:MM"');
+      if (e.tz !== undefined && !validTimeZone(e.tz)) throw new RuleError(`unknown time zone "${String(e.tz)}" (use an IANA name such as America/New_York)`);
+      const at = String(e.at ?? e.daily);
+      const { days, minuteOfDay } = parseAt(at);
       const whole = (v: unknown, name: string, lo: number, hi: number, fallback: number) => {
         if (v === undefined) return fallback;
         if (typeof v !== 'number' || !Number.isInteger(v) || v < lo || v > hi) throw new RuleError(`${name} must be a whole number from ${lo} to ${hi}`);
         return v;
       };
-      const signupMinutes = whole(e.signupMinutes, 'signupMinutes', 1, 10080, 60);
+      if (e.signupDays !== undefined && e.signupMinutes !== undefined) throw new RuleError('give signupMinutes or signupDays, not both');
+      const signupMinutes = e.signupDays !== undefined ? whole(e.signupDays, 'signupDays', 1, 7, 1) * 1440 : whole(e.signupMinutes, 'signupMinutes', 1, 10080, 60);
+      const roster = whole(e.roster, 'roster', 0, 100, 0);
       const checkinMinutes = whole(e.checkinMinutes, 'checkinMinutes', 1, Math.min(60, signupMinutes), Math.min(DEFAULT_CHECKIN_MINUTES, signupMinutes));
       const minEntrants = whole(e.minEntrants, 'minEntrants', 2, 256, 2);
       // The key keeps its #234 shape (checkinMinutes only when the entry sets it), so a deploy restarts no open slot.
       const { at: _at, signupMinutes: _s, minEntrants: _m, ...rest } = e;
-      const { checkinMinutes: _c, ...specRest } = rest;
+      const { checkinMinutes: _c, daily: _d, tz: _t, signupDays: _sd, roster: _r, ...specRest } = rest;
       const spec: CreateTournamentSpec = { ...parseTournamentSpec({ ...specRest, format: 'nested' }), name: String(e.name ?? 'Scheduled tournament') };
       tournaments.checkNested(spec);
+      if (roster > (spec.maxEntrants ?? DEFAULT_SCHEDULED_MAX)) throw new RuleError(`roster (${roster}) is more than maxEntrants (${spec.maxEntrants ?? DEFAULT_SCHEDULED_MAX})`);
       const key = JSON.stringify({ at: e.at, signupMinutes, minEntrants, ...rest });
-      return { key, at: String(e.at), days, minuteOfDay, signupMinutes, checkinMinutes, minEntrants, spec };
+      return { key, at, tz: e.tz ?? null, days, minuteOfDay, roster, signupMinutes, checkinMinutes, minEntrants, spec };
     } catch (err) {
       throw new RuleError(`${where}: ${(err as Error).message}`);
     }
@@ -137,6 +194,10 @@ export interface NextTournament {
     checkedIn?: number;
     maxEntrants: number | null;
     minEntrants: number;
+    /** House roster seats asked for this slot (part of maxEntrants). */
+    roster: number;
+    /** The entry's time zone (IANA), or null for UTC. */
+    tz: string | null;
   } | null;
   /** A scheduled tournament being played now. */
   running: { id: string; name: string; startsAt: number; round: number } | null;
@@ -154,6 +215,8 @@ export class TournamentScheduler {
     private tournaments: TournamentManager,
     readonly entries: ScheduleEntry[],
     private file: string | null,
+    /** A slot's tournament was just created (app.ts: the house roster's seat requests go out here). */
+    private onOpened: ((t: TournamentSnapshot, e: ScheduleEntry) => void) | null = null,
   ) {
     if (file && existsSync(file)) {
       try {
@@ -218,10 +281,18 @@ export class TournamentScheduler {
       const retry = this.retryAt.get(e.key);
       if (retry !== undefined && now < retry) return retry;
       try {
-        const t = this.tournaments.create({ ...e.spec, scheduled: { startsAt: slot.startsAt, checkinMinutes: e.checkinMinutes } });
+        // Roster seats are counted like a host's Delove seats (requested.delove), inside the slot's maxEntrants.
+        const seats = e.roster ? { delove: e.roster, maxEntrants: e.spec.maxEntrants ?? DEFAULT_SCHEDULED_MAX } : {};
+        const t = this.tournaments.create({ ...e.spec, ...seats, scheduled: { startsAt: slot.startsAt, checkinMinutes: e.checkinMinutes } });
         slot.tournamentId = t.id;
         this.retryAt.delete(e.key);
-        console.log(`tournament schedule: ${t.id} "${t.name}" open for sign-up, starts ${new Date(slot.startsAt).toISOString()}`);
+        console.log(`tournament schedule: ${t.id} "${t.name}" open for sign-up, starts ${new Date(slot.startsAt).toISOString()}${e.roster ? `, ${e.roster} roster seats requested` : ''}`);
+        try {
+          this.onOpened?.(t, e);
+        } catch (err) {
+          // The roster is a bonus: the slot stays open without it (unfilled seats go to Zergs at the start).
+          console.error(`tournament schedule: roster seats for ${t.id}: ${(err as Error).message}`);
+        }
       } catch (err) {
         // Too many tournaments open (maxActive): try again in a few minutes, until the start.
         console.error(`tournament schedule: could not open "${e.spec.name}": ${(err as Error).message}`);
@@ -280,8 +351,10 @@ export class TournamentScheduler {
         // People and agents only, the count minEntrants is checked against (an admin may have added bots).
         entrants: t ? t.entrants.filter((x) => !x.isBot).length : 0,
         ...(t && this.tournaments.checkinOpen(t) ? { checkedIn: t.entrants.filter((x) => !x.isBot && x.checkedInAt).length } : {}),
-        maxEntrants: t ? t.maxEntrants : (e.spec.maxEntrants ?? null),
+        maxEntrants: t ? t.maxEntrants : (e.spec.maxEntrants ?? (e.roster ? DEFAULT_SCHEDULED_MAX : null)),
         minEntrants: e.minEntrants,
+        roster: e.roster,
+        tz: e.tz,
       };
     }
     const playing = scheduled.filter((t) => t.status === 'running').sort((a, b) => b.scheduled!.startsAt - a.scheduled!.startsAt)[0];

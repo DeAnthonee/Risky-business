@@ -102,6 +102,10 @@ export interface NextTournament {
     checkedIn?: number;
     maxEntrants: number | null;
     minEntrants: number;
+    /** House roster seats asked for this slot (part of maxEntrants). */
+    roster?: number;
+    /** The schedule entry's time zone (IANA), or null for UTC. */
+    tz?: string | null;
   } | null;
   running: { id: string; name: string; startsAt: number; round: number } | null;
   cancelled: { id: string; name: string; startsAt: number; reason: string } | null;

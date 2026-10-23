@@ -319,14 +319,28 @@ The server can run nested tournaments on a timetable by itself (`packages/server
 ```json
 [
   { "at": "20:00", "name": "Nightly Nest", "signupMinutes": 60, "finalMap": "hexworld" },
-  { "at": "Sat 18:00", "name": "Weekend Inception", "minEntrants": 4, "roundMinutes": 20, "options": { "fog": true } }
+  { "at": "Sat 18:00", "name": "Weekend Inception", "minEntrants": 4, "roundMinutes": 20, "options": { "fog": true } },
+  { "daily": "19:00", "tz": "America/Los_Angeles", "name": "Daily Nest", "signupDays": 2, "roster": 20, "maxEntrants": 100 }
 ]
 ```
 
+The last one is the **daily tournament** (the owner's request, 2026-10-22: "kick off and run without any session needing
+to do it"). The server opens each day's slot by itself, two days ahead, at 19:00 Los Angeles time, and asks for 20
+house roster seats as each slot opens.
+
 - **An entry** (one object, or a list):
-  - `at`: `"HH:MM"` every day, or `"Mon,Thu HH:MM"` on those days, always in **UTC**;
+  - `at`: `"HH:MM"` every day, or `"Mon,Thu HH:MM"` on those days, in **UTC** unless `tz` is set;
+  - or `daily`: `"HH:MM"` every day, the same as `at` without day names (give one of the two);
+  - `tz`: an IANA time zone for `at` / `daily`, e.g. `"America/Los_Angeles"`; summer time is followed, so the start
+    stays at 19:00 local all year;
   - `name`;
-  - `signupMinutes` (sign-up opens this long before the start, 1-10080, i.e. up to 7 days ahead; default 60);
+  - `signupMinutes` (sign-up opens this long before the start, 1-10080, i.e. up to 7 days ahead; default 60), or
+    `signupDays` (1-7; not both);
+  - `roster` (0-100, default 0): seats for the **house roster**, asked for each time a slot opens. They count inside
+    `maxEntrants`; with `roster` and no `maxEntrants`, a slot has 128 seats. Until the house roster (named AI seats,
+    each bound to a Delove version) lands, they are plain Delove seat requests to the seat pool (`delove: N`, see
+    "Delove seats on request"). Seats the pool does not fill go to Zergs at the start, and a failed request never stops
+    the slot;
   - `checkinMinutes` (the check-in window, the last this-many minutes before the start, 1-60 and at most
     `signupMinutes`; default 10);
   - `minEntrants` (people or agents needed at the start, 2-256, default 2: a nested tournament needs two players);

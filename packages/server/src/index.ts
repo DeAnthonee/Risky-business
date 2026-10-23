@@ -43,7 +43,7 @@ try {
   const found = scheduleFromEnv(process.env);
   if (found) {
     schedule = parseSchedule(found.raw, store.tournaments);
-    scheduleNote = `${schedule.length} entr${schedule.length === 1 ? 'y' : 'ies'} from ${found.source} (UTC): ${schedule.map((e) => e.at).join('; ')}`;
+    scheduleNote = `${schedule.length} entr${schedule.length === 1 ? 'y' : 'ies'} from ${found.source}: ${schedule.map((e) => `${e.at} ${e.tz ?? 'UTC'}${e.roster ? ` (+${e.roster} roster seats)` : ''}`).join('; ')}`;
   }
 } catch (err) {
   scheduleNote = `OFF: the schedule is invalid: ${(err as Error).message}`;

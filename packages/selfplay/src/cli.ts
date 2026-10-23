@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { gunzipSync } from 'node:zlib';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { MAPS, parseOptions, RECORD_FORMAT, type GameOptions, type GameRecord } from '@risk/engine';
@@ -107,7 +108,9 @@ async function main() {
     const out: StartPosition[] = [];
     let records = 0;
     for (const f of files) {
-      const r = JSON.parse(readFileSync(f, 'utf8')) as GameRecord;
+      // The server's archive gzips its records (.json.gz); older ones, and copies, are plain JSON.
+      const raw = readFileSync(f);
+      const r = JSON.parse((f.endsWith('.gz') ? gunzipSync(raw) : raw).toString('utf8')) as GameRecord;
       if (r.format !== RECORD_FORMAT) continue;
       records++;
       out.push(...positionsFromRecord(r, alive));
@@ -260,11 +263,11 @@ async function main() {
   fail(cmd ? `Unknown command "${cmd}"` : 'No command given');
 }
 
-/** Record files under a path: the file itself, or every .json below a folder (an archive's games/), sorted. */
+/** Record files under a path: the file itself, or every .json / .json.gz below a folder (an archive's games/), sorted. */
 function recordFiles(path: string): string[] {
   if (!statSync(path).isDirectory()) return [path];
   return readdirSync(path, { recursive: true, encoding: 'utf8' })
-    .filter((f) => f.endsWith('.json'))
+    .filter((f) => f.endsWith('.json') || f.endsWith('.json.gz'))
     .map((f) => join(path, f))
     .sort();
 }

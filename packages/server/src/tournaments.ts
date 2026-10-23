@@ -207,6 +207,8 @@ export interface TournamentSnapshot {
   scheduled?: TournamentScheduleInfo;
   /** The seat counts the host created it with (absent when created without counts). */
   requested?: TournamentCounts;
+  /** Set when it was aborted (stopped by its host or the admin, or deleted while running): finished, no champion. */
+  aborted?: { at: number };
 }
 
 /** A scheduled tournament's start (ms) and, if it never ran, why ("not enough entrants"). */
@@ -322,6 +324,8 @@ export interface TournamentView {
   };
   /** Made by the server's schedule: its start, check-in window and, once open, how many checked in; if it never ran, why. */
   scheduled?: TournamentScheduleInfo & { checkedIn?: number };
+  /** Aborted: when. The bracket stays as it was; the tables then being played have records with the standing so far. */
+  aborted?: { at: number };
   createdAt: number;
   updatedAt: number;
   version: number;
@@ -733,10 +737,46 @@ export class TournamentManager extends EventEmitter {
     return t;
   }
 
-  /** Delete a tournament and close the tables still being played. */
+  /**
+   * Abort a tournament (owner, 2026-10-22): stop it and keep its bracket, finished with no champion (`aborted`). Every
+   * table still being played is ranked on standing so far (the engine's rankByStanding, its dice from the game's own
+   * seed) and its game record filed with reason "aborted" and that standing, before the room closes. A registering
+   * tournament is just stopped. Nothing goes on the tournament board. Aborting a finished tournament changes nothing.
+   */
+  abort(id: string): TournamentSnapshot {
+    const t = this.require(id);
+    if (t.status === 'finished') return t;
+    const now = this.clock.now();
+    // Finished first, so tables closing below never seat a next round.
+    t.status = 'finished';
+    t.champion = null;
+    t.aborted = { at: now };
+    this.clearRoundTimer(t.id);
+    const round = this.currentRound(t);
+    for (const m of round?.matches ?? []) {
+      if (m.status !== 'playing') continue;
+      m.status = 'abandoned';
+      const room = m.gameId ? this.store.get(m.gameId) : undefined;
+      if (!room || room.closed) continue;
+      const rng = createRng(room.state.rngState);
+      const standing = rankByStanding(room.state, () => nextFloat(rng), room.eliminationOrder);
+      const byPlayer = new Map(Object.entries(m.seats).map(([eid, s]) => [s.playerId, eid]));
+      const order = standing.order.map((pid) => byPlayer.get(pid)).filter((eid): eid is string => !!eid);
+      m.standing = { order, rolls: Object.fromEntries(Object.entries(standing.rolls).filter(([pid]) => byPlayer.has(pid)).map(([pid, r]) => [byPlayer.get(pid)!, r])) };
+      this.scoreTable(m, room);
+      m.order = order;
+      this.store.delete(room.id, 'admin', { standing: standing.order, rolls: standing.rolls });
+    }
+    if (round && round.endedAt === undefined) round.endedAt = now;
+    this.changed(t);
+    return t;
+  }
+
+  /** Delete a tournament: a running one is aborted first (its live tables filed as "aborted"), then it is removed. */
   delete(id: string): boolean {
     const t = this.tournaments.get(id.toUpperCase());
     if (!t) return false;
+    if (t.status !== 'finished') this.abort(t.id);
     this.tournaments.delete(t.id);
     this.clearRoundTimer(t.id);
     for (const m of this.currentRound(t)?.matches ?? []) if (m.status === 'playing' && m.gameId) this.store.delete(m.gameId, 'admin');
@@ -988,6 +1028,7 @@ export class TournamentManager extends EventEmitter {
           }
         : {}),
       ...(t.requested ? { requested: { ...t.requested } } : {}),
+      ...(t.aborted ? { aborted: { ...t.aborted } } : {}),
       createdAt: t.createdAt,
       updatedAt: t.updatedAt,
       version: t.version,

@@ -138,6 +138,8 @@ export interface TournamentView {
   openMode?: boolean;
   /** The host's seat counts at create (Zergs, Delove asked for, open spots), when it was made with them. */
   requested?: { zergs: number; delove: number; open: number };
+  /** Aborted (by its host or the admin): finished with no champion. */
+  aborted?: { at: number };
   status: TournamentSummary['status'];
   map: string;
   groupSize: number;

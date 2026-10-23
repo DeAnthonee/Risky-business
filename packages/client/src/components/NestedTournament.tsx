@@ -123,6 +123,7 @@ function RoundClock({ t }: { t: TournamentView }) {
   const round = t.rounds.at(-1);
   if (t.status === 'registering') return <p className="round-clock muted">Registration is open. The plan and the boards are made at the start.</p>;
   if (!round) return null;
+  if (t.aborted) return <p className="round-clock">Aborted: the bracket stays as it was, and the tables then being played were recorded with their standing so far.</p>;
   if (t.status === 'finished') return <p className="round-clock">Finished{t.champion ? `: ${t.champion.name} is the champion` : ''}.</p>;
   const tables = round.matches.length;
   const done = round.matches.filter((m) => m.status === 'finished' || m.status === 'bye').length;

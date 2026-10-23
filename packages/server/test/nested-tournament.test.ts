@@ -692,3 +692,65 @@ describe('stall relievers at a tournament table', () => {
     for (const r of store.rooms.values()) r.stopBot();
   });
 });
+
+describe('aborting a tournament (owner: every live table keeps its record)', () => {
+  it('abort files every live table as "aborted" with its standing so far, keeps the bracket, and DELETE of a running one aborts first', async () => {
+    const clock = new FakeClock();
+    const store = new Store(join(dir, 'abort.json'), {}, { clock });
+    const { risk, call } = await serve(store);
+    try {
+      const created = await call('/admin/tournaments', post({ format: 'nested', name: 'Stopped Cup', botDelayMs: 2000, options: { turnTimer: 'off', autoSetup: true } }), ADMIN);
+      const id = created.body.tournament.id;
+      const host = created.body.hostToken;
+      for (let i = 1; i <= 18; i++) await call(`/tournaments/${id}/join`, post({ playerName: `A${i}` }));
+      expect((await call(`/tournaments/${id}/start`, post(), host)).status).toBe(200);
+      const t = store.tournaments.get(id)!;
+      const tables = t.rounds[0].matches.map((m) => m.gameId!);
+      expect(tables).toHaveLength(6);
+      // Only the host (or the admin) may abort.
+      expect((await call(`/tournaments/${id}/abort`, post())).status).toBeGreaterThanOrEqual(401);
+      const aborted = await call(`/tournaments/${id}/abort`, post(), host);
+      expect(aborted.status).toBe(200);
+      const view = aborted.body.tournament;
+      expect(view).toMatchObject({ status: 'finished', champion: null, aborted: { at: clock.now() } });
+      // The bracket stays: every table abandoned with its standing so far.
+      expect(view.rounds).toHaveLength(1);
+      for (const m of view.rounds[0].matches) {
+        expect(m.status).toBe('abandoned');
+        expect([...m.standing.order].sort()).toEqual(m.players.map((p: any) => p.entrantId).sort());
+      }
+      // Every live table was filed first, then closed.
+      for (const g of tables) expect(store.get(g)).toBeUndefined();
+      const filed = store.archive.list().filter((e) => e.tournamentId === id);
+      expect(filed).toHaveLength(6);
+      for (const e of filed) {
+        expect(e).toMatchObject({ finished: false, aborted: true, reason: 'aborted', winner: null, endedBecause: 'its tournament was aborted' });
+        const record = store.archive.get(e.id)!;
+        expect(record.outcome.aborted!.standing).toHaveLength(3);
+        expect(record.outcome.placings.slice(0, 3)).toEqual(record.outcome.aborted!.standing);
+        expect(record.outcome.decided).toBeUndefined();
+      }
+      // The match history lists them on request (winner null, aborted), and never by default.
+      expect((await call('/history')).body.games.some((g: any) => g.aborted)).toBe(false);
+      const history = (await call('/history?aborted=1&limit=100')).body.games.filter((g: any) => g.tournamentId === id);
+      expect(history).toHaveLength(6);
+      expect(history.every((g: any) => g.aborted && g.winner === null && g.reason === 'aborted')).toBe(true);
+      // Aborting again changes nothing; nothing goes on the tournament board.
+      expect((await call(`/tournaments/${id}/abort`, post(), host)).body.tournament.aborted).toEqual(view.aborted);
+      expect(store.tournamentBoard.result(id)).toBeFalsy();
+
+      // DELETE of a running tournament aborts it first: its live tables are filed, then it is gone.
+      const second = await call('/admin/tournaments', post({ format: 'nested', name: 'Deleted Cup', botDelayMs: 2000, options: { turnTimer: 'off', autoSetup: true } }), ADMIN);
+      const id2 = second.body.tournament.id;
+      for (let i = 1; i <= 18; i++) await call(`/tournaments/${id2}/join`, post({ playerName: `D${i}` }));
+      await call(`/tournaments/${id2}/start`, post(), second.body.hostToken);
+      expect((await call(`/admin/tournaments/${id2}`, { method: 'DELETE' }, ADMIN)).status).toBe(200);
+      expect((await call(`/tournaments/${id2}`)).status).toBe(404);
+      const filed2 = store.archive.list().filter((e) => e.tournamentId === id2);
+      expect(filed2).toHaveLength(6);
+      expect(filed2.every((e) => e.reason === 'aborted' && e.aborted)).toBe(true);
+    } finally {
+      await risk.shutdown('test');
+    }
+  });
+});

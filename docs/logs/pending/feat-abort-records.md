@@ -1,0 +1,5 @@
+server: - 2026-10-22 #PR tournaments can be aborted (`POST /tournaments/:id/abort`, host or admin; `DELETE` of a running one aborts first): finished with no champion and `aborted`, the bracket kept, every live table ranked on standing so far (`rankByStanding`, the game's own dice) and its record filed with reason "aborted" before the room closes; `/history?aborted=1` lists those tables (owner's request)
+server: - 2026-10-22 #PR game records are kept forever by default (`RISK_ARCHIVE_KEEP` 0) and gzipped on disk (`games/<yyyy-mm>/<id>.json.gz`); plain `.json` records from before still load, list, move boards and prune (owner's request)
+engine: - 2026-10-22 #PR records gain the `aborted` outcome (`reason: "aborted"`, `outcome.aborted` with the standing so far, no winner); additive, RECORD_VERSION stays 1
+selfplay: - 2026-10-22 #PR `positions --records <folder>` reads gzipped `.json.gz` records too (the server's archive since this change)
+client: - 2026-10-22 #PR a nested tournament's page says when it was aborted

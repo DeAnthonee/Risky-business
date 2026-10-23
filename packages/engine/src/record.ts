@@ -133,11 +133,14 @@ export interface RecordOutcome {
   winner: PlayerId | null;
   /**
    * 'standing': decided on standing (`decided`), not won on the board. 'stalemate': the engine ended a stalled game
-   * (stallEnd) and decided it on standing itself; the winner is from its `stalemate` event.
+   * (stallEnd) and decided it on standing itself; the winner is from its `stalemate` event. 'aborted': its tournament was
+   * aborted (or deleted) while it was played: nobody won, `aborted` holds the standing so far.
    */
-  reason: 'domination' | 'capitals' | 'standing' | 'stalemate' | null;
+  reason: 'domination' | 'capitals' | 'standing' | 'stalemate' | 'aborted' | null;
   /** Set when the game was stopped and decided on standing: the order used. `winner` is its first, `placings` the order. */
   decided?: RecordDecision;
+  /** Set when the game was stopped by its tournament's abort: the standing so far (`placings` follows it; no winner). */
+  aborted?: RecordDecision;
   eliminations: RecordElimination[];
   /** Players from first to last (Neutral left out): the winner, the survivors by territories held, then the eliminated, last out first. */
   placings: PlayerId[];
@@ -263,7 +266,8 @@ export function recordTurnStart(header: RecordHeader, state: GameState, events: 
 
 /** Put a record together from its header, its journal and the state it ended in. */
 /** `decided`: the game was stopped and decided on standing (outcome reason 'standing', winner and placings from it). */
-export function assembleRecord(header: RecordHeader, entries: RecordEntry[], final: GameState, endedAt: number, endedBecause?: string, decided?: RecordDecision): GameRecord {
+/** `aborted`: the game was stopped by its tournament's abort (outcome reason 'aborted', no winner, placings the standing so far). */
+export function assembleRecord(header: RecordHeader, entries: RecordEntry[], final: GameState, endedAt: number, endedBecause?: string, decided?: RecordDecision, aborted?: RecordDecision): GameRecord {
   const steps: RecordStep[] = [];
   const turns: RecordTurn[] = [];
   for (const e of entries) {
@@ -297,6 +301,26 @@ export function assembleRecord(header: RecordHeader, entries: RecordEntry[], fin
   // A stalemate (stall.ts, stallEnd): the engine finished the game on standing; its order is the result.
   const ended = finished ? stallOf(final)?.stalemate : undefined;
   const stalemate = ended ? { order: ended.standing.filter((id) => seats.has(id)), rolls: ended.rolls } : null;
+  // Aborted with its tournament: the standing so far, and nobody won (only for a game the engine did not finish).
+  const stopped = !finished && !standing && aborted ? aborted.standing.filter((id) => seats.has(id)) : null;
+  if (stopped) {
+    return {
+      ...header,
+      endedAt,
+      steps,
+      turns,
+      outcome: {
+        finished,
+        endedBecause: endedBecause ?? 'its tournament was aborted',
+        winner: null,
+        reason: 'aborted',
+        eliminations,
+        placings: [...stopped, ...placings.filter((id) => !stopped.includes(id))],
+        aborted: { standing: stopped, ...(aborted!.rolls && Object.keys(aborted!.rolls).length ? { rolls: aborted!.rolls } : {}) },
+        board: boardOf(final, header),
+      },
+    };
+  }
   return {
     ...header,
     endedAt,

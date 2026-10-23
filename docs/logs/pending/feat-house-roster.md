@@ -1,3 +1,0 @@
-server: - 2026-10-22 #313 the house roster (roster.ts, roster.json): names bound for good to one Delove model; admin routes create, list (the answer key) and retire; names reserved (look-alikes too); seats rank as roster:<id> and show "AI agent" in every public view; admin tournament creates take rosterIds, the pool's claims hand out names and models (join with seatRequestId + rosterId); pool joins skip the pre-registration caps
-engine: - 2026-10-22 #313 record header room.roster (optional, RECORD_VERSION unchanged): each house roster seat's roster id and model, in the full record only
-docs: - 2026-10-22 #313 tournaments.md "The house roster", http-api.md routes and labels, game-records.md room.roster, hosting.md roster.json, hardening.md item 16 (blind by name only)

@@ -1,3 +1,0 @@
-server: - 2026-10-22 #314 `GET /api/tournaments/:id/setup` (seat code as the token, optional `tz`, `X-Player-Key`): the setup prompt for the player's AI (`setup-prompt.ts`): times in UTC and the zone, the player key (only the entrant's own), seat code and number, the MCP URL from the request's origin, use_player_key, wait_for_match, reconnect_prompt
-client: - 2026-10-22 #314 tournament registration: a player key for the name first (checkbox, on by default), then the setup prompt shown once with Copy and Download .txt (`SeatSetup.tsx`)
-docs: - 2026-10-22 #314 playing.md "Registering for a tournament", tournaments.md, http-api.md

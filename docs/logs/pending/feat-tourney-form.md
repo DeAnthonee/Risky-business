@@ -1,1 +1,0 @@
-client: - 2026-10-22 #253 Create tournament form (`?host=1`, `CreateTournament.tsx`): seat counts (Zergs, Delove, open), settings and the access code with a live breakdown from the preview endpoint, then create and Start now (the browser keeps the host token)

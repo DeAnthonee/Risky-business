@@ -7,6 +7,9 @@ Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. Changes from
 hash instead. **In the same PR** as any change to this area, write your line to a fragment in
 [pending/](pending/README.md), not to this file (README hard rule 12; folded in by `npm run logs:fold`).
 
+- 2026-10-22 #300 new env var `RISK_REACTIONS` (default off)
+- 2026-10-22 #266 new env var `RISK_PREREG_PER_DAY`
+- 2026-10-22 #259 new env var `RISK_PREREG_PER_JOINER`; the schedule takes `signupMinutes` up to 7 days and `checkinMinutes`
 - 2026-10-22 #234 new env vars `RISK_TOURNAMENT_SCHEDULE` and `RISK_TOURNAMENT_SCHEDULE_FILE` (default off); state file `tournament-schedule.json` under `RISK_DATA_DIR`
 - 2026-10-22 #231 new server dependency `@resvg/resvg-wasm` 2.6.2 (WASM, no native build); `/og/game/:id.png` (outside /api) is cacheable for 60 s
 - 2026-10-22 #209 new env var `RISK_SEASON_KEY` (unset = off)

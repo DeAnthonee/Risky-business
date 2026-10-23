@@ -5,3 +5,4 @@ runner: - 2026-10-22 #319 the runner's LEADERBOARD.md merges versioned seat name
 delove: - 2026-10-22 #319 delove-seat accepts sensei@3 as another name for jacob-sensei@1
 docs: - 2026-10-22 #319 docs/how-to-run-league-models.md: running League characters and DeLOVE locally or live, and a 5 vs 5 mixed table with delove@13
 runner: - 2026-10-22 #319 capital-run search computes the safe-stack odds only for territories on the chosen attack tree (it ran a full odds table per map edge on every move; one headless test took 69 s and timed out vitest's worker)
+runner: - 2026-10-22 #319 table talk is pings plus bare deal tags by default: diplomat lines keep only their [deal ...]/[accept ...]/[coalition ...] tags and lines without one are dropped (--free-chat restores the old talk)

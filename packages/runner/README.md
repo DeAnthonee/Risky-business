@@ -275,6 +275,7 @@ engine bot (41-58) because it turtled, so the purpose requirement is deliberatel
 | `--generation TAG` | derived | tag stored on each result (default `gen4` with `--smart-seats 1`, `mechanics` with `--mechanics-only`, else `gen5`); post-game leaderboard ranks results matching this generation tag; rooms are named `Generation <tag> Match <n>` (e.g. `Generation 5 Match 3`, tag without its `gen` prefix), which the web client uses to move spectators on to the next match (see [docs/playing.md](../../docs/playing.md)) |
 | `--pace` | 800 (0 with `--mechanics-only`) | ms between actions so spectators can follow |
 | `--max-chat-per-turn` | 2 | messages per seat per game turn |
+| `--free-chat` | off | let the diplomats' own words through. Off, table talk is pings plus bare deal tags: a deal, answer or coalition line keeps only its `[deal ...]` / `[accept ...]` / `[coalition ...]` tags, and a line with none is dropped |
 | `--game ID` / `--start` | off | join an existing lobby and play that one game (plain planned bot, chat only; no commander or write-ups; default seats are the six original League ones unless `--seats`) |
 | `--verbose` | off | also log chat failures |
 

@@ -9,6 +9,8 @@ import { backoffMs, isTransient } from './resilient.js';
 import { chooseMove } from './view-state.js';
 
 export interface SeatOptions {
+  /** Let the diplomat's own words through. Off (default): chat is pings plus bare deal tags ([deal ...], [accept ...]). */
+  freeChat?: boolean;
   api: RiskApi;
   gameId: string;
   playerId: PlayerId;
@@ -317,8 +319,11 @@ export class SeatRunner {
     const job = p
       .then(async (out) => {
         if (!out || this.stopped) return;
-        const message = cleanChat(out.message);
-        if (!message) return;
+        const message = this.o.freeChat ? cleanChat(out.message) : dealTagsOnly(cleanChat(out.message));
+        if (!message) {
+          if (!this.o.freeChat) this.o.log(`${this.o.name}: chat skipped (pings and deal tags only)`);
+          return;
+        }
         // Limit all chat messages to once per 4 turns unless responding to a deal
         const isDealResponse = /\[(?:accept|agree|decline|reject)\b/i.test(message);
         if (this.ownTurnCount - this.lastChatOwnTurn < 4 && !isDealResponse) {
@@ -338,4 +343,9 @@ export class SeatRunner {
 
 function errText(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
+}
+
+/** The deal and coalition tags in a diplomat line, without the spoken words around them ("" when there are none). */
+export function dealTagsOnly(message: string): string {
+  return (message.match(/\[(?:deal|accept|reject|coalition|join|decline)\b[^\]]*\]/gi) ?? []).join(' ');
 }

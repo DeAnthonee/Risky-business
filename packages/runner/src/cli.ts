@@ -47,6 +47,7 @@ sets plans, talks, and writes up what it learned after every game)
   --generation TAG        tag stored on each result (default derived: gen4 with --smart-seats 1, mechanics, or gen5)
   --pace MS               pause after each action (default 800, or 0 with --mechanics-only)
   --max-chat-per-turn N   messages per seat per game turn (default 2)
+  --free-chat             let the diplomats' own words through (default: pings and bare deal tags only)
   --game ID               join this existing lobby instead of creating games (one game; see --start; default seats: the six League ones)
   --start                 with --game: start it if one of our seats is the host
   --verbose               log every chat line and failure detail
@@ -90,6 +91,7 @@ async function main() {
       'open-seats': { type: 'string', default: '0' },
       pace: { type: 'string' },
       'max-chat-per-turn': { type: 'string', default: '2' },
+      'free-chat': { type: 'boolean', default: false },
       generation: { type: 'string' },
       verbose: { type: 'boolean', default: false },
       help: { type: 'boolean', default: false },
@@ -153,6 +155,7 @@ async function main() {
     : null;
   const paceMs = v.pace !== undefined ? num(v.pace, 'pace') : mechanicsOnly ? 0 : 800;
   const maxChatPerTurn = num(v['max-chat-per-turn']!, 'max-chat-per-turn');
+  const freeChat = Boolean(v['free-chat']);
   const aiDir = findAiDir(v['ai-dir']);
   if (v['ai-dir'] && !aiDir) fail(`--ai-dir ${v['ai-dir']} has no characters/ folder`);
 
@@ -203,6 +206,7 @@ async function main() {
     learn,
     chat,
     maxChatPerTurn,
+    freeChat,
     charactersKey: mechanicsOnly ? undefined : v['characters-key'],
     mechanicsOnly,
     curationInterval,
@@ -235,6 +239,7 @@ async function main() {
         const character = llm && chat && characterId ? await loadCharacter(api, characterId, aiDir) : null;
         return new SeatRunner({
           api,
+          freeChat,
           gameId: id.gameId,
           playerId: id.playerId,
           token: id.token,

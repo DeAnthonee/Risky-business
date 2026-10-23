@@ -77,6 +77,8 @@ export interface LoopOptions {
   /** Table talk. */
   chat: boolean;
   maxChatPerTurn: number;
+  /** Let the diplomats' own words through; default false (pings and bare deal tags only). */
+  freeChat?: boolean;
   charactersKey?: string;
   /** Pure mechanics training mode: uses generic seats without character profiles, skips chat and character memory/diary writes, and updates only RISK_LEARNINGS.md. */
   mechanicsOnly?: boolean;
@@ -268,6 +270,7 @@ export async function runLoop(o: LoopOptions): Promise<GameResult[]> {
       };
       return new SeatRunner({
         api,
+        freeChat: o.freeChat,
         gameId: id.gameId,
         playerId: id.playerId,
         token: id.token,

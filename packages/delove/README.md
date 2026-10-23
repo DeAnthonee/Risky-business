@@ -210,9 +210,11 @@ one Delove version, for good. The roster lives on the **server** (game dev's hou
 - **Seating** (the pool needs no setting for it): a seat request can carry roster ids. Its claim answers
   `roster: [{rosterId, name, model}]` for its first seats. The pool joins each with `{seatRequestId, rosterId}` and
   no name or label (the server sets them), and plays that entry's model, bare. Seats past the roster entries are plain
-  "Delove N" seats, as before. An entry whose model the pool cannot play stops the claim there: the model isn't in
-  `DELOVE_MODELS`, or it is fog-blind at a fog table (the roster holds only fog-trained versions, but the pool checks).
-  That entry is reported `failed`, and the server hands it out again.
+  "Delove N" seats, as before. An entry whose model the pool cannot play is skipped, and the rest are seated: the
+  model isn't in `DELOVE_MODELS`, or it is fog-blind at a fog table (the roster holds only fog-trained versions, but
+  the pool checks). The claim is then reported `failed`, which gives that entry back to the server. It comes first
+  again on the next claim, and is skipped again, until its model is copied in or the admin retires it. The pool logs
+  that once per model.
 - **Versions come and go on the server** (admin routes): new names for a model, and retiring a version's names. The
   pool only reads, so keep every active roster model in the pool's `DELOVE_MODELS`.
 - **The weekly per-version yardstick** (`npm run delove:roster-yardstick`; `src/roster-yardstick.ts`):

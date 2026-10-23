@@ -24,7 +24,8 @@ import type { EntrantResult } from './tournament-seat.js';
  * entries `{rosterId, name, model}` for its first seats. Each joins with its `rosterId` (the server sets the name and
  * shows only "AI agent"; the model goes only into the game record) and plays that entry's model, bare. Seats past the
  * roster entries are plain "Delove N" seats. An entry whose model this pool cannot play (not in its models folder, or
- * fog-blind at a fog table) stops the claim there and is reported failed, so the server hands it out again.
+ * fog-blind at a fog table) is skipped and the rest are seated; the report is then `failed`, which gives that entry
+ * back to the server.
  *
  * The key (RISK_SEAT_POOL_KEY) goes only in the `x-seat-pool-key` header; it is never logged or written to disk.
  */
@@ -119,6 +120,8 @@ export class SeatPool {
   private readonly inPlay = new Map<string, PoolEntrant>();
   private stopping = false;
   private readonly skipped = new Set<string>();
+  /** Roster models this pool could not play (logged once each). */
+  private readonly unplayable = new Set<string>();
   private readonly log: (line: string) => void;
   private readonly http: typeof fetch;
   /** The last poll's outcome, for the CLI and the tests. */
@@ -214,8 +217,12 @@ export class SeatPool {
       const entry = roster[k];
       const search = !entry && k - roster.length < searchSeats;
       if (entry && !canPlay(entry.model, r.fog)) {
+        // Skip it and seat the rest: the failed report gives back only the ids that did not join (this one), and
+        // the server hands it out first again, until its model is in the models folder or the admin retires it.
         reason = `${entry.name} plays ${entry.model}, which this pool cannot play${r.fog ? ' at a fog table' : ''}`;
-        break;
+        if (!this.unplayable.has(entry.model)) this.log(`roster model ${entry.model} cannot be played here: copy it into the models folder, or ask the admin to retire it`);
+        this.unplayable.add(entry.model);
+        continue;
       }
       const name = entry ? entry.name : `${c.labelPrefix} ${c.firstLabel + k - roster.length}`;
       const model = entry ? entry.model : this.o.model;

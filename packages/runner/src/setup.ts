@@ -19,7 +19,7 @@ export function parseSeats(text: string): SeatSpec[] {
       const [name, characterId] = s.split('=').map((x) => x.trim());
       return characterId ? { name, characterId } : { name };
     });
-  if (seats.length < 2) throw new Error('Need at least 2 seats');
+  if (seats.length < 1) throw new Error('Need at least 1 seat');
   const names = new Set(seats.map((s) => s.name.toLowerCase()));
   if (names.size !== seats.length) throw new Error('Seat names must be unique');
   return seats;

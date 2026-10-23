@@ -26,7 +26,7 @@ export function makeAgents(ids: string[], presetName: string | undefined): Agent
       const entries: [string, Agent][] = [[a.id, a]];
       if (a.id === 'delove-teacher@1') entries.push(['sensei@1', a], ['sensei', a]);
       if (a.id === 'delove-teacher@2') entries.push(['sensei@2', a]);
-      if (a.id === jacob.id) entries.push(['jacob', a]);
+      if (a.id === jacob.id) entries.push(['jacob', a], ['sensei@3', a]);
       if (a.id === jacob2.id) entries.push(['jacob2', a]);
       return entries;
     }),

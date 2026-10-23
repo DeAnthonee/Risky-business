@@ -24,7 +24,7 @@ const USAGE = `delove-seat: seat Delove players in a real game over the HTTP API
                    play time, below): delove-teacher@1, every tuned
                    teacher models/delove/delove-teacher@N.json and every models/delove/delove@N.onnx
                    (or DELOVE_MODELS); sensei, sensei@1 and sensei@2 name the teachers;
-                   jacob-sensei@1 (or jacob) is Jacob Sensei, jacob-sensei@2 (or jacob2) Jacob
+                   jacob-sensei@1 (or jacob, sensei@3) is Jacob Sensei, jacob-sensei@2 (or jacob2) Jacob
                    Sensei 2; delove-branch@1 (or delove-branch) is Delove with
                    search at play time (branch and score): the newest delove@N ranks the moves, set
                    by --preset (below); any DELOVE_BRANCH_* variable overrides one setting, e.g.

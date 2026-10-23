@@ -217,8 +217,9 @@ describe('Commander and deals', () => {
     activate(ledger, v, { kind: 'joint_attack', with: 'Teemo', target: 'Lux', startRound: 6 }, 'Teemo');
     expect(c.currentPlan()?.target).toBeNull(); // not started
     c.observe({ ...v, round: 6 });
-    // The joint target is Lux, whom the truce protects: the target wins, the avoid entry goes.
-    expect(c.currentPlan()).toMatchObject({ target: 'b', avoid: [] });
+    // The joint target is Lux, whom the truce protects: the target wins, the avoid entry goes. The joint-attack
+    // partner (Teemo) is not attacked while the joint attack runs.
+    expect(c.currentPlan()).toMatchObject({ target: 'b', avoid: ['c'] });
     void theirs;
   });
 

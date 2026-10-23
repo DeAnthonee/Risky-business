@@ -227,6 +227,14 @@ froze the game (nobody could spare anything, no cards, progressive sets never gr
 - **Stall pressure**: each seat counts its own turns since it last conquered something (`StallTracker`). From 2
   turns on, every further turn lowers the attack threshold by 0.05 (down to 0.5) and the card-attack chance by 0.04,
   and raises the allowed dip by 10 points of the floor (up to 90%). `stallPressure: false` in the plan turns it off.
+- **Overwhelming stacks commit**: the measured commit from a capital is skipped when the stack has 20+ armies to spare
+  and at least 4x the defenders. Minimal commits from huge capital stacks took a territory or two a turn and let
+  headless games run forever (two seats on 23,000-army stacks never broke the board).
+- **Heads-up, the spearhead keeps its stack**: in 1v1 an occupation carries the whole stack on instead of splitting
+  it at junctions, so the last territories are not left to thin stacks (headless games ended in about half the turns).
+- **Pacts dissolve in a stalemate**: agreed good-neighbor pacts put that neighbour on the seat's avoid list, so pacts
+  on every border could freeze a 4-6 player table for good. They dissolve with 3 or fewer players left, and also once
+  the seat has gone `STALL_BREAK` (4) of its turns without a conquest; they stay off until it conquers again.
 - Attack scoring prefers a near-certain win over a big stack to nibbling small territories (two giant stacks
   trading Australia forever never finished one headless game).
 - The commander facts list, for each border territory, the enemy territories next to it with owner and armies
@@ -241,6 +249,41 @@ In 200 six-player games (3 seats each, alternating, classic and europe, default 
 the planned bot with no plan won 138 to the engine bot's 62, none undecided at 1500 turns, 53 turns on average
 (before the knobs and the card-every-turn default: 120 to 80, 60 turns). Earlier, in 400 games it won 264 to 131. A stricter "purpose only" gate lost to the
 engine bot (41-58) because it turtled, so the purpose requirement is deliberately light.
+
+### Strategy reads
+
+Rules that came from watching live games (`src/strategy.ts`, used by the board facts and the move chooser):
+
+- **Natural enemy**: a rival whose every way out leads into us (at least 80% of the territories bordering theirs are
+  ours). Whatever it builds ends up hitting us, so attacks on it score higher and the facts say to break it before
+  spending troops on other fronts.
+- **Sweep**: a region one rival holds alone with most of it on 1-2 armies (the models' habit of spreading thin),
+  next to us, that our stacks next to it plus two turns of income can take whole. Attacks into it score higher and
+  pass the "card already taken" bleed filter until the region is taken.
+- **Retake and deny**: the seat's game memory records who took its territories and whether that broke a bonus we
+  held. Only a rival that broke one of our bonuses this round or last triggers it (a stray territory taken elsewhere
+  does not): retaking that bonus scores higher, and so does pushing into the rival's own bonus (held, or 70% theirs)
+  to deny it next turn. Both pass the bleed filter and the stop-after-bonus rule.
+- **Pockets**: a small group of enemy territories (up to 4) whose every outside neighbour is ours. Clearing it is
+  cheap and frees the guards around it, so attacks into it score higher and pass the bleed and stop-after-bonus
+  filters, kill or not; the facts list the pockets.
+- **Joint attacks**: when two seats agree to attack a third (an attack ping answered with an agree, either way, or an
+  accepted `joint_attack` deal), each keeps the other off its attack list while it runs. It ends when the target
+  falls, after `JOINT_ROUNDS` (3) rounds, when either partner takes the other's land, or when the commander names the
+  partner as its target (ending it on purpose). The prompt lists the active joint attacks and how they end.
+- **Holding back is geographic**: the model's own `avoid` list keeps a player only when a deal or pact backs it, or
+  when the plan fights on another front (its target or focus is elsewhere). A natural enemy is never spared, and
+  troop counts are not the test (they are unreliable under fog). Dropped and kept avoids are logged with the reason.
+- **Fog reads**: an unseen rival is placed in the region it was last seen in (game memory), with its public income and
+  the memory's army estimate; a "possible fog kill" is flagged only when that region borders us and the estimate
+  allows it.
+- **Dice**: the engine rolls at most `armies - stopAt` dice, so a measured commit of 1-2 armies attacked with 1-2 dice.
+  Under balanced blitz an attack now commits at least 4 armies when the stack can spare them (never below a hard
+  capital garrison), so the opening rolls use 3 dice. Campaign moves (capital runs, eliminations) keep their own stop
+  points.
+
+Every move carries a short reason ("retakes North America from Ronny@13 (retaliation) [...]", "card attack [...]"),
+sent as the move's private decision note (in the game record after the game) and logged for attacks.
 
 ## Options
 
@@ -259,6 +302,7 @@ engine bot (41-58) because it turtled, so the purpose requirement is deliberatel
 | `--model` / `--ollama` | `qwen3:14b` / `http://localhost:11434` | the local model |
 | `--ctx` | 16384 | Ollama `num_ctx` |
 | `--llm-concurrency` | 2 | simultaneous model requests (all seats share one model) |
+| `--llm-stats FILE` | none | append one JSON line per model call to FILE: its label (`commander:turn`, `diplomat`, `postgame:note`, ...), queue wait, prompt tokens Ollama had to read and how long that took, output tokens and their time, total time. `--verbose` also prints one line per call. Prompt tokens well below the prompt's size mean Ollama reused its cache: the commander and diplomat prompts put the text every seat shares first and the seat's own identity last so that it can |
 | `--plan-timeout SEC` | 45 | how long a move waits for the commander |
 | `--no-commander` | off | pure planned bot, no model call per turn |
 | `--no-learn` | off | skip every post-game write and the scouting log |
@@ -271,6 +315,7 @@ engine bot (41-58) because it turtled, so the purpose requirement is deliberatel
 | `--generation TAG` | derived | tag stored on each result (default `gen4` with `--smart-seats 1`, `mechanics` with `--mechanics-only`, else `gen5`); post-game leaderboard ranks results matching this generation tag; rooms are named `Generation <tag> Match <n>` (e.g. `Generation 5 Match 3`, tag without its `gen` prefix), which the web client uses to move spectators on to the next match (see [docs/playing.md](../../docs/playing.md)) |
 | `--pace` | 800 (0 with `--mechanics-only`) | ms between actions so spectators can follow |
 | `--max-chat-per-turn` | 2 | messages per seat per game turn |
+| `--free-chat` | off | let the diplomats' own words through. Off, table talk is pings plus bare deal tags: a deal, answer or coalition line keeps only its `[deal ...]` / `[accept ...]` / `[coalition ...]` tags, and a line with none is dropped |
 | `--game ID` / `--start` | off | join an existing lobby and play that one game (plain planned bot, chat only; no commander or write-ups; default seats are the six original League ones unless `--seats`) |
 | `--verbose` | off | also log chat failures |
 

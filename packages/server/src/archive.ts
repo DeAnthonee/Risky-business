@@ -38,6 +38,8 @@ export interface ArchivedRoom {
   characterIds: Record<string, string>;
   /** Player-type labels by seat; written into the record only when it is filed, after the game. */
   agents: Record<string, string>;
+  /** House roster seats: player id -> roster id (roster.ts); the record names their models when it is filed. */
+  rosterIds?: Record<string, string>;
   state: GameState;
   /** The record this room's game is being written to, if any. */
   recordId?: string;
@@ -97,6 +99,9 @@ export class GameArchive {
     /** How many finished records to keep, newest first (0 = all). */
     public keep = DEFAULT_KEEP,
   ) {}
+
+  /** The model a house roster id plays (the store sets it from roster.ts), for the filed record's answer key. */
+  rosterModel: ((rosterId: string) => string | undefined) | null = null;
 
   get enabled(): boolean {
     return this.dir !== null;
@@ -179,6 +184,9 @@ export class GameArchive {
       if (room.board) header.room = { ...header.room, board: room.board };
       // The game is over, so the seats' player types can go public with the record.
       if (Object.keys(room.agents).length) header.room = { ...header.room, agents: { ...room.agents } };
+      // The house roster's answer key, in the full record only (records key): which model each roster seat was.
+      const roster = Object.entries(room.rosterIds ?? {}).map(([pid, id]) => [pid, { id, model: this.rosterModel?.(id) ?? 'unknown' }] as const);
+      if (roster.length) header.room = { ...header.room, roster: Object.fromEntries(roster) };
       const entries = lines.slice(1).map((l) => JSON.parse(l) as RecordEntry);
       const record = assembleRecord(header, entries, room.state, Date.now(), endedBecause, decided);
       if (room.coach?.notes.length) record.coach = room.coach.notes.map((n) => ({ ...n }));

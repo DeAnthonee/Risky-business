@@ -85,3 +85,199 @@ export function planConquest(view: GameView, me: PlayerId, targets: TerritoryId[
   enumerate(0);
   return best;
 }
+
+/**
+ * Multi-hop Capital Run Campaign:
+ * Calculates a complete attack tree to capture all remaining unowned capitals in a single turn.
+ * Uses multi-source Dijkstra from all owned launchpads across transit territories,
+ * computes exact casualty requirements, tree branching and stack transfers.
+ * Works even if the player currently holds 0 capitals!
+ */
+export function findCapRun(view: GameView, me: PlayerId, options: CampaignOptions): Campaign | null {
+  if (!view.options.capitals) return null;
+  const allCaps = Object.values(view.capitals ?? {});
+  if (allCaps.length <= 1) return null;
+
+  const unownedCapitals = allCaps.filter((t) => view.territories[t]?.owner !== me);
+  if (unownedCapitals.length === 0) return null; // Already hold all capitals
+
+  const map = getMap(view.options.map);
+  const own = (t: string) => view.territories[t]?.owner === me && !view.territories[t]?.hidden;
+  const armies = (t: string) => view.territories[t]?.armies ?? 0;
+  const blizzards = new Set(view.blizzards ?? []);
+
+  const initialNodes = map.territoryIds.filter((t) => own(t) && !blizzards.has(t));
+  if (initialNodes.length === 0) return null;
+
+  const activeNodes = new Set<string>(initialNodes);
+  const uncovered = new Set<string>(unownedCapitals);
+  const edgeList: { from: TerritoryId; to: TerritoryId }[] = [];
+
+  const baseReq = (t: string) => {
+    const isCapital = allCaps.includes(t);
+    const arm = armies(t);
+    const loss = Math.ceil(arm * (isCapital ? 2.0 : 1.25)) + 2;
+    const minSafe =
+      commitForOdds(
+        Math.max(24, arm * 8 + 16),
+        arm,
+        isCapital ? 3 : 2,
+        0.85,
+        !!view.options.balancedBlitz,
+      ) ?? (arm * 3 + 6);
+    return { loss, minSafe };
+  };
+
+  // Repeatedly connect the closest uncovered capital to the growing active tree
+  while (uncovered.size > 0) {
+    const dist = new Map<string, number>();
+    const prev = new Map<string, string>();
+    const queue: string[] = [];
+
+    for (const node of activeNodes) {
+      dist.set(node, 0);
+      queue.push(node);
+    }
+
+    const visited = new Set<string>();
+    while (queue.length > 0) {
+      queue.sort((a, b) => (dist.get(a) ?? Infinity) - (dist.get(b) ?? Infinity));
+      const curr = queue.shift()!;
+      if (visited.has(curr)) continue;
+      visited.add(curr);
+
+      const dCurr = dist.get(curr) ?? Infinity;
+      if (!Number.isFinite(dCurr)) break;
+
+      const neighbours = map.adjacency[curr] ?? [];
+      for (const next of neighbours) {
+        if (blizzards.has(next) || options.noAttack.has(next)) continue;
+        if (view.territories[next]?.hidden) continue;
+
+        const w = activeNodes.has(next) ? 0 : baseReq(next).loss + 1;
+        const newDist = dCurr + w;
+        if (newDist < (dist.get(next) ?? Infinity)) {
+          dist.set(next, newDist);
+          prev.set(next, curr);
+          queue.push(next);
+        }
+      }
+    }
+
+    let bestTarget: string | null = null;
+    let bestDist = Infinity;
+    for (const target of uncovered) {
+      const d = dist.get(target) ?? Infinity;
+      if (d < bestDist) {
+        bestDist = d;
+        bestTarget = target;
+      }
+    }
+
+    if (!bestTarget || !Number.isFinite(bestDist)) {
+      return null;
+    }
+
+    const path: string[] = [];
+    let curr: string | undefined = bestTarget;
+    while (curr && !activeNodes.has(curr)) {
+      path.unshift(curr);
+      curr = prev.get(curr);
+    }
+    if (!curr) return null;
+    path.unshift(curr);
+
+    for (let i = 0; i < path.length - 1; i++) {
+      const u = path[i];
+      const v = path[i + 1];
+      edgeList.push({ from: u, to: v });
+      activeNodes.add(v);
+      uncovered.delete(v);
+    }
+  }
+
+  const roots = [...new Set(edgeList.map((e) => e.from).filter(own))];
+  if (roots.length === 0) return null;
+
+  const childrenOf = new Map<string, string[]>();
+  for (const { from, to } of edgeList) {
+    const list = childrenOf.get(from) ?? [];
+    if (!list.includes(to)) list.push(to);
+    childrenOf.set(from, list);
+  }
+
+  const memo = new Map<string, number>();
+  const computeNeeded = (node: string): number => {
+    if (memo.has(node)) return memo.get(node)!;
+    const { loss, minSafe } = baseReq(node);
+    const children = childrenOf.get(node) ?? [];
+    const childrenNeeded = children.reduce((sum, c) => sum + computeNeeded(c), 0);
+    const needed = Math.max(minSafe, loss + 1 + childrenNeeded);
+    memo.set(node, needed);
+    return needed;
+  };
+
+  const requirements: Record<TerritoryId, number> = {};
+  const placements: Record<TerritoryId, number> = {};
+  let totalDeficit = 0;
+
+  for (const r of roots) {
+    const children = childrenOf.get(r) ?? [];
+    const neededFromRoot = children.reduce((sum, c) => sum + computeNeeded(c), 0);
+    const req = options.floor(r) + neededFromRoot;
+    requirements[r] = req;
+    const def = Math.max(0, req - armies(r));
+    if (def > 0) placements[r] = def;
+    totalDeficit += def;
+  }
+
+  let occupy: number | undefined;
+  const tr = options.transfer;
+  if (tr) {
+    const step = edgeList.find((e) => e.from === tr.from && e.to === tr.to);
+    if (step) {
+      const toNeed = computeNeeded(tr.to);
+      const otherChildren = (childrenOf.get(tr.from) ?? []).filter((c) => c !== tr.to);
+      const fromNeed = otherChildren.reduce((sum, c) => sum + computeNeeded(c), 0);
+      const cap = options.floor(tr.from);
+      const available = Math.max(0, armies(tr.from) - cap);
+
+      if (fromNeed === 0) {
+        occupy = Math.min(tr.max, Math.max(tr.min, available));
+      } else {
+        const surplus = Math.max(0, available - toNeed - fromNeed);
+        const branchOccupy = Math.round(toNeed + surplus * 0.5);
+        occupy = Math.min(tr.max, Math.max(tr.min, branchOccupy));
+      }
+      totalDeficit -= (placements[tr.from] ?? 0) + (placements[tr.to] ?? 0);
+      delete placements[tr.from];
+      delete placements[tr.to];
+    }
+  }
+
+  if (totalDeficit > (options.reinforcements ?? 0)) {
+    return null;
+  }
+
+  const attacks = edgeList.map((e) => {
+    const otherChildren = (childrenOf.get(e.from) ?? []).filter((c) => c !== e.to);
+    const otherNeed = otherChildren.reduce((sum, c) => sum + computeNeeded(c), 0);
+    const baseFloor = own(e.from) ? options.floor(e.from) : 1;
+    return {
+      from: e.from,
+      to: e.to,
+      keep: baseFloor + otherNeed,
+    };
+  });
+
+  const totalCost = edgeList.reduce((sum, e) => sum + baseReq(e.to).loss + 1, 0);
+
+  return {
+    cost: totalCost,
+    deficit: totalDeficit,
+    requirements,
+    placements,
+    attacks,
+    occupy,
+  };
+}

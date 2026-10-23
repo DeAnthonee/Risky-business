@@ -1,7 +1,7 @@
 import { blitzOdds, commitForOdds, getMap, type Action, type GameView, type MapDef, type PlayerId, type TerritoryId } from '@risk/engine';
 import { chooseMove } from './view-state.js';
 import { planElimination, type KillPlan } from './eliminations.js';
-import { planConquest, type Campaign, type CampaignOptions } from './campaigns.js';
+import { planConquest, findCapRun, type Campaign, type CampaignOptions } from './campaigns.js';
 
 export type WinPath = 'diplomacy' | 'bonuses' | 'cards' | 'capitals' | 'kills' | 'hopeless';
 export const WIN_PATHS: readonly WinPath[] = ['diplomacy', 'bonuses', 'cards', 'capitals', 'kills', 'hopeless'];
@@ -54,6 +54,10 @@ export interface Plan {
   route?: TerritoryId[];
   /** Territory the commander wants to fortify back to at the end of the turn (e.g. a capital or choke). */
   fortifyTo?: TerritoryId | null;
+  /** Stop attacking immediately once a focus/target continent bonus is secured/held and a card is earned; prevents bleeding troops into greedy attacks. Default true when winPath is 'bonuses'. Ignored in 1v1 where maximum territory denial dominates. */
+  stopAfterBonus?: boolean;
+  /** When true (default), stop attacking once all territories in an explicit `route` are conquered, rather than falling through to generic attacks. Ignored in 1v1. */
+  stopAfterRoute?: boolean;
 }
 
 interface CleanPlan {
@@ -78,6 +82,8 @@ interface CleanPlan {
   placeOn: TerritoryId[];
   route: TerritoryId[];
   fortifyTo: TerritoryId | null;
+  stopAfterBonus: boolean;
+  stopAfterRoute: boolean;
 }
 
 const DEFAULT_AGGRESSION = 0.5;
@@ -137,6 +143,8 @@ export function cleanPlan(plan: Plan | null | undefined, view: GameView, me: Pla
     placeOn: [...new Set((Array.isArray(raw.placeOn) ? raw.placeOn : typeof raw.placeOn === 'string' ? [raw.placeOn] : []).filter((x): x is string => typeof x === 'string' && map.isTerritory(x)))],
     route: [...new Set((Array.isArray(raw.route) ? raw.route : typeof raw.route === 'string' ? [raw.route] : []).filter((x): x is string => typeof x === 'string' && map.isTerritory(x)))],
     fortifyTo: typeof raw.fortifyTo === 'string' && map.isTerritory(raw.fortifyTo) ? raw.fortifyTo : null,
+    stopAfterBonus: flag(raw.stopAfterBonus, winPath === 'bonuses' || winPath === 'cards' || winPath === 'diplomacy'),
+    stopAfterRoute: flag(raw.stopAfterRoute, true),
   };
 }
 
@@ -270,7 +278,7 @@ class Chooser {
     if (view.options.capitals) {
       for (const [pid, t] of Object.entries(view.capitals ?? {})) {
         this.capitalOf.set(t, pid);
-        if (pid === me && view.territories[t]?.owner === me) this.myCapitals.add(t);
+        if (view.territories[t]?.owner === me) this.myCapitals.add(t);
       }
     }
     this.conquered = view.players.find((p) => p.id === me)?.conqueredThisTurn ?? false;
@@ -372,9 +380,36 @@ class Chooser {
   private guardFor(t: TerritoryId, share = 0.7): number {
     return this.plan.borderGuard <= 0 ? 0 : Math.ceil(this.threat(t) * share * this.plan.borderGuard) + 1;
   }
-  /** Armies a capital should hold when reinforcing. */
+  /**
+   * Evaluates the strategic defensibility and leverage of a capital position.
+   * Where you started doesn't matter: captured capitals in superior strategic positions
+   * (chokepoints with few avenues of attack, bonus borders guarding continents) are valued
+   * even higher than starting capitals.
+   */
+  private capitalPositionScore(t: TerritoryId): number {
+    let score = 0;
+    const hostiles = this.hostileNeighbours(t);
+    // Choke points with fewer avenues of attack are vastly easier and more valuable to defend
+    if (hostiles.length === 1) score += 8;
+    else if (hostiles.length === 2) score += 4;
+    else if (hostiles.length >= 4) score -= 4;
+
+    // Bonus border defending a held continent
+    if (this.isBonusBorder(t)) score += 10;
+    else {
+      const cont = this.map.territoryById[t]?.continent;
+      if (cont && this.continentShare(cont).mine > 0) score += 3;
+    }
+
+    if (this.inFocus(t) > 0) score += 4;
+    return score;
+  }
+
+  /** Armies a capital should hold when reinforcing. Better-positioned capitals receive higher garrison targets. */
   private capWanted(t: TerritoryId): number {
-    return Math.max(this.plan.capitalGarrison ?? DEFAULT_CAPITAL_GARRISON, Math.ceil(this.floorThreat(this.hostileNeighbours(t)) * 1.1) + 1);
+    const pos = this.capitalPositionScore(t);
+    const base = Math.max(this.plan.capitalGarrison ?? DEFAULT_CAPITAL_GARRISON, Math.ceil(this.floorThreat(this.hostileNeighbours(t)) * 1.1) + 1);
+    return Math.max(1, base + (pos > 0 ? Math.min(6, Math.floor(pos * 0.5)) : 0));
   }
   private inFocus(t: TerritoryId): number {
     if (this.plan.focusTerritory === t) return 2;
@@ -402,6 +437,34 @@ class Chooser {
     return this.view.continentOwners[cont] === this.me && this.hostileNeighbours(t).length > 0;
   }
 
+  /** Only 2 non-neutral players remain alive. */
+  private is1v1(): boolean {
+    return this.view.players.filter((p) => p.alive && !p.isNeutral).length <= 2;
+  }
+
+  /** Do our held bonus borders possess a substantial army surplus above the required defensive garrisons, or do we hold global army dominance? */
+  private hasSubstantialSurplus(): boolean {
+    const borders = this.mine().filter((t) => this.isBonusBorder(t));
+    if (borders.some((t) => this.armies(t) >= this.guardFor(t) + 6)) return true;
+    const myArmies = this.mine().reduce((n, t) => n + this.armies(t), 0);
+    const enemies = this.view.players.filter((p) => p.alive && !p.isNeutral && p.id !== this.me);
+    const maxEnemy = Math.max(0, ...enemies.map((p) => p.armyCount ?? this.map.territoryIds.filter((t) => !this.view.territories[t]?.hidden && this.owner(t) === p.id).reduce((n, t) => n + this.armies(t), 0)));
+    if (maxEnemy > 0 && myArmies >= maxEnemy * 1.3) return true;
+    return false;
+  }
+
+  /** Is an attack available that breaks an opponent's continent bonus with favorable odds? */
+  private hasHighValueBonusBreak(): boolean {
+    const minBonus = this.plan.aggression >= 0.6 ? 2 : 3;
+    return this.lm.attacks.some((a) => {
+      const cont = this.map.territoryById[a.to]?.continent;
+      if (!cont) return false;
+      const holder = this.view.continentOwners[cont];
+      const bonus = this.map.continentById[cont]?.bonus ?? 0;
+      return holder && holder !== this.me && bonus >= minBonus && this.chance(this.armies(a.from) - 1, a.to) >= 0.8;
+    });
+  }
+
   // ---------- decision ----------
 
   choose(): Action | null {
@@ -414,25 +477,62 @@ class Chooser {
     if (lm.canPlaceOn.length > 0 && lm.placeLimit > 0) return { type: 'place', placements: this.placements(lm.canPlaceOn, lm.placeLimit) };
 
     if (this.view.phase === 'attack') {
+      // Immediate full capital run outranks everything: conquering all capitals wins the game on the spot!
+      const capRun = this.capRun();
+      if (capRun) {
+        const route = capRun.attacks.find((a) => this.lm.attacks.some((l) => l.from === a.from && l.to === a.to));
+        if (route) {
+          return { type: 'attack', from: route.from, to: route.to, blitz: true, stopAt: route.keep };
+        }
+      }
+
       // A complete, affordable elimination outranks routine bonus pokes or the once-per-turn card.
       const kill = this.elimination();
-      const hasExplicitRoute = this.plan.route.some((r) => this.lm.attacks.some((l) => l.to === r));
-      const objective = kill ?? (hasExplicitRoute ? null : this.bonusCampaign());
-      const route = objective?.attacks.find(a => this.lm.attacks.some(l => l.from === a.from && l.to === a.to));
-      if (route && !this.lm.attacks.some(a => this.winsGame(a.to) && this.chance(this.armies(a.from) - 1, a.to) >= 0.9)) {
-        return { type: 'attack', from: route.from, to: route.to, blitz: true, stopAt: route.keep };
-      }
-      const attack = this.bestAttack();
-      if (attack) {
-        const action: Action = { type: 'attack', from: attack.from, to: attack.to, blitz: true };
-        if (attack.keep > 1) action.stopAt = attack.keep;
-        return action;
-      }
-      const card = this.cardAttack();
-      if (card) {
-        const action: Action = { type: 'attack', from: card.from, to: card.to, blitz: true };
-        if (card.keep > 1) action.stopAt = card.keep;
-        return action;
+      const is1v1 = this.is1v1();
+      const hasRouteTargets = this.plan.route.length > 0;
+      const hasRemainingRouteAttacks = this.plan.route.some((r) => this.lm.attacks.some((l) => l.to === r));
+
+      // In 1v1, there are no 3rd parties to punish over-expansion: break everything possible!
+      // In multi-player FFA, honor stopAfterRoute once the explicit route has finished:
+      if (!is1v1 && hasRouteTargets && !hasRemainingRouteAttacks && this.plan.stopAfterRoute && !kill && !this.lm.attacks.some((a) => this.winsGame(a.to))) {
+        // Route complete in FFA; stop attacking to preserve garrisons on frontline/choke
+      } else {
+        const objective = kill ?? (hasRemainingRouteAttacks ? null : this.bonusCampaign());
+        const route = objective?.attacks.find((a) => this.lm.attacks.some((l) => l.from === a.from && l.to === a.to));
+        if (route && !this.lm.attacks.some((a) => this.winsGame(a.to) && this.chance(this.armies(a.from) - 1, a.to) >= 0.9)) {
+          return { type: 'attack', from: route.from, to: route.to, blitz: true, stopAt: route.keep };
+        }
+
+        // In FFA, if stopAfterBonus is active and we hold our focus bonus (or any continent bonus) and have conquered a territory this turn:
+        // Do NOT make greedy secondary attacks that bleed our new bonus chokepoint!
+        // Situational exceptions: continue attacking if lethal game-win, player elimination, substantial surplus, or high-value enemy bonus break is present.
+        const holdsBonus = Object.entries(this.view.continentOwners).some(([c, owner]) => owner === this.me && (!this.plan.focusContinent || c === this.plan.focusContinent));
+        const hasLethal = this.lm.attacks.some((a) => this.winsGame(a.to));
+        const isKillHunt = this.plan.winPath === 'kills' || kill !== null;
+        const shouldStopForBonus =
+          !is1v1 &&
+          this.plan.stopAfterBonus &&
+          holdsBonus &&
+          this.conquered &&
+          !hasLethal &&
+          !isKillHunt &&
+          !this.hasSubstantialSurplus() &&
+          !this.hasHighValueBonusBreak();
+
+        if (!shouldStopForBonus) {
+          const attack = this.bestAttack();
+          if (attack) {
+            const action: Action = { type: 'attack', from: attack.from, to: attack.to, blitz: true };
+            if (attack.keep > 1) action.stopAt = attack.keep;
+            return action;
+          }
+          const card = this.cardAttack();
+          if (card) {
+            const action: Action = { type: 'attack', from: card.from, to: card.to, blitz: true };
+            if (card.keep > 1) action.stopAt = card.keep;
+            return action;
+          }
+        }
       }
     }
     if (this.view.phase === 'attack' || this.view.phase === 'fortify') {
@@ -451,8 +551,23 @@ class Chooser {
     };
   }
 
+  /** Calculate a complete multi-hop capital run across the board to capture all capitals and win immediately. */
+  private capRun(reinforcements = 0, transfer?: CampaignOptions['transfer']): Campaign | null {
+    if (!this.view.options.capitals) return null;
+    const opts = this.campaignOptions(reinforcements, transfer);
+    // Winning the game by conquering all capitals supersedes avoid/treaties
+    return findCapRun(this.view, this.me, { ...opts, avoid: new Set() });
+  }
+
   private elimination(reinforcements = 0, transfer?: CampaignOptions['transfer']): KillPlan | null {
-    return planElimination(this.view, this.me, { ...this.campaignOptions(reinforcements, transfer), targetOnly: this.hopeless() ? this.plan.target : null });
+    const opts = this.campaignOptions(reinforcements, transfer);
+    // Kills take supreme EV priority; avoid lists protect against routine border skirmishes, not game-changing eliminations.
+    // If the victim has 3+ cards or <= 2 territories, allow elimination even if informally listed in avoid:
+    const avoid = new Set([...opts.avoid].filter((id) => {
+      const p = this.view.players.find((x) => x.id === id);
+      return p && p.cardCount < 3 && (p.territoryCount ?? 99) > 2;
+    }));
+    return planElimination(this.view, this.me, { ...opts, avoid, targetOnly: this.hopeless() ? this.plan.target : null });
   }
 
   /** Complete a visible bonus from one or several fronts; route costs include all missing territories. */
@@ -484,16 +599,54 @@ class Chooser {
     const toHostile = this.hostileNeighbours(to);
     if (fromHostile.length > 0 && toHostile.length === 0 && !this.capitalOf.has(to) && this.plan.fortifyTo !== to) return min;
     if (this.plan.route.includes(to) && this.plan.route.slice(this.plan.route.indexOf(to) + 1).some((r) => this.hostile(r))) return ceiling;
+    const capRun = this.capRun(0, { from, to, min, max: Math.min(max, have - cap) });
+    if (capRun?.occupy !== undefined) return capRun.occupy;
     const kill = this.elimination(0, { from, to, min, max: Math.min(max, have - cap) });
     if (kill?.occupy !== undefined) return kill.occupy;
     const bonus = this.bonusCampaign(0, { from, to, min, max: Math.min(max, have - cap) });
     if (bonus?.occupy !== undefined) return bonus.occupy;
     if (fromHostile.length === 0) return ceiling; // the source became interior: the whole stack goes
+    // If an elimination target or near-dead victim with cards is adjacent to `to`, carry the spearhead forward!
+    const touchesWeakVictim = toHostile.some((n) => {
+      const o = this.owner(n);
+      const vp = o ? this.view.players.find((p) => p.id === o) : null;
+      return vp && (vp.territoryCount ?? 99) <= 3 && vp.cardCount >= 3;
+    });
+    if (touchesWeakVictim) return ceiling;
     // Does the attack go on from the new territory? Then the stack goes with it.
     const carry = Math.max(0, ceiling);
-    const continues = toHostile.some((e) => this.chance(Math.max(1, carry), e) >= this.threshold() && !this.plan.avoid.has(this.owner(e)!) && !this.plan.noAttack.has(e));
+    const isScalingCards = this.view.options.cardValues === 'progressive' || this.view.options.cardValues === 'exponential';
+    const myCards = this.view.players.find((p) => p.id === this.me)?.cardCount ?? 0;
+    const hasHighEVBounty = this.view.players.some((p) => {
+      if (!p.alive || p.isNeutral || p.id === this.me) return false;
+      const sets = (myCards + p.cardCount) >= 5;
+      return p.cardCount >= 3 || (sets && isScalingCards);
+    });
+    const isTargetBlockedByAvoid = (t: TerritoryId) => {
+      if (hasHighEVBounty) return false; // Fearless breakthrough: never let avoid disable stack siphoning when hunting high EV
+      const o = this.owner(t);
+      return o ? this.plan.avoid.has(o) : false;
+    };
+
+    const continues = toHostile.some((e) => this.chance(Math.max(1, carry), e) >= this.threshold() && !isTargetBlockedByAvoid(e) && !this.plan.noAttack.has(e));
     if (this.plan.route.includes(to) && this.plan.route.slice(this.plan.route.indexOf(to) + 1).some((r) => this.hostile(r))) return ceiling;
-    if (continues) return ceiling;
+    if (continues) {
+      // In-attack stack siphoning at offensive junctions:
+      // If `fromHostile` ALSO has viable attack targets, do not dump 100% of armies into `to` and leave 1 on `from`!
+      const fromContinues = fromHostile.some((e) => this.chance(Math.max(1, Math.floor(have * 0.5)), e) >= this.threshold() && !isTargetBlockedByAvoid(e) && !this.plan.noAttack.has(e));
+      if (fromContinues && have >= 10) {
+        const maxToDef = Math.max(...toHostile.map((e) => this.armies(e)), 1);
+        const maxFromDef = Math.max(...fromHostile.map((e) => this.armies(e)), 1);
+        const toNeed = Math.min(ceiling, Math.max(min, Math.ceil(maxToDef * 1.5) + 3));
+        const fromNeed = Math.max(1, Math.ceil(maxFromDef * 1.5) + 3);
+        if (have >= toNeed + fromNeed) {
+          const surplus = have - toNeed - fromNeed;
+          return clamp(toNeed + Math.floor(surplus * 0.5));
+        }
+        return clamp(Math.floor(have * 0.5));
+      }
+      return ceiling;
+    }
     // Never strand the stack in a dead-end interior pocket while enemies still border `from`.
     if (toHostile.length === 0 && !this.capitalOf.has(to) && this.plan.fortifyTo !== to) return min;
     // Otherwise leave a guard on the old border, and a garrison on a freshly captured capital.
@@ -512,14 +665,91 @@ class Chooser {
     for (const a of this.lm.attacks) {
       if (!this.hostile(a.to) || this.owner(a.from) !== this.me) continue;
       const have = this.armies(a.from);
-      const fromCapital = this.myCapitals.has(a.from);
-      const floor = fromCapital ? this.capFloor(a.from) : 1;
       const d = this.armies(a.to);
       const wins = this.winsGame(a.to);
+      const fromCapital = this.myCapitals.has(a.from);
+      const isBorder = this.isBonusBorder(a.from);
+      // On bonus borders in multi-player FFA, preserve the required defensive border garrison floor,
+      // unless attacking wins the game, we are in a hopeless all-in, or following an explicit Commander route:
+      const borderFloor = isBorder && !this.is1v1() && !wins && !hopeless && !this.plan.route.includes(a.to)
+        ? Math.max(1, this.guardFor(a.from))
+        : 1;
+      const floor = fromCapital ? this.capFloor(a.from) : borderFloor;
       const toOwner = this.owner(a.to)!;
-      if ((this.plan.avoid.has(toOwner) || this.plan.noAttack.has(a.to)) && !wins) continue;
+      const victim = this.view.players.find((p) => p.id === toOwner);
+      const victimTerrs = victim?.territoryCount ?? 99;
+      const isElimination = victimTerrs === 1;
+      const isNearElimination = victimTerrs <= 3;
+      const isScalingCards = this.view.options.cardValues === 'progressive' || this.view.options.cardValues === 'exponential';
+      const myCardCount = this.view.players.find((p) => p.id === this.me)?.cardCount ?? 0;
+      const victimCardCount = victim?.cardCount ?? 0;
+      const setsMe = (myCardCount + victimCardCount) >= 5;
+      const isHighValueKill = (isElimination || isNearElimination) && (victimCardCount >= 3 || (setsMe && isScalingCards));
+      if ((this.plan.avoid.has(toOwner) || this.plan.noAttack.has(a.to)) && !wins && !isElimination && !isHighValueKill) continue;
       // All-in against the one player chosen: nobody else is touched unless it wins the game.
       if (hopeless && toOwner !== this.plan.target && !wins) continue;
+
+      // Non-strategic secondary attack filter: once a card is earned this turn,
+      // DO NOT make frivolous attacks in detached outposts that bleed defensive garrisons!
+      // Outpost stacks must remain thick as a defensive deterrent (forcing enemies to bleed against them).
+      // Attacks must have genuine strategic purpose: focus region, route, bonus completion, bonus break, capital, or elimination.
+      if (this.conquered && !this.is1v1() && !wins && !hopeless) {
+        const isFromBonusBorder = this.isBonusBorder(a.from);
+        const hasSurplusFromBorder = isFromBonusBorder && have >= this.guardFor(a.from) + 6;
+        const cont = this.map.territoryById[a.to].continent;
+        const share = this.continentShare(cont);
+        const holder = this.view.continentOwners[cont];
+        const isFocus = this.inFocus(a.to) > 0 || this.nearFocus(a.to) || this.inFocus(a.from) > 0 || this.nearFocus(a.from) || this.plan.route.includes(a.to);
+        const isBonusConquest = share.missing.includes(a.to) && share.missing.length <= 3 && share.mine * 2 >= share.total;
+        const steppingBreak = this.steppingStoneBonus(a.to);
+        const breaksOpponentBonus = !!(holder && holder !== this.me) || steppingBreak !== null;
+        const capturesCapital = this.capitalOf.has(a.to);
+        const eliminatesPlayer = isElimination || isHighValueKill;
+        const isStrategic = hasSurplusFromBorder || isFocus || isBonusConquest || breaksOpponentBonus || capturesCapital || eliminatesPlayer;
+        if (!isStrategic) continue;
+
+        // Anti-Chain Bleed / Anti-Reckless Blitzkrieg Filter:
+        // Once a card is secured this turn, DO NOT make chain attacks that bleed our stack
+        // into fragile 1s and 2s across the map!
+        // If advancing into `to` would leave fewer than 4 armies on `to`, and this attack
+        // does NOT win the game, does NOT eliminate a player, does NOT capture a capital,
+        // and does NOT complete a bonus this turn:
+        // STOP! Switch to turtling and consolidation so we gather armies on the chokepoint.
+        const completesBonus = share.missing.length === 1 && share.missing[0] === a.to;
+        const expectedRemaining = have - d - 1;
+        if (expectedRemaining < 4 && !completesBonus && !breaksOpponentBonus && !capturesCapital && !eliminatesPlayer && !this.plan.route.includes(a.to)) {
+          continue;
+        }
+      }
+
+      // Dormant Big Stack Activation Prevention (Do Not Open a Big Stack):
+      // Do NOT punch through a buffer territory if doing so directly opens/activates a dormant
+      // enemy stack (>= 5 armies) that currently has NO border with our empire!
+      // Leaving the buffer intact delays their stack by at least one full turn, forcing them to
+      // waste a fortify, attack someone else, or stay harmlessly trapped behind the buffer.
+      if (!wins && !hopeless && !isElimination && !this.is1v1()) {
+        const opensBigDormantStack = this.map.adjacency[a.to].some((adj) => {
+          if (adj === a.from) return false;
+          const adjOwner = this.owner(adj);
+          if (!adjOwner || adjOwner === this.me) return false;
+          const adjArmies = this.armies(adj);
+          if (adjArmies < 5) return false;
+          // Check if this enemy stack is currently dormant relative to us (borders NONE of our territories)
+          const currentlyBordersUs = this.map.adjacency[adj].some((t) => this.owner(t) === this.me);
+          if (currentlyBordersUs) return false;
+          // Expected remaining armies on a.to after taking it
+          const expectedRemaining = Math.max(1, have - d - 1);
+          return adjArmies >= expectedRemaining + 3;
+        });
+        if (opensBigDormantStack) {
+          const cont = this.map.territoryById[a.to].continent;
+          const holder = this.view.continentOwners[cont];
+          const breaksBonus = !!(holder && holder !== this.me);
+          if (!breaksBonus && !this.plan.route.includes(a.to) && this.inFocus(a.to) <= 0) {
+            continue;
+          }
+        }
+      }
       const isCap = this.capitalOf.has(a.to);
       const purpose = this.purpose(a.from, a.to, wins);
       // On the diplomacy path, players other than the target get a higher bar.
@@ -527,10 +757,11 @@ class Chooser {
       const accept = (commit: number, p: number): boolean => {
         if (commit < 1) return false;
         if (isCap && !wins && !hopeless && commit < this.capitalMargin() * d && p < 0.93) return false;
-        if (p < bar && !wins) return false;
+        // High-value eliminations (3+ cards): positive EV gambles (like 2v1 at ~42%) are accepted!
+        if (p < bar && !wins && !(isHighValueKill && p >= 0.35)) return false;
         const cardAttack = !this.conquered && !this.plan.skipCard && p >= Math.max(bar, this.cardMin());
         const lateAttack = late && p >= bar + 0.1;
-        return wins || hopeless || purpose >= this.plan.purposeMin || cardAttack || lateAttack;
+        return wins || hopeless || isHighValueKill || purpose >= this.plan.purposeMin || cardAttack || lateAttack;
       };
 
       // Full commit: everything above the floor.
@@ -596,8 +827,10 @@ class Chooser {
     for (const a of this.lm.attacks) {
       if (!this.hostile(a.to) || this.owner(a.from) !== this.me) continue;
       const toOwner = this.owner(a.to)!;
+      const victim = this.view.players.find((p) => p.id === toOwner);
+      const isElimination = victim?.territoryCount === 1;
       const wins = this.winsGame(a.to);
-      if ((this.plan.avoid.has(toOwner) || this.plan.noAttack.has(a.to)) && !wins) continue;
+      if ((this.plan.avoid.has(toOwner) || this.plan.noAttack.has(a.to)) && !wins && !isElimination) continue;
       if (this.hopeless() && toOwner !== this.plan.target && !wins) continue;
       const have = this.armies(a.from);
       const d = this.armies(a.to);
@@ -626,21 +859,56 @@ class Chooser {
     const v = this.view;
     const others = v.players.filter((p) => p.alive && !p.isNeutral && p.id !== this.me);
     if (v.options.capitals) {
-      const entries = Object.entries(v.capitals ?? {});
-      const everyone = v.players.filter((p) => !p.isNeutral).length;
-      if (entries.length === everyone && this.capitalOf.has(to)) {
-        const notMine = entries.filter(([, t]) => this.owner(t) !== this.me);
-        if (notMine.length === 1 && notMine[0][1] === to) return true;
+      const allCapitals = Object.values(v.capitals ?? {});
+      if (allCapitals.length > 1 && allCapitals.includes(to)) {
+        const notMine = allCapitals.filter((t) => this.owner(t) !== this.me);
+        if (notMine.length === 1 && notMine[0] === to) return true;
       }
     }
-    if (others.length === 1 && others[0].territoryCount === 1 && this.owner(to) === others[0].id) return true;
+    if (others.length === 1) {
+      const rival = others[0];
+      if (rival.territoryCount === 1 && this.owner(to) === rival.id) return true;
+      if (rival.territoryCount === null && this.owner(to) === rival.id) {
+        const rivalTerrs = this.map.territoryIds.filter((t) => !v.territories[t]?.hidden && this.owner(t) === rival.id);
+        if (rivalTerrs.length === 1) return true;
+      }
+    }
     return false;
+  }
+
+  /**
+   * Evaluates whether attacking `to` serves as a thin stepping stone (<= 2 armies)
+   * that directly unlocks an attack path into an opponent's held continent bonus.
+   */
+  private steppingStoneBonus(to: TerritoryId): { bonus: number; holder: PlayerId; isLeader: boolean } | null {
+    if (this.armies(to) > 2) return null;
+    const toCont = this.map.territoryById[to].continent;
+    if (this.view.continentOwners[toCont] && this.view.continentOwners[toCont] !== this.me) {
+      // `to` is already directly inside an opponent held bonus
+      return null;
+    }
+    let bestBreak: { bonus: number; holder: PlayerId; isLeader: boolean } | null = null;
+    for (const adj of this.map.adjacency[to]) {
+      const adjOwner = this.owner(adj);
+      if (!adjOwner || adjOwner === this.me) continue;
+      const adjCont = this.map.territoryById[adj].continent;
+      const holder = this.view.continentOwners[adjCont];
+      if (holder && holder !== this.me && this.armies(adj) <= 3) {
+        const bonus = this.map.continentById[adjCont].bonus;
+        const isLeader = holder === this.leader;
+        if (!bestBreak || (isLeader && !bestBreak.isLeader) || bonus > bestBreak.bonus) {
+          bestBreak = { bonus, holder, isLeader };
+        }
+      }
+    }
+    return bestBreak;
   }
 
   private purpose(from: TerritoryId, to: TerritoryId, wins: boolean): number {
     const path = this.plan.winPath;
     let s = 0;
     if (wins) s += 100;
+    const is1v1 = this.is1v1();
     const cont = this.map.territoryById[to].continent;
     const bonus = this.map.continentById[cont].bonus;
     const share = this.continentShare(cont);
@@ -649,22 +917,54 @@ class Chooser {
     if (share.missing.length === 1 && share.missing[0] === to) cs += 6 + bonus;
     else if (share.missing.length <= 3 && share.mine * 2 >= share.total && share.missing.includes(to)) cs += 2.5 + bonus * 0.3;
     const holder = this.view.continentOwners[cont];
-    if (holder && holder !== this.me && holder === toOwner) cs += 4.5 + bonus * 0.8;
+    if (holder && holder !== this.me && holder === toOwner) {
+      const breakWeight = this.plan.aggression >= 0.6 ? 8.5 + bonus * 1.5 : 6.0 + bonus * 1.0;
+      cs += breakWeight + (holder === this.leader ? 4.0 + bonus * 0.5 : 0);
+    }
+    const stepping = this.steppingStoneBonus(to);
+    if (stepping) {
+      const stepWeight = stepping.isLeader ? 5.5 + stepping.bonus * 0.8 : 3.5 + stepping.bonus * 0.5;
+      cs += stepWeight;
+    }
     s += path === 'bonuses' ? cs * 1.5 : cs;
+
+    // In 1v1 or army dominance (e.g. 600 vs 300), relentlessly break continents and strip territories to starve and finish the rival!
+    const myArmies = this.mine().reduce((n, t) => n + this.armies(t), 0);
+    const rival = this.view.players.find((x) => x.id === toOwner);
+    const rivalArmies = rival?.armyCount ?? (rival ? this.map.territoryIds.filter((t) => !this.view.territories[t]?.hidden && this.owner(t) === rival.id).reduce((n, t) => n + this.armies(t), 0) : 0);
+    const isDominant = rivalArmies > 0 && myArmies >= rivalArmies * 1.3;
+    if (is1v1 || isDominant) {
+      if (holder && holder !== this.me) s += 6 + bonus * 1.5;
+      s += 3.5; // each territory stripped from the rival directly starves their base income
+    }
     const capOwner = this.capitalOf.get(to);
-    if (capOwner && capOwner !== this.me) s += path === 'capitals' ? 7 : 4;
+    if (capOwner && capOwner !== this.me) {
+      const allCaps = Object.values(this.view.capitals ?? {});
+      const unownedCaps = allCaps.filter((t) => this.owner(t) !== this.me);
+      let capVal = path === 'capitals' ? 14 : 10;
+      if (unownedCaps.length <= 2) capVal += 12; // Almost ready to win
+      if (this.armies(to) <= 2) capVal += 8; // Weakly defended / ripe for taking
+      capVal += Math.max(0, this.capitalPositionScore(to)); // Valuable position
+      s += capVal;
+    }
     const focus = this.inFocus(to);
     if (focus === 2) s += 7;
     else if (focus === 1) s += 3.5;
     if (this.plan.route.includes(to)) s += 6;
     if (this.plan.target && toOwner === this.plan.target) s += path === 'hopeless' ? 10 : (path === 'kills' ? 5.5 : 3.5);
-    const p = this.view.players.find((x) => x.id === toOwner);
+    const p = rival;
     if (p && p.territoryCount === 1) s += (path === 'kills' ? 8 : 6) + p.cardCount * 1.5;
+    else if (p && (p.territoryCount ?? 99) <= 3 && p.cardCount >= 3) s += (path === 'kills' ? 8 : 6) + p.cardCount * 1.8;
     else if (p && p.cardCount >= 5) s += (path === 'kills' || path === 'cards' ? 6 : 4);
     else if (p && p.cardCount >= 4) s += (path === 'kills' || path === 'cards' ? 4.5 : 2.5);
     else if (p && p.cardCount >= 3) s += path === 'cards' ? 3 : 1.2;
     if (path === 'kills' && p && (p.territoryCount === null || p.territoryCount <= 4)) s += 4 + p.cardCount * 1.2;
-    if (toOwner === this.leader) s += 1;
+    if (toOwner === this.leader) {
+      const myIncome = this.view.players.find((x) => x.id === this.me)?.income?.total ?? 3;
+      const leaderIncome = this.view.players.find((x) => x.id === this.leader)?.income?.total ?? 3;
+      const leaderAdvantage = Math.max(0, leaderIncome - myIncome);
+      s += 1.5 + Math.min(4.0, leaderAdvantage / 4);
+    }
     // Taking it makes the launch point interior.
     if (this.hostileNeighbours(from).length === 1) s += 1.5;
     if (!this.conquered) s += 1;
@@ -741,34 +1041,56 @@ class Chooser {
       if (n > 0) { result[t] = (result[t] ?? 0) + n; left -= n; }
     };
 
-    // If the Commander explicitly chose placement territories, honor them directly.
+    // Prioritize funding a full capital run for an immediate game victory
+    const capRunCampaign = this.capRun(pool);
+    let activeCampaign: (Campaign & { score?: number }) | null = null;
+    if (capRunCampaign && Object.keys(capRunCampaign.placements).every((t) => mine.includes(t))) {
+      activeCampaign = capRunCampaign;
+      for (const [t, n] of Object.entries(capRunCampaign.placements)) add(t, n);
+      for (const t of Object.keys(capRunCampaign.requirements)) funded.add(t);
+    }
+
+    if (!activeCampaign) {
+      // Prioritize funding high-value eliminations (especially progressive/exponential sets or 3+ cards)
+      const killCampaign = this.elimination(pool);
+      if (killCampaign && Object.keys(killCampaign.placements).every((t) => mine.includes(t))) {
+        activeCampaign = killCampaign;
+        for (const [t, n] of Object.entries(killCampaign.placements)) add(t, n);
+        for (const t of Object.keys(killCampaign.requirements)) funded.add(t);
+      }
+    }
+
+    // If the Commander explicitly chose placement territories, honor them directly with remaining pool.
     const chosenPlace = this.plan.placeOn.filter((t) => mine.includes(t));
-    if (chosenPlace.length > 0) {
+    if (chosenPlace.length > 0 && left > 0) {
       const per = Math.floor(left / chosenPlace.length);
       for (const t of chosenPlace) add(t, per);
       for (const t of chosenPlace) if (left > 0) add(t, 1);
       return result;
     }
 
-    // If the Commander specified an explicit attack route, stage reinforcements at its launch pad.
-    if (this.plan.route.length > 0 && left > 0) {
-      const firstStep = this.plan.route[0];
-      const launch = mine.includes(firstStep)
-        ? firstStep
-        : mine
-          .filter((t) => this.map.adjacency[t].includes(firstStep) && !this.blizzards.has(firstStep))
-          .sort((a, b) => this.armies(b) - this.armies(a))[0];
-      if (launch) {
-        add(launch, left);
-        return result;
+    if (!activeCampaign) {
+      // If the Commander specified an explicit attack route, stage reinforcements at its launch pad.
+      if (this.plan.route.length > 0 && left > 0) {
+        const firstStep = this.plan.route[0];
+        const launch = mine.includes(firstStep)
+          ? firstStep
+          : mine
+              .filter((t) => this.map.adjacency[t].includes(firstStep) && !this.blizzards.has(firstStep))
+              .sort((a, b) => this.armies(b) - this.armies(a))[0];
+        if (launch) {
+          add(launch, left);
+          return result;
+        }
       }
-    }
 
-    // First fund the entire objective, not just its most attractive first attack.
-    const campaign = this.elimination(pool) ?? this.bonusCampaign(pool);
-    if (campaign && Object.keys(campaign.placements).every(t => mine.includes(t))) {
-      for (const [t, n] of Object.entries(campaign.placements)) add(t, n);
-      for (const t of Object.keys(campaign.requirements)) funded.add(t);
+      // First fund the entire objective, not just its most attractive first attack.
+      const campaign = this.bonusCampaign(pool);
+      if (campaign && Object.keys(campaign.placements).every((t) => mine.includes(t))) {
+        activeCampaign = campaign;
+        for (const [t, n] of Object.entries(campaign.placements)) add(t, n);
+        for (const t of Object.keys(campaign.requirements)) funded.add(t);
+      }
     }
     if (this.plan.commitArmies > 0 && this.plan.target && left > 0) {
       const commitFront = mine
@@ -828,7 +1150,7 @@ class Chooser {
       return result;
     }
     const surplus = left;
-    const weights = reserves.map(t => Math.sqrt(Math.max(1, (campaign?.requirements[t] ?? this.threat(t) * 0.25 + 2) - 1)));
+    const weights = reserves.map(t => Math.sqrt(Math.max(1, (activeCampaign?.requirements[t] ?? this.threat(t) * 0.25 + 2) - 1)));
     const total = weights.reduce((s, n) => s + n, 0);
     const fractions = reserves.map((t, i) => ({ t, exact: surplus * weights[i] / total }));
     for (const r of fractions) add(r.t, Math.floor(r.exact));
@@ -848,11 +1170,20 @@ class Chooser {
 
   private need(t: TerritoryId): number {
     const have = this.armies(t);
-    let n = Math.max(0, this.threat(t) * 0.9 + 1 - have);
-    if (this.myCapitals.has(t)) n += Math.max(0, this.capWanted(t) - have) * 1.5;
-    if (this.isBonusBorder(t)) n += 2 * this.plan.borderGuard;
+    const thr = this.threat(t);
+    let n = Math.max(0, thr * 0.9 + 1 - have);
+    if (this.myCapitals.has(t)) {
+      const pos = this.capitalPositionScore(t);
+      const capDeficit = Math.max(0, this.capWanted(t) - have);
+      n += capDeficit * 1.8 + Math.max(0, pos) * 1.2 + 8;
+    }
+    if (this.isBonusBorder(t)) {
+      if (have < 5) n += (5 - have) * 2.0;
+      else if (have > Math.max(8, thr * 1.5)) n -= Math.min(10, (have - Math.max(8, thr * 1.5)) * 0.6);
+      n += 2 * this.plan.borderGuard;
+    }
     n += this.inFocus(t) * 1.5 + (this.nearFocus(t) ? 1.5 : 0);
-    if (this.plan.fortifyTo === t) n += 25;
+    if (this.plan.fortifyTo === t) n += 100;
     return n;
   }
 
@@ -867,7 +1198,11 @@ class Chooser {
     for (const f of opts) {
       if (!mayLeave(f.from) || isBorder(f.from)) continue;
       if (!isBorder(f.to) && !this.myCapitals.has(f.to) && f.to !== this.plan.fortifyTo) continue;
-      const score = this.need(f.to) + this.threat(f.to) * 0.15 + f.maxArmies * 0.2 + this.random() * 0.2;
+      const destHave = this.armies(f.to);
+      const destThr = this.threat(f.to);
+      const overstackPenalty = destHave > Math.max(8, destThr * 1.5) ? Math.min(8, (destHave - Math.max(8, destThr)) * 0.5) : 0;
+      const thinBorderBonus = isBorder(f.to) && destHave < 5 ? (5 - destHave) * 1.5 : 0;
+      const score = this.need(f.to) + destThr * 0.15 + f.maxArmies * 0.2 - overstackPenalty + thinBorderBonus + this.random() * 0.2;
       if (!best || score > best.score) best = { from: f.from, to: f.to, armies: f.maxArmies, score };
     }
     if (best) return { from: best.from, to: best.to, armies: best.armies };
@@ -876,9 +1211,9 @@ class Chooser {
       if (!mayLeave(f.from) || !isBorder(f.from) || (!isBorder(f.to) && !this.myCapitals.has(f.to) && f.to !== this.plan.fortifyTo)) continue;
       const pullingBack = f.to === this.plan.fortifyTo || this.myCapitals.has(f.to);
       const stay = f.to === this.plan.fortifyTo
-        ? (this.myCapitals.has(f.from) ? this.capFloor(f.from) : 1)
+        ? 1
         : this.myCapitals.has(f.to)
-          ? (this.isBonusBorder(f.from) ? this.guardFor(f.from) : 1)
+          ? (this.myCapitals.has(f.from) ? this.capFloor(f.from) : (this.isBonusBorder(f.from) ? this.guardFor(f.from) : 1))
           : Math.max(this.guardFor(f.from), this.myCapitals.has(f.from) ? this.capFloor(f.from) : 1);
       const surplus = Math.min(f.maxArmies, this.armies(f.from) - stay);
       if (surplus < (pullingBack ? 1 : 2)) continue;

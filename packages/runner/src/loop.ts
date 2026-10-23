@@ -145,6 +145,7 @@ export async function runLoop(o: LoopOptions): Promise<GameResult[]> {
   };
 
   let failures = 0;
+  let lastMap: GameOptions['map'] | null = null;
   const openSeats = Math.max(0, o.openSeats ?? 0);
   for (let g = 0; (o.games === 0 || g < o.games) && !control.soft && !control.hard; g++) {
     profiles.clear(); // Refresh shared character lessons before every new game.
@@ -152,13 +153,14 @@ export async function runLoop(o: LoopOptions): Promise<GameResult[]> {
     let map: GameOptions['map'];
     if (o.seats) {
       order = shuffled(o.seats, random);
-      map = pickMap(o.map, order.length + openSeats, g, random);
+      map = pickMap(o.map, order.length + openSeats, g, random, lastMap ?? undefined);
     } else {
-      const lineup = pickLineup({ map: o.map, players: o.players ?? 'random', roster: roster!, index: g, random });
+      const lineup = pickLineup({ map: o.map, players: o.players ?? 'random', roster: roster!, index: g, random, excludeMap: lastMap ?? undefined });
       const total = Math.max(2 + openSeats, lineup.seats.length);
       order = shuffled(lineup.seats, random).slice(0, Math.max(2, total - openSeats));
       map = lineup.map;
     }
+    lastMap = map;
     if (o.mechanicsOnly) {
       order = order.map((s) => ({ name: s.name }));
     }
@@ -186,12 +188,13 @@ export async function runLoop(o: LoopOptions): Promise<GameResult[]> {
     }
     let setup;
     const totalSeats = order.length + openSeats;
+    const roundOptions = gameOptions(totalSeats, map, o.options, random, modes);
     try {
       setup = await createGame(api, order, {
         gameName: o.generation
           ? `Generation ${o.generation.replace(/^gen/i, '')} Match ${g + 1}`
           : (o.mechanicsOnly ? 'Mechanics lab' : 'Bot table'),
-        options: gameOptions(totalSeats, map, o.options, random, modes),
+        options: roundOptions,
         openSeats,
         onLobbyReady: (id) => {
           if (openSeats > 0) {
@@ -234,7 +237,7 @@ export async function runLoop(o: LoopOptions): Promise<GameResult[]> {
           seatName: id.name,
           playerId: id.playerId,
           profile: o.mechanicsOnly ? null : withRelationships([profileExcerpt(persona), personalContext].filter(Boolean).join('\n\n'), relationships),
-          learnings: condenseLearnings(learnings),
+          learnings: condenseLearnings(learnings, roundOptions),
           gameId,
           scoutingDir,
           timeoutMs: o.planTimeoutMs,

@@ -438,27 +438,111 @@ describe('the daily tournament: a daily slot in a time zone, sign-up days ahead,
   });
 });
 
-describe('the house roster and the Delove at-once cap', () => {
-  it('a daily slot\'s roster request holds its seats only from check-in, so sign-up days lock no host out', () => {
+describe('the house roster: no cap, and its seats yield to people', () => {
+  it('roster requests sit outside the Delove at-once cap, before and during check-in; no startup cap', () => {
     const clock = new FakeClock(); // Thu 22 Oct 12:00 UTC
     const store = new Store(null, {}, { clock });
     const seats = new SeatRequests(store.tournaments, { ...NO_SEAT_CAPS, deloveAtOnce: 10 });
-    const entries = parseSchedule({ daily: '19:00', tz: 'America/Los_Angeles', name: 'Daily Nest', signupDays: 2, roster: 8, maxEntrants: 40 }, store.tournaments, { maxRoster: 10 });
+    const entries = parseSchedule({ daily: '19:00', tz: 'America/Los_Angeles', name: 'Daily Nest', signupDays: 2, roster: 8, maxEntrants: 40 }, store.tournaments);
     const sched = new TournamentScheduler(store.tournaments, entries, null, (t) => seats.openFor(t));
-    // The slot (02:00 UTC Fri) is open with its 8 roster seats asked for; a host may still ask for up to 10.
+    // The slot is open with 8 roster seats asked for; a host may still ask for the whole cap, now and from check-in.
     expect(() => seats.checkCreate('admin', 10)).not.toThrow();
-    // From check-in (01:50 UTC) the roster seats count: only 2 are left for hosts.
     clock.advance(Date.UTC(2026, 9, 23, 1, 50) - clock.t);
-    expect(() => seats.checkCreate('admin', 3)).toThrow(/Only 2 Delove seats are free right now \(of 10\)/);
-    expect(() => seats.checkCreate('admin', 2)).not.toThrow();
+    expect(() => seats.checkCreate('admin', 10)).not.toThrow();
+    expect(parseSchedule({ daily: '19:00', roster: 100 }, store.tournaments)[0].roster).toBe(100);
     sched.stop();
     store.stopTimers();
   });
 
-  it('a roster bigger than the Delove seats allowed at once is a startup error', () => {
-    const t = new Store(null).tournaments;
-    expect(() => parseSchedule({ daily: '19:00', roster: 49 }, t, { maxRoster: 48 })).toThrow(/roster \(49\) is more than the Delove seats allowed at once \(RISK_TOURNEY_DELOVE_AT_ONCE=48\)/);
-    expect(parseSchedule({ daily: '19:00', roster: 48 }, t, { maxRoster: 48 })[0].roster).toBe(48);
-    expect(parseSchedule({ daily: '19:00', roster: 60 }, t, { maxRoster: 0 })[0].roster).toBe(60);
+  it('a full roster tournament: a refused join evicts nobody, a valid one exactly one roster seat; the request shrinks with it', () => {
+    const clock = new FakeClock(NOON + H);
+    const store = new Store(null, {}, { clock });
+    const seats = new SeatRequests(store.tournaments, NO_SEAT_CAPS);
+    store.tournaments.roomFor = (t) => seats.roomFor(t.id);
+    const t = store.tournaments.create({ name: 'Daily', format: 'nested', maxEntrants: 4, delove: 2, scheduled: { startsAt: NOON + 2 * H } });
+    const r = seats.openFor(t)!;
+    seats.claim(r.id, 2);
+    // The pool's joins carry no joiner: they never count toward the per-joiner cap and never take anyone's place.
+    for (const i of [1, 2]) seats.bind(r, store.tournaments.join(t.id, `Delove ${i}`, undefined, undefined, null).entrantId);
+    seats.finish(r.id, 'done', 2);
+    store.tournaments.join(t.id, 'Ann', undefined, undefined, 'ip:a');
+    store.tournaments.join(t.id, 'Bob', undefined, undefined, 'ip:b');
+    const roster = () => store.tournaments.get(t.id)!.entrants.filter((e) => e.name.startsWith('Delove')).length;
+    expect(store.tournaments.get(t.id)!.entrants).toHaveLength(4);
+
+    // Refused joins into the full tournament evict nobody: a taken name, the per-joiner cap, the pool itself.
+    expect(() => store.tournaments.join(t.id, 'Ann', undefined, undefined, 'ip:c')).toThrow(/The name "Ann" is taken/);
+    store.tournaments.limits.preregPerJoiner = 1;
+    expect(() => store.tournaments.join(t.id, 'Zed', undefined, undefined, 'ip:a')).toThrow(/You already hold 1 open registrations/);
+    store.tournaments.limits.preregPerJoiner = 4;
+    expect(() => store.tournaments.join(t.id, 'Delove 3', undefined, undefined, null)).toThrow(/This tournament is full/);
+    expect(roster()).toBe(2);
+    expect(seats.get(r.id)).toMatchObject({ n: 2, claimed: 2, joined: 2 });
+
+    // A valid join takes exactly one roster seat's place, and the request asks for one fewer.
+    store.tournaments.join(t.id, 'Cat', undefined, undefined, 'ip:c');
+    expect(roster()).toBe(1);
+    expect(store.tournaments.get(t.id)!.entrants.map((e) => e.name)).toEqual(['Delove 1', 'Ann', 'Bob', 'Cat']);
+    const after = seats.get(r.id)!;
+    expect(after).toMatchObject({ n: 1, claimed: 1, joined: 1, status: 'done' });
+    expect(after.bound).toHaveLength(1);
+    expect(seats.boundEntrants(t.id)).toEqual(new Set(after.bound));
+
+    // A host's tournament (not scheduled) never gives up its Delove seats.
+    const host = store.tournaments.create({ name: 'Host', format: 'nested', maxEntrants: 2, delove: 1, open: 1 });
+    const hr = seats.openFor(host)!;
+    seats.claim(hr.id, 1);
+    seats.bind(hr, store.tournaments.join(host.id, 'Delove 1', undefined, undefined, null).entrantId);
+    store.tournaments.join(host.id, 'Ann', undefined, undefined, 'ip:a');
+    expect(() => store.tournaments.join(host.id, 'Bob', undefined, undefined, 'ip:b')).toThrow(/This tournament is full/);
+    store.stopTimers();
+  });
+
+  it('over HTTP: the pool fills the roster, people join a full tournament and roster seats leave; the pool cannot bump its own', async () => {
+    const clock = new FakeClock(NOON + H); // 13:00: sign-up opens at once for the 14:00 slot
+    const store = new Store(null, {}, { clock });
+    const risk = createRiskServer(store, { clientDir: null, sweepIntervalMs: 0, seatPoolKey: 'pool-test-key', tournamentSchedule: parseSchedule({ ...DAILY, roster: 3, maxEntrants: 5 }, store.tournaments) });
+    await new Promise<void>((resolve) => risk.server.listen(0, '127.0.0.1', resolve));
+    const base = `http://127.0.0.1:${(risk.server.address() as AddressInfo).port}`;
+    const call = async (path: string, body?: unknown, poolKey = false) => {
+      const res = await fetch(`${base}/api${path}`, {
+        method: body === undefined ? 'GET' : 'POST',
+        headers: { 'content-type': 'application/json', ...(poolKey ? { 'x-seat-pool-key': 'pool-test-key' } : {}) },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+      return { status: res.status, body: (await res.json()) as any };
+    };
+    try {
+      const [id] = [...store.tournaments.tournaments.keys()];
+      const { requests } = (await call('/seat-requests', undefined, true)).body;
+      expect(requests).toHaveLength(1);
+      const r = requests[0];
+      expect(r).toMatchObject({ tournamentId: id, n: 3 });
+      expect((await call(`/seat-requests/${r.id}/claim`, { n: 3 }, true)).status).toBe(200);
+      for (const i of [1, 2, 3]) {
+        const j = await call(`/tournaments/${id}/join`, { playerName: `Delove ${i}`, seatRequestId: r.id }, true);
+        expect(j.body.error ?? '').toBe('');
+        expect(j.status).toBe(201);
+      }
+      expect((await call(`/seat-requests/${r.id}/done`, { joined: 3 }, true)).status).toBe(200);
+      for (const n of ['Ann', 'Bob', 'Cat', 'Dee']) {
+        // From the third, 5 / 5: each gets in in a roster seat's place.
+        const j = await call(`/tournaments/${id}/join`, { playerName: n });
+        expect(j.body.error ?? '').toBe('');
+        expect(j.status).toBe(201);
+      }
+      const t = store.tournaments.get(id)!;
+      expect(t.entrants).toHaveLength(5);
+      expect(t.entrants.filter((e) => e.name.startsWith('Delove')).map((e) => e.name)).toEqual(['Delove 1']);
+      // A refused join (a taken name) evicts nobody, however often it is tried.
+      for (let i = 0; i < 3; i++) expect((await call(`/tournaments/${id}/join`, { playerName: 'Ann' })).status).toBe(400);
+      expect(store.tournaments.get(id)!.entrants.filter((e) => e.name.startsWith('Delove')).map((e) => e.name)).toEqual(['Delove 1']);
+      expect(store.tournaments.houseAiEntrants!(id).size).toBe(1);
+      // The pool's own join into a full tournament bumps nobody: it is refused.
+      expect((await call(`/tournaments/${id}/join`, { playerName: 'Delove 4', seatRequestId: r.id }, true)).status).toBeGreaterThanOrEqual(400);
+      expect(store.tournaments.get(id)!.entrants).toHaveLength(5);
+    } finally {
+      await risk.shutdown('test');
+    }
   });
 });

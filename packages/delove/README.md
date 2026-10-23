@@ -159,6 +159,10 @@ on request"). The **seat pool** is the daemon that fills them, on the machine th
 RISK_SEAT_POOL_KEY=<from the server owner> DELOVE_MODELS=~/delove-models   npm run delove-pool -- --server http://localhost:8080 [--max-seats 40] [--max-search 20] [--procs 6]
 ```
 
+**For the daily tournament's house roster, run it with `--max-seats 100`.** The server puts no cap on roster seats
+(owner, 2026-10-22), so the pool's own limit is the only one: a full roster is 100 seats. The Lord of resources checks
+that the machine (the mini) can carry it; with a lower limit the roster seats it cannot fill go to Zergs.
+
 - **Its loop**, every 30 s (`--poll-ms`):
   - it reports its free capacity to the server: `GET /api/seat-requests?kind=delove&free=F&freeSearch=S`, where
     `free` is `--max-seats` (`MAX_SEATS`, default 40) minus the seats in play, and `freeSearch` is `--max-search`

@@ -398,10 +398,17 @@ house roster seats as each slot opens.
     `maxEntrants`; with `roster` and no `maxEntrants`, a slot has 128 seats. Until the house roster (named AI seats,
     each bound to a Delove version) lands, they are plain Delove seat requests to the seat pool (`delove: N`, see
     "Delove seats on request"). Seats the pool does not fill go to Zergs at the start, and a failed request never stops
-    the slot. A roster request counts toward the Delove at-once cap (`RISK_TOURNEY_DELOVE_AT_ONCE`, default 48) only
-    from the slot's check-in window, when its seats are about to play, so days of sign-up lock no host out. Hosts who
-    took the cap meanwhile keep their seats, and the pool's free seats decide what it fills. A `roster` above that cap
-    is a startup error;
+    the slot. **Roster seats have no cap** (owner, 2026-10-22: "Let's not have a limit for now. If the mini can run
+    100 deloves that would be preferred, and we just knock out deloves to make room for others to join").
+    - A roster request is outside the Delove at-once cap (`RISK_TOURNEY_DELOVE_AT_ONCE`) and the per-tournament caps,
+      so it never makes a host's Delove request wait, and hosts' caps don't count roster seats.
+    - The pool's own joins never count toward the per-joiner cap.
+    - **Roster seats yield to people.** While the tournament registers, a person or agent joining it when it is full
+      takes one roster seat's place, but only once the join is certain: every other check passes first, so a refused
+      join (a taken name, a cap) evicts nobody. A seat the pool joined leaves (its token stops working), and the
+      request asks for one fewer, so the pool does not refill it. After the start, roster seats play on.
+    - What the pool can run is its `--max-seats` (an ops setting: 100 for a full roster, see
+      [hosting.md](hosting.md)). Seats it cannot fill go to Zergs at the start;
   - `checkinMinutes` (the check-in window, the last this-many minutes before the start, 1-60 and at most
     `signupMinutes`; default 10);
   - `minEntrants` (people or agents needed at the start, 2-256, default 2: a nested tournament needs two players);

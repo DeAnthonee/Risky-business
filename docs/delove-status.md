@@ -6,7 +6,7 @@ next. The plan of record is `docs/delove.md`; the per-cycle tables are in `packa
 things is in `packages/delove/README.md` and `packages/delove-gpu/README.md`. Keep this file current: update it in
 the same PR as any change to the plan, the best model or the way training runs.
 
-Last updated: 2026-10-22 (current best: `delove@13`, cycle 16; cycles 17-18 not promoted; specialist training paused).
+Last updated: 2026-10-22 (current best: `delove@13`, cycle 16; cycles 17-19 not promoted; specialist training paused).
 
 ---
 
@@ -256,6 +256,7 @@ Full tables: `packages/delove/CYCLES.md`. Summary, oldest first:
 | strength meter (#79) | fit share weights to final points (4.7k games, 5 maps) | | hand weights order players best (58% vs 56%) | share-based meters top out around 65%; richer signals needed |
 | network rollouts (#141) | `delove@5` playing the branch rollouts (every seat, or the decider's only), and 4-5 options, vs Jacob rollouts; same games, paired | 21k on rented 4090s | network in every seat **-0.52**, decider's seat only **-0.43** points/game pooled at 4-10p, even at 2p; **4 / 5 options +0.23 / +0.28** at about the same GPU cost; network rollouts cost 10-30x per decision | **the rollout player should be the best multiplayer player we have** (Jacob): the network's weaker play misleads the search. More options is the cheap gain |
 | cycle 18 | 5 options; hexworld tables and the Gumbel root on 2p (#278 fingerprint); cloud training | 40k | not promoted: fog -0.11, no fog +0.03 | flat again; Classic 4p and 2p up, Classic 6p and Europe 8p down under fog |
+| cycle 19 | overhaul T1, cleaner labels: 24 rollouts, margin 0.03, `--soft-targets 5 --confidence 0.01,0.5` (#306); cloud training | 24k | not promoted: A/B quick check vs `delove@13` +0.04 with fog (undecided, near not better) | the near-ties are real ties; a cleaner copy of the same teacher does not move the student, so T2 (a stronger teacher) is next; $2.74 |
 | cycle 17 | 6 options at 4-10p; `delove@13` ranking (#228); the first cloud-trained candidate | 40k | not promoted: fog -0.04, no fog -0.08 | more options did not help this time; cloud training works (25 min, $0.47) |
 | cycle 16 | fog dropout 0.25 vs 0.5 from `delove@12`; search ranked by `delove@11` (the GPU mirror could not load a fog-input network: two launches failed, fixed in #228); 3 of 42 configurations cut by slow pods | 34k | **`delove@13`**: +0.17 points per seat with fog on, +0.27 without | dropout 0.5 gives nothing over 0.25; check that a new model loads on the GPU (a free home smoke test) before renting pods |
 | cycle 15 | `delove@11` ranking; **fog dropout 0.25**; a twin with Zerg-horde games; **fog-on gates decide** (owner) | 40k + 4k horde | **`delove@12`**: +1.98 points per seat with fog on; no fog +0.07; horde games did not help | a network trained with fog dropout plays fogged tables far better than one trained without; the fog gain shows at 4-8p, not 2p |

@@ -1,0 +1,1 @@
+delove: - 2026-10-22 #PR cycle 19 (overhaul T1, cleaner labels: 24 rollouts, margin 0.03, `--confidence 0.01,0.5`): 24,000 games, $2.74; A/B quick check vs delove@13 +0.04 with fog, undecided, not promoted (the near-ties are real ties); configs and CYCLES.md

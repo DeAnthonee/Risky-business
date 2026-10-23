@@ -3281,3 +3281,173 @@ Hexworld 6p with fog on, record only (outside the SPRT pool), 200 games: 0.535, 
 (-0.05 to +0.11), not better. As in cycle 17, Classic 4p and 2p went up while Classic 6p and Europe 8p went down under
 fog. Two flat cycles after `delove@13`: the Lord of training's architecture review follows. Cycle 18: **$3.52** ($2.86
 games, $0.66 cloud training). Cycles 16-18: $13.53 of the $35.
+
+## c19
+
+### Cycle 19, step a1: Classic 4-player
+
+| table | games | seat wins | mean turns | turn limit | decisions |
+| --- | --- | --- | --- | --- | --- |
+| c4a | 600 | jacob-sensei@1 74, branch@1 294, delove@13 168, jacob-sensei@1 64 | 40.5 | 0 | 320,153 |
+| c4b | 600 | jacob-sensei@1 27, delove@13 253, jacob-sensei@1 39, branch@1 281 | 29.7 | 0 | 205,516 |
+| c4c | 600 | jacob-sensei@1 49, branch@1 288, delove@13 190, jacob-sensei@1 67 | 44.4 | 6 | 265,178 |
+| c4d | 600 | jacob-sensei@1 40, delove@13 231, jacob-sensei@1 39, branch@1 289 | 26.4 | 1 | 165,382 |
+
+**2,400 games.**
+
+| branch and score | |
+| --- | --- |
+| branching player's decisions | 264,719 |
+| branched (compared options) | 168,822 (63.8%) |
+| simulations run | 19,972,440 (528,358,047 simulated moves) |
+| changed the teacher's move | 27,374 (16.2% of branched) |
+| average score gain per branched decision | +0.0133 |
+| changes by kind | attack 13,064/101,114, place 8,126/43,437, fortify_from 3,338/12,736, end_turn 1,564/6,630, trade 1,282/4,905 |
+| chosen branches, 2 rounds on: share of armies / income / territories / cards / continents | 0.405 / 0.436 / 0.423 / 0.363 / 0.518 |
+| chosen branches that had won / lost within the horizon | 8.4% / 1.6% |
+
+### Cycle 19, step a2: Classic 2p, Four Crowns 1v1, Classic 6p
+
+| table | games | seat wins | mean turns | turn limit | decisions |
+| --- | --- | --- | --- | --- | --- |
+| c2a | 1,200 | branch@1:range:gumbel 998, jacob-sensei@1 202 | 18.5 | 0 | 239,271 |
+| c2b | 1,200 | branch@1:range:gumbel 673, delove@13 523 | 5.6 | 4 | 51,436 |
+| c2c | 1,200 | jacob-sensei@1 276, branch@1:range:gumbel 924 | 16.0 | 0 | 184,484 |
+| c2d | 1,200 | delove@13 568, branch@1:range:gumbel 625 | 8.3 | 7 | 68,018 |
+| c6a | 600 | jacob-sensei@1 67, delove@13 95, jacob-sensei@1 50, delove@12 105, jacob-sensei@1 52, branch@1:range 231 | 46.7 | 0 | 281,231 |
+| c6b | 600 | jacob-sensei@1 24, branch@1:range 198, delove@13 156, jacob-sensei@1 21, delove@12 172, jacob-sensei@1 23 | 39.3 | 6 | 246,972 |
+| mca | 1,800 | branch@1:range:gumbel 1385, jacob-sensei@1 415 | 15.2 | 0 | 228,664 |
+| mcb | 1,800 | branch@1:range:gumbel 970, delove@13 766 | 34.6 | 64 | 234,351 |
+
+**9,600 games.**
+
+| branch and score | |
+| --- | --- |
+| branching player's decisions | 649,159 |
+| branched (compared options) | 460,710 (71.0%) |
+| simulations run | 28,041,760 (851,842,078 simulated moves) |
+| changed the teacher's move | 124,605 (27.0% of branched) |
+| average score gain per branched decision | +0.0528 |
+| changes by kind | attack 58,463/225,163, place 48,285/170,754, fortify_from 9,389/31,336, end_turn 5,134/22,401, trade 3,334/11,056 |
+| chosen branches, 2 rounds on: share of armies / income / territories / cards / continents | 0.620 / 0.632 / 0.630 / 0.594 / 0.665 |
+| chosen branches that had won / lost within the horizon | 34.3% / 10.2% |
+
+### Cycle 19, step a3: Europe 8p, USA 10p, Asia 8p
+
+| table | games | seat wins | mean turns | turn limit | decisions |
+| --- | --- | --- | --- | --- | --- |
+| as8a | 600 | jacob-sensei@1 30, branch@1:range 217, delove@13 89, jacob-sensei@1 31, delove@12 81, jacob-sensei@1 36, delove@13 83, jacob-sensei@1 33 | 47.9 | 0 | 374,239 |
+| as8b | 600 | jacob-sensei@1 19, delove@13 129, jacob-sensei@1 8, branch@1:range 155, delove@12 140, jacob-sensei@1 9, delove@13 128, jacob-sensei@1 12 | 53.8 | 0 | 438,046 |
+| eu8a | 600 | jacob-sensei@1 41, delove@13 59, jacob-sensei@1 35, delove@12 75, jacob-sensei@1 42, branch@1:range 240, delove@13 66, jacob-sensei@1 42 | 42.5 | 0 | 319,473 |
+| eu8b | 600 | jacob-sensei@1 16, delove@13 110, jacob-sensei@1 20, delove@12 117, jacob-sensei@1 11, delove@13 115, jacob-sensei@1 18, branch@1:range 191 | 49.2 | 2 | 388,579 |
+| us10a | 600 | jacob-sensei@1 35, delove@13 69, jacob-sensei@1 32, delove@12 69, jacob-sensei@1 32, branch@1:range 188, delove@13 55, jacob-sensei@1 32, delove@12 63, jacob-sensei@1 24 | 50.6 | 1 | 326,101 |
+| us10b | 600 | jacob-sensei@1 18, delove@13 83, jacob-sensei@1 17, delove@12 72, jacob-sensei@1 17, delove@13 102, jacob-sensei@1 14, branch@1:range 169, delove@12 84, jacob-sensei@1 24 | 38.5 | 0 | 318,056 |
+
+**3,600 games.**
+
+| branch and score | |
+| --- | --- |
+| branching player's decisions | 329,374 |
+| branched (compared options) | 204,214 (62.0%) |
+| simulations run | 22,189,776 (1,026,554,590 simulated moves) |
+| changed the teacher's move | 33,889 (16.6% of branched) |
+| average score gain per branched decision | +0.0174 |
+| changes by kind | attack 21,616/130,178, place 8,475/51,644, fortify_from 1,533/7,896, trade 1,291/4,773, end_turn 974/9,723 |
+| chosen branches, 2 rounds on: share of armies / income / territories / cards / continents | 0.395 / 0.397 / 0.398 / 0.361 / 0.440 |
+| chosen branches that had won / lost within the horizon | 15.8% / 3.7% |
+
+### Cycle 19, step a4: Bohemia, Nine Realms, Hex Earth 6p
+
+| table | games | seat wins | mean turns | turn limit | decisions |
+| --- | --- | --- | --- | --- | --- |
+| bo4a | 450 | jacob-sensei@1 48, delove@13 121, jacob-sensei@1 65, branch@1 215 | 34.4 | 1 | 163,644 |
+| bo4b | 450 | jacob-sensei@1 25, branch@1 211, delove@13 185, jacob-sensei@1 29 | 23.8 | 0 | 115,685 |
+| bo6a | 450 | jacob-sensei@1 31, delove@13 90, jacob-sensei@1 40, branch@1:range 180, delove@12 75, jacob-sensei@1 34 | 42.0 | 0 | 236,764 |
+| bo6b | 450 | jacob-sensei@1 34, delove@13 109, jacob-sensei@1 20, delove@12 128, jacob-sensei@1 27, branch@1:range 132 | 44.8 | 0 | 247,547 |
+| hx6a | 300 | jacob-sensei@1 25, delove@13 62, jacob-sensei@1 16, branch@1:range 126, delove@12 47, jacob-sensei@1 24 | 83.1 | 0 | 338,588 |
+| hx6b | 300 | jacob-sensei@1 18, delove@13 61, jacob-sensei@1 17, delove@12 60, jacob-sensei@1 24, branch@1:range 120 | 52.4 | 0 | 271,149 |
+| nr6a | 450 | jacob-sensei@1 40, delove@13 78, jacob-sensei@1 41, delove@12 79, jacob-sensei@1 38, branch@1:range 174 | 66.2 | 0 | 338,873 |
+| nr6b | 450 | jacob-sensei@1 19, branch@1:range 176, delove@13 96, jacob-sensei@1 27, delove@12 109, jacob-sensei@1 23 | 44.6 | 0 | 271,019 |
+| nr8a | 300 | jacob-sensei@1 26, branch@1:range 123, delove@13 39, jacob-sensei@1 12, delove@12 25, jacob-sensei@1 18, delove@13 35, jacob-sensei@1 22 | 55.5 | 0 | 233,821 |
+| nr8b | 300 | jacob-sensei@1 22, delove@13 43, jacob-sensei@1 24, branch@1:range 78, delove@12 52, jacob-sensei@1 20, delove@13 39, jacob-sensei@1 22 | 77.4 | 0 | 318,411 |
+
+**3,900 games.**
+
+| branch and score | |
+| --- | --- |
+| branching player's decisions | 497,130 |
+| branched (compared options) | 309,601 (62.3%) |
+| simulations run | 34,502,424 (1,301,482,416 simulated moves) |
+| changed the teacher's move | 48,313 (15.6% of branched) |
+| average score gain per branched decision | +0.0144 |
+| changes by kind | attack 25,489/195,165, place 13,645/73,735, fortify_from 4,683/20,472, trade 2,364/8,724, end_turn 2,132/11,505 |
+| chosen branches, 2 rounds on: share of armies / income / territories / cards / continents | 0.377 / 0.397 / 0.384 / 0.334 / 0.466 |
+| chosen branches that had won / lost within the horizon | 10.4% / 2.0% |
+
+### Cycle 19, step b: the huge boards
+
+| table | games | seat wins | mean turns | turn limit | decisions |
+| --- | --- | --- | --- | --- | --- |
+| ec6a | 300 | jacob-sensei@1 6, delove@13 105, branch@1:range 70, jacob-sensei@1 10, delove@12 95, jacob-sensei@1 14 | 88.5 | 0 | 404,683 |
+| ec6b | 300 | jacob-sensei@1 14, delove@13 65, jacob-sensei@1 24, delove@12 48, branch@1:range 127, jacob-sensei@1 22 | 90.6 | 0 | 390,112 |
+| fa10a | 300 | branch@1:range 86, jacob-sensei@1 8, delove@13 44, jacob-sensei@1 8, delove@12 44, jacob-sensei@1 11, delove@13 40, jacob-sensei@1 8, delove@12 43, jacob-sensei@1 8 | 127.5 | 0 | 563,180 |
+| fa10b | 300 | jacob-sensei@1 15, delove@13 19, branch@1:range 136, jacob-sensei@1 20, delove@12 19, jacob-sensei@1 17, delove@13 18, jacob-sensei@1 22, delove@12 13, jacob-sensei@1 21 | 120.5 | 0 | 460,236 |
+| fa6a | 300 | branch@1:range 134, jacob-sensei@1 20, delove@13 47, jacob-sensei@1 16, delove@12 70, jacob-sensei@1 13 | 53.8 | 0 | 295,171 |
+| fa6b | 300 | jacob-sensei@1 17, delove@13 49, branch@1:range 152, jacob-sensei@1 20, delove@12 38, jacob-sensei@1 24 | 63.4 | 0 | 367,780 |
+| ge10a | 300 | jacob-sensei@1 4, delove@13 59, jacob-sensei@1 5, delove@12 60, jacob-sensei@1 6, delove@13 55, branch@1:range 50, jacob-sensei@1 3, delove@12 54, jacob-sensei@1 4 | 203.5 | 0 | 928,898 |
+| ge10b | 300 | jacob-sensei@1 14, delove@13 15, jacob-sensei@1 11, delove@12 15, jacob-sensei@1 19, delove@13 16, jacob-sensei@1 18, delove@12 11, branch@1:range 156, jacob-sensei@1 25 | 173.9 | 0 | 747,053 |
+| ge6a | 300 | jacob-sensei@1 12, delove@13 58, branch@1:range 141, jacob-sensei@1 25, delove@12 51, jacob-sensei@1 13 | 71.4 | 0 | 494,632 |
+| ge6b | 300 | jacob-sensei@1 23, delove@13 43, jacob-sensei@1 26, delove@12 29, branch@1:range 160, jacob-sensei@1 19 | 85.8 | 0 | 637,564 |
+| hx10a | 450 | jacob-sensei@1 12, delove@13 62, branch@1:range 106, jacob-sensei@1 17, delove@12 75, jacob-sensei@1 22, delove@13 62, jacob-sensei@1 22, delove@12 54, jacob-sensei@1 18 | 109.0 | 0 | 717,852 |
+| hx10b | 450 | jacob-sensei@1 26, delove@13 37, jacob-sensei@1 32, delove@12 31, branch@1:range 169, jacob-sensei@1 38, delove@13 39, jacob-sensei@1 29, delove@12 25, jacob-sensei@1 24 | 104.2 | 0 | 582,783 |
+| hx10c | 300 | jacob-sensei@1 16, delove@13 37, jacob-sensei@1 11, delove@12 32, branch@1:range 104, jacob-sensei@1 9, delove@13 31, jacob-sensei@1 11, delove@12 31, jacob-sensei@1 18 | 60.0 | 0 | 300,893 |
+| hx10d | 300 | jacob-sensei@1 16, delove@13 25, jacob-sensei@1 19, delove@12 28, jacob-sensei@1 19, delove@13 26, branch@1:range 112, jacob-sensei@1 18, delove@12 18, jacob-sensei@1 19 | 64.7 | 0 | 305,133 |
+
+**4,500 games.**
+
+| branch and score | |
+| --- | --- |
+| branching player's decisions | 1,057,171 |
+| branched (compared options) | 632,513 (59.8%) |
+| simulations run | 71,631,036 (4,264,812,404 simulated moves) |
+| changed the teacher's move | 81,447 (12.9% of branched) |
+| average score gain per branched decision | +0.0113 |
+| changes by kind | attack 48,600/434,036, place 18,451/126,188, fortify_from 7,211/32,655, end_turn 4,111/25,055, trade 3,074/14,579 |
+| chosen branches, 2 rounds on: share of armies / income / territories / cards / continents | 0.345 / 0.364 / 0.346 / 0.284 / 0.433 |
+| chosen branches that had won / lost within the horizon | 9.1% / 1.3% |
+
+### c19: base, recipe and the deciding gate (overhaul T1, cleaner labels)
+
+Base: deploy `8605a21` (#306 merged; GPU fingerprint verified, 5,868,391 steps). Cycle 18's tables at 0.6 (24,000
+games), with the labels cleaned up after the architecture review found the teacher picks the same move under fresh
+rollout seeds only about half the time: **24 rollouts per option** (6 before) and **margin 0.03** (0.01), the T1 sweep's
+best (self-agreement 0.50 -> 0.67). From `delove@13`, c18's base args plus `--soft-targets 5 --confidence 0.01,0.5
+--fog-dropout 0.25` (#306: near-tie labels count at least half), on cycle 19 + cycle 18 at 0.5 + cycle 17 at 0.3,
+trained on a rented pod from the network volume. The 0.05,0.2 first planned would have left two thirds of the searched
+labels at the floor, so the Lord of training changed it before the training pod started.
+
+Labels at 24 rollouts (Classic 4p, 7,535 decisions): 60% searched, median top-2 gap 0.0045, 68% under 0.01, about
+cycle 17's spread. More rollouts did not separate the options: most near-ties are real ties. On the GPU 24 rollouts
+cost 1.2x the time of 6 for 3.8x the simulations.
+
+The deciding gate is the A/B scorecard (`npm run delove:abtest`, `abtest-pool@2`, quick check H1 +0.25), against
+`delove@13`, 3,920 games on 6 home CPU threads:
+
+| table | deals | points/seat (cand - base) | 95% |
+| --- | --- | --- | --- |
+| fog-classic-4 | 400 | +0.10 | -0.16 to +0.36 |
+| fog-classic-6 | 400 | -0.05 | -0.39 to +0.29 |
+| fog-hexworld-6 | 400 | -0.02 | -0.40 to +0.36 |
+| fog-europe-8 | 400 | +0.115 | -0.33 to +0.56 |
+| fog-duel-2 | 100 | +0.24 | -0.01 to +0.49 |
+| zerg-horde-4 | 100 | +0.06 | -0.37 to +0.49 |
+| zerg-mixed-3 | 100 | -0.13 | -0.32 to +0.06 |
+| nofog-classic-6 | 60 | +0.23 | -0.88 to +1.35 |
+
+**Verdict: undecided, near not better**: the fog tables pooled +0.036 points per seat (se 0.092), LLR -2.63 (bounds
+-2.94 / 2.94); the 2-player tables not worse. Plackett-Luce: `c19-candidate` +8 (-3 to +21), `delove@12` -3.
+
+**Review: not promoted, no measurable gain.** No promotion call (the Lord of training). The lesson: the near-ties are
+real, so a cleaner copy of the same teacher does not move the student; the gain has to come from a stronger teacher
+(overhaul T2). `--soft-targets 5 --confidence 0.01,0.5` stay the default for later cycles (cheap, harmless). Cycle 19:
+**$2.74** ($2.54 games, $0.20 cloud training).

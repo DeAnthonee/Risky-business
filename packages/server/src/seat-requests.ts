@@ -5,7 +5,7 @@ import type { GameOptions } from '@risk/engine';
 import { nameSkeleton } from './player-keys.js';
 import { SeasonKeyGuard } from './season-key.js';
 import type { HostTier, TourneyAccessConfig } from './tournament-access.js';
-import { DEFAULT_CHECKIN_MINUTES, type TournamentManager, type TournamentSnapshot } from './tournaments.js';
+import type { TournamentManager, TournamentSnapshot } from './tournaments.js';
 import type { GameRoom } from './store.js';
 
 /**
@@ -148,23 +148,44 @@ export class SeatRequests {
     return this.saved.requests.filter((r) => r.status === 'open' || r.status === 'claimed');
   }
 
-  /** Delove seats the live requests hold (asked for and not yet failed or expired). */
+  /** Delove seats the live requests hold (asked for and not yet failed or expired); the house roster's never count. */
   private seatsAtOnce(): number {
     return this.live()
-      .filter((r) => this.holdsSeats(r))
+      .filter((r) => !this.isRoster(r))
       .reduce((n, r) => n + r.n, 0);
   }
 
   /**
-   * A scheduled tournament's request (the daily tournament's house roster) holds its seats only from the slot's check-in
-   * window, when they are about to play: days of sign-up do not lock hosts out of the at-once cap (Lord of game
-   * development, 2026-10-22). Every other request holds its seats from the start.
+   * A scheduled tournament's request: the daily tournament's house roster. It has no cap (owner, 2026-10-22: "Let's not
+   * have a limit for now. If the mini can run 100 deloves that would be preferred, and we just knock out deloves to
+   * make room for others to join"): outside the at-once count, so it never makes hosts' Delove requests wait, and its
+   * seats yield to people (makeRoom).
    */
-  private holdsSeats(r: SeatRequest): boolean {
-    if (r.mode) return true;
-    const s = this.tournaments.get(r.tournamentId)?.scheduled;
-    if (!s) return true;
-    return this.now() >= s.startsAt - (s.checkinMinutes ?? DEFAULT_CHECKIN_MINUTES) * 60_000;
+  private isRoster(r: SeatRequest): boolean {
+    return !r.mode && !!this.tournaments.get(r.tournamentId)?.scheduled;
+  }
+
+  /**
+   * A person or agent is about to join (never the pool itself): if a scheduled tournament still registering is full,
+   * one house-roster seat leaves to make room. The request then asks for one seat fewer, so the pool does not refill
+   * it. After the start, roster seats play on. True when a seat was freed.
+   */
+  makeRoom(tournamentId: string): boolean {
+    const t = this.tournaments.get(tournamentId);
+    if (!t || t.status !== 'registering' || !t.scheduled || t.entrants.length < t.maxEntrants) return false;
+    const r = this.requestOf(t.id);
+    if (!r || !this.isRoster(r)) return false;
+    const seat = [...(r.bound ?? [])].reverse().find((id) => t.entrants.some((e) => e.id === id));
+    if (!seat) return false;
+    this.tournaments.removeEntrant(t.id, seat);
+    r.bound = (r.bound ?? []).filter((id) => id !== seat);
+    r.n = Math.max(0, r.n - 1);
+    r.claimed = Math.max(0, r.claimed - 1);
+    r.joined = Math.min(Math.max(0, r.joined - 1), r.claimed);
+    r.search = Math.min(r.search, r.claimed);
+    if (r.status === 'open' && r.claimed >= r.n) r.status = r.joined >= r.n ? 'done' : 'claimed';
+    this.save();
+    return true;
   }
 
   /** Before a create: the Delove count fits the caps (per tournament for the tier, and at once). */

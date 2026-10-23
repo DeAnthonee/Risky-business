@@ -43,8 +43,7 @@ const tourneyAccess = tourneyAccessFromEnv(process.env);
 try {
   const found = scheduleFromEnv(process.env);
   if (found) {
-    // A slot's house roster can never ask for more Delove seats than may play at once.
-    schedule = parseSchedule(found.raw, store.tournaments, { maxRoster: tourneyAccess.deloveAtOnce });
+    schedule = parseSchedule(found.raw, store.tournaments);
     scheduleNote = `${schedule.length} entr${schedule.length === 1 ? 'y' : 'ies'} from ${found.source}: ${schedule.map((e) => `${e.at} ${e.tz ?? 'UTC'}${e.roster ? ` (+${e.roster} roster seats)` : ''}`).join('; ')}`;
   }
 } catch (err) {

@@ -772,6 +772,20 @@ export class TournamentManager extends EventEmitter {
     return t;
   }
 
+  /**
+   * Take an entrant out while registering (a house-roster seat making room for a person: SeatRequests.makeRoom). Its
+   * token stops working; nothing else changes.
+   */
+  removeEntrant(id: string, entrantId: string): void {
+    const t = this.require(id);
+    if (t.status !== 'registering') throw new RuleError('Registration is closed: this tournament has started');
+    const before = t.entrants.length;
+    t.entrants = t.entrants.filter((e) => e.id !== entrantId);
+    if (t.entrants.length === before) return;
+    this.joiners.delete(entrantId);
+    this.changed(t);
+  }
+
   /** Delete a tournament: a running one is aborted first (its live tables filed as "aborted"), then it is removed. */
   delete(id: string): boolean {
     const t = this.tournaments.get(id.toUpperCase());

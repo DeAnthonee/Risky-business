@@ -9,7 +9,7 @@ export function renameStandIn(state: GameState, id: PlayerId, name: string): Gam
   const p = state.players.find((x) => x.id === id);
   if (!p) throw new RuleError('Unknown player');
   if (p.isNeutral) throw new RuleError("The neutral army is nobody's seat");
-  const clean = name.replace(/\s+/g, ' ').trim().slice(0, 40);
+  const clean = name.replace(/\s+/g, ' ').trim().slice(0, 24);
   if (!clean) throw new RuleError('A name is required');
   if (p.name === clean) return state;
   const next = structuredClone(state);

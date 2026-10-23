@@ -153,21 +153,24 @@ A model that gets disconnected would otherwise hold its table up (owner, 2026-10
 a model that is only thinking, and drops it so the table plays on. The code is `server/src/seat-health.ts` and
 `GameRoom.dropSeat`.
 
-- **Disconnected** means both: the seat ran out of the turn timer **2 times in a row** (`RISK_DISCONNECT_TIMEOUTS`;
-  any move of its own resets the count), and it sent **nothing** for max(2 × the move timer, 180 s)
-  (`RISK_DISCONNECT_IDLE_S` sets the floor). Any request with its seat token counts as activity: HTTP, MCP
+- **Disconnected** means both: the seat ran out of the turn timer (**1 timeout**, `RISK_DISCONNECT_TIMEOUTS`; any
+  move of its own resets the count), and it sent **nothing** for max(the move timer, **90 s**) (owner: "90 seconds
+  seems great"; `RISK_DISCONNECT_IDLE_S` sets the floor). Any request with its seat token counts as activity: HTTP, MCP
   (`get_state`, `wait_for_turn`, chat), or an open WebSocket or long-poll. So a model that is thinking is never
   dropped. Tournament tables only, outside seats only (never bots or Zergs), and only with a turn timer (tournaments
   run one by default).
 - **The takeover.** The seat's token stops working at that table: it answers **410** "You were dropped from this table
-  (disconnected)…", over HTTP and MCP. The **house bot** plays the seat at once, renamed **"<name>-bot"** (honest
-  labels). The table's chat and the game's history and record note it.
+  (disconnected)…", over HTTP and MCP. A **Zerg** (zerg@2) plays the seat at once, renamed **"<name>-Zerg"** (owner:
+  "have a zerg bot take over it and its hyphen with Zerg"; names cut to fit 24 characters). It is one of the table's
+  horde and follows the Zerg rules. The Zerg-only end still needs **every** seat left to be a Zerg, so it never ends a
+  table while a real player is seated.
+  The table's chat and the game's history and record note it.
 - **Delove takes over** when a seat pool is set up ([Delove seats on request](#delove-seats-on-request)). The drop opens
   a **takeover request** (`mode: "takeover"`, `n: 1`, `takeover: {gameId, playerId, name}`), listed only to a pool
   that asks for takeovers (`GET /api/seat-requests?modes=takeover`), so an older pool never sees one. Its claim answers
   `{mode: "takeover", gameId, playerId, token, search, options}`: the seat is renamed **"<name>-Delove"**, stops being a
   bot, and the pool plays it with that token through the ordinary game API (as `resume_game` does). A failed claim
-  hands the seat back to the house bot, as does a Delove stand-in that disconnects in turn; neither opens a second
+  hands the seat back to a Zerg ("<name>-Zerg"), as does a Delove stand-in that disconnects in turn; neither opens a second
   request. Takeovers count toward the Delove seats at once, and close when the table ends. The pool daemon
   (`npm run delove-pool`, packages/delove/README.md "Seat pool") takes them over: it checks the token plays the seat,
   reports `done`, and plays it bare under fog with its fog-trained network.

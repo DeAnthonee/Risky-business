@@ -114,6 +114,8 @@ export interface RoomSnapshot {
   tokens: Record<string, PlayerId>;
   /** Tokens of seats dropped as disconnected (seat-health.ts), with why: they answer 410 instead of a seat. */
   droppedTokens?: Record<string, string>;
+  /** Seats a Zerg took over after a drop ("<name>-Zerg"): they play and count as Zergs. */
+  zergStandIns?: PlayerId[];
   chat: ChatMessage[];
   history: HistoryEntry[];
   updatedAt: number;
@@ -255,9 +257,14 @@ function reportOfRecord(record: GameRecord): ZergReport {
   return zergReport([...start, ...record.steps.map((s) => ({ player: s.player, action: s.action, events: s.events }))], record.players);
 }
 
-/** A stand-in's name without its "-bot" / "-Delove" suffix: the dropped player's own name. */
+/** A stand-in's name without its "-bot" / "-Zerg" / "-Delove" suffix: the dropped player's own name. */
 export function standInBase(name: string): string {
-  return name.replace(/-(bot|Delove)$/, '');
+  return name.replace(/-(bot|Zerg|Delove)$/, '');
+}
+
+/** "<name>-<who>", the name cut so the whole fits a seat name (24 characters). */
+export function standInName(base: string, who: string): string {
+  return `${base.slice(0, 24 - who.length - 1)}-${who}`;
 }
 
 export class GameRoom extends EventEmitter {
@@ -293,6 +300,8 @@ export class GameRoom extends EventEmitter {
   private seatTimeouts = new Map<PlayerId, number>();
   /** Old tokens of seats dropped as disconnected, with the reason (saved). */
   droppedTokens = new Map<string, string>();
+  /** Seats a Zerg plays after a drop ("<name>-Zerg", saved): Zergs for the horde and the Zerg-only end, by player id. */
+  zergStandIns = new Set<PlayerId>();
   private readonly loadedAt = Date.now();
   private seatPolls = new Map<PlayerId, number>();
   /** Tournament that owns this table, if any. */
@@ -334,6 +343,7 @@ export class GameRoom extends EventEmitter {
     this.state = snapshot.state;
     this.tokens = new Map(Object.entries(snapshot.tokens));
     this.droppedTokens = new Map(Object.entries(snapshot.droppedTokens ?? {}));
+    this.zergStandIns = new Set(snapshot.zergStandIns ?? []);
     this.chat = snapshot.chat;
     this.history = snapshot.history;
     this.updatedAt = snapshot.updatedAt;
@@ -362,6 +372,7 @@ export class GameRoom extends EventEmitter {
       state: this.state,
       tokens: Object.fromEntries(this.tokens),
       ...(this.droppedTokens.size ? { droppedTokens: Object.fromEntries(this.droppedTokens) } : {}),
+      ...(this.zergStandIns.size ? { zergStandIns: [...this.zergStandIns] } : {}),
       chat: this.chat,
       // Tournament tables keep their full history in memory but save only the tail (the record has every move).
       history: this.tournamentId && this.history.length > TABLE_SAVED_HISTORY ? this.history.slice(-TABLE_SAVED_HISTORY) : this.history,
@@ -450,13 +461,14 @@ export class GameRoom extends EventEmitter {
       this.droppedTokens.set(token, reason);
     }
     this.seatTimeouts.delete(playerId);
-    this.agents[playerId] = 'bot';
-    // A stand-in that drops in turn (a Delove that disconnected) goes back to the house bot under the first name.
+    // A Zerg plays the seat on (owner: "have a zerg bot take over it and its hyphen with Zerg"), in the table's horde.
+    this.agents[playerId] = 'zerg';
+    this.zergStandIns.add(playerId);
     const base = standInBase(p.name);
-    const standIn = `${base}-bot`;
+    const standIn = standInName(base, 'Zerg');
     const next = renameStandIn(setPlayerBot(this.state, playerId, true), playerId, standIn);
-    this.addChat(null, 'Game', `${p.name} was dropped (${reason}): the house bot plays the seat as ${standIn}.`);
-    this.commit(next, [], playerId, { type: 'system', note: `${playerId} dropped (${reason}): the house bot plays it as ${standIn}` });
+    this.addChat(null, 'Game', `${base} was dropped (${reason}): a Zerg plays the seat as ${standIn}.`);
+    this.commit(next, [], playerId, { type: 'system', note: `${playerId} dropped (${reason}): a Zerg plays it as ${standIn}` });
     this.emit('seat_dropped', { playerId, name: base, standIn, reason });
   }
 
@@ -467,10 +479,11 @@ export class GameRoom extends EventEmitter {
   grantStandIn(playerId: PlayerId, agent: string): string {
     const p = this.state.players.find((x) => x.id === playerId);
     if (!p || !p.alive || this.closed || this.decidedAt !== null || this.state.phase === 'finished') throw new RuleError('That seat is no longer in play');
-    const standIn = `${standInBase(p.name)}-Delove`;
+    const standIn = standInName(standInBase(p.name), 'Delove');
     const token = newId(24);
     this.tokens.set(token, playerId);
     this.agents[playerId] = agent;
+    this.zergStandIns.delete(playerId); // Delove plays it now, not the horde
     this.seatTimeouts.delete(playerId);
     this.seatSeen.set(playerId, Date.now());
     const next = renameStandIn(setPlayerBot(this.state, playerId, false), playerId, standIn);
@@ -479,7 +492,7 @@ export class GameRoom extends EventEmitter {
     return token;
   }
 
-  /** Back to the house bot ("<name>-bot"): a pool takeover that failed. Its tokens stop working here. */
+  /** Back to the Zerg stand-in ("<name>-Zerg"): a pool takeover that failed. Its tokens stop working here. */
   handBackToBot(playerId: PlayerId, reason: string) {
     const p = this.state.players.find((x) => x.id === playerId);
     if (!p || p.isBot || !p.alive || this.state.phase === 'finished') return;
@@ -488,9 +501,10 @@ export class GameRoom extends EventEmitter {
       this.tokens.delete(token);
       this.droppedTokens.set(token, reason);
     }
-    this.agents[playerId] = 'bot';
-    const standIn = `${standInBase(p.name)}-bot`;
-    this.commit(renameStandIn(setPlayerBot(this.state, playerId, true), playerId, standIn), [], playerId, { type: 'system', note: `${playerId} back to the house bot as ${standIn} (${reason})` });
+    this.agents[playerId] = 'zerg';
+    this.zergStandIns.add(playerId);
+    const standIn = standInName(standInBase(p.name), 'Zerg');
+    this.commit(renameStandIn(setPlayerBot(this.state, playerId, true), playerId, standIn), [], playerId, { type: 'system', note: `${playerId} back to a Zerg as ${standIn} (${reason})` });
   }
 
   seatSocket(playerId: PlayerId, delta: 1 | -1) {
@@ -651,11 +665,17 @@ export class GameRoom extends EventEmitter {
    * strongest Zerg wins (the engine's endByStanding), nobody surrenders and no land turns neutral. It goes through
    * commit like any move, so records, replays, rankings and tournaments see an ordinary finished game.
    */
+  /** A Zerg seat, or a seat a Zerg plays after a drop. */
+  isZerg(id: PlayerId): boolean {
+    return isZergSeat(id) || this.zergStandIns.has(id);
+  }
+
   private endIfOnlySwarm() {
     const s = this.state;
     // The server only says which seats are Zergs (a seating concept); whether that side is all that is left, and not
     // mid-conquest, is the engine's call (onlySideLeft): the game ends on the occupy, never with a 0-army territory.
-    const zergs = new Set(s.players.filter((p) => isZergSeat(p.id)).map((p) => p.id));
+    // Zerg stand-ins (a dropped seat a Zerg plays) count as Zergs: the game ends only when ALL that is left is Zergs.
+    const zergs = new Set(s.players.filter((p) => this.isZerg(p.id)).map((p) => p.id));
     // The last non-Zerg just fell to an attack and the armies have not moved in. The Zerg's own rule (no prey left and
     // not the strongest: surrender) would come before its occupy, so the server moves the minimum in for it, as an
     // ordinary move through commit; that commit then ends the game on a legal board.
@@ -666,7 +686,7 @@ export class GameRoom extends EventEmitter {
     }
     if (!onlySideLeft(s, zergs)) return;
     // A table seated with Zergs only (e.g. a tournament table) ends right after the deal too, unless switched off.
-    if (!ALL_ZERG_TABLES_END_AT_ONCE && s.players.every((p) => p.isNeutral || isZergSeat(p.id))) return;
+    if (!ALL_ZERG_TABLES_END_AT_ONCE && s.players.every((p) => p.isNeutral || this.isZerg(p.id))) return;
     const { state, events } = endByStanding(s, new Set(s.players.filter((p) => p.alive && zergs.has(p.id)).map((p) => p.id)));
     this.addChat(null, 'Game', 'Only Zergs are left: the swarm has won, and the game ends as it stands.');
     this.commit(state, events, null, { type: 'system', note: 'only Zergs are left: the swarm has won, the game ends by standing' });
@@ -1036,7 +1056,7 @@ export class GameRoom extends EventEmitter {
     const p = this.state.players.find((x) => x.id === cur);
     if (!p?.isBot) return;
     try {
-      const action = chooseSeatAction(this.state, cur);
+      const action = chooseSeatAction(this.state, cur, this.zergStandIns);
       if (!action) {
         // Should not happen; surrender to avoid a stuck game.
         this.act(cur, { type: 'surrender' });

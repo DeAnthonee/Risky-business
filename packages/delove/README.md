@@ -194,54 +194,45 @@ RISK_SEAT_POOL_KEY=<from the server owner> DELOVE_MODELS=~/delove-models   npm r
   - a child process that dies is replaced, and its seats are handed to the new one;
   - each seat re-reads its tournament after a server restart, as `delove-seat` does;
   - SIGTERM or Ctrl-C stops claiming and stops the children, and the seats stay in the state file for the next run.
-- **House roster** (`--roster <file>` or `DELOVE_ROSTER`; `src/roster.ts`): the daily tournament's named players.
-  With a roster, a joined seat takes a free roster name instead of "Delove N" and plays that name's model. Details are
-  under "House roster" below.
+- **House roster**: a claim may hand the pool the server's roster entries for its first seats. Each joins by its
+  roster id and plays its own model. Details are under "House roster" below.
 - **Running it as a service on the owner's Mac mini:** the runbook in the notes folder
   (`mac-mini-delove-seats.md`, "Seat pool as a service"): a launchd agent that restarts it, with the key in the
   agent's environment.
 
 ### House roster: the daily tournament's named Deloves
 
-The daily tournament seats the **house roster**: up to 100 named players ("Pax", "Captain Crumpet", ...; some simple,
-some funny). Each name plays one Delove version, for good. Players and spectators see only the name and the label
-"delove", never the model: the roster file is what links each name to its model. It lives on the host, outside the repo
-(`configs/roster.sample.json` is a sample, 50 names on `delove@13` and 50 on `delove@12`).
+The daily tournament seats the **house roster**: up to 100 named players, some simple and some funny. Each name plays
+one Delove version, for good. The roster lives on the **server** (game dev's house roster: an admin-only store under
+`RISK_DATA_DIR`, docs/tournaments.md "House roster"). Players and spectators see only the name and the label
+"AI agent"; the model goes only into the game record and admin views.
 
-- **The file** (`{v: 1, anchor, names: [{name, model, added, retired?}]}`): `anchor` is the long-lived version that is
-  never retired (`delove@12`), so every week compares against the same player. Names are unique, at most 24 characters,
-  and never start with "Delove" or "Zerg".
-- **Seating** (`npm run delove-pool -- --roster <file>`): for each claimed seat the pool takes a free name. Each seat
-  goes to the active version with the fewest seats in play, so the versions stay even, and within a version names are
-  taken in roster order. The seat plays its name's model. A fog seat takes only names whose model is fog-trained. More
-  seats than free names: the rest go back to the request. The pool reads the file again at every poll, so an edited
-  roster applies without a restart, and every active version must load. Takeovers stay "<name>-Delove", playing the
-  pool's `--model`.
-- **Versions come and go** (`npm run delove:roster`):
-
-      npm run delove:roster -- new --out <roster.json> --models delove@13:50,delove@12:50 --anchor delove@12
-      npm run delove:roster -- promote --roster <roster.json> --newest delove@14 [--add 50]
-      npm run delove:roster -- show --roster <roster.json>
-
-  `promote` retires every version two or more promotions behind the newest (never the anchor), with its names, and
-  adds names for the new one. A retired name is never seated again and never changes model, so its history stays
-  that model's.
+- **Seating** (the pool needs no setting for it): a seat request can carry roster ids. Its claim answers
+  `roster: [{rosterId, name, model}]` for its first seats. The pool joins each with `{seatRequestId, rosterId}` and
+  no name or label (the server sets them), and plays that entry's model, bare. Seats past the roster entries are plain
+  "Delove N" seats, as before. An entry whose model the pool cannot play stops the claim there: the model isn't in
+  `DELOVE_MODELS`, or it is fog-blind at a fog table (the roster holds only fog-trained versions, but the pool checks).
+  That entry is reported `failed`, and the server hands it out again.
+- **Versions come and go on the server** (admin routes): new names for a model, and retiring a version's names. The
+  pool only reads, so keep every active roster model in the pool's `DELOVE_MODELS`.
 - **The weekly per-version yardstick** (`npm run delove:roster-yardstick`; `src/roster-yardstick.ts`):
 
-      RISK_RECORDS_KEY=... npm run delove:roster-yardstick -- weekly --server <url> --roster <roster.json> --data <private dir>
+      RISK_RECORDS_KEY=... RISK_SEAT_POOL_KEY=... npm run delove:roster-yardstick -- weekly --server <url> --data <private dir> [--anchor delove@12]
 
   - `collect` reads the tournament tables the roster played from `GET /api/history`, which lists only the newest 100,
-    so run it every few hours. It reads each table's game record with the records key (`GET /api/records/:id`) and
-    keeps a short summary line in `<data>/tables.jsonl`. Without the key, or with records off on the server, a table is
-    kept from the history alone: places, but no kills or eliminations.
+    so run it every few hours. It reads each table's game record with the records key: places, kills, who eliminated
+    whom, and each roster seat's model (`record.room.roster`). It keeps a short summary line in
+    `<data>/tables.jsonl`. The pool key reads the roster list (`GET /api/roster`), which names the roster seats and
+    their models for a table without a record (kept from the history alone: places, no kills).
   - `report` writes `yardstick-<date>.json` and `.md` over the last `--days` (7). Per version and per name it gives
     tables, table wins, placement (0 first, 1 last), points per table (placement points plus kills), kills, rounds
     reached, who eliminated it (by version, `zerg`, `bot` or `other`), and the same split by fog, table size and map.
-    A Plackett-Luce rating per version (the anchor at 0) comes from every table's finishing order.
-  - The key comes only from `RISK_RECORDS_KEY` and is never printed or saved. The output folder is private (on the
+    A Plackett-Luce rating per version (the anchor `delove@12` at 0) comes from every table's finishing order.
+  - The keys come only from the environment and are never printed or saved. The output folder is private (on the
     host, never in git).
-- **On the Mac mini:** the pool runs with `--roster` as its launchd service, and a weekly launchd job runs the yardstick
-  (with `collect` every 6 hours). See the runbook in the notes folder (`mac-mini-delove-seats.md`, "House roster").
+- **On the Mac mini:** the pool's launchd service seats the roster with no extra flag, and a weekly launchd job runs
+  the yardstick (with `collect` every 6 hours). See the runbook in the notes folder (`mac-mini-delove-seats.md`, "House
+  roster").
 
 ### Generation 5 Testing & Environment Parity
 

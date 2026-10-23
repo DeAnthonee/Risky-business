@@ -13,7 +13,6 @@ import { newestBaseModel } from './branch-env.js';
 import { modelFogInputs, modelsDir } from './net-agent.js';
 import { Noter } from './notes.js';
 import { ChildPool, SeatPool, type FromChild, type ToChild } from './pool.js';
-import { activeModels, maybeRoster, type Roster } from './roster.js';
 import { infos, makeAgents } from './seat-agents.js';
 import { playPoolEntrant } from './pool-play.js';
 import { latencySummary } from './tournament-seat.js';
@@ -33,8 +32,6 @@ const USAGE = `delove-pool: the Delove seat pool, a daemon that fills tournament
   --poll-ms MS      how often to poll (default 30000)
   --state FILE      seats in play, kept so a restarted pool plays them on (default ~/.delove-pool/state.json)
   --pace MS         pause after each move (default 300)
-  --roster FILE     the house roster (default DELOVE_ROSTER): joined seats take its names, split evenly across its
-                    versions, each name playing its own model; read again at every poll. None: "Delove N" seats
   --no-notes        no decision notes on the moves
 
 The key comes only from RISK_SEAT_POOL_KEY (sent in the x-seat-pool-key header; never printed or saved).
@@ -66,7 +63,6 @@ async function main() {
       'poll-ms': { type: 'string' },
       state: { type: 'string' },
       pace: { type: 'string' },
-      roster: { type: 'string' },
       'no-notes': { type: 'boolean' },
       help: { type: 'boolean' },
     },
@@ -84,29 +80,21 @@ async function main() {
     fail((e as Error).message);
   }
   const modelFog = modelFogInputs(join(modelsDir(), `${model}.onnx`)) > 0;
-  // The roster: every active version must load before the pool claims anything.
-  const rosterFile = values.roster ?? process.env.DELOVE_ROSTER;
-  const fog = new Map<string, boolean>();
-  const fogCapable = (m: string) => {
-    if (!fog.has(m)) fog.set(m, existsSync(join(modelsDir(), `${m}.onnx`)) && modelFogInputs(join(modelsDir(), `${m}.onnx`)) > 0);
-    return fog.get(m)!;
-  };
-  const readRoster = () => {
-    const r = maybeRoster(rosterFile);
-    if (r) makeAgents(activeModels(r), preset);
-    return r;
-  };
-  if (rosterFile) {
-    let r: Roster | null = null;
-    try {
-      r = readRoster();
-    } catch (e) {
-      fail(`roster ${rosterFile}: ${(e as Error).message}`);
+  // House roster seats play their entry's model: any delove@N in the models folder, under fog only a fog-trained one.
+  const playable = new Map<string, { ok: boolean; fog: boolean }>();
+  const canPlay = (m: string, fogTable: boolean) => {
+    if (!playable.has(m)) {
+      let ok = existsSync(join(modelsDir(), `${m}.onnx`));
+      try {
+        if (ok) makeAgents([m], preset);
+      } catch {
+        ok = false;
+      }
+      playable.set(m, { ok, fog: ok && modelFogInputs(join(modelsDir(), `${m}.onnx`)) > 0 });
     }
-    if (!r) fail(`roster ${rosterFile} not found`);
-    const counts = activeModels(r).map((m) => `${m} ${r!.names.filter((n) => n.model === m && !n.retired).length}${fogCapable(m) ? ' (fog)' : ''}`);
-    log(`roster ${rosterFile}: ${counts.join(', ')}; anchor ${r.anchor}`);
-  }
+    const p = playable.get(m)!;
+    return p.ok && (!fogTable || p.fog);
+  };
   const procs = Math.max(1, int(values.procs, '--procs', 6));
   const pace = int(values.pace, '--pace', 300);
   const self = fileURLToPath(import.meta.url);
@@ -119,7 +107,7 @@ async function main() {
     maxSeats: int(values['max-seats'] ?? process.env.MAX_SEATS, '--max-seats', 40),
     maxSearch: int(values['max-search'] ?? process.env.MAX_SEARCH, '--max-search', 20),
     play: (e) => children.play(e),
-    ...(rosterFile ? { roster: readRoster, fogCapable } : {}),
+    canPlay,
     stateFile: values.state ?? join(homedir(), '.delove-pool', 'state.json'),
     log,
   });

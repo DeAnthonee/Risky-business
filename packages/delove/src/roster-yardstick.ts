@@ -1,14 +1,21 @@
 import { placementPoints } from '@risk/engine';
 import { plackettLuce } from './abtest.js';
-import type { Roster } from './roster.js';
 
 /**
- * The weekly per-version yardstick of the house roster (packages/delove/README.md "House roster"): every daily
- * tournament table the roster played, read from the game records, summed per name and per version.
+ * The weekly per-version yardstick of the house roster (packages/delove/README.md "House roster"): every tournament
+ * table the roster played, read from the game records, summed per name and per version.
  *
- * A table is kept as a TableSummary (a few hundred bytes; the full record is not kept). Each seat's class is its roster
- * version (the roster file links names to models, for good), "zerg" or "bot" for the server's seats, else "other".
+ * A table is kept as a TableSummary (a few hundred bytes; the full record is not kept). A roster seat's model comes
+ * from its game record (`room.roster`, the records key) or else from the server's roster list (the pool key); each
+ * seat's class is that model, "zerg" or "bot" for the server's seats, else "other".
  */
+
+/** A roster entry as the server lists it (GET /api/roster): its name always plays its model. */
+export interface RosterEntry {
+  id: string;
+  name: string;
+  model: string;
+}
 
 export interface SeatSummary {
   name: string;
@@ -17,8 +24,11 @@ export interface SeatSummary {
   kills: number;
   /** Name of whoever eliminated this seat, if it was eliminated. */
   eliminatedBy?: string;
-  /** The server's label in the history: "zerg", "bot", "delove", an agent's own, or none. */
+  /** The server's label in the history: "zerg", "bot", "AI agent", an agent's own, or none. */
   agent?: string;
+  /** A house roster seat: its roster id and model. */
+  rosterId?: string;
+  model?: string;
 }
 
 export interface TableSummary {
@@ -39,10 +49,13 @@ export interface RecordLike {
   endedAt?: number;
   players: { id: string; name: string; isNeutral?: boolean }[];
   outcome: { placings: string[]; eliminations?: { player: string; by: string | null }[] };
+  /** The house roster seats of the game: player id to roster id and model. */
+  room?: { roster?: Record<string, { id: string; model: string }> };
 }
 
 /** One table from its record, the history row's labels and the bracket's round. */
 export function summarizeTable(rec: RecordLike, tournamentId: string, round: number, agents: Record<string, string | undefined>, endedAt: number): TableSummary {
+  const roster = rec.room?.roster ?? {};
   const byId = new Map(rec.players.map((p) => [p.id, p]));
   const real = rec.outcome.placings.filter((id) => byId.has(id) && !byId.get(id)!.isNeutral);
   const elim = rec.outcome.eliminations ?? [];
@@ -62,15 +75,15 @@ export function summarizeTable(rec: RecordLike, tournamentId: string, round: num
         kills: elim.filter((e) => e.by === id && byId.has(e.player) && !byId.get(e.player)!.isNeutral).length,
         ...(out?.by && byId.has(out.by) ? { eliminatedBy: byId.get(out.by)!.name } : {}),
         ...(agents[p.name] ? { agent: agents[p.name] } : {}),
+        ...(roster[id] ? { rosterId: roster[id].id, model: roster[id].model } : {}),
       };
     }),
   };
 }
 
-/** A seat's class: its roster version, "zerg", "bot" or "other". */
-export function seatClass(s: { name: string; agent?: string }, roster: Roster): string {
-  const n = roster.names.find((x) => x.name.toLowerCase() === s.name.toLowerCase());
-  if (n) return n.model;
+/** A seat's class: its roster model, "zerg", "bot" or "other". */
+export function seatClass(s: { model?: string; agent?: string }): string {
+  if (s.model) return s.model;
   if (s.agent === 'zerg' || s.agent === 'bot') return s.agent;
   return 'other';
 }
@@ -143,9 +156,10 @@ function line(a: Acc): Line {
 }
 
 /** Per-name and per-version stats over these tables, and the per-class Plackett-Luce ratings. */
-export function yardstick(tables: TableSummary[], roster: Roster, from: string, to: string): YardstickReport {
+export function yardstick(tables: TableSummary[], anchor: string, from: string, to: string): YardstickReport {
   const perVersion = new Map<string, Acc>();
   const perName = new Map<string, Acc>();
+  const modelOf = new Map<string, string>();
   const get = (m: Map<string, Acc>, k: string) => (m.has(k) ? m.get(k)! : (m.set(k, acc()), m.get(k)!));
   const split = (m: Acc['byFog'], k: string, win: boolean, rel: number) => {
     const v = (m[k] ??= { tables: 0, wins: 0, relPlace: 0 });
@@ -156,17 +170,18 @@ export function yardstick(tables: TableSummary[], roster: Roster, from: string, 
   for (const t of tables) {
     const n = t.seats.length;
     for (const s of t.seats) {
-      const cls = seatClass(s, roster);
+      const cls = seatClass(s);
       if (!cls.startsWith('delove@')) continue;
       const rel = n > 1 ? (s.place - 1) / (n - 1) : 0;
       const killer = t.seats.find((x) => x.name === s.eliminatedBy);
+      modelOf.set(s.name, cls);
       for (const a of [get(perVersion, cls), get(perName, s.name)]) {
         a.tables++;
         a.wins += s.place === 1 ? 1 : 0;
         a.relPlace += rel;
         a.points += (n > 1 ? placementPoints(s.place, n) : 0) + s.kills;
         a.kills += s.kills;
-        if (killer) a.eliminatedBy[seatClass(killer, roster)] = (a.eliminatedBy[seatClass(killer, roster)] ?? 0) + 1;
+        if (killer) a.eliminatedBy[seatClass(killer)] = (a.eliminatedBy[seatClass(killer)] ?? 0) + 1;
         a.rounds[t.tournamentId] = Math.max(a.rounds[t.tournamentId] ?? 0, t.round);
         split(a.byFog, t.fog ? 'fog' : 'no fog', s.place === 1, rel);
         split(a.bySize, `${n}p`, s.place === 1, rel);
@@ -174,18 +189,18 @@ export function yardstick(tables: TableSummary[], roster: Roster, from: string, 
       }
     }
   }
-  const games = tables.map((t) => [...t.seats].sort((a, b) => a.place - b.place).map((s) => seatClass(s, roster)));
+  const games = tables.map((t) => [...t.seats].sort((a, b) => a.place - b.place).map((s) => seatClass(s)));
   return {
     from,
     to,
     tables: tables.length,
     tournaments: new Set(tables.map((t) => t.tournamentId)).size,
-    anchor: roster.anchor,
+    anchor,
     perVersion: Object.fromEntries([...perVersion].map(([k, a]) => [k, line(a)])),
     perName: Object.fromEntries(
-      [...perName].map(([k, a]) => [k, { ...line(a), model: roster.names.find((x) => x.name.toLowerCase() === k.toLowerCase())!.model }]),
+      [...perName].map(([k, a]) => [k, { ...line(a), model: modelOf.get(k)! }]),
     ),
-    ratings: games.length && games.flat().includes(roster.anchor) ? plackettLuce(games, roster.anchor) : {},
+    ratings: games.length && games.flat().includes(anchor) ? plackettLuce(games, anchor) : {},
   };
 }
 

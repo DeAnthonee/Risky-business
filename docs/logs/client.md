@@ -6,6 +6,32 @@ Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. Changes from
 hash instead. **In the same PR** as any change to this area, write your line to a fragment in
 [pending/](pending/README.md), not to this file (README hard rule 12; folded in by `npm run logs:fold`).
 
+- 2026-10-22 #314 tournament registration: a player key for the name first (checkbox, on by default), then the setup prompt shown once with Copy and Download .txt (`SeatSetup.tsx`)
+- 2026-10-22 #312 a nested tournament's page says when it was aborted
+- 2026-10-22 #311 the scheduled card reads "Today's tournament" when it starts today, "N registered / M seats", the roster seats, and a Register button
+- 2026-10-22 #301 tournament page: dropped entrants (🔌, status `dropped`, a clear line for the dropped player)
+- 2026-10-22 #300 the big-move pop-up and the 💬 Reactions toggle are hidden unless the server sends reactions; a saved "on" in localStorage cannot bring them back
+- 2026-10-22 #293 the log and banner show the storm and the stalemate, and "wins the stalled game on standing"
+- 2026-10-22 #291 the fog lift in the log and as a banner, a "Fog lifted" tag for spectators, and the board drawn unfogged after it
+- 2026-10-22 #290 nested tournament page: entrant names (Entrants list, host's Who joined) are buttons that open the Map tab's globe on the entrant's current table, focused, with their territories lit briefly; knocked out: a note and their last table; registering: a note (`entrantFocus.ts`)
+- 2026-10-22 #289 the nested round clock counts finished tables out of all of them and says "last lap" after the deadline; the create form's round deadline defaults to 15 minutes
+- 2026-10-22 #288 tournament Start now (the Host bar and the screen after creating): a live "Seats: J / M · Delove K / N" beside it, and a confirm ("Only J of M seats are filled (Delove requested N, joined K). Start anyway?", Start anyway / Wait) while seats are empty or Delove seats have not all joined (StartButton.tsx; HostEntrants shares its live view)
+- 2026-10-22 #281 the Host bar (Start now + Who joined) sits above every view of a registering tournament, for the host token or, in open mode, for any browser (owner: a host who opened the bracket, or a private window, lost the Start button); the tournament view carries `openMode`
+- 2026-10-22 #281 **Who joined**: a live entrants panel (counter tiles and a newest-first list with kind badges) on the post-create host screen and in the tournament page's Host box
+- 2026-10-22 #279 tournament page: a Host box while registering (Start now with this browser's host token, or start with a hosting code)
+- 2026-10-22 #276 coach panel (G5): Expand opens a bigger coach panel (right column, phone bottom sheet, every note; `?coach=panel`), and a mic button using the browser's Web Speech API puts speech into the text field for review, never auto-sends; hidden where unsupported
+- 2026-10-22 #274 Coach box (G4): on a quick-play game watched by the browser holding the seat's player key, the page shows the seat's fogged view (read-only) and a Coach box (280 chars, recent notes, Hide)
+- 2026-10-22 #271 create form: the Delove seats hint says the seat pool fills them
+- 2026-10-22 #270 home page: a "🔑 Get a player key" button ("Your player key" once this browser holds one) next to Host / Find a tournament, opening `?player=1`
+- 2026-10-22 #263 **Your player key** page (`?player=1`): register a name and get the key once (Copy), kept on this browser and sent as `X-Player-Key` when taking a seat; who you play as, get a new key, forget it on this browser; how agents use a key
+- 2026-10-22 #259 Next tournament card: "Checked in N / M" and when check-in opens; the tournament page tells a registered entrant when to check in, or that they are
+- 2026-10-22 #256 live globe: a final on Hex Earth is a layer of the live globe, so the last round shrinks into the winners' starting territories on Hex Earth, which then shows the final live (holders' colours, armies, battle arcs; a portal hex opens the board inside); replaces the separate Inception Hex Earth globe from #229
+- 2026-10-22 #255 tournament badge on game tickets and in the game's top bar (opens the bracket, keeps the seat); home: Host a tournament (`?host=1`) and Find a tournament, the Tournaments list shows open ones first with finished behind a toggle
+- 2026-10-22 #254 live globe: territories rise with their armies (side walls) and each table's latest battle is a red arc for 4 s; the dev demo's live table and Next round feed them
+- 2026-10-22 #253 Create tournament form (`?host=1`, `CreateTournament.tsx`): seat counts (Zergs, Delove, open), settings and the access code with a live breakdown from the preview endpoint, then create and Start now (the browser keeps the host token)
+- 2026-10-22 #251 tournament page restyled in the home page's look (p5 theme: cut-paper title and join panel, entrant chips, round tables as tickets, the nested view's panel, tabs and tables in cut paper; owner request)
+- 2026-10-22 #250 live globe round change: each table's patch shrinks into its portal on the next round's board (the portal in the winner's colour) while the next boards fade in, the camera turns to the focused table or the final; reduced motion swaps at once; the dev demo gets Next round
+- 2026-10-22 #246 home page: the Next tournament card, The House and the Tournaments list move to the top, right under the masthead (owner request)
 - 2026-10-22 #243 Inception Map tab: Globe view of the round in play, every live table's board a patch of the sphere (`globeLayout.ts`, `LiveGlobe` in the lazy GlobeMap chunk) in its holders' colours from the feed; click a patch to focus it (camera turns, Watch table); a new round redraws; a Hex Earth final shows the hexworld globe
 - 2026-10-22 #242 match history says "decided on standing" for such tables
 - 2026-10-22 #238 a big-move pop-up over the map (Reactions.tsx) with a 💬 Reactions toggle, on by default, remembered in localStorage

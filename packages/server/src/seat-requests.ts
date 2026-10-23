@@ -39,6 +39,14 @@ export interface SeatRequest {
   takeover?: { gameId: string; playerId: string; name: string };
   /** Names the pool gives its seats: "<labelPrefix> 1", "<labelPrefix> 2", ... */
   labelPrefix: string;
+  /**
+   * House roster names to seat first (roster ids, roster.ts): each claim hands the pool the next free ones with their
+   * names and models, and the pool joins each with its `rosterId`. Seats beyond them are plain "Delove N" seats.
+   */
+  roster?: string[];
+  /** Roster ids handed out by claims, and those whose seat has joined. */
+  rosterClaimed?: string[];
+  rosterJoined?: string[];
   /** The tournament plays with fog of war (Delove's search is fog-off only). */
   fog: boolean;
   /** Whether claims may use search seats (fog off). Each claim says how many of its seats may search. */
@@ -77,6 +85,22 @@ export const POOL_STALE_MS = 2 * 60_000;
 interface Saved {
   requests: SeatRequest[];
   pool: { free: number; freeSearch: number; at: number } | null;
+}
+
+/**
+ * What a join claim answers. `roster` (requests with house roster names): the first seats are those names, each with
+ * the model it always plays; the pool joins each with `rosterId` (its name and the model stay out of the join fields).
+ * The other `n - roster.length` seats are "<labelPrefix> <firstLabel>", "<labelPrefix> <firstLabel + 1>", ...
+ */
+export interface JoinClaim {
+  requestId: string;
+  tournamentId: string;
+  n: number;
+  search: number;
+  labelPrefix: string;
+  firstLabel: number;
+  roster?: { rosterId: string; name: string; model: string }[];
+  options: Partial<GameOptions>;
 }
 
 /** What a takeover claim answers: the seat to play, with its fresh token (the game API, as resume_game). */
@@ -177,8 +201,8 @@ export class SeatRequests {
       throw new RiskHttpError(`Only ${Math.max(0, this.caps.deloveAtOnce - used)} Delove seats are free right now (of ${this.caps.deloveAtOnce}); ask for fewer or try later`, 429);
   }
 
-  /** After a create: a tournament with Delove seats opens its request. */
-  openFor(t: TournamentSnapshot): SeatRequest | null {
+  /** After a create: a tournament with Delove seats opens its request; `roster`: roster ids to seat first (admin). */
+  openFor(t: TournamentSnapshot, roster?: readonly string[]): SeatRequest | null {
     const n = t.requested?.delove ?? 0;
     if (!n) return null;
     const fog = !!t.options.fogOfWar;
@@ -196,6 +220,7 @@ export class SeatRequests {
       createdAt: this.now(),
       expiresAt: t.scheduled?.startsAt ?? null,
       status: 'open',
+      ...(roster?.length ? { roster: [...roster], rosterClaimed: [], rosterJoined: [] } : {}),
     };
     this.saved.requests = [...this.saved.requests.filter((x) => x.id !== r.id), r];
     this.prune();
@@ -247,14 +272,24 @@ export class SeatRequests {
       throw new RiskHttpError('Names starting with "Delove" are kept for the Delove seat pool in this tournament', 400);
   }
 
-  /** Before a pool join (seatRequestId and the pool key): the request is this tournament's and has a claimed seat free. */
-  checkBind(requestId: unknown, tournamentId: string): SeatRequest {
+  /**
+   * Before a pool join (seatRequestId and the pool key): the request is this tournament's and has a claimed seat free.
+   * With `rosterId`, that roster name must be one a claim of this request handed out and not yet joined.
+   */
+  checkBind(requestId: unknown, tournamentId: string, rosterId?: string): SeatRequest {
     const r = this.require(String(requestId ?? ''));
     if (r.tournamentId !== tournamentId.toUpperCase()) throw new RiskHttpError('That seat request is for another tournament', 400);
     if (r.status !== 'claimed' && r.status !== 'open') throw new RiskHttpError(`This request is ${r.status}`, 409);
     if ((r.bound ?? []).length >= r.claimed) throw new RiskHttpError('Every claimed seat of this request has joined: claim more first', 409);
+    if (rosterId !== undefined) {
+      if (!(r.rosterClaimed ?? []).includes(rosterId)) throw new RiskHttpError('That roster name was not handed out by a claim of this request', 409);
+      if ((r.rosterJoined ?? []).includes(rosterId)) throw new RiskHttpError('That roster name has already joined', 409);
+    }
     return r;
   }
+
+  /** The roster entry for an id (the app sets it from the roster store): name and model, for the pool's claims. */
+  rosterEntry: ((id: string) => { id: string; name: string; model: string } | undefined) | null = null;
 
   /** The entrants the Delove seat pool joined for this tournament's requests (any status). */
   boundEntrants(tournamentId: string): Set<string> {
@@ -262,9 +297,10 @@ export class SeatRequests {
     return new Set(this.saved.requests.filter((r) => r.tournamentId === id).flatMap((r) => r.bound ?? []));
   }
 
-  /** After a pool join: the entrant is this request's. */
-  bind(r: SeatRequest, entrantId: string) {
+  /** After a pool join: the entrant is this request's (and its roster name has joined). */
+  bind(r: SeatRequest, entrantId: string, rosterId?: string) {
     r.bound = [...(r.bound ?? []), entrantId];
+    if (rosterId !== undefined) r.rosterJoined = [...(r.rosterJoined ?? []), rosterId];
     this.save();
   }
 
@@ -306,7 +342,7 @@ export class SeatRequests {
    * The pool takes `n` seats of a request: what it needs to join them. `search` says how many of them may run search
    * (fog off, within the search seats at once).
    */
-  claim(id: string, rawN: unknown): { requestId: string; tournamentId: string; n: number; search: number; labelPrefix: string; firstLabel: number; options: Partial<GameOptions> } | TakeoverClaim {
+  claim(id: string, rawN: unknown): JoinClaim | TakeoverClaim {
     this.closeGone();
     const r = this.require(id);
     if (r.status !== 'open' && r.status !== 'claimed') throw new RiskHttpError(`This request is ${r.status}`, 409);
@@ -318,12 +354,20 @@ export class SeatRequests {
     const t = this.tournaments.get(r.tournamentId)!;
     const searchUsed = this.live().reduce((k, x) => k + x.search, 0);
     const search = r.searchAllowed ? Math.max(0, Math.min(n, (this.caps.deloveSearchAtOnce || Infinity) - searchUsed)) : 0;
-    const firstLabel = r.claimed + 1;
+    // House roster names first (the next ones not handed out yet), then plain "Delove N" seats numbered on from before.
+    const handed = r.rosterClaimed ?? [];
+    const rosterIds = (r.roster ?? []).filter((x) => !handed.includes(x)).slice(0, n);
+    const firstLabel = r.claimed - handed.length + 1;
+    if (r.roster) r.rosterClaimed = [...handed, ...rosterIds];
     r.claimed += n;
     r.search += search;
     r.status = 'claimed';
     this.save();
-    return { requestId: r.id, tournamentId: r.tournamentId, n, search, labelPrefix: r.labelPrefix, firstLabel, options: { ...t.options } };
+    const roster = rosterIds.map((x) => {
+      const e = this.rosterEntry?.(x);
+      return { rosterId: x, name: e?.name ?? x, model: e?.model ?? 'unknown' };
+    });
+    return { requestId: r.id, tournamentId: r.tournamentId, n, search, labelPrefix: r.labelPrefix, firstLabel, ...(r.roster ? { roster } : {}), options: { ...t.options } };
   }
 
   /** A takeover claim: the seat is the pool's now ("<name>-Delove"), with a fresh token to play it. */
@@ -373,6 +417,8 @@ export class SeatRequests {
       r.joined = Math.min(r.claimed, r.joined + j);
       r.claimed = r.joined;
       r.search = Math.min(r.search, r.joined);
+      // Roster names that did not join go back too: the next claim hands them out again.
+      if (r.roster) r.rosterClaimed = [...(r.rosterJoined ?? [])];
       r.status = r.joined >= r.n ? 'done' : 'open';
       r.reason = String(reason ?? '').slice(0, 200) || undefined;
     } else {

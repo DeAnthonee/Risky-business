@@ -44,7 +44,11 @@ export interface RecordHeader {
   id: string;
   /** board "training": a model-vs-model yardstick game, ranked on the training leaderboard, not the public one. */
   /** agents: each seat's self-declared player type, added when the game is filed (never while it is played). */
-  room: { id: string; name: string; tournamentId?: string; board?: 'training'; agents?: Record<PlayerId, string> };
+  /**
+   * roster: the house roster seats (server roster.ts) with the model each one played, added when the game is filed. It
+   * is the answer key: only the full record (records key) has it; public summaries show those seats as "AI agent".
+   */
+  room: { id: string; name: string; tournamentId?: string; board?: 'training'; agents?: Record<PlayerId, string>; roster?: Record<PlayerId, { id: string; model: string }> };
   map: GameOptions['map'];
   fog: boolean;
   options: GameOptions;

@@ -124,10 +124,15 @@ export function createRiskServer(store: Store, opts: AppOptions = {}): RiskServe
   });
   const characters = opts.characters ?? new CharacterStore(DEFAULT_AI_DIR, null);
   // Nobody may register an AI character's id or name as a player name (player-keys.ts).
-  store.playerKeys.reserved = (name) => {
+  const characterName = (name: string) => {
     const n = nameSkeleton(name);
     return characters.list().some((c) => nameSkeleton(c.id) === n || nameSkeleton(c.name) === n || nameSkeleton(c.id.split('/').pop()!) === n) ? 'that is an AI character' : null;
   };
+  // The house roster's names (roster.ts) are the house's: nobody registers one, nor seats under one or a look-alike.
+  store.playerKeys.reserved = (name) => characterName(name) ?? store.roster.reservedWhy(name);
+  store.playerKeys.seatReserved = (name) => store.roster.reservedWhy(name);
+  // A new roster name may not be a registered player's or an AI character's.
+  store.roster.taken = (name) => (store.playerKeys.isRegistered(name) ? "that is a registered player's name" : characterName(name));
   // Hosting codes, caps and expiry: one instance for the HTTP API and the MCP. Creates pause while the loop lags.
   // The brake reads only a finished minute's p99, so it acts on lag that stayed high, not on a start-up blip.
   const tourneyAccess = new TournamentAccess(store.tournaments, opts.tourneyAccess ?? NO_TOURNEY_CAPS, opts.tourneyAccessFile ?? null, () => lastMinuteLagMs ?? 0);
@@ -137,6 +142,8 @@ export function createRiskServer(store: Store, opts: AppOptions = {}): RiskServe
   store.tournaments.beforeStart = (t) => seatRequests.onStart(t);
   // Disconnected seats: the pool may take a dropped seat over from the house bot ("<name>-Delove").
   seatRequests.rooms = (id) => store.get(id);
+  // A claim of a request with roster names hands the pool their names and models (the pool key holds the answer key).
+  seatRequests.rosterEntry = (id) => store.roster.get(id);
   store.tournaments.onSeatDropped = (d) => seatRequests.openTakeover(d.tournamentId, d.gameId, d.playerId, d.name, d.fog);
   // House AI (nested seating and round close): the seats the Delove seat pool joined.
   store.tournaments.houseAiEntrants = (id) => seatRequests.boundEntrants(id);

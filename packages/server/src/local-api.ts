@@ -288,6 +288,12 @@ export class LocalRiskApi implements RiskApi {
     const t = this.store.tournaments.start(id);
     return { tournament: this.store.tournaments.view(t.id) };
   }
+  /** Same rules as POST /tournaments/:id/abort: the host token or the admin key. */
+  async abortTournament(key: string | undefined, tournamentId: string) {
+    const id = this.tournamentHostOf(key, tournamentId, 'Aborting a tournament', 'abort it');
+    const t = this.store.tournaments.abort(id);
+    return { tournament: this.store.tournaments.view(t.id) };
+  }
   /** Same rules as POST /tournaments/:id/bots: the host only, while registering, within maxEntrants. */
   async addTournamentBots(key: string | undefined, tournamentId: string, kind: 'bot' | 'zerg', count: number) {
     const id = this.tournamentHostOf(key, tournamentId, 'Adding bots to a tournament', 'add bots');

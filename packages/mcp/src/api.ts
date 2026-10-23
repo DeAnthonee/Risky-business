@@ -87,6 +87,8 @@ export interface TournamentInfo {
   you?: { entrantId: string; name: string; status: string; match: { gameId: string; playerId: string; token: string; round: number } | null; checkedIn?: boolean };
   /** Made by the server's schedule: when it starts, and why it was called off, if it was. */
   scheduled?: { startsAt: number; cancelled?: string; checkinMinutes?: number; checkedIn?: number; noShows?: number };
+  /** Aborted by its host or the admin: finished with no champion, the bracket kept. */
+  aborted?: { at: number };
 }
 
 /** The server's next scheduled tournament (GET /tournaments/next); everything null when it has no schedule. */
@@ -330,6 +332,8 @@ export interface RiskApi {
   createTournament(adminKey: string | undefined, spec: TournamentSpec): Promise<{ hostToken: string; tournament: TournamentInfo }>;
   /** `key`: the tournament's host token or the admin key; or `code`, a hosting code. */
   startTournament(key: string | undefined, tournamentId: string, code?: string): Promise<{ tournament: TournamentInfo }>;
+  /** `key`: the tournament's host token or the admin key. Every live table's record is filed as "aborted" first. */
+  abortTournament(key: string | undefined, tournamentId: string): Promise<{ tournament: TournamentInfo }>;
   /** What a nested tournament with these counts and settings would look like; creates nothing. */
   previewTournament(spec: TournamentSpec): Promise<{ preview: TournamentPreviewInfo }>;
 
@@ -621,6 +625,9 @@ export class HttpRiskApi implements RiskApi {
   }
   startTournament(key: string | undefined, tournamentId: string, code?: string) {
     return this.request<{ tournament: TournamentInfo }>(`/tournaments/${tournamentId}/start`, { method: 'POST', body: JSON.stringify(code ? { code } : {}) }, key);
+  }
+  abortTournament(key: string | undefined, tournamentId: string) {
+    return this.request<{ tournament: TournamentInfo }>(`/tournaments/${tournamentId}/abort`, { method: 'POST', body: '{}' }, key);
   }
   addTournamentBots(key: string | undefined, tournamentId: string, kind: 'bot' | 'zerg', count: number) {
     return this.request<{ added: { entrantId: string; name: string }[]; tournament: TournamentInfo }>(`/tournaments/${tournamentId}/bots`, { method: 'POST', body: JSON.stringify({ kind, count }) }, key);

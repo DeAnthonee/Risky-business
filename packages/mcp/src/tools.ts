@@ -181,6 +181,7 @@ export function formatTournament(t: TournamentInfo): string {
     );
     if (t.status === 'registering' && t.you?.checkedIn !== undefined) lines.push(t.you.checkedIn ? 'You are CHECKED IN.' : 'You are NOT checked in yet.');
   }
+  if (t.aborted) lines.push(`ABORTED at ${new Date(t.aborted.at).toISOString()}: no champion; the tables then being played were recorded with their standing so far.`);
   lines.push(`Entrants (${t.entrants.length}/${t.maxEntrants}): ${t.entrants.map((e) => `${e.name}${e.isBot ? ' [bot]' : ''} (${e.status})`).join(', ') || 'none yet'}`);
   for (const r of t.rounds) {
     lines.push(`Round ${r.round}:${r.deadline && !r.endedAt ? ` (ends by ${new Date(r.deadline).toISOString()})` : ''}`);
@@ -1078,6 +1079,29 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
         const key = adminKey ?? hostToken ?? hosted.get(id);
         const { tournament } = await api.startTournament(key, id, key ? undefined : code);
         return text(`Tournament started.\n\n${formatTournament(tournament)}`);
+      } catch (e) {
+        return errorText(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    'abort_tournament',
+    {
+      description:
+        "Abort a tournament: it stops at once and stays listed, finished with no champion, its bracket kept. Every table still being played is ranked on its standing so far (territories, armies, dice) and its game record filed with reason \"aborted\" before the table closes. Only its host can: the host token create_tournament returned (remembered on the connection that created it) or the server's admin key. Aborting a finished tournament changes nothing.",
+      inputSchema: {
+        adminKey: adminKeySchema,
+        tournamentId: tournamentIdSchema,
+        hostToken: z.string().min(1).optional().describe('The host token create_tournament returned. Not needed on the connection that created the tournament.'),
+      },
+    },
+    async ({ adminKey, tournamentId, hostToken }) => {
+      try {
+        const id = tournamentId.toUpperCase();
+        const key = adminKey ?? hostToken ?? hosted.get(id);
+        const { tournament } = await api.abortTournament(key, id);
+        return text(`Tournament aborted: the tables then being played were recorded with their standing so far.\n\n${formatTournament(tournament)}`);
       } catch (e) {
         return errorText(e);
       }

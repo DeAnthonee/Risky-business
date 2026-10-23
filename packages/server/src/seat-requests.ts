@@ -5,7 +5,7 @@ import type { GameOptions } from '@risk/engine';
 import { nameSkeleton } from './player-keys.js';
 import { SeasonKeyGuard } from './season-key.js';
 import type { HostTier, TourneyAccessConfig } from './tournament-access.js';
-import type { TournamentManager, TournamentSnapshot } from './tournaments.js';
+import { DEFAULT_CHECKIN_MINUTES, type TournamentManager, type TournamentSnapshot } from './tournaments.js';
 import type { GameRoom } from './store.js';
 
 /**
@@ -174,7 +174,21 @@ export class SeatRequests {
 
   /** Delove seats the live requests hold (asked for and not yet failed or expired). */
   private seatsAtOnce(): number {
-    return this.live().reduce((n, r) => n + r.n, 0);
+    return this.live()
+      .filter((r) => this.holdsSeats(r))
+      .reduce((n, r) => n + r.n, 0);
+  }
+
+  /**
+   * A scheduled tournament's request (the daily tournament's house roster) holds its seats only from the slot's check-in
+   * window, when they are about to play: days of sign-up do not lock hosts out of the at-once cap (Lord of game
+   * development, 2026-10-22). Every other request holds its seats from the start.
+   */
+  private holdsSeats(r: SeatRequest): boolean {
+    if (r.mode) return true;
+    const s = this.tournaments.get(r.tournamentId)?.scheduled;
+    if (!s) return true;
+    return this.now() >= s.startsAt - (s.checkinMinutes ?? DEFAULT_CHECKIN_MINUTES) * 60_000;
   }
 
   /** Before a create: the Delove count fits the caps (per tournament for the tier, and at once). */

@@ -102,6 +102,10 @@ export interface NextTournament {
     checkedIn?: number;
     maxEntrants: number | null;
     minEntrants: number;
+    /** House roster seats asked for this slot (part of maxEntrants). */
+    roster?: number;
+    /** The schedule entry's time zone (IANA), or null for UTC. */
+    tz?: string | null;
   } | null;
   running: { id: string; name: string; startsAt: number; round: number } | null;
   cancelled: { id: string; name: string; startsAt: number; reason: string } | null;
@@ -286,6 +290,9 @@ export const api = {
   listTournaments: () => request<{ tournaments: TournamentSummary[] }>('/tournaments'),
   nextTournament: () => request<NextTournament>('/tournaments/next'),
   getTournament: (id: string, token?: string) => request<{ tournament: TournamentView }>(`/tournaments/${id}`, {}, token),
+  /** The setup prompt for your seat (seat code as the token; the player key goes along when this browser holds one). */
+  tournamentSetup: (id: string, token: string, tz?: string) =>
+    request<{ text: string; filename: string }>(`/tournaments/${id}/setup${tz ? `?tz=${encodeURIComponent(tz)}` : ''}`, { headers: keyed() }, token),
   joinTournament: (id: string, playerName: string) =>
     request<{ entrantId: string; token: string; tournament: TournamentView }>(`/tournaments/${id}/join`, { method: 'POST', headers: keyed(), body: JSON.stringify({ playerName }) }),
   /** The seat this key coaches in a quick-play game, its view and the notes sent (401/403 when it coaches none). */

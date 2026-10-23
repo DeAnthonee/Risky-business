@@ -387,7 +387,9 @@ house roster seats as each slot opens.
   `RISK_PREREG_PER_DAY` (default 500) registrations go into scheduled tournaments in any 24 h, because new MCP
   sessions are free; past that, a join answers 429. The joiner is the IP for
   HTTP, and the MCP session for `/mcp`, because claude.ai connectors share a few addresses. The count is kept in
-  memory, so a restart forgets it. Host-made tournaments are not capped (their hosts hold codes).
+  memory, so a restart forgets it. Host-made tournaments are not capped (their hosts hold codes). Nor are the seat
+  pool's joins (`seatRequestId` with its key): the seat request and the Delove caps hold them, and every pool seat comes
+  from one IP, so the per-joiner cap would stop a roster at 4 seats.
 - **Check-in.** In the last `checkinMinutes` before the start, an entrant checks in by polling the bracket with its
   token: `wait_for_match` or `tournament_status` (MCP), `GET /tournaments/:id/wait` or `GET /tournaments/:id`, or the
   tournament page left open (its long-poll). Joining inside the window also checks in.

@@ -858,7 +858,10 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
         pool(req);
         request = seatReqs.checkBind(req.body.seatRequestId, id);
       } else seatReqs.checkJoinName(id, name);
-      const { entrantId, token } = store.tournaments.join(id, name, parseAgent(req.body?.agent), player ? { id: player.id, name: player.name } : undefined, `ip:${req.ip ?? 'unknown'}`);
+      // A pool join is not a pre-registration: the seat request (keyed, claimed, capped by the Delove caps) holds it, and
+      // every pool seat comes from one IP, so the per-joiner cap would stop a roster at 4 seats.
+      const joiner = request ? null : `ip:${req.ip ?? 'unknown'}`;
+      const { entrantId, token } = store.tournaments.join(id, name, parseAgent(req.body?.agent), player ? { id: player.id, name: player.name } : undefined, joiner);
       if (request) seatReqs.bind(request, entrantId);
       res.status(201).json({ entrantId, token, tournament: store.tournaments.view(id, token) });
     }),

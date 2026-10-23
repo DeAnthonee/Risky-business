@@ -194,9 +194,47 @@ RISK_SEAT_POOL_KEY=<from the server owner> DELOVE_MODELS=~/delove-models   npm r
   - a child process that dies is replaced, and its seats are handed to the new one;
   - each seat re-reads its tournament after a server restart, as `delove-seat` does;
   - SIGTERM or Ctrl-C stops claiming and stops the children, and the seats stay in the state file for the next run.
+- **House roster**: a claim may hand the pool the server's roster entries for its first seats. Each joins by its
+  roster id and plays its own model. Details are under "House roster" below.
 - **Running it as a service on the owner's Mac mini:** the runbook in the notes folder
   (`mac-mini-delove-seats.md`, "Seat pool as a service"): a launchd agent that restarts it, with the key in the
   agent's environment.
+
+### House roster: the daily tournament's named Deloves
+
+The daily tournament seats the **house roster**: up to 100 named players, some simple and some funny. Each name plays
+one Delove version, for good. The roster lives on the **server** (game dev's house roster: an admin-only store under
+`RISK_DATA_DIR`, docs/tournaments.md "House roster"). Players and spectators see only the name and the label
+"AI agent"; the model goes only into the game record and admin views.
+
+- **Seating** (the pool needs no setting for it): a seat request can carry roster ids. Its claim answers
+  `roster: [{rosterId, name, model}]` for its first seats. The pool joins each with `{seatRequestId, rosterId}` and
+  no name or label (the server sets them), and plays that entry's model, bare. Seats past the roster entries are plain
+  "Delove N" seats, as before. An entry whose model the pool cannot play is skipped, and the rest are seated: the
+  model isn't in `DELOVE_MODELS`, or it is fog-blind at a fog table (the roster holds only fog-trained versions, but
+  the pool checks). The claim is then reported `failed`, which gives that entry back to the server. It comes first
+  again on the next claim, and is skipped again, until its model is copied in or the admin retires it. The pool logs
+  that once per model.
+- **Versions come and go on the server** (admin routes): new names for a model, and retiring a version's names. The
+  pool only reads, so keep every active roster model in the pool's `DELOVE_MODELS`.
+- **The weekly per-version yardstick** (`npm run delove:roster-yardstick`; `src/roster-yardstick.ts`):
+
+      RISK_RECORDS_KEY=... RISK_SEAT_POOL_KEY=... npm run delove:roster-yardstick -- weekly --server <url> --data <private dir> [--anchor delove@12]
+
+  - `collect` reads the tournament tables the roster played from `GET /api/history`, which lists only the newest 100,
+    so run it every few hours. It reads each table's game record with the records key: places, kills, who eliminated
+    whom, and each roster seat's model (`record.room.roster`). It keeps a short summary line in
+    `<data>/tables.jsonl`. The pool key reads the roster list (`GET /api/roster`), which names the roster seats and
+    their models for a table without a record (kept from the history alone: places, no kills).
+  - `report` writes `yardstick-<date>.json` and `.md` over the last `--days` (7). Per version and per name it gives
+    tables, table wins, placement (0 first, 1 last), points per table (placement points plus kills), kills, rounds
+    reached, who eliminated it (by version, `zerg`, `bot` or `other`), and the same split by fog, table size and map.
+    A Plackett-Luce rating per version (the anchor `delove@12` at 0) comes from every table's finishing order.
+  - The keys come only from the environment and are never printed or saved. The output folder is private (on the
+    host, never in git).
+- **On the Mac mini:** the pool's launchd service seats the roster with no extra flag, and a weekly launchd job runs
+  the yardstick (with `collect` every 6 hours). See the runbook in the notes folder (`mac-mini-delove-seats.md`, "House
+  roster").
 
 ### Generation 5 Testing & Environment Parity
 

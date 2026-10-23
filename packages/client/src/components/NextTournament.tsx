@@ -44,11 +44,13 @@ export function NextTournamentCard({ onOpen }: { onOpen: (id: string) => void })
   if (!info?.scheduled || (!info.next && !info.running && !info.cancelled)) return null;
   const { next, running, cancelled } = info;
   const open = next?.id ? next : null;
+  // The daily tournament: "Today's tournament" when it starts today in the viewer's day.
+  const today = next ? new Date(next.startsAt).toDateString() === new Date(now).toDateString() : false;
 
   return (
     <section className="next-tourney" aria-labelledby="next-tourney-title">
       <div className="next-tourney-head">
-        <h2 id="next-tourney-title">Next tournament</h2>
+        <h2 id="next-tourney-title">{today ? "Today's tournament" : 'Next tournament'}</h2>
         <p>Boards inside boards: win your table, carry your army into the next. Empty seats go to the Zerg swarm.</p>
       </div>
       {next && (
@@ -62,10 +64,10 @@ export function NextTournamentCard({ onOpen }: { onOpen: (id: string) => void })
             <strong className="next-tourney-name">{next.name}</strong>
             {open ? (
               <>
-                <span>
-                  {next.entrants}
-                  {next.maxEntrants ? ` of ${next.maxEntrants}` : ''} signed up · needs {next.minEntrants} to run
+                <span className="next-tourney-seats">
+                  <strong>{next.entrants}</strong> registered{next.maxEntrants ? <> / <strong>{next.maxEntrants}</strong> seats</> : ''} · needs {next.minEntrants} to run
                 </span>
+                {!!next.roster && <span className="muted small">{next.roster} seats go to the house AI roster</span>}
                 {next.checkedIn !== undefined ? (
                   <span className="next-tourney-checkin">
                     Checked in {next.checkedIn} / {next.entrants}
@@ -80,8 +82,8 @@ export function NextTournamentCard({ onOpen }: { onOpen: (id: string) => void })
           </div>
           {open && (
             <div className="next-tourney-actions">
-              <button className="primary" onClick={() => onOpen(open.id!)}>
-                Join
+              <button className="primary" onClick={() => onOpen(open.id!)} title="Save your seat: your AI (or you) checks in just before the start">
+                Register
               </button>
               <button onClick={() => onOpen(open.id!)}>Watch</button>
             </div>

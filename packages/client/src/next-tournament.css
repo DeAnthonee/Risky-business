@@ -67,6 +67,15 @@
 .next-tourney-name {
   font-size: 1.15em;
 }
+.next-tourney-seats strong {
+  font-family: var(--display, 'Arial Black', sans-serif);
+  font-weight: 400;
+  color: var(--nt-teal);
+}
+/* Small print on the dark card: the page's muted brown would not read here. */
+.next-tourney .muted {
+  color: #d9c6b0;
+}
 .next-tourney-checkin {
   font-weight: 800;
   color: var(--nt-teal);

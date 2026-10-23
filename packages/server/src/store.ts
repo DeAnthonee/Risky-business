@@ -43,6 +43,7 @@ import type { TournamentScheduler } from './tournament-schedule.js';
 import { SwarmSum, ZergTally, zergReport, type SwarmTotal, type ZergReport } from './zerg-report.js';
 import { Rankings } from './rankings.js';
 import { DEFAULT_KEEP, GameArchive, type CommitInfo } from './archive.js';
+import { ROSTER_AGENT, RosterStore } from './roster.js';
 
 export interface ChatMessage {
   id: number;
@@ -137,6 +138,8 @@ export interface RoomSnapshot {
   quickPlay?: true;
   /** Seats joined with a player key: player id -> registered player id (player-keys.ts). Never the key itself. */
   playerKeys?: Record<string, string>;
+  /** House roster seats (roster.ts): player id -> roster id. They rank as `roster:<id>`; never shown publicly. */
+  rosterIds?: Record<string, string>;
   /** Live coach notes (quick play, coach.ts). */
   coachNotes?: import('@risk/engine').RecordCoachNote[];
 }
@@ -271,6 +274,11 @@ export class GameRoom extends EventEmitter {
   characterIds: Record<string, string> = {};
   /** Seats joined with a player key: player id -> registered player id. They rank as `key:<registered id>`. */
   playerKeys: Record<string, string> = {};
+  /**
+   * House roster seats: player id -> roster id (roster.ts). They rank as `roster:<id>`; the public label is "AI agent",
+   * and only the records-key record names the model (`room.roster`).
+   */
+  rosterIds: Record<string, string> = {};
   /** Live coach notes, quick play only (coach.ts): each seat sees its own, nobody else does. */
   coach = new CoachLog();
   /** Player-type labels by seat: spectators see them (`spectatorView`); a seated player's view never has them. */
@@ -335,6 +343,7 @@ export class GameRoom extends EventEmitter {
     this.id = snapshot.id;
     this.characterIds = snapshot.characterIds ?? {};
     this.playerKeys = snapshot.playerKeys ?? {};
+    this.rosterIds = snapshot.rosterIds ?? {};
     this.coach = new CoachLog(snapshot.coachNotes ?? []);
     this.agents = snapshot.agents ?? {};
     this.eliminationOrder = snapshot.eliminationOrder ?? snapshot.history.flatMap(h => h.events.filter(e => e.type === 'eliminated').map(e => (e as { player: string }).player));
@@ -364,6 +373,7 @@ export class GameRoom extends EventEmitter {
       id: this.id,
       characterIds: this.characterIds,
       ...(Object.keys(this.playerKeys).length ? { playerKeys: this.playerKeys } : {}),
+      ...(Object.keys(this.rosterIds).length ? { rosterIds: this.rosterIds } : {}),
       ...(this.coach.notes.length ? { coachNotes: this.coach.notes } : {}),
       ...(Object.keys(this.agents).length ? { agents: this.agents } : {}),
       eliminationOrder: this.eliminationOrder,
@@ -728,16 +738,18 @@ export class GameRoom extends EventEmitter {
    * labelled by the server ("bot", "zerg"), whatever it declares.
    */
   /** `playerKey`: the registered player (player-keys.ts) this seat plays as; one seat per registered player per room. */
-  join(name: string, isBot = false, kind: BotKind = 'bot', agent?: string, playerKey?: string): { playerId: PlayerId; token: string } {
+  /** `rosterId`: a house roster seat (roster.ts): labelled "AI agent" for everyone, whatever `agent` says. */
+  join(name: string, isBot = false, kind: BotKind = 'bot', agent?: string, playerKey?: string, rosterId?: string): { playerId: PlayerId; token: string } {
     if (playerKey && Object.values(this.playerKeys).includes(playerKey) && this.state.players.some((p) => this.playerKeys[p.id] === playerKey))
       throw new RuleError('This player already has a seat in this game');
     const playerId = seatIdPrefix(isBot ? kind : null) + newId(6);
     const next = addPlayer(this.state, playerId, name, isBot);
     const token = newId(24);
     this.tokens.set(token, playerId);
-    const label = isBot ? kind : agent;
+    const label = isBot ? kind : rosterId ? ROSTER_AGENT : agent;
     if (label) this.agents[playerId] = label;
     if (playerKey && !isBot) this.playerKeys[playerId] = playerKey;
+    if (rosterId && !isBot) this.rosterIds[playerId] = rosterId;
     if (!isBot) {
       this.touch();
       this.lastSeatSeen = Date.now();
@@ -749,7 +761,10 @@ export class GameRoom extends EventEmitter {
   leave(playerId: PlayerId) {
     const next = removePlayer(this.state, playerId);
     // A lobby seat that leaves frees its player for another seat (a started game keeps the seat as it was).
-    if (this.state.phase === 'lobby') delete this.playerKeys[playerId];
+    if (this.state.phase === 'lobby') {
+      delete this.playerKeys[playerId];
+      delete this.rosterIds[playerId];
+    }
     for (const [tok, pid] of this.tokens) if (pid === playerId) this.tokens.delete(tok);
     if (this.hostId === playerId) {
       const nextHost = next.players.find((p) => !p.isBot);
@@ -1094,6 +1109,8 @@ export class Store {
   tournamentBoard: TournamentRankings;
   /** Every game's record, move by move (under <data dir>/archive; off without persistence). */
   archive: GameArchive;
+  /** The house roster (roster.json): named house players bound to Delove models. The model list is admin only. */
+  roster: RosterStore;
   private saveTimer: NodeJS.Timeout | null = null;
 
   retention: RetentionPolicy;
@@ -1114,6 +1131,9 @@ export class Store {
       file && process.env.RISK_ARCHIVE !== '0' ? join(dirname(file), 'archive') : null,
       Number.isInteger(keep) && keep >= 0 ? keep : DEFAULT_KEEP,
     );
+    this.roster = new RosterStore(file ? join(dirname(file), 'roster.json') : null);
+    // A filed record (records key only) names each roster seat's model: the answer key, after the game.
+    this.archive.rosterModel = (id) => this.roster.get(id)?.model;
     if (file && existsSync(file)) {
       try {
         const data = JSON.parse(readFileSync(file, 'utf8')) as RoomSnapshot[];
@@ -1194,9 +1214,11 @@ export class Store {
   private rank(room: GameRoom) {
     // A quick-play game is not ranked: its fill seats are Zergs, and house players never count on a leaderboard.
     if (room.scenarioOf || room.tournamentId || room.quickPlay) return;
-    // A seat with a player key is one named player (`key:<id>`); a bound character still wins over it.
+    // A seat with a player key is one named player (`key:<id>`), a house roster seat one roster name (`roster:<id>`);
+    // a bound character still wins over them.
     const keyed = Object.fromEntries(Object.entries(room.playerKeys).map(([pid, id]) => [pid, `key:${id}`]));
-    this.board(room.board).record(room.state, { ...keyed, ...room.characterIds }, room.eliminationOrder);
+    const roster = Object.fromEntries(Object.entries(room.rosterIds).map(([pid, id]) => [pid, `roster:${id}`]));
+    this.board(room.board).record(room.state, { ...keyed, ...roster, ...room.characterIds }, room.eliminationOrder);
   }
 
   /** Live Zerg reports, per room with Zerg seats, from its start (a room restored mid-game is not tallied). */
@@ -1343,7 +1365,7 @@ export class Store {
   createTable(
     name: string,
     options: Partial<GameOptions>,
-    players: { name: string; isBot: boolean; kind?: BotKind; agent?: string; playerKey?: string }[],
+    players: { name: string; isBot: boolean; kind?: BotKind; agent?: string; playerKey?: string; rosterId?: string }[],
     /** The tournament that seats this table, or null for a quick-play room. */
     tournamentId: string | null,
     /**
@@ -1358,7 +1380,7 @@ export class Store {
     this.attach(room);
     // A Zerg entrant keeps its tournament name (a Zerg name, unique in the tournament, so unique at the table).
     // A Zerg with no name (a quick-play fill) gets a Zerg name nobody at the table has.
-    const seats = players.map((p) => room.join(p.kind === 'zerg' && !p.name ? zergName(room.state) : p.name, p.isBot, p.kind ?? 'bot', p.agent, p.playerKey));
+    const seats = players.map((p) => room.join(p.kind === 'zerg' && !p.name ? zergName(room.state) : p.name, p.isBot, p.kind ?? 'bot', p.agent, p.playerKey, p.rosterId));
     room.start(extra.prepare ? (lobby) => extra.prepare!(lobby, seats) : undefined);
     this.scheduleSave();
     return { room, seats };

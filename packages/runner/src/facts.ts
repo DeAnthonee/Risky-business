@@ -541,7 +541,7 @@ export function strategyFacts(view: GameView, me: PlayerId, intel?: SeatIntel): 
   for (const sw of sweepOpportunities(view, me).slice(0, 3)) {
     lines.push(`Sweep: ${sw.ownerName} holds ${sw.continentName} [${sw.continent}] alone, ${sw.thin} of ${sw.territories.length} territories on 1-2 armies; about ${sw.cost} armies takes it all vs your ${sw.capacity} (stacks next to it plus 2 turns of income). Taking it breaks their +${sw.bonus} and can be yours.`);
   }
-  for (const a of intel?.recentAttackers ?? []) {
+  for (const a of (intel?.recentAttackers ?? []).filter((x) => x.brokeBonus)) {
     const terrs = a.territories.map((t) => map.territoryById[t]?.name ?? t).join(', ');
     const broke = a.brokeBonus ? ` and broke your ${map.continentById[a.brokeBonus]?.name ?? a.brokeBonus}` : '';
     lines.push(`Retaliation: ${nameOf(a.id)} took ${terrs} from you in round ${a.round}${broke}. Retake it, then push at least one territory into their bonus; hold it if it is a one-territory choke into yours (they already hate you, and it denies their bonus next turn).`);

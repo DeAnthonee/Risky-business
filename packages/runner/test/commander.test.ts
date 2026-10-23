@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { addPlayer, createGame, getMap, startGame, viewFor, type GameView } from '@risk/engine';
-import { Commander, condenseLearnings, parsePlanReply, profileExcerpt } from '../src/commander.js';
+import { Commander, condenseLearnings, JOINT_ROUNDS, parsePlanReply, profileExcerpt } from '../src/commander.js';
 import { commanderFacts } from '../src/facts.js';
 import { DealLedger } from '../src/deals.js';
 import type { Llm } from '../src/llm.js';
@@ -126,6 +126,26 @@ describe('Commander', () => {
     await c.planFor({ ...view, phase: 'reinforce' });
     expect(c.popPing()).toMatchObject({ type: 'agree', to: 'Shaco', target: 'attack Teemo' });
     expect(c.currentPlan()?.target).toBe('c'); // joins the attack on Teemo
+    // The partners leave each other alone while the joint attack runs...
+    expect(c.currentPlan()?.avoid).toContain('b');
+    // ...and not for the rest of the game: it ends once its rounds pass.
+    const later = { ...view, phase: 'reinforce' as const, round: view.round + JOINT_ROUNDS + 1, turnNumber: view.turnNumber + 20 };
+    c.observe(later);
+    await c.planFor(later);
+    expect(c.currentPlan()?.avoid ?? []).not.toContain('b');
+  });
+
+  it('ends a joint attack when the partner attacks us', async () => {
+    const { llm } = llmReturning(JSON.stringify({ plan: 'Hold', aggression: 0.5, ping: null }));
+    const c = base(llm);
+    const view = makeView({ capitals: false });
+    c.onMessages([{ id: 1, name: 'Shaco', message: '⚔️ [attack: Teemo]', at: 0 } as never]);
+    await c.planFor({ ...view, phase: 'reinforce' });
+    expect(c.currentPlan()?.avoid).toContain('b');
+    c.observe(view);
+    const mine = Object.entries(view.territories).find(([, s]) => s.owner === 'a')![0];
+    c.observe({ ...view, territories: { ...view.territories, [mine]: { owner: 'b', armies: 3 } } });
+    expect(c.currentPlan()?.avoid ?? []).not.toContain('b');
   });
 
   it('falls back to the previous plan on bad JSON and to null when there is none', async () => {

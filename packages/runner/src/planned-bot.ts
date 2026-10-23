@@ -308,8 +308,8 @@ class Chooser {
   private natural = new Set<PlayerId>();
   /** Regions one rival holds alone on mostly 1-2 armies that we can sweep: continent -> owner (strategy.ts). */
   private sweepOf = new Map<string, PlayerId>();
-  /** Rivals that took our territory this round or last. */
-  private attackers = new Set<PlayerId>();
+  /** Rivals that broke a bonus we held this round or last -> the continent they broke. */
+  private attackers = new Map<PlayerId, string>();
 
   constructor(
     private view: GameView,
@@ -323,7 +323,8 @@ class Chooser {
     this.map = getMap(view.options.map);
     for (const e of naturalEnemies(view, me)) this.natural.add(e.id);
     for (const sw of sweepOpportunities(view, me)) if (!this.sweepOf.has(sw.continent)) this.sweepOf.set(sw.continent, sw.owner);
-    for (const a of ctx.intel?.recentAttackers ?? []) this.attackers.add(a.id);
+    // Only an attack that broke a bonus we held calls for retake-and-deny; a stray territory taken elsewhere does not.
+    for (const a of ctx.intel?.recentAttackers ?? []) if (a.brokeBonus && !this.attackers.has(a.id)) this.attackers.set(a.id, a.brokeBonus);
     this.lm = view.legal!;
     this.blizzards = new Set(view.blizzards ?? []);
     if (view.options.capitals) {
@@ -521,10 +522,10 @@ class Chooser {
     const owner = this.owner(to);
     if (!owner || owner === this.me) return { retake: false, deny: false, sweep: false, natural: false };
     const cont = this.map.territoryById[to].continent;
-    const share = this.continentShare(cont);
-    const attacker = this.attackers.has(owner);
-    // Retake: a recent attacker sits in a region that is (mostly) ours.
-    const retake = attacker && share.mine * 2 >= share.total;
+    const broken = this.attackers.get(owner);
+    const attacker = broken !== undefined;
+    // Retake: the rival that broke our bonus sits in that bonus.
+    const retake = attacker && cont === broken;
     // Deny: push into the attacker's own bonus (held, or 70% theirs), so they lose it on their next turn.
     const terrs = this.map.continentById[cont].territories.filter((t) => !this.blizzards.has(t));
     const theirShare = terrs.filter((t) => this.owner(t) === owner).length / Math.max(1, terrs.length);

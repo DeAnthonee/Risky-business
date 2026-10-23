@@ -85,13 +85,25 @@ describe('retake and deny in the move chooser', () => {
     const put: Record<string, [string, number]> = { siam: ['a', 12] };
     for (const t of AUSTRALIA) put[t] = ['b', 1];
     const view = viewFor(board(put), 'a');
-    const intel = { recentAttackers: [{ id: 'b', round: 1, territories: ['china'], brokeBonus: null }] };
+    const intel = { recentAttackers: [{ id: 'b', round: 1, territories: ['ural'], brokeBonus: 'asia' }] };
     const { action, reason } = choosePlannedActionWithReason(view, 'a', null, seeded(3), 0, { intel });
     expect(action).toMatchObject({ type: 'attack', from: 'siam', to: 'indonesia' });
     expect(reason).toMatch(/deny their bonus/);
     // Balanced blitz: at least 4 armies go, so the opening rolls use 3 dice (not 1-2 from a minimal commit).
     const stopAt = (action as { stopAt?: number }).stopAt;
     if (stopAt !== undefined) expect(12 - stopAt).toBeGreaterThanOrEqual(4);
+  });
+});
+
+describe('retake and deny need a broken bonus', () => {
+  it('a stray territory taken elsewhere (no bonus broken) does not trigger it', () => {
+    const put: Record<string, [string, number]> = { siam: ['a', 12] };
+    for (const t of AUSTRALIA) put[t] = ['b', 1];
+    const view = viewFor(board(put), 'a');
+    const intel = { recentAttackers: [{ id: 'b', round: 1, territories: ['ural'], brokeBonus: null }] };
+    const { reason } = choosePlannedActionWithReason(view, 'a', null, seeded(3), 0, { intel });
+    expect(reason).not.toMatch(/retakes|deny their bonus/);
+    expect(strategyFacts(view, 'a', intel).join('\n')).not.toContain('Retaliation');
   });
 });
 

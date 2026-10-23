@@ -255,9 +255,14 @@ Rules that came from watching live games (`src/strategy.ts`, used by the board f
 - **Sweep**: a region one rival holds alone with most of it on 1-2 armies (the models' habit of spreading thin),
   next to us, that our stacks next to it plus two turns of income can take whole. Attacks into it score higher and
   pass the "card already taken" bleed filter until the region is taken.
-- **Retake and deny**: the seat's game memory records who took its territories. For a rival that took land this round
-  or last, an attack that retakes a region that is mostly ours scores higher, and so does pushing into that rival's
-  own bonus (held, or 70% theirs) to deny it next turn. Both pass the bleed filter and the stop-after-bonus rule.
+- **Retake and deny**: the seat's game memory records who took its territories and whether that broke a bonus we
+  held. Only a rival that broke one of our bonuses this round or last triggers it (a stray territory taken elsewhere
+  does not): retaking that bonus scores higher, and so does pushing into the rival's own bonus (held, or 70% theirs)
+  to deny it next turn. Both pass the bleed filter and the stop-after-bonus rule.
+- **Joint attacks**: when two seats agree to attack a third (an attack ping answered with an agree, either way, or an
+  accepted `joint_attack` deal), each keeps the other off its attack list while it runs. It ends when the target
+  falls, after `JOINT_ROUNDS` (3) rounds, when either partner takes the other's land, or when the commander names the
+  partner as its target (ending it on purpose). The prompt lists the active joint attacks and how they end.
 - **Holding back is geographic**: the model's own `avoid` list keeps a player only when a deal or pact backs it, or
   when the plan fights on another front (its target or focus is elsewhere). A natural enemy is never spared, and
   troop counts are not the test (they are unreliable under fog). Dropped and kept avoids are logged with the reason.

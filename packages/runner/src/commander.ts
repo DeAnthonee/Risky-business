@@ -81,6 +81,8 @@ export const CAPITAL_MAX_TOKENS = 400;
 
 /** Turns without a conquest after which good-neighbor pacts dissolve (a stalemate breaker). */
 export const STALL_BREAK = 4;
+/** Rounds an agreed joint attack keeps the partners off each other's attack lists (unless it ends sooner). */
+export const JOINT_ROUNDS = 3;
 
 export const LEARNINGS_CHARS = 10_000;
 const LOG_TAIL_CHARS = 1_500;
@@ -686,6 +688,10 @@ export class Commander {
   private lastPingTypeSentTo = new Map<string, PingType>();
   private pendingProposals = new Map<string, { from: string; type: PingType; target?: string; turnReceived: number }>();
   private activeGoodNeighbors = new Set<string>();
+  /** Joint attacks agreed with another seat: partner (lowercase) -> partner, target and last round. */
+  private jointAttacks = new Map<string, { partner: string; target: string; untilRound: number }>();
+  /** Our last attack call (target name and own turn), to match an agree that answers it. */
+  private lastAttackPing: { target: string; turn: number } | null = null;
 
   constructor(o: CommanderOptions) {
     this.o = o;
@@ -703,6 +709,19 @@ export class Commander {
    * their listed territories alone, and a started joint attack suggests its target and remaining troop commitment.
    * The commander's explicit target, route, or focus always overrides these suggestions.
    */
+  /** Start (or renew) a joint attack with `partner` on `target`: partners avoid each other until it ends. */
+  private startJoint(partner: string, target: string) {
+    const until = (this.lastView?.round ?? 0) + JOINT_ROUNDS;
+    this.jointAttacks.set(partner.toLowerCase(), { partner, target, untilRound: until });
+    this.o.log?.(`${this.o.seatName}: joint attack with ${partner} on ${target} until round ${until}`);
+  }
+
+  /** Active joint attacks, for the prompt. */
+  private jointText(): string {
+    if (!this.jointAttacks.size) return 'Active joint attacks: none';
+    return `Active joint attacks (partners you do not attack): ${[...this.jointAttacks.values()].map((j) => `${j.partner} vs ${j.target} until round ${j.untilRound}`).join('; ')}. A joint attack ends when its target falls, its round passes, either side attacks the other, or you set the partner as your target (that ends it on purpose).`;
+  }
+
   private dealEffects(): { avoid: PlayerId[]; noAttack: string[]; target: PlayerId | null; commitArmies: number } {
     const view = this.lastView;
     const out = { avoid: [] as PlayerId[], noAttack: [] as string[], target: null as PlayerId | null, commitArmies: 0 };
@@ -717,6 +736,9 @@ export class Commander {
         const theirs = Object.entries(d.territories ?? {}).find(([who]) => who.toLowerCase() === other.toLowerCase())?.[1] ?? [];
         out.noAttack.push(...theirs);
       } else if (d.kind === 'joint_attack' && (d.startRound ?? 0) <= this.ledger.round) {
+        // Partners in an accepted joint attack do not attack each other while it runs.
+        const partnerId = idOf(other);
+        if (partnerId && !out.avoid.includes(partnerId)) out.avoid.push(partnerId);
         const id = d.target ? idOf(d.target) : undefined;
         if (id && !out.target) out.target = id;
         if (id && id === out.target && d.commitArmies !== undefined) {
@@ -745,6 +767,17 @@ export class Commander {
     for (const name of this.activeGoodNeighbors) {
       const id = idOf(name);
       if (id && !out.avoid.includes(id)) out.avoid.push(id);
+    }
+    for (const [key, j] of this.jointAttacks) {
+      const partnerId = idOf(j.partner);
+      const target = view.players.find((p) => p.alive && !p.isNeutral && p.name.toLowerCase() === j.target.toLowerCase());
+      if (!partnerId || !target || view.round > j.untilRound) {
+        this.jointAttacks.delete(key);
+        this.o.log?.(`${this.o.seatName}: joint attack with ${j.partner} on ${j.target} ended (${!target ? 'target gone' : !partnerId ? 'partner gone' : 'its rounds passed'})`);
+        continue;
+      }
+      if (!out.avoid.includes(partnerId)) out.avoid.push(partnerId);
+      if (!out.target) out.target = target.id;
     }
     return out;
   }
@@ -832,6 +865,7 @@ export class Commander {
         if (attacker) {
           this.ledger.noteHit(attacker);
           this.activeGoodNeighbors.delete(attacker.toLowerCase());
+          if (this.jointAttacks.delete(attacker.toLowerCase())) this.o.log?.(`${this.o.seatName}: joint attack with ${attacker} ended (they attacked us)`);
         }
       }
     }
@@ -882,6 +916,11 @@ export class Commander {
             } else if (parsed.target === 'good neighbor') {
               this.activeGoodNeighbors.add(m.name.toLowerCase());
             }
+            // They agreed to our recent attack call ("agree: attack X"): a joint attack on X.
+            const agreedTarget = /^attack\s+(.+)$/i.exec(parsed.target ?? '')?.[1]?.trim();
+            if (agreedTarget && this.lastAttackPing && this.ownTurns - this.lastAttackPing.turn <= 2 && this.lastAttackPing.target.toLowerCase() === agreedTarget.toLowerCase()) {
+              this.startJoint(m.name, agreedTarget);
+            }
           }
         }
       }
@@ -919,6 +958,7 @@ export class Commander {
 
     // Record that we sent a ping this turn
     this.lastPingOwnTurn = this.ownTurns;
+    if (p.type === 'attack' && p.target) this.lastAttackPing = { target: p.target, turn: this.ownTurns };
     if (p.to) {
       const recipientKey = p.to.toLowerCase();
       this.lastPingToRecipient.set(recipientKey, this.ownTurns);
@@ -960,6 +1000,12 @@ export class Commander {
     for (const id of autoBreak) {
       const d = this.ledger.breakByMe(id);
       if (d) p.note = `${p.note ? `${p.note} ` : ''}Broke ${d.id} (${this.ledger.describe(d)}).`.trim();
+    }
+
+    // Setting a joint-attack partner as the target ends that joint attack on purpose.
+    if (p.target) {
+      const tname = view.players.find((x) => x.id === p.target)?.name?.toLowerCase();
+      if (tname && this.jointAttacks.delete(tname)) this.o.log?.(`${this.o.seatName}: ended the joint attack with ${view.players.find((x) => x.id === p.target)?.name} (now targeting them)`);
     }
 
     // Nobody is spared for free: the model's own "avoid" list keeps only players something backs (an active truce,
@@ -1089,6 +1135,7 @@ export class Commander {
               }
             } else if (proposal?.type === 'attack') {
               p.ping.target = proposal.target ? `attack ${proposal.target}` : 'attack';
+              if (proposal.target) this.startJoint(validRecipient, proposal.target);
               if (proposal.target) {
                 const targetPlayer = view.players.find((x) => x.name.toLowerCase() === proposal.target!.toLowerCase() || x.id === proposal.target);
                 if (targetPlayer && !p.target) p.target = targetPlayer.id;
@@ -1174,6 +1221,7 @@ export class Commander {
               if (prop.type === 'good_neighbor') {
                 this.activeGoodNeighbors.add(senderKey);
               } else if (prop.type === 'attack' && prop.target) {
+                this.startJoint(senderLLM.name, prop.target);
                 const targetPlayer = view.players.find((x) => x.name.toLowerCase() === prop.target!.toLowerCase() || x.id === prop.target);
                 if (targetPlayer) {
                   p.target = targetPlayer.id;
@@ -1434,7 +1482,7 @@ export class Commander {
     const goodNeighborsText = this.activeGoodNeighbors.size > 0
       ? `Active Good Neighbor pacts (neutral borders): ${Array.from(this.activeGoodNeighbors).join(', ')}`
       : 'Active Good Neighbor pacts: none';
-    const neighborBriefing = `${borderNeighborsText}\n${goodNeighborsText}`;
+    const neighborBriefing = `${borderNeighborsText}\n${goodNeighborsText}\n${this.jointText()}`;
     const hasZergs = view.players.some((p) => p.alive && !p.isNeutral && isZergName(p.name));
     const fellowLLMs = hasZergs
       ? view.players.filter((p) => p.alive && !p.isNeutral && p.id !== me && !isModelName(p.name))

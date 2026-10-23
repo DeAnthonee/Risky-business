@@ -113,19 +113,18 @@ export function findCapRun(view: GameView, me: PlayerId, options: CampaignOption
   const uncovered = new Set<string>(unownedCapitals);
   const edgeList: { from: TerritoryId; to: TerritoryId }[] = [];
 
-  const baseReq = (t: string) => {
-    const isCapital = allCaps.includes(t);
-    const arm = armies(t);
-    const loss = Math.ceil(arm * (isCapital ? 2.0 : 1.25)) + 2;
-    const minSafe =
-      commitForOdds(
-        Math.max(24, arm * 8 + 16),
-        arm,
-        isCapital ? 3 : 2,
-        0.85,
-        !!view.options.balancedBlitz,
-      ) ?? (arm * 3 + 6);
-    return { loss, minSafe };
+  // Expected losses are cheap and drive the path search; the safe stack (an odds table that can reach 250k cells for
+  // big stacks) is needed only for the few territories on the chosen tree, so it is computed there, once each.
+  const lossOf = (t: string) => Math.ceil(armies(t) * (allCaps.includes(t) ? 2.0 : 1.25)) + 2;
+  const safeMemo = new Map<string, number>();
+  const minSafeOf = (t: string) => {
+    let n = safeMemo.get(t);
+    if (n === undefined) {
+      const arm = armies(t);
+      n = commitForOdds(Math.max(24, arm * 8 + 16), arm, allCaps.includes(t) ? 3 : 2, 0.85, !!view.options.balancedBlitz) ?? (arm * 3 + 6);
+      safeMemo.set(t, n);
+    }
+    return n;
   };
 
   // Repeatedly connect the closest uncovered capital to the growing active tree
@@ -154,7 +153,7 @@ export function findCapRun(view: GameView, me: PlayerId, options: CampaignOption
         if (blizzards.has(next) || options.noAttack.has(next)) continue;
         if (view.territories[next]?.hidden) continue;
 
-        const w = activeNodes.has(next) ? 0 : baseReq(next).loss + 1;
+        const w = activeNodes.has(next) ? 0 : lossOf(next) + 1;
         const newDist = dCurr + w;
         if (newDist < (dist.get(next) ?? Infinity)) {
           dist.set(next, newDist);
@@ -209,10 +208,9 @@ export function findCapRun(view: GameView, me: PlayerId, options: CampaignOption
   const memo = new Map<string, number>();
   const computeNeeded = (node: string): number => {
     if (memo.has(node)) return memo.get(node)!;
-    const { loss, minSafe } = baseReq(node);
     const children = childrenOf.get(node) ?? [];
     const childrenNeeded = children.reduce((sum, c) => sum + computeNeeded(c), 0);
-    const needed = Math.max(minSafe, loss + 1 + childrenNeeded);
+    const needed = Math.max(minSafeOf(node), lossOf(node) + 1 + childrenNeeded);
     memo.set(node, needed);
     return needed;
   };
@@ -270,7 +268,7 @@ export function findCapRun(view: GameView, me: PlayerId, options: CampaignOption
     };
   });
 
-  const totalCost = edgeList.reduce((sum, e) => sum + baseReq(e.to).loss + 1, 0);
+  const totalCost = edgeList.reduce((sum, e) => sum + lossOf(e.to) + 1, 0);
 
   return {
     cost: totalCost,

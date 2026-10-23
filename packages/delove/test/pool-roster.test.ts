@@ -2,7 +2,11 @@ import type { AddressInfo } from 'node:net';
 import { describe, expect, it } from 'vitest';
 import { Store } from '../../server/src/store.js';
 import { createRiskServer } from '../../server/src/app.js';
+import { HttpRiskApi } from '@risk/mcp';
+import { riskyBot } from '@risk/selfplay';
+import type { Noter } from '../src/notes.js';
 import { SeatPool, type PoolEntrant } from '../src/pool.js';
+import { playPoolEntrant } from '../src/pool-play.js';
 import type { EntrantResult } from '../src/tournament-seat.js';
 
 // Fake values, set only here (the real keys live only in the server's and the pool's environment).
@@ -81,6 +85,37 @@ describe('the seat pool seats the server\'s house roster (#313)', () => {
       expect(st.playing).toHaveLength(2);
       expect(logs.filter((l) => l.includes('roster model delove@12 cannot be played here'))).toHaveLength(1);
     } finally {
+      await s.risk.shutdown('test');
+    }
+  });
+
+  it('a roster seat sends no decision notes (they would name its model); a plain seat still does', { timeout: 60_000 }, async () => {
+    const s = await serve();
+    try {
+      const [r] = await s.roster('delove@13', 1);
+      const t = await s.create({ rosterIds: [r.id], delove: 2, maxEntrants: 2, options: { autoSetup: true, map: 'classic' } });
+      const st = stubPlay();
+      await new SeatPool({ server: s.server, key: KEY, model: 'delove@13', modelFog: true, maxSeats: 10, maxSearch: 0, play: st.play, canPlay: () => true }).tick();
+      const roster = st.playing.find((e) => e.name === r.name)!;
+      const plain = st.playing.find((e) => e.name === 'Delove 1')!;
+      expect(roster.roster).toBe(true);
+      expect(plain.roster).toBeUndefined();
+      // A note maker that always names the model, as the real one does (notes.ts: agent, model).
+      const notes = { begin: () => {}, note: () => ({ agent: 'delove@13', model: 'delove@13' }) } as unknown as Noter;
+      for (const e of [roster, plain]) void playPoolEntrant(e, { api: new HttpRiskApi(s.server), agent: riskyBot, paceMs: 0, log: () => {}, notes }).catch(() => {});
+      expect((await s.call('POST', `/admin/tournaments/${t.id}/start`, {}, s.admin)).status).toBe(200);
+      const gameId = (await s.call('GET', `/tournaments/${t.id}`)).body.tournament.rounds[0].matches[0].gameId as string;
+      const room = s.risk.store.get(gameId)!;
+      const seatOf = (name: string) => room.state.players.find((p) => p.name === name)!.id;
+      const moves = (name: string) => room.history.filter((h) => h.playerId === seatOf(name) && h.action.type !== 'system' && !h.timeout);
+      for (let i = 0; i < 1500 && (moves(r.name).length < 1 || moves('Delove 1').length < 1) && !room.state.winner; i++) await new Promise((res) => setTimeout(res, 20));
+      expect(moves(r.name).length).toBeGreaterThan(0);
+      expect(JSON.stringify(moves(r.name).map((h) => h.decisionNote ?? null))).not.toContain('delove@');
+      expect(moves(r.name).every((h) => h.decisionNote === undefined)).toBe(true);
+      expect(JSON.stringify(moves('Delove 1').map((h) => h.decisionNote ?? null))).toContain('delove@13'); // the control: notes do flow
+    } finally {
+      s.risk.store.stopTimers();
+      for (const room of s.risk.store.rooms.values()) room.stopBot();
       await s.risk.shutdown('test');
     }
   });

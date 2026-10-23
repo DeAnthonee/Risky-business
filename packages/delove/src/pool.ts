@@ -80,6 +80,8 @@ export interface PoolEntrant {
   search: boolean;
   /** A takeover: the game seat this token plays (the game API, to the end of that table), not a tournament entrant. */
   game?: { gameId: string; playerId: string };
+  /** A house roster seat: its model is a secret, so its moves carry no decision notes (they name the model). */
+  roster?: true;
 }
 
 export interface PoolOptions {
@@ -234,7 +236,7 @@ export class SeatPool {
           `/tournaments/${c.tournamentId}/join`,
           entry ? { seatRequestId: c.requestId, rosterId: entry.rosterId } : { playerName: name, agent: search ? `${model} + search` : model, seatRequestId: c.requestId },
         );
-        const e: PoolEntrant = { tournamentId: c.tournamentId, requestId: c.requestId, name, token: res.token, agentId, search };
+        const e: PoolEntrant = { tournamentId: c.tournamentId, requestId: c.requestId, name, token: res.token, agentId, search, ...(entry ? { roster: true as const } : {}) };
         joined.push(e);
         this.start(e);
       } catch (err) {

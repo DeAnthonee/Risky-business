@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { addPlayer, createGame, getMap, startGame, viewFor, type GameView } from '@risk/engine';
 import { Commander, condenseLearnings, parsePlanReply, profileExcerpt } from '../src/commander.js';
 import { commanderFacts } from '../src/facts.js';
+import { DealLedger } from '../src/deals.js';
 import type { Llm } from '../src/llm.js';
 import { DEFAULT_OPTIONS, pickMap, rotationMaps, shuffled } from '../src/presets.js';
 
@@ -180,15 +181,20 @@ describe('Commander', () => {
     expect(c.logTail().length).toBeLessThanOrEqual(1500);
   });
 
-  it('drops an agreed truce once that player takes our land', async () => {
+  it('keeps only avoids a deal backs, and drops an agreed truce once that player takes our land', async () => {
     const view = makeView({ capitals: false });
-    const c = base(llmReturning(JSON.stringify({ plan: 'Peace with Shaco', avoid: ['Shaco', 'Teemo'] })).llm);
+    // A real truce with Shaco (proposed by Shen, accepted by Shaco); nothing backs avoiding Teemo.
+    const ledger = new DealLedger({ me: 'Shen', idPrefix: 'S' });
+    ledger.sync(view);
+    const d = ledger.propose({ kind: 'truce', with: 'Shaco', untilRound: view.round + 8 }, view, 'Peace?')!;
+    ledger.ingest([{ id: 1, name: 'Shaco', message: `Agreed [accept ${d.id}]` } as never]);
+    const c = base(llmReturning(JSON.stringify({ plan: 'Peace with Shaco', avoid: ['Shaco', 'Teemo'] })).llm, { ledger });
     await c.planFor(view);
-    expect(c.currentPlan()?.avoid).toEqual(['b', 'c']);
+    expect(c.currentPlan()?.avoid).toEqual(['b']);
     c.observe(view);
     const mine = Object.entries(view.territories).find(([, s]) => s.owner === 'a')![0];
     c.observe({ ...view, territories: { ...view.territories, [mine]: { owner: 'b', armies: 3 } } });
-    expect(c.currentPlan()?.avoid).toEqual(['c']);
+    expect(c.currentPlan()?.avoid ?? []).toEqual([]);
   });
 });
 

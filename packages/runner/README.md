@@ -245,6 +245,33 @@ the planned bot with no plan won 138 to the engine bot's 62, none undecided at 1
 (before the knobs and the card-every-turn default: 120 to 80, 60 turns). Earlier, in 400 games it won 264 to 131. A stricter "purpose only" gate lost to the
 engine bot (41-58) because it turtled, so the purpose requirement is deliberately light.
 
+### Strategy reads
+
+Rules that came from watching live games (`src/strategy.ts`, used by the board facts and the move chooser):
+
+- **Natural enemy**: a rival whose every way out leads into us (at least 80% of the territories bordering theirs are
+  ours). Whatever it builds ends up hitting us, so attacks on it score higher and the facts say to break it before
+  spending troops on other fronts.
+- **Sweep**: a region one rival holds alone with most of it on 1-2 armies (the models' habit of spreading thin),
+  next to us, that our stacks next to it plus two turns of income can take whole. Attacks into it score higher and
+  pass the "card already taken" bleed filter until the region is taken.
+- **Retake and deny**: the seat's game memory records who took its territories. For a rival that took land this round
+  or last, an attack that retakes a region that is mostly ours scores higher, and so does pushing into that rival's
+  own bonus (held, or 70% theirs) to deny it next turn. Both pass the bleed filter and the stop-after-bonus rule.
+- **Holding back is geographic**: the model's own `avoid` list keeps a player only when a deal or pact backs it, or
+  when the plan fights on another front (its target or focus is elsewhere). A natural enemy is never spared, and
+  troop counts are not the test (they are unreliable under fog). Dropped and kept avoids are logged with the reason.
+- **Fog reads**: an unseen rival is placed in the region it was last seen in (game memory), with its public income and
+  the memory's army estimate; a "possible fog kill" is flagged only when that region borders us and the estimate
+  allows it.
+- **Dice**: the engine rolls at most `armies - stopAt` dice, so a measured commit of 1-2 armies attacked with 1-2 dice.
+  Under balanced blitz an attack now commits at least 4 armies when the stack can spare them (never below a hard
+  capital garrison), so the opening rolls use 3 dice. Campaign moves (capital runs, eliminations) keep their own stop
+  points.
+
+Every move carries a short reason ("retakes North America from Ronny@13 (retaliation) [...]", "card attack [...]"),
+sent as the move's private decision note (in the game record after the game) and logged for attacks.
+
 ## Options
 
 | flag | default | meaning |

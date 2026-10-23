@@ -3,7 +3,7 @@ import { RiskHttpError, type RiskApi, type WaitResult } from '@risk/mcp';
 import { GameMemory, type ObservedBatch } from './game-memory.js';
 import type { Commander } from './commander.js';
 import { cleanChat, type ChatMsg, type Diplomat, type Outgoing } from './diplomat.js';
-import { choosePlannedAction, StallTracker } from './planned-bot.js';
+import { choosePlannedActionWithReason, StallTracker } from './planned-bot.js';
 import { formatPing, isModelName, type PingAction } from './pings.js';
 import { backoffMs, isTransient } from './resilient.js';
 import { chooseMove } from './view-state.js';
@@ -65,6 +65,7 @@ export class SeatRunner {
       },
     );
     o.commander?.setGameMemory((view) => this.memory.summary(view));
+    o.commander?.setIntel((view) => this.memory.intel(view));
     o.commander?.setStall(() => this.stall.stall);
     o.diplomat?.setGameMemory((view) => this.memory.summary(view));
     o.diplomat?.setStall(() => this.stall.stall);
@@ -251,15 +252,20 @@ export class SeatRunner {
         await this.consult(view);
       }
       prevArmiesToPlace = currentArmiesToPlace;
-      const action =
-        this.o.chooser === 'engine' ? chooseMove(view, playerId, this.random) : choosePlannedAction(view, playerId, this.o.commander?.currentPlan() ?? null, this.random, this.stall.stall);
+      const picked =
+        this.o.chooser === 'engine'
+          ? { action: chooseMove(view, playerId, this.random), reason: 'engine bot' }
+          : choosePlannedActionWithReason(view, playerId, this.o.commander?.currentPlan() ?? null, this.random, this.stall.stall, { intel: this.memory.intel(view) });
+      const action = picked.action;
       if (!action) {
         this.o.log(`${name}: no move available in phase ${view.phase}`);
         break;
       }
       let actionEvents: import('@risk/engine').GameEvent[] = [];
       try {
-        const result = await api.act(gameId, token, action);
+        // The reason goes with the move as its private decision note (read after the game in the game record).
+        const result = await api.act(gameId, token, action, picked.reason ? { reason: picked.reason } : undefined);
+        if (action.type === 'attack' && picked.reason) this.o.log(`${name}: ${picked.reason}`);
         view = result.state;
         actionEvents = result.events;
       } catch (e) {

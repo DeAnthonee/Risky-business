@@ -1,4 +1,5 @@
 import { getMap, tradeBonus, nextTradeValue, blitzOdds, type GameView, type PlayerId } from '@risk/engine';
+import { likelyRegion, naturalEnemies, sweepOpportunities, type SeatIntel } from './strategy.js';
 
 /**
  * The card set math, every turn: under progressive cards the next set's value (the engine's tradeBonus), what one
@@ -23,7 +24,7 @@ export function cardMath(view: GameView, me: PlayerId): string[] {
   return lines;
 }
 
-export function eliminationScouting(view: GameView, me: PlayerId, detailed = false): string[] {
+export function eliminationScouting(view: GameView, me: PlayerId, detailed = false, intel?: SeatIntel): string[] {
   const map = getMap(view.options.map);
   const livingRivals = view.players.filter((p) => p.alive && !p.isNeutral && p.id !== me);
   if (!livingRivals.length) return [];
@@ -52,7 +53,28 @@ export function eliminationScouting(view: GameView, me: PlayerId, detailed = fal
     const hasFullVis = victim.territoryCount !== null && knownTerrs.length === victim.territoryCount;
     // Under fog a rival we cannot see at all used to come out as 0 territories and 0 armies, a "100% kill".
     if (knownTerrs.length === 0 && victim.territoryCount === null) {
-      if (detailed) lines.push(`- ${victim.name}: ${victim.cardCount} cards; none of its territories are visible (fog): location and armies unknown, not a kill target this turn.`);
+      if (!detailed) continue;
+      // Fog read: where it was last seen, what its public income says, and the memory's army estimate.
+      const seen = intel?.lastSeen?.(victim.id) ?? [];
+      const region = likelyRegion(view, seen.map((x) => x.territory));
+      if (!region) {
+        lines.push(`- ${victim.name}: ${victim.cardCount} cards; none of its territories are visible (fog) and it was never seen: location and armies unknown, not a kill target this turn.`);
+        continue;
+      }
+      const cName = map.continentById[region]?.name ?? region;
+      const inc = victim.income?.total;
+      const est = intel?.estimateArmies?.(victim.id);
+      const near = seen.some((x) => (map.adjacency[x.territory] ?? []).some((n) => mine.has(n)));
+      const incText = inc === undefined || inc === null ? '' : inc <= 3 ? `; income +${inc}/turn: at most about 11 territories and no bonus` : `; income +${inc}/turn`;
+      let verdict = 'not next to you: not a kill this turn';
+      if (near && est !== undefined) {
+        const o = blitzOdds(Math.max(1, myStrikePool - seen.length), est, 2);
+        const w = Math.round((view.options.balancedBlitz ? o.balancedWin : o.win) * 100);
+        verdict = w >= 70
+          ? `POSSIBLE FOG KILL (estimate ${w}%): it borders you; line up your stacks around ${cName} before committing`
+          : `estimate ${w}%: not a kill yet, keep pressure on ${cName}`;
+      } else if (near) verdict = 'borders you, strength unknown';
+      lines.push(`- ${victim.name}: ${victim.cardCount} cards; unseen under fog, probably in ${cName} (last seen there in round ${seen[0].round})${incText}${est !== undefined ? `; estimated ~${est} armies` : ''}. ${verdict}.`);
       continue;
     }
     const borders = knownTerrs.some((t) => (map.adjacency[t] ?? []).some((n) => mine.has(n)));
@@ -246,7 +268,7 @@ const label = (name: string | undefined, id: string) => (name && name !== id ? `
  * continent's ownership, threats on my borders, the leader and the current card value. Ids appear in
  * square brackets so the model can name a focus. Fog-aware: hidden territories are never described.
  */
-export function commanderFacts(view: GameView, me: PlayerId): string {
+export function commanderFacts(view: GameView, me: PlayerId, intel?: SeatIntel): string {
   const map = getMap(view.options.map);
   const tName = (id: string) => label(map.territoryById[id]?.name, id);
   const nameOf = (id: PlayerId | null) => view.players.find((p) => p.id === id)?.name ?? '?';
@@ -280,7 +302,8 @@ export function commanderFacts(view: GameView, me: PlayerId): string {
     .map((p) => `${p.name} ${p.cardCount}${p.cardCount >= 4 ? ' (forced trade soon)' : p.cardCount >= 3 ? ' (can hold a set)' : ''}`)
     .join(', ');
   lines.push(`Next card set is worth ${next}. You hold ${meP?.cardCount ?? 0} cards${sets ? ` (${sets} tradeable set${sets > 1 ? 's' : ''})` : ''}.${o.fogOfWar && oppCards ? ` Opponent card counts (public under fog): ${oppCards}.` : ''}`);
-  lines.push(...cardMath(view, me), ...eliminationScouting(view, me, true));
+  lines.push(...cardMath(view, me), ...eliminationScouting(view, me, true, intel));
+  lines.push(...strategyFacts(view, me, intel));
 
   // Players.
   for (const p of living) {
@@ -502,4 +525,26 @@ export function commanderFacts(view: GameView, me: PlayerId): string {
   if (view.phase === 'finished' && view.winner) lines.push(`Winner: ${nameOf(view.winner)}.`);
 
   return lines.join('\n').slice(0, MAX_COMMANDER_FACTS);
+}
+
+/**
+ * Strategy reads from play feedback (strategy.ts): natural enemies, sweepable regions, and who just attacked us
+ * (retake, then push into their bonus).
+ */
+export function strategyFacts(view: GameView, me: PlayerId, intel?: SeatIntel): string[] {
+  const map = getMap(view.options.map);
+  const nameOf = (id: PlayerId) => view.players.find((p) => p.id === id)?.name ?? id;
+  const lines: string[] = [];
+  for (const e of naturalEnemies(view, me)) {
+    lines.push(`Natural enemy: ${e.name}: every way out of their land leads into you (${e.ours} of the ${e.total} territories bordering theirs are yours), so whatever they build hits you. Break them before spending troops on other fronts.`);
+  }
+  for (const sw of sweepOpportunities(view, me).slice(0, 3)) {
+    lines.push(`Sweep: ${sw.ownerName} holds ${sw.continentName} [${sw.continent}] alone, ${sw.thin} of ${sw.territories.length} territories on 1-2 armies; about ${sw.cost} armies takes it all vs your ${sw.capacity} (stacks next to it plus 2 turns of income). Taking it breaks their +${sw.bonus} and can be yours.`);
+  }
+  for (const a of intel?.recentAttackers ?? []) {
+    const terrs = a.territories.map((t) => map.territoryById[t]?.name ?? t).join(', ');
+    const broke = a.brokeBonus ? ` and broke your ${map.continentById[a.brokeBonus]?.name ?? a.brokeBonus}` : '';
+    lines.push(`Retaliation: ${nameOf(a.id)} took ${terrs} from you in round ${a.round}${broke}. Retake it, then push at least one territory into their bonus; hold it if it is a one-territory choke into yours (they already hate you, and it denies their bonus next turn).`);
+  }
+  return lines;
 }

@@ -6,6 +6,7 @@ import { DealLedger } from './deals.js';
 import { extractJsonObject } from './diplomat.js';
 import { commanderFacts } from './facts.js';
 import { terrainBriefing } from './terrain.js';
+import { otherFront, type SeatIntel } from './strategy.js';
 import { isModelName, isZergName, parsePing, type PingAction, type PingType } from './pings.js';
 import type { Llm } from './llm.js';
 import { WIN_PATHS, type Plan, type WinPath } from './planned-bot.js';
@@ -659,6 +660,9 @@ const KNOBS = [
 export class Commander {
   private gameMemory: (view: GameView) => string = () => '';
   setGameMemory(provider: (view: GameView) => string) { this.gameMemory=provider; }
+  private intel: (view: GameView) => SeatIntel | undefined = () => undefined;
+  /** The seat's game memory reads (recent attackers, fog estimates) for the board facts. */
+  setIntel(provider: (view: GameView) => SeatIntel) { this.intel = provider; }
   private getStall: () => number = () => 0;
   setStall(provider: () => number) { this.getStall = provider; }
   private o: CommanderOptions;
@@ -956,6 +960,29 @@ export class Commander {
     for (const id of autoBreak) {
       const d = this.ledger.breakByMe(id);
       if (d) p.note = `${p.note ? `${p.note} ` : ''}Broke ${d.id} (${this.ledger.describe(d)}).`.trim();
+    }
+
+    // Nobody is spared for free: the model's own "avoid" list keeps only players something backs (an active truce,
+    // a coalition partner, a good-neighbor pact). Live games showed models avoiding rivals every turn with no deal
+    // at all, which the move chooser treats as "never attack" and froze whole borders. Agreements made below this
+    // point (accepted pings, the Zerg rule) still add to it.
+    // Holding back can be a real decision too, when it is geographic: the plan fights on another front (its target
+    // or focus is elsewhere), so this border stays quiet on purpose. A natural enemy's border is never that.
+    const backed = new Set(this.dealEffects().avoid);
+    const nm = (id: string) => view.players.find((x) => x.id === id)?.name ?? id;
+    const kept: string[] = [];
+    const dropped: string[] = [];
+    for (const id of p.avoid) {
+      if (backed.has(id)) { kept.push(id); continue; }
+      const front = otherFront(view, this.o.playerId, id, { target: p.target, focus: p.focus });
+      if (front) {
+        kept.push(id);
+        this.o.log?.(`${this.o.seatName}: holding back from ${nm(id)} to fight on ${front}`);
+      } else dropped.push(id);
+    }
+    if (dropped.length) {
+      p.avoid = kept;
+      this.o.log?.(`${this.o.seatName}: avoid list dropped ${dropped.map(nm).join(', ')} (no deal or pact, and no other front to fight on)`);
     }
 
     // When Zergs are on the map, LLMs must not attack each other:
@@ -1475,7 +1502,7 @@ export class Commander {
       neighborBriefing,
       '',
       'Board facts:',
-      commanderFacts(view, me),
+      commanderFacts(view, me, this.intel(view)),
       'Private tactical memory of this game (observed attacks, lost bonuses, warnings and coalition assessment):',
       this.gameMemory(view) || '(none yet)',
       '',

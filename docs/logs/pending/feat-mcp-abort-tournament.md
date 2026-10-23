@@ -1,0 +1,1 @@
+mcp: - 2026-10-22 #PR `abort_tournament` (host token, remembered on the creating connection, or the admin key) aborts a tournament as `POST /tournaments/:id/abort` does; tournament texts say when one was aborted

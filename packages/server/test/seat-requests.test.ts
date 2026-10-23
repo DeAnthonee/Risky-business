@@ -4,6 +4,7 @@ import { Store } from '../src/store.js';
 import { createRiskServer } from '../src/app.js';
 import type { TournamentClock } from '../src/tournaments.js';
 import { POOL_STALE_MS } from '../src/seat-requests.js';
+import { parseSchedule } from '../src/tournament-schedule.js';
 
 // Fake values, set only here. Real ones live only in the server's environment.
 const POOL_KEY = 'test-pool-key';
@@ -18,10 +19,11 @@ class FakeClock implements TournamentClock {
   clearTimeout = (_h: unknown) => {};
 }
 
-async function serve(seatPoolKey: string | null = POOL_KEY) {
+async function serve(seatPoolKey: string | null = POOL_KEY, schedule: unknown = null) {
   const clock = new FakeClock();
   const store = new Store(null, {}, { clock });
   const risk = createRiskServer(store, {
+    tournamentSchedule: schedule ? parseSchedule(schedule, store.tournaments) : null,
     clientDir: null,
     sweepIntervalMs: 0,
     adminToken: ADMIN,
@@ -41,6 +43,24 @@ async function serve(seatPoolKey: string | null = POOL_KEY) {
 }
 
 describe('Delove seats on request', () => {
+  it("a scheduled slot's roster fills past the pre-registration cap: pool joins are the request's, not one IP's", async () => {
+    const { risk, store, call, asPool } = await serve(POOL_KEY, { every: 30, at: '00:03', name: 'Half-hourly', signupMinutes: 6, checkinMinutes: 6, roster: 6, maxEntrants: 20 });
+    try {
+      const [id] = [...store.tournaments.tournaments.keys()];
+      const req = (await call('GET', '/seat-requests?kind=delove&free=10&freeSearch=0', undefined, asPool)).body.requests[0];
+      expect(req).toMatchObject({ tournamentId: id, n: 6 });
+      expect((await call('POST', `/seat-requests/${req.id}/claim`, { n: 6 }, asPool)).status).toBe(200);
+      for (let k = 1; k <= 6; k++) expect((await call('POST', `/tournaments/${id}/join`, { playerName: `Delove ${k}`, agent: 'delove@13', seatRequestId: req.id }, asPool)).status).toBe(201);
+      // People from the same address still meet the cap (4 open registrations).
+      for (let k = 1; k <= 4; k++) expect((await call('POST', `/tournaments/${id}/join`, { playerName: `Fan ${k}` })).status).toBe(201);
+      const fifth = await call('POST', `/tournaments/${id}/join`, { playerName: 'Fan 5' });
+      expect(fifth.status).toBe(400);
+      expect(fifth.body.error).toMatch(/already hold 4 open registrations/);
+    } finally {
+      await risk.shutdown('test');
+    }
+  });
+
   it('the pool needs its key: off without one, 401 without the header, 403 for a wrong one, then a lockout', async () => {
     const off = await serve(null);
     try {

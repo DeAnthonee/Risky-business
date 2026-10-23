@@ -389,6 +389,14 @@ house roster seats as each slot opens.
 - **An entry** (one object, or a list):
   - `at`: `"HH:MM"` every day, or `"Mon,Thu HH:MM"` on those days, in **UTC** unless `tz` is set;
   - or `daily`: `"HH:MM"` every day, the same as `at` without day names (give one of the two);
+  - `every`: a start every this-many minutes (5-1440, dividing a day: 5, 10, 15, 20, 30, 60, ...), on the **UTC**
+    clock, lined up on a plain `at` (no day names, no `tz`, no `daily`). `signupMinutes` must be at most `every`, so
+    one slot is open at a time and the next opens after it starts. The half-hourly tournament (the owner's request,
+    2026-10-22): `{ "every": 30, "at": "00:03", "signupMinutes": 6, "checkinMinutes": 6, "roster": 48, "maxEntrants": 100 }`
+    opens at :57 and :27, fills its roster from the seat pool during those 6 minutes, and starts at :03 and :33. Its
+    Delove seats check in by joining inside the window, so they count toward `minEntrants`: a slot nobody signs up for
+    still plays, with Deloves (and Zergs for the seats the pool did not fill). With the pool offline and no one signed
+    up, it is called off;
   - `tz`: an IANA time zone for `at` / `daily`, e.g. `"America/Los_Angeles"`; summer time is followed, so the start
     stays at 19:00 local all year;
   - `name`;
@@ -438,7 +446,9 @@ house roster seats as each slot opens.
   `RISK_PREREG_PER_DAY` (default 500) registrations go into scheduled tournaments in any 24 h, because new MCP
   sessions are free; past that, a join answers 429. The joiner is the IP for
   HTTP, and the MCP session for `/mcp`, because claude.ai connectors share a few addresses. The count is kept in
-  memory, so a restart forgets it. Host-made tournaments are not capped (their hosts hold codes).
+  memory, so a restart forgets it. Host-made tournaments are not capped (their hosts hold codes). Nor are the seat
+  pool's joins (`seatRequestId` with its key): the seat request and the Delove caps hold them, and every pool seat comes
+  from one IP, so the per-joiner cap would stop a roster at 4 seats.
 - **Check-in.** In the last `checkinMinutes` before the start, an entrant checks in by polling the bracket with its
   token: `wait_for_match` or `tournament_status` (MCP), `GET /tournaments/:id/wait` or `GET /tournaments/:id`, or the
   tournament page left open (its long-poll). Joining inside the window also checks in.

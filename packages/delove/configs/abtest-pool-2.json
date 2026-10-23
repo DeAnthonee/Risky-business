@@ -1,0 +1,216 @@
+{
+  "v": 1,
+  "name": "abtest-pool@2",
+  "about": "The frozen gate pool of npm run delove:abtest (packages/delove/README.md \"A/B scorecard\"). Never played by a training cycle: its seeds come from \"seed\", and no jobs file uses it. Changing a table makes a new pool (bump the name), so scorecards compare only within one pool. @2 (2026-10-22): the quick check stops at h1 0.25 (sprt); --promotion uses h1 0.15 up to 1200 deals per deciding table (promotion); zerg-horde-4 stops at 200 turns. Same seed as @1, so the unchanged tables play the same deals.",
+  "seed": 11239001,
+  "base": "delove@13",
+  "sprt": {
+    "h0": 0,
+    "h1": 0.25,
+    "alpha": 0.05,
+    "beta": 0.05,
+    "maxDeals": 400
+  },
+  "promotion": {
+    "h1": 0.15,
+    "maxDeals": 1200
+  },
+  "tables": [
+    {
+      "name": "fog-classic-4",
+      "players": 4,
+      "field": [
+        "delove@13",
+        "delove@12",
+        "delove@10"
+      ],
+      "options": {
+        "autoSetup": true,
+        "randomDeal": true,
+        "setupBatch": 1,
+        "balancedBlitz": true,
+        "firstRoundBonus": true,
+        "fortifyMode": "connected",
+        "chooseCapitals": true,
+        "fogOfWar": true,
+        "blizzards": 8,
+        "capitals": true,
+        "cardValues": "progressive",
+        "neutrals": 0,
+        "neutralArmies": 2
+      },
+      "deals": 40,
+      "decides": true
+    },
+    {
+      "name": "fog-classic-6",
+      "players": 6,
+      "field": [
+        "delove@13",
+        "delove@12",
+        "delove@13",
+        "delove@10",
+        "delove@8"
+      ],
+      "options": {
+        "autoSetup": true,
+        "randomDeal": true,
+        "setupBatch": 1,
+        "balancedBlitz": true,
+        "firstRoundBonus": true,
+        "fortifyMode": "connected",
+        "chooseCapitals": true,
+        "fogOfWar": true,
+        "blizzards": 8,
+        "capitals": true,
+        "cardValues": "progressive",
+        "neutrals": 0,
+        "neutralArmies": 2
+      },
+      "deals": 40,
+      "decides": true
+    },
+    {
+      "name": "fog-hexworld-6",
+      "players": 6,
+      "field": [
+        "delove@13",
+        "delove@12",
+        "jacob-sensei@2",
+        "delove@13",
+        "delove@10"
+      ],
+      "options": {
+        "autoSetup": true,
+        "randomDeal": true,
+        "setupBatch": 1,
+        "balancedBlitz": true,
+        "firstRoundBonus": true,
+        "fortifyMode": "connected",
+        "chooseCapitals": true,
+        "fogOfWar": true,
+        "blizzards": 8,
+        "capitals": true,
+        "cardValues": "progressive",
+        "neutrals": 0,
+        "neutralArmies": 2,
+        "map": "hexworld"
+      },
+      "deals": 40,
+      "decides": true
+    },
+    {
+      "name": "fog-europe-8",
+      "players": 8,
+      "field": [
+        "delove@13",
+        "delove@12",
+        "delove@13",
+        "jacob-sensei@1",
+        "delove@10",
+        "delove@13",
+        "delove@12"
+      ],
+      "options": {
+        "autoSetup": true,
+        "randomDeal": true,
+        "setupBatch": 1,
+        "balancedBlitz": true,
+        "firstRoundBonus": true,
+        "fortifyMode": "connected",
+        "chooseCapitals": true,
+        "fogOfWar": true,
+        "blizzards": 8,
+        "capitals": true,
+        "cardValues": "progressive",
+        "neutrals": 0,
+        "neutralArmies": 2,
+        "map": "europe"
+      },
+      "deals": 40,
+      "decides": true
+    },
+    {
+      "name": "fog-duel-2",
+      "players": 2,
+      "field": [
+        "delove@13"
+      ],
+      "options": {
+        "autoSetup": true,
+        "randomDeal": true,
+        "setupBatch": 1,
+        "balancedBlitz": true,
+        "firstRoundBonus": true,
+        "fortifyMode": "connected",
+        "chooseCapitals": false,
+        "fogOfWar": true,
+        "blizzards": 8,
+        "capitals": false,
+        "cardValues": "progressive",
+        "neutrals": 0,
+        "neutralArmies": 2
+      },
+      "deals": 100
+    },
+    {
+      "name": "zerg-horde-4",
+      "players": 4,
+      "field": [
+        "zerg@2",
+        "delove@13",
+        "zerg@2"
+      ],
+      "options": {
+        "autoSetup": true,
+        "capitals": true,
+        "fogOfWar": true,
+        "map": "gen1:t20"
+      },
+      "deals": 100,
+      "maxTurns": 200
+    },
+    {
+      "name": "zerg-mixed-3",
+      "players": 3,
+      "field": [
+        "zerg@2",
+        "delove@13"
+      ],
+      "options": {
+        "autoSetup": true,
+        "capitals": true,
+        "fogOfWar": true,
+        "map": "gen1:t15"
+      },
+      "deals": 100
+    },
+    {
+      "name": "nofog-classic-6",
+      "players": 6,
+      "field": [
+        "delove@13",
+        "jacob-sensei@2",
+        "delove@12",
+        "jacob-sensei@1",
+        "delove@13"
+      ],
+      "options": {
+        "autoSetup": true,
+        "randomDeal": true,
+        "setupBatch": 1,
+        "balancedBlitz": true,
+        "firstRoundBonus": true,
+        "fortifyMode": "connected",
+        "chooseCapitals": true,
+        "fogOfWar": false,
+        "blizzards": 8,
+        "capitals": true,
+        "cardValues": "progressive",
+        "neutrals": 0,
+        "neutralArmies": 2
+      },
+      "deals": 60
+    }
+  ]
+}

@@ -13,6 +13,13 @@ import type { EntrantResult } from './tournament-seat.js';
  * `<model>+search`. Under fog every seat is bare, and only a fog-trained network takes fog seats: a pool whose network
  * has no fog inputs leaves fog requests for later rather than seat a fog-blind player.
  *
+ * Takeovers (docs/tournaments.md "Disconnected seats"): the pool also asks for takeover requests (`modes=takeover`), one
+ * seat of a tournament game in progress whose player was dropped. Its claim answers that seat's id and a fresh token; the
+ * server has renamed it "<name>-Delove", and the pool plays it through the ordinary game API to the end of that table
+ * (it never moves on in the tournament). The pool checks the token works, then reports `done` (`failed` with a reason
+ * otherwise, and the server hands the seat back to its house bot). Fog seats take the pool's network only when it is
+ * fog-trained, as for joins.
+ *
  * The key (RISK_SEAT_POOL_KEY) goes only in the `x-seat-pool-key` header; it is never logged or written to disk.
  */
 
@@ -26,6 +33,20 @@ export interface PoolRequest {
   fog: boolean;
   searchAllowed: boolean;
   status: string;
+  /** A takeover: one dropped seat of a game in progress (listed only with `modes=takeover`). */
+  mode?: 'takeover';
+  takeover?: { gameId: string; playerId: string; name: string };
+}
+
+/** A takeover's claim: the seat to play, with its fresh token. */
+export interface TakeoverClaim {
+  requestId: string;
+  mode: 'takeover';
+  tournamentId: string;
+  gameId: string;
+  playerId: string;
+  token: string;
+  search: number;
 }
 
 /** A claim (POST /api/seat-requests/:id/claim). */
@@ -43,11 +64,13 @@ export interface PoolEntrant {
   tournamentId: string;
   requestId: string;
   name: string;
-  /** Entrant token (a secret: kept in the state file, never logged). */
+  /** Entrant token, or a takeover's seat token (a secret: kept in the state file, never logged). */
   token: string;
   /** The player: `delove@N` or `delove@N+search`. */
   agentId: string;
   search: boolean;
+  /** A takeover: the game seat this token plays (the game API, to the end of that table), not a tournament entrant. */
+  game?: { gameId: string; playerId: string };
 }
 
 export interface PoolOptions {
@@ -123,7 +146,7 @@ export class SeatPool {
     const { free, freeSearch } = this.free;
     let list: { requests: PoolRequest[] };
     try {
-      list = await this.call('GET', `/seat-requests?kind=delove&free=${free}&freeSearch=${freeSearch}`);
+      list = await this.call('GET', `/seat-requests?kind=delove&modes=takeover&free=${free}&freeSearch=${freeSearch}`);
       this.lastError = null;
     } catch (e) {
       this.lastError = e as Error;
@@ -149,7 +172,7 @@ export class SeatPool {
         this.skipped.add(r.id);
         continue;
       }
-      const joined = await this.fill(r, Math.min(r.n - r.claimed, room), searchRoom);
+      const joined = r.mode === 'takeover' ? await this.takeOver(r, searchRoom) : await this.fill(r, Math.min(r.n - r.claimed, room), searchRoom);
       room -= joined.length;
       searchRoom -= joined.filter((e) => e.search).length;
     }
@@ -199,6 +222,53 @@ export class SeatPool {
     return joined;
   }
 
+  /** Claims a takeover, checks its seat token works, reports, and starts playing the seat. */
+  private async takeOver(r: PoolRequest, searchRoom: number): Promise<PoolEntrant[]> {
+    let c: TakeoverClaim;
+    try {
+      c = await this.call('POST', `/seat-requests/${r.id}/claim`, { n: 1 });
+    } catch (e) {
+      this.log(`claim of takeover ${r.id} failed: ${(e as Error).message}`);
+      return [];
+    }
+    const search = !r.fog && c.search > 0 && searchRoom > 0;
+    const e: PoolEntrant = {
+      tournamentId: c.tournamentId,
+      requestId: c.requestId,
+      name: `${r.takeover?.name ?? c.playerId}-Delove`,
+      token: c.token,
+      agentId: search ? `${this.o.model}+search` : this.o.model,
+      search,
+      game: { gameId: c.gameId, playerId: c.playerId },
+    };
+    let reason = '';
+    try {
+      // The seat's own view: proves the token plays this seat before the pool says it does.
+      const res = await this.http(`${this.base}/api/games/${encodeURIComponent(c.gameId)}`, { headers: { authorization: `Bearer ${c.token}` } });
+      if (!res.ok) reason = `the seat token was refused (${res.status})`;
+    } catch (err) {
+      reason = `the game did not answer (${(err as Error).message})`;
+    }
+    if (!reason && this.stopping) reason = 'the pool is stopping';
+    try {
+      if (reason) await this.call('POST', `/seat-requests/${c.requestId}/failed`, { joined: 0, reason });
+      else await this.call('POST', `/seat-requests/${c.requestId}/done`, { joined: 1 });
+    } catch (err) {
+      this.log(`report for takeover ${c.requestId} failed: ${(err as Error).message}`);
+    }
+    if (reason) {
+      this.log(`takeover ${c.requestId} (${c.tournamentId}, game ${c.gameId}): not taken (${reason}); the house bot keeps it`);
+      return [];
+    }
+    this.log(`takeover ${c.requestId} (${c.tournamentId}, game ${c.gameId}): ${e.name} plays the seat${search ? ' with search' : ''}`);
+    this.start(e);
+    return [e];
+  }
+
+  private get base() {
+    return this.o.server.replace(/\/+$/, '');
+  }
+
   private start(e: PoolEntrant) {
     this.inPlay.set(key(e), e);
     this.save();
@@ -228,7 +298,7 @@ export class SeatPool {
   }
 
   private async call<T>(method: string, path: string, body?: unknown): Promise<T> {
-    const res = await this.http(`${this.o.server.replace(/\/+$/, '')}/api${path}`, {
+    const res = await this.http(`${this.base}/api${path}`, {
       method,
       headers: { 'content-type': 'application/json', 'x-seat-pool-key': this.o.key },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),

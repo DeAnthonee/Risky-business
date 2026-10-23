@@ -332,7 +332,7 @@ with full sight. The order is therefore:
    (dropout). The value head may be trained with the true board as an extra input during training only
    (a privileged critic) if that helps; the policy never sees it.
 
-### 4.5 A learned fog model for the sampler (design, not built)
+### 4.5 A learned fog model for the sampler (built, overhaul track T5; status below)
 
 **Why:** with today's hand-written sampler, fog search clearly loses to the bare network (4p: -0.92), while the
 same search rolling out the true board does not lose, and leans positive (+0.32, interval -0.08 to +0.71;
@@ -382,6 +382,57 @@ it is absent.
 
 **Cost:** phase 1 data is free; training is minutes on the home GPU; the measurement is about an hour of CPU like
 2026-10-22's. Phase 2 adds a few hours of CPU fog games. Nothing changes on the GPU mirror until step 3 passes.
+
+**Built (2026-10-22, overhaul T5):**
+
+- `packages/delove/python/fog_guess.py` trains the guesser: a graph net (64 hidden, 3 rounds) on (view, truth) pairs
+  from a cycle's full-board arrays. The view is fog.py's transform; the truth is the untouched features. Each recorded
+  seat's decisions in a game are replayed in order, which rebuilds its memory as `FogTracker` keeps it. That memory is
+  14 columns per hidden territory: the last-seen owner slot or the Neutral, a seen flag, log armies, and rounds since
+  /10 (at most 3). `--no-memory` gives the phase-1 model. Owner and army-bin heads; `FOG_GUESS_VERSION` 2. Checks:
+  `python/test_fog_guess.py` (with `FOG_GUESS_DATA=<dataset>` also the examples), and `--fixture` rewrites the tiny
+  model the TypeScript tests load.
+- `src/fog-guesser.ts` (`FogGuesser`) encodes the seat view exactly as the networks do, adds the memory columns from
+  the seat's `FogTracker`, and makes one ONNX call per decision (the worker's `guess` job). It maps slots back to
+  player ids. The sampler (`sampleBoard`'s `guess`) draws each hidden territory's owner and army bin from it, unless
+  the last sighting is kept (step 1). Armies are uniform within the bin; the hand-written front armies (step 4) are
+  skipped; steps 3, 5 and 6 are unchanged.
+- Switch: `DELOVE_FOG_MODEL=<id>` (models/<id>.onnx) or a path to the `.onnx`, together with
+  `DELOVE_BRANCH_FOG=determinize` (or the seat `delove-branch@1:fog`).
+
+**Trained** (`fog-guess@2`, kept on the training PC in `<training PC>\models\delove`, not committed) on c17's 14 datasets (15,000 decisions each, every 3rd decision of each recorded seat from whole games;
+held-out games apart): 7 minutes on the home RTX 4060 (2026-10-22). Held-out accuracy of one draw of the owner:
+
+| players | uniform | phase 1 (view only) | with memory |
+| --- | --- | --- | --- |
+| 2p | 0.50 | 0.66 | 0.74 |
+| 3-4p | 0.30 | 0.58 | 0.63 |
+| 5-6p | 0.21 | 0.45 | 0.47 |
+| 7p+ | 0.17 | 0.37 | 0.39 |
+
+**Against today's sampler on real fog games** (Classic, league fog settings, Jacob Sensei 2 in every seat, 60 games
+each, one draw per checked moment, the same moments for both): hidden-owner accuracy at 4p is 0.626 with the guesser
+against 0.579 for the sampler (1,830 hidden territories); at 6p it is 0.533 against 0.488 (1,208). Without memory the
+guesser lost to the sampler at 4p (0.47 against 0.58, 20 games), so the memory columns are what make it better.
+
+**Fog search with the guesser vs bare delove@13** (2026-10-22, home CPU, 6 below-normal processes;
+`gen5-randomfog.json` on Classic; `js2-range` with ranker delove@13; 200 mirrored games per table; points per seat,
+95% interval over pairs):
+
+| table | result | ms per decision, search / bare |
+| --- | --- | --- |
+| 2p | +0.11 (-0.16 to +0.38) | 131 / 4 |
+| 4p | -0.64 (-0.92 to -0.35) | 194 / 5 |
+| 6p | -0.60 (-0.90 to -0.31) | 305 / 5 |
+
+**Reading:** the guesser is a better guess (owner accuracy up about 5 points at 4p and 6p), but fog search on it still
+loses to the bare network at 4p and 6p. T5's second done-criterion is not met. The earlier controls bound what better
+guesses can buy: fog search on the true board scored only +0.32 (-0.08 to +0.71) at 4p against delove@12, and search
+with full sight +0.17 / +0.42 without fog (both not significant). Going from 0.58 to 0.63 owner accuracy is a small
+step toward a ceiling that is itself small. The limit is the search's teacher (Jacob Sensei 2 rollouts against a
+network that has caught up with it), not only the board guess. Fog search therefore stays off, and the guesser stays
+opt-in. Re-test it once the bootstrapped teacher (overhaul T2: network rollouts with a value bootstrap) gives a search
+that clearly beats delove@13 with full sight; check the true-board oracle first, then the guesser.
 
 ## 5. The GPU mirror
 

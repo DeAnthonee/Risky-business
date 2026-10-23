@@ -5,15 +5,17 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { isMainThread, parentPort, Worker } from 'node:worker_threads';
 import { registerAgent, resolveAgent } from '@risk/selfplay';
-import { loadPool, playDeals, pooledSprt, scorecard, scorecardMarkdown, tableStats, type DealResult, type GatePool } from './abtest.js';
+import { loadPool, playDeals, pooledSprt, scorecard, scorecardMarkdown, sprtConfig, tableStats, type DealResult, type GatePool } from './abtest.js';
 import { netAgent } from './net-agent.js';
 
 const USAGE = `delove:abtest: score a candidate against a base version on the frozen gate pool (packages/delove/README.md "A/B scorecard")
 
-  npm run delove:abtest -- <candidate> [--base delove@13] [--pool packages/delove/configs/abtest-pool.json]
+  npm run delove:abtest -- <candidate> [--promotion] [--base delove@13] [--pool packages/delove/configs/abtest-pool-2.json]
        [--workers 6] [--chunk 10] [--scale 1] [--tables name,name] [--out <dir>]
 
   <candidate>   an agent id (c19-candidate, delove@14, delove-branch@1, ...) or a path to a .onnx network
+  --promotion   a promotion call: the pool's promotion test (pool@2: H1 +0.15 points per seat, up to 1200 deals per
+                deciding table, about 30 min on a pod); default the quick check (pool@2: H1 +0.25, up to 400 deals)
   --base ID     the version to beat (default: the pool's base, delove@13)
   --scale F     multiply every table's deals by F (0.25 for a quick look; the verdict needs the full pool)
   --tables      play only these tables (by name)
@@ -30,7 +32,7 @@ interface Job {
 }
 
 const here = dirname(fileURLToPath(import.meta.url));
-const DEFAULT_POOL = join(here, '..', 'configs', 'abtest-pool.json');
+const DEFAULT_POOL = join(here, '..', 'configs', 'abtest-pool-2.json');
 
 /** A candidate given as a path to a .onnx file plays as its file name; every worker registers it the same way. */
 function registerModelFromEnv(): void {
@@ -49,6 +51,7 @@ async function main() {
       scale: { type: 'string' },
       tables: { type: 'string' },
       out: { type: 'string' },
+      promotion: { type: 'boolean' },
       help: { type: 'boolean' },
     },
   });
@@ -71,7 +74,9 @@ async function main() {
   const scale = Number(values.scale ?? 1);
   const chunk = Math.max(1, Number(values.chunk ?? 10));
   const planned = pool.tables.map((t) => (only && !only.has(t.name) ? 0 : Math.max(2, Math.round(t.deals * scale))));
-  const maxDeals = Math.round(pool.sprt.maxDeals * scale);
+  const promotion = !!values.promotion;
+  const test = sprtConfig(pool, promotion);
+  const maxDeals = Math.round(test.maxDeals * scale);
   const deals: DealResult[][] = pool.tables.map(() => []);
   const queued = pool.tables.map(() => 0);
   const jobs: Job[] = [];
@@ -83,7 +88,7 @@ async function main() {
   const workers = Math.max(1, Number(values.workers ?? 6));
   const decider = (p: GatePool) => p.tables.map((t, ti) => (t.decides && planned[ti] > 0 ? ti : -1)).filter((ti) => ti >= 0);
   const log = (s: string) => console.error(`[${new Date().toLocaleTimeString()}] ${s}`);
-  log(`${candidate} vs ${base} on ${pool.name} (${hash}): ${jobs.length} jobs over ${workers} workers`);
+  log(`${candidate} vs ${base} on ${pool.name} (${hash}), ${promotion ? 'promotion call' : 'quick check'} (H1 +${test.h1}, up to ${maxDeals} deals): ${jobs.length} jobs over ${workers} workers`);
 
   const threads = await Promise.all(Array.from({ length: workers }, () => new Worker(new URL(import.meta.url))));
   const run = (w: Worker, job: Job) =>
@@ -107,7 +112,7 @@ async function main() {
           }
         }),
       );
-      const sprt = pooledSprt(pool.tables.map((t, ti) => tableStats(t, deals[ti])), pool.sprt);
+      const sprt = pooledSprt(pool.tables.map((t, ti) => tableStats(t, deals[ti])), test);
       const open = decider(pool).filter((ti) => queued[ti] < maxDeals);
       log(`pooled test: ${sprt.status} (mean ${sprt.mean}, LLR ${sprt.llr} in [${sprt.lower}, ${sprt.upper}])`);
       if (sprt.status !== 'continue' || !open.length) break;
@@ -119,7 +124,7 @@ async function main() {
     await Promise.all(threads.map((w) => w.terminate()));
   }
   for (const d of deals) d.sort((a, b) => a.deal - b.deal);
-  const card = scorecard(pool, hash, candidate, base, deals, (Date.now() - t0) / 1000);
+  const card = scorecard(pool, hash, candidate, base, deals, (Date.now() - t0) / 1000, 200, promotion);
   const md = scorecardMarkdown(card);
   console.log(md);
   if (values.out) {

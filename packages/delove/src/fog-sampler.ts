@@ -1,5 +1,6 @@
 import { CAPITAL_BONUS, createRng, getMap, reinforcementsFor, shuffle, type Card, type GameState, type PlayerId, type TerritoryId, type TerritoryState } from '@risk/engine';
 import { publicIncomes } from '@risk/selfplay';
+import type { FogGuess } from './fog-guesser.js';
 
 /**
  * The determinized branch teacher's sampler (docs/delove-fog.md section 4.2): from one seat's view of a fog game (a
@@ -12,12 +13,13 @@ import { publicIncomes } from '@risk/selfplay';
  * 2. The others are drawn among the opponents still alive (and the Neutral), weighted by how many territories each
  *    still lacks against an estimate (players: from their public income; the Neutral: its visible count scaled up by
  *    the share of the board in sight), times 1 + the neighbours already given to that owner (holdings stay together).
- *    They get 1 or 2 armies.
+ *    They get 1 or 2 armies. With a learned guess (`guess`, fog-guesser.ts) each is drawn from the guesser's owner
+ *    and army-bin distributions instead (armies uniform within the bin; the open last bin up to twice its floor).
  * 3. Repair: every opponent still alive holds at least one territory, and a few greedy passes move hidden territories
  *    from opponents whose income on the sample is above their public income to those below it (or to/from the
  *    Neutral), preferring a territory next to the receiver.
  * 4. Each opponent gets `frontShare` of its income as extra armies on its hidden territories that border another
- *    owner (its unseen reinforcements).
+ *    owner (its unseen reinforcements). Skipped with a learned guess, whose armies already include them.
  * 5. Capitals out of sight are put back: the remembered one, else the opponent's strongest hidden territory.
  * 6. Opponents' hands, the deck and the discard are redealt from every card that is not in the seat's hand, at their
  *    public sizes (the same pool stateFromView deals from, #143).
@@ -82,6 +84,8 @@ export function sampleBoard(
   random: () => number,
   memory: SeatMemory = EMPTY_MEMORY,
   opts: FogSamplerOptions = DEFAULT_FOG_SAMPLER,
+  /** The learned fog guesser's output for this view (fog-guesser.ts): steps 2 and 4 draw from it instead. */
+  guess?: FogGuess,
 ): GameState {
   const map = getMap(state.options.map);
   const territories: Record<TerritoryId, TerritoryState> = {};
@@ -134,6 +138,15 @@ export function sampleBoard(
     };
     const lack = new Map<PlayerId, number>(ids.map((p) => [p, estimate(p) - count.get(p)!]));
     for (const t of pending) {
+      const g = guess?.territories.get(t);
+      if (g && g.owners.length) {
+        const p = g.owners[pickWeighted(g.p)];
+        const [lo, hi] = guess!.armyBins[pickWeighted(g.bins)];
+        const top = Math.min(hi, Math.max(2 * lo - 1, 32)); // the open last bin: up to twice its floor
+        territories[t] = { owner: p, armies: lo + Math.floor(random() * (top - lo + 1)) };
+        if (lack.has(p)) lack.set(p, lack.get(p)! - 1);
+        continue;
+      }
       const w = ids.map((p) => {
         let near = 0;
         for (const u of map.adjacency[t]) if (territories[u].owner === p) near++;
@@ -185,8 +198,8 @@ export function sampleBoard(
       if (!moved) break;
     }
 
-    // 4. Unseen reinforcements on each opponent's hidden fronts.
-    for (const p of rivals) {
+    // 4. Unseen reinforcements on each opponent's hidden fronts (the learned guess already has them).
+    for (const p of guess ? [] : rivals) {
       const mine = owned(p);
       if (!mine.length) continue;
       const fronts = mine.filter((t) => map.adjacency[t].some((u) => territories[u].owner !== p && territories[u].owner !== null));

@@ -174,6 +174,17 @@ RISK_SEAT_POOL_KEY=<from the server owner> DELOVE_MODELS=~/delove-models   npm r
     room, those seats play `delove@N + search` (the live preset, `--preset`);
   - **fog:** a fog request is always bare, and only a fog-trained network (its `.json` has `fogInputs`) takes one. A
     pool on a fog-blind network leaves fog requests alone, and never seats an older model in a fog game.
+- **Takeovers** (docs/tournaments.md "Disconnected seats"): the pool polls with `modes=takeover`, so it also sees the
+  takeover requests the server opens when it drops a disconnected tournament seat. For one of those it:
+  - claims it (`n: 1`), and gets back the seat's `gameId`, `playerId` and a fresh seat token; the server has renamed
+    the seat "<name>-Delove";
+  - checks that the token plays the seat (`GET /api/games/:id` with it), then reports `done` (`{joined: 1}`), or
+    `failed` with a reason, and the server's house bot keeps the seat;
+  - plays that one game seat through the ordinary game API to the end of the table (`src/pool-play.ts`; a stand-in
+    never moves on in the tournament). It takes one seat of `--max-seats`, and is bare under fog (the same fog rule as
+    joins).
+
+  If the pool goes silent on a seat it took, the server drops it like anyone, and the house bot finishes the table.
 - **The key** (`RISK_SEAT_POOL_KEY`, the same value as the server's) is read from the environment only and sent in
   the `x-seat-pool-key` header. It is never printed or saved. A server without it answers 404 (the pool logs that
   seat requests are off); a wrong key gets 403, and repeated wrong keys get the server's one-hour lockout.
@@ -217,7 +228,8 @@ npm run delove -- ladder --candidate c15-fog --best delove@8 --players 6 --games
   `train_args` takes `--fog-dropout` like any other option.
 - `train.py --soft-targets` with a pre-fog prior widens the prior the same way.
 - The search seat (`delove-branch`) does not search under fog by default: in a fog game it plays its ranker's top move
-  on the seat view. `DELOVE_BRANCH_FOG=determinize` (or the self-play seat `delove-branch@1:fog`) searches fog games on
+  on the seat view. `DELOVE_BRANCH_FOG=determinize` (or the self-play seat `delove-branch@1:fog`; `DELOVE_FOG_MODEL=<id or
+  .onnx path>` adds the learned fog guesser, `python/fog_guess.py`) searches fog games on
   boards sampled from the seat's view and memory (`src/fog-sampler.ts`); measured worse than the bare ranker at 2-6
   players, so it stays off ([docs/delove-fog.md](../../docs/delove-fog.md), "fog search"). `delove-seat` `delove-seat` gives it a fog seat only when the ranker has fog inputs
   (`DELOVE_BRANCH_RANKER=<fog-trained model>`).
@@ -521,6 +533,58 @@ npm run delove:horde -- --candidate delove@10 --tables classic:4:3,classic:6:3 -
   - The plain `range` seat took 1.3 s a game before the falling-out; `range-horde`'s rollouts play the horde bot,
     which costs more per move.
 
+### The learned Zerg, stages 0-1 (`npm run delove:talk`)
+
+The first steps of the learned Zerg (docs/zergs.md §7: chat and deduction, no shared secret, hidden roles):
+
+- **Talking tables** (src/talk/game.ts): a self-play loop with table chat, separate from the GPU-mirrored game.ts.
+  - Each seat has a hidden role (`zerg`, `impostor`, `plain`) and may say one message per turn from the v0
+    vocabulary (src/talk/vocab.ts), public or whispered.
+  - It sees only the messages it may see and the public battles.
+  - The game ends by standing once only true Zergs are left (the owner's rule).
+- **Scripted roles** (src/talk/roles.ts):
+  - talking and quiet Zergs that act (zerg@2's policy) on a *belief* about who their allies are;
+  - impostors: `claimer` talks like a Zerg and attacks anyone; the held-out `mimic` acts like a Zerg for 4 rounds,
+    then betrays;
+  - plain seats, some of them accusing whoever hit them.
+- **The listener v0** (src/talk/listener.ts, features in src/talk/features.ts): logistic regression on what a seat said
+  and how it fought (toward me, toward self-declared Zergs, toward others; totals and the last two rounds), trained on
+  the true roles.
+- **Training data:** iteration 0's Zergs act on the true allies (teacher forcing), so their behaviour is a real
+  signal. Later iterations add games where they act on the previous listener (`--iterations`).
+
+```bash
+npm run delove:talk -- --train-games 600 --test-games 300 --play-games 300 --iterations 3 --out models/delove/listener@0.json
+```
+
+First results (2026-10-22, classic 4-5p, 2 Zergs, 300 games per arm, single process, a few minutes):
+
+| belief the Zergs act on | horde wins | infighting | hits on the impostor | turn limits |
+| --- | --- | --- | --- | --- |
+| rule: "claimed and hasn't hit me or a claimer" | 76% | 23% | 38% | 0/300 |
+| listener v0 (teacher forcing, 3 iterations) | 90% | 20% | 62% | 6/300 |
+| second-order listener (stacked) | 86% | 19% | 47% | 4/300 |
+| the true roles (upper bound) | 99% | 0% | 46% | 0/300 |
+
+Recognition, Zerg vs the held-out `mimic` impostor (AUC; 0.5 = chance, gate ≥ 0.75 by round 5):
+
+| scored on | rounds 1-2 | rounds 3-5 | round 6+ | all |
+| --- | --- | --- | --- | --- |
+| on-policy: games where the Zergs act on that listener | 0.63 | 0.83 | 0.94 | 0.87 |
+| teacher-forced: games where the Zergs act on the true roles | 0.60 | 0.90 | 1.00 | 0.93 |
+| second-order listener, on-policy | 0.57 | 0.72 | 0.90 | 0.78 |
+
+- The listener v0 passes the recognition gate on-policy: 0.83 by rounds 3-5, 0.94 from round 6, against an impostor
+  it never trained on. Rounds 1-2 can't be much better, since the mimic acts exactly like a Zerg until round 4.
+- Score a listener on-policy (or teacher-forced), not on games where the Zergs act on the rule. There, a Zerg that
+  rightly attacks a claiming impostor looks like a traitor to its fellow Zerg, the rule makes them fight each other
+  (23% infighting), and true Zergs end up behaving like impostors: that test gave about 0.47 for every listener.
+- The second-order listener (battles split by the first listener's belief) is no better, so the listener v0 stays
+  the default.
+- Still open: infighting is 20%, above the owner's 5-15% band. Next: the recurrent head, then the learned speaking
+  head and the team-spirit reward (stage 2 on T4's league, #297).
+- The model file stays local (hard rule 13).
+
 ### The searching Zerg (`zerg-branch@1`)
 
 Branch and score for the horde (src/zerg-branch.ts): the Zerg's own move and up to 3 alternatives (never an attack on a
@@ -770,15 +834,17 @@ jacob-sensei@2` (`DELOVE_BRANCH_TEACHER=jacob-sensei@2` in `cycle.sh`) makes it 
 One command scores a candidate against a base version (default `delove@13`) on a frozen gate pool and prints one
 scorecard. Every change in the overhaul is judged this way, with the fog tables deciding.
 
-    npm run delove:abtest -- <candidate> [--base delove@13] [--workers 6] [--scale 1] [--tables a,b] [--out <dir>]
+    npm run delove:abtest -- <candidate> [--promotion] [--base delove@13] [--workers 6] [--scale 1] [--tables a,b] [--out <dir>]
 
 `<candidate>` is an agent id (`c19-candidate`, `delove@14`, `delove-branch@1`, ...) or a path to a `.onnx` network.
 `--out` writes `scorecard.json` (with every deal) and `scorecard.md`. `--scale 0.25` is a quick look; the verdict
 needs the full pool. It runs on the CPU (worker threads), so it can run on the home PC or on a pod.
 
-**The frozen pool** (`configs/abtest-pool.json`, `abtest-pool@1`). Its seeds come from the pool's own `seed`, and no
-jobs file plays it, so no training run ever sees these deals. A changed table is a new pool: bump its name, because
-scorecards compare only within one pool (the scorecard prints the pool file's hash). The tables:
+**The frozen pool** (`configs/abtest-pool-2.json`, `abtest-pool@2`, the default; `--pool configs/abtest-pool-1.json`
+plays `abtest-pool@1`). Its seeds come from the pool's own `seed`, and no jobs file plays it, so no training run ever
+sees these deals. A changed table is a new pool with a new file and name, because scorecards compare only within one pool
+(the scorecard prints the pool file's hash). @2 keeps @1's seed, so the tables it did not change play the same deals.
+The tables:
 
 | table | players | field (the other seats) | settings | deals | decides |
 | --- | --- | --- | --- | --- | --- |
@@ -787,7 +853,7 @@ scorecards compare only within one pool (the scorecard prints the pool file's ha
 | fog-hexworld-6 | 6 | delove@13, @12, jacob-sensei@2, @13, @10 | league fog, Hex Earth | 40 + SPRT | yes |
 | fog-europe-8 | 8 | delove@13, @12, @13, jacob-sensei@1, @10, @13, @12 | league fog, Europe | 40 + SPRT | yes |
 | fog-duel-2 | 2 | delove@13 | league fog without capitals | 100 | 2p rule |
-| zerg-horde-4 | 4 | zerg@2, delove@13, zerg@2 | live tournament settings, a generated 20-territory board per deal | 100 | |
+| zerg-horde-4 | 4 | zerg@2, delove@13, zerg@2 | live tournament settings, a generated 20-territory board per deal; @2: 200 turns at most | 100 | |
 | zerg-mixed-3 | 3 | zerg@2, delove@13 | live tournament settings, a generated 15-territory board per deal | 100 | |
 | nofog-classic-6 | 6 | delove@13, jacob-sensei@2, @12, jacob-sensei@1, @13 | league settings without fog | 60 | |
 
@@ -801,14 +867,28 @@ the deal (r = k mod players), so every seat and turn position is played. The bas
 every deal (a test checks it).
 
 **The verdict** is the sequential test of `scripts/sprt.mjs` over the deciding (fog) tables, pooled with equal weight
-per table: H0 "no gain" against H1 "at least 0.15 points per seat", at 5% error each way. Every table plays its deals;
-then the deciding tables go on, a few chunks at a time, until the test decides or they reach `maxDeals` (400). The
-verdict is **better**, **not better** or **undecided**, and 2-player tables must not be significantly worse (the owner's
-rule). Every table also reports its paired 95% interval, mean place in the seat and wins.
+per table: H0 "no gain" against H1 "a gain of at least h1 points per seat", at 5% error each way. Every table plays
+its deals; then the deciding tables go on, a few chunks at a time, until the test decides or they reach `maxDeals`.
+The verdict is **better**, **not better** or **undecided**, and 2-player tables must not be significantly worse (the
+owner's rule). Every table also reports its paired 95% interval, mean place in the seat and wins. Two tests (pool@2):
+
+- **Quick check** (the default): h1 = 0.25, up to 400 deals per deciding table, about 40 minutes on 6 home CPU threads.
+- **Promotion call** (`--promotion`): h1 = 0.15, up to 1,200 deals per deciding table, about 30 minutes on a pod (with
+  the Lord of resources' OK). Each fog table's paired interval is about +/-0.3 points per seat at 400 deals (fog
+  makes the two games of a deal drift apart quickly), so a 0.15 gain needs about 1,000-1,200 deals per table.
 
 **Ratings.** A Plackett-Luce fit over the finishing order of every game played (Hunter's MM algorithm, with one
 virtual win and loss against the base as a weak prior) puts the candidate, the base and the whole field on one scale
 (Elo-like, the base at 0), with a bootstrap 95% interval over deals. The league takes its ratings from here.
+
+**Baseline (2026-10-22, `abtest-pool@1`): `delove@13` against `delove@12`**, 3,920 games in 39 minutes on 6 home CPU
+threads. Undecided: the fog tables pooled +0.06 points per seat (se 0.08) after 400 deals each. Classic 4p -0.06,
+Classic 6p 0.00, Hex Earth 6p -0.13, Europe 8p +0.43 (+0.01 to +0.85, the only one clear of 0). The duel was even, the
+Zerg tables +0.15 / +0.13 (not significant), no fog Classic 6p -0.28 (wide). Ratings (`delove@12` = 0): zerg@2 +118,
+`delove@13` +3 (-6 to +11), Jacob Sensei 2 -34, Jacob Sensei 1 -98, `delove@10` -108, `delove@8` -112. Cycle 16
+promoted `delove@13` on +0.17 (+0.04 to +0.31) with fog on against `delove@12` (CYCLES.md, "c16: the deciding gate, fog
+on"); that gain did not reproduce here (+0.06, not significant), so a single gate can mislead. On pool@1 the
+zerg-horde-4 table hit the 500-turn limit in 112 of its 200 games; pool@2 stops it at 200 turns.
 
 ## League (`npm run delove:league`)
 
@@ -1028,6 +1108,12 @@ Sensei 2 (2p). Panel gates are reported, never pooled into the SPRT. Copy each c
   bounds fixed for the same reason). Min-max stays the default, so the two can be compared.
   Smoke run (150 Classic 2p branch games with Jacob rollouts, CPU, from `delove@3`, 1 epoch, `--range close
   --branch-weights 0.5,1,2`): trains; whether it beats hard labels is cycle 12's A/B.
+- `--confidence TAU[,FLOOR]`: scales a branched decision's policy weight by clip(gap / TAU, FLOOR, 1), the gap being
+  the best minus the second-best compared score in `branch_q.npy` (`python/confidence.py`; checks
+  `python packages/delove/python/test_confidence.py`). A near-tie label is mostly rollout noise: the architecture review
+  (2026-10-22) measured the cycle teacher picking the same move under fresh rollout seeds only about half the time,
+  with 62-70% of searched decisions in cycle 17's data under a gap of 0.01. Decisions with fewer than two compared
+  options keep weight 1; combine with `--soft-targets` so ties teach "these are equal" and clear wins count fully.
 - `--aux-rollout W`: adds a rollout head that learns each branched decision's 1-round result, the played option's
   mean branch score from `branch_q.npy` (0..1), with weight W on a squared-error loss (KataGo-style auxiliary target:
   a one-round outcome is far less noisy than the final points). Starting from a network without the head adds a fresh

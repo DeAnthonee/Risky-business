@@ -37,6 +37,7 @@
     "delove-seat": "node packages/delove/dist/seat-cli.js",
     "delove-pool": "node packages/delove/dist/pool-cli.js",
     "delove:zerg-tune": "node --import ./packages/delove/dist/register.js packages/delove/dist/zerg-tune.js",
+    "delove:talk": "node packages/delove/dist/talk-cli.js",
     "delove:horde": "node --import ./packages/delove/dist/register.js packages/delove/dist/horde-cli.js",
     "delove:stages": "node --import ./packages/delove/dist/register.js packages/delove/dist/stages.js",
     "delove:abtest": "node --import ./packages/delove/dist/register.js packages/delove/dist/abtest-cli.js",

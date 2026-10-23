@@ -13,7 +13,8 @@ import { modelFogInputs, modelsDir } from './net-agent.js';
 import { Noter } from './notes.js';
 import { ChildPool, SeatPool, type FromChild, type ToChild } from './pool.js';
 import { infos, makeAgents } from './seat-agents.js';
-import { latencySummary, playEntrant } from './tournament-seat.js';
+import { playPoolEntrant } from './pool-play.js';
+import { latencySummary } from './tournament-seat.js';
 
 const USAGE = `delove-pool: the Delove seat pool, a daemon that fills tournaments' Delove seats on request
 (docs/tournaments.md "Delove seats on request"; packages/delove/README.md "Seat pool")
@@ -142,8 +143,7 @@ function child() {
       }
       agents.set(e.agentId, agent);
     }
-    playEntrant({ api: new HttpRiskApi(msg.server), tournamentId: e.tournamentId, entrantToken: e.token, name: e.name, agent, paceMs: msg.pace, log, notes,
-      random: seededRandom((Date.now() + 7919 * n++) >>> 0), onDecision: (ms) => decisions.push(ms) })
+    playPoolEntrant(e, { api: new HttpRiskApi(msg.server), agent, paceMs: msg.pace, log, notes, random: seededRandom((Date.now() + 7919 * n++) >>> 0), onDecision: (ms) => decisions.push(ms) })
       .then((result) => process.send!({ type: 'end', key: k, result } satisfies FromChild))
       .catch((err) => process.send!({ type: 'error', key: k, message: (err as Error).message } satisfies FromChild));
   });

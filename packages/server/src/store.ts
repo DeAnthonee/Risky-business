@@ -1441,12 +1441,14 @@ export class Store {
   }
 
   /** Close and forget a room. Attached clients are told why. */
-  delete(id: string, reason: CloseReason = 'admin') {
+  /** `aborted`: its tournament was aborted; the record is filed with reason "aborted" and this standing so far. */
+  delete(id: string, reason: CloseReason = 'admin', aborted?: RecordDecision) {
     const room = this.rooms.get(id.toUpperCase());
     if (!room) return false;
     room.close(reason);
     // A game closed before anyone won still keeps its record, marked unfinished.
-    this.archive.finish(room, `room closed (${reason})`);
+    if (aborted) this.archive.finish(room, 'its tournament was aborted', undefined, aborted);
+    else this.archive.finish(room, `room closed (${reason})`);
     // Its Zerg tally (a game closed before the end) joins the finished total and is dropped: no leak.
     this.endTally(room.id);
     room.removeAllListeners('change');

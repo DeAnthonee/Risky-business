@@ -79,3 +79,36 @@ describe('MCP add_tournament_bots', () => {
     }
   });
 });
+
+describe('MCP abort_tournament', () => {
+  it('the host (or the admin key) aborts: finished, no champion, the bracket kept; others are refused', async () => {
+    const host = await mcp();
+    const other = await mcp();
+    try {
+      const created = await host.call('create_tournament', { name: 'Stop Cup', groupSize: 2, maxEntrants: 4, fillBots: false });
+      const id = created.text.match(/Created tournament (\w+)/)![1];
+      const hostToken = created.text.match(/HOST TOKEN: (\S+)/)![1];
+      await host.call('add_tournament_bots', { tournamentId: id, kind: 'bot', count: 4 });
+      expect((await host.call('start_tournament', { tournamentId: id })).isError).toBe(false);
+      // Another connection: no token, then a wrong one.
+      expect((await other.call('abort_tournament', { tournamentId: id })).text).toMatch(/needs its host token/);
+      expect((await other.call('abort_tournament', { tournamentId: id, hostToken: 'nope' })).text).toMatch(/Only this tournament's host can abort it/);
+      expect(risk.store.tournaments.get(id)!.status).toBe('running');
+      // The host's own connection remembers its token.
+      const r = await host.call('abort_tournament', { tournamentId: id.toLowerCase() });
+      expect(r.isError).toBe(false);
+      expect(r.text).toMatch(/^Tournament aborted/);
+      expect(r.text).toMatch(/ABORTED at /);
+      const t = risk.store.tournaments.get(id)!;
+      expect(t).toMatchObject({ status: 'finished', champion: null });
+      expect(t.aborted).toBeTruthy();
+      expect(t.rounds).toHaveLength(1);
+      // Again (with the token from another connection): nothing changes.
+      expect((await other.call('abort_tournament', { tournamentId: id, hostToken })).isError).toBe(false);
+      expect((await host.call('abort_tournament', { tournamentId: 'TNOPE1' })).text).toMatch(/Tournament not found/);
+    } finally {
+      await host.client.close();
+      await other.client.close();
+    }
+  });
+});

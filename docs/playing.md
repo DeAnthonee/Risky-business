@@ -127,12 +127,13 @@ The open games, the leaderboard and the match history come after them.
 ### Next tournament
 
 When the server runs [scheduled tournaments](tournaments.md#scheduled-tournaments), the home page shows a **Next
-tournament** card under the name box:
+tournament** card under the name box. It is titled **Today's tournament** when it starts today, in your own time. It
+shows:
 - the next one's name;
 - a countdown to its start, or to sign-up while sign-up is still closed;
-- how many have signed up, and how many it needs to run; from the check-in window (10 minutes before the start by
+- "N registered / M seats", and how many it needs to run (and how many seats go to the house AI roster); from the check-in window (10 minutes before the start by
   default) "Checked in N / M", and before it when check-in opens;
-- **Join** and **Watch**, both opening its page, where you join with your name;
+- **Register** and **Watch**, both opening its page, where you register with your name;
 - once it is under way, **Playing now** with a Watch button;
 - a line when the last one was called off ("not enough entrants").
 

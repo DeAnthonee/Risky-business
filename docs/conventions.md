@@ -69,7 +69,7 @@ status tracker) is in [map-making.md](map-making.md). More in
 - Game records (`packages/engine/src/record.ts`, written by `packages/server/src/archive.ts`): every started game is
   journalled to `RISK_DATA_DIR/archive/` from `GameRoom.commit` (the `commit` event) and filed when it ends, with the
   true board and per-player fog views; records replay exactly with `stateAtStep`/`verifyRecord`. Admin-only (they show
-  hidden boards and hands). Only the newest `RISK_ARCHIVE_KEEP` (default 1000) are kept. Format in
+  hidden boards and hands). Gzipped on disk and kept forever by default (`RISK_ARCHIVE_KEEP` 0; a number caps them). Format in
   [game-records.md](game-records.md).
 - Leaderboard seasons live only in `packages/server/src/rankings.ts`: archive with `POST /api/admin/rankings/new-season`
   or a `RANKINGS_SEASON` bump, never by changing `packages/engine/src/ranking.ts` or a `RULE_FILES` file (Delove's GPU

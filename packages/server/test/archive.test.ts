@@ -1,4 +1,5 @@
-import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { gunzipSync } from 'node:zlib';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
@@ -114,7 +115,8 @@ describe('game archive', () => {
   it('keeps only the newest records, deleting the oldest files and index lines', () => {
     const dir = dataDir();
     const store = new Store(join(dir, 'games.json'));
-    expect(store.archive.keep).toBe(1000);
+    // Every record is kept by default (owner: logs forever); a number above 0 keeps only the newest.
+    expect(store.archive.keep).toBe(0);
     store.archive.keep = 2;
     const filed: string[] = [];
     for (let n = 0; n < 4; n++) {
@@ -125,7 +127,7 @@ describe('game archive', () => {
     }
     const list = store.archive.list();
     expect(list.map((e) => e.id)).toEqual([filed[3], filed[2]]);
-    const files = readdirSync(join(dir, 'archive', 'games'), { recursive: true }).filter((f) => String(f).endsWith('.json'));
+    const files = readdirSync(join(dir, 'archive', 'games'), { recursive: true }).filter((f) => String(f).endsWith('.json.gz'));
     expect(files).toHaveLength(2);
     expect(store.archive.get(filed[0])).toBeNull();
     expect(store.archive.get(filed[3])!.steps).toHaveLength(8);
@@ -138,13 +140,48 @@ describe('game archive', () => {
     store.stopTimers();
   });
 
+  it('gzips records on disk (much smaller), and plain .json records from before still load, list and prune', () => {
+    const dir = dataDir();
+    const store = new Store(join(dir, 'games.json'));
+    const room = startedGame(store);
+    play(room, 40);
+    store.delete(room.id, 'host');
+    const [entry] = store.archive.list();
+    expect(entry.file).toMatch(/^games\/\d{4}-\d{2}\/[A-Za-z0-9_-]+\.json\.gz$/);
+    const gz = readFileSync(join(dir, 'archive', entry.file));
+    const json = gunzipSync(gz).toString('utf8');
+    expect(gz.length).toBeLessThan(json.length / 4);
+    const record = store.archive.get(entry.id)!;
+    expect(JSON.parse(json)).toEqual(record);
+    expect(verifyRecord(record)).toBeNull();
+    // A record filed before compression: a plain .json file and its index line, as an old archive has them.
+    const oldRel = entry.file.replace(/\.json\.gz$/, '-old.json');
+    const old = { ...record, id: `${record.id}-old` };
+    writeFileSync(join(dir, 'archive', oldRel), JSON.stringify(old));
+    appendFileSync(join(dir, 'archive', 'index.jsonl'), JSON.stringify({ ...entry, id: old.id, file: oldRel }) + '\n');
+    expect(store.archive.list().map((e) => e.id)).toEqual([old.id, entry.id]);
+    expect(store.archive.get(old.id)).toEqual(old);
+    expect(store.archive.read(store.archive.list()[0])).toEqual(old);
+    // The board move rewrites either kind in its own format.
+    expect(store.archive.setBoard(record.room.id, 'training')).toBe(2);
+    expect(store.archive.get(old.id)!.room.board).toBe('training');
+    expect(store.archive.get(entry.id)!.room.board).toBe('training');
+    expect(readFileSync(join(dir, 'archive', oldRel), 'utf8').startsWith('{')).toBe(true);
+    // Pruning deletes old plain files too.
+    store.archive.keep = 1;
+    expect(store.archive.prune()).toBe(1);
+    expect(existsSync(join(dir, 'archive', entry.file))).toBe(false);
+    expect(store.archive.list().map((e) => e.id)).toEqual([old.id]);
+    store.stopTimers();
+  });
+
   it('reads the number of records to keep from RISK_ARCHIVE_KEEP', () => {
     const dir = dataDir();
     process.env.RISK_ARCHIVE_KEEP = '25';
     try {
       expect(new Store(join(dir, 'games.json')).archive.keep).toBe(25);
       process.env.RISK_ARCHIVE_KEEP = 'lots';
-      expect(new Store(join(dir, 'games.json')).archive.keep).toBe(1000);
+      expect(new Store(join(dir, 'games.json')).archive.keep).toBe(0);
     } finally {
       delete process.env.RISK_ARCHIVE_KEEP;
     }

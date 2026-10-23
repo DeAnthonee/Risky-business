@@ -243,8 +243,11 @@ seat only roster names (no plain Delove seats) in daily tournaments.
 - **The live leaderboard was seeded from results played off the site.** `rankings-seed.ts` is gone; the board
   now holds only games finished on the site, and `RANKINGS_SEASON` wipes it on purpose (the old board is archived
   as `rankings.season-<n>.json`, never deleted). Still open: an admin call to start a season without a deploy.
-- **Game records were never pruned.** Only the newest `RISK_ARCHIVE_KEEP` records (default 1000, about
-  0.3-1.6 GB) are kept; filing a new one deletes the oldest record files and their `index.jsonl` lines.
+- **Game records grow without a cap, on purpose.** The owner keeps every log forever (2026-10-22), so
+  `RISK_ARCHIVE_KEEP` defaults to 0 (keep all); records are gzipped on disk (about a tenth of their JSON size, so
+  roughly 2 GB a year of JSON stays near 0.2 GB) and the Lord of resources watches the disk. Still open: `index.jsonl`
+  stays one plain file read whole by `/history` and `/admin/archive`; a cap (`RISK_ARCHIVE_KEEP` above 0) still
+  deletes the oldest records and their index lines.
 - **Character profiles, diaries and relationships were writable by anyone.** Every save now needs the write key
   (`RISK_CHARACTERS_KEY` or the admin token; read-only when neither is set); served text is framed as data, not
   instructions; limits are lower (100 characters, 30 versions, 200 diary entries, 100 relationships with 20 notes).

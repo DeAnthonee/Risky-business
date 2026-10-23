@@ -102,6 +102,10 @@ export interface NextTournament {
     checkedIn?: number;
     maxEntrants: number | null;
     minEntrants: number;
+    /** House roster seats asked for this slot (part of maxEntrants). */
+    roster?: number;
+    /** The schedule entry's time zone (IANA), or null for UTC. */
+    tz?: string | null;
   } | null;
   running: { id: string; name: string; startsAt: number; round: number } | null;
   cancelled: { id: string; name: string; startsAt: number; reason: string } | null;
@@ -138,6 +142,8 @@ export interface TournamentView {
   openMode?: boolean;
   /** The host's seat counts at create (Zergs, Delove asked for, open spots), when it was made with them. */
   requested?: { zergs: number; delove: number; open: number };
+  /** Aborted (by its host or the admin): finished with no champion. */
+  aborted?: { at: number };
   status: TournamentSummary['status'];
   map: string;
   groupSize: number;

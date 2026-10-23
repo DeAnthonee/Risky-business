@@ -50,7 +50,7 @@ export interface OllamaOptions {
   timeoutMs?: number;
   /** Requests in flight at once; the rest queue. Default 2. */
   concurrency?: number;
-  /** Context window (Ollama num_ctx). Default 12288. */
+  /** Context window (Ollama num_ctx). Default 16384. */
   numCtx?: number;
   /** How long Ollama keeps the model loaded between calls. Default "30m". */
   keepAlive?: string;
@@ -114,7 +114,7 @@ export class OllamaLlm implements Llm {
     this.model = opts.model ?? 'qwen3:14b';
     this.timeoutMs = opts.timeoutMs ?? 60_000;
     this.gate = new Semaphore(opts.concurrency ?? 1);
-    this.numCtx = opts.numCtx ?? 12288;
+    this.numCtx = opts.numCtx ?? 16384;
     this.keepAlive = opts.keepAlive ?? '30m';
   }
 

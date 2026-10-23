@@ -246,10 +246,12 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
       const filter = req.query.board === undefined ? null : String(req.query.board);
       if (filter !== null) parseLeaderboard(filter, true);
       const boardOfGame = (g: { board?: string; tournamentId?: string }) => (g.board === 'training' ? 'training' : g.tournamentId ? 'tournament' : 'public');
+      // ?aborted=1 adds the tables of aborted tournaments (no winner: `winner` is null, `aborted` is true).
+      const withAborted = req.query.aborted === '1' || req.query.aborted === 'true';
       const games = store.archive
         .list(Infinity)
         // Won games, and tables decided on standing (nested tournaments), which have a decided winner.
-        .filter((g) => (g.finished || g.decided) && g.winner)
+        .filter((g) => ((g.finished || g.decided) && g.winner) || (withAborted && g.aborted))
         .filter((g) => filter === null || boardOfGame(g) === filter)
         .slice(0, limit)
         .map((g) => ({
@@ -266,6 +268,7 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
           winner: g.winner,
           reason: g.reason,
           ...(g.decided ? { decided: true } : {}),
+          ...(g.aborted ? { aborted: true } : {}),
           turns: g.turns,
           players: g.players.map((p) => ({ id: p.id, name: p.name, isBot: p.isBot, characterId: p.characterId, place: p.place, ...(p.agent ? { agent: p.agent } : {}) })),
         }));
@@ -624,6 +627,14 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
       res.json({ tournament: store.tournaments.view(t.id) });
     }),
   );
+  api.post(
+    '/admin/tournaments/:id/abort',
+    requireAdmin,
+    wrap((req, res) => {
+      const t = store.tournaments.abort(String(req.params.id));
+      res.json({ tournament: store.tournaments.view(t.id) });
+    }),
+  );
   api.delete(
     '/admin/tournaments/:id',
     requireAdmin,
@@ -754,6 +765,14 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
     requireTournamentHost,
     wrap((req, res) => {
       const t = store.tournaments.forfeit(String(req.params.id), String(req.body?.entrantId ?? ''));
+      res.json({ tournament: store.tournaments.view(t.id) });
+    }),
+  );
+  api.post(
+    '/tournaments/:id/abort',
+    requireTournamentHost,
+    wrap((req, res) => {
+      const t = store.tournaments.abort(String(req.params.id));
       res.json({ tournament: store.tournaments.view(t.id) });
     }),
   );

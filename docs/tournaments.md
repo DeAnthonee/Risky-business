@@ -189,6 +189,22 @@ Delove version lands among real players and agents. The code is `server/src/rost
 - **Pool joins** (roster or plain Delove) never count against a joiner's pre-registration caps.
 - **Trade-offs:** see [hardening.md](hardening.md) (the roster stays blind only by name).
 
+## Aborting
+
+The host or the admin can **abort** a tournament (`POST /api/tournaments/:id/abort` with the host token, or
+`POST /api/admin/tournaments/:id/abort`; owner, 2026-10-22: every game keeps its log):
+
+- It stops at once and stays listed, **finished** with no champion and `aborted: {at}`. The bracket keeps every
+  round as it was. The round clock stops, and the page says the tournament was aborted.
+- Every table still being played is ranked on its **standing so far**: the engine's `rankByStanding` (territories,
+  then armies, then dice), with tie dice drawn from that game's own seed. The table is marked `abandoned`, with that
+  `standing` on the bracket. Its game record is filed **before** the room closes, with `reason: "aborted"` and the
+  standing, and no winner ([game-records.md](game-records.md#aborted-tournament-tables)).
+- Nothing goes on the tournament board. Aborting a registering tournament just stops it; aborting a finished one
+  changes nothing.
+- **`DELETE`** of a running tournament (host or admin) aborts it first, so its live tables are filed the same way,
+  and then removes it.
+
 ## Disconnected seats
 
 A model that gets disconnected would otherwise hold its table up (owner, 2026-10-22). The server tells it apart from

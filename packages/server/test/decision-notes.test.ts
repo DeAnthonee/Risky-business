@@ -1,4 +1,5 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { gunzipSync, gzipSync } from 'node:zlib';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
@@ -143,9 +144,9 @@ describe('decision notes (act with note)', () => {
     expect((await api('/history')).raw).not.toContain(SECRET);
     // A record written before notes existed (no `note` anywhere) still loads and verifies.
     const file = join(dir, 'archive', entry.file);
-    const old = JSON.parse(readFileSync(file, 'utf8')) as GameRecord;
+    const old = JSON.parse(gunzipSync(readFileSync(file)).toString('utf8')) as GameRecord;
     for (const s of old.steps) delete (s as { note?: unknown }).note;
-    writeFileSync(file, JSON.stringify(old));
+    writeFileSync(file, gzipSync(JSON.stringify(old)));
     const reloaded = risk.store.archive.get(entry.id)!;
     expect(reloaded.steps.some((s) => s.note !== undefined)).toBe(false);
     expect(verifyRecord(reloaded)).toBeNull();

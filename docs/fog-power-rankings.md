@@ -235,6 +235,21 @@ Combat resolution directly impacts army valuation and kill feasibility:
 
 ---
 
+## 7.1. Kill Odds in the Commander's Prompt Under Fog
+
+The elimination scouting lines in the commander's board facts (`eliminationScouting` in `facts.ts`) compute blitz odds
+from what the seat can see, so under fog they only stand for what is visible:
+
+* **No territory of the rival visible**: the line says its location and armies are unknown and that it is not a kill
+  target this turn. (It used to count 0 territories and 0 armies, so every unseen rival read as a "100% kill" and
+  commanders chased players they could not reach.)
+* **Visible, but no shared border**: the verdict is `NO SHARED BORDER: not a kill this turn`.
+* **Partly visible**: odds of 70% or more read `UNCERTAIN UNDER FOG`, because hidden territories and armies make the
+  real odds lower; no "guaranteed" verdict is given.
+
+Kills under fog are left to rivals next to the seat. Estimating an unseen rival's position (from its starting capital)
+and strength (from its recent income) to plan a kill through unseen land is not built yet.
+
 ## 8. Implementation Reference
 
 The logic described above is implemented across the following codebase modules:

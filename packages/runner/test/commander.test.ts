@@ -117,6 +117,16 @@ describe('Commander', () => {
     expect(a.indexOf('Calm.')).toBeGreaterThan(seatAt);
   });
 
+  it('answers a joint-attack call even when the model sends "ping": null', async () => {
+    const { llm } = llmReturning(JSON.stringify({ plan: 'Hold', aggression: 0.5, ping: null }));
+    const c = base(llm);
+    const view = makeView({ capitals: false });
+    c.onMessages([{ id: 1, name: 'Shaco', message: '⚔️ [attack: Teemo]', at: 0 } as never]);
+    await c.planFor({ ...view, phase: 'reinforce' });
+    expect(c.popPing()).toMatchObject({ type: 'agree', to: 'Shaco', target: 'attack Teemo' });
+    expect(c.currentPlan()?.target).toBe('c'); // joins the attack on Teemo
+  });
+
   it('falls back to the previous plan on bad JSON and to null when there is none', async () => {
     const { llm } = llmReturning('no json here', JSON.stringify({ plan: 'Second', aggression: 0.2 }), 'garbage again');
     const c = base(llm);

@@ -270,9 +270,10 @@ describe('diplomatic ping system', () => {
       { id: 1, playerId: 'b', name: 'Ahri', message: '🛡️ [alliance]', to: 'a', toName: 'Shen' },
     ]);
 
-    // Turn 1: Shen remains silent
+    // Turn 1: the model says nothing, but a pending proposal is answered by the commander's own checks (Ahri is not
+    // Shen's target), so Shen agrees on time. (A model "null" used to count as a rejection, so no one ever agreed.)
     await c.planFor({ ...view, turnNumber: 1 });
-    expect(c.popPing()).toBeNull();
+    expect(c.popPing()).toMatchObject({ type: 'agree', to: 'Ahri', target: 'alliance' });
 
     // Turn 2: Shen tries to agree, but the proposal has expired due to silence!
     await c.planFor({ ...view, turnNumber: 4 });

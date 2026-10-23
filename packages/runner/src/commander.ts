@@ -971,6 +971,7 @@ export class Commander {
     }
 
     // Diplomatic ping validation and strict 4-turn rate limiting:
+    const modelGavePing = !!p.ping;
     if (p.ping) {
       const pingType = p.ping.type;
       const targetName = p.ping.target?.trim() || null;
@@ -1096,8 +1097,12 @@ export class Commander {
       }
     }
 
-    // Autonomous diplomatic ping fallback ONLY if the model omitted the ping field entirely:
-    if (p.ping === undefined) {
+    // Autonomous diplomacy. It used to run only when the model left the ping field out, but the schema asks for a
+    // ping (or null) every turn, so proposals were never answered and good-neighbor pacts never offered. It now runs
+    // whenever the model gave no usable ping, and a reply to a pending proposal (which expires after one turn) also
+    // takes the place of an unsolicited ping from the model.
+    const isReplyPing = !!p.ping && (p.ping.type === 'agree' || p.ping.type === 'decline');
+    if (!p.ping || (this.pendingProposals.size > 0 && !isReplyPing)) {
       const livingZergs = view.players.filter((x) => x.alive && !x.isNeutral && isZergName(x.name));
       const otherLLMs = view.players.filter((x) => x.alive && !x.isNeutral && x.id !== this.o.playerId && !isModelName(x.name));
       if (otherLLMs.length > 0) {
@@ -1155,9 +1160,10 @@ export class Commander {
           }
         }
 
-        // Priority 2: Proactive ping
+        // Priority 2: Proactive ping, only when the model chose none. A model ping the checks above rejected stays
+        // silent (no random stand-in), and a model ping that passed keeps priority.
         const pingCooldown = livingZergs.length > 0 ? 2 : 4;
-        if (!p.ping && this.ownTurns - this.lastPingOwnTurn >= pingCooldown) {
+        if (!p.ping && !modelGavePing && this.ownTurns - this.lastPingOwnTurn >= pingCooldown) {
           const livingPlayers = view.players.filter((x) => x.alive && !x.isNeutral);
           const isStalemateOr3Man = livingPlayers.length <= 3 || this.getStall() >= STALL_BREAK;
           const isAggressive = /shaco|draven|jinx|tryndamere|zed|kled|aatrox|gangplank|sett/i.test(this.o.seatName);

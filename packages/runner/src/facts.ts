@@ -45,10 +45,17 @@ export function eliminationScouting(view: GameView, me: PlayerId, detailed = fal
     : 'Elimination scouting (kills award +1 kill point, steal cards & boost placement):';
   lines.push(header);
 
+  const mine = new Set(myTerrs);
   for (const victim of livingRivals) {
     const knownTerrs = map.territoryIds.filter((t) => !view.territories[t]?.hidden && view.territories[t]?.owner === victim.id);
     const knownArmies = knownTerrs.reduce((sum, t) => sum + (view.territories[t]?.armies ?? 0), 0);
     const hasFullVis = victim.territoryCount !== null && knownTerrs.length === victim.territoryCount;
+    // Under fog a rival we cannot see at all used to come out as 0 territories and 0 armies, a "100% kill".
+    if (knownTerrs.length === 0 && victim.territoryCount === null) {
+      if (detailed) lines.push(`- ${victim.name}: ${victim.cardCount} cards; none of its territories are visible (fog): location and armies unknown, not a kill target this turn.`);
+      continue;
+    }
+    const borders = knownTerrs.some((t) => (map.adjacency[t] ?? []).some((n) => mine.has(n)));
 
     const terrCount = victim.territoryCount ?? Math.max(knownTerrs.length, Math.min(11, Math.round(knownTerrs.length * 1.5)));
     const totalDefendingArmies = victim.armyCount ?? Math.max(knownArmies, knownArmies + Math.max(0, terrCount - knownTerrs.length) * 1.5);
@@ -69,7 +76,7 @@ export function eliminationScouting(view: GameView, me: PlayerId, detailed = fal
     if (!detailed) {
       const holdings = knownTerrs.map((id) => `${id}:${view.territories[id]?.armies ?? 0}`).join(', ');
       const visText = hasFullVis ? `all holdings visible [${holdings}]` : `${knownTerrs.length} visible holdings`;
-      lines.push(`- ${stealText}, ${visText} (Blitz kill chance: ${pct}%).`);
+      lines.push(`- ${stealText}, ${visText} (Blitz kill chance: ${pct}%${hasFullVis ? '' : ', visible armies only'}${borders ? '' : '; no shared border, not a kill this turn'}).`);
       continue;
     }
 
@@ -121,6 +128,12 @@ export function eliminationScouting(view: GameView, me: PlayerId, detailed = fal
       verdict = `EASY BOUNTY: ${pct}% Blitz odds to eliminate weak survivor (+1 kill point)`;
     } else if (winP >= 0.70) {
       verdict = `FAVORABLE KILL: ${pct}% Blitz odds; viable if route is clear`;
+    }
+    // Odds that count only visible armies, or a rival we do not border, are not a kill this turn.
+    if (!borders) {
+      verdict = `NO SHARED BORDER: not a kill this turn (you would have to conquer through other players first)`;
+    } else if (!hasFullVis && winP >= 0.70) {
+      verdict = `UNCERTAIN UNDER FOG: ${pct}% counts only the ${knownArmies} visible armies; hidden territories and armies make the real odds lower`;
     }
 
     const holdingsText = hasFullVis ? `all ${terrCount} terrs visible (${knownArmies} armies)` : `${knownTerrs.length}/${terrCount} terrs visible (${knownArmies} armies)`;

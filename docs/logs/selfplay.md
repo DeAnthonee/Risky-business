@@ -8,6 +8,7 @@ hash instead. **In the same PR** as any change to this area, write your line to 
 [pending/](pending/README.md), not to this file (README hard rule 12; folded in by `npm run logs:fold`). Say when a
 change bumps `LOG_VERSION` or `ENCODER_VERSION`.
 
+- 2026-10-22 #312 `positions --records <folder>` reads gzipped `.json.gz` records too (the server's archive since this change)
 - 2026-10-22 #224 `publicIncomes(state)` exports the public income totals of a view-rebuilt state (for the fog sampler)
 - 2026-10-22 #201 agent `zerg@2` (`ZERG_2_PARAMS`, the live seats' version) and `zergParamsFor(name)`, so code that plays Zerg seats itself gives each its own version; no `LOG_VERSION` or `ENCODER_VERSION` change
 - 2026-10-21 #167 `makeZergAgent(id, params)` and `isZergName` (Zerg agent ids start with `zerg`: zerg@N, zerg-branch@1); no `LOG_VERSION` or `ENCODER_VERSION` change

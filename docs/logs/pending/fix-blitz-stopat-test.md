@@ -1,1 +1,0 @@
-server: - 2026-10-22 #287 the "MCP blitz with stopAt" test is deterministic: two seated people and no bot (a bot moving first played on timers alongside the test's direct board edits), acting as whoever moves first, and the battle events must show at most 10 attackers lost (Fixes #285; the engine's stopAt was right)

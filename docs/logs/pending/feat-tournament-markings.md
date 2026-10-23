@@ -1,3 +1,0 @@
-server: - 2026-10-22 #255 tournament tables marked: `TournamentManager.tableOf` / `tableLabel`; `GET /api/games` items and the game socket's first state carry `tournament: {id, name, round, table, tables, final}`; link previews of a table lead with "🏆 Cup · Round N, table M"
-client: - 2026-10-22 #255 tournament badge on game tickets and in the game's top bar (opens the bracket, keeps the seat); home: Host a tournament (`?host=1`) and Find a tournament, the Tournaments list shows open ones first with finished behind a toggle
-docs: - 2026-10-22 #255 playing.md "Tournaments on the home page" (the home-order line moved out of The House), http-api.md (`tournament` on games and the socket), tournaments.md

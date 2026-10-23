@@ -1,1 +1,0 @@
-delove: - 2026-10-22 #284 cycles 17-18: not promoted (fog on vs `delove@13`: -0.04 with 6 search options; -0.11 with hexworld tables and the Gumbel root on 2p); the first cloud-trained candidates (REMOTE_TRAIN on the network volume, 25-45 min, $0.47-0.66); `c17*.cycle`, `c18*.cycle`

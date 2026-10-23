@@ -227,6 +227,11 @@ froze the game (nobody could spare anything, no cards, progressive sets never gr
 - **Stall pressure**: each seat counts its own turns since it last conquered something (`StallTracker`). From 2
   turns on, every further turn lowers the attack threshold by 0.05 (down to 0.5) and the card-attack chance by 0.04,
   and raises the allowed dip by 10 points of the floor (up to 90%). `stallPressure: false` in the plan turns it off.
+- **Overwhelming stacks commit**: the measured commit from a capital is skipped when the stack has 20+ armies to spare
+  and at least 4x the defenders. Minimal commits from huge capital stacks took a territory or two a turn and let
+  headless games run forever (two seats on 23,000-army stacks never broke the board).
+- **Heads-up, the spearhead keeps its stack**: in 1v1 an occupation carries the whole stack on instead of splitting
+  it at junctions, so the last territories are not left to thin stacks (headless games ended in about half the turns).
 - **Pacts dissolve in a stalemate**: agreed good-neighbor pacts put that neighbour on the seat's avoid list, so pacts
   on every border could freeze a 4-6 player table for good. They dissolve with 3 or fewer players left, and also once
   the seat has gone `STALL_BREAK` (4) of its turns without a conquest; they stay off until it conquers again.
@@ -259,6 +264,9 @@ Rules that came from watching live games (`src/strategy.ts`, used by the board f
   held. Only a rival that broke one of our bonuses this round or last triggers it (a stray territory taken elsewhere
   does not): retaking that bonus scores higher, and so does pushing into the rival's own bonus (held, or 70% theirs)
   to deny it next turn. Both pass the bleed filter and the stop-after-bonus rule.
+- **Pockets**: a small group of enemy territories (up to 4) whose every outside neighbour is ours. Clearing it is
+  cheap and frees the guards around it, so attacks into it score higher and pass the bleed and stop-after-bonus
+  filters, kill or not; the facts list the pockets.
 - **Joint attacks**: when two seats agree to attack a third (an attack ping answered with an agree, either way, or an
   accepted `joint_attack` deal), each keeps the other off its attack list while it runs. It ends when the target
   falls, after `JOINT_ROUNDS` (3) rounds, when either partner takes the other's land, or when the commander names the

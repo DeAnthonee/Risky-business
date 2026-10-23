@@ -1,5 +1,5 @@
 import { getMap, tradeBonus, nextTradeValue, blitzOdds, type GameView, type PlayerId } from '@risk/engine';
-import { likelyRegion, naturalEnemies, sweepOpportunities, type SeatIntel } from './strategy.js';
+import { likelyRegion, naturalEnemies, pockets, sweepOpportunities, type SeatIntel } from './strategy.js';
 
 /**
  * The card set math, every turn: under progressive cards the next set's value (the engine's tradeBonus), what one
@@ -540,6 +540,10 @@ export function strategyFacts(view: GameView, me: PlayerId, intel?: SeatIntel): 
   }
   for (const sw of sweepOpportunities(view, me).slice(0, 3)) {
     lines.push(`Sweep: ${sw.ownerName} holds ${sw.continentName} [${sw.continent}] alone, ${sw.thin} of ${sw.territories.length} territories on 1-2 armies; about ${sw.cost} armies takes it all vs your ${sw.capacity} (stacks next to it plus 2 turns of income). Taking it breaks their +${sw.bonus} and can be yours.`);
+  }
+  for (const pk of pockets(view, me).slice(0, 3)) {
+    const terrs = pk.territories.map((x) => `${map.territoryById[x]?.name ?? x} (${view.territories[x]?.armies ?? '?'})`).join(', ');
+    lines.push(`Pocket: ${pk.ownerName}'s ${terrs} ${pk.territories.length === 1 ? 'is' : 'are'} enclosed by your land: clear ${pk.territories.length === 1 ? 'it' : 'them'} when you can afford it, kill or not, so the guards around it are free to move elsewhere.`);
   }
   for (const a of (intel?.recentAttackers ?? []).filter((x) => x.brokeBonus)) {
     const terrs = a.territories.map((t) => map.territoryById[t]?.name ?? t).join(', ');

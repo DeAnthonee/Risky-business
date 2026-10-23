@@ -3,7 +3,7 @@ import { chooseMove } from './view-state.js';
 import { planElimination, type KillPlan } from './eliminations.js';
 import { planConquest, findCapRun, type Campaign, type CampaignOptions } from './campaigns.js';
 import { isModelName, isZergName } from './pings.js';
-import { naturalEnemies, sweepOpportunities, type SeatIntel } from './strategy.js';
+import { naturalEnemies, pockets, sweepOpportunities, type SeatIntel } from './strategy.js';
 
 export type WinPath = 'diplomacy' | 'bonuses' | 'cards' | 'capitals' | 'kills' | 'hopeless';
 export const WIN_PATHS: readonly WinPath[] = ['diplomacy', 'bonuses', 'cards', 'capitals', 'kills', 'hopeless'];
@@ -308,6 +308,8 @@ class Chooser {
   private natural = new Set<PlayerId>();
   /** Regions one rival holds alone on mostly 1-2 armies that we can sweep: continent -> owner (strategy.ts). */
   private sweepOf = new Map<string, PlayerId>();
+  /** Enemy territories in small pockets enclosed by our land (strategy.ts). */
+  private pocketOf = new Set<TerritoryId>();
   /** Rivals that broke a bonus we held this round or last -> the continent they broke. */
   private attackers = new Map<PlayerId, string>();
 
@@ -322,6 +324,7 @@ class Chooser {
   ) {
     this.map = getMap(view.options.map);
     for (const e of naturalEnemies(view, me)) this.natural.add(e.id);
+    for (const pk of pockets(view, me)) for (const t of pk.territories) this.pocketOf.add(t);
     for (const sw of sweepOpportunities(view, me)) if (!this.sweepOf.has(sw.continent)) this.sweepOf.set(sw.continent, sw.owner);
     // Only an attack that broke a bonus we held calls for retake-and-deny; a stray territory taken elsewhere does not.
     for (const a of ctx.intel?.recentAttackers ?? []) if (a.brokeBonus && !this.attackers.has(a.id)) this.attackers.set(a.id, a.brokeBonus);
@@ -518,9 +521,9 @@ class Chooser {
   }
 
   /** Which of the play-feedback rules an attack into `to` serves (docs: packages/runner/README.md, "Strategy reads"). */
-  private tags(to: TerritoryId): { retake: boolean; deny: boolean; sweep: boolean; natural: boolean } {
+  private tags(to: TerritoryId): { retake: boolean; deny: boolean; sweep: boolean; natural: boolean; pocket: boolean } {
     const owner = this.owner(to);
-    if (!owner || owner === this.me) return { retake: false, deny: false, sweep: false, natural: false };
+    if (!owner || owner === this.me) return { retake: false, deny: false, sweep: false, natural: false, pocket: false };
     const cont = this.map.territoryById[to].continent;
     const broken = this.attackers.get(owner);
     const attacker = broken !== undefined;
@@ -530,7 +533,7 @@ class Chooser {
     const terrs = this.map.continentById[cont].territories.filter((t) => !this.blizzards.has(t));
     const theirShare = terrs.filter((t) => this.owner(t) === owner).length / Math.max(1, terrs.length);
     const deny = attacker && !retake && (this.view.continentOwners[cont] === owner || theirShare >= 0.7);
-    return { retake, deny, sweep: this.sweepOf.get(cont) === owner, natural: this.natural.has(owner) };
+    return { retake, deny, sweep: this.sweepOf.get(cont) === owner, natural: this.natural.has(owner), pocket: this.pocketOf.has(to) };
   }
 
   /** A short reason for an attack, for the decision note and the log. */
@@ -547,6 +550,7 @@ class Chooser {
     if (t.retake) bits.push(`retakes ${cName} from ${who} (retaliation)`);
     if (t.deny) bits.push(`pushes into ${who}'s ${cName} (deny their bonus)`);
     if (t.sweep) bits.push(`sweeps ${who}'s thin ${cName}`);
+    if (t.pocket) bits.push(`clears ${who}'s pocket inside our land`);
     if (share.missing.length === 1 && share.missing[0] === to) bits.push(`completes ${cName}`);
     else if (this.view.continentOwners[cont] === owner) bits.push(`breaks ${who}'s ${cName}`);
     if (t.natural) bits.push(`natural enemy ${who}`);
@@ -578,7 +582,7 @@ class Chooser {
     return this.lm.attacks.some((a) => {
       if (this.owner(a.from) !== this.me || !this.hostile(a.to)) return false;
       const t = this.tags(a.to);
-      return (t.retake || t.deny || t.sweep) && this.chance(this.armies(a.from) - 1, a.to) >= 0.7;
+      return (t.retake || t.deny || t.sweep || t.pocket) && this.chance(this.armies(a.from) - 1, a.to) >= 0.7;
     });
   }
 
@@ -764,7 +768,9 @@ class Chooser {
       // In-attack stack siphoning at offensive junctions:
       // If `fromHostile` ALSO has viable attack targets, do not dump 100% of armies into `to` and leave 1 on `from`!
       const fromContinues = fromHostile.some((e) => this.chance(Math.max(1, Math.floor(have * 0.5)), e) >= this.threshold() && !isTargetBlockedByAvoid(e) && !this.plan.noAttack.has(e));
-      if (fromContinues && have >= 10) {
+      // Heads-up there is no third player to guard against: the spearhead keeps its whole stack (splitting it at every
+      // junction left the last territories to thin stacks that could not finish the game).
+      if (fromContinues && have >= 10 && !this.is1v1()) {
         const maxToDef = Math.max(...toHostile.map((e) => this.armies(e)), 1);
         const maxFromDef = Math.max(...fromHostile.map((e) => this.armies(e)), 1);
         const toNeed = Math.min(ceiling, Math.max(min, Math.ceil(maxToDef * 1.5) + 3));
@@ -838,7 +844,7 @@ class Chooser {
         const capturesCapital = this.capitalOf.has(a.to);
         const eliminatesPlayer = isElimination || isHighValueKill;
         const fb = this.tags(a.to);
-        const isFeedback = fb.retake || fb.deny || fb.sweep;
+        const isFeedback = fb.retake || fb.deny || fb.sweep || fb.pocket;
         const isStrategic = hasSurplusFromBorder || isFocus || isBonusConquest || breaksOpponentBonus || capturesCapital || eliminatesPlayer || isFeedback;
         if (!isStrategic) continue;
 
@@ -905,7 +911,10 @@ class Chooser {
 
       // Measured commit from a capital: the smallest force that reaches the target odds, allowed to dip below a soft
       // floor by a bounded share when it is a card attack or has a real purpose. The rest stays home.
-      if (fromCapital && !wins && !hopeless && !this.plan.moveCapitalStack && !this.plan.route.includes(a.to)) {
+      // An overwhelming stack (4x the defenders and 20+ armies to spare) does not hold back: minimal commits from
+      // huge capital stacks took a territory or two a turn and let headless games run forever.
+      const overwhelming = have - floor >= Math.max(20, d * 4);
+      if (fromCapital && !wins && !hopeless && !overwhelming && !this.plan.moveCapitalStack && !this.plan.route.includes(a.to)) {
         const dips = !hardGarrison && ((!this.conquered && !this.plan.skipCard) || purpose >= DIP_PURPOSE);
         const keepMin = dips ? Math.max(1, Math.ceil(floor * (1 - this.dipFraction()))) : floor;
         const most = have - keepMin;
@@ -1106,6 +1115,8 @@ class Chooser {
     if (fb.retake) s += 5;
     if (fb.deny) s += 5;
     if (fb.sweep) s += 4 + bonus * 0.5;
+    // A pocket inside our land: cheap to clear, and the guards around it are free afterwards.
+    if (fb.pocket) s += 5;
     if (fb.natural) s += this.plan.target && this.plan.target !== toOwner ? 2 : 3.5;
     // Taking it makes the launch point interior.
     if (this.hostileNeighbours(from).length === 1) s += 1.5;

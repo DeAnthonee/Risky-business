@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { addPlayer, createGame, getMap, startGame, viewFor, type GameState, type GameView } from '@risk/engine';
 import { DEFAULT_OPTIONS } from '../src/presets.js';
-import { naturalEnemies, otherFront, sweepOpportunities } from '../src/strategy.js';
+import { naturalEnemies, otherFront, pockets, sweepOpportunities } from '../src/strategy.js';
 import { choosePlannedActionWithReason } from '../src/planned-bot.js';
 import { GameMemory } from '../src/game-memory.js';
 import { eliminationScouting, strategyFacts } from '../src/facts.js';
@@ -92,6 +92,23 @@ describe('retake and deny in the move chooser', () => {
     // Balanced blitz: at least 4 armies go, so the opening rolls use 3 dice (not 1-2 from a minimal commit).
     const stopAt = (action as { stopAt?: number }).stopAt;
     if (stopAt !== undefined) expect(12 - stopAt).toBeGreaterThanOrEqual(4);
+  });
+});
+
+describe('pockets', () => {
+  it('an enemy territory enclosed by our land is cleared, kill or not', () => {
+    const map = getMap('classic');
+    const put: Record<string, [string, number]> = {};
+    for (const t of map.continentById.north_america.territories) put[t] = ['a', 3];
+    put.alberta = ['b', 2]; // Ronny's pocket inside our North America
+    put.ontario = ['a', 12];
+    for (const t of AUSTRALIA) put[t] = ['b', 6]; // Ronny lives on elsewhere
+    const view = viewFor(board(put), 'a');
+    expect(pockets(view, 'a')).toEqual([expect.objectContaining({ owner: 'b', territories: ['alberta'] })]);
+    expect(strategyFacts(view, 'a').join('\n')).toContain("Pocket: Ronny@13's Alberta");
+    const { action, reason } = choosePlannedActionWithReason(view, 'a', null, seeded(4), 0);
+    expect(action).toMatchObject({ type: 'attack', to: 'alberta' });
+    expect(reason).toContain('pocket');
   });
 });
 

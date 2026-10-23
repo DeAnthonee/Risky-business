@@ -128,3 +128,48 @@ export function otherFront(view: GameView, me: PlayerId, rival: PlayerId, plan: 
   }
   return null;
 }
+
+export interface Pocket {
+  owner: PlayerId;
+  ownerName: string;
+  territories: TerritoryId[];
+  armies: number;
+}
+
+/**
+ * Small groups of enemy territories (at most 4) whose every outside neighbour is ours: pockets inside our land. Clearing
+ * one is cheap, and afterwards the territories around it are interior, so their guards are free to go elsewhere.
+ */
+export function pockets(view: GameView, me: PlayerId): Pocket[] {
+  const map = getMap(view.options.map);
+  const blizzards = new Set(view.blizzards ?? []);
+  const seen = new Set<TerritoryId>();
+  const out: Pocket[] = [];
+  for (const start of map.territoryIds) {
+    const s = view.territories[start];
+    if (seen.has(start) || !s || s.hidden || !s.owner || s.owner === me || blizzards.has(start)) continue;
+    const owner = s.owner;
+    const group: TerritoryId[] = [];
+    const queue = [start];
+    seen.add(start);
+    let enclosed = true;
+    while (queue.length) {
+      const t = queue.pop()!;
+      group.push(t);
+      for (const n of map.adjacency[t] ?? []) {
+        if (blizzards.has(n)) continue;
+        const ns = view.territories[n];
+        if (!ns || ns.hidden) { enclosed = false; continue; }
+        if (ns.owner === me) continue;
+        if (ns.owner === owner) {
+          if (!seen.has(n)) { seen.add(n); queue.push(n); }
+        } else enclosed = false;
+      }
+    }
+    if (!enclosed || group.length > 4) continue;
+    const rival = view.players.find((p) => p.id === owner);
+    if (!rival || rival.isNeutral) continue;
+    out.push({ owner, ownerName: rival.name, territories: group, armies: group.reduce((n, t) => n + (view.territories[t]?.armies ?? 0), 0) });
+  }
+  return out.sort((a, b) => a.armies - b.armies);
+}

@@ -403,11 +403,13 @@ house roster seats as each slot opens.
   - `signupMinutes` (sign-up opens this long before the start, 1-10080, i.e. up to 7 days ahead; default 60), or
     `signupDays` (1-7; not both);
   - `roster` (0-100, default 0): seats for the **house roster**, asked for each time a slot opens. They count inside
-    `maxEntrants`; with `roster` and no `maxEntrants`, a slot has 128 seats. Until the house roster (named AI seats,
-    each bound to a Delove version) lands, they are plain Delove seat requests to the seat pool (`delove: N`, see
-    "Delove seats on request"). Seats the pool does not fill go to Zergs at the start, and a failed request never stops
-    the slot. **Roster seats have no cap** (owner, 2026-10-22: "Let's not have a limit for now. If the mini can run
-    100 deloves that would be preferred, and we just knock out deloves to make room for others to join").
+    `maxEntrants`; with `roster` and no `maxEntrants`, a slot has 128 seats. Each slot's seat request (`delove: N`, see
+    "Delove seats on request") carries N **house roster names** (`roster.ts` `pick`: spread over the models, one per
+    model in turn, each model's names rotating day to day). The pool seats those names with their bound models first.
+    With fewer active names than N, the rest are plain "Delove N" seats. Seats the pool does not fill go to Zergs at the
+    start, and a failed request never stops the slot. **Roster seats have no cap** (owner, 2026-10-22: "Let's not have a
+    limit for now. If the mini can run 100 deloves that would be preferred, and we just knock out deloves to make room
+    for others to join").
     - A roster request is outside the Delove at-once cap (`RISK_TOURNEY_DELOVE_AT_ONCE`) and the per-tournament caps,
       so it never makes a host's Delove request wait, and hosts' caps don't count roster seats.
     - The pool's own joins never count toward the per-joiner cap.

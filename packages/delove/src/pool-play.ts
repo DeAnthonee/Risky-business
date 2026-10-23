@@ -17,9 +17,12 @@ export interface PoolPlayOptions {
 
 /**
  * Plays one of the pool's seats (pool-cli.ts children): a joined entrant plays its tournament, table after table; a
- * takeover plays its one game seat with the seat token, to the end of that table (a stand-in never moves on).
+ * takeover plays its one game seat with the seat token, to the end of that table (a stand-in never moves on). A house
+ * roster seat plays without decision notes, which would name its model.
  */
-export function playPoolEntrant(e: PoolEntrant, o: PoolPlayOptions): Promise<EntrantResult> {
+export function playPoolEntrant(e: PoolEntrant, opts: PoolPlayOptions): Promise<EntrantResult> {
+  // A house roster seat's model is a secret: decision notes name it (agent, model), so a roster seat sends none.
+  const o = e.roster ? { ...opts, notes: null } : opts;
   if (e.game) {
     return playSeat({ ...o, gameId: e.game.gameId, playerId: e.game.playerId, token: e.token, name: e.name }).then((view) => ({
       name: e.name,

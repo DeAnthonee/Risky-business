@@ -213,7 +213,8 @@ one Delove version, for good. The roster lives on the **server** (game dev's hou
 
 - **Seating** (the pool needs no setting for it): a seat request can carry roster ids. Its claim answers
   `roster: [{rosterId, name, model}]` for its first seats. The pool joins each with `{seatRequestId, rosterId}` and
-  no name or label (the server sets them), and plays that entry's model, bare. Seats past the roster entries are plain
+  no name or label (the server sets them), and plays that entry's model, bare, with no decision notes (a note names
+  the model, the roster's secret). Seats past the roster entries are plain
   "Delove N" seats, as before. An entry whose model the pool cannot play is skipped, and the rest are seated: the
   model isn't in `DELOVE_MODELS`, or it is fog-blind at a fog table (the roster holds only fog-trained versions, but
   the pool checks). The claim is then reported `failed`, which gives that entry back to the server. It comes first

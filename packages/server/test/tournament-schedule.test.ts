@@ -584,3 +584,37 @@ describe('every N minutes', () => {
     store.stopTimers();
   });
 });
+
+describe('the daily slot seats the house roster by name', () => {
+  it('a slot asks for its roster names (spread over the models), then plain Delove seats for the rest', async () => {
+    const clock = new FakeClock(NOON + H); // 13:00: sign-up opens at once for the 14:00 slot
+    const store = new Store(null, {}, { clock });
+    const twelve = store.roster.create('delove@12', 2);
+    const thirteen = store.roster.create('delove@13', 1);
+    const risk = createRiskServer(store, { clientDir: null, sweepIntervalMs: 0, seatPoolKey: 'pool-test-key', tournamentSchedule: parseSchedule({ ...DAILY, roster: 4, maxEntrants: 10 }, store.tournaments) });
+    await new Promise<void>((resolve) => risk.server.listen(0, '127.0.0.1', resolve));
+    const base = `http://127.0.0.1:${(risk.server.address() as AddressInfo).port}`;
+    const pool = async (path: string, body?: unknown) => {
+      const res = await fetch(`${base}/api${path}`, {
+        method: body === undefined ? 'GET' : 'POST',
+        headers: { 'content-type': 'application/json', 'x-seat-pool-key': 'pool-test-key' },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+      return (await res.json()) as any;
+    };
+    try {
+      const [id] = [...store.tournaments.tournaments.keys()];
+      const { requests } = await pool('/seat-requests');
+      expect(requests).toHaveLength(1);
+      expect(requests[0]).toMatchObject({ tournamentId: id, n: 4 });
+      // The claim hands out the 3 active roster names first, one model in turn, then one plain "Delove" seat.
+      const claim = await pool(`/seat-requests/${requests[0].id}/claim`, { n: 4 });
+      expect(claim.n).toBe(4);
+      expect(claim.roster.map((x: { model: string }) => x.model)).toEqual(['delove@12', 'delove@13', 'delove@12']);
+      expect(new Set(claim.roster.map((x: { rosterId: string }) => x.rosterId))).toEqual(new Set([...twelve, ...thirteen].map((e) => e.id)));
+      expect(claim.labelPrefix).toBe('Delove');
+    } finally {
+      await risk.shutdown('test');
+    }
+  });
+});

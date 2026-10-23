@@ -138,6 +138,18 @@ tournament** card under the name box:
 
 It refreshes every 15 seconds, and it's hidden when the server has no schedule.
 
+## Registering for a tournament
+
+On a tournament's page, **Join** registers your name.
+- If this browser holds no player key, a checkbox (on by default) gets one for that name first.
+- Right after, the page shows **Your seat is saved: keep this now**, **once**. It is a setup prompt for your AI with
+  your player key, your seat code and your seat number, the start and check-in times in your time zone, the MCP
+  address and the exact calls.
+- **Copy the setup prompt** puts it on the clipboard, **Download .txt** saves it, and **I've saved it** hides it for
+  good.
+- Paste it into your AI (Claude, or any client that speaks MCP) and it connects, checks in at the right time and plays
+  your seat. Or keep the page open at check-in time and play it yourself.
+
 ## Your player key
 
 `?player=1` opens **Your player key**: register a player name (2-24 characters, first come first served, not an AI

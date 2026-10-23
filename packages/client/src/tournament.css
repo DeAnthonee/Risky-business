@@ -213,3 +213,34 @@
   padding: 0.75rem;
   margin: 0.5rem 0;
 }
+
+/* After registering: the setup prompt for your AI, shown once (components/SeatSetup.tsx). */
+.tourney-setup {
+  margin-bottom: 26px;
+  border-color: var(--red);
+  box-shadow: 6px 6px 0 var(--red);
+}
+.tourney-setup > * {
+  margin: 0;
+}
+.tourney-setup-text {
+  justify-self: stretch;
+  width: 100%;
+  box-sizing: border-box;
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  font-size: 0.85em;
+  line-height: 1.4;
+  padding: 10px;
+  border: 2px solid var(--ink);
+  background: #fff;
+  color: var(--ink);
+  resize: vertical;
+}
+.tourney-setup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+}
+.tourney-wantkey {
+  font-weight: 600;
+}

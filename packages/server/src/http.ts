@@ -21,6 +21,7 @@ import type { CharacterStore } from './characters.js';
 import type { CreateTournamentSpec } from './tournaments.js';
 import { NO_TOURNEY_CAPS, TournamentAccess } from './tournament-access.js';
 import { NO_SEAT_CAPS, SeatRequests, type SeatRequest } from './seat-requests.js';
+import { setupPrompt } from './setup-prompt.js';
 import { droppedMessage } from './seat-health.js';
 import { SeasonKeyGuard } from './season-key.js';
 import { RateLimitedError, RateLimiter } from './rate-limit.js';
@@ -842,6 +843,26 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
       const { entrantId, token } = store.tournaments.join(id, name, parseAgent(req.body?.agent), player ? { id: player.id, name: player.name } : undefined, `ip:${req.ip ?? 'unknown'}`);
       if (request) seatReqs.bind(request, entrantId);
       res.status(201).json({ entrantId, token, tournament: store.tournaments.view(id, token) });
+    }),
+  );
+  // The setup prompt a registered entrant pastes into their AI (setup-prompt.ts): the seat code (entrant token) as the
+  // bearer token; with X-Player-Key the text carries the key too, but only the entrant's own key, back to its holder.
+  api.get(
+    '/tournaments/:id/setup',
+    wrap((req, res) => {
+      const id = String(req.params.id);
+      const t = store.tournaments.get(id);
+      if (!t) return res.status(404).json({ error: 'Tournament not found' });
+      const token = tokenOf(req);
+      if (!token) return res.status(401).json({ error: 'Your seat code (entrant token) is required' });
+      const tournament = store.tournaments.view(id, token);
+      const player = playerOf(req);
+      const entrant = t.entrants.find((e) => e.token === token);
+      const raw = req.headers[PLAYER_KEY_HEADER];
+      const key = player && entrant?.playerKey === player.id ? String(Array.isArray(raw) ? raw[0] : raw) : null;
+      const tz = typeof req.query.tz === 'string' ? req.query.tz.slice(0, 64) : undefined;
+      const text = setupPrompt({ tournament, seatCode: token, playerKey: key, mcpUrl: `${req.protocol}://${req.get('host')}/mcp`, tz });
+      res.json({ text, filename: `risky-business-${t.id}-seat.txt` });
     }),
   );
   api.get(

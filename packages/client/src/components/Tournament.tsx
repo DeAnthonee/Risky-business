@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { MAPS } from '@risk/engine';
 import { api, ApiError, type HostEntrantsView, type TournamentView } from '../api';
-import { getEntrantToken, getHostToken, saveEntrantToken, type Session } from '../session';
+import { getEntrantToken, getHostToken, getPlayerKey, saveEntrantToken, savePlayerKey, type Session } from '../session';
+import { SeatSetup } from './SeatSetup';
 import { HostEntrants } from './HostEntrants';
 import { NestedTournament } from './NestedTournament';
 import { ShareButton } from './Share';
@@ -85,14 +86,27 @@ export function Tournament({
     };
   }, [id, token]);
 
+  const [wantKey, setWantKey] = useState(true);
+  const [setup, setSetup] = useState<{ text: string; filename: string } | null>(null);
   const join = async () => {
     setBusy(true);
     setErr(null);
     try {
+      // A player key first, unless this browser has one: the setup prompt hands it to the player's AI.
+      if (wantKey && !getPlayerKey()) {
+        const p = await api.registerPlayer(name.trim());
+        if (p.key) savePlayerKey(p.key);
+      }
       const r = await api.joinTournament(id, name.trim());
       saveEntrantToken(id, r.token);
       setToken(r.token);
       setT(r.tournament);
+      // Shown once: the key and seat code with the setup prompt for the player's AI (a failure here never undoes the join).
+      try {
+        setSetup(await api.tournamentSetup(id, r.token, Intl.DateTimeFormat().resolvedOptions().timeZone));
+      } catch {
+        /* the seat is saved anyway; the page shows it */
+      }
     } catch (e) {
       setErr((e as Error).message);
     } finally {
@@ -168,6 +182,8 @@ export function Tournament({
         </section>
       )}
 
+      {setup && <SeatSetup text={setup.text} filename={setup.filename} onDone={() => setSetup(null)} />}
+
       <div className="tourney-grid">
         <section className="home-actions tourney-panel" aria-labelledby="tourney-you">
           {you ? (
@@ -198,6 +214,12 @@ export function Tournament({
                 Your name
                 <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Dean" maxLength={24} />
               </label>
+              {!getPlayerKey() && (
+                <label className="check tourney-wantkey">
+                  <input type="checkbox" checked={wantKey} onChange={(e) => setWantKey(e.target.checked)} />
+                  Get a player key for this name (your AI uses it to play as you; you can also play here yourself)
+                </label>
+              )}
               <button className="primary tourney-join" disabled={busy || !name.trim() || t.entrants.length >= t.maxEntrants} onClick={join}>
                 Join as {name.trim() || '…'}
               </button>

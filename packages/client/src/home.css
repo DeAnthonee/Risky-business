@@ -561,7 +561,7 @@
   color: var(--cream);
   padding: 18px 14px 14px;
   box-shadow: 8px 8px 0 var(--red);
-  transform: rotate(0.6deg);
+  /* No tilt on the board itself: a 100-row board rotated even 0.6deg drifts off the side of a phone by the bottom. */
 }
 .p5 .leaderboard h2 {
   background: var(--cream);
@@ -581,7 +581,8 @@
 }
 .rank-row {
   display: grid;
-  grid-template-columns: 2.4em 1fr auto;
+  /* Wide enough for a three-digit rank: boards run past 100 players. */
+  grid-template-columns: 3.4em 1fr auto;
   grid-template-areas: 'num name pts' 'num stats stats';
   align-items: center;
   gap: 0 10px;
@@ -632,6 +633,11 @@
   box-shadow: 4px 4px 0 var(--cream);
 }
 .rank-row.podium > * { transform: skewX(6deg); }
+/* Phones: the podium rows stay square so every row lines up with the screen edge. */
+@media (max-width: 719px) {
+  .rank-row.podium,
+  .rank-row.podium > * { transform: none; }
+}
 .podium-1 { background: var(--sun); color: var(--ink); }
 .podium-2 { background: var(--red); color: #fff; }
 .podium-3 { background: var(--orange); color: var(--ink); }

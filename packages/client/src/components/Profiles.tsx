@@ -122,6 +122,7 @@ const STYLES: { id: TournamentStyle; label: string; note: string }[] = [
   { id: 'classic', label: 'Classic groups', note: 'Groups of 3 to 6 a table.' },
   { id: '1v1', label: '1v1s', note: 'Two seats a table, head to head.' },
   { id: 'survival', label: 'Zerg survival', note: 'Zergs in the field: the last one standing who is not a Zerg moves on.' },
+  { id: 'mega', label: 'Mega tourney', note: 'One game of up to 100 players on Mega Earth.' },
 ];
 
 /** The model tag after a name on the boards: "D13", "D13-S" (with search). */

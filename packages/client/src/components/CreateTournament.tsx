@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { MAP_IDS, getMap } from '@risk/engine';
-import { api, type HostEntrantsView, type TournamentPreview } from '../api';
+import { api, type HostEntrantsView, type TournamentPreview, type TournamentStyle } from '../api';
 import { saveHostToken } from '../session';
 import { HostEntrants } from './HostEntrants';
 import { StartButton } from './StartButton';
@@ -21,9 +21,18 @@ interface Form {
   capitals: boolean;
   fog: boolean;
   code: string;
+  /** classic groups, 1v1, Zerg survival or mega (one table of everyone on Mega Earth). */
+  style: TournamentStyle;
 }
 
-const START: Form = { name: '', zergs: 20, delove: 0, open: 12, roundMinutes: 15, finalMap: '', timer: 90, capitals: true, fog: false, code: '' };
+const START: Form = { name: '', zergs: 20, delove: 0, open: 12, roundMinutes: 15, finalMap: '', timer: 90, capitals: true, fog: false, code: '', style: 'classic' };
+
+const STYLE_CHOICES: { id: TournamentStyle; label: string }[] = [
+  { id: 'classic', label: 'Classic groups' },
+  { id: '1v1', label: '1v1s' },
+  { id: 'survival', label: 'Zerg survival' },
+  { id: 'mega', label: 'Mega tourney (one table, up to 100)' },
+];
 
 /** The request both the preview and create send (nested format; unset settings keep the server's tournament defaults). */
 function specOf(f: Form) {
@@ -34,7 +43,8 @@ function specOf(f: Form) {
     delove: f.delove,
     open: f.open,
     roundMinutes: f.roundMinutes,
-    ...(f.finalMap ? { finalMap: f.finalMap } : {}),
+    ...(f.style !== 'classic' ? { style: f.style } : {}),
+    ...(f.finalMap && f.style !== 'mega' && f.style !== '1v1' ? { finalMap: f.finalMap } : {}),
     options: {
       capitals: f.capitals,
       fogOfWar: f.fog,
@@ -81,7 +91,7 @@ export function CreateTournament({ onOpen, onBack }: { onOpen: (id: string) => v
     };
     // The code does not change the plan.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form.name, form.zergs, form.delove, form.open, form.roundMinutes, form.finalMap, form.timer, form.capitals, form.fog]);
+  }, [form.name, form.zergs, form.delove, form.open, form.roundMinutes, form.finalMap, form.timer, form.capitals, form.fog, form.style]);
 
   const create = async () => {
     setBusy(true);
@@ -189,6 +199,20 @@ export function CreateTournament({ onOpen, onBack }: { onOpen: (id: string) => v
             <legend>Settings</legend>
             <div className="options-fields">
               <label>
+                Style
+                <select value={form.style} onChange={(e) => {
+                  const style = e.target.value as TournamentStyle;
+                  // A mega game runs for hours: its deadline defaults to the longest a round may run.
+                  setForm((f) => ({ ...f, style, roundMinutes: style === 'mega' ? 240 : f.style === 'mega' ? 15 : f.roundMinutes }));
+                }}>
+                  {STYLE_CHOICES.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
                 Round deadline (minutes)
                 <input type="number" min={1} max={240} value={form.roundMinutes} onChange={(e) => set('roundMinutes', Math.max(1, Math.min(240, Math.floor(Number(e.target.value) || 1))))} />
               </label>
@@ -203,7 +227,7 @@ export function CreateTournament({ onOpen, onBack }: { onOpen: (id: string) => v
                   <option value={0}>off</option>
                 </select>
               </label>
-              <label>
+              {form.style !== 'mega' && form.style !== '1v1' && <label>
                 Final board
                 <select value={form.finalMap} onChange={(e) => set('finalMap', e.target.value)}>
                   <option value="">a generated board</option>
@@ -213,7 +237,7 @@ export function CreateTournament({ onOpen, onBack }: { onOpen: (id: string) => v
                     </option>
                   ))}
                 </select>
-              </label>
+              </label>}
               <label className="ct-check">
                 <input type="checkbox" checked={form.capitals} onChange={(e) => set('capitals', e.target.checked)} /> Capital Conquest
               </label>

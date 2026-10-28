@@ -1,5 +1,6 @@
 import { applyAction, getMap, type Action, type GameState } from '@risk/engine';
 import { candidateToAction, candidates, decisionInput, encodeDecision, stepAgent, type Agent, type Candidate, type Features, type StepContext } from '@risk/selfplay';
+import { focusSeats, focusView } from './focus.js';
 import { NetScorer, seatOrder } from './net-agent.js';
 
 /**
@@ -62,12 +63,14 @@ export class Lookahead {
     const order = [...prior.keys()].sort((a, b) => prior[b] - prior[a]).slice(0, this.opts.topK);
     if (ctx.state.phase === 'setup' || prior[order[0]] >= this.opts.confident) return { index: order[0], q };
     const map = getMap(ctx.state.options.map);
-    const seatIds = seatOrder(ctx.state);
+    // A mega table: each leaf is seen through the decider's focused view, like the policy (focus.ts).
+    const seatIds = focusSeats(focusView(ctx.state, ctx.me), seatOrder(ctx.state));
     const base: GameState = { ...ctx.state, deck: [], discard: [] };
     const leaves: Leaf[] = [];
     const leaf = (cand: number, after: GameState) => {
       if (after.phase === 'finished') return leaves.push({ cand, fixed: after.winner === ctx.me ? 1 : 0, features: null });
-      leaves.push({ cand, fixed: null, features: encodeDecision(decisionInput(after, seatIds, ctx.me, ctx.traits, END_ONLY)) });
+      const view = seatIds.length < seatOrder(after).length ? focusView(after, ctx.me) : after;
+      leaves.push({ cand, fixed: null, features: encodeDecision(decisionInput(view, focusSeats(view, seatIds), ctx.me, ctx.traits, END_ONLY)) });
     };
     const play = (cand: number, action: Action, state: GameState = base) => {
       try {

@@ -84,6 +84,41 @@ describe('tournament styles', () => {
     store.stopTimers();
   }, 180_000);
 
+  it('mega: one table of every entrant on Mega Earth, decided at its deadline; settings checked at create', async () => {
+    const clock = new FakeClock();
+    const store = new Store(null, {}, { clock });
+    expect(() => store.tournaments.create({ ...FAST, style: 'mega', maxEntrants: 101 })).toThrow(/at most 100/);
+    expect(() => store.tournaments.create({ ...FAST, style: 'mega', minTable: 4 })).toThrow(/minTable/);
+    expect(() => store.tournaments.create({ ...FAST, style: 'mega', finalMap: 'world' })).toThrow(/mega_earth/);
+    const t = store.tournaments.create({ ...FAST, style: 'mega', options: { ...FAST.options, iceStartMinutes: 0 } });
+    expect(t).toMatchObject({ maxEntrants: 100, nested: { style: 'mega', finalMap: 'mega_earth', roundMinutes: 240 } });
+    // Closing ice is on by default at a mega table (a host may turn it off); other styles leave it off.
+    expect(t.options.closingIce).toBe(true);
+    expect(store.tournaments.create({ ...FAST, style: 'mega', options: { closingIce: false } }).options.closingIce).toBe(false);
+    expect(store.tournaments.create({ ...FAST }).options.closingIce).toBeUndefined();
+    for (let i = 1; i <= 30; i++) t.entrants.push({ id: `e_${i}`, name: `B${i}`, isBot: true, joinedAt: 0 });
+    store.tournaments.start(t.id);
+    expect(t.nested!.plan!.rounds.map((r) => r.map((x) => x.seats))).toEqual([[30]]);
+    const room = store.get(t.rounds[0].matches[0].gameId!)!;
+    expect(room.state.options.map).toBe('mega_earth');
+    expect(room.state.players).toHaveLength(30);
+    expect(new Set(room.state.players.map((p) => p.color)).size).toBe(30);
+    // Bots play on for a few seconds, then the round's deadline (240 minutes by default) decides the table on standing.
+    const v = room.state.version;
+    await new Promise((r) => setTimeout(r, 3000));
+    console.log(`mega: ${room.state.version - v} moves in 3 s, round ${room.state.round}`);
+    // iceStartMinutes 0: the server started the ice on the first move, and it has advanced at each round start since.
+    const ice = (room.state as { ice?: { level: number } }).ice;
+    expect(ice).toBeDefined();
+    if (room.state.round > 2) expect(room.state.blizzards.length).toBeGreaterThan(0);
+    expect(room.state.version).toBeGreaterThan(v);
+    clock.advance(240 * 60_000 + 1);
+    await until(() => t.status === 'finished', 60_000);
+    expect(t.champion).toBeTruthy();
+    expect(t.rounds[0].matches[0].status).toMatch(/decided|finished/);
+    store.stopTimers();
+  }, 120_000);
+
   it('Zerg survival: every table moves on its best non-Zerg (never a Zerg), and a table ends at its last non-Zerg', async () => {
     const store = new Store(null, {}, { clock: new FakeClock() });
     const t = store.tournaments.create({ ...FAST, style: 'survival' });
@@ -121,6 +156,25 @@ describe('tournament styles', () => {
     store.stopTimers();
   }, 180_000);
 
+  it('a survival table ends the moment one non-Zerg is left: two bots and four Zergs always end that way', async () => {
+    // The first bot out leaves one non-Zerg, so whatever the dice, the survival rule (engine endBySurvival) ends it.
+    const store = new Store(null, {}, { clock: new FakeClock() });
+    const players = [
+      { name: 'Bot One', isBot: true },
+      { name: 'Bot Two', isBot: true },
+      ...['Mamba', 'Viper', 'Cobra', 'Gecko'].map((name) => ({ name, isBot: true, kind: 'zerg' as const })),
+    ];
+    const { room } = store.createTable('Survival', { map: 'world', maxPlayers: 6, autoSetup: true }, players, 'TSURV1', { survival: true, botDelayMs: 0 });
+    await until(() => room.state.phase === 'finished', 150_000);
+    room.stopBot();
+    expect(room.history.at(-1)!.action).toMatchObject({ type: 'system', note: expect.stringMatching(/Zerg survival/) });
+    const winner = room.state.players.find((p) => p.id === room.state.winner)!;
+    expect(winner.name.startsWith('Bot')).toBe(true);
+    expect(room.state.players.filter((p) => p.name.startsWith('Bot') && p.alive)).toHaveLength(1);
+    expect(room.state.players.some((p) => !p.name.startsWith('Bot') && p.alive)).toBe(true);
+    store.stopTimers();
+  }, 160_000);
+
   it('the schedule rotates three styles every 15 minutes, with Zergs added and the minimum table taking turns', () => {
     const clock = new FakeClock();
     const store = new Store(null, {}, { clock });
@@ -153,6 +207,41 @@ describe('tournament styles', () => {
     expect(swarm.entrants.filter((e) => e.kind === 'zerg').length).toBeGreaterThanOrEqual(25);
     sched.stop();
     store.stopTimers();
+  });
+
+  it('runs a schedule entry on demand (mega): a one-off slot that starts on its own, the timetable untouched', async () => {
+    const clock = new FakeClock();
+    const store = new Store(null, {}, { clock });
+    const entries = parseSchedule([{ at: '12:00', name: 'Mega tourney', style: 'mega', signupMinutes: 60, checkinMinutes: 10, maxEntrants: 100, botDelayMs: 2000 }], store.tournaments);
+    const sched = new TournamentScheduler(store.tournaments, entries, null);
+    const nextBefore = sched.next().next!.startsAt;
+    expect(() => sched.runNow('1v1')).toThrow(/no 1v1s entry/);
+    expect(() => sched.runNow('mega', 0)).toThrow(/startsInMinutes/);
+    const t = sched.runNow('mega', 3);
+    expect(t).toMatchObject({ status: 'registering', nested: { style: 'mega', finalMap: 'mega_earth' } });
+    expect(t.scheduled!.startsAt).toBeGreaterThanOrEqual(clock.now() + 3 * 60_000);
+    expect(sched.next().next!.startsAt).toBe(nextBefore);
+    // Two people check in (joining inside the window checks in), then it starts by itself at its time.
+    store.tournaments.join(t.id, 'Ann', undefined, undefined, 'ip:a');
+    store.tournaments.join(t.id, 'Bob', undefined, undefined, 'ip:b');
+    clock.advance(t.scheduled!.startsAt - clock.now() + 1);
+    expect(t.status).toBe('running');
+    expect(t.rounds[0].matches).toHaveLength(1);
+    sched.stop();
+    store.stopTimers();
+
+    // Over HTTP: admin only; 404 with no schedule.
+    const bare = new Store(null, {}, { clock: new FakeClock() });
+    const risk = createRiskServer(bare, { clientDir: null, sweepIntervalMs: 0, adminToken: 'adm' });
+    await new Promise<void>((resolve) => risk.server.listen(0, '127.0.0.1', resolve));
+    const url = `http://127.0.0.1:${(risk.server.address() as AddressInfo).port}/api/admin/schedule/run`;
+    try {
+      const post = (auth?: string) => fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', ...(auth ? { authorization: `Bearer ${auth}` } : {}) }, body: JSON.stringify({ style: 'mega' }) });
+      expect((await post()).status).toBe(401);
+      expect((await post('adm')).status).toBe(404);
+    } finally {
+      await risk.shutdown('test');
+    }
   });
 
   it('keeps one leaderboard per style, with each Delove\'s model', async () => {

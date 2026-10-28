@@ -172,6 +172,9 @@ export default function GlobeMap(props: Props) {
     const disposables: { dispose: () => void }[] = [];
     const keep = <T extends { dispose: () => void }>(x: T) => (disposables.push(x), x);
     scn.add(new THREE.Mesh(keep(new THREE.SphereGeometry(0.997, 64, 48)), keep(new THREE.MeshStandardMaterial({ color: 0x0b1d33, roughness: 1 }))));
+    // Closing ice (engine ice.ts): each sea cell's vertex range and colour, so the frozen rings can be recoloured.
+    const seaCells: { cell: number; start: number; count: number; base: THREE.Color }[] = [];
+    let seaColors: THREE.BufferAttribute | null = null;
     {
       const pos: number[] = [];
       const col: number[] = [];
@@ -180,6 +183,7 @@ export default function GlobeMap(props: Props) {
         if (cell.t >= 0) return;
         const r = cell.t === -2 ? ICE : 1;
         c.set(cell.t === -2 ? '#e6edf5' : '#1c4470').offsetHSL(0, 0, ((i * 13) % 5 - 2) * 0.006);
+        if (cell.t === -1 && cell.r) seaCells.push({ cell: i, start: col.length / 3, count: cell.v.length * 3, base: c.clone() });
         const ctr = shape.centres[i].clone().multiplyScalar(r);
         const ring = cell.v.map((k) => shape.corners[k].clone().multiplyScalar(r).lerp(ctr, 0.035));
         for (let j = 0; j < ring.length; j++) {
@@ -191,8 +195,26 @@ export default function GlobeMap(props: Props) {
       const g = keep(new THREE.BufferGeometry());
       g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
       g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+      seaColors = g.getAttribute('color') as THREE.BufferAttribute;
       scn.add(new THREE.Mesh(g, keep(new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.6, metalness: 0.05 }))));
     }
+    // The sea under the ice turns to ice; the next ring to freeze gets a pale warning tint. Redone when the level moves.
+    let iceShown = -1;
+    const showIce = () => {
+      const v = live.current.props.view as { ice?: { level: number }; options: { iceRingsPerStep?: number } };
+      const level = v.ice?.level ?? -1;
+      if (level === iceShown || !seaColors || !seaCells.length) return;
+      iceShown = level;
+      const next = level < 0 ? -1 : level + (v.options.iceRingsPerStep ?? 1);
+      const ice = new THREE.Color('#e6edf5');
+      const warn = new THREE.Color('#5d86ad');
+      for (const s of seaCells) {
+        const [n, so] = globe.cells[s.cell].r!;
+        const col = n < level || so < level ? ice : n < next || so < next ? warn : s.base;
+        for (let k = 0; k < s.count; k++) seaColors.setXYZ(s.start + k, col.r, col.g, col.b);
+      }
+      seaColors.needsUpdate = true;
+    };
     // A thin atmosphere rim.
     scn.add(new THREE.Mesh(keep(new THREE.SphereGeometry(1.07, 48, 32)), keep(new THREE.MeshBasicMaterial({ color: 0x5c8fd6, transparent: true, opacity: 0.07, side: THREE.BackSide }))));
 
@@ -487,12 +509,14 @@ export default function GlobeMap(props: Props) {
         if (id !== live.current.hovered) setHovered(id);
       }
 
+      showIce();
       renderer.render(scn, camera);
 
       // HTML overlays: badges, region labels, floats and move tokens follow their cells; hidden on the far side.
       const rect = el.getBoundingClientRect();
       // Smaller badges on small boards (phones), so they do not cover the hexes.
-      const fit = Math.max(0.7, Math.min(1, Math.min(rect.width, rect.height) / 620));
+      // A huge board (Mega Earth's one-hexagon territories) has hexes three quarters of Hex Earth's: badges at 60%.
+      const fit = Math.max(0.7, Math.min(1, Math.min(rect.width, rect.height) / 620)) * (live.current.map.territoryIds.length > 300 ? 0.6 : 1);
       camDir.copy(camera.position).normalize();
       const place = (node: HTMLElement | undefined, dir: THREE.Vector3, r: number) => {
         if (!node) return;

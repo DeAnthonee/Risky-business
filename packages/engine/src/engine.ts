@@ -25,9 +25,27 @@ import {
   type TradeAction,
 } from './types.js';
 import { checkStall, noteCapture, validateStallOptions } from './stall.js';
+import { checkIce, validateIceOptions } from './ice.js';
 
 export const PLAYER_COLORS = ['#e63946', '#2a9d8f', '#457bd9', '#f4a261', '#9b5de5', '#f9c74f', '#06d6a0', '#ff70a6', '#b5651d', '#00b4d8'];
 export const NEUTRAL_COLOR = '#8d8d8d';
+
+/**
+ * Seat colour number `i`: the ten PLAYER_COLORS, then (a 100-seat mega table) colours spread round the hue wheel by the
+ * golden angle, lightness alternating, so no two of a hundred seats share one. Presentation only: no rule reads it.
+ */
+export function seatColor(i: number): string {
+  if (i < PLAYER_COLORS.length) return PLAYER_COLORS[i];
+  const h = (i * 137.508) % 360;
+  const l = [0.5, 0.64, 0.38][i % 3];
+  const s = 0.7;
+  const f = (n: number) => {
+    const k = (n + h / 30) % 12;
+    const c = l - s * Math.min(l, 1 - l) * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+    return Math.round(255 * c).toString(16).padStart(2, '0');
+  };
+  return `#${f(0)}${f(8)}${f(4)}`;
+}
 export const NEUTRAL_ID = 'neutral';
 
 /** Starting armies per player for a player count on a map (classic table for the classic map). */
@@ -94,6 +112,7 @@ export function validateOptions(o: GameOptions): void {
   if (!Number.isInteger(o.maxPlayers) || o.maxPlayers < 2 || o.maxPlayers > map.maxPlayers)
     throw new RuleError(`maxPlayers must be between 2 and ${map.maxPlayers} on the ${map.name} map`);
   validateStallOptions(o);
+  validateIceOptions(o);
 }
 
 export function setOptions(state: GameState, options: Partial<GameOptions>): GameState {
@@ -126,7 +145,9 @@ export function addPlayer(state: GameState, id: PlayerId, name: string, isBot = 
   if (id === NEUTRAL_ID) throw new RuleError('Reserved player id');
   const next = clone(state);
   const usedColors = new Set(next.players.map((p) => p.color));
-  const color = PLAYER_COLORS.find((c) => !usedColors.has(c)) ?? PLAYER_COLORS[next.players.length % PLAYER_COLORS.length];
+  let k = 0;
+  while (usedColors.has(seatColor(k))) k++;
+  const color = seatColor(k);
   next.players.push({
     id,
     name: name.trim().slice(0, 24) || `Player ${next.players.length + 1}`,
@@ -1049,8 +1070,12 @@ function nextTurn(state: GameState, fromPlayer: PlayerId, events: GameEvent[]): 
       if (j <= idx) {
         state.round += 1;
         checkStall(state, events);
+        checkIce(state, events);
+        if (state.phase === 'finished') return;
       }
-      beginTurn(state, cand, events);
+      // The closing ice may have knocked out the next player: the next one still alive plays.
+      const next = playerOf(state, cand).alive ? cand : [...order.slice(j), ...order.slice(0, j)].find((id) => playerOf(state, id).alive)!;
+      beginTurn(state, next, events);
       return;
     }
   }

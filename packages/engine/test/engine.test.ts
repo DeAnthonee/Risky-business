@@ -704,14 +704,15 @@ describe('maps', () => {
     bohemia: { territories: 42, regions: 8, maxPlayers: 6 },
     nine_realms: { territories: 58, regions: 9, maxPlayers: 8 },
     hexworld: { territories: 80, regions: 14, maxPlayers: 10 },
+    mega_earth: { territories: 671, regions: 14, maxPlayers: 100 }, // tournament board: the mega tournament only
   };
 
   it('every map is well formed', async () => {
-    const { MAPS, MAP_IDS } = await import('../src/index.js');
+    const { MAPS, MAP_IDS, TOURNAMENT_MAP_IDS } = await import('../src/index.js');
     expect(MAP_IDS).toEqual(['classic', 'world', 'world_large', 'europe', 'greater_europe', 'europe_classic', 'usa', 'asia', 'fantasy', 'skirmish', 'bohemia', 'nine_realms', 'hexworld']);
-    // every registered board is either offered or legacy, never both
-    expect([...MAP_IDS, ...LEGACY_MAP_IDS].sort()).toEqual(Object.keys(MAPS).sort());
-    for (const id of [...MAP_IDS, ...LEGACY_MAP_IDS]) {
+    // every registered board is offered, legacy or a tournament board, only one of them
+    expect([...MAP_IDS, ...LEGACY_MAP_IDS, ...TOURNAMENT_MAP_IDS].sort()).toEqual(Object.keys(MAPS).sort());
+    for (const id of [...MAP_IDS, ...LEGACY_MAP_IDS, ...TOURNAMENT_MAP_IDS]) {
       const m = MAPS[id];
       expect(m.territories.length).toBe(EXPECTED[id].territories);
       expect(m.continents.length).toBe(EXPECTED[id].regions);
@@ -1465,7 +1466,10 @@ describe('game settings catalogue', () => {
   it('has a spec for every option and parses untrusted input strictly', async () => {
     const { OPTION_KEYS, OPTION_SPECS, DEFAULT_OPTIONS, parseOptions, describeOptions, optionCatalogue, optionLimits } = await import('../src/index.js');
     // Every option has a default, except the optional ones absent by default so games without them stay unchanged.
-    expect([...OPTION_KEYS].sort()).toEqual([...Object.keys(DEFAULT_OPTIONS), 'stallFogLift', 'stallStorm', 'stallEnd'].sort());
+    expect([...OPTION_KEYS].sort()).toEqual([...Object.keys(DEFAULT_OPTIONS), 'stallFogLift', 'stallStorm', 'stallEnd', 'closingIce', 'iceStartMinutes', 'iceEveryRounds', 'iceRingsPerStep', 'iceSafeRings'].sort());
+    // The catalogue shows an optional setting's real default (closing ice off, the ice's numbers), not 0.
+    const cat = optionCatalogue().options;
+    expect(Object.fromEntries(cat.filter((o) => o.key.startsWith('ice') || o.key === 'closingIce').map((o) => [o.key, o.default]))).toEqual({ closingIce: false, iceStartMinutes: 15, iceEveryRounds: 1, iceRingsPerStep: 1, iceSafeRings: 6 });
     for (const k of OPTION_KEYS) expect(OPTION_SPECS[k].description.length).toBeGreaterThan(20);
     // coercion of form/query style values
     expect(parseOptions({ fogOfWar: 'true', capitals: 1, blizzards: '3', map: 'world' })).toEqual({ fogOfWar: true, capitals: true, blizzards: 3, map: 'world' });

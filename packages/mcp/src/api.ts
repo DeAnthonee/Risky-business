@@ -93,7 +93,7 @@ export interface TournamentInfo {
 
 /** The server's next scheduled tournament (GET /tournaments/next); everything null when it has no schedule. */
 /** A nested tournament's style: classic groups, 1v1s, or Zerg survival. */
-export type TournamentStyleName = 'classic' | '1v1' | 'survival';
+export type TournamentStyleName = 'classic' | '1v1' | 'survival' | 'mega';
 
 export interface NextTournamentInfo {
   scheduled: boolean;

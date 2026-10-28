@@ -17,10 +17,11 @@ import skirmishJson from './generated/skirmish.json' with { type: 'json' };
 import bohemiaJson from './generated/bohemia.json' with { type: 'json' };
 import nineRealmsJson from './generated/nine_realms.json' with { type: 'json' };
 import hexworldJson from './generated/hexworld.json' with { type: 'json' };
+import megaEarthJson from './generated/mega_earth.json' with { type: 'json' };
 import { RuleError } from './types.js';
 import { generateFromId, looksLikeGenId, parseGenId, type GenMapId } from './procgen.js';
 
-export type MapId = 'classic' | 'world' | 'world_large' | 'europe' | 'europe_advanced' | 'greater_europe' | 'europe_classic' | 'usa' | 'asia' | 'fantasy' | 'skirmish' | 'bohemia' | 'nine_realms' | 'hexworld';
+export type MapId = 'classic' | 'world' | 'world_large' | 'europe' | 'europe_advanced' | 'greater_europe' | 'europe_classic' | 'usa' | 'asia' | 'fantasy' | 'skirmish' | 'bohemia' | 'nine_realms' | 'hexworld' | 'mega_earth';
 /**
  * Maps offered for new games (option enum, MCP schema, lobby list, GET /maps). Every map in MAPS that is not
  * listed here is a legacy board: it stays loadable so saved games on it keep working, but cannot be picked.
@@ -29,6 +30,11 @@ export type MapId = 'classic' | 'world' | 'world_large' | 'europe' | 'europe_adv
 export const MAP_IDS: MapId[] = ['classic', 'world', 'world_large', 'europe', 'greater_europe', 'europe_classic', 'usa', 'asia', 'fantasy', 'skirmish', 'bohemia', 'nine_realms', 'hexworld'];
 /** Boards kept only for saved games: 'europe_advanced' (Europe (legacy, 99), superseded by greater_europe). */
 export const LEGACY_MAP_IDS: MapId[] = ['europe_advanced'];
+/**
+ * Boards only tournaments seat (never offered for a lobby, never trained on): 'mega_earth' (Mega Earth, 671
+ * one-hexagon territories, 2-100 players), the mega tournament's single table.
+ */
+export const TOURNAMENT_MAP_IDS: MapId[] = ['mega_earth'];
 
 export interface TerritoryDef {
   id: string;
@@ -77,6 +83,8 @@ export interface MapDef {
   edges: [string, string][];
   /** Adjacent pairs that do not touch on the map and are drawn as link lines. */
   seaLinks: SeaLink[];
+  /** A hex-globe board's ring count of each territory from the North and the South pole (sea counted), for closing ice (ice.ts). */
+  poleRings?: { rings: number; territories: Record<string, number[]> };
   isAdjacent(a: string, b: string): boolean;
   isTerritory(id: string): boolean;
   /** Starting armies per player for a game with `players` players. */
@@ -92,6 +100,8 @@ interface RawMap {
   continents: ContinentDef[];
   edges: string[][];
   seaLinks: SeaLink[];
+  /** A hex-globe board's ring count of each territory from the North and the South pole (sea counted), for closing ice (ice.ts). */
+  poleRings?: { rings: number; territories: Record<string, number[]> };
 }
 
 /**
@@ -122,6 +132,7 @@ export const STARTING_ARMIES: Record<MapId, StartingArmiesRule> = {
   bohemia: { classicScaled: true },
   nine_realms: { classicScaled: true },
   hexworld: { classicScaled: true },
+  mega_earth: { classicScaled: true },
 };
 
 /** Classic numbers scaled to a map with `territoryCount` territories (see StartingArmiesRule). */
@@ -169,6 +180,7 @@ function wrap(raw: RawMap, rule: StartingArmiesRule = STARTING_ARMIES[raw.id as 
     adjacency,
     edges,
     seaLinks: raw.seaLinks,
+    ...(raw.poleRings ? { poleRings: raw.poleRings } : {}),
     isAdjacent: (a, b) => adjacency[a]?.includes(b) ?? false,
     isTerritory: (t) => t in territoryById,
     startingArmies: startingArmiesFor(rule, territoryIds.length, raw.maxPlayers),
@@ -190,6 +202,7 @@ export const MAPS: Record<MapId, MapDef> = {
   bohemia: wrap(bohemiaJson as RawMap),
   nine_realms: wrap(nineRealmsJson as RawMap),
   hexworld: wrap(hexworldJson as RawMap),
+  mega_earth: wrap(megaEarthJson as unknown as RawMap),
 };
 
 /** Generated boards built so far, most recently used last (a small cache: building one takes milliseconds). */

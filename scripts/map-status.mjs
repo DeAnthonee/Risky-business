@@ -55,10 +55,10 @@ export function parseMatrixMaps(py) {
 
 /**
  * Pure derivation. `maps`: [{ id, name, territories, maxPlayers }] for every registered board; `offered`/`legacy`:
- * MAP_IDS and LEGACY_MAP_IDS; `rotation`: ids in the training rotation; `ruleFiles`, `matrixMaps`: parsed lists;
+ * MAP_IDS and LEGACY_MAP_IDS; `tournament`: TOURNAMENT_MAP_IDS (tournament-only boards, never trained on); `rotation`: ids in the training rotation; `ruleFiles`, `matrixMaps`: parsed lists;
  * `recorded`: engine-fingerprint.json's `files`; `hash(rel)`: current hash; `exists(rel)`: is the file there.
  */
-export function mapStatus({ maps, offered, legacy, rotation, ruleFiles, matrixMaps, recorded, hash, exists }) {
+export function mapStatus({ maps, offered, legacy, tournament = [], rotation, ruleFiles, matrixMaps, recorded, hash, exists }) {
   const rules = new Set(ruleFiles);
   const rows = maps.map((m) => {
     const rel = generatedPath(m.id);
@@ -69,7 +69,7 @@ export function mapStatus({ maps, offered, legacy, rotation, ruleFiles, matrixMa
       name: m.name,
       territories: m.territories,
       maxPlayers: m.maxPlayers,
-      registered: offered.includes(m.id) ? 'offered' : legacy.includes(m.id) ? 'legacy' : 'no',
+      registered: offered.includes(m.id) ? 'offered' : legacy.includes(m.id) ? 'legacy' : tournament.includes(m.id) ? 'tournament' : 'no',
       generated: exists(rel),
       ruleFiles: inRules,
       matrix: matrixMaps.includes(m.id),
@@ -104,6 +104,7 @@ export async function gather(root = ROOT) {
       maps,
       offered: engine.MAP_IDS,
       legacy: engine.LEGACY_MAP_IDS,
+      tournament: engine.TOURNAMENT_MAP_IDS ?? [],
       rotation: presets.rotationMaps(presets.RANDOM_MIN_PLAYERS),
       ruleFiles: parseRuleFiles(readFileSync(join(root, FINGERPRINT_PY), 'utf8')),
       matrixMaps: parseMatrixMaps(readFileSync(join(root, MATRIX_PY), 'utf8')),

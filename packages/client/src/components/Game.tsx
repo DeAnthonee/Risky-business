@@ -1069,6 +1069,8 @@ function useAnimations(
           fogJustLifted = true;
           setBanner({ text: `⛈ Storm: all big stacks lose a fifth (no captures for ${se.rounds} rounds)`, color: '#7a8fa6' });
         }
+        if (se.type === 'ice_started') setBanner({ text: '🧊 The ice is coming from both poles', color: '#7fb4d9' });
+        if (se.type === 'ice' && se.eliminated.length) setBanner({ text: `🧊 Frozen out: ${se.eliminated.length} player${se.eliminated.length === 1 ? '' : 's'}`, color: '#7fb4d9' });
         if (se.type === 'stalemate') setBanner({ text: `⚖ Stalemate: decided on standing after ${se.rounds} rounds with no capture`, color: '#b8a36a' });
         switch (e.type) {
           case 'battle': {

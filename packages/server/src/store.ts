@@ -7,6 +7,9 @@ import {
   endByStanding,
   endBySurvival,
   lastSurvivor,
+  ICE_DEFAULTS,
+  iceCanStart,
+  startIce,
   endInStalemate,
   onlySideLeft,
   stalemateDue,
@@ -667,7 +670,23 @@ export class GameRoom extends EventEmitter {
     this.scheduleBot();
     this.endIfOnlySwarm();
     this.endIfLastSurvivor();
+    this.startIceIfDue();
     this.endIfStalemate();
+  }
+
+  /**
+   * Closing ice (the engine's ice.ts): `iceStartMinutes` after the game started, the ice starts closing in from the
+   * poles. The server keeps the clock (the engine never reads it, so records replay); checked on every commit, which in a
+   * running game comes every few seconds. Through commit like any move.
+   */
+  private startIceIfDue() {
+    const s = this.state;
+    if (this.decidedAt !== null || s.startedAt === null || !iceCanStart(s)) return;
+    const minutes = s.options.iceStartMinutes ?? ICE_DEFAULTS.iceStartMinutes;
+    if (Date.now() - s.startedAt < minutes * 60_000) return;
+    const { state, events } = startIce(s);
+    this.addChat(null, 'Game', 'The ice is coming: from the next round it closes in from both poles, ring by ring. Frozen land is lost; armies there fall back to a neighbour if they can.');
+    this.commit(state, events, null, { type: 'system', note: 'closing ice starts' });
   }
 
   /**

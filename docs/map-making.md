@@ -236,6 +236,16 @@ rules, the workflow and the registration checklist above; only the way it is dra
   Europe one hex per country and Australia a dozen. Islands too small for a hex set `island: true` (their site's
   cell becomes land) and are reached by `seaLanes`. The build warns about land no site reaches and about a
   territory split into pieces.
+- **One territory per hexagon** (`cellTerritories: true`, Mega Earth): every land cell becomes its own territory; the
+  definition's territories only name and group them ("Beringia 3", in Beringia's region) and each sea lane joins the
+  closest pair of their hexes (dropped when those hexes already touch). `autoBonus: true` sets every region's bonus to
+  the builder's suggestion; `badgeGap` (units) is the badge spacing the build checks for (Mega Earth: 10).
+  `scripts/preview-map.mjs` draws a board of more than 300 territories with small badges and no names. `poleRings:
+  true` writes each territory's (and in the globe file, each cell's) ring count from the North and South pole cells,
+  sea counted, for closing ice (the engine's `ice.ts`); boards without it are banded by height.
+- **Tournament boards** (`TOURNAMENT_MAP_IDS` in `maps.ts`): registered for tournaments only, never offered in a
+  lobby nor trained on, so none of section 5's lobby, rules-text or GPU-mirror rows apply. `npm run maps:status` lists
+  them as `tournament`.
 - **Two outputs.** `npm run build:map -- <id>` writes the usual engine JSON (the flat view: each territory's hexes
   projected like the World map, with army badges on hex centres, spread apart where they crowd) and
   `packages/client/src/generated/<id>.globe.json` (the cells' corners, which territory owns each cell, the badge

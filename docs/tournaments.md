@@ -391,8 +391,15 @@ style has its **own tournament leaderboard** (`GET /api/rankings?board=tournamen
 | --- | --- | --- |
 | `classic` (default) | Classic groups | tables of 3-6, a final of 6-10. `minTable` (3-6) raises the **first round's** smallest table: a 100-seat field plans at 3-seat tables by default (fewest rounds first), and `minTable: 4` or `5` keeps round 1 at 4-5 a table. Later rounds may still seat 3: a minimum of 5 at every round leaves no plan for 100 players without 50 Zergs (the engine's `planNest` option `firstMinTable`) |
 | `1v1` | 1v1s | every table two seats, the final too (on a two-seat generated board; `finalMap` is refused). **No capitals** (owner, 2026-10-28): `capitals` is off at every 1v1 table, whatever the options say. A field that is not a power of two gets planner Zergs up to the next one (100 Deloves: 28 Zergs, at most one a table, so those Deloves meet a Zerg in round 1); 7 rounds for 100. `minTable` is refused |
+| `mega` | Mega tourney | **one table of every entrant**, up to 100, on [Mega Earth](maps.md) (671 one-hexagon territories; `finalMap` and `minTable` are refused, `maxEntrants` defaults to and is capped at 100). **Closing ice** is on by default (owner, 2026-10-28: "blizzards start appearing more and more until the map gets smaller and smaller"): from 15 minutes in, the ice closes in from both poles one ring a round, sea included, until 6 rings are left; every part of it is a setting (`options.closingIce`, `iceStartMinutes`, `iceEveryRounds`, `iceRingsPerStep`, `iceSafeRings`, [playing.md](playing.md)), so a schedule entry's `options` can tune it. The round deadline defaults to 240 minutes, the longest allowed: a 100-seat game takes on the order of 100,000 moves, so at live pace it is usually decided on standing at the deadline (territories, then armies) rather than played to the last player. Deloves play it through a focused view of the table ([Delove at a mega table](../packages/delove/README.md)) |
 | `survival` | Zerg survival | a normal bracket with **Zerg entrants** in the field (`zergs` at create or in the schedule entry, e.g. 75 Deloves + 25 Zergs, or 50 + 50). At every table the **last player standing who is not a Zerg** moves on, and a Zerg never does: the table ends the moment one non-Zerg is left of two or more (the engine's `lastSurvivor` / `endBySurvival`, through `GameRoom.commit`); if the swarm wipes them all, the last one out moves on. A table decided at the deadline moves on its best non-Zerg by standing. The table's order lists the non-Zergs first, so placement points follow survival. Zergs play as everywhere (they never attack each other while prey is left); later rounds hold the survivors, so most Zergs are in round 1. Use `minTable: 4` so tables of 3 do not leave a single non-Zerg with two Zergs |
 
+- **On demand** (the owner: "and on demand when i feel like testing it"): `POST /api/admin/schedule/run`
+  `{style, startsInMinutes?}` (admin token) opens a one-off run of the schedule's first entry of that style, as its
+  slots run: its roster (uncapped, yielding to people), Zergs and settings, sign-up open now, the start in
+  `startsInMinutes` (1-60, default the entry's check-in window). The entry's own timetable is untouched, and the run
+  survives a restart (`oneOffs` in `tournament-schedule.json`). 404 when the server has no schedule. A host can also
+  pick the style on the site's Create tournament form or in MCP `create_tournament` (`style`), within the hosting caps.
 - **The bracket** shows the style: `nested.style` and `nested.minTable` in the tournament view; the Next tournament
   card and `next_tournament` (MCP) name it ("Classic groups", "1v1s", "Zerg survival").
 - **Leaderboards.** Each finished tournament's result stores its `style` (results saved before styles count as
@@ -482,6 +489,15 @@ house roster seats as each slot opens.
     { "every": 45, "at": "00:30", "name": "Zerg survival", "style": "survival", "minTable": 4, "zergs": 25,
       "signupMinutes": 6, "checkinMinutes": 6, "roster": 75, "maxEntrants": 100 }
   ]
+  ```
+
+  The **mega tournament** (owner, 2026-10-28: "once at noon and once at midnight. and on demand"), two more entries:
+
+  ```json
+  { "at": "12:00", "tz": "America/Los_Angeles", "name": "Mega tourney", "style": "mega",
+    "signupMinutes": 15, "checkinMinutes": 10, "roster": 100, "maxEntrants": 100 },
+  { "at": "00:00", "tz": "America/Los_Angeles", "name": "Mega tourney", "style": "mega",
+    "signupMinutes": 15, "checkinMinutes": 10, "roster": 100, "maxEntrants": 100 }
   ```
 
   Each slot starts on time, whether or not the one before has finished: the events overlap, so the seat pool needs

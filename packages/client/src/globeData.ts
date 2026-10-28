@@ -16,8 +16,11 @@ export interface GlobeData {
   badges: number[];
   /** Cell corners as a flat [lon, lat, lon, lat, ...] list. */
   corners: number[];
-  /** Per cell: its corner indices (clockwise seen from outside) and what it is (territory index, -1 sea, -2 ice). */
-  cells: { v: number[]; t: number }[];
+  /**
+   * Per cell: its corner indices (clockwise seen from outside), what it is (territory index, -1 sea, -2 ice) and, on a
+   * board with closing ice (Mega Earth), `r`: its ring count from the North and the South pole.
+   */
+  cells: { v: number[]; t: number; r?: [number, number] }[];
 }
 
 const loaders = import.meta.glob<GlobeData>('./generated/*.globe.json', { import: 'default' });

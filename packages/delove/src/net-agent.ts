@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { MessageChannel, receiveMessageOnPort, Worker } from 'node:worker_threads';
 import { getMap, type GameState, type MapDef } from '@risk/engine';
 import { searchAgent } from './search.js';
+import { focusSeats, focusView } from './focus.js';
 import { encodeDecision, FOG_INPUT_VERSION, seatInput, fogInputs, GLOBAL_FEATURES, stepAgent, TERRITORY_FEATURES, type Agent, type Features, type StepContext } from '@risk/selfplay';
 
 /** Largest candidate list a decision can have (Greater Europe connected fortify stays far below this). */
@@ -75,8 +76,10 @@ export class NetScorer {
   /** Logits for each candidate (higher = better) and the win probability for the decider. */
   score(ctx: StepContext): { logits: Float32Array; value: number } {
     const worker = this.start();
-    const seatIds = seatOrder(ctx.state);
-    const f = encodeDecision(seatInput(ctx.state, seatIds, ctx.me, ctx.traits, ctx.candidates, ctx.fortifyFrom ?? -1));
+    // A table bigger than the network's seat slots (the mega tournament) is seen through a focused view (focus.ts).
+    const view = focusView(ctx.state, ctx.me);
+    const seatIds = focusSeats(view, seatOrder(ctx.state));
+    const f = encodeDecision(seatInput(view, seatIds, ctx.me, ctx.traits, ctx.candidates, ctx.fortifyFrom ?? -1));
     const x = this.inputs(f, ctx.state.options.map, !!ctx.state.options.fogOfWar);
     const C = f.candidates;
     if (C > MAX_CANDIDATES) throw new Error(`Delove: ${C} candidates, more than ${MAX_CANDIDATES}`);

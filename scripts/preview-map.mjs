@@ -66,7 +66,9 @@ const [W, H] = map.viewBox;
 const colour = new Map(map.continents.map((c, i) => [c.id, `hsl(${Math.round((i * 360) / map.continents.length)}, 55%, ${i % 2 ? 62 : 52}%)`]));
 const byId = new Map(map.territories.map((t) => [t.id, t]));
 const dense = map.territories.length > 50;
-const badge = dense ? 15 : 19;
+// A huge board (Mega Earth: one territory per hexagon): small badges, no names, drawn twice as wide.
+const huge = map.territories.length > 300;
+const badge = huge ? 3 : dense ? 15 : 19;
 
 let ref = '';
 const r = opt('--ref');
@@ -94,7 +96,7 @@ const territories = map.territories
   .join('');
 const outlines = map.continents.map((c) => `<path d="${c.outline}"/>`).join('');
 const badges = map.territories
-  .map((t) => `<circle cx="${t.x}" cy="${t.y}" r="${badge}"/><text class="name" x="${t.x}" y="${t.y + badge + 9}">${esc(t.name)}</text>`)
+  .map((t) => `<circle cx="${t.x}" cy="${t.y}" r="${badge}"/>${huge ? '' : `<text class="name" x="${t.x}" y="${t.y + badge + 9}">${esc(t.name)}</text>`}`)
   .join('');
 // The client puts a region label at its labelX/labelY, or above the region's anchors when it has none.
 const labels = map.continents
@@ -110,7 +112,7 @@ const labels = map.continents
   .join('');
 
 return `<p>${esc(map.name)} <code>${esc(map.id)}</code>: ${map.territories.length} territories, ${map.continents.length} regions, ${map.edges.length} edges, ${map.seaLinks.length} sea links, viewBox ${W}x${H}</p>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" class="${dense ? 'dense' : ''}" style="max-width:${sheet ? W : Math.max(W, 1000)}px">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" class="${dense ? 'dense' : ''}" style="max-width:${sheet ? W : huge ? 2 * W : Math.max(W, 1000)}px">
 <rect width="${W}" height="${H}" fill="#0d1b2a"/>${ref}
 <g class="land">${territories}</g><g class="outlines">${outlines}</g><g class="sea">${seaLinks}</g>
 <g class="badges">${badges}</g><g>${labels}</g>

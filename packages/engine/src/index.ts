@@ -18,4 +18,5 @@ export * from './record.js';
 export * from './timeout.js';
 export * from './nest-start.js';
 export * from './stall.js';
+export * from './ice.js';
 export * from './seats.js';

@@ -125,3 +125,4 @@
   white-space: nowrap;
 }
 .next-tourney-style.style-survival { color: var(--nt-red); }
+.next-tourney-style.style-mega { color: #ffd166; }

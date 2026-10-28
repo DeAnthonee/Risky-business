@@ -1,2 +1,1 @@
 hosting: - 2026-10-28 #332 the server re-reads index.html when it changes on disk: a client rebuilt in place after a failed test gate no longer leaves the site blank (the old page named deleted /assets bundles)
-server: - 2026-10-28 #332 the Zerg survival tournament test checks endBySurvival only on tables where it applies (two or more non-Zergs seated, not won outright by a move), no longer flaky on random seating and dice

@@ -136,6 +136,8 @@ def replay_batch(recs, traces, e_args, ranker_pt, cfg, stats, gcfg=None, roll_pt
                         if cpu_opts != gpu_opts:
                             stats["opt_diff"] += 1
                             why = f"options differ: cpu {[name(e, x) for x in cpu_opts]} gpu {[name(e, x) for x in gpu_opts]}"
+                            lg_k = rank(dg[k:k + 1], mask)[0]  # the GPU ranker's logits there, to tell a near-tie
+                            why += f" (GPU ranker logits: {dict((name(e, x), round(float(lg_k[x]), 7)) for x in dict.fromkeys(cpu_opts + gpu_opts))})"
                             if sorted(cpu_opts) == sorted(gpu_opts) or cpu_opts[0] == gpu_opts[0]:
                                 stats["opt_rank"] += 1
                         else:
@@ -210,12 +212,15 @@ def main():
     ap.add_argument("--root", default=d.root, choices=["top", "gumbel"], help="as DELOVE_BRANCH_ROOT for the log")
     ap.add_argument("--gumbel-k", type=int, default=d.gumbel_k, help="as DELOVE_BRANCH_K")
     ap.add_argument("--copies", type=int, default=d.copies, help="as DELOVE_BRANCH_COPIES")
+    ap.add_argument("--incumbent", default=d.incumbent, choices=["teacher", "net"], help="T2: the move the margin rule protects (DELOVE_BRANCH_INCUMBENT)")
+    ap.add_argument("--styles", default=d.styles, help="T2: opponent styles in the rollouts, e.g. net:0.4,aggr:0.2,turtle:0.2,zerg:0.2 (DELOVE_BRANCH_STYLES; needs --rollout)")
     ap.add_argument("--batch", type=int, default=400)
     ap.add_argument("--games", type=int, default=0)
     args = ap.parse_args()
     cfg = d
     cfg.options, cfg.rollouts, cfg.horizon, cfg.margin, cfg.score = args.options, args.rollouts, args.horizon, args.margin, args.score
     cfg.root, cfg.gumbel_k, cfg.copies = args.root, args.gumbel_k, args.copies
+    cfg.incumbent, cfg.styles = args.incumbent, args.styles
     models = Path(args.models)
     params = agent_params(args.teacher, models)
     ranker_pt = load_delove(models / f"{args.ranker}.pt", "cuda")

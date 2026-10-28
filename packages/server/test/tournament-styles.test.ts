@@ -95,17 +95,17 @@ describe('tournament styles', () => {
     const rooms = r1.map((m) => store.get(m.gameId!)!);
     expect(rooms.every((r) => r.survival)).toBe(true);
     await until(() => t.status === 'finished');
-    // A table seated with two or more non-Zergs that ended with one of them left and Zergs still in ended the moment
-    // that seat was alone (the engine's endBySurvival). Not "some table": the seating and dice are random, and a table
-    // seated with one non-Zerg plays on (lastSurvivor needs two), and a move that wins outright (the last capital)
-    // ends the game first, so a run can have no survival end at all.
-    for (const r of rooms) {
-      const seated = r.state.players.filter((p) => !p.isNeutral && !r.isZerg(p.id));
-      const alive = r.state.players.filter((p) => p.alive && !p.isNeutral);
-      if (seated.length < 2 || !alive.some((p) => r.isZerg(p.id)) || alive.filter((p) => !r.isZerg(p.id)).length !== 1) continue;
-      const last = r.history.at(-1);
-      if (last?.playerId && last.events.some((e) => e.type === 'game_over')) continue;
-      expect(r.chat.some((c) => /last one standing against the swarm/.test(c.message))).toBe(true);
+    // A table seated with two or more non-Zergs and left with one, Zergs still in, ended right then, won by that
+    // non-Zerg (the engine's endBySurvival, or its finish share when the same conquest reached it). Checked on every
+    // table: whether any table ends that way depends on the dice. Skipped: a table a Zerg won outright (one conquest
+    // that took the second-last non-Zerg out and the finish share too; the table still moves its non-Zerg on, below).
+    for (const room of t.rounds.flatMap((r) => r.matches).map((m) => store.get(m.gameId!)!)) {
+      const seated = room.state.players.filter((p) => !p.isNeutral && !room.isZerg(p.id));
+      const alive = room.state.players.filter((p) => p.alive && !p.isNeutral);
+      const others = alive.filter((p) => !room.isZerg(p.id));
+      if (seated.length < 2 || others.length !== 1 || others.length === alive.length) continue;
+      if (room.state.winner && room.isZerg(room.state.winner)) continue;
+      expect(room.state.winner).toBe(others[0].id);
     }
     const zerg = (eid: string | null) => t.entrants.find((e) => e.id === eid)?.kind === 'zerg';
     for (const m of t.rounds.flatMap((r) => r.matches)) {

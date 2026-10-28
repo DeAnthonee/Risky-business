@@ -15,6 +15,7 @@ import {
   jacobPickWith,
   type JacobParams,
 } from './jacob.js';
+import { parseStyles, styleParams } from './styles.js';
 import { DEFAULT_TEACHER_PARAMS, teacherPickWith, type TeacherParams } from './teacher.js';
 
 /** A Jacob Sensei version's numbers, and a staged version's duel numbers (jacobPickWith(params, duel)). */
@@ -55,6 +56,13 @@ function branchScore(v: string | undefined): BranchOptions['score'] {
 function branchRoot(v: string | undefined): BranchOptions['root'] {
   if (v === undefined || v === '') return DEFAULT_BRANCH.root;
   if (v !== 'top' && v !== 'gumbel') throw new Error(`DELOVE_BRANCH_ROOT must be top or gumbel, not ${v}`);
+  return v;
+}
+
+/** DELOVE_BRANCH_INCUMBENT: 'teacher' (default) or 'net' (BranchOptions.incumbent). */
+function branchIncumbent(v: string | undefined): BranchOptions['incumbent'] {
+  if (v === undefined || v === '') return DEFAULT_BRANCH.incumbent;
+  if (v !== 'teacher' && v !== 'net') throw new Error(`DELOVE_BRANCH_INCUMBENT must be teacher or net, not ${v}`);
   return v;
 }
 
@@ -111,6 +119,20 @@ export function branchFromEnv(
   const teacherId = env.DELOVE_BRANCH_TEACHER ?? [...tuned.sensei.keys()].pop() ?? 'delove-teacher@1';
   const jacobParams = tuned.jacob.get(teacherId);
   const teacherPick = jacobParams ? jacobPickWith(jacobParams.params, jacobParams.duel) : teacherPickWith(tuned.sensei.get(teacherId) ?? DEFAULT_TEACHER_PARAMS);
+  // T2 opponent styles: the rollout teacher with each style's multipliers (styles.ts)
+  const styleMix = parseStyles(env.DELOVE_BRANCH_STYLES);
+  const stylePicks = styleMix
+    ? Object.fromEntries(
+        styleMix.names
+          .filter((n) => n !== 'net')
+          .map((n) => [
+            n,
+            jacobParams
+              ? jacobPickWith(styleParams(jacobParams.params, n), jacobParams.duel && styleParams(jacobParams.duel, n))
+              : teacherPickWith(styleParams(tuned.sensei.get(teacherId) ?? DEFAULT_TEACHER_PARAMS, n)),
+          ]),
+      )
+    : null;
   const rolloutPick = variant ? variant.rolloutPick(teacherPick) : teacherPick;
   const rankerPath = join(dir, `${env.DELOVE_BRANCH_RANKER ?? 'delove@2'}.onnx`);
   const ranker = existsSync(rankerPath) ? new NetScorer(rankerPath) : null;
@@ -155,6 +177,8 @@ export function branchFromEnv(
     root: branchRoot(env.DELOVE_BRANCH_ROOT),
     gumbelK: num('DELOVE_BRANCH_K', DEFAULT_BRANCH.gumbelK),
     copies: num('DELOVE_BRANCH_COPIES', DEFAULT_BRANCH.copies),
+    incumbent: branchIncumbent(env.DELOVE_BRANCH_INCUMBENT),
+    styles: env.DELOVE_BRANCH_STYLES ?? DEFAULT_BRANCH.styles,
     weights: env.DELOVE_STRENGTH ? JSON.parse(readFileSync(env.DELOVE_STRENGTH, 'utf8')).weights : DEFAULT_BRANCH.weights,
   };
   const search = branchAgent(
@@ -165,6 +189,7 @@ export function branchFromEnv(
     valuer,
     rolloutNet(env.DELOVE_BRANCH_ROLLOUT, dir, ranker),
     fogSearch,
+    stylePicks,
   );
   // Fog search: remember what each fog decision shows (the sampler reads it), then search.
   const agent: Agent = !fogSearch
@@ -223,7 +248,7 @@ export function fogSafe(search: Agent, ranker: NetScorer | null, teacherPick: (c
 export function branchSeatsFromEnv(dir = modelsDir(), env: NodeJS.ProcessEnv = process.env): Agent[] {
   // ...:gumbel: the same seat with the Gumbel root (branch.ts gumbelRoot), e.g. on a cycle's 2p and stage tables only;
   // the value blend is off for them (the Gumbel root does not support it)
-  const g = { ...env, DELOVE_BRANCH_ROOT: 'gumbel', DELOVE_BRANCH_VALUE: '0' };
+  const g = { ...env, DELOVE_BRANCH_ROOT: 'gumbel', DELOVE_BRANCH_VALUE: '0', DELOVE_BRANCH_INCUMBENT: 'teacher', DELOVE_BRANCH_STYLES: '' };
   const same = (pick: (ctx: StepContext) => number) => pick;
   return [
     branchFromEnv(dir, env),

@@ -5,6 +5,7 @@ import { getMap } from '@risk/engine';
 import { playGame, type Agent, type StepContext } from '@risk/selfplay';
 import { branchAgent, decisionScore, DEFAULT_BRANCH, gumbel, gumbelSchedule, killCredit, pointsScore, positionScore, threatDeflection } from '../src/branch.js';
 import { DEFAULT_TEACHER_PARAMS, NetScorer, teacher, teacherPickWith } from '../src/index.js';
+import { copyStyles, parseStyles, STYLE_SCALES, styleParams } from '../src/styles.js';
 
 /** A 4-player World position from the middle of a teacher game. */
 function midGame(): GameState {
@@ -194,5 +195,53 @@ describe('Gumbel root (root: gumbel)', () => {
 
   it('refuses the value blend', () => {
     expect(() => branchAgent('b', teacherPickWith(DEFAULT_TEACHER_PARAMS), null, { ...DEFAULT_BRANCH, root: 'gumbel', valueWeight: 0.5 })).toThrow();
+  });
+});
+
+describe('T2: network incumbent and opponent styles', () => {
+  const TINY = fileURLToPath(new URL('./fixtures/tiny.onnx', import.meta.url));
+  const MIX = 'net:0.4,aggr:0.2,turtle:0.2,zerg:0.2';
+
+  it('parses a mix and refuses unknown or repeated styles and bad weights', () => {
+    expect(parseStyles('')).toBeNull();
+    expect(parseStyles(MIX)).toEqual({ names: ['net', 'aggr', 'turtle', 'zerg'], weights: [0.4, 0.2, 0.2, 0.2] });
+    expect(() => parseStyles('net:1,blob:1')).toThrow();
+    expect(() => parseStyles('net:1,net:1')).toThrow();
+    expect(() => parseStyles('aggr:0')).toThrow();
+  });
+
+  it('draws one style per seat from the seed: the decider plays net, the draws follow the weights', () => {
+    const mix = parseStyles(MIX)!;
+    expect(copyStyles(12345, 4, 2, mix)).toEqual(copyStyles(12345, 4, 2, mix));
+    const count: Record<string, number> = {};
+    for (let seed = 0; seed < 4000; seed++) {
+      const s = copyStyles(seed, 3, 0, mix);
+      expect(s[0]).toBe('net');
+      count[s[1]] = (count[s[1]] ?? 0) + 1;
+    }
+    expect(count.net / 4000).toBeGreaterThan(0.35);
+    expect(count.net / 4000).toBeLessThan(0.45);
+    for (const n of ['aggr', 'turtle', 'zerg']) expect(count[n] / 4000).toBeGreaterThan(0.15);
+  });
+
+  it("scales the teacher's numbers per style", () => {
+    const a = styleParams(DEFAULT_TEACHER_PARAMS, 'aggr');
+    expect(a.minWin).toBe(DEFAULT_TEACHER_PARAMS.minWin * STYLE_SCALES.aggr.minWin!);
+    expect(a.targetShare).toBe(DEFAULT_TEACHER_PARAMS.targetShare);
+    expect(styleParams(DEFAULT_TEACHER_PARAMS, 'turtle').defenseBase).toBeGreaterThan(DEFAULT_TEACHER_PARAMS.defenseBase);
+  });
+
+  it('plays legally and deterministically with the network incumbent and styles; refuses styles without a rollout network', () => {
+    const net = new NetScorer(TINY);
+    const opts = { ...DEFAULT_BRANCH, options: 3, rollouts: 2, horizon: 1, margin: 0.01, incumbent: 'net' as const, styles: MIX };
+    const picks = Object.fromEntries(['aggr', 'turtle', 'zerg'].map((n) => [n, teacherPickWith(styleParams(DEFAULT_TEACHER_PARAMS, n))]));
+    const play = () => {
+      const agent = branchAgent('b', teacherPickWith(DEFAULT_TEACHER_PARAMS), net, opts, null, { net, seats: 'self' }, null, picks);
+      const g = playGame({ seed: 6, seats: [{ agent }, { agent: teacher }, { agent: teacher }], maxTurns: 4, record: true, onIllegal: 'throw' });
+      return g.records!.map((r) => r.choice);
+    };
+    expect(play()).toEqual(play());
+    expect(() => branchAgent('b', teacherPickWith(DEFAULT_TEACHER_PARAMS), net, opts, null, null, null, picks)).toThrow(/rollout network/);
+    expect(() => branchAgent('b', teacherPickWith(DEFAULT_TEACHER_PARAMS), net, { ...opts, root: 'gumbel' })).toThrow();
   });
 });

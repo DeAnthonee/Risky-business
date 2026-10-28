@@ -134,7 +134,10 @@ export async function playSeat(o: SeatOptions): Promise<GameView | null> {
         await sleep(1000);
         break;
       }
-      if (o.paceMs > 0) await sleep(o.paceMs);
+      // The table may ask for a faster pace than ours (a 100-seat mega table has none): the lower one wins.
+      const tablePace = (view as GameView & { pace?: number }).pace;
+      const pace = typeof tablePace === 'number' ? Math.min(o.paceMs, tablePace) : o.paceMs;
+      if (pace > 0) await sleep(pace);
     }
     if (view.phase === 'finished') return view;
   }

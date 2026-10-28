@@ -95,8 +95,18 @@ describe('tournament styles', () => {
     const rooms = r1.map((m) => store.get(m.gameId!)!);
     expect(rooms.every((r) => r.survival)).toBe(true);
     await until(() => t.status === 'finished');
-    // Some table ended the moment one non-Zerg was left (the engine's endBySurvival), with Zergs still in.
-    expect(rooms.some((r) => r.chat.some((c) => /last one standing against the swarm/.test(c.message)))).toBe(true);
+    // A table seated with two or more non-Zergs that ended with one of them left and Zergs still in ended the moment
+    // that seat was alone (the engine's endBySurvival). Not "some table": the seating and dice are random, and a table
+    // seated with one non-Zerg plays on (lastSurvivor needs two), and a move that wins outright (the last capital)
+    // ends the game first, so a run can have no survival end at all.
+    for (const r of rooms) {
+      const seated = r.state.players.filter((p) => !p.isNeutral && !r.isZerg(p.id));
+      const alive = r.state.players.filter((p) => p.alive && !p.isNeutral);
+      if (seated.length < 2 || !alive.some((p) => r.isZerg(p.id)) || alive.filter((p) => !r.isZerg(p.id)).length !== 1) continue;
+      const last = r.history.at(-1);
+      if (last?.playerId && last.events.some((e) => e.type === 'game_over')) continue;
+      expect(r.chat.some((c) => /last one standing against the swarm/.test(c.message))).toBe(true);
+    }
     const zerg = (eid: string | null) => t.entrants.find((e) => e.id === eid)?.kind === 'zerg';
     for (const m of t.rounds.flatMap((r) => r.matches)) {
       if (!m.entrants.some((e) => !zerg(e))) continue;

@@ -65,9 +65,11 @@ export class ScheduleSettings {
 
   /** Forget the saved schedule: back to the server's own (RISK_TOURNAMENT_SCHEDULE), or none. */
   reset(): ScheduleSettingsView {
-    if (this.entriesFile && existsSync(this.entriesFile)) rmSync(this.entriesFile);
+    // Check the server's own list first, so a bad one refuses the reset without losing the saved schedule.
     const raw = this.env?.raw ?? [];
-    this.run(raw.length ? parseSchedule(raw, this.store.tournaments) : [], raw, this.env?.source ?? null);
+    const entries = raw.length ? parseSchedule(raw, this.store.tournaments) : [];
+    if (this.entriesFile && existsSync(this.entriesFile)) rmSync(this.entriesFile);
+    this.run(entries, raw, this.env?.source ?? null);
     return this.view();
   }
 
@@ -76,6 +78,8 @@ export class ScheduleSettings {
     if (old) {
       old.persist();
       old.stop();
+      // Turned off: no new scheduler calls off what the old one left open, so do it here.
+      if (!entries.length) old.cancelOpen();
     }
     this.store.schedule = entries.length ? new TournamentScheduler(this.store.tournaments, entries, this.stateFile, this.onOpened) : null;
     this.raw = raw;

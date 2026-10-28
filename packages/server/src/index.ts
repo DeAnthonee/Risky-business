@@ -49,8 +49,8 @@ let scheduleSource: string | null = null;
 try {
   const found = scheduleFromEnv(process.env);
   if (found) {
-    envSchedule = { raw: Array.isArray(found.raw) ? found.raw : [found.raw], source: found.source };
     schedule = parseSchedule(found.raw, store.tournaments);
+    envSchedule = { raw: Array.isArray(found.raw) ? found.raw : [found.raw], source: found.source };
     [scheduleRaw, scheduleSource] = [envSchedule.raw, found.source];
     scheduleNote = describeSchedule(schedule, found.source);
   }

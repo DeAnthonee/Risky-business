@@ -78,10 +78,18 @@ describe('the recurring tournaments settings page (/api/admin/schedule)', () => 
       expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual([...ENV, mega]);
       expect(scheduleFromSaved(file)).toEqual({ raw: [...ENV, mega], source: 'the settings page' });
 
-      // An empty list turns the schedule off (and is kept so); reset goes back to the server's own schedule.
+      // An entry whose sign-up is open now opens its tournament at once.
+      const soon = { at: '12:30', name: 'Soon Nest', signupMinutes: 60, roundMinutes: 20 };
+      expect((await call('PUT', { entries: [soon] })).status).toBe(200);
+      const open = store.tournaments.list().find((t) => t.name === 'Soon Nest' && t.status === 'registering');
+      expect(open).toBeDefined();
+
+      // An empty list turns the schedule off (and is kept so), calling off what it left registering; reset goes back
+      // to the server's own schedule.
       const off = await call('PUT', { entries: [] });
       expect(off.body).toMatchObject({ source: null, entries: [] });
       expect(store.schedule).toBeNull();
+      expect(store.tournaments.get(open!.id)!.status).not.toBe('registering');
       const reset = await call('DELETE');
       expect(reset.body).toMatchObject({ source: 'RISK_TOURNAMENT_SCHEDULE', entries: ENV });
       expect(store.schedule!.entries).toHaveLength(1);

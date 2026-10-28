@@ -499,6 +499,16 @@ export class TournamentScheduler {
     }
   }
 
+  /** The schedule was turned off: call off its tournaments still registering (they would never start). */
+  cancelOpen() {
+    const runs = [...this.slots.values(), ...[...this.oneOffs.values()].map((r) => r.slot)];
+    for (const slot of runs) {
+      if (slot.done || !slot.tournamentId || this.tournaments.get(slot.tournamentId)?.status !== 'registering') continue;
+      this.tournaments.cancel(slot.tournamentId, CANCEL_CHANGED);
+      console.log(`tournament schedule: ${slot.tournamentId} called off (${CANCEL_CHANGED})`);
+    }
+  }
+
   stop() {
     this.stopped = true;
     if (this.timer !== null) this.tournaments.clock.clearTimeout(this.timer);

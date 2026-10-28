@@ -222,7 +222,10 @@ but the roster can still be guessed:
   are around, though not which name plays which.
 - Play style (move speed, timing, Delove's habits) may give a model away to anyone who watches long enough.
 
-None of this reveals the answer key (name → model), which is what the yardstick needs to stay blind.
+**Update (2026-10-27):** the owner asked for the model on every leaderboard ("D12 for delove 12 or D13-S"), so the
+boards now show each roster name's model publicly ([tournaments.md](tournaments.md#the-house-roster)). The answer key
+is public on the boards; a blind yardstick now needs roster names kept off the boards' model column (or a board of
+its own).
 
 **Fix (when it matters):** leave `delove` out of the public `requested` counts for tournaments with roster seats, and
 seat only roster names (no plain Delove seats) in daily tournaments.

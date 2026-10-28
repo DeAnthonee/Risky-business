@@ -1,0 +1,6 @@
+engine: - 2026-10-27 #PR `planNest` option `firstMinTable` (the first round's smallest table); Zerg survival end: `lastSurvivor` and `endBySurvival` in `standing.ts` (not GPU-mirrored)
+server: - 2026-10-27 #PR tournament styles: nested `style` (`classic`, `1v1`, `survival`) and `minTable` at create and in schedule entries (with `zergs`, and `minTable` as a list the slots take in turn); survival tables end at their last non-Zerg and move on the best non-Zerg; `GET /tournaments/next` names the style; one tournament board per style (`/rankings?board=tournament&style=`) and a `model` column (D13, D13-S) on every board
+mcp: - 2026-10-27 #PR `next_tournament` names the style; `leaderboard` takes `style` for the tournament boards and shows each Delove's model
+client: - 2026-10-27 #PR Next tournament card shows the style (Classic groups, 1v1s, Zerg survival); the Tournament board has a button per style; every board tags a Delove's model after its name
+hosting: - 2026-10-27 #PR the 15-minute rotation of styles overlaps events: run the seat pool with `--max-seats` about 275 for full fields
+docs: - 2026-10-27 #PR tournaments.md "Tournament styles" and the rotation schedule; hardening #16 notes the roster's models are now public on the boards

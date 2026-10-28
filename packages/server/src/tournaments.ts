@@ -23,6 +23,7 @@ import {
   type GameOptions,
   type NestNode,
   type NestPlan,
+  type NestPlanOptions,
   type Rng,
 } from '@risk/engine';
 import type { GameRoom, Store } from './store.js';
@@ -65,6 +66,29 @@ export const REAL_CLOCK: TournamentClock = {
 };
 
 export type TournamentFormat = 'knockout' | 'nested';
+
+/**
+ * A nested tournament's style (docs/tournaments.md "Tournament styles"): `classic` groups of 3-6 (the default),
+ * `1v1` (every table two seats, the final too), or `survival` (Zergs among the entrants, and at every table the last
+ * player standing who is not a Zerg moves on; a Zerg never does). Each style has its own tournament leaderboard.
+ */
+export type TournamentStyle = 'classic' | '1v1' | 'survival';
+export const TOURNAMENT_STYLES: readonly TournamentStyle[] = ['classic', '1v1', 'survival'];
+/** What the site and agents call each style. */
+export const STYLE_LABELS: Record<TournamentStyle, string> = { classic: 'Classic groups', '1v1': '1v1s', survival: 'Zerg survival' };
+
+/** A style from an untrusted value: undefined when absent, else one of TOURNAMENT_STYLES. */
+export function parseStyle(raw: unknown): TournamentStyle | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (typeof raw === 'string' && (TOURNAMENT_STYLES as readonly string[]).includes(raw)) return raw as TournamentStyle;
+  throw new RuleError(`style must be one of ${TOURNAMENT_STYLES.map((x) => `"${x}"`).join(', ')}`);
+}
+
+/** The planner's table sizes for a style; `minTable` raises the first round's smallest table (classic, survival). */
+export function stylePlanOptions(style: TournamentStyle | undefined, minTable: number | undefined, maxFinal: number): NestPlanOptions {
+  if (style === '1v1') return { minTable: 2, maxTable: 2, minFinal: 2, maxFinal: 2, prefer: 2 };
+  return { maxFinal, ...(minTable !== undefined ? { firstMinTable: minTable } : {}) };
+}
 
 export type TournamentStatus = 'registering' | 'running' | 'finished';
 
@@ -174,6 +198,10 @@ export interface NestedSettings {
   blizzardShare?: number;
   /** A seed the host fixed at create (else one is drawn at start). */
   fixedSeed?: number;
+  /** The style (absent: classic, as every tournament saved before styles). */
+  style?: TournamentStyle;
+  /** Smallest first-round table (classic and survival); absent: the planner's 3. */
+  minTable?: number;
   /** Set at start: the seed of every board and of the seating, the plan, each table's board, and each table's portals
    * (the territories its children's winners start on, in portal order). */
   seed?: number;
@@ -264,6 +292,10 @@ export interface CreateTournamentSpec {
   botDelayMs?: number;
   /** Nested: fix the seed of the boards, seating and tie-break dice (replays and simulations); default random. */
   seed?: number;
+  /** Nested: the style, classic (default), 1v1 or survival. */
+  style?: TournamentStyle;
+  /** Nested, classic or survival: the first round's smallest table (3-6, default 3). */
+  minTable?: number;
   /** Set by the server's schedule only (never parsed from a request): the planned start. */
   scheduled?: { startsAt: number; checkinMinutes?: number };
   /**
@@ -323,6 +355,9 @@ export interface TournamentView {
     botDelayMs: number | null;
     /** Blizzards as a share of each table's territories, or null when every table uses options.blizzards. */
     blizzardShare: number | null;
+    style: TournamentStyle;
+    /** The first round's smallest table, or null for the planner's 3. */
+    minTable: number | null;
     plan: number[][] | null;
     zergs: number;
     /** The board tree from the start (null before): each table's board, seats, portals, parent board and portal. */
@@ -582,7 +617,7 @@ export class TournamentManager extends EventEmitter {
     const roundMinutes = spec.roundMinutes ?? NESTED_ROUND_MINUTES;
     const botDelayMs = spec.botDelayMs ?? 300;
     const finalMax = spec.finalMap ? this.maxFinal(spec.finalMap) : NESTED_FINAL.max;
-    const plan = planNest(total, { maxFinal: finalMax });
+    const plan = planNest(total, stylePlanOptions(spec.style, spec.minTable, finalMax));
     // Round 1 as it would be seated: open spots are guests, Delove seats house AI (seated after the guests), then Zergs.
     const entrants = [
       ...Array.from({ length: counts.open }, (_, i) => ({ id: `p${i}`, isBot: false })),
@@ -657,6 +692,13 @@ export class TournamentManager extends EventEmitter {
     if (spec.seed !== undefined && (!Number.isInteger(spec.seed) || spec.seed < 0 || spec.seed > 0xffffffff)) throw new RuleError('seed must be a whole number from 0 to 4294967295');
     const maxEntrants = spec.maxEntrants ?? DEFAULT_MAX_NESTED_ENTRANTS;
     if (!Number.isInteger(maxEntrants) || maxEntrants < 2 || maxEntrants > MAX_ENTRANTS) throw new RuleError(`maxEntrants must be a whole number from 2 to ${MAX_ENTRANTS}`);
+    const style = spec.style ?? 'classic';
+    if (!TOURNAMENT_STYLES.includes(style)) throw new RuleError(`style must be one of ${TOURNAMENT_STYLES.join(', ')}`);
+    if (spec.minTable !== undefined) {
+      if (style === '1v1') throw new RuleError('minTable is for classic and survival tournaments (1v1 tables always seat 2)');
+      if (!Number.isInteger(spec.minTable) || spec.minTable < NESTED_TABLE.min || spec.minTable > NESTED_TABLE.max) throw new RuleError(`minTable must be a whole number from ${NESTED_TABLE.min} to ${NESTED_TABLE.max}`);
+    }
+    if (style === '1v1' && spec.finalMap !== undefined) throw new RuleError('A 1v1 final is a two-seat generated board: leave finalMap out');
     let finalMap: string | null = null;
     if (spec.finalMap !== undefined) {
       if (!isMapId(spec.finalMap)) throw new RuleError(`Unknown map "${spec.finalMap}"`);
@@ -688,7 +730,17 @@ export class TournamentManager extends EventEmitter {
       updatedAt: now,
       version: 1,
       format: 'nested',
-      nested: { finalMap, territoriesPerSeat: tps, roundMinutes, finishShare, botDelayMs, ...(blizzardShare !== undefined ? { blizzardShare } : {}), ...(spec.seed !== undefined ? { fixedSeed: spec.seed } : {}) },
+      nested: {
+        finalMap,
+        territoriesPerSeat: tps,
+        roundMinutes,
+        finishShare,
+        botDelayMs,
+        ...(blizzardShare !== undefined ? { blizzardShare } : {}),
+        ...(spec.seed !== undefined ? { fixedSeed: spec.seed } : {}),
+        ...(style !== 'classic' ? { style } : {}),
+        ...(spec.minTable !== undefined ? { minTable: spec.minTable } : {}),
+      },
       ...(spec.scheduled ? { scheduled: { startsAt: spec.scheduled.startsAt, ...(spec.scheduled.checkinMinutes !== undefined ? { checkinMinutes: spec.scheduled.checkinMinutes } : {}) } } : {}),
     };
     this.tournaments.set(id, t);
@@ -1045,6 +1097,8 @@ export class TournamentManager extends EventEmitter {
               finishShare: t.nested.finishShare,
               botDelayMs: t.nested.botDelayMs ?? null,
               blizzardShare: t.nested.blizzardShare ?? null,
+              style: t.nested.style ?? 'classic',
+              minTable: t.nested.minTable ?? null,
               plan: t.nested.plan ? t.nested.plan.rounds.map((r) => r.map((x) => x.seats)) : null,
               zergs: t.nested.plan?.zergs ?? 0,
               nodes: t.nested.nodes ?? null,
@@ -1158,6 +1212,19 @@ export class TournamentManager extends EventEmitter {
   }
 
   /** The first entrant in `order` that was not dropped (a stand-in never moves on), or null. */
+  /**
+   * Zerg survival: the table's order puts every non-Zerg first (still in, by standing, then the last one out first) and
+   * the best of them that was not dropped moves on, whoever won the game. A table with no such player keeps the game's
+   * winner, so the bracket never has a hole.
+   */
+  private survivalWinner(t: TournamentSnapshot, m: TournamentMatch) {
+    if (t.nested?.style !== 'survival' || !m.order || (m.status !== 'finished' && m.status !== 'decided')) return;
+    const zerg = (eid: string) => this.entrant(t, eid)?.kind === 'zerg';
+    m.order = [...m.order.filter((eid) => !zerg(eid)), ...m.order.filter(zerg)];
+    const survivor = this.firstNotDropped(t, m.order.filter((eid) => !zerg(eid)));
+    if (survivor) m.winner = survivor;
+  }
+
   private firstNotDropped(t: TournamentSnapshot, order: readonly string[]): string | null {
     return order.find((eid) => !this.entrant(t, eid)?.dropped) ?? null;
   }
@@ -1268,6 +1335,7 @@ export class TournamentManager extends EventEmitter {
       this.scoreTable(m, room);
       // A stalemate's table order is its standing, as for a table decided at a round's end.
       if (m.status === 'decided' && m.standing) m.order = m.standing.order;
+      this.survivalWinner(t, m);
       room.off('change', settle);
       room.off('closed', settle);
       room.off('seat_dropped', onDrop);
@@ -1352,7 +1420,7 @@ export class TournamentManager extends EventEmitter {
   /** Plan the rounds, add the bots the plan needs, draw the boards and seat round 1 (every table at once). */
   private startNested(t: TournamentSnapshot): TournamentSnapshot {
     const n = t.nested!;
-    const plan = planNest(t.entrants.length, { maxFinal: n.finalMap ? this.maxFinal(n.finalMap) : NESTED_FINAL.max });
+    const plan = planNest(t.entrants.length, stylePlanOptions(n.style, n.minTable, n.finalMap ? this.maxFinal(n.finalMap) : NESTED_FINAL.max));
     // The bots the plan needs are Zerg entrants (docs/zergs.md), with reptile names unique in the tournament.
     for (let i = 1; i <= plan.zergs; i++) {
       const entrant: Entrant = { id: `e_${newId(6)}`, name: freeZergName(t.entrants.map((e) => e.name)), isBot: true, kind: 'zerg', joinedAt: Date.now() };
@@ -1397,6 +1465,7 @@ export class TournamentManager extends EventEmitter {
         t.id,
         {
           ...(n.botDelayMs !== undefined ? { botDelayMs: n.botDelayMs } : {}),
+          ...(n.style === 'survival' ? { survival: true } : {}),
           // Engine rules: every winner starts on the portal territory it came up through. If that start cannot be
           // built, the table starts as usual rather than leave the tournament stuck between rounds.
           ...(onPortals
@@ -1494,7 +1563,8 @@ export class TournamentManager extends EventEmitter {
       // The tournament board: kills from the game so far, and the standing as the table's order.
       this.scoreTable(m, room);
       m.order = order;
-      const names = order.map((eid, i) => `${i + 1}. ${this.entrant(t, eid)?.name ?? '?'}`).join(', ');
+      this.survivalWinner(t, m);
+      const names = (m.order ?? order).map((eid, i) => `${i + 1}. ${this.entrant(t, eid)?.name ?? '?'}`).join(', ');
       room.decide(`Round ${round.round} is over: this table was decided on standing (territories, then armies, then dice): ${names}.`, now, { standing: standing.order, rolls: standing.rolls });
     }
     round.endedAt = now;

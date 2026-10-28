@@ -18,6 +18,14 @@ export function countdown(ms: number): string {
   return `${m}m ${pad(s % 60)}s`;
 }
 
+/** One line on what the style plays like, under its name. */
+function styleLine(next: NonNullable<NextTournament['next']>): string | null {
+  if (next.style === '1v1') return 'Head to head: two seats a table, winners move on.';
+  if (next.style === 'survival') return `${next.zergs ? `${next.zergs} Zergs in the field. ` : ''}The last one standing who is not a Zerg moves on.`;
+  if (next.minTable && next.minTable > 3) return `At least ${next.minTable} players a table in round 1.`;
+  return null;
+}
+
 const at = (ms: number) => new Date(ms).toLocaleString(undefined, { weekday: 'short', hour: '2-digit', minute: '2-digit' });
 
 export function NextTournamentCard({ onOpen }: { onOpen: (id: string) => void }) {
@@ -50,7 +58,10 @@ export function NextTournamentCard({ onOpen }: { onOpen: (id: string) => void })
   return (
     <section className="next-tourney" aria-labelledby="next-tourney-title">
       <div className="next-tourney-head">
-        <h2 id="next-tourney-title">{today ? "Today's tournament" : 'Next tournament'}</h2>
+        <h2 id="next-tourney-title">
+          {today ? "Today's tournament" : 'Next tournament'}
+          {next?.label && <span className={`next-tourney-style style-${next.style ?? 'classic'}`}>{next.label}</span>}
+        </h2>
         <p>Boards inside boards: win your table, carry your army into the next. Empty seats go to the Zerg swarm.</p>
       </div>
       {next && (
@@ -62,6 +73,7 @@ export function NextTournamentCard({ onOpen }: { onOpen: (id: string) => void })
           </div>
           <div className="next-tourney-info">
             <strong className="next-tourney-name">{next.name}</strong>
+            {styleLine(next) && <span className="muted small">{styleLine(next)}</span>}
             {open ? (
               <>
                 <span className="next-tourney-seats">
@@ -94,7 +106,7 @@ export function NextTournamentCard({ onOpen }: { onOpen: (id: string) => void })
         <div className="next-tourney-live">
           <span className="next-tourney-dot" aria-hidden="true" />
           <span>
-            Playing now: <strong>{running.name}</strong>, round {running.round}
+            Playing now: <strong>{running.name}</strong>{running.label ? ` (${running.label})` : ''}, round {running.round}
           </span>
           <button onClick={() => onOpen(running.id)}>Watch</button>
         </div>

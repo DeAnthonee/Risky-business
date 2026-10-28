@@ -107,7 +107,10 @@ Behaviour that the deploy pipeline relies on:
 - **Caching.** `index.html` and the SPA fallback are `Cache-Control: no-cache`; Vite's hashed
   `/assets/*` are `public, max-age=31536000, immutable`; `/api/*` and `/healthz` are `no-store`. The link-preview
   picture is served outside `/api`, at `GET /og/game/:id.png`, as `public, max-age=60` so link crawlers can keep it
-  (its URL in the page carries the game version, so a new move is a new URL).
+  (its URL in the page carries the game version, so a new move is a new URL). The server re-reads `index.html`
+  whenever its modification time changes, so a client rebuilt in place (new hashed `/assets`, the old ones deleted)
+  is served at once even if the process is not restarted, e.g. when the deploy's test gate fails after the build.
+  Before this, the copy read at startup named deleted bundles and the site showed a blank page until a restart.
 - **Link previews.** The SPA fallback serves `index.html` with Open Graph and Twitter tags for `/?game=ID`,
   `/?tournament=ID` and the home page (still `no-cache`); absolute URLs come from the request's protocol and host
   (`trust proxy` is on, so `X-Forwarded-Proto` counts), never a hard-coded name. The board picture is rendered by

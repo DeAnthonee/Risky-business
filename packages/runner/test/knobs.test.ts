@@ -200,4 +200,44 @@ describe('card every turn (progressive cards) and plan knobs', () => {
       armies: 19,
     });
   });
+
+  it('situational attack termination: stops after bonus when border is tight, but continues on surplus or lethal or 1v1', () => {
+    const state = frozenBoard(false);
+    state.phase = 'attack';
+    state.territories.eastern_australia = { owner: 's0', armies: 2 };
+    state.territories.western_australia = { owner: 's0', armies: 2 };
+    state.territories.new_guinea = { owner: 's0', armies: 2 };
+    state.territories.indonesia = { owner: 's0', armies: 6 };
+    state.territories.siam = { owner: 's5', armies: 4 };
+    state.players.find((p) => p.id === 's0')!.conqueredThisTurn = true;
+
+    // 1. Tight border: stops after bonus to preserve choke garrison.
+    const tightView = viewFor(state, 's0');
+    const tightAction = choosePlannedAction(tightView, 's0', { stopAfterBonus: true }, seeded(1));
+    expect(tightAction?.type).not.toBe('attack');
+
+    // 2. Massive surplus on choke: attacks while keeping the defensive garrison.
+    state.territories.indonesia.armies = 30;
+    const surplusView = viewFor(state, 's0');
+    const surplusAction = choosePlannedAction(surplusView, 's0', { stopAfterBonus: true }, seeded(1));
+    expect(surplusAction).toMatchObject({
+      type: 'attack',
+      from: 'indonesia',
+      to: 'siam',
+    });
+    expect((surplusAction as { stopAt?: number })?.stopAt).toBeGreaterThanOrEqual(3);
+
+    // 3. 1v1 endgame: restraint turns off completely to break and starve the rival.
+    state.territories.indonesia.armies = 8;
+    for (const p of state.players) {
+      if (p.id !== 's0' && p.id !== 's5') p.alive = false;
+    }
+    const v1v1 = viewFor(state, 's0');
+    const action1v1 = choosePlannedAction(v1v1, 's0', { stopAfterBonus: true }, seeded(1));
+    expect(action1v1).toMatchObject({
+      type: 'attack',
+      from: 'indonesia',
+      to: 'siam',
+    });
+  });
 });

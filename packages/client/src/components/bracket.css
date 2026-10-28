@@ -1,0 +1,128 @@
+/* The tournament bracket: rounds as columns, left to right, joined by lines (Bracket.tsx). */
+.bracket {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  gap: 36px;
+  overflow-x: auto;
+  padding: 4px 4px 14px;
+  -webkit-overflow-scrolling: touch;
+}
+.bracket-lines {
+  position: absolute;
+  inset: 0 auto auto 0;
+  pointer-events: none;
+  overflow: visible;
+}
+.bracket-lines path {
+  fill: none;
+  stroke: var(--brown);
+  stroke-width: 2;
+  opacity: 0.55;
+}
+.bracket-lines path.won {
+  stroke: var(--red);
+  stroke-width: 3;
+  opacity: 1;
+}
+.bracket-lines path.tbd {
+  stroke-dasharray: 5 5;
+}
+.bracket-col {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 200px;
+  min-width: 0;
+}
+.bracket-col-title {
+  margin: 0 0 10px;
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: 1.05em;
+  text-align: center;
+}
+/* Spread each column over the full height, so a later round sits level with the tables feeding it. */
+.bracket-cells {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-around;
+  gap: 12px;
+}
+.bracket-cell {
+  position: relative;
+  background: var(--paper);
+  border: 2px solid var(--ink);
+  box-shadow: 3px 3px 0 var(--ink);
+  padding: 6px 8px 8px;
+  font-size: 0.92em;
+}
+.bracket-cell.playing {
+  border-color: var(--red);
+  box-shadow: 3px 3px 0 var(--red);
+}
+.bracket-cell.tbd {
+  border-style: dashed;
+  box-shadow: none;
+  background: transparent;
+  color: var(--brown);
+}
+.bracket-cell-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.bracket-status {
+  font-size: 0.78em;
+  font-weight: 800;
+  text-transform: uppercase;
+  color: var(--brown);
+}
+.bracket-cell.playing .bracket-status {
+  color: #fff;
+  background: var(--red);
+  padding: 0 5px;
+}
+.bracket-cell ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.bracket-cell li {
+  padding: 2px 0;
+  border-top: 1px dashed #6e432644;
+  overflow-wrap: anywhere;
+}
+.bracket-cell li:first-child {
+  border-top: 0;
+}
+.bracket-cell li.won {
+  font-weight: 800;
+  background: var(--sun);
+  padding-inline: 4px;
+}
+.bracket-cell li.out {
+  color: var(--brown);
+  text-decoration: line-through;
+  opacity: 0.75;
+}
+.bracket-tbd {
+  margin: 0;
+  font-style: italic;
+}
+.bracket-watch {
+  margin-top: 6px;
+  width: 100%;
+}
+
+@media (max-width: 719px) {
+  .bracket {
+    gap: 26px;
+  }
+  .bracket-col {
+    flex-basis: 168px;
+  }
+}

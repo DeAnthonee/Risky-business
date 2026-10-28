@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from '
 import { dirname } from 'node:path';
 import { RuleError } from '@risk/engine';
 import { parseTournamentSpec } from './http.js';
-import { DEFAULT_CHECKIN_MINUTES, NESTED_ROUND_MINUTES, type CreateTournamentSpec, type TournamentManager, type TournamentSnapshot } from './tournaments.js';
+import { DEFAULT_CHECKIN_MINUTES, NESTED_ROUND_MINUTES, STYLE_LABELS, type CreateTournamentSpec, type TournamentManager, type TournamentSnapshot, type TournamentStyle } from './tournaments.js';
 
 /** One schedule entry as the owner writes it. */
 export interface ScheduleEntryInput {
@@ -33,6 +33,15 @@ export interface ScheduleEntryInput {
   checkinMinutes?: number;
   /** Fewer people or agents than this at the start calls the slot off (2-256, default 2: a nested tournament needs 2). */
   minEntrants?: number;
+  /** "classic" (default), "1v1" or "survival" (docs/tournaments.md "Tournament styles"). */
+  style?: TournamentStyle;
+  /**
+   * The first round's smallest table (classic and survival, 3-6), or a list the slots take in turn
+   * (`[3, 4, 5]`: one slot at 3, the next at 4, then 5, then 3 again).
+   */
+  minTable?: number | number[];
+  /** Zerg entrants added to each slot as it opens (0-256), inside maxEntrants with the roster. */
+  zergs?: number;
   /** Any nested tournament setting: finalMap, maxEntrants, roundMinutes, territoriesPerSeat, finishShare, botDelayMs, options. */
   [key: string]: unknown;
 }
@@ -49,6 +58,8 @@ export interface ScheduleEntry {
   every: number | null;
   /** House roster seats asked for each slot (0 = none). */
   roster: number;
+  /** The first-round minimum table sizes the slots take in turn, or null for the planner's default. */
+  minTables: number[] | null;
   signupMinutes: number;
   checkinMinutes: number;
   minEntrants: number;
@@ -56,7 +67,7 @@ export interface ScheduleEntry {
 }
 
 const DAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
-const ENTRY_KEYS = new Set(['at', 'daily', 'every', 'tz', 'signupDays', 'roster', 'name', 'signupMinutes', 'checkinMinutes', 'minEntrants', 'finalMap', 'maxEntrants', 'roundMinutes', 'territoriesPerSeat', 'finishShare', 'botDelayMs', 'options']);
+const ENTRY_KEYS = new Set(['at', 'daily', 'every', 'tz', 'signupDays', 'roster', 'style', 'minTable', 'zergs', 'name', 'signupMinutes', 'checkinMinutes', 'minEntrants', 'finalMap', 'maxEntrants', 'roundMinutes', 'territoriesPerSeat', 'finishShare', 'botDelayMs', 'options']);
 /** A scheduled tournament's seats when its entry gives no maxEntrants (the nested default). */
 export const DEFAULT_SCHEDULED_MAX = 128;
 export const CANCEL_NOT_ENOUGH = 'not enough entrants';
@@ -173,16 +184,27 @@ export function parseSchedule(raw: unknown, tournaments: Pick<TournamentManager,
       const minEntrants = whole(e.minEntrants, 'minEntrants', 2, 256, 2);
       // The key keeps its #234 shape (checkinMinutes only when the entry sets it), so a deploy restarts no open slot.
       const { at: _at, signupMinutes: _s, minEntrants: _m, ...rest } = e;
-      const { checkinMinutes: _c, daily: _d, every: _ev, tz: _t, signupDays: _sd, roster: _r, ...specRest } = rest;
+      const { checkinMinutes: _c, daily: _d, every: _ev, tz: _t, signupDays: _sd, roster: _r, minTable: _mt, ...specRest } = rest;
+      const minTables = e.minTable === undefined ? null : Array.isArray(e.minTable) ? e.minTable : [e.minTable];
+      if (minTables && (!minTables.length || minTables.length > 24)) throw new RuleError('minTable must be a number or a list of 1-24 numbers');
       const spec: CreateTournamentSpec = { ...parseTournamentSpec({ ...specRest, format: 'nested' }), name: String(e.name ?? 'Scheduled tournament') };
-      tournaments.checkNested(spec);
-      if (roster > (spec.maxEntrants ?? DEFAULT_SCHEDULED_MAX)) throw new RuleError(`roster (${roster}) is more than maxEntrants (${spec.maxEntrants ?? DEFAULT_SCHEDULED_MAX})`);
+      // Every table size the slots will take, checked now.
+      for (const minTable of minTables ?? [undefined]) tournaments.checkNested({ ...spec, ...(minTable !== undefined ? { minTable } : {}) });
+      const zergs = spec.zergs ?? 0;
+      if (roster + zergs > (spec.maxEntrants ?? DEFAULT_SCHEDULED_MAX)) throw new RuleError(`roster (${roster})${zergs ? ` plus zergs (${zergs})` : ''} is more than maxEntrants (${spec.maxEntrants ?? DEFAULT_SCHEDULED_MAX})`);
       const key = JSON.stringify({ at: e.at, signupMinutes, minEntrants, ...rest });
-      return { key, at, tz: e.tz ?? null, days, minuteOfDay, every, roster, signupMinutes, checkinMinutes, minEntrants, spec };
+      return { key, at, tz: e.tz ?? null, days, minuteOfDay, every, roster, minTables, signupMinutes, checkinMinutes, minEntrants, spec };
     } catch (err) {
       throw new RuleError(`${where}: ${(err as Error).message}`);
     }
   });
+}
+
+/** The first-round minimum table of the slot starting at `startsAt`: the entry's list, one slot after another. */
+export function slotMinTable(e: Pick<ScheduleEntry, 'minTables' | 'every'>, startsAt: number): number | undefined {
+  if (!e.minTables) return undefined;
+  const n = Math.floor(startsAt / ((e.every ?? 1440) * 60_000));
+  return e.minTables[n % e.minTables.length];
 }
 
 /** Read the schedule from the environment: RISK_TOURNAMENT_SCHEDULE (JSON) or RISK_TOURNAMENT_SCHEDULE_FILE. */
@@ -219,11 +241,24 @@ export interface NextTournament {
     roster: number;
     /** The entry's time zone (IANA), or null for UTC. */
     tz: string | null;
+    /** Its style, and what to call it ("Classic groups", "1v1s", "Zerg survival"). */
+    style: TournamentStyle;
+    label: string;
+    /** The first round's smallest table (classic and survival), or null for the planner's 3. */
+    minTable: number | null;
+    /** Zerg entrants added as it opens. */
+    zergs: number;
   } | null;
   /** A scheduled tournament being played now. */
-  running: { id: string; name: string; startsAt: number; round: number } | null;
+  running: { id: string; name: string; startsAt: number; round: number; style: TournamentStyle; label: string } | null;
   /** The latest scheduled tournament that was called off, when no later one has started. */
-  cancelled: { id: string; name: string; startsAt: number; reason: string } | null;
+  cancelled: { id: string; name: string; startsAt: number; reason: string; style: TournamentStyle; label: string } | null;
+}
+
+/** A style and its label (absent = classic). */
+function styleOf(style: TournamentStyle | undefined): { style: TournamentStyle; label: string } {
+  const s = style ?? 'classic';
+  return { style: s, label: STYLE_LABELS[s] };
 }
 
 export class TournamentScheduler {
@@ -304,7 +339,8 @@ export class TournamentScheduler {
       try {
         // Roster seats are counted like a host's Delove seats (requested.delove), inside the slot's maxEntrants.
         const seats = e.roster ? { delove: e.roster, maxEntrants: e.spec.maxEntrants ?? DEFAULT_SCHEDULED_MAX } : {};
-        const t = this.tournaments.create({ ...e.spec, ...seats, scheduled: { startsAt: slot.startsAt, checkinMinutes: e.checkinMinutes } });
+        const minTable = slotMinTable(e, slot.startsAt);
+        const t = this.tournaments.create({ ...e.spec, ...seats, ...(minTable !== undefined ? { minTable } : {}), scheduled: { startsAt: slot.startsAt, checkinMinutes: e.checkinMinutes } });
         slot.tournamentId = t.id;
         this.retryAt.delete(e.key);
         console.log(`tournament schedule: ${t.id} "${t.name}" open for sign-up, starts ${new Date(slot.startsAt).toISOString()}${e.roster ? `, ${e.roster} roster seats requested` : ''}`);
@@ -376,6 +412,9 @@ export class TournamentScheduler {
         minEntrants: e.minEntrants,
         roster: e.roster,
         tz: e.tz,
+        ...styleOf(e.spec.style),
+        minTable: t?.nested?.minTable ?? slotMinTable(e, slot.startsAt) ?? null,
+        zergs: e.spec.zergs ?? 0,
       };
     }
     const playing = scheduled.filter((t) => t.status === 'running').sort((a, b) => b.scheduled!.startsAt - a.scheduled!.startsAt)[0];
@@ -383,8 +422,8 @@ export class TournamentScheduler {
     const off = scheduled.filter((t) => t.scheduled!.cancelled && t.scheduled!.startsAt > lastStarted).sort((a, b) => b.scheduled!.startsAt - a.scheduled!.startsAt)[0];
     return {
       next,
-      running: playing ? { id: playing.id, name: playing.name, startsAt: playing.scheduled!.startsAt, round: playing.rounds.length } : null,
-      cancelled: off ? { id: off.id, name: off.name, startsAt: off.scheduled!.startsAt, reason: off.scheduled!.cancelled! } : null,
+      running: playing ? { id: playing.id, name: playing.name, startsAt: playing.scheduled!.startsAt, round: playing.rounds.length, ...styleOf(playing.nested?.style) } : null,
+      cancelled: off ? { id: off.id, name: off.name, startsAt: off.scheduled!.startsAt, reason: off.scheduled!.cancelled!, ...styleOf(off.nested?.style) } : null,
     };
   }
 

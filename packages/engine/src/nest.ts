@@ -16,6 +16,12 @@ import { RuleError } from './types.js';
 export interface NestPlanOptions {
   /** Smallest and largest table before the final (default 3 and 6). */
   minTable?: number;
+  /**
+   * Smallest table in the first round only (default minTable): the round with most of the games. Raising it keeps a big
+   * field at 4- or 5-seat tables while later rounds may still seat 3 (a minimum of 5 at every round leaves no plan for
+   * 100 players without Zergs).
+   */
+  firstMinTable?: number;
   maxTable?: number;
   /** Smallest and largest final (default 6 and 10). */
   minFinal?: number;
@@ -66,6 +72,8 @@ function seatPlan(seats: number, final: number, o: Required<NestPlanOptions>): {
     const next = new Map<number, { cost: number; path: number[] }>();
     for (const [above, v] of layer)
       for (let s = above * o.minTable; s <= Math.min(above * o.maxTable, seats); s++) {
+        // A layer reaching the field is the first round: its tables follow firstMinTable.
+        if (s === seats && s < above * o.firstMinTable) continue;
         const avg = s / above - o.prefer;
         const cost = v.cost + avg * avg;
         const old = next.get(s);
@@ -85,9 +93,11 @@ function seatPlan(seats: number, final: number, o: Required<NestPlanOptions>): {
  * add the fewest Zergs that make one fit (with the same choices), spread over the first-round tables.
  */
 export function planNest(players: number, options: NestPlanOptions = {}): NestPlan {
-  const o: Required<NestPlanOptions> = { minTable: 3, maxTable: 6, minFinal: 6, maxFinal: 10, prefer: 4, maxRounds: 8, ...options };
+  const base = { minTable: 3, maxTable: 6, minFinal: 6, maxFinal: 10, prefer: 4, maxRounds: 8, ...options };
+  const o: Required<NestPlanOptions> = { ...base, firstMinTable: options.firstMinTable ?? base.minTable };
   if (!Number.isInteger(players) || players < 2) throw new RuleError('A nested tournament needs at least 2 players');
   if (o.minTable < 2 || o.maxTable < o.minTable || o.minFinal < 2 || o.maxFinal < o.minFinal) throw new RuleError('Invalid table sizes');
+  if (o.firstMinTable < o.minTable || o.firstMinTable > o.maxTable) throw new RuleError('Invalid first-round table size');
   for (let zergs = 0; zergs <= Math.max(o.minFinal, players * (o.maxTable - 1)); zergs++) {
     let best: { seats: number[]; cost: number; final: number } | null = null;
     for (let final = o.maxFinal; final >= o.minFinal; final--) {

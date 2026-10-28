@@ -18,7 +18,7 @@ import { parseDecisionNote, type GameRoom, type RankingBoard, type Store } from 
 import { BOT_KINDS, type BotKind } from './bot.js';
 import { narrate, playByPlayText } from './playbyplay.js';
 import type { CharacterStore } from './characters.js';
-import type { CreateTournamentSpec } from './tournaments.js';
+import { parseStyle, STYLE_LABELS, type CreateTournamentSpec } from './tournaments.js';
 import { NO_TOURNEY_CAPS, TournamentAccess } from './tournament-access.js';
 import { NO_SEAT_CAPS, SeatRequests, type SeatRequest } from './seat-requests.js';
 import { setupPrompt } from './setup-prompt.js';
@@ -66,6 +66,8 @@ export function parseTournamentSpec(body: Record<string, unknown>, admin = false
     zergs: int(body.zergs, 'zergs'),
     delove: int(body.delove, 'delove'),
     open: int(body.open, 'open'),
+    style: parseStyle(body.style),
+    minTable: int(body.minTable, 'minTable'),
     ...(admin ? { seed: int(body.seed, 'seed') } : {}),
   };
 }
@@ -203,16 +205,20 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
   // ?season=<id> reads an archived season (ids from /rankings/seasons); without it, the current one.
   const seasonOf = (req: Request) => (req.query.season === undefined ? undefined : String(req.query.season).slice(0, 20));
   // ?board=training reads the training leaderboard (yardstick games; no seasons), ?board=tournament the tournament one
-  // (its own rows: points, tournaments, championships...); ?board=public or none, the public one.
+  // (its own rows: points, tournaments, championships...; &style=classic|1v1|survival for one style's board, default
+  // classic); ?board=public or none, the public one. Every row carries `model` (D13, D13-S) when it is a Delove.
   const boardOf = (req: Request): LeaderboardName | undefined => parseLeaderboard(req.query.board, true);
   api.get('/rankings', (req, res) => {
     const board = boardOf(req);
-    if (board === 'tournament') return res.json({ board, current: true, rankings: store.tournamentBoard.rows() });
-    if (board) return res.json({ board, season: String(store.training.season), current: true, rankings: store.training.rows() });
+    if (board === 'tournament') {
+      const style = parseStyle(req.query.style) ?? 'classic';
+      return res.json({ board, style, label: STYLE_LABELS[style], current: true, rankings: store.withModels(store.tournamentBoard.rows(style)) });
+    }
+    if (board) return res.json({ board, season: String(store.training.season), current: true, rankings: store.withModels(store.training.rows()) });
     const season = seasonOf(req);
     const rankings = store.rankings.seasonRows(season);
     if (!rankings) return res.status(404).json({ error: `No leaderboard season ${season}` });
-    res.json({ season: season || String(store.rankings.season), current: !season || season === String(store.rankings.season), rankings });
+    res.json({ season: season || String(store.rankings.season), current: !season || season === String(store.rankings.season), rankings: store.withModels(rankings) });
   });
   // House bots (the home-page widget): fun stats for the server's bots, aggregated from the tournament results. Not a ranking.
   api.get('/house-bots', (_req, res) => res.json({ ...store.tournamentBoard.houseBots(), swarm: store.swarmReport() }));

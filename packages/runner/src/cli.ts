@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { MAPS, type GameOptions } from '@risk/engine';
 import { HttpRiskApi } from '@risk/mcp';
-import { OllamaLlm } from './llm.js';
+import { llmStatsSink, OllamaLlm } from './llm.js';
 import { LoopControl, runLoop } from './loop.js';
 import { mapMaxPlayers, RANDOM_MAX_PLAYERS, RANDOM_MIN_PLAYERS, rotationMaps, type MapChoice, type PlayerCount } from './presets.js';
 import { withRetry } from './resilient.js';
@@ -32,8 +32,9 @@ sets plans, talks, and writes up what it learned after every game)
   --characters-key KEY    bind seats to their characters (leaderboard) and save diary entries and relationship updates
   --model NAME            Ollama model (default qwen3:14b)
   --ollama URL            Ollama base URL (default http://localhost:11434)
-  --ctx N                 Ollama context window, num_ctx (default 20480)
+  --ctx N                 Ollama context window, num_ctx (default 16384)
   --llm-concurrency N     simultaneous model requests (default 1)
+  --llm-stats FILE        append one JSON line per model call (queue wait, prompt/output tokens and times) to FILE
   --plan-timeout SEC      how long a move waits for the commander's plan (default 45)
   --no-commander          plain planned bot, no model call per turn
   --no-learn              skip every post-game write (results, notes, learnings file, scouting log)
@@ -46,6 +47,7 @@ sets plans, talks, and writes up what it learned after every game)
   --generation TAG        tag stored on each result (default derived: gen4 with --smart-seats 1, mechanics, or gen5)
   --pace MS               pause after each action (default 800, or 0 with --mechanics-only)
   --max-chat-per-turn N   messages per seat per game turn (default 2)
+  --free-chat             let the diplomats' own words through (default: pings and bare deal tags only)
   --game ID               join this existing lobby instead of creating games (one game; see --start; default seats: the six League ones)
   --start                 with --game: start it if one of our seats is the host
   --verbose               log every chat line and failure detail
@@ -75,8 +77,9 @@ async function main() {
       'characters-key': { type: 'string' },
       model: { type: 'string', default: 'qwen3:14b' },
       ollama: { type: 'string', default: 'http://localhost:11434' },
-      ctx: { type: 'string', default: '20480' },
+      ctx: { type: 'string', default: '16384' },
       'llm-concurrency': { type: 'string', default: '1' },
+      'llm-stats': { type: 'string' },
       'plan-timeout': { type: 'string', default: '45' },
       'no-commander': { type: 'boolean', default: false },
       'no-learn': { type: 'boolean', default: false },
@@ -88,6 +91,7 @@ async function main() {
       'open-seats': { type: 'string', default: '0' },
       pace: { type: 'string' },
       'max-chat-per-turn': { type: 'string', default: '2' },
+      'free-chat': { type: 'boolean', default: false },
       generation: { type: 'string' },
       verbose: { type: 'boolean', default: false },
       help: { type: 'boolean', default: false },
@@ -141,10 +145,17 @@ async function main() {
   const chat = !v['no-chat'] && !mechanicsOnly;
   const needLlm = commander || chat || learn;
   const llm = needLlm
-    ? new OllamaLlm({ baseUrl: v.ollama, model: v.model, concurrency: num(v['llm-concurrency']!, 'llm-concurrency'), numCtx: num(v.ctx!, 'ctx') })
+    ? new OllamaLlm({
+        baseUrl: v.ollama,
+        model: v.model,
+        concurrency: num(v['llm-concurrency']!, 'llm-concurrency'),
+        numCtx: num(v.ctx!, 'ctx'),
+        onStats: llmStatsSink(v['llm-stats'], v.verbose ? log : undefined),
+      })
     : null;
   const paceMs = v.pace !== undefined ? num(v.pace, 'pace') : mechanicsOnly ? 0 : 800;
   const maxChatPerTurn = num(v['max-chat-per-turn']!, 'max-chat-per-turn');
+  const freeChat = Boolean(v['free-chat']);
   const aiDir = findAiDir(v['ai-dir']);
   if (v['ai-dir'] && !aiDir) fail(`--ai-dir ${v['ai-dir']} has no characters/ folder`);
 
@@ -195,6 +206,7 @@ async function main() {
     learn,
     chat,
     maxChatPerTurn,
+    freeChat,
     charactersKey: mechanicsOnly ? undefined : v['characters-key'],
     mechanicsOnly,
     curationInterval,
@@ -227,6 +239,7 @@ async function main() {
         const character = llm && chat && characterId ? await loadCharacter(api, characterId, aiDir) : null;
         return new SeatRunner({
           api,
+          freeChat,
           gameId: id.gameId,
           playerId: id.playerId,
           token: id.token,

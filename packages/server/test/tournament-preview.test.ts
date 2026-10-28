@@ -34,7 +34,7 @@ describe('tournament preview (POST /api/tournaments/preview)', () => {
     expect(p.tablesPerRound.at(-1)).toBe(1);
     expect(p.seatsPerRound[0].reduce((a: number, b: number) => a + b, 0)).toBe(100 + p.plannerZergs);
     expect(p.finalists).toBe(p.seatsPerRound.at(-1)[0]);
-    expect(p.finalBoard).toMatchObject({ generated: true, map: null, territories: p.finalists * 5 });
+    expect(p.finalBoard).toMatchObject({ generated: true, map: null, territories: p.finalists * 8 });
     // #240's seating: 50 people over the round-1 tables, so none is all Zergs.
     expect(p.firstRound).toHaveLength(p.tablesPerRound[0]);
     expect(p.firstRound.every((t: any) => t.people >= 1 && t.people + t.zergs === t.seats)).toBe(true);

@@ -81,16 +81,16 @@ describe('nested tournaments', () => {
     const { risk, call } = await serve(new Store(null, {}, { clock }));
     try {
       const bad = async (body: object) => (await call('/admin/tournaments', post({ format: 'nested', ...body }), ADMIN)).status;
-      expect(await bad({ territoriesPerSeat: 7 })).toBe(400);
+      expect(await bad({ territoriesPerSeat: 11 })).toBe(400);
       expect(await bad({ roundMinutes: 0 })).toBe(400);
       expect(await bad({ finishShare: 2 })).toBe(400);
       expect(await bad({ finalMap: 'skirmish' })).toBe(400); // seats 4: no final of 6
       expect(await bad({ finalMap: 'nowhere' })).toBe(400);
       expect(await bad({ format: 'swiss' })).toBe(400);
-      expect(await bad({ options: { neutrals: 4 } })).toBe(400); // too many for the smallest board
+      expect(await bad({ options: { neutrals: 6 } })).toBe(400); // too many for the smallest board (16 territories: at most 5)
       const ok = await call('/admin/tournaments', post({ format: 'nested', name: 'Inception', finalMap: 'world' }), ADMIN);
       expect(ok.status).toBe(201);
-      expect(ok.body.tournament).toMatchObject({ format: 'nested', map: 'nested', maxEntrants: 128, nested: { finalMap: 'world', territoriesPerSeat: 5, roundMinutes: 15, finishShare: 0.51, botDelayMs: 300, plan: null } });
+      expect(ok.body.tournament).toMatchObject({ format: 'nested', map: 'nested', maxEntrants: 128, nested: { finalMap: 'world', territoriesPerSeat: 8, roundMinutes: 15, finishShare: 0.51, botDelayMs: 300, plan: null } });
       // Hex Earth seats a final of 6-10 with a region per seat.
       const hex = await call('/admin/tournaments', post({ format: 'nested', name: 'Hex final', finalMap: 'hexworld', seed: 11 }), ADMIN);
       expect(hex.status).toBe(201);
@@ -148,10 +148,10 @@ describe('nested tournaments', () => {
       expect(started.status).toBe(200);
       expect(started.body.tournament.nested).toMatchObject({ plan: [[4, 4, 4, 4, 4, 4, 4, 4, 4, 4], [10]], zergs: 0 });
 
-      // Round 1: ten 4-seat tables at once, each on its own generated 20-territory board; people spread over tables.
+      // Round 1: ten 4-seat tables at once, each on its own generated 32-territory board; people spread over tables.
       const r1 = started.body.tournament.rounds[0];
       expect(r1.matches).toHaveLength(10);
-      expect(r1.matches.every((m: any) => m.status === 'playing' && /^gen1-s\d+-p4-t20$/.test(m.map))).toBe(true);
+      expect(r1.matches.every((m: any) => m.status === 'playing' && /^gen1-s\d+-p4-t32$/.test(m.map))).toBe(true);
       expect(new Set(r1.matches.map((m: any) => m.map)).size).toBe(10);
       // The whole board tree is public from the start: the final's board holds the ten round-1 boards in its portals.
       const nodes = started.body.tournament.nested.nodes;
@@ -228,7 +228,7 @@ describe('nested tournaments', () => {
       const final = t.rounds[1].matches[0];
       expect(t.rounds[1].matches).toHaveLength(1);
       expect(final.entrants).toEqual(ended.matches.map((m) => m.winner));
-      expect(final.map).toMatch(/^gen1-s\d+-p10-t50$/); // 10 regions, the default for 50 territories
+      expect(final.map).toMatch(/^gen1-s\d+-p10-t80$/); // 16 regions, the default for 80 territories
       expect(store.get(final.gameId!)!.state.players).toHaveLength(10);
       for (const p of people) {
         const me = (await call(`/tournaments/${id}`, {}, p.token)).body.tournament.you;
@@ -566,7 +566,7 @@ describe('nested tournaments', () => {
     // Blizzards scale with each table's board: 10%, at least 1 (lord of game development).
     expect(NESTED_BLIZZARD_SHARE).toBe(0.1);
     expect(t.nested!.blizzardShare).toBe(0.1);
-    expect([15, 30, 50].map((n) => blizzardsFor(genMapId({ seed: 1, seats: n / 5 }), 0.1))).toEqual([2, 3, 5]);
+    expect([15, 30, 50].map((n) => blizzardsFor(genMapId({ seed: 1, seats: n / 5, territoriesPerSeat: 5 }), 0.1))).toEqual([2, 3, 5]);
     // 100 entrants: three rounds (generated boards, then moved-on tables on generated boards, then the Hex Earth final).
     for (let i = 1; i <= 100; i++) t.entrants.push({ id: `e_${i}`, name: `B${i}`, isBot: true, joinedAt: 0 });
     store.tournaments.start(t.id);

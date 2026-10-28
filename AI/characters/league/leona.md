@@ -49,7 +49,8 @@ A devoted warrior of a sun-worshipping order. She believes strength exists to pr
 
 ## Lessons learned
 
-None yet
+- **Defensive Elimination & Border Consolidation:** Failing to execute an immediate kill on an adjacent, weakened rival sitting on cards (e.g. Sensei with 5 troops and 3 cards when you hold a 30-stack in GJJWQ9) invites unnecessary bonus-break counterattacks. Eliminating them not only secures 3 cards and kill points, but collapses an awkward 5-point perimeter into a compact 4-point bottleneck—an offensive strike that delivers superior defense.
+- **Frontline Border Fortification Balance:** When fortifying interior stacks to the frontier, never over-stack a border point that already has an adequate defensive garrison (e.g. pumping interior troops from Highspire into Bleak Pass when it already has a heavy stack) while leaving adjacent border points (like Bonefield) dangerously thin at 3 troops. Balance frontier defenses so no doorway is left exposed to opportunistic breaks.
 
 ## Game rules for this character
 

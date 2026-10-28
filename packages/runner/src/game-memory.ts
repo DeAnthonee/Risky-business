@@ -1,6 +1,7 @@
 import { getMap, nextTradeValue, exponentialTradeBonus, type GameEvent, type GameView } from '@risk/engine';
 import type { ChatResult } from '@risk/mcp';
 import type { Deal } from './deals.js';
+import type { SeatIntel } from './strategy.js';
 
 export interface ObservedBatch { version: number; events: GameEvent[]; playerId?: string | null }
 interface AttackRecord { attacks: number; armiesLost: number; lostTerritories: number; brokenBonuses: number }
@@ -52,6 +53,10 @@ export class GameMemory {
   private notices: Notice[] = [];
   private playerStats = new Map<string, PlayerActivityRecord>();
   private currentTurnPlayer: string | null = null;
+  /** Territories taken from this seat: by whom, when, and the bonus it broke. */
+  private losses: { round: number; attacker: string; territory: string; brokeBonus: string | null }[] = [];
+  /** Last owner seen on each territory (and when), so fogged rivals can be placed. */
+  private lastSeenOwner = new Map<string, { owner: string; round: number; armies: number }>();
   constructor(
     private me: string,
     private deals: () => Deal[] = () => [],
@@ -132,6 +137,9 @@ export class GameMemory {
   observe(view: GameView, batches: ObservedBatch[] = []) {
     if (this.gameId && this.gameId !== view.id) throw new Error('Game memory cannot cross game boundaries');
     this.gameId=view.id;
+    for (const [t, st] of Object.entries(view.territories)) {
+      if (!st.hidden && st.owner) this.lastSeenOwner.set(t, { owner: st.owner, round: view.round, armies: st.armies });
+    }
     const breaches: { player: string; agreementId: string }[] = [];
     const map=getMap(view.options.map);
     const name=(id:string)=>view.players.find(p=>p.id===id)?.name ?? id;
@@ -212,6 +220,7 @@ export class GameMemory {
             const stats=this.attacks.get(event.player) ?? {attacks:0,armiesLost:0,lostTerritories:0,brokenBonuses:0};
             stats.lostTerritories++;
             if (brokeBonus) stats.brokenBonuses++;
+            this.losses.push({ round: observed, attacker: event.player, territory: event.to, brokeBonus: brokeBonus ? region.id : null });
             this.attacks.set(event.player,stats);
             this.incidents.push(`${when}: ${name(event.player)} took ${map.territoryById[event.to]?.name ?? event.to}${brokeBonus ? ` and broke my ${region.name} bonus (+${region.bonus}/turn)` : ''}.`);
           }
@@ -226,7 +235,42 @@ export class GameMemory {
       }
     }
     this.incidents=this.incidents.slice(-200);
+    this.losses=this.losses.slice(-100);
     return breaches;
+  }
+
+  /** Rivals that took our territory in the last `rounds` rounds (this one included), newest first. */
+  recentAttackers(view: GameView, rounds = 1): NonNullable<SeatIntel['recentAttackers']> {
+    const by = new Map<string, { id: string; round: number; territories: string[]; brokeBonus: string | null }>();
+    for (const l of this.losses) {
+      if (view.round - l.round > rounds) continue;
+      if (!view.players.some((p) => p.id === l.attacker && p.alive)) continue;
+      const e = by.get(l.attacker) ?? { id: l.attacker, round: l.round, territories: [], brokeBonus: null };
+      e.round = Math.max(e.round, l.round);
+      if (!e.territories.includes(l.territory)) e.territories.push(l.territory);
+      if (l.brokeBonus) e.brokeBonus = l.brokeBonus;
+      by.set(l.attacker, e);
+    }
+    return [...by.values()].sort((a, b) => b.round - a.round);
+  }
+
+  /** Territories last seen owned by `pid` that are hidden now (newest sightings first). */
+  lastSeen(pid: string, view: GameView): { territory: string; round: number; armies: number }[] {
+    const out: { territory: string; round: number; armies: number }[] = [];
+    for (const [t, s] of this.lastSeenOwner) {
+      if (s.owner !== pid || !view.territories[t]?.hidden) continue;
+      out.push({ territory: t, round: s.round, armies: s.armies });
+    }
+    return out.sort((a, b) => b.round - a.round);
+  }
+
+  /** What this memory adds to the seat's own view, for the board facts and the move chooser. */
+  intel(view: GameView): SeatIntel {
+    return {
+      recentAttackers: this.recentAttackers(view),
+      estimateArmies: (pid) => this.getEstimatedArmies(pid, view),
+      lastSeen: (pid) => this.lastSeen(pid, view),
+    };
   }
 
   summary(view: GameView): string {

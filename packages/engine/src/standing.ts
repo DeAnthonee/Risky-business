@@ -81,3 +81,30 @@ export function endByStanding(state: GameState, side: ReadonlySet<PlayerId>, at 
     events: [{ type: 'game_over', winner }],
   };
 }
+
+/**
+ * Zerg survival (docs/tournaments.md "Tournament styles"): the one player left alive who is not of `side` (the swarm),
+ * once at least two of them were seated and every other one is out; else null. Not mid-conquest: the game ends after
+ * the armies move in, never with a 0-army territory. The server says who the swarm is; the decision is the engine's.
+ */
+export function lastSurvivor(state: GameState, side: ReadonlySet<PlayerId>): PlayerId | null {
+  if (state.phase === 'lobby' || state.phase === 'finished' || state.pendingConquest) return null;
+  const others = state.players.filter((p) => !p.isNeutral && !side.has(p.id));
+  if (others.length < 2) return null;
+  const living = others.filter((p) => p.alive);
+  return living.length === 1 ? living[0].id : null;
+}
+
+/**
+ * End a Zerg survival game: the last player standing who is not of the swarm wins, whatever the Zergs still hold.
+ * Nothing else changes (the Zergs stay in and are placed by the public board's own order). Emits the usual `game_over`.
+ * Called by the server only (a live room ends the game through its commit).
+ */
+export function endBySurvival(state: GameState, side: ReadonlySet<PlayerId>, at = Date.now()): ActionResult {
+  const winner = lastSurvivor(state, side);
+  if (!winner) throw new RuleError('More than one survivor is left, or the game cannot end now');
+  return {
+    state: { ...state, phase: 'finished', winner, currentPlayer: null, finishedAt: at, version: state.version + 1 },
+    events: [{ type: 'game_over', winner }],
+  };
+}

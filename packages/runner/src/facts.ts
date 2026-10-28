@@ -1,4 +1,5 @@
 import { getMap, tradeBonus, nextTradeValue, blitzOdds, type GameView, type PlayerId } from '@risk/engine';
+import { likelyRegion, naturalEnemies, pockets, sweepOpportunities, type SeatIntel } from './strategy.js';
 
 /**
  * The card set math, every turn: under progressive cards the next set's value (the engine's tradeBonus), what one
@@ -23,7 +24,7 @@ export function cardMath(view: GameView, me: PlayerId): string[] {
   return lines;
 }
 
-export function eliminationScouting(view: GameView, me: PlayerId, detailed = false): string[] {
+export function eliminationScouting(view: GameView, me: PlayerId, detailed = false, intel?: SeatIntel): string[] {
   const map = getMap(view.options.map);
   const livingRivals = view.players.filter((p) => p.alive && !p.isNeutral && p.id !== me);
   if (!livingRivals.length) return [];
@@ -45,10 +46,38 @@ export function eliminationScouting(view: GameView, me: PlayerId, detailed = fal
     : 'Elimination scouting (kills award +1 kill point, steal cards & boost placement):';
   lines.push(header);
 
+  const mine = new Set(myTerrs);
   for (const victim of livingRivals) {
     const knownTerrs = map.territoryIds.filter((t) => !view.territories[t]?.hidden && view.territories[t]?.owner === victim.id);
     const knownArmies = knownTerrs.reduce((sum, t) => sum + (view.territories[t]?.armies ?? 0), 0);
     const hasFullVis = victim.territoryCount !== null && knownTerrs.length === victim.territoryCount;
+    // Under fog a rival we cannot see at all used to come out as 0 territories and 0 armies, a "100% kill".
+    if (knownTerrs.length === 0 && victim.territoryCount === null) {
+      if (!detailed) continue;
+      // Fog read: where it was last seen, what its public income says, and the memory's army estimate.
+      const seen = intel?.lastSeen?.(victim.id) ?? [];
+      const region = likelyRegion(view, seen.map((x) => x.territory));
+      if (!region) {
+        lines.push(`- ${victim.name}: ${victim.cardCount} cards; none of its territories are visible (fog) and it was never seen: location and armies unknown, not a kill target this turn.`);
+        continue;
+      }
+      const cName = map.continentById[region]?.name ?? region;
+      const inc = victim.income?.total;
+      const est = intel?.estimateArmies?.(victim.id);
+      const near = seen.some((x) => (map.adjacency[x.territory] ?? []).some((n) => mine.has(n)));
+      const incText = inc === undefined || inc === null ? '' : inc <= 3 ? `; income +${inc}/turn: at most about 11 territories and no bonus` : `; income +${inc}/turn`;
+      let verdict = 'not next to you: not a kill this turn';
+      if (near && est !== undefined) {
+        const o = blitzOdds(Math.max(1, myStrikePool - seen.length), est, 2);
+        const w = Math.round((view.options.balancedBlitz ? o.balancedWin : o.win) * 100);
+        verdict = w >= 70
+          ? `POSSIBLE FOG KILL (estimate ${w}%): it borders you; line up your stacks around ${cName} before committing`
+          : `estimate ${w}%: not a kill yet, keep pressure on ${cName}`;
+      } else if (near) verdict = 'borders you, strength unknown';
+      lines.push(`- ${victim.name}: ${victim.cardCount} cards; unseen under fog, probably in ${cName} (last seen there in round ${seen[0].round})${incText}${est !== undefined ? `; estimated ~${est} armies` : ''}. ${verdict}.`);
+      continue;
+    }
+    const borders = knownTerrs.some((t) => (map.adjacency[t] ?? []).some((n) => mine.has(n)));
 
     const terrCount = victim.territoryCount ?? Math.max(knownTerrs.length, Math.min(11, Math.round(knownTerrs.length * 1.5)));
     const totalDefendingArmies = victim.armyCount ?? Math.max(knownArmies, knownArmies + Math.max(0, terrCount - knownTerrs.length) * 1.5);
@@ -69,7 +98,7 @@ export function eliminationScouting(view: GameView, me: PlayerId, detailed = fal
     if (!detailed) {
       const holdings = knownTerrs.map((id) => `${id}:${view.territories[id]?.armies ?? 0}`).join(', ');
       const visText = hasFullVis ? `all holdings visible [${holdings}]` : `${knownTerrs.length} visible holdings`;
-      lines.push(`- ${stealText}, ${visText} (Blitz kill chance: ${pct}%).`);
+      lines.push(`- ${stealText}, ${visText} (Blitz kill chance: ${pct}%${hasFullVis ? '' : ', visible armies only'}${borders ? '' : '; no shared border, not a kill this turn'}).`);
       continue;
     }
 
@@ -121,6 +150,12 @@ export function eliminationScouting(view: GameView, me: PlayerId, detailed = fal
       verdict = `EASY BOUNTY: ${pct}% Blitz odds to eliminate weak survivor (+1 kill point)`;
     } else if (winP >= 0.70) {
       verdict = `FAVORABLE KILL: ${pct}% Blitz odds; viable if route is clear`;
+    }
+    // Odds that count only visible armies, or a rival we do not border, are not a kill this turn.
+    if (!borders) {
+      verdict = `NO SHARED BORDER: not a kill this turn (you would have to conquer through other players first)`;
+    } else if (!hasFullVis && winP >= 0.70) {
+      verdict = `UNCERTAIN UNDER FOG: ${pct}% counts only the ${knownArmies} visible armies; hidden territories and armies make the real odds lower`;
     }
 
     const holdingsText = hasFullVis ? `all ${terrCount} terrs visible (${knownArmies} armies)` : `${knownTerrs.length}/${terrCount} terrs visible (${knownArmies} armies)`;
@@ -233,7 +268,7 @@ const label = (name: string | undefined, id: string) => (name && name !== id ? `
  * continent's ownership, threats on my borders, the leader and the current card value. Ids appear in
  * square brackets so the model can name a focus. Fog-aware: hidden territories are never described.
  */
-export function commanderFacts(view: GameView, me: PlayerId): string {
+export function commanderFacts(view: GameView, me: PlayerId, intel?: SeatIntel): string {
   const map = getMap(view.options.map);
   const tName = (id: string) => label(map.territoryById[id]?.name, id);
   const nameOf = (id: PlayerId | null) => view.players.find((p) => p.id === id)?.name ?? '?';
@@ -251,6 +286,13 @@ export function commanderFacts(view: GameView, me: PlayerId): string {
   lines.push(`Round ${view.round}, turn ${view.turnNumber}, phase ${view.phase}. ${living.length} players alive.`);
   const o = view.options;
   lines.push(`Settings: ${o.cardValues} cards, capitals ${o.capitals ? (o.chooseCapitals ? 'chosen' : 'assigned') : 'off'}, fog ${o.fogOfWar ? 'on' : 'off'}, ${o.fortifyMode} fortify, ${view.blizzards?.length ?? 0} blizzards.`);
+  const diceModeText = o.balancedBlitz
+    ? 'BALANCED BLITZ (median of 5 runs: steep S-curve, high-odds >=80% attacks are near-certain locks, underdog attacks <40% almost always fail)'
+    : 'TRUE RANDOM BLITZ (high variance: fat-tail losses, 80% attacks can fail, keep +3-5 extra army buffer)';
+  lines.push(`Dice Mode: ${diceModeText}.`);
+  if (living.length === 2) {
+    lines.push(`1v1 HEADS-UP ENDGAME: Only 2 players remain! Restraint turns off — break every opponent continent bonus and strip their territories to crush their turn income!`);
+  }
 
   // Cards.
   const next = o.cardValues === 'fixed' ? 'fixed 4-10 by set type' : o.cardValues === 'exponential' ? `${nextTradeValue('exponential', 0, view.players.find(p => p.id === me)?.tradesMade ?? 0)} armies (your personal exponential sequence)` : `${tradeBonus(view.tradeCount)} armies (progressive, ${view.tradeCount} sets traded so far)`;
@@ -260,7 +302,8 @@ export function commanderFacts(view: GameView, me: PlayerId): string {
     .map((p) => `${p.name} ${p.cardCount}${p.cardCount >= 4 ? ' (forced trade soon)' : p.cardCount >= 3 ? ' (can hold a set)' : ''}`)
     .join(', ');
   lines.push(`Next card set is worth ${next}. You hold ${meP?.cardCount ?? 0} cards${sets ? ` (${sets} tradeable set${sets > 1 ? 's' : ''})` : ''}.${o.fogOfWar && oppCards ? ` Opponent card counts (public under fog): ${oppCards}.` : ''}`);
-  lines.push(...cardMath(view, me), ...eliminationScouting(view, me, true));
+  lines.push(...cardMath(view, me), ...eliminationScouting(view, me, true, intel));
+  lines.push(...strategyFacts(view, me, intel));
 
   // Players.
   for (const p of living) {
@@ -304,6 +347,17 @@ export function commanderFacts(view: GameView, me: PlayerId): string {
     const borderTop = [...borderArmies.entries()].sort((a, b) => b[1] - a[1])[0];
     lines.push(
       `Leader among rivals (by reinforcement income under fog): ${top.name}, income ${q(top.income?.total)}/turn, ${top.cardCount} cards, ${borderArmies.get(top.id) ?? 0} armies visible on your borders${borderTop && borderTop[0] !== top.id ? `; biggest visible border threat: ${nameOf(borderTop[0])} (${borderTop[1]} border armies, income ${q(rivals.find((r) => r.id === borderTop[0])?.income?.total)}/turn)` : ''}.`,
+    );
+  }
+
+  const dominantLeader = rivals.find(
+    (r) =>
+      (r.armyCount !== null && (meP?.armyCount ?? 0) > 0 && r.armyCount >= (meP?.armyCount ?? 0) * 1.8 && r.armyCount >= 30) ||
+      ((r.income?.total ?? 0) >= (meP?.income?.total ?? 0) * 2 && (r.income?.total ?? 0) >= 10),
+  );
+  if (dominantLeader) {
+    lines.push(
+      `DOMINANT RUNAWAY LEADER: ${dominantLeader.name} is snowballing (${q(dominantLeader.armyCount)} armies, income ${q(dominantLeader.income?.total)}/turn). Solo attacks against them are suicidal! Use chat to organize multi-player coalitions or coordinate joint attacks. If a 1st-place win is currently unachievable, play for 2nd/3rd place placement points to protect your Elo rather than triggering a fatal counter-strike.`
     );
   }
 
@@ -471,4 +525,30 @@ export function commanderFacts(view: GameView, me: PlayerId): string {
   if (view.phase === 'finished' && view.winner) lines.push(`Winner: ${nameOf(view.winner)}.`);
 
   return lines.join('\n').slice(0, MAX_COMMANDER_FACTS);
+}
+
+/**
+ * Strategy reads from play feedback (strategy.ts): natural enemies, sweepable regions, and who just attacked us
+ * (retake, then push into their bonus).
+ */
+export function strategyFacts(view: GameView, me: PlayerId, intel?: SeatIntel): string[] {
+  const map = getMap(view.options.map);
+  const nameOf = (id: PlayerId) => view.players.find((p) => p.id === id)?.name ?? id;
+  const lines: string[] = [];
+  for (const e of naturalEnemies(view, me)) {
+    lines.push(`Natural enemy: ${e.name}: every way out of their land leads into you (${e.ours} of the ${e.total} territories bordering theirs are yours), so whatever they build hits you. Break them before spending troops on other fronts.`);
+  }
+  for (const sw of sweepOpportunities(view, me).slice(0, 3)) {
+    lines.push(`Sweep: ${sw.ownerName} holds ${sw.continentName} [${sw.continent}] alone, ${sw.thin} of ${sw.territories.length} territories on 1-2 armies; about ${sw.cost} armies takes it all vs your ${sw.capacity} (stacks next to it plus 2 turns of income). Taking it breaks their +${sw.bonus} and can be yours.`);
+  }
+  for (const pk of pockets(view, me).slice(0, 3)) {
+    const terrs = pk.territories.map((x) => `${map.territoryById[x]?.name ?? x} (${view.territories[x]?.armies ?? '?'})`).join(', ');
+    lines.push(`Pocket: ${pk.ownerName}'s ${terrs} ${pk.territories.length === 1 ? 'is' : 'are'} enclosed by your land: clear ${pk.territories.length === 1 ? 'it' : 'them'} when you can afford it, kill or not, so the guards around it are free to move elsewhere.`);
+  }
+  for (const a of (intel?.recentAttackers ?? []).filter((x) => x.brokeBonus)) {
+    const terrs = a.territories.map((t) => map.territoryById[t]?.name ?? t).join(', ');
+    const broke = a.brokeBonus ? ` and broke your ${map.continentById[a.brokeBonus]?.name ?? a.brokeBonus}` : '';
+    lines.push(`Retaliation: ${nameOf(a.id)} took ${terrs} from you in round ${a.round}${broke}. Retake it, then push at least one territory into their bonus; hold it if it is a one-territory choke into yours (they already hate you, and it denies their bonus next turn).`);
+  }
+  return lines;
 }

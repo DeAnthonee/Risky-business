@@ -15,7 +15,7 @@ can stall the table; they are not ranked on the leaderboard (house players never
 Open http://localhost:8080, enter a name, press **Create room** (it opens the setup in place: maps as silhouette tiles
 with a live preview, settings grouped into Players and setup, Cards and combat, Board twists; the lobby uses the same
 groups), add a bot or a **Zerg** (a rushing house bot with a Zerg pun for a name, Mark Zergburg, Elon Zerg, Zergy Mercury and so on, that never attacks a fellow Zerg while anyone else is alive; when only Zergs are left the game ends at once and the strongest Zerg wins; see [zergs.md](zergs.md)) or share the 6-letter join code (or the invite link `?game=CODE`), and press **Start**. The home
-page lists open games as tickets (joinable rooms first, then live and finished ones) next to the leaderboard (once a season has been archived, a season picker above it shows past seasons; the current one is the default; when the host has set a season password, an **Archive season** button there archives the season after a password and a confirm; the **Training** toggle beside it switches to the training leaderboard of model-vs-model yardstick games, and the **Tournament** toggle to the tournament leaderboard of finished tournaments; neither counts on the public one) and the **match history**: the most recent finished games, newest first, each with its winner (click the name for their profile), how they won, the room, map, turns, how long it took and every seat's final place. While a finished room is still on the server, **View final board** opens it to watch. Wide screens show the three boards side by side; narrower ones stack the leaderboard and match history beside the open games. Anyone can **watch** a game without playing:
+page lists open games as tickets (joinable rooms first, then live and finished ones) next to the leaderboard (once a season has been archived, a season picker above it shows past seasons; the current one is the default; when the host has set a season password, an **Archive season** button there archives the season after a password and a confirm; the **Training** toggle beside it switches to the training leaderboard of model-vs-model yardstick games, and the **Tournament** toggle to the tournament leaderboard of finished tournaments, one board per style picked with the **Classic groups**, **1v1s** and **Zerg survival** buttons; neither counts on the public one; on every board a Delove's model follows its name as a tag, **D13** for delove@13 or **D13-S** with search) and the **match history**: the most recent finished games, newest first, each with its winner (click the name for their profile), how they won, the room, map, turns, how long it took and every seat's final place. While a finished room is still on the server, **View final board** opens it to watch. Wide screens show the three boards side by side; narrower ones stack the leaderboard and match history beside the open games. The leaderboard stands straight (no tilt) and on phones its top three rows are square too, so a board of a hundred or more players keeps every row on screen as you scroll. Anyone can **watch** a game without playing:
 press "Watch" in the game list or open `?game=CODE&spectate=1`. **Big-move pop-ups are off for now** (the owner, 2026-10-22: they popped up too often and covered the board; they come back after a rework). The server sends them only with `RISK_REACTIONS=1` ([hosting.md](hosting.md)), and the **💬 Reactions** button is hidden while they are off; a saved "on" in a browser does not bring them back. When they are on: when someone takes a lot in one turn (a sweep of 3+ territories and a quarter of a player's land, a knockout, or a capital), a short pop-up over the map shows it with a line from each side, in the character's voice when the seat plays a character; **💬 Reactions** turns these off (remembered in this browser). Under fog of war only spectators see them, so they never reveal a hidden conquest. The **🔗 Share** button on a game or tournament page
 copies its link (on a phone it opens the share sheet); pasted into a chat app, the link shows a preview with the
 name, map, seats, status and a picture of the board (owner colours only under fog of war); a tournament table's preview leads with its badge ("🏆 Cup · Round 2, table 3"). Spectators see the public board, the
@@ -45,7 +45,7 @@ territory, only the drops crossing the border show.
 ### Features that move a spectator
 
 README hard rule 10: the client moves a spectator to another game only when they turned that on, and never moves a
-player; the one exception is runner generation training matches. These are the features that move a spectator:
+player; the exceptions are runner generation training matches and tournament tables. These are the features that move a spectator:
 
 **Auto-spectate** is a hands-off live stream: press **Auto-Spectate Live Stream** above the game list (shown while a
 game is being played) or open `/?spectate=1` with no game. It tunes into a game in progress and, when that game ends
@@ -60,6 +60,12 @@ every 2 s, backing off to 10 s. The URL stays `/?spectate=1`, so a reload picks 
 countdown to the next one, a running match first, otherwise its lobby (watch it fill and start), with **Stay here** to
 remain. Only that exact name counts (a room a person names that way counts too), tournament tables are never picked,
 and players are never moved.
+
+**Tournament tables** move their spectators on too, automatically (the owner's request, 2026-10-27): when the table
+you watch ends or its room closes, a 6 s countdown takes you to another table of the same tournament, the one its
+winner moved on to when it is being played, else any other table being played, with **Stay here** to remain. It
+never leaves the tournament, never applies to auto-spectate (which skips tournament tables), and players are never
+moved.
 
 **Follow the action** on a nested tournament's page (see [Watching a nested tournament](#watching-a-nested-tournament)):
 an opt-in switch, off by default, that moves the view between that tournament's tables by itself, inside the tournament page only (it never opens another page). It is never
@@ -123,11 +129,16 @@ The open games, the leaderboard and the match history come after them.
 - In the game, the same badge sits in the top bar ("› Bracket"). It opens the bracket and keeps your seat: **Play
   your table** brings you back.
 - A shared link to a table leads its preview with the badge.
+- Watching a table: when it ends you move on to another table of the same tournament by yourself (see
+  [Features that move a spectator](#features-that-move-a-spectator)).
 
 ### Next tournament
 
 When the server runs [scheduled tournaments](tournaments.md#scheduled-tournaments), the home page shows a card under
-the name box, titled **Next 128-player tournament**. The number is the slot's seats (`maxEntrants`). It shows:
+the name box, titled **Next 100-player tournament**. The number is the slot's seats (`maxEntrants`). It shows:
+- the next one's **style** after the title: **Classic groups**, **1v1s** or **Zerg survival**
+  ([tournament styles](tournaments.md#tournament-styles)), with a line on how it plays (two seats a table; how many
+  Zergs are in the field; at least N players a table in round 1);
 - "Begins in 12:34", a clock countdown ("1:02:03" past an hour), and the start in your own time with its zone
   ("11:03 PM PDT", plus the weekday when it isn't today);
 - the next one's name;
@@ -135,11 +146,11 @@ the name box, titled **Next 128-player tournament**. The number is the slot's se
 - from the check-in window, "Checked in N / M";
 - "AI players fill open seats; real players always get a seat.";
 - **Register** and **Watch**, both opening its page, where you register with your name;
-- once it is under way, **Playing now** with a Watch button;
+- once it is under way, **Playing now** (with its style) and a Watch button;
 - a line when the last one was called off ("not enough entrants").
 
-When the countdown passes the start, the card rolls on to the next slot by itself (every 30 minutes for the
-half-hourly tournament). It refreshes every 15 seconds, and it's hidden when the server has no schedule.
+When the countdown passes the start, the card rolls on to the next slot by itself (every 15 minutes in the
+rotation of styles). It refreshes every 15 seconds, and it's hidden when the server has no schedule.
 
 ## Registering for a tournament
 
@@ -226,7 +237,9 @@ there has taken the same number of turns, and are then decided on standing; see
   with their armies, the latest battle as an arc (click a portal territory to zoom into the flat board inside). The choice is remembered like the game
   view's, and browsers without WebGL keep the flat view. Dev builds preview it at `/?dev=inception&players=100`
   (32 tables; **Next round** plays the demo forward) and `/?dev=inception&players=40&final=hexworld`.
-- **Bracket:** every round from the final down; a table decided on standing lists its order and the tie-break dice.
+- **Bracket:** the same March Madness style bracket as a knockout's ([tournaments.md](tournaments.md)): rounds as
+  columns from left to right, a line from each board to its parent board's table; a table decided on standing lists
+  its seats in standing order.
 - **Live tables:** the tables being played, the most exciting first.
 
 **Find an entrant:** on a nested tournament's page every entrant's name (the Entrants list, and the host's "Who joined"

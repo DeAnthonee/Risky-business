@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { MAPS, RuleError, getMap, nestSeed, planNest, planToNest, resolveNest, type NestPlan } from '../src/index.js';
+import { DEFAULT_TERRITORIES_PER_SEAT, MAPS, RuleError, getMap, nestSeed, planNest, planToNest, resolveNest, type NestPlan } from '../src/index.js';
 
 /** Compact form of a plan: tables per round, "4x1+3x23" style, then the final. */
 function shape(p: NestPlan): string {
@@ -95,7 +95,7 @@ describe('nested boards', () => {
     expect(kids.map((k) => k.portal)).toEqual(outer.portals);
     for (const k of kids) {
       expect(k).toMatchObject({ seats: 4, parent: 0, depth: 1, portals: [] });
-      expect(getMap(k.map).territoryIds).toHaveLength(20);
+      expect(getMap(k.map).territoryIds).toHaveLength(4 * DEFAULT_TERRITORIES_PER_SEAT);
     }
     expect(new Set(kids.map((k) => k.map)).size).toBe(10);
     // The same spec is the same tree.

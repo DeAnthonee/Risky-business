@@ -5,6 +5,8 @@ import { getEntrantToken, getHostToken, getPlayerKey, saveEntrantToken, savePlay
 import { SeatSetup } from './SeatSetup';
 import { HostEntrants } from './HostEntrants';
 import { NestedTournament } from './NestedTournament';
+import { Bracket } from './Bracket';
+import { countdown } from './NextTournament';
 import { ShareButton } from './Share';
 import { StartButton } from './StartButton';
 
@@ -130,7 +132,6 @@ export function Tournament({
 
   const you = t.you;
   const mapName = MAPS[t.map as keyof typeof MAPS]?.name ?? t.map;
-  const nameOf = (eid: string) => t.entrants.find((e) => e.id === eid)?.name ?? '?';
   const nested = t.format === 'nested';
   // The host controls (Start now, who joined) sit above every view of a registering tournament: for this browser's host
   // token, or for anyone in open mode (testing, no hosting codes), so another window or Incognito can still start it.
@@ -154,6 +155,8 @@ export function Tournament({
           {nested ? 'boards inside boards (tables of 3 to 6, a final of 6 to 10)' : `${mapName} · tables of up to ${t.groupSize}`} · {t.entrants.length}/{t.maxEntrants} entrants
         </p>
       </header>
+
+      {t.status === 'registering' && t.scheduled && <StartClock scheduled={t.scheduled} />}
 
       {hostBar && (
         <section className="home-actions tourney-hostbar" aria-label="Host controls">
@@ -289,47 +292,41 @@ export function Tournament({
 
       {nested && <NestedTournament t={t} onWatch={onWatch} pick={pick} />}
 
-      {!nested &&
-        t.rounds
-          .slice()
-          .reverse()
-          .map((r) => (
-            <section key={r.round} className="board tourney-round" aria-label={`Round ${r.round}`}>
-              <div className="board-head">
-                <h2>{r.matches.length === 1 && r.round > 1 ? `Round ${r.round}: the final` : `Round ${r.round}`}</h2>
-              </div>
-              <ul className="tickets tourney-tables">
-                {r.matches.map((m, i) => (
-                  <li key={m.gameId ?? `bye-${i}`} className={`ticket ticket-${m.status === 'playing' ? 'live' : m.status === 'bye' ? 'lobby' : 'finished'}`}>
-                    <span className="ticket-stamp">{m.gameId ? `Table ${i + 1}` : 'Bye'}</span>
-                    <div className="ticket-main">
-                      <div className="ticket-title">
-                        {m.gameId && <code>{m.gameId}</code>}
-                        <span className="ticket-meta">{m.status === 'playing' ? 'playing' : m.status === 'abandoned' ? 'abandoned' : m.status === 'bye' ? 'moves on' : 'decided'}</span>
-                      </div>
-                      <ul className="ticket-seats">
-                        {m.players.map((p) => (
-                          <li key={p.entrantId} className={m.winner === p.entrantId ? 'won' : m.winner || m.status === 'abandoned' ? 'out' : ''}>
-                            {m.winner === p.entrantId ? '🏅 ' : ''}
-                            {p.name}
-                            {you?.entrantId === p.entrantId ? ' (you)' : ''}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                    {m.gameId && (
-                      <div className="ticket-actions">
-                        <button className="watch" onClick={() => onWatch(m.gameId!)} title={`Watch ${m.players.map((p) => nameOf(p.entrantId)).join(' vs ')}`}>
-                          Watch
-                        </button>
-                      </div>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ))}
+      {!nested && t.rounds.length > 0 && (
+        <section className="board tourney-bracket" aria-labelledby="tourney-bracket">
+          <div className="board-head">
+            <h2 id="tourney-bracket">Bracket</h2>
+          </div>
+          <Bracket t={t} onWatch={onWatch} />
+        </section>
+      )}
     </div>
+  );
+}
+
+/** A scheduled tournament's wait: a live countdown to the start, and to check-in until it opens. */
+function StartClock({ scheduled }: { scheduled: NonNullable<TournamentView['scheduled']> }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+  if (scheduled.cancelled) return <section className="tourney-clock" role="status">Cancelled: {scheduled.cancelled}</section>;
+  const checkinAt = scheduled.startsAt - (scheduled.checkinMinutes ?? 10) * 60_000;
+  const at = new Date(scheduled.startsAt).toLocaleString(undefined, { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+  return (
+    <section className="tourney-clock" aria-label="Start time">
+      <div className="next-tourney-clock" aria-live="off">
+        <span className="next-tourney-label">Starts in</span>
+        <strong>{countdown(scheduled.startsAt - now)}</strong>
+        <span className="muted small">{at}</span>
+      </div>
+      <p className="tourney-clock-checkin">
+        {now < checkinAt
+          ? `Check-in opens in ${countdown(checkinAt - now)}`
+          : `Check-in is open${scheduled.checkedIn !== undefined ? `: ${scheduled.checkedIn} checked in` : ''}`}
+      </p>
+    </section>
   );
 }
 

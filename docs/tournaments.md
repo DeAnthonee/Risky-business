@@ -372,7 +372,7 @@ round; the boards nest inside each other's territories (the map side: [maps.md](
   plays (`/wait` with `since`, act on its turn, `--pace` ms after each move), the moves chosen by the built-in bot so
   the seats cost nothing and what is measured is the server: moves/s, ms per move, event-loop lag, server CPU, MB sent
   per move, save time. `--minutes`, `--spectators`, `--out FILE` (JSON); run it under `node --cpu-prof` to profile the
-  server. 2026-10-28 (M4 Mac mini, pace 300): 1055 ms a move and 1.6 s of loop lag before #PR, 303 ms (the pace) and
+  server. 2026-10-28 (M4 Mac mini, pace 300): 1055 ms a move and 1.6 s of loop lag before #336, 303 ms (the pace) and
   30 ms after; at pace 0 the server keeps up with ~43 moves/s.
 - **Fixed seed (admin only).** `seed` at create (0-4294967295) fixes the boards, the seating and the tie-break dice (for
   replays and the simulation). Since it decides the draw before anyone joins, only `POST /admin/tournaments` takes it

@@ -1,3 +1,3 @@
-engine: - 2026-10-28 #PR `boardStats` (each player's holdings, income and the continents' owners) worked out once per state and passed to `viewFor`, instead of players x territories in every view
-server: - 2026-10-28 #PR mega tables 3.5x faster: views share one `boardStats` per state, long-polls at tables over 10 seats coalesce other seats' moves (500 ms), seat states carry `pace`; mega defaults to no bot pause, a 90 s per-turn timer and fixed card values; `npm run mega:load`
-delove: - 2026-10-28 #PR the seat pool's pause between moves follows the table's `pace` when it is lower (0 at a mega table)
+engine: - 2026-10-28 #336 `boardStats` (each player's holdings, income and the continents' owners) worked out once per state and passed to `viewFor`, instead of players x territories in every view
+server: - 2026-10-28 #336 mega tables 3.5x faster: views share one `boardStats` per state, long-polls at tables over 10 seats coalesce other seats' moves (500 ms), seat states carry `pace`; mega defaults to no bot pause, a 90 s per-turn timer and fixed card values; `npm run mega:load`
+delove: - 2026-10-28 #336 the seat pool's pause between moves follows the table's `pace` when it is lower (0 at a mega table)

@@ -68,9 +68,14 @@ describe('tournament styles', () => {
 
   it('plays a 1v1 bracket to a champion: two seats at every table, the final included', async () => {
     const store = new Store(null, {}, { clock: new FakeClock() });
-    const t = store.tournaments.create({ ...FAST, style: '1v1' });
+    // No capitals in 1v1 (owner, 2026-10-28), even when the options ask for them; other styles keep the default.
+    const t = store.tournaments.create({ ...FAST, style: '1v1', options: { ...FAST.options, capitals: true, chooseCapitals: true } });
+    expect(t.options).toMatchObject({ capitals: false });
+    expect(t.options.chooseCapitals).toBeUndefined();
+    expect(store.tournaments.create({ ...FAST }).options.capitals).toBe(true);
     for (let i = 1; i <= 6; i++) t.entrants.push({ id: `e_${i}`, name: `B${i}`, isBot: true, joinedAt: 0 });
     store.tournaments.start(t.id);
+    expect(t.rounds[0].matches.every((m) => store.get(m.gameId!)!.state.options.capitals === false)).toBe(true);
     // Six players and two planner Zergs: 8 > 4 > 2 > 1.
     expect(t.nested!.plan!.rounds.map((r) => r.map((x) => x.seats))).toEqual([[2, 2, 2, 2], [2, 2], [2]]);
     await until(() => t.status === 'finished');

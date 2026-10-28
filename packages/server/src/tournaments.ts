@@ -678,6 +678,11 @@ export class TournamentManager extends EventEmitter {
     const options: Partial<GameOptions> = { ...NESTED_DEFAULT_OPTIONS, ...(spec.options ?? {}) };
     delete options.maxPlayers; // set per table
     delete options.map; // every table plays its own board
+    // 1v1 plays without capitals (owner, 2026-10-28), whatever the options say.
+    if (spec.style === '1v1') {
+      options.capitals = false;
+      delete options.chooseCapitals;
+    }
     const tps = spec.territoriesPerSeat ?? DEFAULT_TERRITORIES_PER_SEAT;
     if (!Number.isInteger(tps) || tps < TERRITORIES_PER_SEAT_RANGE.min || tps > TERRITORIES_PER_SEAT_RANGE.max)
       throw new RuleError(`territoriesPerSeat must be a whole number from ${TERRITORIES_PER_SEAT_RANGE.min} to ${TERRITORIES_PER_SEAT_RANGE.max}`);

@@ -376,6 +376,9 @@ round; the boards nest inside each other's territories (the map side: [maps.md](
 
 ## Scheduled tournaments
 
+While a scheduled tournament is open for sign-up, its page shows a live **countdown to the start** at the top (with the
+start time in the viewer's time zone) and, under it, the countdown to check-in, then how many have checked in.
+
 The server can run nested tournaments on a timetable by itself (`packages/server/src/tournament-schedule.ts`). It is
 **off by default**: the owner turns it on with `RISK_TOURNAMENT_SCHEDULE` (JSON), or `RISK_TOURNAMENT_SCHEDULE_FILE`
 (a path to a JSON file, easier to edit); when both are set, the variable wins ([hosting.md](hosting.md)).

@@ -6,6 +6,7 @@ import { SeatSetup } from './SeatSetup';
 import { HostEntrants } from './HostEntrants';
 import { NestedTournament } from './NestedTournament';
 import { Bracket } from './Bracket';
+import { countdown } from './NextTournament';
 import { ShareButton } from './Share';
 import { StartButton } from './StartButton';
 
@@ -155,6 +156,8 @@ export function Tournament({
         </p>
       </header>
 
+      {t.status === 'registering' && t.scheduled && <StartClock scheduled={t.scheduled} />}
+
       {hostBar && (
         <section className="home-actions tourney-hostbar" aria-label="Host controls">
           <h2 className="p5-tag">Host</h2>
@@ -298,6 +301,32 @@ export function Tournament({
         </section>
       )}
     </div>
+  );
+}
+
+/** A scheduled tournament's wait: a live countdown to the start, and to check-in until it opens. */
+function StartClock({ scheduled }: { scheduled: NonNullable<TournamentView['scheduled']> }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+  if (scheduled.cancelled) return <section className="tourney-clock" role="status">Cancelled: {scheduled.cancelled}</section>;
+  const checkinAt = scheduled.startsAt - (scheduled.checkinMinutes ?? 10) * 60_000;
+  const at = new Date(scheduled.startsAt).toLocaleString(undefined, { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+  return (
+    <section className="tourney-clock" aria-label="Start time">
+      <div className="next-tourney-clock" aria-live="off">
+        <span className="next-tourney-label">Starts in</span>
+        <strong>{countdown(scheduled.startsAt - now)}</strong>
+        <span className="muted small">{at}</span>
+      </div>
+      <p className="tourney-clock-checkin">
+        {now < checkinAt
+          ? `Check-in opens in ${countdown(checkinAt - now)}`
+          : `Check-in is open${scheduled.checkedIn !== undefined ? `: ${scheduled.checkedIn} checked in` : ''}`}
+      </p>
+    </section>
   );
 }
 

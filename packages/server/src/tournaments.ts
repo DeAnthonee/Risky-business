@@ -664,7 +664,7 @@ export class TournamentManager extends EventEmitter {
     // Time: low = every table at bot pace (moves grow with seats), high = every round to its deadline.
     const roundsLow = plan.rounds.map((r) => {
       const biggest = Math.max(...r.map((x) => x.seats));
-      return Math.min(roundMinutes, Math.max(1, Math.ceil((biggest * PREVIEW_BOT_MOVES_PER_SEAT * botDelayMs) / 60_000)));
+      return Math.min(roundMinutes, Math.max(1, Math.ceil((biggest * PREVIEW_BOT_MOVES_PER_SEAT * Math.max(botDelayMs, PREVIEW_MOVE_FLOOR_MS)) / 60_000)));
     });
     const options: Partial<GameOptions> = { ...NESTED_DEFAULT_OPTIONS, ...(spec.options ?? {}) };
     styleDefaults(spec.style, options);
@@ -1721,6 +1721,8 @@ export function seatNestedRound(
 
 /** A preview's bots-only time estimate: moves a table takes per seat at bot pace (nested:sim: ~45-90 at 4-10 seats). */
 const PREVIEW_BOT_MOVES_PER_SEAT = 75;
+/** A move's own time in that estimate when the bots do not pause (a mega table): deciding and the server's work. */
+const PREVIEW_MOVE_FLOOR_MS = 50;
 /** Tournament previews per client per minute. */
 export const PREVIEW_PER_MINUTE = 30;
 

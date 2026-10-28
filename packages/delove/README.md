@@ -173,7 +173,7 @@ that the machine (the mini) can carry it; with a lower limit the roster seats it
   - it reports `done`, or `failed` with the seats it could not join, which go back to the request;
   - it plays the seats on child processes, as `delove-seat --tournament` does.
   - between its moves a seat pauses `--pace` ms (default 300), or the table's own `pace` when that is lower (the
-    server sends it in every seat's state: 0 at a mega table, so a 100-seat table runs as fast as the seats decide).
+    server sends it in a tournament table's seat states: 0 at a mega table, so a 100-seat table runs as fast as the seats decide).
     A running pool picks this up when it is restarted.
 - **Which network:**
   - every seat is the newest `delove@N` in `DELOVE_MODELS` (or `--model`), bare;

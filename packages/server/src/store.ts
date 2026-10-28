@@ -605,11 +605,12 @@ export class GameRoom extends EventEmitter {
   }
 
   /** The game as a seat (or, with null, an anonymous spectator) sees it, with the turn timer. Never carries player-type labels. */
-  view(playerId: PlayerId | null): GameView & { timer: TurnTimerInfo | null; pace: number; decidedAt?: number; coach?: { text: string; at: number }[] } {
+  view(playerId: PlayerId | null): GameView & { timer: TurnTimerInfo | null; pace?: number; decidedAt?: number; coach?: { text: string; at: number }[] } {
     // A seat's own coach notes (quick play), in its view only: never the spectators' or another seat's.
     const coach = playerId && this.quickPlay ? this.coach.shown(playerId) : [];
-    // `pace`: the table's bot pace (ms between moves); outside seats that pause between moves (the Delove pool) follow it.
-    return { ...viewFor(this.state, playerId, this.boardStats()), timer: this.timerInfo(), pace: this.botDelayMs ?? BOT_DELAY_MS, ...this.decidedField(), ...(coach.length ? { coach } : {}) };
+    // `pace`: a table's own bot pace (a tournament's botDelayMs, ms between moves), which outside seats that pause
+    // between moves (the Delove pool) follow when it is lower; a room on the server default sends none.
+    return { ...viewFor(this.state, playerId, this.boardStats()), timer: this.timerInfo(), ...(this.botDelayMs !== null ? { pace: this.botDelayMs } : {}), ...this.decidedField(), ...(coach.length ? { coach } : {}) };
   }
 
   /**

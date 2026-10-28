@@ -49,6 +49,8 @@ export interface IceState {
   startedRound: number;
   /** Steps made on the clock (iceEveryMinutes); absent before the first. */
   steps?: number;
+  /** On a clock: when the ice actually started (ms, the server's clock), which the steps count from. */
+  startedAt?: number;
 }
 /** The ice started (startIce). */
 export interface IceStartedEvent {
@@ -116,9 +118,10 @@ export function iceCanStart(state: GameState): boolean {
 }
 
 /** Start the ice (the server calls it `iceStartMinutes` after the start, through its commit): it advances from the next round. */
-export function startIce(state: GameState): { state: GameState; events: GameEvent[] } {
+export function startIce(state: GameState, at?: number): { state: GameState; events: GameEvent[] } {
   if (!iceCanStart(state)) throw new RuleError('The closing ice cannot start now');
-  const next = { ...state, ice: { level: 0, startedRound: state.round }, version: state.version + 1 } as IceGame;
+  const ice: IceState = { level: 0, startedRound: state.round, ...(at !== undefined ? { startedAt: at } : {}) };
+  const next = { ...state, ice, version: state.version + 1 } as IceGame;
   return { state: next, events: [{ type: 'ice_started' } as unknown as GameEvent] };
 }
 
@@ -142,16 +145,21 @@ export function checkIce(state: GameState, events: GameEvent[]): void {
 
 /**
  * On a clock: how many steps are due at `now` (ms, the server's clock) and not made yet. Step k is due k x
- * iceEveryMinutes after the ice's scheduled start (iceStartMinutes after the game started), so a server that was down
- * catches up. 0 when the ice is not on a clock, not started, finished or as far as it goes.
+ * iceEveryMinutes after the ice actually started (`startedAt`; else its scheduled start, iceStartMinutes after the game
+ * started), so a server that was down catches up, and an ice held back by a long setup does not arrive in a burst. 0 when the ice is not on a clock, not started, finished or as far as it goes.
  */
 export function iceStepsDue(state: GameState, now: number): number {
   const ice = iceOf(state);
   if (!ice || !state.options.closingIce || !iceOnClock(state.options) || state.phase === 'finished' || state.startedAt == null) return 0;
   if (ice.level >= iceMaxLevel(state.options, iceRings(getMap(state.options.map)).rings)) return 0;
-  const start = state.startedAt + (state.options.iceStartMinutes ?? ICE_DEFAULTS.iceStartMinutes) * 60_000;
+  const start = iceClockStart(state, ice);
   const due = Math.floor((now - start) / (state.options.iceEveryMinutes! * 60_000));
   return Math.max(0, due - (ice.steps ?? 0));
+}
+
+/** When the clock-driven ice's steps count from: its actual start, else its scheduled one. */
+export function iceClockStart(state: GameState, ice: IceState): number {
+  return ice.startedAt ?? state.startedAt! + (state.options.iceStartMinutes ?? ICE_DEFAULTS.iceStartMinutes) * 60_000;
 }
 
 /** One step of the ice on the clock (the server's call through its commit, whenever it is due: mid-turn too). */

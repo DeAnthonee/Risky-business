@@ -142,6 +142,13 @@ describe('closing ice', () => {
       expect(iceStepsDue({ ...s, options: { ...s.options, iceEveryMinutes: 0 } }, 9 * MIN)).toBe(0);
     });
 
+    it('counts from when it actually started, so a late start is not a burst of steps', () => {
+      const base = game('world', 4, { closingIce: true, iceStartMinutes: 5, iceEveryMinutes: 1 });
+      const late = startIce({ ...base, startedAt: 0 }, 16 * MIN).state;
+      expect(iceStepsDue(late, 16 * MIN + 59_000)).toBe(0);
+      expect(iceStepsDue(late, 17 * MIN)).toBe(1);
+    });
+
     it('advances mid-turn; a player frozen out on their own turn is passed', () => {
       const s = clock(4);
       const me = s.currentPlayer!;

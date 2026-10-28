@@ -130,12 +130,33 @@ describe('tournament styles', () => {
     const v = room.state.version;
     // Three minutes in (nobody has moved): the ice started and made one step a minute.
     room.state.startedAt = Date.now() - 3 * 60_000 - 1000;
+    (room.state as { ice?: { startedAt?: number } }).ice!.startedAt = room.state.startedAt; // the steps count from the ice's start
     room.armIceClock();
     await until(() => ((room.state as { ice?: { steps?: number } }).ice?.steps ?? 0) === 3, 10_000);
     expect(room.state.blizzards.length).toBeGreaterThan(0);
     expect(room.history.filter((h) => h.action.type === 'system' && h.action.note === 'the closing ice advances')).toHaveLength(3);
     expect(room.state.version).toBe(v + 3); // three steps (the ice started with the game: iceStartMinutes 0)
     expect(room.chat.some((m) => /every minute, even mid-turn/.test(m.message))).toBe(true);
+    store.stopTimers();
+  });
+
+  it('an ice step on the clock does not restart the player on turn\'s per-move timer', () => {
+    const store = new Store(null, {}, { clock: new FakeClock() });
+    const { room } = store.create('Ice timer', { map: 'world', maxPlayers: 3, autoSetup: true, closingIce: true, iceStartMinutes: 0, iceEveryMinutes: 1, turnTimer: 'move', turnTimerSeconds: 90 }, 'A');
+    room.join('B');
+    room.join('C');
+    room.start();
+    expect(room.turnDeadline).not.toBeNull();
+    // As if the mover had already used 30 s: a restarted clock would put the deadline back to a full 90 s.
+    const deadline = room.turnDeadline! - 30_000;
+    room.turnDeadline = deadline;
+    // A minute on, with nobody moving: the ice steps, and the mover's deadline stays where it was.
+    room.state.startedAt = Date.now() - 61_000;
+    (room.state as { ice?: { startedAt?: number } }).ice!.startedAt = room.state.startedAt;
+    const v = room.state.version;
+    (room as unknown as { advanceIceIfDue(): void }).advanceIceIfDue();
+    expect(room.state.version).toBe(v + 1);
+    expect(room.turnDeadline).toBe(deadline);
     store.stopTimers();
   });
 

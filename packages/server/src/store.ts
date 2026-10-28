@@ -13,6 +13,7 @@ import {
   iceOf,
   iceOnClock,
   iceStepsDue,
+  iceClockStart,
   startIce,
   endInStalemate,
   onlySideLeft,
@@ -666,8 +667,9 @@ export class GameRoom extends EventEmitter {
     // The game archive listens here: every move, in full, before anything else reacts to it.
     const info: CommitInfo = { before, next, events, playerId, action, at: this.updatedAt, ...(timeout ? { timeout: true as const } : {}), ...(note !== undefined ? { note } : {}) };
     this.emit('commit', info);
-    // The clock is set before anyone hears of the change, so the state they read carries the new deadline.
-    this.armTurnTimer();
+    // The clock is set before anyone hears of the change, so the state they read carries the new deadline. A system
+    // commit (the ice on its clock) that leaves the same player on turn is not their move: their clock keeps running.
+    this.armTurnTimer(playerId === null && before.currentPlayer === next.currentPlayer);
     const msg: ChangeMessage = { state: next, events, version: next.version, playerId };
     this.emit('change', msg);
     // A big move ends with its turn: the pop-up follows the change that showed it (presentation only, not state).
@@ -692,7 +694,7 @@ export class GameRoom extends EventEmitter {
     if (this.decidedAt !== null || s.startedAt === null || !iceCanStart(s)) return;
     const minutes = s.options.iceStartMinutes ?? ICE_DEFAULTS.iceStartMinutes;
     if (Date.now() - s.startedAt < minutes * 60_000) return;
-    const { state, events } = startIce(s);
+    const { state, events } = startIce(s, iceOnClock(s.options) ? Date.now() : undefined);
     const every = s.options.iceEveryMinutes ?? 0;
     const when = every > 0 ? `every ${every === 1 ? 'minute' : `${every} minutes`}, even mid-turn,` : 'from the next round';
     this.addChat(null, 'Game', `The ice is coming: ${when} it closes in from both poles, ring by ring. Frozen land is lost; armies there fall back to a neighbour if they can.`);
@@ -716,10 +718,12 @@ export class GameRoom extends EventEmitter {
     this.iceTimer = null;
     const s = this.state;
     if (this.closed || this.decidedAt !== null || s.startedAt === null || s.phase === 'finished' || !s.options.closingIce || !iceOnClock(s.options)) return;
-    const start = s.startedAt + (s.options.iceStartMinutes ?? ICE_DEFAULTS.iceStartMinutes) * 60_000;
     const ice = iceOf(s);
+    // Not started and cannot start yet (setup, capitals): the commit that ends that phase starts it and re-arms this.
+    if (!ice && !iceCanStart(s)) return;
     if (ice && iceStepsDue(s, Number.MAX_SAFE_INTEGER) <= 0) return; // as far as it goes
-    const at = ice ? start + ((ice.steps ?? 0) + 1) * s.options.iceEveryMinutes! * 60_000 : start;
+    const scheduled = s.startedAt + (s.options.iceStartMinutes ?? ICE_DEFAULTS.iceStartMinutes) * 60_000;
+    const at = ice ? iceClockStart(s, ice) + ((ice.steps ?? 0) + 1) * s.options.iceEveryMinutes! * 60_000 : scheduled;
     this.iceTimer = setTimeout(() => {
       this.iceTimer = null;
       this.startIceIfDue();
@@ -1088,14 +1092,17 @@ export class GameRoom extends EventEmitter {
    * it is. Per move every change restarts it; per turn it restarts when the player or the turn changes (each setup
    * placement and capital pick counts as a turn). The clock lives here, never in the engine.
    */
-  armTurnTimer() {
+  armTurnTimer(keepRunning = false) {
     const t = timerOf(this.state.options);
     const s = this.state;
     const cur = s.currentPlayer;
     const p = cur ? s.players.find((x) => x.id === cur) : undefined;
     if (!t || this.closed || this.decidedAt !== null || !p || p.isBot || !p.alive || s.phase === 'lobby' || s.phase === 'finished') return this.clearTurnTimer();
     const key = t.mode === 'move' || s.phase === 'setup' || s.phase === 'capitals' ? `v${s.version}` : `${cur}:${s.turnNumber}`;
-    if (key === this.turnTimerKey && this.turnTimer) return;
+    if (this.turnTimer && (key === this.turnTimerKey || keepRunning)) {
+      this.turnTimerKey = key;
+      return;
+    }
     this.clearTurnTimer();
     this.turnTimerKey = key;
     this.turnDeadline = Date.now() + t.seconds * 1000;

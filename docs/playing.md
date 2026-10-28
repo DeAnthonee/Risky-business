@@ -45,7 +45,7 @@ territory, only the drops crossing the border show.
 ### Features that move a spectator
 
 README hard rule 10: the client moves a spectator to another game only when they turned that on, and never moves a
-player; the one exception is runner generation training matches. These are the features that move a spectator:
+player; the exceptions are runner generation training matches and tournament tables. These are the features that move a spectator:
 
 **Auto-spectate** is a hands-off live stream: press **Auto-Spectate Live Stream** above the game list (shown while a
 game is being played) or open `/?spectate=1` with no game. It tunes into a game in progress and, when that game ends
@@ -60,6 +60,12 @@ every 2 s, backing off to 10 s. The URL stays `/?spectate=1`, so a reload picks 
 countdown to the next one, a running match first, otherwise its lobby (watch it fill and start), with **Stay here** to
 remain. Only that exact name counts (a room a person names that way counts too), tournament tables are never picked,
 and players are never moved.
+
+**Tournament tables** move their spectators on too, automatically (the owner's request, 2026-10-27): when the table
+you watch ends or its room closes, a 6 s countdown takes you to another table of the same tournament, the one its
+winner moved on to when it is being played, else any other table being played, with **Stay here** to remain. It
+never leaves the tournament, never applies to auto-spectate (which skips tournament tables), and players are never
+moved.
 
 **Follow the action** on a nested tournament's page (see [Watching a nested tournament](#watching-a-nested-tournament)):
 an opt-in switch, off by default, that moves the view between that tournament's tables by itself, inside the tournament page only (it never opens another page). It is never
@@ -123,6 +129,8 @@ The open games, the leaderboard and the match history come after them.
 - In the game, the same badge sits in the top bar ("› Bracket"). It opens the bracket and keeps your seat: **Play
   your table** brings you back.
 - A shared link to a table leads its preview with the badge.
+- Watching a table: when it ends you move on to another table of the same tournament by yourself (see
+  [Features that move a spectator](#features-that-move-a-spectator)).
 
 ### Next tournament
 
@@ -224,7 +232,9 @@ there has taken the same number of turns, and are then decided on standing; see
   with their armies, the latest battle as an arc (click a portal territory to zoom into the flat board inside). The choice is remembered like the game
   view's, and browsers without WebGL keep the flat view. Dev builds preview it at `/?dev=inception&players=100`
   (32 tables; **Next round** plays the demo forward) and `/?dev=inception&players=40&final=hexworld`.
-- **Bracket:** every round from the final down; a table decided on standing lists its order and the tie-break dice.
+- **Bracket:** the same March Madness style bracket as a knockout's ([tournaments.md](tournaments.md)): rounds as
+  columns from left to right, a line from each board to its parent board's table; a table decided on standing lists
+  its seats in standing order.
 - **Live tables:** the tables being played, the most exciting first.
 
 **Find an entrant:** on a nested tournament's page every entrant's name (the Entrants list, and the host's "Who joined"

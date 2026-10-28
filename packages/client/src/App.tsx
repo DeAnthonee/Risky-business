@@ -224,7 +224,11 @@ function Connected({
 
   // Generation training matches move spectators on to the next match even without auto-spectate (hard rule 10)
   const genAuto = isGen && onWatch && spectating ? { advance: (nextId: string) => onWatch(nextId), stay: () => setStayed(true) } : undefined;
-  const auto = spectating ? (autoSpectate ?? genAuto) : undefined;
+  // A tournament table moves its spectators on to another table of the same tournament (hard rule 10; the owner's
+  // call, 2026-10-27). Players are never moved.
+  const tourneyId = !stayed && spectating && onWatch && !autoSpectate ? conn.tournament?.id : undefined;
+  const tourneyAuto = tourneyId && onWatch ? { advance: (nextId: string) => onWatch(nextId), stay: () => setStayed(true) } : undefined;
+  const auto = spectating ? (autoSpectate ?? genAuto ?? tourneyAuto) : undefined;
 
   if (conn.closedReason) {
     const why: Record<string, string> = {
@@ -243,7 +247,7 @@ function Connected({
             <button className="primary" onClick={onLeave}>
               Back to games
             </button>
-            {auto && <AutoAdvance from={gameId} auto={auto} generationOnly={isGen} />}
+            {auto && <AutoAdvance from={gameId} auto={auto} generationOnly={isGen} tournamentId={tourneyId} />}
           </div>
         </div>
       </div>
@@ -261,7 +265,7 @@ function Connected({
     );
   }
   if (conn.view.phase === 'lobby') return <Lobby conn={conn} gameId={gameId} session={spectating ? null : session} onLeave={onLeave} onJoin={onJoin} />;
-  const game = <Game conn={conn} gameId={gameId} session={spectating ? null : session} onLeave={onLeave} onJoin={onJoin} autoSpectate={auto} isGeneration={isGen} onOpenTournament={onOpenTournament} />;
+  const game = <Game conn={conn} gameId={gameId} session={spectating ? null : session} onLeave={onLeave} onJoin={onJoin} autoSpectate={auto} isGeneration={isGen} tournamentId={tourneyId} onOpenTournament={onOpenTournament} />;
   if (!coach || !coachKey || conn.view.phase === 'finished') return game;
   const seatName = conn.view.players.find((p) => p.id === coach.seat)?.name ?? 'your seat';
   return (

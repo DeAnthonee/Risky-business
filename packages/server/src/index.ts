@@ -6,7 +6,7 @@ import { Store } from './store.js';
 import { DEFAULT_AI_DIR, createRiskServer } from './app.js';
 import { CharacterStore } from './characters.js';
 import { buildInfo } from './build-info.js';
-import { parseSchedule, scheduleFromEnv, type ScheduleEntry } from './tournament-schedule.js';
+import { parseSchedule, SAVED_SCHEDULE_FILE, scheduleFromEnv, scheduleFromSaved, type ScheduleEntry } from './tournament-schedule.js';
 import { describeTourneyAccess, openModeFromEnv, tourneyAccessFromEnv } from './tournament-access.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -40,15 +40,34 @@ const store = new Store(DATA_DIR ? join(DATA_DIR, 'games.json') : null, retentio
 let schedule: ScheduleEntry[] | null = null;
 let scheduleNote = 'off (set RISK_TOURNAMENT_SCHEDULE or RISK_TOURNAMENT_SCHEDULE_FILE)';
 const tourneyAccess = tourneyAccessFromEnv(process.env);
+// The settings page's saved schedule (RISK_DATA_DIR) wins over the env's; a bad saved one falls back to the env's.
+const savedScheduleFile = DATA_DIR ? join(DATA_DIR, SAVED_SCHEDULE_FILE) : null;
+const describeSchedule = (list: ScheduleEntry[], source: string) => `${list.length} entr${list.length === 1 ? 'y' : 'ies'} from ${source}: ${list.map((e) => `${e.at} ${e.tz ?? 'UTC'}${e.roster ? ` (+${e.roster} roster seats)` : ''}`).join('; ')}`;
+let envSchedule: { raw: unknown[]; source: string } | null = null;
+let scheduleRaw: unknown[] = [];
+let scheduleSource: string | null = null;
 try {
   const found = scheduleFromEnv(process.env);
   if (found) {
+    envSchedule = { raw: Array.isArray(found.raw) ? found.raw : [found.raw], source: found.source };
     schedule = parseSchedule(found.raw, store.tournaments);
-    scheduleNote = `${schedule.length} entr${schedule.length === 1 ? 'y' : 'ies'} from ${found.source}: ${schedule.map((e) => `${e.at} ${e.tz ?? 'UTC'}${e.roster ? ` (+${e.roster} roster seats)` : ''}`).join('; ')}`;
+    [scheduleRaw, scheduleSource] = [envSchedule.raw, found.source];
+    scheduleNote = describeSchedule(schedule, found.source);
   }
 } catch (err) {
   scheduleNote = `OFF: the schedule is invalid: ${(err as Error).message}`;
   console.error(`tournament schedule: ${scheduleNote}`);
+}
+try {
+  const saved = scheduleFromSaved(savedScheduleFile);
+  if (saved) {
+    const raw = Array.isArray(saved.raw) ? saved.raw : [saved.raw];
+    schedule = raw.length ? parseSchedule(raw, store.tournaments) : null;
+    [scheduleRaw, scheduleSource] = [raw, saved.source];
+    scheduleNote = schedule ? describeSchedule(schedule, saved.source) : `off (turned off on ${saved.source})`;
+  }
+} catch (err) {
+  console.error(`tournament schedule: the saved schedule (${savedScheduleFile}) is invalid, using the environment's: ${(err as Error).message}`);
 }
 const risk = createRiskServer(store, {
   clientDir: CLIENT_DIR,
@@ -75,6 +94,10 @@ const risk = createRiskServer(store, {
   seasonLockFile: DATA_DIR ? join(DATA_DIR, 'season-key-lockout.json') : null,
   tournamentSchedule: schedule,
   scheduleFile: DATA_DIR ? join(DATA_DIR, 'tournament-schedule.json') : null,
+  scheduleRaw,
+  scheduleSource,
+  envSchedule,
+  scheduleEntriesFile: savedScheduleFile,
 });
 
 risk.server.listen(PORT, HOST, () => {

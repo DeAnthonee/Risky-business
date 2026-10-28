@@ -207,6 +207,16 @@ export function slotMinTable(e: Pick<ScheduleEntry, 'minTables' | 'every'>, star
   return e.minTables[n % e.minTables.length];
 }
 
+/** The schedule the settings page saved (schedule-settings.ts), under RISK_DATA_DIR: it wins over the environment. */
+export const SAVED_SCHEDULE_FILE = 'tournament-schedule-entries.json';
+export const SAVED_SCHEDULE_SOURCE = 'the settings page';
+
+/** The schedule the settings page saved, or null when it has saved none (or the file is unreadable: logged). */
+export function scheduleFromSaved(file: string | null): { raw: unknown; source: string } | null {
+  if (!file || !existsSync(file)) return null;
+  return { raw: JSON.parse(readFileSync(file, 'utf8')), source: SAVED_SCHEDULE_SOURCE };
+}
+
 /** Read the schedule from the environment: RISK_TOURNAMENT_SCHEDULE (JSON) or RISK_TOURNAMENT_SCHEDULE_FILE. */
 export function scheduleFromEnv(env: NodeJS.ProcessEnv): { raw: unknown; source: string } | null {
   if (env.RISK_TOURNAMENT_SCHEDULE) return { raw: JSON.parse(env.RISK_TOURNAMENT_SCHEDULE), source: 'RISK_TOURNAMENT_SCHEDULE' };
@@ -470,6 +480,11 @@ export class TournamentScheduler {
       running: playing ? { id: playing.id, name: playing.name, startsAt: playing.scheduled!.startsAt, round: playing.rounds.length, ...styleOf(playing.nested?.style) } : null,
       cancelled: off ? { id: off.id, name: off.name, startsAt: off.scheduled!.startsAt, reason: off.scheduled!.cancelled!, ...styleOf(off.nested?.style) } : null,
     };
+  }
+
+  /** Write the slots now (before the settings page swaps this schedule for a new one). */
+  persist() {
+    this.save();
   }
 
   private save() {

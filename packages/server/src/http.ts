@@ -23,6 +23,7 @@ import { NO_TOURNEY_CAPS, TournamentAccess } from './tournament-access.js';
 import { NO_SEAT_CAPS, SeatRequests, type SeatRequest } from './seat-requests.js';
 import { setupPrompt } from './setup-prompt.js';
 import { droppedMessage } from './seat-health.js';
+import type { ScheduleSettings } from './schedule-settings.js';
 import { SeasonKeyGuard } from './season-key.js';
 import { RateLimitedError, RateLimiter } from './rate-limit.js';
 import { PLAYER_KEY_HEADER, PlayerKeyLimitError, type PlayerAccount } from './player-keys.js';
@@ -75,6 +76,8 @@ export function parseTournamentSpec(body: Record<string, unknown>, admin = false
 type Req = Request & { room?: GameRoom; playerId?: string | null };
 
 export interface ApiOptions {
+  /** The recurring tournaments' settings page: GET/PUT/DELETE /api/admin/schedule (unset = 404). */
+  scheduleSettings?: ScheduleSettings;
   /** Enables /api/admin/* when set (Authorization: Bearer <token>). */
   adminToken?: string | null;
   /** Read-only key for /api/records/* (x-records-key); unset turns those routes off. The admin token also works. */
@@ -433,6 +436,18 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
     for (const e of roster) (byModel[e.model] ??= { active: 0, retired: 0 })[e.status]++;
     return { roster, byModel };
   };
+  // The recurring tournaments' settings page: the schedule as written, replaced whole on save, or back to the env's.
+  const settings = () => {
+    if (!opts.scheduleSettings) throw new RiskHttpError('This server has no schedule settings', 404);
+    return opts.scheduleSettings;
+  };
+  api.get('/admin/schedule', requireAdmin, wrap((_req, res) => res.json(settings().view())));
+  api.put(
+    '/admin/schedule',
+    requireAdmin,
+    wrap((req, res) => res.json(settings().replace(((req.body ?? {}) as { entries?: unknown }).entries))),
+  );
+  api.delete('/admin/schedule', requireAdmin, wrap((_req, res) => res.json(settings().reset())));
   // On demand (the owner's "on demand when i feel like testing it"): a one-off run of the schedule's entry of `style`,
   // sign-up open now and the start in `startsInMinutes` (default its check-in window). 404 with no schedule.
   api.post(

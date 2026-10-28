@@ -24,6 +24,8 @@ import {
   setPlayerBot,
   startGame,
   viewFor,
+  boardStats,
+  type BoardStats,
   type Action,
   type ActionResult,
   type GameEvent,
@@ -220,6 +222,10 @@ export interface ChangeMessage {
 }
 
 const BOT_DELAY_MS = Number(process.env.RISK_BOT_DELAY_MS ?? 700);
+/** Long-polls at tables of more than this many seats coalesce other seats' moves (GameRoom.waitFor). */
+export const COALESCE_ABOVE_SEATS = 10;
+/** How long such a long-poll holds a change before it answers with the latest state. */
+export const WAKE_COALESCE_MS = 500;
 /**
  * A game seated with Zergs only ends right after the deal, decided by standing (owner, 2026-10-22); false would let it
  * play out. Games with any non-Zerg seat always end once only Zergs are left.
@@ -599,10 +605,11 @@ export class GameRoom extends EventEmitter {
   }
 
   /** The game as a seat (or, with null, an anonymous spectator) sees it, with the turn timer. Never carries player-type labels. */
-  view(playerId: PlayerId | null): GameView & { timer: TurnTimerInfo | null; decidedAt?: number; coach?: { text: string; at: number }[] } {
+  view(playerId: PlayerId | null): GameView & { timer: TurnTimerInfo | null; pace: number; decidedAt?: number; coach?: { text: string; at: number }[] } {
     // A seat's own coach notes (quick play), in its view only: never the spectators' or another seat's.
     const coach = playerId && this.quickPlay ? this.coach.shown(playerId) : [];
-    return { ...viewFor(this.state, playerId), timer: this.timerInfo(), ...this.decidedField(), ...(coach.length ? { coach } : {}) };
+    // `pace`: the table's bot pace (ms between moves); outside seats that pause between moves (the Delove pool) follow it.
+    return { ...viewFor(this.state, playerId, this.boardStats()), timer: this.timerInfo(), pace: this.botDelayMs ?? BOT_DELAY_MS, ...this.decidedField(), ...(coach.length ? { coach } : {}) };
   }
 
   /**
@@ -619,6 +626,14 @@ export class GameRoom extends EventEmitter {
     return note;
   }
 
+  private stats: { state: GameState; stats: BoardStats } | null = null;
+
+  /** The board's viewer-independent stats for the current state, worked out once per state for every view of it. */
+  private boardStats(): BoardStats {
+    if (this.stats?.state !== this.state) this.stats = { state: this.state, stats: boardStats(this.state) };
+    return this.stats.stats;
+  }
+
   /** `decidedAt` for views and summaries, only on a table decided on standing. */
   private decidedField(): { decidedAt?: number } {
     return this.decidedAt !== null ? { decidedAt: this.decidedAt } : {};
@@ -629,7 +644,7 @@ export class GameRoom extends EventEmitter {
    * (HTTP or WebSocket with no seat token); a seated player's view, the MCP and chat never get labels.
    */
   spectatorView(): GameView & { timer: TurnTimerInfo | null; decidedAt?: number } {
-    const v = viewFor(this.state, null);
+    const v = viewFor(this.state, null, this.boardStats());
     return { ...v, players: v.players.map((p) => (this.agents[p.id] ? { ...p, agent: this.agents[p.id] } : p)), timer: this.timerInfo(), ...this.decidedField() };
   }
 
@@ -983,12 +998,23 @@ export class GameRoom extends EventEmitter {
     const now = check();
     if (now) return Promise.resolve(now);
     return new Promise((resolve) => {
+      // At a big table a change that is not this seat's turn (someone else's move) is held for WAKE_COALESCE_MS, so
+      // each waiting seat wakes at most a few times a second with the latest state, not once per move: at a 100-seat
+      // table every move otherwise builds and sends ~100 views. The seat to move, and the end, still wake at once.
+      let held: ReturnType<typeof setTimeout> | null = null;
       const onChange = () => {
         const r = check();
-        if (r) {
-          cleanup();
-          resolve(r);
+        if (!r) return;
+        const urgent = r === 'finished' || (playerId !== null && this.state.currentPlayer === playerId);
+        if (!urgent && this.state.players.length > COALESCE_ABOVE_SEATS) {
+          held ??= setTimeout(() => {
+            cleanup();
+            resolve(check() ?? 'change');
+          }, WAKE_COALESCE_MS);
+          return;
         }
+        cleanup();
+        resolve(r);
       };
       const timer = setTimeout(() => {
         cleanup();
@@ -1010,6 +1036,7 @@ export class GameRoom extends EventEmitter {
           this.markSeat(playerId);
         }
         clearTimeout(timer);
+        if (held) clearTimeout(held);
         this.off('change', onChange);
         this.waiters.delete(release);
       };

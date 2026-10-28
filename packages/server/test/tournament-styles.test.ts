@@ -9,6 +9,7 @@ vi.hoisted(() => {
 const { Store } = await import('../src/store.js');
 const { createRiskServer } = await import('../src/app.js');
 const { STYLE_LABELS } = await import('../src/tournaments.js');
+const { WAKE_COALESCE_MS } = await import('../src/store.js');
 const { TournamentScheduler, parseSchedule, slotMinTable } = await import('../src/tournament-schedule.js');
 const { TournamentRankings } = await import('../src/tournament-scoring.js');
 const { modelLabel } = await import('../src/roster.js');
@@ -118,6 +119,47 @@ describe('tournament styles', () => {
     expect(t.rounds[0].matches[0].status).toMatch(/decided|finished/);
     store.stopTimers();
   }, 120_000);
+
+  it('mega: fast by default (no bot pause, a per-turn timer, fixed card values); seats see the pace; other seats\' moves coalesce', async () => {
+    const store = new Store(null, {}, { clock: new FakeClock() });
+    const t = store.tournaments.create({ format: 'nested', style: 'mega' });
+    expect(t.nested).toMatchObject({ botDelayMs: 0 });
+    expect(t.options).toMatchObject({ cardValues: 'fixed', turnTimer: 'turn', turnTimerSeconds: 90, closingIce: true });
+    // A host's own settings win; other styles keep the per-move timer and progressive cards.
+    expect(store.tournaments.create({ format: 'nested', style: 'mega', botDelayMs: 500, options: { cardValues: 'progressive', turnTimer: 'off' } })).toMatchObject({ nested: { botDelayMs: 500 }, options: { cardValues: 'progressive', turnTimer: 'off' } });
+    const classic = store.tournaments.create({ format: 'nested' });
+    expect(classic.nested).toMatchObject({ botDelayMs: 300 });
+    expect(classic.options.cardValues).toBeUndefined();
+    // Twelve outside seats at one mega table: each seat's view carries the table's pace.
+    const mega = store.tournaments.create({ format: 'nested', style: 'mega', options: { turnTimer: 'off' } });
+    const seats = Array.from({ length: 12 }, (_, i) => store.tournaments.join(mega.id, `Seat ${i + 1}`, 'AI agent'));
+    store.tournaments.start(mega.id);
+    const match = mega.rounds[0].matches[0];
+    const room = store.get(match.gameId!)!;
+    const seatOf = (e: { entrantId: string }) => match.seats[e.entrantId] as { playerId: string; token: string };
+    const ids = seats.map(seatOf).map((x) => x.playerId);
+    expect(room.view(ids[0]).pace).toBe(0);
+    const mover = room.state.currentPlayer!;
+    const other = ids.find((id) => id !== mover)!;
+    // A seat that is not to move hears of another seat's move only after the coalescing window, with the latest state.
+    const since = room.state.version;
+    const started = Date.now();
+    const waiting = room.waitFor(other, since, 10_000).then((r) => ({ r, ms: Date.now() - started }));
+    room.act(mover, room.view(mover).legal!.canEndTurn ? { type: 'end_turn' } : { type: 'place', placements: { [Object.entries(room.state.territories).find(([, x]) => x.owner === mover)![0]]: room.state.players.find((p) => p.id === mover)!.armiesToPlace } });
+    const woke = await waiting;
+    expect(woke.r).not.toBe('timeout');
+    expect(woke.ms).toBeGreaterThanOrEqual(WAKE_COALESCE_MS - 20);
+    // The seat to move is never held: a move of its own (place, attack) answers its wait at once.
+    const turn = room.state.currentPlayer!;
+    const v = room.state.version;
+    const t0 = Date.now();
+    const own = room.waitFor(turn, v, 10_000);
+    const legal = room.view(turn).legal!;
+    room.act(turn, legal.canEndTurn ? { type: 'end_turn' } : { type: 'place', placements: { [Object.entries(room.state.territories).find(([, x]) => x.owner === turn)![0]]: room.state.players.find((p) => p.id === turn)!.armiesToPlace } });
+    await own;
+    expect(Date.now() - t0).toBeLessThan(WAKE_COALESCE_MS);
+    store.tournaments.abort(mega.id);
+  });
 
   it('Zerg survival: every table moves on its best non-Zerg (never a Zerg), and a table ends at its last non-Zerg', async () => {
     const store = new Store(null, {}, { clock: new FakeClock() });

@@ -83,6 +83,12 @@ export const STYLE_LABELS: Record<TournamentStyle, string> = { classic: 'Classic
 export const MEGA_MAP = 'mega_earth';
 /** A mega game's deadline when the host sets none: the longest a round may run (it can take hours at 100 seats). */
 export const MEGA_ROUND_MINUTES = 240;
+/**
+ * A mega table's bot pace (ms between moves): none. 100 seats take their turns one after another, so the table runs as
+ * fast as its seats decide (owner, 2026-10-28: "it can go faster if its available"); how fast spectators see it is the
+ * client's playback (useGame.ts), not the game's.
+ */
+export const MEGA_BOT_DELAY_MS = 0;
 
 /** A style from an untrusted value: undefined when absent, else one of TOURNAMENT_STYLES. */
 export function parseStyle(raw: unknown): TournamentStyle | undefined {
@@ -299,7 +305,7 @@ export interface CreateTournamentSpec {
   roundMinutes?: number;
   /** Nested: accepted (0.1-1) for old callers and ignored: a round no longer closes early. */
   finishShare?: number;
-  /** Nested: bots' pace at the tables, ms between moves (0-2000, default 300). */
+  /** Nested: bots' pace at the tables, ms between moves (0-2000, default 300; MEGA_BOT_DELAY_MS at a mega table). */
   botDelayMs?: number;
   /** Nested: fix the seed of the boards, seating and tie-break dice (replays and simulations); default random. */
   seed?: number;
@@ -440,6 +446,24 @@ export const NESTED_ROUND_MINUTES = 15;
  * and 5 stalled rounds after that (10 with no capture) the table ends on standing.
  */
 export const NESTED_DEFAULT_OPTIONS: Partial<GameOptions> = { autoSetup: true, capitals: true, stallFogLift: 3, stallStorm: 5, stallEnd: 5 };
+/** A mega table's turn timer: per turn, so no seat holds 99 others for 90 s on every one of its moves. */
+export const MEGA_TURN_TIMER_SECONDS = 90;
+
+/**
+ * A style's own defaults, under whatever the host set. A mega game (owner, 2026-10-28: "make the mega run much faster")
+ * has closing ice ("blizzards ... until the map gets smaller"), a per-turn timer, and fixed card values: with progressive
+ * values the trade count is the whole table's, so at 100 seats a late set is worth over 100 armies.
+ */
+function styleDefaults(style: TournamentStyle | undefined, options: Partial<GameOptions>) {
+  if (style !== 'mega') return;
+  if (options.closingIce === undefined) options.closingIce = true;
+  if (options.cardValues === undefined) options.cardValues = 'fixed';
+  if (options.turnTimer === undefined) {
+    options.turnTimer = 'turn';
+    if (options.turnTimerSeconds === undefined) options.turnTimerSeconds = MEGA_TURN_TIMER_SECONDS;
+  }
+}
+
 /** Unless the host sets a blizzard count, each nested table freezes this share of its own board's territories. */
 export const NESTED_BLIZZARD_SHARE = 0.1;
 
@@ -626,7 +650,7 @@ export class TournamentManager extends EventEmitter {
     this.createNested({ ...spec, format: 'nested', maxEntrants: spec.maxEntrants ?? Math.max(2, total) }, true);
     const tps = spec.territoriesPerSeat ?? DEFAULT_TERRITORIES_PER_SEAT;
     const roundMinutes = spec.roundMinutes ?? (spec.style === 'mega' ? MEGA_ROUND_MINUTES : NESTED_ROUND_MINUTES);
-    const botDelayMs = spec.botDelayMs ?? 300;
+    const botDelayMs = spec.botDelayMs ?? (spec.style === 'mega' ? MEGA_BOT_DELAY_MS : 300);
     const finalMax = spec.finalMap ? this.maxFinal(spec.finalMap) : NESTED_FINAL.max;
     const plan = planNest(total, stylePlanOptions(spec.style, spec.minTable, finalMax, total));
     // Round 1 as it would be seated: open spots are guests, Delove seats house AI (seated after the guests), then Zergs.
@@ -642,7 +666,8 @@ export class TournamentManager extends EventEmitter {
       const biggest = Math.max(...r.map((x) => x.seats));
       return Math.min(roundMinutes, Math.max(1, Math.ceil((biggest * PREVIEW_BOT_MOVES_PER_SEAT * botDelayMs) / 60_000)));
     });
-    const options = { ...NESTED_DEFAULT_OPTIONS, ...(spec.options ?? {}) };
+    const options: Partial<GameOptions> = { ...NESTED_DEFAULT_OPTIONS, ...(spec.options ?? {}) };
+    styleDefaults(spec.style, options);
     const timer = options.turnTimer === undefined ? { mode: 'move', seconds: NESTED_TURN_TIMER_SECONDS } : options.turnTimer === 'off' ? null : { mode: options.turnTimer, seconds: options.turnTimerSeconds ?? 15 };
     const warnings: string[] = [];
     const pool = this.delovePool?.() ?? null;
@@ -687,8 +712,7 @@ export class TournamentManager extends EventEmitter {
     const options: Partial<GameOptions> = { ...NESTED_DEFAULT_OPTIONS, ...(spec.options ?? {}) };
     delete options.maxPlayers; // set per table
     delete options.map; // every table plays its own board
-    // A mega game has closing ice by default (owner, 2026-10-28: "blizzards ... until the map gets smaller"); a host may turn it off.
-    if (spec.style === 'mega' && options.closingIce === undefined) options.closingIce = true;
+    styleDefaults(spec.style, options);
     // 1v1 plays without capitals (owner, 2026-10-28), whatever the options say.
     if (spec.style === '1v1') {
       options.capitals = false;
@@ -701,7 +725,7 @@ export class TournamentManager extends EventEmitter {
     if (!Number.isInteger(roundMinutes) || roundMinutes < 1 || roundMinutes > 240) throw new RuleError('roundMinutes must be a whole number from 1 to 240');
     const finishShare = spec.finishShare ?? 0.51;
     if (typeof finishShare !== 'number' || !(finishShare >= 0.1 && finishShare <= 1)) throw new RuleError('finishShare must be a number from 0.1 to 1');
-    const botDelayMs = spec.botDelayMs ?? 300;
+    const botDelayMs = spec.botDelayMs ?? (spec.style === 'mega' ? MEGA_BOT_DELAY_MS : 300);
     if (!Number.isInteger(botDelayMs) || botDelayMs < 0 || botDelayMs > 2000) throw new RuleError('botDelayMs must be a whole number from 0 to 2000');
     // Tables run on a per-move turn timer unless the host says otherwise, so a stalled seat cannot hold a round.
     if (options.turnTimer === undefined) {

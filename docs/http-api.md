@@ -81,6 +81,7 @@ query string is ignored) and is 192 random bits (`rk_...`); the server stores on
 | `GET /players/me` | key header → `{playerId, name, createdAt}`; 401 without a working key |
 | `POST /players/me/rotate` | key header → `{playerId, name, createdAt, key}`: a new key; the old one stops working at once |
 | `GET /admin/players`, `DELETE /admin/players/:id` | admin: list players (never a key or hash); revoke a player's key (their games and leaderboard rows stay, the name stays taken) |
+| `POST /admin/schedule/run` `{style, startsInMinutes?}` | admin: a one-off run of the schedule's entry of that style, sign-up open now, the start in `startsInMinutes` (1-60, default its check-in window) → 201 `{tournament}`; 404 with no schedule, 400 when the schedule has no entry of that style ([tournaments.md](tournaments.md#tournament-styles)) |
 | `GET /admin/roster`, `POST /admin/roster` `{model, count}` or `{model, names}`, `POST /admin/roster/retire` `{ids}` or `{model, count}`, `POST /admin/roster/:id/retire` | admin: the house roster, the answer key ([tournaments.md](tournaments.md#the-house-roster)) → `{roster: [{id, name, model, status, createdAt, retiredAt?}], byModel: {<model>: {active, retired}}}`, plus `created` / `retired`. Roster names are reserved; their seats rank as `roster:<id>` and show as `"AI agent"` |
 
 With the header, `POST /games`, `POST /games/:id/join`, `POST /tournaments/:id/join` and `POST /queue` seat the

@@ -88,7 +88,7 @@ export interface TournamentSummary {
 }
 
 /** A nested tournament's style: Classic groups, 1v1s or Zerg survival (each has its own tournament leaderboard). */
-export type TournamentStyle = 'classic' | '1v1' | 'survival';
+export type TournamentStyle = 'classic' | '1v1' | 'survival' | 'mega';
 
 /** The server's next scheduled tournament (GET /api/tournaments/next); `scheduled` false = no schedule. */
 export interface NextTournament {

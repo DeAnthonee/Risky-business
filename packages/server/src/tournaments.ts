@@ -72,12 +72,17 @@ export type TournamentFormat = 'knockout' | 'nested';
 /**
  * A nested tournament's style (docs/tournaments.md "Tournament styles"): `classic` groups of 3-6 (the default),
  * `1v1` (every table two seats, the final too), or `survival` (Zergs among the entrants, and at every table the last
- * player standing who is not a Zerg moves on; a Zerg never does). Each style has its own tournament leaderboard.
+ * player standing who is not a Zerg moves on; a Zerg never does), or `mega` (one table of every entrant, up to 100, on
+ * Mega Earth). Each style has its own tournament leaderboard.
  */
-export type TournamentStyle = 'classic' | '1v1' | 'survival';
-export const TOURNAMENT_STYLES: readonly TournamentStyle[] = ['classic', '1v1', 'survival'];
+export type TournamentStyle = 'classic' | '1v1' | 'survival' | 'mega';
+export const TOURNAMENT_STYLES: readonly TournamentStyle[] = ['classic', '1v1', 'survival', 'mega'];
 /** What the site and agents call each style. */
-export const STYLE_LABELS: Record<TournamentStyle, string> = { classic: 'Classic groups', '1v1': '1v1s', survival: 'Zerg survival' };
+export const STYLE_LABELS: Record<TournamentStyle, string> = { classic: 'Classic groups', '1v1': '1v1s', survival: 'Zerg survival', mega: 'Mega tourney' };
+/** The mega tournament's board (a TOURNAMENT_MAP_IDS board: one territory per hexagon, up to 100 seats). */
+export const MEGA_MAP = 'mega_earth';
+/** A mega game's deadline when the host sets none: the longest a round may run (it can take hours at 100 seats). */
+export const MEGA_ROUND_MINUTES = 240;
 
 /** A style from an untrusted value: undefined when absent, else one of TOURNAMENT_STYLES. */
 export function parseStyle(raw: unknown): TournamentStyle | undefined {
@@ -86,9 +91,13 @@ export function parseStyle(raw: unknown): TournamentStyle | undefined {
   throw new RuleError(`style must be one of ${TOURNAMENT_STYLES.map((x) => `"${x}"`).join(', ')}`);
 }
 
-/** The planner's table sizes for a style; `minTable` raises the first round's smallest table (classic, survival). */
-export function stylePlanOptions(style: TournamentStyle | undefined, minTable: number | undefined, maxFinal: number): NestPlanOptions {
+/**
+ * The planner's table sizes for a style; `minTable` raises the first round's smallest table (classic, survival). A mega
+ * tournament is a final of everyone (`players`): one round, one table.
+ */
+export function stylePlanOptions(style: TournamentStyle | undefined, minTable: number | undefined, maxFinal: number, players = 2): NestPlanOptions {
   if (style === '1v1') return { minTable: 2, maxTable: 2, minFinal: 2, maxFinal: 2, prefer: 2 };
+  if (style === 'mega') return { minFinal: Math.max(2, players), maxFinal: Math.max(2, players) };
   return { maxFinal, ...(minTable !== undefined ? { firstMinTable: minTable } : {}) };
 }
 
@@ -616,10 +625,10 @@ export class TournamentManager extends EventEmitter {
     const total = counts.zergs + counts.delove + counts.open;
     this.createNested({ ...spec, format: 'nested', maxEntrants: spec.maxEntrants ?? Math.max(2, total) }, true);
     const tps = spec.territoriesPerSeat ?? DEFAULT_TERRITORIES_PER_SEAT;
-    const roundMinutes = spec.roundMinutes ?? NESTED_ROUND_MINUTES;
+    const roundMinutes = spec.roundMinutes ?? (spec.style === 'mega' ? MEGA_ROUND_MINUTES : NESTED_ROUND_MINUTES);
     const botDelayMs = spec.botDelayMs ?? 300;
     const finalMax = spec.finalMap ? this.maxFinal(spec.finalMap) : NESTED_FINAL.max;
-    const plan = planNest(total, stylePlanOptions(spec.style, spec.minTable, finalMax));
+    const plan = planNest(total, stylePlanOptions(spec.style, spec.minTable, finalMax, total));
     // Round 1 as it would be seated: open spots are guests, Delove seats house AI (seated after the guests), then Zergs.
     const entrants = [
       ...Array.from({ length: counts.open }, (_, i) => ({ id: `p${i}`, isBot: false })),
@@ -686,7 +695,7 @@ export class TournamentManager extends EventEmitter {
     const tps = spec.territoriesPerSeat ?? DEFAULT_TERRITORIES_PER_SEAT;
     if (!Number.isInteger(tps) || tps < TERRITORIES_PER_SEAT_RANGE.min || tps > TERRITORIES_PER_SEAT_RANGE.max)
       throw new RuleError(`territoriesPerSeat must be a whole number from ${TERRITORIES_PER_SEAT_RANGE.min} to ${TERRITORIES_PER_SEAT_RANGE.max}`);
-    const roundMinutes = spec.roundMinutes ?? NESTED_ROUND_MINUTES;
+    const roundMinutes = spec.roundMinutes ?? (spec.style === 'mega' ? MEGA_ROUND_MINUTES : NESTED_ROUND_MINUTES);
     if (!Number.isInteger(roundMinutes) || roundMinutes < 1 || roundMinutes > 240) throw new RuleError('roundMinutes must be a whole number from 1 to 240');
     const finishShare = spec.finishShare ?? 0.51;
     if (typeof finishShare !== 'number' || !(finishShare >= 0.1 && finishShare <= 1)) throw new RuleError('finishShare must be a number from 0.1 to 1');
@@ -698,7 +707,7 @@ export class TournamentManager extends EventEmitter {
       if (options.turnTimerSeconds === undefined) options.turnTimerSeconds = NESTED_TURN_TIMER_SECONDS;
     }
     if (spec.seed !== undefined && (!Number.isInteger(spec.seed) || spec.seed < 0 || spec.seed > 0xffffffff)) throw new RuleError('seed must be a whole number from 0 to 4294967295');
-    const maxEntrants = spec.maxEntrants ?? DEFAULT_MAX_NESTED_ENTRANTS;
+    const maxEntrants = spec.maxEntrants ?? (spec.style === 'mega' ? getMap(MEGA_MAP).maxPlayers : DEFAULT_MAX_NESTED_ENTRANTS);
     if (!Number.isInteger(maxEntrants) || maxEntrants < 2 || maxEntrants > MAX_ENTRANTS) throw new RuleError(`maxEntrants must be a whole number from 2 to ${MAX_ENTRANTS}`);
     const style = spec.style ?? 'classic';
     if (!TOURNAMENT_STYLES.includes(style)) throw new RuleError(`style must be one of ${TOURNAMENT_STYLES.join(', ')}`);
@@ -707,8 +716,16 @@ export class TournamentManager extends EventEmitter {
       if (!Number.isInteger(spec.minTable) || spec.minTable < NESTED_TABLE.min || spec.minTable > NESTED_TABLE.max) throw new RuleError(`minTable must be a whole number from ${NESTED_TABLE.min} to ${NESTED_TABLE.max}`);
     }
     if (style === '1v1' && spec.finalMap !== undefined) throw new RuleError('A 1v1 final is a two-seat generated board: leave finalMap out');
-    let finalMap: string | null = null;
-    if (spec.finalMap !== undefined) {
+    if (style === 'mega') {
+      // One table of everyone on Mega Earth: the board seats the field, so it caps maxEntrants.
+      if (spec.minTable !== undefined) throw new RuleError('minTable is for classic and survival tournaments (a mega tournament is one table)');
+      if (spec.finalMap !== undefined && spec.finalMap !== MEGA_MAP) throw new RuleError(`A mega tournament plays on ${MEGA_MAP}: leave finalMap out`);
+      const seats = getMap(MEGA_MAP).maxPlayers;
+      if (maxEntrants > seats) throw new RuleError(`A mega tournament seats at most ${seats} (maxEntrants)`);
+      for (const n of [2, maxEntrants]) createGame('CHECK', { ...options, map: MEGA_MAP as GameOptions['map'], maxPlayers: n });
+    }
+    let finalMap: string | null = style === 'mega' ? MEGA_MAP : null;
+    if (spec.finalMap !== undefined && style !== 'mega') {
       if (!isMapId(spec.finalMap)) throw new RuleError(`Unknown map "${spec.finalMap}"`);
       finalMap = spec.finalMap;
       if (this.maxFinal(finalMap) < NESTED_FINAL.min) throw new RuleError(`The final needs a board seating ${NESTED_FINAL.min}+ players with a region per seat`);
@@ -1428,7 +1445,7 @@ export class TournamentManager extends EventEmitter {
   /** Plan the rounds, add the bots the plan needs, draw the boards and seat round 1 (every table at once). */
   private startNested(t: TournamentSnapshot): TournamentSnapshot {
     const n = t.nested!;
-    const plan = planNest(t.entrants.length, stylePlanOptions(n.style, n.minTable, n.finalMap ? this.maxFinal(n.finalMap) : NESTED_FINAL.max));
+    const plan = planNest(t.entrants.length, stylePlanOptions(n.style, n.minTable, n.finalMap ? this.maxFinal(n.finalMap) : NESTED_FINAL.max, t.entrants.length));
     // The bots the plan needs are Zerg entrants (docs/zergs.md), with reptile names unique in the tournament.
     for (let i = 1; i <= plan.zergs; i++) {
       const entrant: Entrant = { id: `e_${newId(6)}`, name: freeZergName(t.entrants.map((e) => e.name)), isBot: true, kind: 'zerg', joinedAt: Date.now() };

@@ -433,6 +433,20 @@ export function createApi(store: Store, opts: ApiOptions = {}) {
     for (const e of roster) (byModel[e.model] ??= { active: 0, retired: 0 })[e.status]++;
     return { roster, byModel };
   };
+  // On demand (the owner's "on demand when i feel like testing it"): a one-off run of the schedule's entry of `style`,
+  // sign-up open now and the start in `startsInMinutes` (default its check-in window). 404 with no schedule.
+  api.post(
+    '/admin/schedule/run',
+    requireAdmin,
+    wrap((req, res) => {
+      if (!store.schedule) throw new RiskHttpError('This server has no tournament schedule', 404);
+      const b = (req.body ?? {}) as { style?: unknown; startsInMinutes?: unknown };
+      const style = parseStyle(b.style) ?? 'classic';
+      const minutes = b.startsInMinutes === undefined ? undefined : Number(b.startsInMinutes);
+      const t = store.schedule.runNow(style, minutes);
+      res.status(201).json({ tournament: store.tournaments.view(t.id) });
+    }),
+  );
   api.get('/admin/roster', requireAdmin, (_req, res) => res.json(rosterView()));
   // {model, count}: the next free house names; or {model, names}: these names. All or none.
   api.post(

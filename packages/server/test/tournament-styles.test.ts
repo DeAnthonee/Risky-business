@@ -84,6 +84,33 @@ describe('tournament styles', () => {
     store.stopTimers();
   }, 180_000);
 
+  it('mega: one table of every entrant on Mega Earth, decided at its deadline; settings checked at create', async () => {
+    const clock = new FakeClock();
+    const store = new Store(null, {}, { clock });
+    expect(() => store.tournaments.create({ ...FAST, style: 'mega', maxEntrants: 101 })).toThrow(/at most 100/);
+    expect(() => store.tournaments.create({ ...FAST, style: 'mega', minTable: 4 })).toThrow(/minTable/);
+    expect(() => store.tournaments.create({ ...FAST, style: 'mega', finalMap: 'world' })).toThrow(/mega_earth/);
+    const t = store.tournaments.create({ ...FAST, style: 'mega' });
+    expect(t).toMatchObject({ maxEntrants: 100, nested: { style: 'mega', finalMap: 'mega_earth', roundMinutes: 240 } });
+    for (let i = 1; i <= 30; i++) t.entrants.push({ id: `e_${i}`, name: `B${i}`, isBot: true, joinedAt: 0 });
+    store.tournaments.start(t.id);
+    expect(t.nested!.plan!.rounds.map((r) => r.map((x) => x.seats))).toEqual([[30]]);
+    const room = store.get(t.rounds[0].matches[0].gameId!)!;
+    expect(room.state.options.map).toBe('mega_earth');
+    expect(room.state.players).toHaveLength(30);
+    expect(new Set(room.state.players.map((p) => p.color)).size).toBe(30);
+    // Bots play on for a few seconds, then the round's deadline (240 minutes by default) decides the table on standing.
+    const v = room.state.version;
+    await new Promise((r) => setTimeout(r, 3000));
+    console.log(`mega: ${room.state.version - v} moves in 3 s, round ${room.state.round}`);
+    expect(room.state.version).toBeGreaterThan(v);
+    clock.advance(240 * 60_000 + 1);
+    await until(() => t.status === 'finished', 60_000);
+    expect(t.champion).toBeTruthy();
+    expect(t.rounds[0].matches[0].status).toMatch(/decided|finished/);
+    store.stopTimers();
+  }, 120_000);
+
   it('Zerg survival: every table moves on its best non-Zerg (never a Zerg), and a table ends at its last non-Zerg', async () => {
     const store = new Store(null, {}, { clock: new FakeClock() });
     const t = store.tournaments.create({ ...FAST, style: 'survival' });
@@ -143,6 +170,41 @@ describe('tournament styles', () => {
     expect(swarm.entrants.filter((e) => e.kind === 'zerg').length).toBeGreaterThanOrEqual(25);
     sched.stop();
     store.stopTimers();
+  });
+
+  it('runs a schedule entry on demand (mega): a one-off slot that starts on its own, the timetable untouched', async () => {
+    const clock = new FakeClock();
+    const store = new Store(null, {}, { clock });
+    const entries = parseSchedule([{ at: '12:00', name: 'Mega tourney', style: 'mega', signupMinutes: 60, checkinMinutes: 10, maxEntrants: 100, botDelayMs: 2000 }], store.tournaments);
+    const sched = new TournamentScheduler(store.tournaments, entries, null);
+    const nextBefore = sched.next().next!.startsAt;
+    expect(() => sched.runNow('1v1')).toThrow(/no 1v1s entry/);
+    expect(() => sched.runNow('mega', 0)).toThrow(/startsInMinutes/);
+    const t = sched.runNow('mega', 3);
+    expect(t).toMatchObject({ status: 'registering', nested: { style: 'mega', finalMap: 'mega_earth' } });
+    expect(t.scheduled!.startsAt).toBeGreaterThanOrEqual(clock.now() + 3 * 60_000);
+    expect(sched.next().next!.startsAt).toBe(nextBefore);
+    // Two people check in (joining inside the window checks in), then it starts by itself at its time.
+    store.tournaments.join(t.id, 'Ann', undefined, undefined, 'ip:a');
+    store.tournaments.join(t.id, 'Bob', undefined, undefined, 'ip:b');
+    clock.advance(t.scheduled!.startsAt - clock.now() + 1);
+    expect(t.status).toBe('running');
+    expect(t.rounds[0].matches).toHaveLength(1);
+    sched.stop();
+    store.stopTimers();
+
+    // Over HTTP: admin only; 404 with no schedule.
+    const bare = new Store(null, {}, { clock: new FakeClock() });
+    const risk = createRiskServer(bare, { clientDir: null, sweepIntervalMs: 0, adminToken: 'adm' });
+    await new Promise<void>((resolve) => risk.server.listen(0, '127.0.0.1', resolve));
+    const url = `http://127.0.0.1:${(risk.server.address() as AddressInfo).port}/api/admin/schedule/run`;
+    try {
+      const post = (auth?: string) => fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', ...(auth ? { authorization: `Bearer ${auth}` } : {}) }, body: JSON.stringify({ style: 'mega' }) });
+      expect((await post()).status).toBe(401);
+      expect((await post('adm')).status).toBe(404);
+    } finally {
+      await risk.shutdown('test');
+    }
   });
 
   it('keeps one leaderboard per style, with each Delove\'s model', async () => {

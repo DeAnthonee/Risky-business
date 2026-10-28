@@ -492,7 +492,8 @@ export default function GlobeMap(props: Props) {
       // HTML overlays: badges, region labels, floats and move tokens follow their cells; hidden on the far side.
       const rect = el.getBoundingClientRect();
       // Smaller badges on small boards (phones), so they do not cover the hexes.
-      const fit = Math.max(0.7, Math.min(1, Math.min(rect.width, rect.height) / 620));
+      // A huge board (Mega Earth's one-hexagon territories) has hexes three quarters of Hex Earth's: badges at 60%.
+      const fit = Math.max(0.7, Math.min(1, Math.min(rect.width, rect.height) / 620)) * (live.current.map.territoryIds.length > 300 ? 0.6 : 1);
       camDir.copy(camera.position).normalize();
       const place = (node: HTMLElement | undefined, dir: THREE.Vector3, r: number) => {
         if (!node) return;

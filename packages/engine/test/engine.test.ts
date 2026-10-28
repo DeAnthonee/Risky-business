@@ -704,14 +704,15 @@ describe('maps', () => {
     bohemia: { territories: 42, regions: 8, maxPlayers: 6 },
     nine_realms: { territories: 58, regions: 9, maxPlayers: 8 },
     hexworld: { territories: 80, regions: 14, maxPlayers: 10 },
+    mega_earth: { territories: 671, regions: 14, maxPlayers: 100 }, // tournament board: the mega tournament only
   };
 
   it('every map is well formed', async () => {
-    const { MAPS, MAP_IDS } = await import('../src/index.js');
+    const { MAPS, MAP_IDS, TOURNAMENT_MAP_IDS } = await import('../src/index.js');
     expect(MAP_IDS).toEqual(['classic', 'world', 'world_large', 'europe', 'greater_europe', 'europe_classic', 'usa', 'asia', 'fantasy', 'skirmish', 'bohemia', 'nine_realms', 'hexworld']);
-    // every registered board is either offered or legacy, never both
-    expect([...MAP_IDS, ...LEGACY_MAP_IDS].sort()).toEqual(Object.keys(MAPS).sort());
-    for (const id of [...MAP_IDS, ...LEGACY_MAP_IDS]) {
+    // every registered board is offered, legacy or a tournament board, only one of them
+    expect([...MAP_IDS, ...LEGACY_MAP_IDS, ...TOURNAMENT_MAP_IDS].sort()).toEqual(Object.keys(MAPS).sort());
+    for (const id of [...MAP_IDS, ...LEGACY_MAP_IDS, ...TOURNAMENT_MAP_IDS]) {
       const m = MAPS[id];
       expect(m.territories.length).toBe(EXPECTED[id].territories);
       expect(m.continents.length).toBe(EXPECTED[id].regions);

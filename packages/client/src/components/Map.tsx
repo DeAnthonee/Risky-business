@@ -191,6 +191,8 @@ function FlatMap(props: MapProps & { onShowGlobe?: () => void }) {
   const anchor = (id: string) => map.territoryById[id];
   const now = Date.now();
   const dense = map.territories.length > 50;
+  // A huge board (Mega Earth: one territory per hexagon, ~13 units apart): every badge drawn at 38%.
+  const badgeScale = map.territories.length > 300 ? ' scale(0.38)' : '';
 
   // Hovered territory and its attackable targets (for both watchers and players)
   const [hovered, setHovered] = useState<string | null>(null);
@@ -662,7 +664,7 @@ function FlatMap(props: MapProps & { onShowGlobe?: () => void }) {
           const cap = capitalOwner(t.id);
           if (isFrozen(t.id))
             return (
-              <g key={t.id} className="badge blizzard" transform={`translate(${t.x},${t.y})`}>
+              <g key={t.id} className="badge blizzard" transform={`translate(${t.x},${t.y})${badgeScale}`}>
                 <g className="blizzard-icon">
                   {[0, 60, 120].map((a) => (
                     <line key={a} x1={0} y1={-9} x2={0} y2={9} transform={`rotate(${a})`} />
@@ -678,7 +680,7 @@ function FlatMap(props: MapProps & { onShowGlobe?: () => void }) {
             <g
               key={t.id}
               className={cls}
-              transform={`translate(${t.x},${t.y})`}
+              transform={`translate(${t.x},${t.y})${badgeScale}`}
               onClick={(e) => click(t.id, e.shiftKey)}
               onPointerEnter={() => !gesture.current.moved && setHovered(t.id)}
             >

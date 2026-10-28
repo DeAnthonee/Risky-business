@@ -1,6 +1,6 @@
 # Maps
 
-Thirteen boards. Nine are drawn from real geography (Natural Earth countries or US Census states, cut into
+Thirteen boards for games, plus Mega Earth, a tournament board (below). Nine are drawn from real geography (Natural Earth countries or US Census states, cut into
 territories and projected to SVG, or Natural Earth land under a hexagon grid for Hex Earth); Realms of Halvaren, Four Crowns, Bohemia and The Nine Realms are original boards drawn by hand:
 
 | map | territories | regions | players | notes |
@@ -21,6 +21,16 @@ territories and projected to SVG, or Natural Earth land under a hexagon grid for
 
 Every map except Classic starts each player with the classic numbers scaled by map size (territories ÷ 42; above 6 players an equal share of the 6-player total)
 (`STARTING_ARMIES` in `packages/engine/src/maps.ts`; the exact table per player count is in the rules text).
+
+Tournament board: **Mega Earth** (`mega_earth`, owner's request 2026-10-28) is Hex Earth on a finer globe
+(frequency 16: 2562 cells) where every one of its **671 land hexagons is a territory**, for the 100-player mega
+tournament ([tournaments.md](tournaments.md#tournament-styles)): about 6.7 territories a player at 100, like classic
+Risk's 42 for 6 (19 armies each at 100 players). Hex Earth's territories name the hexes ("Beringia 3", numbered
+outward from the site) and its 14 regions group them; bonuses are the builder's classic suggestion (South Asia +9 for
+14 hexes up to North America +41 for 103); Hex Earth's sea lanes join the closest hexes (23 links). It seats 2-100,
+draws its badges at 38% on the flat view and 60% on the globe, and gives seats past the tenth their own colours
+(`seatColor` in the engine). It is in `TOURNAMENT_MAP_IDS`, not `MAP_IDS`: lobbies cannot pick it and Delove does not
+train on it, so it is not in the GPU mirror's `RULE_FILES` either.
 
 Legacy board: `europe_advanced` (the 99-territory "Europe Advanced" for 2–6 players, now shown as
 "Europe (legacy, 99)") is no longer offered for new games and is not listed by `GET /api/maps`, but stays

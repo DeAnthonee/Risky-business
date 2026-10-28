@@ -263,6 +263,8 @@ function styleOf(style: TournamentStyle | undefined): { style: TournamentStyle; 
 
 export class TournamentScheduler {
   private slots = new Map<string, Slot>();
+  /** On-demand runs (runNow) waiting for their start: each with its entry's key. */
+  private oneOffs = new Map<string, { entry: string; slot: Slot }>();
   private timer: unknown = null;
   private retryAt = new Map<string, number>();
   private stopped = false;
@@ -276,8 +278,13 @@ export class TournamentScheduler {
   ) {
     if (file && existsSync(file)) {
       try {
-        const saved = JSON.parse(readFileSync(file, 'utf8')) as { slots?: Record<string, Slot> };
+        const saved = JSON.parse(readFileSync(file, 'utf8')) as { slots?: Record<string, Slot>; oneOffs?: Record<string, { entry: string; slot: Slot }> };
         for (const e of entries) if (saved.slots?.[e.key]) this.slots.set(e.key, saved.slots[e.key]);
+        // On-demand runs keep their start across a restart, or are called off with their entry.
+        for (const [key, run] of Object.entries(saved.oneOffs ?? {})) {
+          if (entries.some((e) => e.key === run.entry)) this.oneOffs.set(key, run);
+          else if (run.slot.tournamentId && this.tournaments.get(run.slot.tournamentId)?.status === 'registering') this.tournaments.cancel(run.slot.tournamentId, CANCEL_CHANGED);
+        }
         // An entry the owner changed or removed has a new key (or none): its open tournament would never start, so it
         // is called off rather than left registering, holding a maxActive place and its entrants.
         const keys = new Set(entries.map((e) => e.key));
@@ -311,6 +318,19 @@ export class TournamentScheduler {
         wake = Math.min(wake, this.now + 5 * 60_000);
       }
     }
+    for (const [key, run] of this.oneOffs) {
+      const e = this.entries.find((x) => x.key === run.entry);
+      if (e && this.now < run.slot.startsAt) {
+        wake = Math.min(wake, run.slot.startsAt);
+        continue;
+      }
+      try {
+        if (e) this.begin(e, run.slot);
+      } catch (err) {
+        console.error(`tournament schedule (on demand ${run.slot.tournamentId}):`, err);
+      }
+      this.oneOffs.delete(key);
+    }
     this.save();
     this.arm(wake);
   }
@@ -337,19 +357,8 @@ export class TournamentScheduler {
       const retry = this.retryAt.get(e.key);
       if (retry !== undefined && now < retry) return retry;
       try {
-        // Roster seats are counted like a host's Delove seats (requested.delove), inside the slot's maxEntrants.
-        const seats = e.roster ? { delove: e.roster, maxEntrants: e.spec.maxEntrants ?? DEFAULT_SCHEDULED_MAX } : {};
-        const minTable = slotMinTable(e, slot.startsAt);
-        const t = this.tournaments.create({ ...e.spec, ...seats, ...(minTable !== undefined ? { minTable } : {}), scheduled: { startsAt: slot.startsAt, checkinMinutes: e.checkinMinutes } });
-        slot.tournamentId = t.id;
+        slot.tournamentId = this.open(e, slot.startsAt).id;
         this.retryAt.delete(e.key);
-        console.log(`tournament schedule: ${t.id} "${t.name}" open for sign-up, starts ${new Date(slot.startsAt).toISOString()}${e.roster ? `, ${e.roster} roster seats requested` : ''}`);
-        try {
-          this.onOpened?.(t, e);
-        } catch (err) {
-          // The roster is a bonus: the slot stays open without it (unfilled seats go to Zergs at the start).
-          console.error(`tournament schedule: roster seats for ${t.id}: ${(err as Error).message}`);
-        }
       } catch (err) {
         // Too many tournaments open (maxActive): try again in a few minutes, until the start.
         console.error(`tournament schedule: could not open "${e.spec.name}": ${(err as Error).message}`);
@@ -359,23 +368,59 @@ export class TournamentScheduler {
       }
     }
     if (now < slot.startsAt) return slot.startsAt;
-    const t = this.tournaments.get(slot.tournamentId!);
-    // Deleted, or called off already (expired: tournament-access.ts): nothing to start.
-    if (!t || t.status !== 'registering') {
-      slot.done = true;
-      return this.step(e);
+    this.begin(e, slot);
+    // On to the entry's next start (strictly later, so this ends).
+    return this.step(e);
+  }
+
+  /** Create a slot's tournament (sign-up opens) and send its roster request. Throws when it cannot be created. */
+  private open(e: ScheduleEntry, startsAt: number): TournamentSnapshot {
+    // Roster seats are counted like a host's Delove seats (requested.delove), inside the slot's maxEntrants.
+    const seats = e.roster ? { delove: e.roster, maxEntrants: e.spec.maxEntrants ?? DEFAULT_SCHEDULED_MAX } : {};
+    const minTable = slotMinTable(e, startsAt);
+    const t = this.tournaments.create({ ...e.spec, ...seats, ...(minTable !== undefined ? { minTable } : {}), scheduled: { startsAt, checkinMinutes: e.checkinMinutes } });
+    console.log(`tournament schedule: ${t.id} "${t.name}" open for sign-up, starts ${new Date(startsAt).toISOString()}${e.roster ? `, ${e.roster} roster seats requested` : ''}`);
+    try {
+      this.onOpened?.(t, e);
+    } catch (err) {
+      // The roster is a bonus: the slot stays open without it (unfilled seats go to Zergs at the start).
+      console.error(`tournament schedule: roster seats for ${t.id}: ${(err as Error).message}`);
     }
+    return t;
+  }
+
+  /** At its start: start the slot's tournament, or call it off (too few checked in, or missed). The slot is done. */
+  private begin(e: ScheduleEntry, slot: Slot) {
+    slot.done = true;
+    const t = slot.tournamentId ? this.tournaments.get(slot.tournamentId) : undefined;
+    // Deleted, or called off already (expired: tournament-access.ts): nothing to start.
+    if (!t || t.status !== 'registering') return;
     // Only people who checked in count; the rest are no-shows, swapped for Zergs at the start.
     const people = t.entrants.filter((x) => !x.isBot && x.checkedInAt).length;
     // Late by more than a round (the server was down at the start): call it off rather than start at a surprise time.
     const grace = (e.spec.roundMinutes ?? NESTED_ROUND_MINUTES) * 60_000;
-    if (now > slot.startsAt + grace) this.tournaments.cancel(t.id, CANCEL_MISSED);
+    if (this.now > slot.startsAt + grace) this.tournaments.cancel(t.id, CANCEL_MISSED);
     else if (people < e.minEntrants) this.tournaments.cancel(t.id, CANCEL_NOT_ENOUGH);
     else this.tournaments.startScheduled(t.id);
     console.log(`tournament schedule: ${t.id} ${t.scheduled?.cancelled ? `called off (${t.scheduled.cancelled})` : `started with ${people} checked-in entrant(s), ${t.scheduled?.noShows ?? 0} no-show(s) swapped for Zergs`}`);
-    slot.done = true;
-    // On to the entry's next start (strictly later, so this ends).
-    return this.step(e);
+  }
+
+  /**
+   * On demand (POST /api/admin/schedule/run, the owner's "and on demand when i feel like testing it"): a one-off run of
+   * the first entry of `style`, as its slots run (its roster, Zergs and settings; roster seats yield to people), with
+   * sign-up open now and the start in `startsInMinutes` (1-60, default the entry's check-in window). The entry's own
+   * timetable is untouched.
+   */
+  runNow(style: TournamentStyle, startsInMinutes?: number): TournamentSnapshot {
+    const e = this.entries.find((x) => (x.spec.style ?? 'classic') === style);
+    if (!e) throw new RuleError(`The schedule has no ${STYLE_LABELS[style]} entry`);
+    const minutes = startsInMinutes ?? e.checkinMinutes;
+    if (!Number.isInteger(minutes) || minutes < 1 || minutes > 60) throw new RuleError('startsInMinutes must be a whole number from 1 to 60');
+    const startsAt = Math.ceil((this.now + minutes * 60_000) / 60_000) * 60_000;
+    const t = this.open(e, startsAt);
+    this.oneOffs.set(`${e.key}#now:${startsAt}:${t.id}`, { entry: e.key, slot: { startsAt, tournamentId: t.id, done: false } });
+    this.tick();
+    return t;
   }
 
   private arm(wake: number) {
@@ -432,7 +477,7 @@ export class TournamentScheduler {
     try {
       mkdirSync(dirname(this.file), { recursive: true });
       const tmp = `${this.file}.${process.pid}.tmp`;
-      writeFileSync(tmp, JSON.stringify({ slots: Object.fromEntries(this.slots) }));
+      writeFileSync(tmp, JSON.stringify({ slots: Object.fromEntries(this.slots), oneOffs: Object.fromEntries(this.oneOffs) }));
       renameSync(tmp, this.file);
     } catch (err) {
       console.error('Failed to save the tournament schedule state:', err);

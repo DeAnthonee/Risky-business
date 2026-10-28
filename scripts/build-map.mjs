@@ -365,10 +365,49 @@ function buildAuthoredMap(def) {
  * flat view projects each territory's hexes (Natural Earth I, like the World map); the globe
  * geometry goes to a separate file that only the client loads.
  */
+/**
+ * `cellTerritories: true` (Mega Earth): every land cell becomes its own territory. The definition's territories only
+ * name the cells: a cell of "Beringia" becomes "Beringia 3" (numbered outward from the site), in Beringia's region.
+ * Each sea lane joins the closest pair of cells of its two territories.
+ */
+function splitIntoCells(def, cells) {
+  const ll = (i) => toLonLat(cells[i].center);
+  const far = (a, b) => {
+    const [x, y] = [ll(a), ll(b)];
+    const dot = Math.sin(x[1] * Math.PI / 180) * Math.sin(y[1] * Math.PI / 180) + Math.cos(x[1] * Math.PI / 180) * Math.cos(y[1] * Math.PI / 180) * Math.cos((x[0] - y[0]) * Math.PI / 180);
+    return Math.acos(Math.max(-1, Math.min(1, dot)));
+  };
+  const territories = [];
+  const cellsOf = new Map();
+  for (const t of def.territories) {
+    const site = cells.map((_, i) => i).filter((i) => cells[i].territory === t.id);
+    const dist = (i) => Math.hypot(...ll(i).map((v, k) => v - t.site[k]));
+    site.sort((a, b) => dist(a) - dist(b));
+    const ids = site.map((i, k) => {
+      const id = site.length === 1 ? t.id : `${t.id}_${k + 1}`;
+      territories.push({ id, name: site.length === 1 ? t.name : `${t.name} ${k + 1}`, continent: t.continent, site: ll(i) });
+      cells[i].territory = id;
+      return [i, id];
+    });
+    cellsOf.set(t.id, ids);
+  }
+  // A lane whose closest hexes already touch is a land border now: dropped.
+  const seaLanes = (def.seaLanes ?? []).flatMap(([a, b]) => {
+    let best = null;
+    for (const [i, ia] of cellsOf.get(a)) for (const [j, ib] of cellsOf.get(b)) {
+      const d = far(i, j);
+      if (!best || d < best[0]) best = [d, ia, ib, i, j];
+    }
+    return cells[best[3]].neighbors.includes(best[4]) ? [] : [[best[1], best[2]]];
+  });
+  return { ...def, territories, seaLanes };
+}
+
 function buildHexGlobeMap(def) {
   const topo = JSON.parse(readFileSync(require.resolve(def.landSource ?? 'world-atlas/land-50m.json'), 'utf8'));
   const land = feature(topo, topo.objects.land);
   const { cells, warnings } = buildHexGlobe(def, land);
+  if (def.cellTerritories) def = splitIntoCells(def, cells);
   const ids = def.territories.map((t) => t.id);
   const tIndex = new Map(ids.map((id, i) => [id, i]));
 
@@ -385,6 +424,8 @@ function buildHexGlobeMap(def) {
   const edges = [...[...landKeys].map((k) => k.split('|')), ...(def.seaLanes ?? []).filter(([a, b]) => !landKeys.has([a, b].sort().join('|')))];
   const touches = (a, b) => landKeys.has([a, b].sort().join('|'));
   touches.pairs = () => [];
+  // `autoBonus`: every region's bonus is the classic suggestion (size and entry points), as suggestBonuses prints it.
+  if (def.autoBonus) def = { ...def, continents: def.continents.map((c) => ({ ...c, bonus: suggestedBonus(def, edges, c.id) })) };
 
   // Flat view: each territory is the union of its cells, unwrapped around the projection's centre
   // so a territory on the seam stays one piece until d3 clips it there.
@@ -426,7 +467,7 @@ function buildHexGlobeMap(def) {
     const d = (i) => Math.hypot(...toLonLat(cells[i].center).map((v, k) => v - p[k]));
     return [t.id, cellsOf.get(t.id).slice().sort((a, b) => d(a) - d(b))[0]];
   }));
-  const minGap = ids.length > 50 ? 24 : 32;
+  const minGap = def.badgeGap ?? (ids.length > 50 ? 24 : 32);
   const gapTo = (id, i) => Math.min(...ids.filter((o) => o !== id).map((o) => Math.hypot(...xy(i).map((v, k) => v - xy(badge.get(o))[k]))));
   for (let pass = 0; pass < 3; pass++)
     for (const t of def.territories) {
@@ -505,6 +546,15 @@ function buildHexGlobeMap(def) {
   return out;
 }
 
+/** A region's suggested bonus: classic logic, growing with its size and its entry points. */
+function suggestedBonus(def, edges, id) {
+  const cont = new Map(def.territories.map((t) => [t.id, t.continent]));
+  const members = def.territories.filter((t) => t.continent === id);
+  const entry = new Set();
+  for (const [a, b] of edges) if (cont.get(a) !== cont.get(b)) for (const x of [a, b]) if (cont.get(x) === id) entry.add(x);
+  return Math.max(1, Math.round(members.length / 3 + entry.size * 0.6));
+}
+
 /** Prints each region's size, entry points and the suggested bonus (classic logic: grows with size and entry points). */
 function suggestBonuses(def, edges) {
   const adj = new Map(def.territories.map((t) => [t.id, new Set()]));
@@ -556,8 +606,9 @@ function finish(def, { viewBox, territories, continents, touches, anchorWarnings
   console.log(`  sea links: ${seaLinks.map((s) => `${s.a}~${s.b}${s.wrap ? '(wrap)' : ''}`).join(', ')}`);
   if (suspicious.length) console.log(`  WARNING touching but not adjacent:\n    ${suspicious.join('\n    ')}`);
   // Army badges: the client draws a ring of radius 15 (maps with more than 50 territories) or 19
-  // around each anchor; anchors much closer than a ring diameter make badges overlap.
-  const minGap = territories.length > 50 ? 24 : 32;
+  // around each anchor (smaller on a board that sets `badgeGap`, e.g. Mega Earth's one-hex territories); anchors much
+  // closer than a ring diameter make badges overlap.
+  const minGap = def.badgeGap ?? (territories.length > 50 ? 24 : 32);
   for (let i = 0; i < territories.length; i++)
     for (let j = i + 1; j < territories.length; j++) {
       const a = territories[i], b = territories[j];
@@ -585,7 +636,7 @@ function finish(def, { viewBox, territories, continents, touches, anchorWarnings
   return out;
 }
 
-const MAP_NAMES = ['classic', 'world', 'world_large', 'europe', 'europe_advanced', 'greater_europe', 'europe_classic', 'usa', 'asia', 'fantasy', 'skirmish', 'bohemia', 'nine_realms', 'hexworld'];
+const MAP_NAMES = ['classic', 'world', 'world_large', 'europe', 'europe_advanced', 'greater_europe', 'europe_classic', 'usa', 'asia', 'fantasy', 'skirmish', 'bohemia', 'nine_realms', 'hexworld', 'mega_earth'];
 const wanted = process.argv.slice(2);
 for (const name of MAP_NAMES) {
   if (wanted.length && !wanted.includes(name)) continue;

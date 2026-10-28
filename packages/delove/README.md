@@ -277,6 +277,16 @@ npm run delove -- ladder --candidate c15-fog --best delove@8 --players 6 --games
   players, so it stays off ([docs/delove-fog.md](../../docs/delove-fog.md), "fog search"). `delove-seat` `delove-seat` gives it a fog seat only when the ranker has fog inputs
   (`DELOVE_BRANCH_RANKER=<fog-trained model>`).
 
+### Delove at a mega table
+
+The network has 10 seat slots (`MAX_SLOTS` in the encoder). At a bigger table (the 100-seat mega tournament on Mega
+Earth, [docs/tournaments.md](../../docs/tournaments.md#tournament-styles)) every decision sees a **focused view**
+(`src/focus.ts`, owner's call 2026-10-28: play now, a retrain may come later): the decider and its 9 most relevant
+opponents (most armies on territories bordering the decider's, then most territories), everyone else's land read as
+neutral with its armies, and the turn order holding only those seats. The engine still plays the real game; the
+candidates are the real moves. The net scorer and the search seat use it; at 10 seats or fewer nothing changes. Play
+quality at 100 seats is unmeasured. The pool on the Mac mini runs this code after its restart.
+
 ## Train a version (Stage 1: learn from the teacher)
 
 One-time Python setup (Windows, from the repo root; `.venv/` is ignored):

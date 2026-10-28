@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { LEGACY_MAP_IDS, MAP_IDS } from '@risk/engine';
+import { LEGACY_MAP_IDS, MAP_IDS, TOURNAMENT_MAP_IDS } from '@risk/engine';
 import { RANDOM_MIN_PLAYERS, rotationMaps } from '../src/presets.js';
 // The map status tracker (npm run maps:status) lives in scripts/; it is plain JS with no types.
 // @ts-expect-error untyped .mjs module
@@ -68,7 +68,8 @@ describe('map status tracker', () => {
 
   it('reads this checkout: every registered board, the runner rotation, the GPU mirror files', async () => {
     const s = await gather();
-    expect(s.rows.map((r: { id: string }) => r.id)).toEqual([...MAP_IDS, ...LEGACY_MAP_IDS]);
+    expect(s.rows.map((r: { id: string }) => r.id)).toEqual([...MAP_IDS, ...LEGACY_MAP_IDS, ...TOURNAMENT_MAP_IDS]);
+    expect(s.rows.find((r: { id: string }) => r.id === 'mega_earth')).toMatchObject({ registered: 'tournament' });
     const rotation = rotationMaps(RANDOM_MIN_PLAYERS);
     for (const r of s.rows) {
       expect(r.generated).toBe(true);

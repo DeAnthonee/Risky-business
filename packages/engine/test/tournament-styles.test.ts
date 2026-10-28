@@ -56,3 +56,27 @@ describe('tournament styles: Zerg survival ends at the last non-Zerg', () => {
     expect(() => endBySurvival(s, swarm)).toThrow(RuleError);
   });
 });
+
+describe('Mega Earth (the mega tournament board)', () => {
+  it('seats 100 with distinct colours, 671 one-hexagon territories in 14 connected regions; never offered in lobbies', async () => {
+    const { getMap, MAP_IDS, TOURNAMENT_MAP_IDS, seatColor, PLAYER_COLORS } = await import('../src/index.js');
+    const m = getMap('mega_earth');
+    expect(TOURNAMENT_MAP_IDS).toContain('mega_earth');
+    expect(MAP_IDS).not.toContain('mega_earth');
+    expect([m.territoryIds.length, m.continents.length, m.maxPlayers]).toEqual([671, 14, 100]);
+    // Every territory reachable from every other (land borders plus sea lanes).
+    const seen = new Set([m.territoryIds[0]]);
+    const queue = [m.territoryIds[0]];
+    while (queue.length) for (const n of m.adjacency[queue.pop()!]) if (!seen.has(n)) seen.add(n), queue.push(n);
+    expect(seen.size).toBe(671);
+    // 100 seats: 19 starting armies each; the first ten colours are the usual ones, all 100 distinct.
+    expect(m.startingArmies(100)).toBe(19);
+    expect(Array.from({ length: 10 }, (_, i) => seatColor(i))).toEqual(PLAYER_COLORS);
+    expect(new Set(Array.from({ length: 100 }, (_, i) => seatColor(i))).size).toBe(100);
+    let s = createGame('M', { map: 'mega_earth', maxPlayers: 100, autoSetup: true });
+    for (let i = 0; i < 100; i++) s = addPlayer(s, `p${i}`, `P${i}`);
+    s = startGame(s).state;
+    expect(new Set(s.players.map((p) => p.color)).size).toBe(100);
+    expect(s.players.every((p) => Object.values(s.territories).filter((t) => t.owner === p.id).length >= 6)).toBe(true);
+  });
+});

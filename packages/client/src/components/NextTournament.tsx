@@ -21,6 +21,7 @@ export function countdown(ms: number): string {
 /** One line on what the style plays like, under its name. */
 function styleLine(next: NonNullable<NextTournament['next']>): string | null {
   if (next.style === '1v1') return 'Head to head: two seats a table, winners move on.';
+  if (next.style === 'mega') return 'One game, everyone at the same table, on the Mega Earth globe.';
   if (next.style === 'survival') return `${next.zergs ? `${next.zergs} Zergs in the field. ` : ''}The last one standing who is not a Zerg moves on.`;
   if (next.minTable && next.minTable > 3) return `At least ${next.minTable} players a table in round 1.`;
   return null;

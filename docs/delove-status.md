@@ -397,6 +397,8 @@ where Delove thought the game turned. Format and reading in packages/delove/READ
 
 | what | who | state |
 | --- | --- | --- |
+| re-verify the GPU fingerprint after the mega tournament PR: `engine.ts` (`seatColor`, colours for seats past the tenth; no rule change), `maps.ts` and `types.ts` (the `mega_earth` tournament board, not offered nor trained on) | coordinator, training PC | open (owner, 2026-10-28: "the reverification can come later") |
+| Delove at 100-seat mega tables: today a focused view (`packages/delove/src/focus.ts`: the decider and its 9 most relevant opponents, the rest read as neutral); a model that sees more seats would need more slots and a retrain | Lord of training | open, owner's call |
 | fog of war, first capability: seat-view inputs, fog dropout, fair fog games and gates, `delove-seat` at fog tables | session "Fog of war" | done, **#155**; measured (`docs/delove-fog.md` status): a `--fog-dropout 0.25` fine-tune of `delove@8` gains **+0.32 / +0.41 points per seat** in fog games at World 6p / Classic 4p (a no-dropout control: +0.01 / -0.16), even at 2p, and costs nothing on full boards next to that control. Cycle 15 trains with `--fog-dropout 0.25` and fog gates; next: seat memory and the determinized teacher |
 | GPU rules, teacher and branch-and-score for every map, 2-10 seats and every setting; points arrays from the GPU; `cycle.sh` GPU steps for any step | session "GPU engine for every map and 2-10 players" | done, **PR #82** merged |
 | cycle 5: all maps 2-10p on the GPU, points target; gate table with points; live dashboard (`scripts/dashboard.mjs`); `train.py --amp` and `#F` fractions | coordinator | done, not promoted (section 3); PR #105 |

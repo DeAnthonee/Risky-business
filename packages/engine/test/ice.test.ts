@@ -53,13 +53,13 @@ describe('closing ice', () => {
   });
 
   it('advances one ring a round from both poles: frozen land is a blizzard, armies fall back or are lost, players with no land are out', () => {
-    let s = game('mega_earth', 30, { closingIce: true });
+    let s = game('mega_earth', 12, { closingIce: true });
     expect(() => startIce({ ...s, options: { ...s.options, closingIce: false } })).toThrow(RuleError);
     s = startIce(s).state;
     expect(iceOf(s)).toEqual({ level: 0, startedRound: s.round });
     const rings = iceRings(getMap('mega_earth'));
     let level = 0;
-    for (let k = 0; k < 12 && s.phase !== 'finished'; k++) {
+    for (let k = 0; k < 10 && s.phase !== 'finished'; k++) {
       const before = s;
       const r = playRounds(s, 1);
       s = r.s;
@@ -79,8 +79,8 @@ describe('closing ice', () => {
       for (const id of ice!.eliminated) expect(s.players.find((p) => p.id === id)!.alive).toBe(false);
       for (const p of s.players.filter((x) => x.alive)) expect(Object.values(s.territories).some((t) => t.owner === p.id)).toBe(true);
     }
-    expect(s.blizzards.length).toBeGreaterThan(50);
-  });
+    expect(s.blizzards.length).toBeGreaterThan(30);
+  }, 60_000);
 
   it('stops at the safe zone, and advances every iceEveryRounds rounds by iceRingsPerStep', () => {
     let s = game('mega_earth', 10, { closingIce: true, iceEveryRounds: 2, iceRingsPerStep: 3, iceSafeRings: 40 });

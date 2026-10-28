@@ -235,7 +235,8 @@ them blocks the training work. Suggested defaults in brackets:
 
 - **Ranking:** are stealth games ranked, unranked, or on the training board? [unranked or training board]
 - **Prizes:** can a stealth game ever carry a prize? [no]
-- **Reveal:** at game over, show who was a Zerg and the chat lines where they found each other? [yes, it's the payoff]
+- **Reveal: decided (owner, 2026-10-22):** spectators see which seats are Zergs during the game; players learn who the
+  Zergs were when it ends. Game development owns the reveal.
 - **Where they may sit:** only in rooms whose host chose stealth, or also at tournament tables whose rules announce
   the mode? Should the server enforce it? [host-chosen rooms only, enforced by the server]
 - **Lobby notice:** does a stealth room say "may contain hidden players"? [host's choice]
@@ -252,9 +253,15 @@ players"; and on the secret: "Make it use the chat and deduction". So there is *
 pre-agreed signature (this replaces the earlier "learned offset signature" handshake, a shared secret in disguise), no
 ally list and no server flag in the model's inputs. Allies are a belief the model forms from what seats say and do.
 
-- **Where it plays.** Stealth tables first (hidden roles), where deduction matters. It runs as a **runner seat**
+- **Where it plays.** Stealth tables, with hidden roles; where they may sit is still open (the owner will decide
+  later). It is trained and evaluated with hidden roles. It runs as a **runner seat**
   (`packages/runner`, its own process; the server never imports it, hard rule 10). There is no faction flag and no
-  ally rule in the engine: a learned Zerg *can* attack anyone. Open-mode live seats keep playing `zerg@2`.
+  ally rule in the engine: a learned Zerg *can* attack anyone. Until it passes its gates, live Zerg seats keep playing
+  `zerg@2`.
+- **Status:** stages 0-1 are built: talking tables, scripted roles and the listener v0 (`npm run delove:talk`, with
+  first results in packages/delove/README.md). Scored on-policy, the listener tells true Zergs from a held-out
+  impostor with AUC 0.83 by rounds 3-5 and 0.94 from round 6 (gate 0.75), and the horde wins 90% of its games.
+  Infighting (20%) is still above the 5-15% band; the recurrent head and the learned speaking head are next.
 - **The model.** A Delove network warm-started from the current best, with three parts:
   1. **Action policy:** the Delove net plus belief inputs (for each seat: how likely it is a Zerg, and whether it
      spoke), added with zero-initialised weights the way the fog inputs were, so it starts out playing like its parent.

@@ -9,6 +9,8 @@ import { RateLimitedError } from './rate-limit.js';
 import type { CharacterStore } from './characters.js';
 import { NO_TOURNEY_CAPS, TournamentAccess } from './tournament-access.js';
 import type { SeatRequests } from './seat-requests.js';
+import { droppedMessage } from './seat-health.js';
+import { STYLE_LABELS, type TournamentStyle } from './tournaments.js';
 
 /** RiskApi implemented directly over the in-memory store (for the embedded /mcp endpoint). */
 export class LocalRiskApi implements RiskApi {
@@ -49,6 +51,8 @@ export class LocalRiskApi implements RiskApi {
   }
   private player(room: GameRoom, token: string | undefined): string {
     const p = room.playerForToken(token);
+    const dropped = p ? null : room.droppedReason(token);
+    if (dropped) throw new RiskHttpError(droppedMessage(dropped), 410);
     if (!p) throw new RiskHttpError('A valid player token is required', 401);
     return p;
   }
@@ -82,18 +86,20 @@ export class LocalRiskApi implements RiskApi {
     room.bindCharacter(player, canonical);
     return { ok: true };
   }
-  async tournamentRankings() { return { board: 'tournament' as const, current: true as const, rankings: this.store.tournamentBoard.rows() }; }
+  async tournamentRankings(style: TournamentStyle = 'classic') {
+    return { board: 'tournament' as const, style, label: STYLE_LABELS[style], current: true as const, rankings: this.store.withModels(this.store.tournamentBoard.rows(style)) };
+  }
   async tournamentProfile(key: string) {
     let profile: string | null = null;
     try { profile = this.characters.get(key).markdown; } catch { /* a plain player */ }
     return { stats: this.store.tournamentBoard.profile(key, key), profile };
   }
   async rankings(season?: string, board?: 'training') {
-    if (board) return { board, season: String(this.store.training.season), current: true, rankings: this.store.training.rows() };
+    if (board) return { board, season: String(this.store.training.season), current: true, rankings: this.store.withModels(this.store.training.rows()) };
     const r = this.store.rankings;
     const rankings = r.seasonRows(season);
     if (!rankings) throw new RiskHttpError(`No leaderboard season ${season}`, 404);
-    return { season: season || String(r.season), current: !season || season === String(r.season), rankings };
+    return { season: season || String(r.season), current: !season || season === String(r.season), rankings: this.store.withModels(rankings) };
   }
   async rankingSeasons() { return { current: this.store.rankings.season, seasons: this.store.rankings.seasons() }; }
   async rankedProfile(key: string, board?: 'training') {
@@ -283,6 +289,12 @@ export class LocalRiskApi implements RiskApi {
         : this.tournamentHostOf(key, tournamentId, 'Starting a tournament', 'start it');
     if (useCode && !this.access.canStart(this.client ?? '', code, id)) throw new RiskHttpError("Only this tournament's host can start it", 403);
     const t = this.store.tournaments.start(id);
+    return { tournament: this.store.tournaments.view(t.id) };
+  }
+  /** Same rules as POST /tournaments/:id/abort: the host token or the admin key. */
+  async abortTournament(key: string | undefined, tournamentId: string) {
+    const id = this.tournamentHostOf(key, tournamentId, 'Aborting a tournament', 'abort it');
+    const t = this.store.tournaments.abort(id);
     return { tournament: this.store.tournaments.view(t.id) };
   }
   /** Same rules as POST /tournaments/:id/bots: the host only, while registering, within maxEntrants. */

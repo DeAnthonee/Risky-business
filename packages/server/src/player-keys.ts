@@ -128,6 +128,8 @@ export class PlayerKeyStore {
   tryLimiter = new RateLimiter(10, 15 * 60_000);
   /** Extra reserved names (the app adds the AI characters' ids and names). Returns why, or null. */
   reserved: (name: string) => string | null = builtInReservedName;
+  /** Names no seat may take (the app adds the house roster's, roster.ts). Returns why, or null. */
+  seatReserved: (name: string) => string | null = () => null;
 
   constructor(
     private file: string | null,
@@ -219,6 +221,8 @@ export class PlayerKeyStore {
   seatName(rawName: string, account: PlayerAccount | null): string {
     if (account) return account.name;
     if (rawName.trim() && this.isRegistered(rawName)) throw new RuleError(`"${rawName.trim()}" is a registered player's name: join with that player's key, or pick another name`);
+    const why = rawName.trim() ? this.seatReserved(rawName) : null;
+    if (why) throw new RuleError(`"${rawName.trim()}" cannot be used: ${why}; pick another name`);
     return rawName;
   }
 

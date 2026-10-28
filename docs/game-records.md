@@ -15,7 +15,7 @@ Under `RISK_DATA_DIR/archive/` (persistence on; set `RISK_ARCHIVE=0` to turn rec
 | path | what |
 | ---- | ---- |
 | `live/<id>.jsonl` | the journal of a game still being played: one line per move, appended as it happens, so it survives restarts and deploys |
-| `games/<yyyy-mm>/<id>.json` | a finished record (`GameRecord`), written when the game is won or its room closes |
+| `games/<yyyy-mm>/<id>.json.gz` | a finished record (`GameRecord`), gzipped, written when the game is won or its room closes. Records filed before 2026-10-22 are plain `<id>.json` and still load; the server, `/admin/archive/:id`, `/records/:id` and `npm run selfplay -- positions --records <folder>` read both |
 | `index.jsonl` | one line per finished record: map, fog, players and characters, placings, winner, turn and step counts, and the record's file |
 
 A game is recorded from the moment it starts; lobbies that never start leave nothing. A game whose room is closed
@@ -24,9 +24,21 @@ before anyone wins is still filed, with `outcome.finished: false` and `endedBeca
 [Decided on standing](#decided-on-standing). Records hold every hand and
 the hidden board, so they are only served to the admin. A game takes roughly 0.3 MB (2 players) to 1.6 MB (6 players).
 
-Only the newest 1000 records are kept (`RISK_ARCHIVE_KEEP`; `0` keeps them all), so the archive stays around
-0.3-1.6 GB. Each time a game is filed, the oldest records beyond that are deleted with their `index.jsonl` lines.
-Copy the archive off the host to keep more.
+Every record is kept (owner, 2026-10-22: logs are kept forever; `RISK_ARCHIVE_KEEP` defaults to `0`, keep all).
+Records are gzipped on disk, about a tenth of their JSON size, so a year of games stays small. `RISK_ARCHIVE_KEEP`
+above 0 keeps only the newest that many: each time a game is filed, the oldest beyond that are deleted with their
+`index.jsonl` lines (plain `.json` files from before compression included). To read a record by hand,
+`gunzip -c games/<yyyy-mm>/<id>.json.gz`.
+
+### Aborted tournament tables
+
+When a tournament is **aborted** (`POST /api/tournaments/:id/abort`, its host or the admin; `DELETE` of a running
+tournament aborts it first, [tournaments.md](tournaments.md#aborting)), every table still being played is filed
+before its room closes: `outcome.finished: false`, `reason: "aborted"`, `endedBecause: "its tournament was
+aborted"`, `winner: null`, and `outcome.aborted` with the standing so far (`standing`, the engine's
+`rankByStanding` with tie dice drawn from the game's own seed, and `rolls`); `placings` follows it. The index line
+carries `aborted: true`. Match history lists them only with `?aborted=1` (no winner); `/admin/archive` and
+`/records/:id` always. Additive, so `RECORD_VERSION` stays 1.
 
 ## Getting them
 
@@ -84,6 +96,11 @@ When a game is filed, `room.agents` maps each seat to its self-declared [player 
 (only seats that declared one, plus `"bot"` and `"zerg"` seats); the `index.jsonl` line has it as each player's
 `agent`. It is written only when the game is over, never into the live journal. Optional, so `RECORD_VERSION` is
 unchanged.
+
+A game with [house roster](tournaments.md#the-house-roster) seats also gets `room.roster`: `{<playerId>: {id,
+model}}`, the roster id and the Delove model each of those seats played. It is the answer key, so it is only in the
+full record (records key or admin); `room.agents` and the `index.jsonl` line show those seats as `"AI agent"`. Also
+written only when the game is filed, and optional (`RECORD_VERSION` unchanged).
 
 A training game ([training leaderboard](character-league.md#training-leaderboard)) has `"board": "training"` in
 `room` and on its `index.jsonl` line: leave these out of Delove's training data unless you mean to use them.

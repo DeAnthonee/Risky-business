@@ -1,5 +1,6 @@
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmdirSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { gunzipSync, gzipSync } from 'node:zlib';
 import {
   assembleRecord,
   recordHeader,
@@ -38,6 +39,8 @@ export interface ArchivedRoom {
   characterIds: Record<string, string>;
   /** Player-type labels by seat; written into the record only when it is filed, after the game. */
   agents: Record<string, string>;
+  /** House roster seats: player id -> roster id (roster.ts); the record names their models when it is filed. */
+  rosterIds?: Record<string, string>;
   state: GameState;
   /** The record this room's game is being written to, if any. */
   recordId?: string;
@@ -69,26 +72,45 @@ export interface ArchiveIndexEntry {
   /** Stopped and decided on standing (a nested tournament table at its round's end): `winner` is the decided winner. */
   decided?: true;
   winner: { id: string; name: string } | null;
-  /** 'stalemate': the engine ended a stalled game (stallEnd), decided on standing. */
-  reason: 'domination' | 'capitals' | 'standing' | 'stalemate' | null;
+  /** Stopped by its tournament's abort: no winner; the record's `outcome.aborted` has the standing so far. */
+  aborted?: true;
+  /** 'stalemate': the engine ended a stalled game (stallEnd), decided on standing. 'aborted': see `aborted`. */
+  reason: 'domination' | 'capitals' | 'standing' | 'stalemate' | 'aborted' | null;
   turns: number;
   steps: number;
   players: { id: string; name: string; isBot: boolean; characterId: string | null; place: number | null; agent?: string }[];
 }
 
-/** Records kept by default: roughly 0.3-1.6 GB at 0.3-1.6 MB a game. */
-export const DEFAULT_KEEP = 1000;
+/**
+ * Records kept by default: all of them (owner, 2026-10-22: logs are kept forever). Records are gzipped on disk, about a
+ * tenth of their JSON size, so a year of games stays small. RISK_ARCHIVE_KEEP above 0 keeps only the newest that many.
+ */
+export const DEFAULT_KEEP = 0;
 
 const RECORD_ID = /^[A-Za-z0-9_-]{1,80}$/;
-/** What an index line may name as its record: pruning deletes only files that match. */
-const RECORD_FILE = /^games\/\d{4}-\d{2}\/[A-Za-z0-9_-]{1,80}\.json$/;
+/** What an index line may name as its record: pruning deletes only files that match (gzipped, or plain from before). */
+const RECORD_FILE = /^games\/\d{4}-\d{2}\/[A-Za-z0-9_-]{1,80}\.json(\.gz)?$/;
+
+/** A record file: gzipped (.json.gz, written since 2026-10-22) or plain JSON (.json, written before; still read). */
+function readRecordFile(file: string): GameRecord {
+  const raw = readFileSync(file);
+  return JSON.parse((file.endsWith('.gz') ? gunzipSync(raw) : raw).toString('utf8')) as GameRecord;
+}
+
+/** Write a record file atomically, gzipped when its name ends in .gz. */
+function writeRecordFile(file: string, record: GameRecord): void {
+  const json = JSON.stringify(record);
+  writeFileSync(file + '.tmp', file.endsWith('.gz') ? gzipSync(json) : json);
+  renameSync(file + '.tmp', file);
+}
 
 /**
  * Game records under <RISK_DATA_DIR>/archive: every game that starts is journalled move by move to
  * live/<id>.jsonl (append-only, so it survives restarts), and when it ends (won, or its room closed) the
- * journal becomes games/<yyyy-mm>/<id>.json, a GameRecord, plus a line in index.jsonl.
- * Only the newest `keep` records stay (RISK_ARCHIVE_KEEP, default 1000; 0 keeps them all): filing one more deletes
- * the oldest record and its index line.
+ * journal becomes games/<yyyy-mm>/<id>.json.gz, a gzipped GameRecord, plus a line in index.jsonl. Plain
+ * games/<yyyy-mm>/<id>.json records from before still load.
+ * Every record is kept by default (RISK_ARCHIVE_KEEP 0); a number above 0 keeps only the newest that many: filing one
+ * more then deletes the oldest record and its index line.
  * Recording must never break a game: every failure is logged and the game goes on.
  */
 export class GameArchive {
@@ -97,6 +119,9 @@ export class GameArchive {
     /** How many finished records to keep, newest first (0 = all). */
     public keep = DEFAULT_KEEP,
   ) {}
+
+  /** The model a house roster id plays (the store sets it from roster.ts), for the filed record's answer key. */
+  rosterModel: ((rosterId: string) => string | undefined) | null = null;
 
   get enabled(): boolean {
     return this.dir !== null;
@@ -166,7 +191,7 @@ export class GameArchive {
   }
 
   /** Turn a room's journal into its finished record. endedBecause: why it stopped, when nobody won. */
-  finish(room: ArchivedRoom, endedBecause?: string, decided?: RecordDecision) {
+  finish(room: ArchivedRoom, endedBecause?: string, decided?: RecordDecision, aborted?: RecordDecision) {
     const id = room.recordId;
     if (!this.dir || !id) return;
     room.recordId = undefined;
@@ -179,15 +204,16 @@ export class GameArchive {
       if (room.board) header.room = { ...header.room, board: room.board };
       // The game is over, so the seats' player types can go public with the record.
       if (Object.keys(room.agents).length) header.room = { ...header.room, agents: { ...room.agents } };
+      // The house roster's answer key, in the full record only (records key): which model each roster seat was.
+      const roster = Object.entries(room.rosterIds ?? {}).map(([pid, id]) => [pid, { id, model: this.rosterModel?.(id) ?? 'unknown' }] as const);
+      if (roster.length) header.room = { ...header.room, roster: Object.fromEntries(roster) };
       const entries = lines.slice(1).map((l) => JSON.parse(l) as RecordEntry);
-      const record = assembleRecord(header, entries, room.state, Date.now(), endedBecause, decided);
+      const record = assembleRecord(header, entries, room.state, Date.now(), endedBecause, decided, aborted);
       if (room.coach?.notes.length) record.coach = room.coach.notes.map((n) => ({ ...n }));
       const month = new Date(record.startedAt).toISOString().slice(0, 7);
-      const rel = `games/${month}/${id}.json`;
+      const rel = `games/${month}/${id}.json.gz`;
       mkdirSync(join(this.dir, 'games', month), { recursive: true });
-      const out = join(this.dir, rel);
-      writeFileSync(out + '.tmp', JSON.stringify(record));
-      renameSync(out + '.tmp', out);
+      writeRecordFile(join(this.dir, rel), record);
       appendFileSync(join(this.dir, 'index.jsonl'), JSON.stringify(indexEntry(record, rel)) + '\n');
       unlinkSync(file);
       this.headers.delete(id);
@@ -254,10 +280,9 @@ export class GameArchive {
         if (entry.room !== roomId || entry.board === board || !RECORD_FILE.test(entry.file)) return line;
         const file = join(this.dir!, entry.file);
         if (existsSync(file)) {
-          const record = JSON.parse(readFileSync(file, 'utf8')) as GameRecord;
+          const record = readRecordFile(file);
           record.room = { ...record.room, board };
-          writeFileSync(file + '.tmp', JSON.stringify(record));
-          renameSync(file + '.tmp', file);
+          writeRecordFile(file, record);
         }
         changed++;
         return JSON.stringify({ ...entry, board });
@@ -293,7 +318,7 @@ export class GameArchive {
   read(entry: ArchiveIndexEntry): GameRecord | null {
     if (!this.dir) return null;
     const file = join(this.dir, entry.file);
-    return existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as GameRecord) : null;
+    return existsSync(file) ? readRecordFile(file) : null;
   }
 
   /** One finished record, by id, or null. */
@@ -302,7 +327,7 @@ export class GameArchive {
     const entry = this.list(Infinity).find((e) => e.id === id);
     if (!entry) return null;
     const file = join(this.dir, entry.file);
-    return existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as GameRecord) : null;
+    return existsSync(file) ? readRecordFile(file) : null;
   }
 }
 
@@ -324,6 +349,7 @@ function indexEntry(r: GameRecord, file: string): ArchiveIndexEntry {
     finished: r.outcome.finished,
     ...(r.outcome.endedBecause ? { endedBecause: r.outcome.endedBecause } : {}),
     ...(r.outcome.decided ? { decided: true as const } : {}),
+    ...(r.outcome.aborted ? { aborted: true as const } : {}),
     winner: winner ? { id: winner.id, name: winner.name } : null,
     reason: r.outcome.reason,
     turns: r.turns.length,

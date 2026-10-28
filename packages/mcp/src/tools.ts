@@ -181,6 +181,7 @@ export function formatTournament(t: TournamentInfo): string {
     );
     if (t.status === 'registering' && t.you?.checkedIn !== undefined) lines.push(t.you.checkedIn ? 'You are CHECKED IN.' : 'You are NOT checked in yet.');
   }
+  if (t.aborted) lines.push(`ABORTED at ${new Date(t.aborted.at).toISOString()}: no champion; the tables then being played were recorded with their standing so far.`);
   lines.push(`Entrants (${t.entrants.length}/${t.maxEntrants}): ${t.entrants.map((e) => `${e.name}${e.isBot ? ' [bot]' : ''} (${e.status})`).join(', ') || 'none yet'}`);
   for (const r of t.rounds) {
     lines.push(`Round ${r.round}:${r.deadline && !r.endedAt ? ` (ends by ${new Date(r.deadline).toISOString()})` : ''}`);
@@ -884,7 +885,7 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
     'next_tournament',
     {
       description:
-        "The server's next scheduled nested tournament: its code once sign-up is open (pass it to join_tournament, then wait_for_match: it starts by itself at the time shown, and empty seats are filled with Zergs), or when sign-up opens; also the scheduled one being played now and the last one called off.",
+        "The server's next scheduled nested tournament and its style (Classic groups, 1v1s, or Zerg survival: Zergs among the entrants, and at every table the last player standing who is not a Zerg moves on): its code once sign-up is open (pass it to join_tournament, then wait_for_match: it starts by itself at the time shown, and empty seats are filled with Zergs), or when sign-up opens; also the scheduled one being played now and the last one called off.",
       inputSchema: {},
     },
     async () => {
@@ -893,15 +894,16 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
         if (!r.scheduled) return text('This server has no tournament schedule. list_tournaments shows any tournament a host made.');
         const iso = (ms: number) => new Date(ms).toISOString();
         const lines: string[] = [];
+        const kind = (x: { label?: string }) => (x.label ? ` Style: ${x.label}.` : '');
         if (r.next) {
           lines.push(
             r.next.id
-              ? `NEXT: ${r.next.id} "${r.next.name}" - sign-up OPEN, starts ${iso(r.next.startsAt)}; ${r.next.entrants}/${r.next.maxEntrants} entrants (needs ${r.next.minEntrants} people or agents, or it is called off). join_tournament with tournamentId "${r.next.id}".`
-              : `NEXT: "${r.next.name}" starts ${iso(r.next.startsAt)}; sign-up opens ${iso(r.next.opensAt)}.`,
+              ? `NEXT: ${r.next.id} "${r.next.name}" - sign-up OPEN, starts ${iso(r.next.startsAt)}; ${r.next.entrants}/${r.next.maxEntrants} entrants (needs ${r.next.minEntrants} people or agents, or it is called off). join_tournament with tournamentId "${r.next.id}".${kind(r.next)}`
+              : `NEXT: "${r.next.name}" starts ${iso(r.next.startsAt)}; sign-up opens ${iso(r.next.opensAt)}.${kind(r.next)}`,
           );
         } else lines.push('NEXT: none scheduled.');
-        if (r.running) lines.push(`PLAYING NOW: ${r.running.id} "${r.running.name}" (round ${r.running.round}); tournament_status to watch.`);
-        if (r.cancelled) lines.push(`CALLED OFF: ${r.cancelled.id} "${r.cancelled.name}" at ${iso(r.cancelled.startsAt)} (${r.cancelled.reason}).`);
+        if (r.running) lines.push(`PLAYING NOW: ${r.running.id} "${r.running.name}" (round ${r.running.round}); tournament_status to watch.${kind(r.running)}`);
+        if (r.cancelled) lines.push(`CALLED OFF: ${r.cancelled.id} "${r.cancelled.name}" at ${iso(r.cancelled.startsAt)} (${r.cancelled.reason}).${kind(r.cancelled)}`);
         return text(lines.join('\n'));
       } catch (e) {
         return errorText(e);
@@ -1016,7 +1018,7 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
         fillBots: z.boolean().optional().describe('Fill round 1 with bots so every table is full (default true)'),
         format: z.enum(['knockout', 'nested']).optional().describe('knockout (default), or nested: planned rounds of 3-6 seat tables on generated boards, a final of 6-10, bots only when the count needs them, and rounds that end when every table finishes or at a deadline plus a last lap (equal turns), the rest decided on standing'),
         finalMap: z.string().optional().describe('nested: the final on an existing board (default a generated one)'),
-        territoriesPerSeat: z.number().int().min(4).max(6).optional().describe('nested: generated board size per seat (default 5)'),
+        territoriesPerSeat: z.number().int().min(4).max(10).optional().describe('nested: generated board size per seat (default 8)'),
         roundMinutes: z.number().int().min(1).max(240).optional().describe('nested: round deadline in minutes (default 15)'),
         finishShare: z.number().min(0.1).max(1).optional().describe('nested: accepted and ignored (rounds no longer close early on a share of tables)'),
         botDelayMs: z.number().int().min(0).max(2000).optional().describe('nested: bot pace at the tables, ms between moves (default 300)'),
@@ -1046,7 +1048,7 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
         ...seatCountsSchema,
         options: optionsSchema,
         finalMap: z.string().optional().describe('The final on an existing board (default a generated one)'),
-        territoriesPerSeat: z.number().int().min(4).max(6).optional().describe('Generated board size per seat (default 5)'),
+        territoriesPerSeat: z.number().int().min(4).max(10).optional().describe('Generated board size per seat (default 8)'),
         roundMinutes: z.number().int().min(1).max(240).optional().describe('Round deadline in minutes (default 15)'),
         botDelayMs: z.number().int().min(0).max(2000).optional().describe('Bot pace at the tables, ms between moves (default 300)'),
       },
@@ -1078,6 +1080,29 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
         const key = adminKey ?? hostToken ?? hosted.get(id);
         const { tournament } = await api.startTournament(key, id, key ? undefined : code);
         return text(`Tournament started.\n\n${formatTournament(tournament)}`);
+      } catch (e) {
+        return errorText(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    'abort_tournament',
+    {
+      description:
+        "Abort a tournament: it stops at once and stays listed, finished with no champion, its bracket kept. Every table still being played is ranked on its standing so far (territories, armies, dice) and its game record filed with reason \"aborted\" before the table closes. Only its host can: the host token create_tournament returned (remembered on the connection that created it) or the server's admin key. Aborting a finished tournament changes nothing.",
+      inputSchema: {
+        adminKey: adminKeySchema,
+        tournamentId: tournamentIdSchema,
+        hostToken: z.string().min(1).optional().describe('The host token create_tournament returned. Not needed on the connection that created the tournament.'),
+      },
+    },
+    async ({ adminKey, tournamentId, hostToken }) => {
+      try {
+        const id = tournamentId.toUpperCase();
+        const key = adminKey ?? hostToken ?? hosted.get(id);
+        const { tournament } = await api.abortTournament(key, id);
+        return text(`Tournament aborted: the tables then being played were recorded with their standing so far.\n\n${formatTournament(tournament)}`);
       } catch (e) {
         return errorText(e);
       }
@@ -1297,9 +1322,9 @@ export function createRiskMcpServer(opts: RiskMcpOptions): McpServer {
   server.registerTool('select_character', { description: 'Bind your seat to a persistent character identity before the game starts, so the game counts for that character on the leaderboard. Needs the characters write key. The same character may play in separate lobbies simultaneously.', inputSchema: { gameId: gameIdSchema, token: tokenSchema, as: asSchema, id: z.string().min(3).max(100), key: characterKeySchema } }, async ({ gameId, token, as, id, key }) => {
     try { await api.setCharacter(gameId, requireToken(gameId, token, as), id, key); return text('Character selected: ' + id); } catch (e) { return errorText(e); }
   });
-  server.registerTool('leaderboard', { description: 'Completed-game rankings: points (placement plus +1 per player eliminated, floored at zero), wins, losses, average placement, total kills and how many times each player was eliminated by them (victims). The board runs in seasons: the current one by default; pass season (an id from the seasons list in the reply) to read an archived one. Pass board "training" for the training leaderboard instead: model-vs-model yardstick games (e.g. Delove against Claude seats), ranked by seat name, no seasons. Pass board "tournament" for the tournament leaderboard: one result per entrant per finished tournament (placement: 3 per round survived, final places +2 each above last, champion +6; +2 per table won; +1 per kill), with tournaments played, championships, finals, tables won, kills and best finish; tournament tables never count on the public board.', inputSchema: { season: z.string().regex(/^\d+(-\d+)?$/).max(20).optional().describe('Season id, e.g. "1"; omit for the current season'), board: z.enum(['training', 'tournament']).optional().describe('"training" or "tournament" for those leaderboards; omit for the public one') } }, async ({ season, board }) => {
+  server.registerTool('leaderboard', { description: 'Completed-game rankings: points (placement plus +1 per player eliminated, floored at zero), wins, losses, average placement, total kills and how many times each player was eliminated by them (victims). The board runs in seasons: the current one by default; pass season (an id from the seasons list in the reply) to read an archived one. Pass board "training" for the training leaderboard instead: model-vs-model yardstick games (e.g. Delove against Claude seats), ranked by seat name, no seasons. Pass board "tournament" for the tournament leaderboard: one result per entrant per finished tournament (placement: 3 per round survived, final places +2 each above last, champion +6; +2 per table won; +1 per kill), with tournaments played, championships, finals, tables won, kills and best finish; tournament tables never count on the public board. Each tournament style has its own board: style "classic" (default), "1v1" or "survival". Every board shows a Delove\'s model as "model" (D13 = delove@13, D13-S = with search).', inputSchema: { season: z.string().regex(/^\d+(-\d+)?$/).max(20).optional().describe('Season id, e.g. "1"; omit for the current season'), board: z.enum(['training', 'tournament']).optional().describe('"training" or "tournament" for those leaderboards; omit for the public one'), style: z.enum(['classic', '1v1', 'survival']).optional().describe('With board "tournament": which style\'s board (default classic)') } }, async ({ season, board, style }) => {
     try {
-      if (board === 'tournament') return text(JSON.stringify(await api.tournamentRankings(), null, 2));
+      if (board === 'tournament') return text(JSON.stringify(await api.tournamentRankings(style), null, 2));
       if (board) return text(JSON.stringify(await api.rankings(undefined, board), null, 2));
       const [rows, list] = await Promise.all([api.rankings(season), api.rankingSeasons()]);
       return text(JSON.stringify({ ...rows, seasons: list.seasons }, null, 2));

@@ -209,6 +209,27 @@ an agent can see which opponents are Claude or Delove before its tables are draw
 `RISK_TOURNEY_STRICT=1` on the server, and turn open mode off (`RISK_TOURNAMENTS_OPEN=0`, the default once a code is
 set). That restores the launch caps, the lockout and host-only starts. Then make strict the default in code.
 
+## 16. The house roster is blind by name only
+
+**Where:** `packages/server/src/roster.ts`, the tournament views and `requested` counts (`tournaments.ts`), the seat
+pool's plain "Delove N" seats (`seat-requests.ts`).
+
+**What is wrong:** no public route names a roster seat's model ([tournaments.md](tournaments.md#the-house-roster)),
+but the roster can still be guessed:
+- A tournament's public view keeps `requested: {zergs, delove, open}`, so watchers know how many house seats a
+  tournament holds, and the unfamiliar names on the roster list are easy to spot.
+- Plain Delove seats in the same tournament still show their label (`delove@13`), so a watcher learns which models
+  are around, though not which name plays which.
+- Play style (move speed, timing, Delove's habits) may give a model away to anyone who watches long enough.
+
+**Update (2026-10-27):** the owner asked for the model on every leaderboard ("D12 for delove 12 or D13-S"), so the
+boards now show each roster name's model publicly ([tournaments.md](tournaments.md#the-house-roster)). The answer key
+is public on the boards; a blind yardstick now needs roster names kept off the boards' model column (or a board of
+its own).
+
+**Fix (when it matters):** leave `delove` out of the public `requested` counts for tournaments with roster seats, and
+seat only roster names (no plain Delove seats) in daily tournaments.
+
 ## Fixed
 
 - **Anyone could create tournaments while testing (was item 1).** Creating now needs a hosting code once the owner
@@ -225,8 +246,11 @@ set). That restores the launch caps, the lockout and host-only starts. Then make
 - **The live leaderboard was seeded from results played off the site.** `rankings-seed.ts` is gone; the board
   now holds only games finished on the site, and `RANKINGS_SEASON` wipes it on purpose (the old board is archived
   as `rankings.season-<n>.json`, never deleted). Still open: an admin call to start a season without a deploy.
-- **Game records were never pruned.** Only the newest `RISK_ARCHIVE_KEEP` records (default 1000, about
-  0.3-1.6 GB) are kept; filing a new one deletes the oldest record files and their `index.jsonl` lines.
+- **Game records grow without a cap, on purpose.** The owner keeps every log forever (2026-10-22), so
+  `RISK_ARCHIVE_KEEP` defaults to 0 (keep all); records are gzipped on disk (about a tenth of their JSON size, so
+  roughly 2 GB a year of JSON stays near 0.2 GB) and the Lord of resources watches the disk. Still open: `index.jsonl`
+  stays one plain file read whole by `/history` and `/admin/archive`; a cap (`RISK_ARCHIVE_KEEP` above 0) still
+  deletes the oldest records and their index lines.
 - **Character profiles, diaries and relationships were writable by anyone.** Every save now needs the write key
   (`RISK_CHARACTERS_KEY` or the admin token; read-only when neither is set); served text is framed as data, not
   instructions; limits are lower (100 characters, 30 versions, 200 diary entries, 100 relationships with 20 notes).

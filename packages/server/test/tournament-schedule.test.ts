@@ -6,6 +6,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { Store } from '../src/store.js';
 import { createRiskServer, type RiskServer } from '../src/app.js';
 import type { TournamentClock } from '../src/tournaments.js';
+import { NO_SEAT_CAPS, SeatRequests } from '../src/seat-requests.js';
 import { CANCEL_CHANGED, CANCEL_MISSED, CANCEL_NOT_ENOUGH, TournamentScheduler, nextStart, parseAt, parseSchedule, scheduleFromEnv } from '../src/tournament-schedule.js';
 
 const H = 60 * 60_000;
@@ -368,6 +369,252 @@ describe('a slot whose tournament is gone', () => {
       expect(sched.next().next).toMatchObject({ startsAt: Date.UTC(2026, 9, 23, 14, 0) });
       sched.stop();
       store.stopTimers();
+    }
+  });
+});
+
+describe('the daily tournament: a daily slot in a time zone, sign-up days ahead, the house roster', () => {
+  it("finds 19:00 in the entry's zone, across a summer-time change", () => {
+    const la = { ...parseAt('19:00'), tz: 'America/Los_Angeles' };
+    // Thu 22 Oct 2026, 12:00 UTC (05:00 in LA, summer time): today 19:00 PDT = 02:00 UTC the next day.
+    expect(nextStart(la, NOON)).toBe(Date.UTC(2026, 9, 23, 2, 0));
+    // Sun 1 Nov 2026, 12:00 UTC (after the change to winter time): 19:00 PST = 03:00 UTC the next day.
+    expect(nextStart(la, Date.UTC(2026, 10, 1, 12, 0))).toBe(Date.UTC(2026, 10, 2, 3, 0));
+    // Day names count in the zone: Fri 19:00 in LA is Sat 02:00 UTC.
+    expect(nextStart({ ...parseAt('Fri 19:00'), tz: 'America/Los_Angeles' }, NOON)).toBe(Date.UTC(2026, 9, 24, 2, 0));
+    // No zone: UTC, as before.
+    expect(nextStart({ ...parseAt('19:00'), tz: null }, NOON)).toBe(Date.UTC(2026, 9, 22, 19, 0));
+  });
+
+  it('checks the daily keys at startup; "at" entries keep their key', () => {
+    const t = new Store(null).tournaments;
+    const [e] = parseSchedule({ daily: '19:00', tz: 'America/Los_Angeles', name: 'Daily Nest', signupDays: 2, roster: 20, maxEntrants: 64 }, t);
+    expect(e).toMatchObject({ at: '19:00', tz: 'America/Los_Angeles', days: null, signupMinutes: 2880, roster: 20, spec: { maxEntrants: 64 } });
+    expect(e.spec).not.toHaveProperty('roster');
+    expect(parseSchedule(DAILY, t)[0]).toMatchObject({ tz: null, roster: 0 });
+    expect(parseSchedule(DAILY, t)[0].key).toBe(JSON.stringify({ at: '14:00', signupMinutes: 60, minEntrants: 2, name: 'Daily Nest', roundMinutes: 20, botDelayMs: 2000 }));
+    expect(() => parseSchedule({ at: '19:00', daily: '19:00' }, t)).toThrow(/either "at" or "daily"/);
+    expect(() => parseSchedule({ name: 'x' }, t)).toThrow(/either "at" or "daily"/);
+    expect(() => parseSchedule({ daily: 'Mon 19:00' }, t)).toThrow(/daily must be "HH:MM"/);
+    expect(() => parseSchedule({ daily: '19:00', tz: 'Mars/Olympus' }, t)).toThrow(/unknown time zone "Mars\/Olympus"/);
+    expect(() => parseSchedule({ daily: '19:00', signupDays: 2, signupMinutes: 60 }, t)).toThrow(/not both/);
+    expect(() => parseSchedule({ daily: '19:00', signupDays: 8 }, t)).toThrow(/signupDays must be a whole number from 1 to 7/);
+    expect(() => parseSchedule({ daily: '19:00', roster: 101 }, t)).toThrow(/roster must be a whole number from 0 to 100/);
+    expect(() => parseSchedule({ daily: '19:00', roster: 30, maxEntrants: 20 }, t)).toThrow(/roster \(30\) is more than maxEntrants \(20\)/);
+  });
+
+  it('a slot opens by itself days ahead, asks for its roster seats, and the next day opens again', () => {
+    // Thu 22 Oct 12:00 UTC; the daily slot is 19:00 in LA (02:00 UTC Fri), sign-up 2 days ahead: open at once.
+    const clock = new FakeClock();
+    const store = new Store(null, {}, { clock });
+    const opened: { id: string; delove: number; maxEntrants: number; roster: number }[] = [];
+    const entries = parseSchedule({ daily: '19:00', tz: 'America/Los_Angeles', name: 'Daily Nest', signupDays: 2, roster: 3, maxEntrants: 20, botDelayMs: 2000 }, store.tournaments);
+    const sched = new TournamentScheduler(store.tournaments, entries, null, (t, e) => opened.push({ id: t.id, delove: t.requested?.delove ?? 0, maxEntrants: t.maxEntrants, roster: e.roster }));
+    const [id] = [...store.tournaments.tournaments.keys()];
+    expect(opened).toEqual([{ id, delove: 3, maxEntrants: 20, roster: 3 }]);
+    expect(sched.next().next).toMatchObject({ id, startsAt: Date.UTC(2026, 9, 23, 2, 0), roster: 3, tz: 'America/Los_Angeles', maxEntrants: 20, entrants: 0 });
+    // Two people register now and check in at 01:55 UTC; at 02:00 it starts, and the next day's slot opens by itself.
+    const tokens = ['Ann', 'Bob'].map((n) => store.tournaments.join(id, n).token);
+    clock.advance(Date.UTC(2026, 9, 23, 1, 55) - clock.t);
+    for (const token of tokens) store.tournaments.checkIn(id, token);
+    clock.advance(5 * 60_000);
+    expect(store.tournaments.get(id)!.status).toBe('running');
+    expect(opened).toHaveLength(2);
+    expect(sched.next().next).toMatchObject({ startsAt: Date.UTC(2026, 9, 24, 2, 0), roster: 3 });
+    sched.stop();
+    store.stopTimers();
+  });
+
+  it('a roster hook that throws does not stop the slot', () => {
+    const clock = new FakeClock(NOON + H);
+    const store = new Store(null, {}, { clock });
+    const sched = new TournamentScheduler(store.tournaments, parseSchedule({ ...DAILY, roster: 2 }, store.tournaments), null, () => {
+      throw new Error('pool down');
+    });
+    const [id] = [...store.tournaments.tournaments.keys()];
+    expect(store.tournaments.get(id)!.status).toBe('registering');
+    sched.stop();
+    store.stopTimers();
+  });
+});
+
+describe('the house roster: no cap, and its seats yield to people', () => {
+  it('roster requests sit outside the Delove at-once cap, before and during check-in; no startup cap', () => {
+    const clock = new FakeClock(); // Thu 22 Oct 12:00 UTC
+    const store = new Store(null, {}, { clock });
+    const seats = new SeatRequests(store.tournaments, { ...NO_SEAT_CAPS, deloveAtOnce: 10 });
+    const entries = parseSchedule({ daily: '19:00', tz: 'America/Los_Angeles', name: 'Daily Nest', signupDays: 2, roster: 8, maxEntrants: 40 }, store.tournaments);
+    const sched = new TournamentScheduler(store.tournaments, entries, null, (t) => seats.openFor(t));
+    // The slot is open with 8 roster seats asked for; a host may still ask for the whole cap, now and from check-in.
+    expect(() => seats.checkCreate('admin', 10)).not.toThrow();
+    clock.advance(Date.UTC(2026, 9, 23, 1, 50) - clock.t);
+    expect(() => seats.checkCreate('admin', 10)).not.toThrow();
+    expect(parseSchedule({ daily: '19:00', roster: 100 }, store.tournaments)[0].roster).toBe(100);
+    sched.stop();
+    store.stopTimers();
+  });
+
+  it('a full roster tournament: a refused join evicts nobody, a valid one exactly one roster seat; the request shrinks with it', () => {
+    const clock = new FakeClock(NOON + H);
+    const store = new Store(null, {}, { clock });
+    const seats = new SeatRequests(store.tournaments, NO_SEAT_CAPS);
+    store.tournaments.roomFor = (t) => seats.roomFor(t.id);
+    const t = store.tournaments.create({ name: 'Daily', format: 'nested', maxEntrants: 4, delove: 2, scheduled: { startsAt: NOON + 2 * H } });
+    const r = seats.openFor(t)!;
+    seats.claim(r.id, 2);
+    // The pool's joins carry no joiner: they never count toward the per-joiner cap and never take anyone's place.
+    for (const i of [1, 2]) seats.bind(r, store.tournaments.join(t.id, `Delove ${i}`, undefined, undefined, null).entrantId);
+    seats.finish(r.id, 'done', 2);
+    store.tournaments.join(t.id, 'Ann', undefined, undefined, 'ip:a');
+    store.tournaments.join(t.id, 'Bob', undefined, undefined, 'ip:b');
+    const roster = () => store.tournaments.get(t.id)!.entrants.filter((e) => e.name.startsWith('Delove')).length;
+    expect(store.tournaments.get(t.id)!.entrants).toHaveLength(4);
+
+    // Refused joins into the full tournament evict nobody: a taken name, the per-joiner cap, the pool itself.
+    expect(() => store.tournaments.join(t.id, 'Ann', undefined, undefined, 'ip:c')).toThrow(/The name "Ann" is taken/);
+    store.tournaments.limits.preregPerJoiner = 1;
+    expect(() => store.tournaments.join(t.id, 'Zed', undefined, undefined, 'ip:a')).toThrow(/You already hold 1 open registrations/);
+    store.tournaments.limits.preregPerJoiner = 4;
+    expect(() => store.tournaments.join(t.id, 'Delove 3', undefined, undefined, null)).toThrow(/This tournament is full/);
+    expect(roster()).toBe(2);
+    expect(seats.get(r.id)).toMatchObject({ n: 2, claimed: 2, joined: 2 });
+
+    // A valid join takes exactly one roster seat's place, and the request asks for one fewer.
+    store.tournaments.join(t.id, 'Cat', undefined, undefined, 'ip:c');
+    expect(roster()).toBe(1);
+    expect(store.tournaments.get(t.id)!.entrants.map((e) => e.name)).toEqual(['Delove 1', 'Ann', 'Bob', 'Cat']);
+    const after = seats.get(r.id)!;
+    expect(after).toMatchObject({ n: 1, claimed: 1, joined: 1, status: 'done' });
+    expect(after.bound).toHaveLength(1);
+    expect(seats.boundEntrants(t.id)).toEqual(new Set(after.bound));
+
+    // A host's tournament (not scheduled) never gives up its Delove seats.
+    const host = store.tournaments.create({ name: 'Host', format: 'nested', maxEntrants: 2, delove: 1, open: 1 });
+    const hr = seats.openFor(host)!;
+    seats.claim(hr.id, 1);
+    seats.bind(hr, store.tournaments.join(host.id, 'Delove 1', undefined, undefined, null).entrantId);
+    store.tournaments.join(host.id, 'Ann', undefined, undefined, 'ip:a');
+    expect(() => store.tournaments.join(host.id, 'Bob', undefined, undefined, 'ip:b')).toThrow(/This tournament is full/);
+    store.stopTimers();
+  });
+
+  it('over HTTP: the pool fills the roster, people join a full tournament and roster seats leave; the pool cannot bump its own', async () => {
+    const clock = new FakeClock(NOON + H); // 13:00: sign-up opens at once for the 14:00 slot
+    const store = new Store(null, {}, { clock });
+    const risk = createRiskServer(store, { clientDir: null, sweepIntervalMs: 0, seatPoolKey: 'pool-test-key', tournamentSchedule: parseSchedule({ ...DAILY, roster: 3, maxEntrants: 5 }, store.tournaments) });
+    await new Promise<void>((resolve) => risk.server.listen(0, '127.0.0.1', resolve));
+    const base = `http://127.0.0.1:${(risk.server.address() as AddressInfo).port}`;
+    const call = async (path: string, body?: unknown, poolKey = false) => {
+      const res = await fetch(`${base}/api${path}`, {
+        method: body === undefined ? 'GET' : 'POST',
+        headers: { 'content-type': 'application/json', ...(poolKey ? { 'x-seat-pool-key': 'pool-test-key' } : {}) },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+      return { status: res.status, body: (await res.json()) as any };
+    };
+    try {
+      const [id] = [...store.tournaments.tournaments.keys()];
+      const { requests } = (await call('/seat-requests', undefined, true)).body;
+      expect(requests).toHaveLength(1);
+      const r = requests[0];
+      expect(r).toMatchObject({ tournamentId: id, n: 3 });
+      expect((await call(`/seat-requests/${r.id}/claim`, { n: 3 }, true)).status).toBe(200);
+      for (const i of [1, 2, 3]) {
+        const j = await call(`/tournaments/${id}/join`, { playerName: `Delove ${i}`, seatRequestId: r.id }, true);
+        expect(j.body.error ?? '').toBe('');
+        expect(j.status).toBe(201);
+      }
+      expect((await call(`/seat-requests/${r.id}/done`, { joined: 3 }, true)).status).toBe(200);
+      for (const n of ['Ann', 'Bob', 'Cat', 'Dee']) {
+        // From the third, 5 / 5: each gets in in a roster seat's place.
+        const j = await call(`/tournaments/${id}/join`, { playerName: n });
+        expect(j.body.error ?? '').toBe('');
+        expect(j.status).toBe(201);
+      }
+      const t = store.tournaments.get(id)!;
+      expect(t.entrants).toHaveLength(5);
+      expect(t.entrants.filter((e) => e.name.startsWith('Delove')).map((e) => e.name)).toEqual(['Delove 1']);
+      // A refused join (a taken name) evicts nobody, however often it is tried.
+      for (let i = 0; i < 3; i++) expect((await call(`/tournaments/${id}/join`, { playerName: 'Ann' })).status).toBe(400);
+      expect(store.tournaments.get(id)!.entrants.filter((e) => e.name.startsWith('Delove')).map((e) => e.name)).toEqual(['Delove 1']);
+      expect(store.tournaments.houseAiEntrants!(id).size).toBe(1);
+      // The pool's own join into a full tournament bumps nobody: it is refused.
+      expect((await call(`/tournaments/${id}/join`, { playerName: 'Delove 4', seatRequestId: r.id }, true)).status).toBeGreaterThanOrEqual(400);
+      expect(store.tournaments.get(id)!.entrants).toHaveLength(5);
+    } finally {
+      await risk.shutdown('test');
+    }
+  });
+});
+
+describe('every N minutes', () => {
+  it('lines the starts up on `at` (UTC) and checks the entry', () => {
+    const t = new Store(null).tournaments;
+    const [e] = parseSchedule({ every: 30, at: '00:03', signupMinutes: 6, checkinMinutes: 6 }, t);
+    expect(e).toMatchObject({ every: 30, minuteOfDay: 3, signupMinutes: 6, checkinMinutes: 6 });
+    expect(nextStart(e, NOON)).toBe(NOON + 3 * 60_000);
+    expect(nextStart(e, NOON + 3 * 60_000)).toBe(NOON + 33 * 60_000);
+    // Across midnight: 23:33, then 00:03 the next day.
+    expect(nextStart(e, Date.UTC(2026, 9, 22, 23, 10, 30))).toBe(Date.UTC(2026, 9, 22, 23, 33));
+    expect(nextStart(e, Date.UTC(2026, 9, 22, 23, 33))).toBe(Date.UTC(2026, 9, 23, 0, 3));
+    expect(() => parseSchedule({ every: 7, at: '00:00' }, t)).toThrow(/every must divide a day/);
+    expect(() => parseSchedule({ every: 2, at: '00:00' }, t)).toThrow(/every must be a whole number from 5 to 1440/);
+    expect(() => parseSchedule({ every: 30, at: 'Mon 00:00', signupMinutes: 5 }, t)).toThrow(/not with daily, tz or day names/);
+    expect(() => parseSchedule({ every: 30, at: '00:00', tz: 'America/Los_Angeles', signupMinutes: 5 }, t)).toThrow(/not with daily, tz or day names/);
+    expect(() => parseSchedule({ every: 30, at: '00:00' }, t)).toThrow(/signupMinutes \(60\) must be at most every \(30\)/);
+  });
+
+  it('a slot with only house Delove seats starts on time, and the next half hour opens after it', () => {
+    const clock = new FakeClock(); // 12:00 UTC: the 12:03 slot's sign-up (11:57) has passed, so it opens at once
+    const store = new Store(null, {}, { clock });
+    const entries = parseSchedule({ every: 30, at: '00:03', name: 'Half-hourly', signupMinutes: 6, checkinMinutes: 6, roster: 4, maxEntrants: 20, roundMinutes: 20, botDelayMs: 2000 }, store.tournaments);
+    const sched = new TournamentScheduler(store.tournaments, entries, null);
+    const [id] = [...store.tournaments.tournaments.keys()];
+    expect(sched.next().next).toMatchObject({ id, startsAt: NOON + 3 * 60_000, roster: 4 });
+    // The seat pool joins its seats inside the window (joining there checks in); no person signs up.
+    for (let i = 1; i <= 4; i++) store.tournaments.join(id, `Delove ${i}`, 'delove@13');
+    clock.advance(3 * 60_000);
+    const t = store.tournaments.get(id)!;
+    expect(t.status).toBe('running');
+    expect(t.scheduled?.noShows).toBe(0);
+    expect(sched.next().next).toMatchObject({ id: null, startsAt: NOON + 33 * 60_000, opensAt: NOON + 27 * 60_000 });
+    clock.advance(24 * 60_000);
+    expect(sched.next().next?.id).not.toBeNull();
+    sched.stop();
+    store.stopTimers();
+  });
+});
+
+describe('the daily slot seats the house roster by name', () => {
+  it('a slot asks for its roster names (spread over the models), then plain Delove seats for the rest', async () => {
+    const clock = new FakeClock(NOON + H); // 13:00: sign-up opens at once for the 14:00 slot
+    const store = new Store(null, {}, { clock });
+    const twelve = store.roster.create('delove@12', 2);
+    const thirteen = store.roster.create('delove@13', 1);
+    const risk = createRiskServer(store, { clientDir: null, sweepIntervalMs: 0, seatPoolKey: 'pool-test-key', tournamentSchedule: parseSchedule({ ...DAILY, roster: 4, maxEntrants: 10 }, store.tournaments) });
+    await new Promise<void>((resolve) => risk.server.listen(0, '127.0.0.1', resolve));
+    const base = `http://127.0.0.1:${(risk.server.address() as AddressInfo).port}`;
+    const pool = async (path: string, body?: unknown) => {
+      const res = await fetch(`${base}/api${path}`, {
+        method: body === undefined ? 'GET' : 'POST',
+        headers: { 'content-type': 'application/json', 'x-seat-pool-key': 'pool-test-key' },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+      return (await res.json()) as any;
+    };
+    try {
+      const [id] = [...store.tournaments.tournaments.keys()];
+      const { requests } = await pool('/seat-requests');
+      expect(requests).toHaveLength(1);
+      expect(requests[0]).toMatchObject({ tournamentId: id, n: 4 });
+      // The claim hands out the 3 active roster names first, one model in turn, then one plain "Delove" seat.
+      const claim = await pool(`/seat-requests/${requests[0].id}/claim`, { n: 4 });
+      expect(claim.n).toBe(4);
+      expect(claim.roster.map((x: { model: string }) => x.model)).toEqual(['delove@12', 'delove@13', 'delove@12']);
+      expect(new Set(claim.roster.map((x: { rosterId: string }) => x.rosterId))).toEqual(new Set([...twelve, ...thirteen].map((e) => e.id)));
+      expect(claim.labelPrefix).toBe('Delove');
+    } finally {
+      await risk.shutdown('test');
     }
   });
 });

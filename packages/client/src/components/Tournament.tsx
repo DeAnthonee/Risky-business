@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react';
 import { MAPS } from '@risk/engine';
 import { api, ApiError, type HostEntrantsView, type TournamentView } from '../api';
-import { getEntrantToken, getHostToken, saveEntrantToken, type Session } from '../session';
+import { getEntrantToken, getHostToken, getPlayerKey, saveEntrantToken, savePlayerKey, type Session } from '../session';
+import { SeatSetup } from './SeatSetup';
 import { HostEntrants } from './HostEntrants';
 import { NestedTournament } from './NestedTournament';
+import { Bracket } from './Bracket';
+import { countdown } from './NextTournament';
 import { ShareButton } from './Share';
 import { StartButton } from './StartButton';
 
@@ -85,14 +88,27 @@ export function Tournament({
     };
   }, [id, token]);
 
+  const [wantKey, setWantKey] = useState(true);
+  const [setup, setSetup] = useState<{ text: string; filename: string } | null>(null);
   const join = async () => {
     setBusy(true);
     setErr(null);
     try {
+      // A player key first, unless this browser has one: the setup prompt hands it to the player's AI.
+      if (wantKey && !getPlayerKey()) {
+        const p = await api.registerPlayer(name.trim());
+        if (p.key) savePlayerKey(p.key);
+      }
       const r = await api.joinTournament(id, name.trim());
       saveEntrantToken(id, r.token);
       setToken(r.token);
       setT(r.tournament);
+      // Shown once: the key and seat code with the setup prompt for the player's AI (a failure here never undoes the join).
+      try {
+        setSetup(await api.tournamentSetup(id, r.token, Intl.DateTimeFormat().resolvedOptions().timeZone));
+      } catch {
+        /* the seat is saved anyway; the page shows it */
+      }
     } catch (e) {
       setErr((e as Error).message);
     } finally {
@@ -116,7 +132,6 @@ export function Tournament({
 
   const you = t.you;
   const mapName = MAPS[t.map as keyof typeof MAPS]?.name ?? t.map;
-  const nameOf = (eid: string) => t.entrants.find((e) => e.id === eid)?.name ?? '?';
   const nested = t.format === 'nested';
   // The host controls (Start now, who joined) sit above every view of a registering tournament: for this browser's host
   // token, or for anyone in open mode (testing, no hosting codes), so another window or Incognito can still start it.
@@ -140,6 +155,8 @@ export function Tournament({
           {nested ? 'boards inside boards (tables of 3 to 6, a final of 6 to 10)' : `${mapName} · tables of up to ${t.groupSize}`} · {t.entrants.length}/{t.maxEntrants} entrants
         </p>
       </header>
+
+      {t.status === 'registering' && t.scheduled && <StartClock scheduled={t.scheduled} />}
 
       {hostBar && (
         <section className="home-actions tourney-hostbar" aria-label="Host controls">
@@ -167,6 +184,8 @@ export function Tournament({
           <strong>👑 {t.champion.name}</strong>
         </section>
       )}
+
+      {setup && <SeatSetup text={setup.text} filename={setup.filename} onDone={() => setSetup(null)} />}
 
       <div className="tourney-grid">
         <section className="home-actions tourney-panel" aria-labelledby="tourney-you">
@@ -198,6 +217,12 @@ export function Tournament({
                 Your name
                 <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Dean" maxLength={24} />
               </label>
+              {!getPlayerKey() && (
+                <label className="check tourney-wantkey">
+                  <input type="checkbox" checked={wantKey} onChange={(e) => setWantKey(e.target.checked)} />
+                  Get a player key for this name (your AI uses it to play as you; you can also play here yourself)
+                </label>
+              )}
               <button className="primary tourney-join" disabled={busy || !name.trim() || t.entrants.length >= t.maxEntrants} onClick={join}>
                 Join as {name.trim() || '…'}
               </button>
@@ -248,6 +273,7 @@ export function Tournament({
               {t.entrants.map((e) => (
                 <li key={e.id} className={e.status}>
                   {e.status === 'champion' ? '👑 ' : ''}
+                  {e.dropped ? <span title={`Dropped (${e.dropped.reason}): ${e.dropped.standIn} plays the seat to the end of that table`}>🔌 </span> : ''}
                   {nested ? (
                     <button type="button" className="entrant-link" title={`Find ${e.name} on the globe`} onClick={() => findEntrant(e.id)}>
                       {e.name}
@@ -266,47 +292,41 @@ export function Tournament({
 
       {nested && <NestedTournament t={t} onWatch={onWatch} pick={pick} />}
 
-      {!nested &&
-        t.rounds
-          .slice()
-          .reverse()
-          .map((r) => (
-            <section key={r.round} className="board tourney-round" aria-label={`Round ${r.round}`}>
-              <div className="board-head">
-                <h2>{r.matches.length === 1 && r.round > 1 ? `Round ${r.round}: the final` : `Round ${r.round}`}</h2>
-              </div>
-              <ul className="tickets tourney-tables">
-                {r.matches.map((m, i) => (
-                  <li key={m.gameId ?? `bye-${i}`} className={`ticket ticket-${m.status === 'playing' ? 'live' : m.status === 'bye' ? 'lobby' : 'finished'}`}>
-                    <span className="ticket-stamp">{m.gameId ? `Table ${i + 1}` : 'Bye'}</span>
-                    <div className="ticket-main">
-                      <div className="ticket-title">
-                        {m.gameId && <code>{m.gameId}</code>}
-                        <span className="ticket-meta">{m.status === 'playing' ? 'playing' : m.status === 'abandoned' ? 'abandoned' : m.status === 'bye' ? 'moves on' : 'decided'}</span>
-                      </div>
-                      <ul className="ticket-seats">
-                        {m.players.map((p) => (
-                          <li key={p.entrantId} className={m.winner === p.entrantId ? 'won' : m.winner || m.status === 'abandoned' ? 'out' : ''}>
-                            {m.winner === p.entrantId ? '🏅 ' : ''}
-                            {p.name}
-                            {you?.entrantId === p.entrantId ? ' (you)' : ''}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                    {m.gameId && (
-                      <div className="ticket-actions">
-                        <button className="watch" onClick={() => onWatch(m.gameId!)} title={`Watch ${m.players.map((p) => nameOf(p.entrantId)).join(' vs ')}`}>
-                          Watch
-                        </button>
-                      </div>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ))}
+      {!nested && t.rounds.length > 0 && (
+        <section className="board tourney-bracket" aria-labelledby="tourney-bracket">
+          <div className="board-head">
+            <h2 id="tourney-bracket">Bracket</h2>
+          </div>
+          <Bracket t={t} onWatch={onWatch} />
+        </section>
+      )}
     </div>
+  );
+}
+
+/** A scheduled tournament's wait: a live countdown to the start, and to check-in until it opens. */
+function StartClock({ scheduled }: { scheduled: NonNullable<TournamentView['scheduled']> }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+  if (scheduled.cancelled) return <section className="tourney-clock" role="status">Cancelled: {scheduled.cancelled}</section>;
+  const checkinAt = scheduled.startsAt - (scheduled.checkinMinutes ?? 10) * 60_000;
+  const at = new Date(scheduled.startsAt).toLocaleString(undefined, { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+  return (
+    <section className="tourney-clock" aria-label="Start time">
+      <div className="next-tourney-clock" aria-live="off">
+        <span className="next-tourney-label">Starts in</span>
+        <strong>{countdown(scheduled.startsAt - now)}</strong>
+        <span className="muted small">{at}</span>
+      </div>
+      <p className="tourney-clock-checkin">
+        {now < checkinAt
+          ? `Check-in opens in ${countdown(checkinAt - now)}`
+          : `Check-in is open${scheduled.checkedIn !== undefined ? `: ${scheduled.checkedIn} checked in` : ''}`}
+      </p>
+    </section>
   );
 }
 
@@ -316,5 +336,6 @@ function youLine(status: string, t: TournamentView['status'], scheduled = false)
   if (status === 'playing') return 'Your table is being played.';
   if (status === 'waiting') return 'You won your table! Waiting for the other tables to finish.';
   if (status === 'champion') return 'You won the tournament!';
+  if (status === 'dropped') return 'You were dropped (disconnected): a stand-in plays your seat to the end of that table, and you are out of the tournament.';
   return 'You are out. Watch the rest of the bracket below.';
 }

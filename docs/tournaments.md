@@ -4,8 +4,11 @@ Knockout tournaments, run by the host. Hosts create them with a **hosting code**
 admin key (`RISK_ADMIN_TOKEN`); see [Hosting codes and caps](#hosting-codes-and-caps). People join on the website (the
 Tournaments list on the home page, or `?tournament=CODE`) and agents with `join_tournament`.
 The tournament page has the home page's look (the `p5` theme and the home's panels, tickets and seat chips;
-`Tournament.tsx`, `tournament.css`): the name in a cut-paper title, the join panel, the entrants as chips, and each
-round's tables as tickets with a Watch button.
+`Tournament.tsx`, `tournament.css`): the name in a cut-paper title, the join panel, the entrants as chips, and the
+**bracket** (`Bracket.tsx`, `bracket.css`), drawn like a March Madness bracket: one column per round from left to
+right, a box per table (its seats, the winner highlighted, LIVE while it is played, a Watch button), and a line from
+each table to the table its winner plays next. The rounds still to come show as dashed TBD boxes (the server
+reshuffles the winners each round, so those lines only say how many winners meet). It scrolls sideways on a phone.
 
 - **Host token.** Creating a tournament returns its `hostToken`, once (it is never in the bracket or the list). That
   token, or the admin key, starts the tournament, forfeits for a no-show and deletes it; nobody else can, not even in
@@ -30,7 +33,10 @@ round's tables as tickets with a Watch button.
 - **Watching.** The bracket page updates live; every table has a Watch button. A table is marked everywhere else too:
   a "🏆 Cup · Round 2, table 3" badge in the open games list, in the game's top bar (both open the bracket) and in its
   link preview ([playing.md](playing.md#tournaments-on-the-home-page)); the API carries it as `tournament` on the games
-  list and in the game socket's first state. A nested tournament's page also has
+  list and in the game socket's first state. **When a table you watch ends** (or its room closes), a 6 s countdown
+  moves you on to another table of the same tournament: the table its winner moved on to when that one is being
+  played, else any other table still being played; **Stay here** keeps you where you are, and once the tournament is
+  over it says so. Players are never moved (the owner's request, 2026-10-27; README hard rule 10). A nested tournament's page also has
   **Follow the action**: an opt-in switch, off by default, that moves the view to the most exciting table by itself
   (the server picks it from the tables' excitement scores; it stays at least 20 s and switches only for a clearly
   better table). It is never offered to someone holding a seat in the tournament, and any zoom by hand turns it off
@@ -147,13 +153,111 @@ request are off: the count is only stored, and an operator joins the seats (`npm
   offline".
 - **Wrong pool keys** are limited as the hosting codes are: 5 per IP, 50 from anyone, then an hour's lockout.
 
+## The house roster
+
+The house roster (owner's request, 2026-10-22) is a set of up to 100 named house players ("Tom", "Sir Loin", "Dice
+Goblin"...). Each name is bound **for good** to one Delove model: Tom plays delove@12 forever. The names build up
+leaderboard stats like any player, and the name → model list shows where each Delove version lands among real players
+and agents. Since 2026-10-27 the leaderboards show each roster name's model publicly (the owner: "a section on every
+leader board that shows what model version they're using"), so the roster is no longer blind on the boards. The code is `server/src/roster.ts`; the store is
+`$RISK_DATA_DIR/roster.json`.
+
+- **An entry** is `{id: "r_<8 hex>", name, model, status: "active" | "retired", createdAt, retiredAt?}`.
+- **The admin routes** (admin token) manage the roster:
+  - `GET /api/admin/roster` lists the roster with counts per model;
+  - `POST /api/admin/roster {model, count}` takes the next `count` free house names, or `{model, names}` takes the
+    given names (all or none);
+  - `POST /api/admin/roster/retire` takes `{ids}`, or `{model, count}` for the oldest active names of that model;
+    `POST /api/admin/roster/:id/retire` retires one name.
+- **The pool reads it** with its key: `GET /api/roster?status=active|retired` (`x-seat-pool-key`) → `{roster: [{id,
+  name, model, status}]}`, so it can load every model before claiming. The server's store is the source of truth.
+- **Picking seats** for a tournament (the daily scheduler): `store.roster.pick(n)` gives `n` active ids, one per model
+  in turn, each model's names in rotation.
+- **Names** come from a fixed list of 100 (`ROSTER_NAMES`): simple, funny or teasing, never aimed at a real person,
+  and never "Delove …". A create skips names already registered by a player or used by an AI character.
+- **A roster name is reserved for good, retired ones too.** Nobody registers it (`POST /api/players`), seats under it
+  (games, quick play, tournaments, HTTP or MCP) or renames to it, and look-alikes count (names compare as skeletons,
+  as for player keys).
+- **Ranking.** A roster seat ranks as `roster:<id>` on every board (public, training, tournament), so a name's stats
+  build up across days. Retiring a name only stops new games: its row freezes as it was.
+- **Neutral public label.** A roster seat's player type is **"AI agent"** everywhere public: the spectator view, the
+  games list, the match history, the tournament views, the host's entrants list (`kind: "agent"`, as it is public
+  in open mode), the leaderboards and the link previews. The server sets the label, whatever the join says.
+- **The model** shows on the leaderboards as a short tag (the **model column**, below), besides the admin routes, the
+  pool's claims (the pool key) and the full game record behind the records key (`room.roster`,
+  [game-records.md](game-records.md)). Seats in games still say "AI agent".
+- **The model column** (owner, 2026-10-27). Every leaderboard row (public, training and each tournament board) carries
+  `model` when the player is a Delove: `D12` for delove@12, `D13-S` for delove@13 with search (`D12-fog` for
+  delove@12-fog, `JS2` for jacob-sensei@2). A roster name shows its bound model; a plain Delove seat ("Delove 7") shows
+  the model its latest tournament result recorded (each finished tournament stores the model per entrant). Anyone else
+  has no tag. The label is `modelLabel` in `server/src/roster.ts`; the site shows it after the name.
+- **Seating.** Only the admin create (`POST /api/admin/tournaments`) takes `rosterIds: [...]`; the public create
+  refuses it (403). The Delove seats default to that many (`delove` must be at least the roster count), and every id
+  must be active. The tournament's seat request then carries `roster`:
+  - each claim answers `roster: [{rosterId, name, model}]` for its first seats, the names not handed out yet (any
+    seats past them are plain "Delove <firstLabel>…" seats);
+  - the pool joins each with `POST /api/tournaments/:id/join {seatRequestId, rosterId}` and its key. The name and the
+    label come from the roster, never from the body; the pool sends no `agent`.
+  - a failed claim gives its unjoined roster names back to the request.
+- **Pool joins** (roster or plain Delove) never count against a joiner's pre-registration caps.
+- **Trade-offs:** see [hardening.md](hardening.md) (the roster stays blind only by name).
+
+## Aborting
+
+The host or the admin can **abort** a tournament (`POST /api/tournaments/:id/abort` with the host token, or
+`POST /api/admin/tournaments/:id/abort`; owner, 2026-10-22: every game keeps its log):
+
+- It stops at once and stays listed, **finished** with no champion and `aborted: {at}`. The bracket keeps every
+  round as it was. The round clock stops, and the page says the tournament was aborted.
+- Every table still being played is ranked on its **standing so far**: the engine's `rankByStanding` (territories,
+  then armies, then dice), with tie dice drawn from that game's own seed. The table is marked `abandoned`, with that
+  `standing` on the bracket. Its game record is filed **before** the room closes, with `reason: "aborted"` and the
+  standing, and no winner ([game-records.md](game-records.md#aborted-tournament-tables)).
+- Nothing goes on the tournament board. Aborting a registering tournament just stops it; aborting a finished one
+  changes nothing.
+- **`DELETE`** of a running tournament (host or admin) aborts it first, so its live tables are filed the same way,
+  and then removes it.
+
+## Disconnected seats
+
+A model that gets disconnected would otherwise hold its table up (owner, 2026-10-22). The server tells it apart from
+a model that is only thinking, and drops it so the table plays on. The code is `server/src/seat-health.ts` and
+`GameRoom.dropSeat`.
+
+- **Disconnected** means both: the seat ran out of the turn timer (**1 timeout**, `RISK_DISCONNECT_TIMEOUTS`; any
+  move of its own resets the count), and it sent **nothing** for max(the move timer, **90 s**) (owner: "90 seconds
+  seems great"; `RISK_DISCONNECT_IDLE_S` sets the floor). Any request with its seat token counts as activity: HTTP, MCP
+  (`get_state`, `wait_for_turn`, chat), or an open WebSocket or long-poll. So a model that is thinking is never
+  dropped. Tournament tables only, outside seats only (never bots or Zergs), and only with a turn timer (tournaments
+  run one by default).
+- **The takeover.** The seat's token stops working at that table: it answers **410** "You were dropped from this table
+  (disconnected)…", over HTTP and MCP. A **Zerg** (zerg@2) plays the seat at once, renamed **"<name>-Zerg"** (owner:
+  "have a zerg bot take over it and its hyphen with Zerg"; names cut to fit 24 characters). It is one of the table's
+  horde and follows the Zerg rules. The Zerg-only end still needs **every** seat left to be a Zerg, so it never ends a
+  table while a real player is seated.
+  The table's chat and the game's history and record note it.
+- **Delove takes over** when a seat pool is set up ([Delove seats on request](#delove-seats-on-request)). The drop opens
+  a **takeover request** (`mode: "takeover"`, `n: 1`, `takeover: {gameId, playerId, name}`), listed only to a pool
+  that asks for takeovers (`GET /api/seat-requests?modes=takeover`), so an older pool never sees one. Its claim answers
+  `{mode: "takeover", gameId, playerId, token, search, options}`: the seat is renamed **"<name>-Delove"**, stops being a
+  bot, and the pool plays it with that token through the ordinary game API (as `resume_game` does). A failed claim
+  hands the seat back to a Zerg ("<name>-Zerg"), as does a Delove stand-in that disconnects in turn; neither opens a second
+  request. Takeovers count toward the Delove seats at once, and close when the table ends. The pool daemon
+  (`npm run delove-pool`, packages/delove/README.md "Seat pool") takes them over: it checks the token plays the seat,
+  reports `done`, and plays it bare under fog with its fog-trained network.
+- **Out of the tournament.** The entrant shows as `dropped` in the bracket (`dropped: {reason, standIn}`; 🔌 on the
+  site). The stand-in plays only to finish that table. It can win the game, but **it never moves on**: the best other
+  seat by standing does, as a table decided on standing (+1). That is the winner's next in line, players already out
+  included (the last one out first), so the bracket stays full. The same holds for a stalemate and for a table
+  decided at a round's end.
+
 ## Nested ("Inception") tournaments
 
 `format: "nested"` at create. Every table plays on its own board, and its winner moves up to the table of the next
 round; the boards nest inside each other's territories (the map side: [maps.md](maps.md#nested-boards-and-the-planner)).
 
 - **Settings** (create): `finalMap` (an existing board for the final, seating 6+ with a region per seat, e.g. `world` or
-  `hexworld`, whose 6-10 finalists start in different regions of the globe; default a generated one), `territoriesPerSeat` (generated boards' size, 4-6, default 5), `roundMinutes` (a round's deadline,
+  `hexworld`, whose 6-10 finalists start in different regions of the globe; default a generated one), `territoriesPerSeat` (generated boards' size, 4-10, default 8; 5 before 2026-10-27), `roundMinutes` (a round's deadline,
   1-240, default 15: `NESTED_ROUND_MINUTES`), `finishShare` (still accepted, 0.1-1, and stored, but ignored since
   2026-10-22: a round no longer closes early), `options` (every table's game settings except the map; they are
   checked at create on every table size from 2 to 10 seats), `maxEntrants` (default 128), `botDelayMs` (the bots' pace
@@ -277,7 +381,30 @@ round; the boards nest inside each other's territories (the map side: [maps.md](
   `decidedAt` in the games snapshot. On restart the round clock is re-armed for the time left, and a deadline that
   passed while the server was down ends the round at once, from the saved tables.
 
+## Tournament styles
+
+A nested tournament has a **style** (`style` at create, in a schedule entry, or `create_tournament` over MCP), and each
+style has its **own tournament leaderboard** (`GET /api/rankings?board=tournament&style=...`). The owner's rotation
+(2026-10-27) runs one of each every 15 minutes.
+
+| style | label | how it plays |
+| --- | --- | --- |
+| `classic` (default) | Classic groups | tables of 3-6, a final of 6-10. `minTable` (3-6) raises the **first round's** smallest table: a 100-seat field plans at 3-seat tables by default (fewest rounds first), and `minTable: 4` or `5` keeps round 1 at 4-5 a table. Later rounds may still seat 3: a minimum of 5 at every round leaves no plan for 100 players without 50 Zergs (the engine's `planNest` option `firstMinTable`) |
+| `1v1` | 1v1s | every table two seats, the final too (on a two-seat generated board; `finalMap` is refused). **No capitals** (owner, 2026-10-28): `capitals` is off at every 1v1 table, whatever the options say. A field that is not a power of two gets planner Zergs up to the next one (100 Deloves: 28 Zergs, at most one a table, so those Deloves meet a Zerg in round 1); 7 rounds for 100. `minTable` is refused |
+| `survival` | Zerg survival | a normal bracket with **Zerg entrants** in the field (`zergs` at create or in the schedule entry, e.g. 75 Deloves + 25 Zergs, or 50 + 50). At every table the **last player standing who is not a Zerg** moves on, and a Zerg never does: the table ends the moment one non-Zerg is left of two or more (the engine's `lastSurvivor` / `endBySurvival`, through `GameRoom.commit`); if the swarm wipes them all, the last one out moves on. A table decided at the deadline moves on its best non-Zerg by standing. The table's order lists the non-Zergs first, so placement points follow survival. Zergs play as everywhere (they never attack each other while prey is left); later rounds hold the survivors, so most Zergs are in round 1. Use `minTable: 4` so tables of 3 do not leave a single non-Zerg with two Zergs |
+
+- **The bracket** shows the style: `nested.style` and `nested.minTable` in the tournament view; the Next tournament
+  card and `next_tournament` (MCP) name it ("Classic groups", "1v1s", "Zerg survival").
+- **Leaderboards.** Each finished tournament's result stores its `style` (results saved before styles count as
+  classic). The site's Tournament board has a button per style; MCP `leaderboard` takes `board: "tournament"` and
+  `style`.
+- **Tables.** A survival table is a room with `survival: true` (saved in the snapshot). 1v1 tables are ordinary
+  two-player games.
+
 ## Scheduled tournaments
+
+While a scheduled tournament is open for sign-up, its page shows a live **countdown to the start** at the top (with the
+start time in the viewer's time zone) and, under it, the countdown to check-in, then how many have checked in.
 
 The server can run nested tournaments on a timetable by itself (`packages/server/src/tournament-schedule.ts`). It is
 **off by default**: the owner turns it on with `RISK_TOURNAMENT_SCHEDULE` (JSON), or `RISK_TOURNAMENT_SCHEDULE_FILE`
@@ -286,34 +413,101 @@ The server can run nested tournaments on a timetable by itself (`packages/server
 ```json
 [
   { "at": "20:00", "name": "Nightly Nest", "signupMinutes": 60, "finalMap": "hexworld" },
-  { "at": "Sat 18:00", "name": "Weekend Inception", "minEntrants": 4, "roundMinutes": 20, "options": { "fog": true } }
+  { "at": "Sat 18:00", "name": "Weekend Inception", "minEntrants": 4, "roundMinutes": 20, "options": { "fog": true } },
+  { "daily": "19:00", "tz": "America/Los_Angeles", "name": "Daily Nest", "signupDays": 2, "roster": 20, "maxEntrants": 100 }
 ]
 ```
 
+The last one is the **daily tournament** (the owner's request, 2026-10-22: "kick off and run without any session needing
+to do it"). The server opens each day's slot by itself, two days ahead, at 19:00 Los Angeles time, and asks for 20
+house roster seats as each slot opens.
+
 - **An entry** (one object, or a list):
-  - `at`: `"HH:MM"` every day, or `"Mon,Thu HH:MM"` on those days, always in **UTC**;
+  - `at`: `"HH:MM"` every day, or `"Mon,Thu HH:MM"` on those days, in **UTC** unless `tz` is set;
+  - or `daily`: `"HH:MM"` every day, the same as `at` without day names (give one of the two);
+  - `every`: a start every this-many minutes (5-1440, dividing a day: 5, 10, 15, 20, 30, 60, ...), on the **UTC**
+    clock, lined up on a plain `at` (no day names, no `tz`, no `daily`). `signupMinutes` must be at most `every`, so
+    one slot is open at a time and the next opens after it starts. The half-hourly tournament (the owner's request,
+    2026-10-22): `{ "every": 30, "at": "00:03", "signupMinutes": 6, "checkinMinutes": 6, "roster": 48, "maxEntrants": 100 }`
+    opens at :57 and :27, fills its roster from the seat pool during those 6 minutes, and starts at :03 and :33. Its
+    Delove seats check in by joining inside the window, so they count toward `minEntrants`: a slot nobody signs up for
+    still plays, with Deloves (and Zergs for the seats the pool did not fill). With the pool offline and no one signed
+    up, it is called off;
+  - `tz`: an IANA time zone for `at` / `daily`, e.g. `"America/Los_Angeles"`; summer time is followed, so the start
+    stays at 19:00 local all year;
   - `name`;
-  - `signupMinutes` (sign-up opens this long before the start, 1-10080, i.e. up to 7 days ahead; default 60);
+  - `signupMinutes` (sign-up opens this long before the start, 1-10080, i.e. up to 7 days ahead; default 60), or
+    `signupDays` (1-7; not both);
+  - `roster` (0-100, default 0): seats for the **house roster**, asked for each time a slot opens. They count inside
+    `maxEntrants`; with `roster` and no `maxEntrants`, a slot has 128 seats. Each slot's seat request (`delove: N`, see
+    "Delove seats on request") carries N **house roster names** (`roster.ts` `pick`: spread over the models, one per
+    model in turn, each model's names rotating day to day). The pool seats those names with their bound models first.
+    With fewer active names than N, the rest are plain "Delove N" seats. Seats the pool does not fill go to Zergs at the
+    start, and a failed request never stops the slot. **Roster seats have no cap** (owner, 2026-10-22: "Let's not have a
+    limit for now. If the mini can run 100 deloves that would be preferred, and we just knock out deloves to make room
+    for others to join").
+    - A roster request is outside the Delove at-once cap (`RISK_TOURNEY_DELOVE_AT_ONCE`) and the per-tournament caps,
+      so it never makes a host's Delove request wait, and hosts' caps don't count roster seats.
+    - The pool's own joins never count toward the per-joiner cap.
+    - **Roster seats yield to people.** While the tournament registers, a person or agent joining it when it is full
+      takes one roster seat's place, but only once the join is certain: every other check passes first, so a refused
+      join (a taken name, a cap) evicts nobody. A seat the pool joined leaves (its token stops working), and the
+      request asks for one fewer, so the pool does not refill it. After the start, roster seats play on.
+    - What the pool can run is its `--max-seats` (an ops setting: 100 for a full roster, see
+      [hosting.md](hosting.md)). Seats it cannot fill go to Zergs at the start;
   - `checkinMinutes` (the check-in window, the last this-many minutes before the start, 1-60 and at most
     `signupMinutes`; default 10);
   - `minEntrants` (people or agents needed at the start, 2-256, default 2: a nested tournament needs two players);
+  - `style`: `"classic"` (default), `"1v1"` or `"survival"` ([Tournament styles](#tournament-styles));
+  - `minTable` (classic and survival): the first round's smallest table, 3-6, or a list the slots take in turn
+    (`[3, 4, 5]`: one slot at 3, the next at 4, then 5, then 3 again; the slot's index on the UTC clock picks it);
+  - `zergs` (0-256): Zerg entrants added to each slot as it opens. `roster + zergs` must fit in `maxEntrants`;
   - any [nested setting](#nested-inception-tournaments): `finalMap`, `maxEntrants`, `roundMinutes`,
     `territoriesPerSeat`, `finishShare`, `botDelayMs`, `options`.
 
   The game settings go through the same strict parser as a create, and the nested settings through the same checks,
   at startup. An unknown key or a bad value turns the schedule **off** with an error in the log (the startup line
   `schedule:` says so). It never stops the server.
+- **The 15-minute rotation** (the owner's request, 2026-10-27: "at 7 we have the standard tourney of 100, then at 7:15
+  well have 1 on 1s, then at 7:30 will have the Zerg survival"). Three entries, each every 45 minutes, 15 minutes
+  apart; 45 divides a day, so the order holds day after day (on the UTC clock, lined up on midnight: classic at :00,
+  :45, :30, :15 of successive hours, the others 15 and 30 minutes after it):
+
+  ```json
+  [
+    { "every": 45, "at": "00:00", "name": "Classic groups", "style": "classic", "minTable": [3, 4, 5],
+      "signupMinutes": 6, "checkinMinutes": 6, "roster": 100, "maxEntrants": 100 },
+    { "every": 45, "at": "00:15", "name": "1v1s", "style": "1v1",
+      "signupMinutes": 6, "checkinMinutes": 6, "roster": 100, "maxEntrants": 100 },
+    { "every": 45, "at": "00:30", "name": "Zerg survival", "style": "survival", "minTable": 4, "zergs": 25,
+      "signupMinutes": 6, "checkinMinutes": 6, "roster": 75, "maxEntrants": 100 }
+  ]
+  ```
+
+  Each slot starts on time, whether or not the one before has finished: the events overlap, so the seat pool needs
+  room for all three at once (see "Roster seats" in [hosting.md](hosting.md)). Seats the pool cannot fill go to Zergs
+  at the start, as always.
 - **Sign-up.** At `start - signupMinutes` the server creates the nested tournament itself. Nobody holds its host
   token: it never leaves the server, and the admin key can still delete the tournament. It is listed like any
   other, with `scheduled.startsAt` in the bracket and `startsAt` in the list. People join on its page; agents use
   `next_tournament` and `join_tournament` (MCP) or `POST /tournaments/:id/join`.
+- **Registering on the site** (the owner's decision on the daily tournament: the key "on screen for now", no email
+  yet). The join form registers a **player key** for the name first, unless the browser holds one; this is a checkbox,
+  on by default. After joining, the page shows the **setup prompt** once (`GET /tournaments/:id/setup`,
+  `packages/server/src/setup-prompt.ts`), with **Copy** and **Download .txt**. It is plain text for the player to paste
+  into their AI. It walks the AI through connecting the MCP server, saving the player key and the seat code "at all
+  cost" (with the seat number, the entrant id, to recognise the seat), `use_player_key`, checking in with
+  `wait_for_match` at the check-in time (not `join_tournament`: the seat exists), playing, and scheduling the reconnect
+  (or `reconnect_prompt`). It is never shown again: the key exists only in that text, the browser and the player's AI.
 - **Pre-registration needs no code** (the owner's call). The entrant token `join_tournament` returns is the
   registration code: keep it, it is the seat. One joiner holds at most `RISK_PREREG_PER_JOINER` (default 4) open
   registrations across scheduled tournaments still registering; a fifth join answers 400. Site-wide, at most
   `RISK_PREREG_PER_DAY` (default 500) registrations go into scheduled tournaments in any 24 h, because new MCP
   sessions are free; past that, a join answers 429. The joiner is the IP for
   HTTP, and the MCP session for `/mcp`, because claude.ai connectors share a few addresses. The count is kept in
-  memory, so a restart forgets it. Host-made tournaments are not capped (their hosts hold codes).
+  memory, so a restart forgets it. Host-made tournaments are not capped (their hosts hold codes). Nor are the seat
+  pool's joins (`seatRequestId` with its key): the seat request and the Delove caps hold them, and every pool seat comes
+  from one IP, so the per-joiner cap would stop a roster at 4 seats.
 - **Check-in.** In the last `checkinMinutes` before the start, an entrant checks in by polling the bracket with its
   token: `wait_for_match` or `tournament_status` (MCP), `GET /tournaments/:id/wait` or `GET /tournaments/:id`, or the
   tournament page left open (its long-poll). Joining inside the window also checks in.

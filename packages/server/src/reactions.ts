@@ -157,3 +157,12 @@ export class ReactionPacer {
     this.queue = [];
   }
 }
+
+/**
+ * Big-move pop-ups are OFF unless RISK_REACTIONS=1 (owner, 2026-10-22: they popped up too often and blocked the UI;
+ * they come back after a rework). Read on each use, so a test can switch it. Off: rooms emit no 'big_move', sockets
+ * forward none, and the first state does not carry `reactions: true`, so the client hides the pop-up and its toggle.
+ */
+export function reactionsOn(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.RISK_REACTIONS === '1';
+}

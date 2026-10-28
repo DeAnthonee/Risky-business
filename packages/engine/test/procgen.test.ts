@@ -41,21 +41,30 @@ function reachable(map: MapDef, ids: string[]): boolean {
 
 describe('generated board ids', () => {
   it('formats and parses canonical ids', () => {
-    expect(genMapId({ seed: 42, seats: 4 })).toBe('gen1-s42-p4-t20');
+    expect(genMapId({ seed: 42, seats: 4 })).toBe('gen1-s42-p4-t32');
     expect(parseGenId('gen1-s42-p4-t20')).toEqual({ v: 1, seed: 42, seats: 4, territories: 20, regions: 4, passes: 1 });
     expect(formatGenId({ v: 1, seed: 7, seats: 6, territories: 30, regions: 5, passes: 2 })).toBe('gen1-s7-p6-t30-r5-c2');
     expect(parseGenId('gen1-s7-p6-t30-r5-c2')).toEqual({ v: 1, seed: 7, seats: 6, territories: 30, regions: 5, passes: 2 });
     expect(genMapId({ seed: 4294967295, seats: 10, territoriesPerSeat: 4 })).toBe('gen1-s4294967295-p10-t40');
   });
 
-  it('sizes boards at 5 territories per seat by default, 4 to 6 allowed', () => {
-    expect([3, 4, 6, 10].map((seats) => genSpecFor({ seed: 1, seats }).territories)).toEqual([15, 20, 30, 50]);
+  it('sizes boards at 8 territories per seat by default, 4 to 10 allowed', () => {
+    expect([3, 4, 6, 10].map((seats) => genSpecFor({ seed: 1, seats }).territories)).toEqual([24, 32, 48, 80]);
     expect(genSpecFor({ seed: 1, seats: 6, territoriesPerSeat: 4 }).territories).toBe(24);
-    expect(genSpecFor({ seed: 1, seats: 6, territoriesPerSeat: 6 }).territories).toBe(36);
-    expect(() => genSpecFor({ seed: 1, seats: 6, territoriesPerSeat: 7 })).toThrow(RuleError);
+    expect(genSpecFor({ seed: 1, seats: 6, territoriesPerSeat: 5 }).territories).toBe(30);
+    expect(genSpecFor({ seed: 1, seats: 10, territoriesPerSeat: 10 }).territories).toBe(100);
+    expect(() => genSpecFor({ seed: 1, seats: 6, territoriesPerSeat: 11 })).toThrow(RuleError);
     expect(() => genSpecFor({ seed: 1, seats: 6, territoriesPerSeat: 3 })).toThrow(RuleError);
     expect(defaultRegions(15)).toBe(3);
     expect(defaultRegions(50)).toBe(10);
+  });
+
+  it('generates a playable board at every size per seat, 4 to 10', () => {
+    for (const seats of [3, 6, 10])
+      for (let tps = 4; tps <= 10; tps++) {
+        const map = getMap(genMapId({ seed: 7 + seats * 31 + tps, seats, territoriesPerSeat: tps }));
+        expect(map.territories.length).toBe(Math.max(8, 3 * seats, seats * tps));
+      }
   });
 
   it('rejects malformed, out-of-range and non-canonical ids', () => {

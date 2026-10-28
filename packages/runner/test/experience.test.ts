@@ -75,4 +75,54 @@ describe('persistent personality and rivalries',()=>{
       expect(desc).toContain('coalition plays');
     } finally {await rm(dir,{recursive:true,force:true});}
   });
+  it('updates rapport and logs relationship facts from diplomatic pings',async()=>{
+    const dir=await mkdtemp(path.join(tmpdir(),'ping-rapport-'));
+    try {
+      await updateExperience({
+        dir, id: 'league/shen', name: 'Shen', gameId: 'GP1', note: 'Ahri and I fistbumped and allied.',
+        ownWon: true, myPlacement: 1,
+        opponents: [{ key: 'league/ahri', name: 'Ahri' }, { key: 'league/zed', name: 'Zed' }],
+        opponentResults: { 'league/ahri': { won: false, placement: 2 }, 'league/zed': { won: false, placement: 3 } },
+        deals: [],
+        chat: [
+          { name: 'Ahri', message: '👊 [camaraderie]', toName: 'Shen' },
+          { name: 'Ahri', message: '🛡️ [alliance]', toName: 'Shen' },
+          { name: 'Zed', message: '💢 [anger]', toName: 'Shen' },
+          { name: 'Zed', message: '😈 [taunt]' },
+        ],
+        llm: null,
+        log: () => {},
+      });
+      const state = await readExperience(dir, 'league/shen');
+      // Ahri sent camaraderie (+10) and alliance (+5) = +15 rapport
+      expect(state.relationships['league/ahri'].rapport).toBe(15);
+      expect(state.relationships['league/ahri'].facts.some(f => f.text.includes('Diplomatic pings from Ahri') && f.text.includes('camaraderie') && f.text.includes('alliance offer'))).toBe(true);
+
+      // Zed sent anger (-15) and taunt (-10) = -25 rapport
+      expect(state.relationships['league/zed'].rapport).toBe(-25);
+      expect(state.relationships['league/zed'].facts.some(f => f.text.includes('Diplomatic pings from Zed') && f.text.includes('anger') && f.text.includes('taunt'))).toBe(true);
+    } finally {await rm(dir,{recursive:true,force:true});}
+  });
+  it('penalizes backstabs when an opponent pinged alliance but eliminated the player',async()=>{
+    const dir=await mkdtemp(path.join(tmpdir(),'ping-backstab-'));
+    try {
+      await updateExperience({
+        dir, id: 'league/shen', name: 'Shen', gameId: 'GP2', note: 'Ahri betrayed our pinged alliance.',
+        ownWon: false, myPlacement: 2,
+        eliminatedBy: 'Ahri',
+        opponents: [{ key: 'league/ahri', name: 'Ahri' }],
+        opponentResults: { 'league/ahri': { won: true, placement: 1 } },
+        deals: [],
+        chat: [
+          { name: 'Ahri', message: '🛡️ [alliance]', toName: 'Shen' },
+        ],
+        llm: null,
+        log: () => {},
+      });
+      const state = await readExperience(dir, 'league/shen');
+      // alliance (+5) - backstab penalty (-25) = -20
+      expect(state.relationships['league/ahri'].rapport).toBe(-20);
+      expect(state.relationships['league/ahri'].facts.some(f => f.text.includes('pinged alliance but eliminated me (backstab)'))).toBe(true);
+    } finally {await rm(dir,{recursive:true,force:true});}
+  });
 });

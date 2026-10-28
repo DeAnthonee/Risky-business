@@ -18,17 +18,21 @@ import {
   rankByStanding,
   shuffle as seededShuffle,
   startGame,
+  DEFAULT_TERRITORIES_PER_SEAT,
+  TERRITORIES_PER_SEAT_RANGE,
   startOnSpots,
   stallOf,
   type GameOptions,
   type NestNode,
   type NestPlan,
+  type NestPlanOptions,
   type Rng,
 } from '@risk/engine';
 import type { GameRoom, Store } from './store.js';
 import type { CommitInfo } from './archive.js';
 import { freeZergName, type BotKind } from './bot.js';
 import { RateLimitedError, RateLimiter } from './rate-limit.js';
+import { ROSTER_AGENT } from './roster.js';
 
 /**
  * Knockout tournaments. The host creates one and gets its host token; players and agents join while it is
@@ -65,6 +69,29 @@ export const REAL_CLOCK: TournamentClock = {
 
 export type TournamentFormat = 'knockout' | 'nested';
 
+/**
+ * A nested tournament's style (docs/tournaments.md "Tournament styles"): `classic` groups of 3-6 (the default),
+ * `1v1` (every table two seats, the final too), or `survival` (Zergs among the entrants, and at every table the last
+ * player standing who is not a Zerg moves on; a Zerg never does). Each style has its own tournament leaderboard.
+ */
+export type TournamentStyle = 'classic' | '1v1' | 'survival';
+export const TOURNAMENT_STYLES: readonly TournamentStyle[] = ['classic', '1v1', 'survival'];
+/** What the site and agents call each style. */
+export const STYLE_LABELS: Record<TournamentStyle, string> = { classic: 'Classic groups', '1v1': '1v1s', survival: 'Zerg survival' };
+
+/** A style from an untrusted value: undefined when absent, else one of TOURNAMENT_STYLES. */
+export function parseStyle(raw: unknown): TournamentStyle | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (typeof raw === 'string' && (TOURNAMENT_STYLES as readonly string[]).includes(raw)) return raw as TournamentStyle;
+  throw new RuleError(`style must be one of ${TOURNAMENT_STYLES.map((x) => `"${x}"`).join(', ')}`);
+}
+
+/** The planner's table sizes for a style; `minTable` raises the first round's smallest table (classic, survival). */
+export function stylePlanOptions(style: TournamentStyle | undefined, minTable: number | undefined, maxFinal: number): NestPlanOptions {
+  if (style === '1v1') return { minTable: 2, maxTable: 2, minFinal: 2, maxFinal: 2, prefer: 2 };
+  return { maxFinal, ...(minTable !== undefined ? { firstMinTable: minTable } : {}) };
+}
+
 export type TournamentStatus = 'registering' | 'running' | 'finished';
 
 export interface Entrant {
@@ -82,11 +109,21 @@ export interface Entrant {
   agent?: string;
   /** The registered player (player key) this entrant plays as: its seats and the tournament board rank as `key:<id>`. */
   playerKey?: string;
+  /**
+   * A house roster name (roster.ts), joined by the seat pool: its seats and the tournament board rank as `roster:<id>`,
+   * and its agent label is "AI agent" (never its model). Absent = not a roster seat.
+   */
+  rosterId?: string;
   joinedAt: number;
   /** Scheduled tournaments: when this entrant checked in (polled the bracket inside the check-in window). */
   checkedInAt?: number;
   /** A no-show swapped for a Zerg at a scheduled start: the person's name and old token (so their client hears why). */
   missed?: { name: string; token: string };
+  /**
+   * Dropped from the tournament (seat-health.ts: disconnected): a stand-in ("<name>-bot") plays its seat to the end of
+   * that table only. It may win the table, but never moves on: the best other seat by standing does.
+   */
+  dropped?: { reason: string; at: number; standIn: string };
 }
 
 export interface TournamentMatch {
@@ -163,6 +200,10 @@ export interface NestedSettings {
   blizzardShare?: number;
   /** A seed the host fixed at create (else one is drawn at start). */
   fixedSeed?: number;
+  /** The style (absent: classic, as every tournament saved before styles). */
+  style?: TournamentStyle;
+  /** Smallest first-round table (classic and survival); absent: the planner's 3. */
+  minTable?: number;
   /** Set at start: the seed of every board and of the seating, the plan, each table's board, and each table's portals
    * (the territories its children's winners start on, in portal order). */
   seed?: number;
@@ -202,6 +243,8 @@ export interface TournamentSnapshot {
   scheduled?: TournamentScheduleInfo;
   /** The seat counts the host created it with (absent when created without counts). */
   requested?: TournamentCounts;
+  /** Set when it was aborted (stopped by its host or the admin, or deleted while running): finished, no champion. */
+  aborted?: { at: number };
 }
 
 /** A scheduled tournament's start (ms) and, if it never ran, why ("not enough entrants"). */
@@ -241,7 +284,7 @@ export interface CreateTournamentSpec {
   format?: TournamentFormat;
   /** Nested: the final's board (an existing map seating 6+, with a region per seat); default a generated board. */
   finalMap?: string;
-  /** Nested: generated boards' size, territories per seat (4-6, default 5). */
+  /** Nested: generated boards' size, territories per seat (4-10, default 8). */
   territoriesPerSeat?: number;
   /** Nested: a round's deadline in minutes (1-240, default 30). */
   roundMinutes?: number;
@@ -251,6 +294,10 @@ export interface CreateTournamentSpec {
   botDelayMs?: number;
   /** Nested: fix the seed of the boards, seating and tie-break dice (replays and simulations); default random. */
   seed?: number;
+  /** Nested: the style, classic (default), 1v1 or survival. */
+  style?: TournamentStyle;
+  /** Nested, classic or survival: the first round's smallest table (3-6, default 3). */
+  minTable?: number;
   /** Set by the server's schedule only (never parsed from a request): the planned start. */
   scheduled?: { startsAt: number; checkinMinutes?: number };
   /**
@@ -280,7 +327,7 @@ export interface TournamentView {
   groupSize: number;
   maxEntrants: number;
   fillBots: boolean;
-  entrants: { id: string; name: string; isBot: boolean; status: 'registered' | 'playing' | 'waiting' | 'out' | 'champion' }[];
+  entrants: { id: string; name: string; isBot: boolean; status: 'registered' | 'playing' | 'waiting' | 'out' | 'champion' | 'dropped'; dropped?: { reason: string; standIn: string } }[];
   rounds: {
     round: number;
     /** Nested: the round's deadline, the start of its last lap and its end (ms). */
@@ -310,6 +357,9 @@ export interface TournamentView {
     botDelayMs: number | null;
     /** Blizzards as a share of each table's territories, or null when every table uses options.blizzards. */
     blizzardShare: number | null;
+    style: TournamentStyle;
+    /** The first round's smallest table, or null for the planner's 3. */
+    minTable: number | null;
     plan: number[][] | null;
     zergs: number;
     /** The board tree from the start (null before): each table's board, seats, portals, parent board and portal. */
@@ -317,6 +367,8 @@ export interface TournamentView {
   };
   /** Made by the server's schedule: its start, check-in window and, once open, how many checked in; if it never ran, why. */
   scheduled?: TournamentScheduleInfo & { checkedIn?: number };
+  /** Aborted: when. The bracket stays as it was; the tables then being played have records with the standing so far. */
+  aborted?: { at: number };
   createdAt: number;
   updatedAt: number;
   version: number;
@@ -432,6 +484,8 @@ export class TournamentManager extends EventEmitter {
   onFinished: ((t: TournamentSnapshot) => void) | null = null;
   /** Called first thing when a tournament starts, still registering (seat-requests.ts: unfilled Delove seats become Zergs). */
   beforeStart: ((t: TournamentSnapshot) => void) | null = null;
+  /** A seat was dropped as disconnected (its entrant is now dropped): the app asks the Delove seat pool to take it over. */
+  onSeatDropped: ((d: { tournamentId: string; gameId: string; playerId: string; name: string; fog: boolean }) => void) | null = null;
   /** The Delove seat pool's free capacity, for the preview (seat-requests.ts); null = no pool configured. */
   delovePool: (() => { online: boolean; free: number; freeSearch: number }) | null = null;
 
@@ -561,11 +615,11 @@ export class TournamentManager extends EventEmitter {
     if (!counts) throw new RuleError('A tournament needs at least 2 seats: count Zergs, Delove seats and open spots');
     const total = counts.zergs + counts.delove + counts.open;
     this.createNested({ ...spec, format: 'nested', maxEntrants: spec.maxEntrants ?? Math.max(2, total) }, true);
-    const tps = spec.territoriesPerSeat ?? 5;
+    const tps = spec.territoriesPerSeat ?? DEFAULT_TERRITORIES_PER_SEAT;
     const roundMinutes = spec.roundMinutes ?? NESTED_ROUND_MINUTES;
     const botDelayMs = spec.botDelayMs ?? 300;
     const finalMax = spec.finalMap ? this.maxFinal(spec.finalMap) : NESTED_FINAL.max;
-    const plan = planNest(total, { maxFinal: finalMax });
+    const plan = planNest(total, stylePlanOptions(spec.style, spec.minTable, finalMax));
     // Round 1 as it would be seated: open spots are guests, Delove seats house AI (seated after the guests), then Zergs.
     const entrants = [
       ...Array.from({ length: counts.open }, (_, i) => ({ id: `p${i}`, isBot: false })),
@@ -624,8 +678,14 @@ export class TournamentManager extends EventEmitter {
     const options: Partial<GameOptions> = { ...NESTED_DEFAULT_OPTIONS, ...(spec.options ?? {}) };
     delete options.maxPlayers; // set per table
     delete options.map; // every table plays its own board
-    const tps = spec.territoriesPerSeat ?? 5;
-    if (!Number.isInteger(tps) || tps < 4 || tps > 6) throw new RuleError('territoriesPerSeat must be a whole number from 4 to 6');
+    // 1v1 plays without capitals (owner, 2026-10-28), whatever the options say.
+    if (spec.style === '1v1') {
+      options.capitals = false;
+      delete options.chooseCapitals;
+    }
+    const tps = spec.territoriesPerSeat ?? DEFAULT_TERRITORIES_PER_SEAT;
+    if (!Number.isInteger(tps) || tps < TERRITORIES_PER_SEAT_RANGE.min || tps > TERRITORIES_PER_SEAT_RANGE.max)
+      throw new RuleError(`territoriesPerSeat must be a whole number from ${TERRITORIES_PER_SEAT_RANGE.min} to ${TERRITORIES_PER_SEAT_RANGE.max}`);
     const roundMinutes = spec.roundMinutes ?? NESTED_ROUND_MINUTES;
     if (!Number.isInteger(roundMinutes) || roundMinutes < 1 || roundMinutes > 240) throw new RuleError('roundMinutes must be a whole number from 1 to 240');
     const finishShare = spec.finishShare ?? 0.51;
@@ -640,6 +700,13 @@ export class TournamentManager extends EventEmitter {
     if (spec.seed !== undefined && (!Number.isInteger(spec.seed) || spec.seed < 0 || spec.seed > 0xffffffff)) throw new RuleError('seed must be a whole number from 0 to 4294967295');
     const maxEntrants = spec.maxEntrants ?? DEFAULT_MAX_NESTED_ENTRANTS;
     if (!Number.isInteger(maxEntrants) || maxEntrants < 2 || maxEntrants > MAX_ENTRANTS) throw new RuleError(`maxEntrants must be a whole number from 2 to ${MAX_ENTRANTS}`);
+    const style = spec.style ?? 'classic';
+    if (!TOURNAMENT_STYLES.includes(style)) throw new RuleError(`style must be one of ${TOURNAMENT_STYLES.join(', ')}`);
+    if (spec.minTable !== undefined) {
+      if (style === '1v1') throw new RuleError('minTable is for classic and survival tournaments (1v1 tables always seat 2)');
+      if (!Number.isInteger(spec.minTable) || spec.minTable < NESTED_TABLE.min || spec.minTable > NESTED_TABLE.max) throw new RuleError(`minTable must be a whole number from ${NESTED_TABLE.min} to ${NESTED_TABLE.max}`);
+    }
+    if (style === '1v1' && spec.finalMap !== undefined) throw new RuleError('A 1v1 final is a two-seat generated board: leave finalMap out');
     let finalMap: string | null = null;
     if (spec.finalMap !== undefined) {
       if (!isMapId(spec.finalMap)) throw new RuleError(`Unknown map "${spec.finalMap}"`);
@@ -671,7 +738,17 @@ export class TournamentManager extends EventEmitter {
       updatedAt: now,
       version: 1,
       format: 'nested',
-      nested: { finalMap, territoriesPerSeat: tps, roundMinutes, finishShare, botDelayMs, ...(blizzardShare !== undefined ? { blizzardShare } : {}), ...(spec.seed !== undefined ? { fixedSeed: spec.seed } : {}) },
+      nested: {
+        finalMap,
+        territoriesPerSeat: tps,
+        roundMinutes,
+        finishShare,
+        botDelayMs,
+        ...(blizzardShare !== undefined ? { blizzardShare } : {}),
+        ...(spec.seed !== undefined ? { fixedSeed: spec.seed } : {}),
+        ...(style !== 'classic' ? { style } : {}),
+        ...(spec.minTable !== undefined ? { minTable: spec.minTable } : {}),
+      },
       ...(spec.scheduled ? { scheduled: { startsAt: spec.scheduled.startsAt, ...(spec.scheduled.checkinMinutes !== undefined ? { checkinMinutes: spec.scheduled.checkinMinutes } : {}) } } : {}),
     };
     this.tournaments.set(id, t);
@@ -726,10 +803,60 @@ export class TournamentManager extends EventEmitter {
     return t;
   }
 
-  /** Delete a tournament and close the tables still being played. */
+  /**
+   * Abort a tournament (owner, 2026-10-22): stop it and keep its bracket, finished with no champion (`aborted`). Every
+   * table still being played is ranked on standing so far (the engine's rankByStanding, its dice from the game's own
+   * seed) and its game record filed with reason "aborted" and that standing, before the room closes. A registering
+   * tournament is just stopped. Nothing goes on the tournament board. Aborting a finished tournament changes nothing.
+   */
+  abort(id: string): TournamentSnapshot {
+    const t = this.require(id);
+    if (t.status === 'finished') return t;
+    const now = this.clock.now();
+    // Finished first, so tables closing below never seat a next round.
+    t.status = 'finished';
+    t.champion = null;
+    t.aborted = { at: now };
+    this.clearRoundTimer(t.id);
+    const round = this.currentRound(t);
+    for (const m of round?.matches ?? []) {
+      if (m.status !== 'playing') continue;
+      m.status = 'abandoned';
+      const room = m.gameId ? this.store.get(m.gameId) : undefined;
+      if (!room || room.closed) continue;
+      const rng = createRng(room.state.rngState);
+      const standing = rankByStanding(room.state, () => nextFloat(rng), room.eliminationOrder);
+      const byPlayer = new Map(Object.entries(m.seats).map(([eid, s]) => [s.playerId, eid]));
+      const order = standing.order.map((pid) => byPlayer.get(pid)).filter((eid): eid is string => !!eid);
+      m.standing = { order, rolls: Object.fromEntries(Object.entries(standing.rolls).filter(([pid]) => byPlayer.has(pid)).map(([pid, r]) => [byPlayer.get(pid)!, r])) };
+      this.scoreTable(m, room);
+      m.order = order;
+      this.store.delete(room.id, 'admin', { standing: standing.order, rolls: standing.rolls });
+    }
+    if (round && round.endedAt === undefined) round.endedAt = now;
+    this.changed(t);
+    return t;
+  }
+
+  /**
+   * Take an entrant out while registering (a house-roster seat making room for a person: SeatRequests.makeRoom). Its
+   * token stops working; nothing else changes.
+   */
+  removeEntrant(id: string, entrantId: string): void {
+    const t = this.require(id);
+    if (t.status !== 'registering') throw new RuleError('Registration is closed: this tournament has started');
+    const before = t.entrants.length;
+    t.entrants = t.entrants.filter((e) => e.id !== entrantId);
+    if (t.entrants.length === before) return;
+    this.joiners.delete(entrantId);
+    this.changed(t);
+  }
+
+  /** Delete a tournament: a running one is aborted first (its live tables filed as "aborted"), then it is removed. */
   delete(id: string): boolean {
     const t = this.tournaments.get(id.toUpperCase());
     if (!t) return false;
+    if (t.status !== 'finished') this.abort(t.id);
     this.tournaments.delete(t.id);
     this.clearRoundTimer(t.id);
     for (const m of this.currentRound(t)?.matches ?? []) if (m.status === 'playing' && m.gameId) this.store.delete(m.gameId, 'admin');
@@ -776,21 +903,27 @@ export class TournamentManager extends EventEmitter {
    * name, once per tournament. `joiner` (an IP, or an MCP session) is counted for scheduled tournaments: pre-registration
    * needs no code, so one joiner holds at most `preregPerJoiner` open registrations across them (kept in memory).
    */
-  join(id: string, rawName: unknown, agent?: string, player?: { id: string; name: string }, joiner?: string | null): { entrantId: string; token: string } {
+  join(id: string, rawName: unknown, agent?: string, player?: { id: string; name: string }, joiner?: string | null, rosterId?: string): { entrantId: string; token: string } {
     const t = this.require(id);
     if (t.status !== 'registering') throw new RuleError('Registration is closed: this tournament has started');
-    if (t.entrants.length >= t.maxEntrants) throw new RuleError('This tournament is full');
+    // Full: a person or agent (an outside joiner, never the pool) may still take a house-roster seat's place. The seat
+    // is freed only after every check below has passed, just before the push, so a refused join evicts nobody.
+    const full = t.entrants.length >= t.maxEntrants;
+    const freeSeat = full && joiner ? (this.roomFor?.(t) ?? null) : null;
+    if (full && !freeSeat) throw new RuleError('This tournament is full');
     const cap = this.limits.preregPerJoiner;
     if (t.scheduled && joiner && cap > 0 && this.openRegistrations(joiner) >= cap)
       throw new RuleError(`You already hold ${cap} open registrations for scheduled tournaments; join more once one has started`);
     const name = (player ? player.name : String(rawName ?? '')).replace(/\s+/g, ' ').trim().slice(0, MAX_NAME);
     if (!name) throw new RuleError('A name is required');
     if (player && t.entrants.some((e) => e.playerKey === player.id)) throw new RuleError('This player has already joined this tournament');
+    if (rosterId && t.entrants.some((e) => e.rosterId === rosterId)) throw new RuleError('This roster name has already joined this tournament');
     if (t.entrants.some((e) => e.name.toLowerCase() === name.toLowerCase())) throw new RuleError(`The name "${name}" is taken in this tournament`);
     // The site-wide daily cap on pre-registrations, counted last so a refused join costs nothing (429).
     if (t.scheduled && joiner && this.preregDaily && !this.preregDaily.take('site'))
       throw new RateLimitedError(`Too many tournament registrations on this site today (at most ${this.limits.preregPerDay} in 24 h); try again later`);
-    const entrant: Entrant = { id: `e_${newId(6)}`, name, isBot: false, token: newId(24), joinedAt: Date.now(), ...(agent ? { agent } : {}), ...(player ? { playerKey: player.id } : {}) };
+    const entrant: Entrant = { id: `e_${newId(6)}`, name, isBot: false, token: newId(24), joinedAt: Date.now(), ...(rosterId ? { agent: ROSTER_AGENT, rosterId } : agent ? { agent } : {}), ...(player ? { playerKey: player.id } : {}) };
+    freeSeat?.();
     // Joining inside the check-in window is checking in.
     if (this.checkinOpen(t)) entrant.checkedInAt = this.clock.now();
     t.entrants.push(entrant);
@@ -846,8 +979,9 @@ export class TournamentManager extends EventEmitter {
       e.missed = missed;
       delete e.token;
       delete e.agent;
-      // The seat is a Zerg now: no player key's record gets its results.
+      // The seat is a Zerg now: no player key's (or roster name's) record gets its results.
       delete e.playerKey;
+      delete e.rosterId;
       noShows++;
     }
     if (t.scheduled) t.scheduled.noShows = noShows;
@@ -871,6 +1005,11 @@ export class TournamentManager extends EventEmitter {
 
   /** The entrants the Delove seat pool joined for a tournament (app.ts wires SeatRequests.boundEntrants); null: none. */
   houseAiEntrants: ((tournamentId: string) => ReadonlySet<string>) | null = null;
+  /**
+   * A full scheduled tournament: the way to free one house-roster seat for an outside joiner, or null when there is
+   * none to free (app.ts wires SeatRequests.roomFor). join() calls the returned function only once the join is certain.
+   */
+  roomFor: ((t: TournamentSnapshot) => (() => void) | null) | null = null;
 
   /** The tournament's house AI entrants (isHouseAi): seat-pool joined, or labelled delove@ / jacob-sensei@. */
   private houseAiIds(t: TournamentSnapshot): Set<string> {
@@ -887,6 +1026,8 @@ export class TournamentManager extends EventEmitter {
     const t = this.require(id);
     const kindOf = (e: Entrant): HostEntrantKind => {
       if (e.isBot) return e.kind === 'zerg' ? 'zerg' : 'bot';
+      // A house roster name is an "AI agent" here too: this list is public in open mode, and the roster stays blind.
+      if (e.rosterId) return 'agent';
       if (deloveIds.has(e.id) || /^delove(@|$)/i.test(e.agent ?? '')) return 'delove';
       return e.agent ? 'agent' : 'human';
     };
@@ -937,7 +1078,7 @@ export class TournamentManager extends EventEmitter {
       groupSize: t.groupSize,
       maxEntrants: t.maxEntrants,
       fillBots: t.fillBots,
-      entrants: t.entrants.map((e) => ({ id: e.id, name: e.name, isBot: e.isBot, status: status(e) })),
+      entrants: t.entrants.map((e) => ({ id: e.id, name: e.name, isBot: e.isBot, status: status(e), ...(e.dropped ? { dropped: { reason: e.dropped.reason, standIn: e.dropped.standIn } } : {}) })),
       rounds: t.rounds.map((r) => ({
         round: r.round,
         ...(r.deadline !== undefined ? { deadline: r.deadline } : {}),
@@ -964,6 +1105,8 @@ export class TournamentManager extends EventEmitter {
               finishShare: t.nested.finishShare,
               botDelayMs: t.nested.botDelayMs ?? null,
               blizzardShare: t.nested.blizzardShare ?? null,
+              style: t.nested.style ?? 'classic',
+              minTable: t.nested.minTable ?? null,
               plan: t.nested.plan ? t.nested.plan.rounds.map((r) => r.map((x) => x.seats)) : null,
               zergs: t.nested.plan?.zergs ?? 0,
               nodes: t.nested.nodes ?? null,
@@ -981,6 +1124,7 @@ export class TournamentManager extends EventEmitter {
           }
         : {}),
       ...(t.requested ? { requested: { ...t.requested } } : {}),
+      ...(t.aborted ? { aborted: { ...t.aborted } } : {}),
       createdAt: t.createdAt,
       updatedAt: t.updatedAt,
       version: t.version,
@@ -1075,9 +1219,28 @@ export class TournamentManager extends EventEmitter {
     return t.rounds.at(-1);
   }
 
+  /** The first entrant in `order` that was not dropped (a stand-in never moves on), or null. */
+  /**
+   * Zerg survival: the table's order puts every non-Zerg first (still in, by standing, then the last one out first) and
+   * the best of them that was not dropped moves on, whoever won the game. A table with no such player keeps the game's
+   * winner, so the bracket never has a hole.
+   */
+  private survivalWinner(t: TournamentSnapshot, m: TournamentMatch) {
+    if (t.nested?.style !== 'survival' || !m.order || (m.status !== 'finished' && m.status !== 'decided')) return;
+    const zerg = (eid: string) => this.entrant(t, eid)?.kind === 'zerg';
+    m.order = [...m.order.filter((eid) => !zerg(eid)), ...m.order.filter(zerg)];
+    const survivor = this.firstNotDropped(t, m.order.filter((eid) => !zerg(eid)));
+    if (survivor) m.winner = survivor;
+  }
+
+  private firstNotDropped(t: TournamentSnapshot, order: readonly string[]): string | null {
+    return order.find((eid) => !this.entrant(t, eid)?.dropped) ?? null;
+  }
+
   private entrantStatus(t: TournamentSnapshot, id: string): TournamentView['entrants'][number]['status'] {
     if (t.status === 'registering') return 'registered';
     if (t.champion === id) return 'champion';
+    if (this.entrant(t, id)?.dropped) return 'dropped';
     const m = this.currentRound(t)?.matches.find((x) => x.entrants.includes(id));
     if (!m) return 'out';
     if (m.status === 'playing') return 'playing';
@@ -1117,7 +1280,7 @@ export class TournamentManager extends EventEmitter {
       const players = entrants.map((eid) => this.entrant(t, eid)!);
       const tables = tableSizes(order.length, t.groupSize).length;
       const label = tables === 1 ? (round === 1 ? 'Table 1' : 'Final') : `Table ${i + 1}`;
-      const { room, seats } = this.store.createTable(`${t.name} · R${round} ${label}`.slice(0, 40), { ...t.options, maxPlayers: entrants.length }, players.map((p) => ({ name: p.name, isBot: p.isBot, ...(p.kind ? { kind: p.kind } : {}), agent: p.agent, ...(p.playerKey ? { playerKey: p.playerKey } : {}) })), t.id);
+      const { room, seats } = this.store.createTable(`${t.name} · R${round} ${label}`.slice(0, 40), { ...t.options, maxPlayers: entrants.length }, players.map((p) => ({ name: p.name, isBot: p.isBot, ...(p.kind ? { kind: p.kind } : {}), agent: p.agent, ...(p.playerKey ? { playerKey: p.playerKey } : {}), ...(p.rosterId ? { rosterId: p.rosterId } : {}) })), t.id);
       const match: TournamentMatch = { gameId: room.id, entrants, seats: Object.fromEntries(entrants.map((eid, k) => [eid, seats[k]])), winner: null, status: 'playing' };
       matches.push(match);
     }
@@ -1129,6 +1292,16 @@ export class TournamentManager extends EventEmitter {
 
   private watch(t: TournamentSnapshot, m: TournamentMatch, room: GameRoom) {
     let roundsSeen = room.state.round;
+    // A seat dropped as disconnected (GameRoom.dropSeat): its entrant is out of the tournament; the stand-in plays on.
+    const onDrop = ({ playerId, reason, standIn }: { playerId: string; reason: string; standIn: string }) => {
+      const e = this.entrant(t, Object.entries(m.seats).find(([, s]) => s.playerId === playerId)?.[0] ?? '');
+      if (!e || e.dropped) return;
+      e.dropped = { reason, at: this.clock.now(), standIn };
+      if (this.tournaments.get(t.id) !== t) return;
+      this.changed(t);
+      this.onSeatDropped?.({ tournamentId: t.id, gameId: room.id, playerId, name: e.name, fog: !!room.state.options.fogOfWar });
+    };
+    room.on('seat_dropped', onDrop);
     const settle = () => {
       if (m.status !== 'playing') return;
       if (t.format === 'nested' && room.state.phase !== 'finished' && !room.closed) {
@@ -1142,6 +1315,17 @@ export class TournamentManager extends EventEmitter {
         const winner = Object.entries(m.seats).find(([, s]) => s.playerId === room.state.winner)?.[0] ?? null;
         m.winner = winner;
         m.status = winner ? 'finished' : 'abandoned';
+        // A stand-in won (a dropped entrant's seat): it never moves on. The best other seat by standing does, as a
+        // table decided on standing (+1); with none left, nobody moves on from this table.
+        if (winner && this.entrant(t, winner)?.dropped) {
+          const rng = createRng(nestSeed(t.nested?.seed ?? 0, `drop:${t.rounds.length}:${m.table ?? 0}`));
+          const standing = rankByStanding(room.state, () => nextFloat(rng), room.eliminationOrder);
+          const byPlayer = new Map(Object.entries(m.seats).map(([eid, s]) => [s.playerId, eid]));
+          const order = standing.order.map((pid) => byPlayer.get(pid)).filter((eid): eid is string => !!eid);
+          m.standing = { order, rolls: Object.fromEntries(Object.entries(standing.rolls).filter(([pid]) => byPlayer.has(pid)).map(([pid, r]) => [byPlayer.get(pid)!, r])) };
+          m.winner = this.firstNotDropped(t, order);
+          m.status = m.winner ? 'decided' : 'abandoned';
+        }
         // A stalemate (the engine's stallEnd) is a decision on standing, not a win: 'decided' (+1 table point, owner's
         // rule), with its standing on the bracket; the winner still moves on.
         const stalemate = stallOf(room.state)?.stalemate;
@@ -1150,6 +1334,8 @@ export class TournamentManager extends EventEmitter {
           const order = stalemate.standing.map((pid) => byPlayer.get(pid)).filter((eid): eid is string => !!eid);
           m.status = 'decided';
           m.standing = { order, rolls: Object.fromEntries(Object.entries(stalemate.rolls).filter(([pid]) => byPlayer.has(pid)).map(([pid, r]) => [byPlayer.get(pid)!, r])) };
+          m.winner = this.firstNotDropped(t, order);
+          if (!m.winner) m.status = 'abandoned';
         }
       } else if (room.closed) {
         m.status = 'abandoned';
@@ -1157,8 +1343,10 @@ export class TournamentManager extends EventEmitter {
       this.scoreTable(m, room);
       // A stalemate's table order is its standing, as for a table decided at a round's end.
       if (m.status === 'decided' && m.standing) m.order = m.standing.order;
+      this.survivalWinner(t, m);
       room.off('change', settle);
       room.off('closed', settle);
+      room.off('seat_dropped', onDrop);
       if (this.tournaments.get(t.id) !== t) return; // tournament deleted
       this.advance(t);
       this.changed(t);
@@ -1240,7 +1428,7 @@ export class TournamentManager extends EventEmitter {
   /** Plan the rounds, add the bots the plan needs, draw the boards and seat round 1 (every table at once). */
   private startNested(t: TournamentSnapshot): TournamentSnapshot {
     const n = t.nested!;
-    const plan = planNest(t.entrants.length, { maxFinal: n.finalMap ? this.maxFinal(n.finalMap) : NESTED_FINAL.max });
+    const plan = planNest(t.entrants.length, stylePlanOptions(n.style, n.minTable, n.finalMap ? this.maxFinal(n.finalMap) : NESTED_FINAL.max));
     // The bots the plan needs are Zerg entrants (docs/zergs.md), with reptile names unique in the tournament.
     for (let i = 1; i <= plan.zergs; i++) {
       const entrant: Entrant = { id: `e_${newId(6)}`, name: freeZergName(t.entrants.map((e) => e.name)), isBot: true, kind: 'zerg', joinedAt: Date.now() };
@@ -1281,10 +1469,11 @@ export class TournamentManager extends EventEmitter {
       const { room, seats } = this.store.createTable(
         `${t.name} · R${r + 1} ${label}`.slice(0, 40),
         { ...t.options, ...(n.blizzardShare !== undefined ? { blizzards: blizzardsFor(map, n.blizzardShare) } : {}), map: map as GameOptions['map'], maxPlayers: entrants.length },
-        players.map((p) => ({ name: p.name, isBot: p.isBot, ...(p.kind ? { kind: p.kind } : {}), agent: p.agent, ...(p.playerKey ? { playerKey: p.playerKey } : {}) })),
+        players.map((p) => ({ name: p.name, isBot: p.isBot, ...(p.kind ? { kind: p.kind } : {}), agent: p.agent, ...(p.playerKey ? { playerKey: p.playerKey } : {}), ...(p.rosterId ? { rosterId: p.rosterId } : {}) })),
         t.id,
         {
           ...(n.botDelayMs !== undefined ? { botDelayMs: n.botDelayMs } : {}),
+          ...(n.style === 'survival' ? { survival: true } : {}),
           // Engine rules: every winner starts on the portal territory it came up through. If that start cannot be
           // built, the table starts as usual rather than leave the tournament stuck between rounds.
           ...(onPortals
@@ -1376,12 +1565,14 @@ export class TournamentManager extends EventEmitter {
       const byPlayer = new Map(Object.entries(m.seats).map(([eid, s]) => [s.playerId, eid]));
       const order = standing.order.map((pid) => byPlayer.get(pid)).filter((eid): eid is string => !!eid);
       m.standing = { order, rolls: Object.fromEntries(Object.entries(standing.rolls).filter(([pid]) => byPlayer.has(pid)).map(([pid, r]) => [byPlayer.get(pid)!, r])) };
-      m.winner = order[0] ?? null;
+      // A stand-in (a dropped entrant's seat) never moves on: the best other seat does.
+      m.winner = this.firstNotDropped(t, order);
       m.status = m.winner ? 'decided' : 'abandoned';
       // The tournament board: kills from the game so far, and the standing as the table's order.
       this.scoreTable(m, room);
       m.order = order;
-      const names = order.map((eid, i) => `${i + 1}. ${this.entrant(t, eid)?.name ?? '?'}`).join(', ');
+      this.survivalWinner(t, m);
+      const names = (m.order ?? order).map((eid, i) => `${i + 1}. ${this.entrant(t, eid)?.name ?? '?'}`).join(', ');
       room.decide(`Round ${round.round} is over: this table was decided on standing (territories, then armies, then dice): ${names}.`, now, { standing: standing.order, rolls: standing.rolls });
     }
     round.endedAt = now;

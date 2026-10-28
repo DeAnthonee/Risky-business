@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { WebSocket } from 'ws';
 import { addPlayer, createGame, getMap, startGame, type GameEvent, type GameState } from '@risk/engine';
 import { BIG_MOVE } from '../src/excitement.js';
-import { BigMoveTracker, ReactionPacer, bigMoveMessage, seesWholeBoard, type BigMoveMessage } from '../src/reactions.js';
+import { BigMoveTracker, ReactionPacer, bigMoveMessage, reactionsOn, seesWholeBoard, type BigMoveMessage } from '../src/reactions.js';
 import { CHARACTER_LINES, linesFor } from '../src/reaction-lines.js';
 import { Store } from '../src/store.js';
 import { createRiskServer } from '../src/app.js';
@@ -116,8 +116,18 @@ describe('pacing and fog', () => {
   });
 });
 
+/** Run with the pop-ups on (they are off by default: owner, 2026-10-22). */
+function withReactions() {
+  vi.stubEnv('RISK_REACTIONS', '1');
+}
+
 describe('over the WebSocket', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it('a fog game: the spectator gets the pop-up, the seated players do not', async () => {
+    withReactions();
     const store = new Store(null);
     const risk = createRiskServer(store, { clientDir: null, sweepIntervalMs: 0 });
     await new Promise<void>((resolve) => risk.server.listen(0, '127.0.0.1', resolve));
@@ -153,6 +163,7 @@ describe('over the WebSocket', () => {
   });
 
   it('a room emits big_move from its own commits (no fog: every socket may get it)', () => {
+    withReactions();
     const store = new Store(null);
     const { room, playerId: a } = store.create('Live', { map: 'classic', maxPlayers: 2, autoSetup: true }, 'Ann');
     const b = room.join('Bob').playerId;
@@ -180,5 +191,90 @@ describe('over the WebSocket', () => {
     expect(seen).toHaveLength(1);
     expect(seen[0]).toMatchObject({ kind: 'sweep', attacker: { id: a }, victim: { id: b }, taken: 3 });
     room.close('admin');
+  });
+});
+
+describe('off by default (owner: they popped up too often)', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('only RISK_REACTIONS=1 turns them on', () => {
+    expect(reactionsOn({})).toBe(false);
+    expect(reactionsOn({ RISK_REACTIONS: '0' })).toBe(false);
+    expect(reactionsOn({ RISK_REACTIONS: 'true' })).toBe(false);
+    expect(reactionsOn({ RISK_REACTIONS: '1' })).toBe(true);
+  });
+
+  it('no big_move goes out: the room emits none, a socket forwards none, and the first state has no reactions flag', async () => {
+    vi.stubEnv('RISK_REACTIONS', '');
+    const store = new Store(null);
+    const risk = createRiskServer(store, { clientDir: null, sweepIntervalMs: 0 });
+    await new Promise<void>((resolve) => risk.server.listen(0, '127.0.0.1', resolve));
+    const url = `ws://127.0.0.1:${(risk.server.address() as AddressInfo).port}/ws`;
+    try {
+      const { room, playerId: a } = store.create('Quiet', { map: 'classic', maxPlayers: 2, autoSetup: true }, 'Ann');
+      const b = room.join('Bob').playerId;
+      room.start();
+      room.stopBot();
+      const got: any[] = [];
+      const ws = new WebSocket(url);
+      ws.on('message', (d) => got.push(JSON.parse(String(d))));
+      await new Promise<void>((resolve) => ws.on('open', () => resolve()));
+      ws.send(JSON.stringify({ type: 'subscribe', gameId: room.id, reqId: 's' }));
+      await new Promise((r) => setTimeout(r, 150));
+      const first = got.find((m) => m.type === 'state' && m.reqId === 's');
+      expect(first).toBeDefined();
+      expect(first).not.toHaveProperty('reactions');
+
+      const seen: BigMoveMessage[] = [];
+      room.on('big_move', (m: BigMoveMessage) => seen.push(m));
+      // The same sure sweep as above: no pop-up is made.
+      const s = room.state;
+      for (const t of ids) s.territories[t] = { owner: a, armies: 2 };
+      const front = ids.find((t) => map.adjacency[t].filter((n) => n !== t).length >= 3)!;
+      const targets = map.adjacency[front].slice(0, 3);
+      const spare = ids.find((t) => t !== front && !targets.includes(t))!;
+      for (const t of [...targets, spare]) s.territories[t] = { owner: b, armies: 1 };
+      s.territories[front] = { owner: a, armies: 60 };
+      s.currentPlayer = a;
+      s.phase = 'attack';
+      for (const p of s.players) p.armiesToPlace = 0;
+      (room as unknown as { bigMoves: BigMoveTracker }).bigMoves.observe(s, [start(a)]);
+      for (const t of targets) room.act(a, { type: 'attack', from: front, to: t, blitz: true, occupy: 'min' });
+      room.act(a, { type: 'end_attack' });
+      room.act(a, { type: 'end_turn' });
+      room.stopBot();
+      expect(seen).toHaveLength(0);
+      // Even a big_move emitted by hand is not forwarded to the socket.
+      room.emit('big_move', bigMoveMessage(room.id, room.state, room.characterIds, { kind: 'sweep', attacker: a, victim: b, taken: 3, anchor: ids[0] }));
+      await new Promise((r) => setTimeout(r, 150));
+      expect(got.some((m) => m.type === 'big_move')).toBe(false);
+      ws.close();
+    } finally {
+      await risk.shutdown('test');
+    }
+  });
+
+  it('switched on, the first state says so (the client shows the pop-ups and their toggle)', async () => {
+    withReactions();
+    const store = new Store(null);
+    const risk = createRiskServer(store, { clientDir: null, sweepIntervalMs: 0 });
+    await new Promise<void>((resolve) => risk.server.listen(0, '127.0.0.1', resolve));
+    try {
+      const { room } = store.create('Loud', { map: 'classic', maxPlayers: 2 }, 'Ann');
+      const ws = new WebSocket(`ws://127.0.0.1:${(risk.server.address() as AddressInfo).port}/ws`);
+      const first = await new Promise<any>((resolve) => {
+        ws.on('message', (d) => {
+          const m = JSON.parse(String(d));
+          if (m.type === 'state' && m.reqId === 's') resolve(m);
+        });
+        ws.on('open', () => ws.send(JSON.stringify({ type: 'subscribe', gameId: room.id, reqId: 's' })));
+      });
+      expect(first.reactions).toBe(true);
+      ws.close();
+    } finally {
+      await risk.shutdown('test');
+    }
   });
 });

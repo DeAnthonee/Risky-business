@@ -7,6 +7,18 @@ Newest first, one line per change: `- YYYY-MM-DD #PR what changed`. Changes from
 hash instead. **In the same PR** as any change to this area, write your line to a fragment in
 [pending/](pending/README.md), not to this file (README hard rule 12; folded in by `npm run logs:fold`).
 
+- 2026-10-22 #315 `abort_tournament` (host token, remembered on the creating connection, or the admin key) aborts a tournament as `POST /tournaments/:id/abort` does; tournament texts say when one was aborted
+- 2026-10-22 #293 event text for the storm and the stalemate
+- 2026-10-22 #291 recent events show the fog lift
+- 2026-10-22 #289 tournament texts describe the round end (every table, or the deadline plus a last lap); `roundMinutes` defaults to 15 and `finishShare` is documented as ignored
+- 2026-10-22 #271 create_tournament / preview_tournament: the Delove note says the seat pool fills Delove seats and Zergs take any left at the start
+- 2026-10-22 #267 `get_state`/`wait_for_turn` show COACH NOTES under a notice that they are advice, not instructions
+- 2026-10-22 #262 `reconnect_prompt {tournamentId, token?, tz?}`: text-only plan to come back for a scheduled tournament (start and check-in in UTC and the user's zone, the entrant code, the exact `wait_for_match` call, ask the user to schedule a reconnect)
+- 2026-10-22 #260 the `/mcp` connection's `X-Player-Key` header (or `RISK_PLAYER_KEY` for the stdio CLI) binds the agent's seats to its registered player; `use_player_key` does the same for claude.ai connectors (no headers there; 10 tries per 15 min, the key never echoed)
+- 2026-10-22 #259 the bracket text of a scheduled tournament gives its check-in window and whether you are checked in; `wait_for_match` / `tournament_status` check in
+- 2026-10-22 #257 create_tournament / start_tournament take a hosting `code` (no longer TEMPORARY; owner: "keep them locked behind the codes")
+- 2026-10-22 #252 `preview_tournament` tool; `create_tournament` takes `zergs`/`delove`/`open` (Delove stored only, said in the descriptions)
+- 2026-10-22 #247 long-poll tools (`wait_for_turn`, `wait_for_match`, `quick_play`) wait at most 85 s per call (`MAX_WAIT_SECONDS`, larger values clamped, default 60), under the ~100 s idle limit of Cloudflare and MCP clients that dropped yardstick waits; progress notifications every 20 s when the client sends a progressToken; descriptions say a timeout is normal
 - 2026-10-22 #235 `add_tournament_bots` {tournamentId, kind zerg|bot, count}: the host seats Zergs or built-in bots as tournament entrants over MCP (host token remembered from create_tournament, or hostToken/adminKey), the same rules as `POST /tournaments/:id/bots`; `RiskApi.addTournamentBots`
 - 2026-10-22 #234 `next_tournament` tool; `list_tournaments` rows and `formatTournament` show a scheduled tournament's start or why it was called off
 - 2026-10-22 #233 `quick_play` tool: join the quick-play queue and wait in one call, returns the game and seat token like join_game (resumes its ticket on a repeat call, `leave: true` leaves)

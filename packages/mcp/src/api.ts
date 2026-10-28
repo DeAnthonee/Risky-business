@@ -87,14 +87,20 @@ export interface TournamentInfo {
   you?: { entrantId: string; name: string; status: string; match: { gameId: string; playerId: string; token: string; round: number } | null; checkedIn?: boolean };
   /** Made by the server's schedule: when it starts, and why it was called off, if it was. */
   scheduled?: { startsAt: number; cancelled?: string; checkinMinutes?: number; checkedIn?: number; noShows?: number };
+  /** Aborted by its host or the admin: finished with no champion, the bracket kept. */
+  aborted?: { at: number };
 }
 
 /** The server's next scheduled tournament (GET /tournaments/next); everything null when it has no schedule. */
+/** A nested tournament's style: classic groups, 1v1s, or Zerg survival. */
+export type TournamentStyleName = 'classic' | '1v1' | 'survival';
+
 export interface NextTournamentInfo {
   scheduled: boolean;
-  next: { id: string | null; name: string; startsAt: number; opensAt: number; entrants: number; maxEntrants: number | null; minEntrants: number } | null;
-  running: { id: string; name: string; startsAt: number; round: number } | null;
-  cancelled: { id: string; name: string; startsAt: number; reason: string } | null;
+  /** `label`: the style as the site names it ("Classic groups", "1v1s", "Zerg survival"); absent on older servers. */
+  next: { id: string | null; name: string; startsAt: number; opensAt: number; entrants: number; maxEntrants: number | null; minEntrants: number; style?: TournamentStyleName; label?: string; minTable?: number | null; zergs?: number } | null;
+  running: { id: string; name: string; startsAt: number; round: number; style?: TournamentStyleName; label?: string } | null;
+  cancelled: { id: string; name: string; startsAt: number; reason: string; style?: TournamentStyleName; label?: string } | null;
 }
 
 export interface TournamentSpec {
@@ -104,6 +110,10 @@ export interface TournamentSpec {
   maxEntrants?: number;
   fillBots?: boolean;
   format?: 'knockout' | 'nested';
+  /** Nested: classic (default), 1v1 or survival. */
+  style?: TournamentStyleName;
+  /** Nested, classic or survival: the first round's smallest table (3-6). */
+  minTable?: number;
   finalMap?: string;
   territoriesPerSeat?: number;
   roundMinutes?: number;
@@ -250,6 +260,8 @@ export interface CharacterMemory {
 export interface TournamentRowInfo {
   key: string;
   name: string;
+  /** The Delove model, as the boards show it ("D13", "D13-S"); absent for anyone else. */
+  model?: string;
   rank: number;
   points: number;
   tournaments: number;
@@ -274,7 +286,7 @@ export interface RiskApi {
   /** A season's leaderboard by id (from rankingSeasons); the current season when omitted. board "training": the training leaderboard (no seasons). */
   rankings(season?: string, board?: 'training'): Promise<{ board?: 'training'; season?: string; current?: boolean; rankings: import('@risk/engine').RankingRow[] }>;
   /** The tournament leaderboard: one result per entrant per finished tournament, summed. */
-  tournamentRankings(): Promise<{ board: 'tournament'; current: true; rankings: TournamentRowInfo[] }>;
+  tournamentRankings(style?: TournamentStyleName): Promise<{ board: 'tournament'; style?: TournamentStyleName; label?: string; current: true; rankings: TournamentRowInfo[] }>;
   /** One identity's standing on the tournament leaderboard, with each tournament's finish and points. */
   tournamentProfile(key: string): Promise<{ stats: TournamentRowInfo & { results: { tournamentId: string; name: string; finish: string; points: number }[] }; profile: string | null }>;
   /** Leaderboard seasons: the current one first, then archives newest first. */
@@ -330,6 +342,8 @@ export interface RiskApi {
   createTournament(adminKey: string | undefined, spec: TournamentSpec): Promise<{ hostToken: string; tournament: TournamentInfo }>;
   /** `key`: the tournament's host token or the admin key; or `code`, a hosting code. */
   startTournament(key: string | undefined, tournamentId: string, code?: string): Promise<{ tournament: TournamentInfo }>;
+  /** `key`: the tournament's host token or the admin key. Every live table's record is filed as "aborted" first. */
+  abortTournament(key: string | undefined, tournamentId: string): Promise<{ tournament: TournamentInfo }>;
   /** What a nested tournament with these counts and settings would look like; creates nothing. */
   previewTournament(spec: TournamentSpec): Promise<{ preview: TournamentPreviewInfo }>;
 
@@ -563,7 +577,9 @@ export class HttpRiskApi implements RiskApi {
     const q = board ? `?board=${board}` : season ? `?season=${encodeURIComponent(season)}` : '';
     return this.request<{ board?: 'training'; season?: string; current?: boolean; rankings: import('@risk/engine').RankingRow[] }>(`/rankings${q}`);
   }
-  tournamentRankings() { return this.request<{ board: 'tournament'; current: true; rankings: TournamentRowInfo[] }>('/rankings?board=tournament'); }
+  tournamentRankings(style?: TournamentStyleName) {
+    return this.request<{ board: 'tournament'; style?: TournamentStyleName; label?: string; current: true; rankings: TournamentRowInfo[] }>(`/rankings?board=tournament${style ? `&style=${style}` : ''}`);
+  }
   tournamentProfile(key: string) {
     return this.request<{ stats: TournamentRowInfo & { results: { tournamentId: string; name: string; finish: string; points: number }[] }; profile: string | null }>(`/rankings/profile?key=${encodeURIComponent(key)}&board=tournament`);
   }
@@ -621,6 +637,9 @@ export class HttpRiskApi implements RiskApi {
   }
   startTournament(key: string | undefined, tournamentId: string, code?: string) {
     return this.request<{ tournament: TournamentInfo }>(`/tournaments/${tournamentId}/start`, { method: 'POST', body: JSON.stringify(code ? { code } : {}) }, key);
+  }
+  abortTournament(key: string | undefined, tournamentId: string) {
+    return this.request<{ tournament: TournamentInfo }>(`/tournaments/${tournamentId}/abort`, { method: 'POST', body: '{}' }, key);
   }
   addTournamentBots(key: string | undefined, tournamentId: string, kind: 'bot' | 'zerg', count: number) {
     return this.request<{ added: { entrantId: string; name: string }[]; tournament: TournamentInfo }>(`/tournaments/${tournamentId}/bots`, { method: 'POST', body: JSON.stringify({ kind, count }) }, key);

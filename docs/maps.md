@@ -46,8 +46,8 @@ Besides the twelve boards, a game can be played on a **generated board**: a hex 
 in `packages/engine/src/procgen.ts` from its id alone, for nested ("Inception") tournaments and anywhere a fresh board
 is wanted. `gen1-s42-p4-t20` is the board made from seed 42 for up to 4 players with 20 territories; `-r<n>` sets the
 number of regions (default about one per 5 territories) and `-c2` gives two passes between linked regions (default
-one). `genMapId({ seed, seats, territoriesPerSeat })` makes the id; the default is **5 territories per seat** (4 to 6
-allowed): 15 for 3 players, 20 for 4, 30 for 6, 50 for a 10-player final.
+one). `genMapId({ seed, seats, territoriesPerSeat })` makes the id; the default is **8 territories per seat** (4 to 10
+allowed; it was 5 before 2026-10-27): 24 for 3 players, 32 for 4, 48 for 6, 80 for a 10-player final.
 
 - `getMap(id)` builds the board on first use (a few milliseconds; the last 64 are cached). Nothing is stored: the
   same id is the same board on every machine and in every browser, so saved games and records reload it. Ids are

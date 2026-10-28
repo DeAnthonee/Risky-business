@@ -53,7 +53,7 @@ Every documentation file in the repo, what it covers and when to read it.
 | --- | --- | --- |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | commands, branching, the standard path for a feature (engine → server/API → MCP → client → docs → `npm test`), maps workflow, style, `[OPS]` issues | before your first change; whenever you add a feature |
 | [docs/conventions.md](docs/conventions.md) | per-area conventions: packages, settings (`OPTION_SPECS`), maps, MCP tools, tournaments, records, self-play, characters, runner | before changing that area |
-| [docs/hardening.md](docs/hardening.md) | known gaps left open on purpose (fog totals, leaderboard identities, watcher memory, scenarios, seeded leaderboard, tournament characters, the season-archive lockout, the open quick-play queue, the quick-play queue lost on restart, the hosting-code lockout, player-key limits, the player key in the browser, the pre-registration caps lost on restart, the seat-pool lockout, tournament testing mode) and trade-offs | before touching any feature it lists |
+| [docs/hardening.md](docs/hardening.md) | known gaps left open on purpose (fog totals, leaderboard identities, watcher memory, scenarios, seeded leaderboard, tournament characters, the season-archive lockout, the open quick-play queue, the quick-play queue lost on restart, the hosting-code lockout, player-key limits, the player key in the browser, the pre-registration caps lost on restart, the seat-pool lockout, tournament testing mode, the house roster blind by name only) and trade-offs | before touching any feature it lists |
 | [docs/logs/pending/README.md](docs/logs/pending/README.md) | where a PR writes its running-log lines (one fragment file per PR), the line format, how `npm run logs:fold` folds them in | before adding your log line (every PR) |
 | [docs/roadmap.md](docs/roadmap.md) | old wish list of polish ideas | when looking for something to build |
 | [.github/pull_request_template.md](.github/pull_request_template.md) | what a PR must say and check | when opening a PR |
@@ -68,7 +68,7 @@ Every documentation file in the repo, what it covers and when to read it.
 | [docs/maps.md](docs/maps.md) | the thirteen boards, starting armies, legacy maps, how map data is generated | changing or adding a map |
 | [docs/http-api.md](docs/http-api.md) | every `/api` route, the WebSocket protocol, the action JSON | changing or calling the API |
 | [docs/mcp.md](docs/mcp.md) | the MCP tools, remote `/mcp` connector, the stdio CLI and its env vars, an agent's loop | changing MCP tools or connecting an agent |
-| [docs/tournaments.md](docs/tournaments.md) | knockout tournaments: tables, moving on, no-shows, watching, agents | changing tournaments |
+| [docs/tournaments.md](docs/tournaments.md) | knockout tournaments: tables, moving on, no-shows, watching, agents, Delove seats on request, the house roster (names bound to Delove models) | changing tournaments |
 | [docs/game-records.md](docs/game-records.md) | game records: where they are, the format (`RECORD_VERSION`), replay and scenarios | changing records or using them for training |
 | [docs/game-records-roadmap.md](docs/game-records-roadmap.md) | what records have and what comes next | planning records work |
 
@@ -96,6 +96,7 @@ Every documentation file in the repo, what it covers and when to read it.
 | [docs/fog-power-rankings.md](docs/fog-power-rankings.md) | how AI commanders estimate opponent power under fog of war | changing the runner's threat assessment |
 | [packages/llm-player/README.md](packages/llm-player/README.md) | setting up and running the local-model player, how it decides | working on `packages/llm-player` |
 | [packages/runner/README.md](packages/runner/README.md) | the bot runner: league loop, setup, learning loop, files it writes, move chooser, options | working on `packages/runner` |
+| [docs/how-to-run-league-models.md](docs/how-to-run-league-models.md) | step-by-step instructions to run League of Legends AI characters & DeLOVE models locally or live | setting up, running, or spectating League AI and DeLOVE matches |
 
 ### Training (self-play and Delove)
 
@@ -176,8 +177,9 @@ These keep the deploy, the game and the training pipeline from breaking. Everyth
 10. **Keep the boundaries.** Self-play stays deterministic from the seed (no `Math.random`, no clocks in decisions).
     `packages/selfplay`, `llm-player`, `runner`, `delove` and `delove-gpu` are never imported by the server; Delove is
     never imported by the character code. The web client moves a spectator to another game only when they turned
-    that on, and never moves a player; the one exception is runner generation training matches (rooms named exactly
-    `Generation <tag> Match <n>`), which move their spectators on to the next such match or its lobby. The features
+    that on, and never moves a player; the exceptions are runner generation training matches (rooms named exactly
+    `Generation <tag> Match <n>`), which move their spectators on to the next such match or its lobby, and tournament
+    tables, which move their spectators on to another table of the same tournament. The features
     that move a spectator are in [docs/playing.md](docs/playing.md#features-that-move-a-spectator).
 11. **Character data is data.** Agents' saves live under `RISK_DATA_DIR/characters/`, never written back into the
     repo automatically (a sync back is a PR read by hand). Every save needs the write key (`RISK_CHARACTERS_KEY` or the

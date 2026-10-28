@@ -3,6 +3,7 @@
 import './notes-trace.js';
 import { fork } from 'node:child_process';
 import { homedir } from 'node:os';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
@@ -13,7 +14,8 @@ import { modelFogInputs, modelsDir } from './net-agent.js';
 import { Noter } from './notes.js';
 import { ChildPool, SeatPool, type FromChild, type ToChild } from './pool.js';
 import { infos, makeAgents } from './seat-agents.js';
-import { latencySummary, playEntrant } from './tournament-seat.js';
+import { playPoolEntrant } from './pool-play.js';
+import { latencySummary } from './tournament-seat.js';
 
 const USAGE = `delove-pool: the Delove seat pool, a daemon that fills tournaments' Delove seats on request
 (docs/tournaments.md "Delove seats on request"; packages/delove/README.md "Seat pool")
@@ -78,6 +80,21 @@ async function main() {
     fail((e as Error).message);
   }
   const modelFog = modelFogInputs(join(modelsDir(), `${model}.onnx`)) > 0;
+  // House roster seats play their entry's model: any delove@N in the models folder, under fog only a fog-trained one.
+  const playable = new Map<string, { ok: boolean; fog: boolean }>();
+  const canPlay = (m: string, fogTable: boolean) => {
+    if (!playable.has(m)) {
+      let ok = existsSync(join(modelsDir(), `${m}.onnx`));
+      try {
+        if (ok) makeAgents([m], preset);
+      } catch {
+        ok = false;
+      }
+      playable.set(m, { ok, fog: ok && modelFogInputs(join(modelsDir(), `${m}.onnx`)) > 0 });
+    }
+    const p = playable.get(m)!;
+    return p.ok && (!fogTable || p.fog);
+  };
   const procs = Math.max(1, int(values.procs, '--procs', 6));
   const pace = int(values.pace, '--pace', 300);
   const self = fileURLToPath(import.meta.url);
@@ -90,6 +107,7 @@ async function main() {
     maxSeats: int(values['max-seats'] ?? process.env.MAX_SEATS, '--max-seats', 40),
     maxSearch: int(values['max-search'] ?? process.env.MAX_SEARCH, '--max-search', 20),
     play: (e) => children.play(e),
+    canPlay,
     stateFile: values.state ?? join(homedir(), '.delove-pool', 'state.json'),
     log,
   });
@@ -142,8 +160,7 @@ function child() {
       }
       agents.set(e.agentId, agent);
     }
-    playEntrant({ api: new HttpRiskApi(msg.server), tournamentId: e.tournamentId, entrantToken: e.token, name: e.name, agent, paceMs: msg.pace, log, notes,
-      random: seededRandom((Date.now() + 7919 * n++) >>> 0), onDecision: (ms) => decisions.push(ms) })
+    playPoolEntrant(e, { api: new HttpRiskApi(msg.server), agent, paceMs: msg.pace, log, notes, random: seededRandom((Date.now() + 7919 * n++) >>> 0), onDecision: (ms) => decisions.push(ms) })
       .then((result) => process.send!({ type: 'end', key: k, result } satisfies FromChild))
       .catch((err) => process.send!({ type: 'error', key: k, message: (err as Error).message } satisfies FromChild));
   });

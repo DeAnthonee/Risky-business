@@ -1,1 +1,0 @@
-delove: - 2026-10-22 #275 cycle 16: `delove@13` (+0.17 points per seat vs `delove@12` with fog on, SPRT; +0.27 without), fog dropout 0.25 beat 0.5; two launches failed because the GPU mirror could not load the fog-input `delove@12` (fixed in #228), so the search was ranked by `delove@11`; 3 of 42 configurations cut by slow pods and merged without; `c16*.cycle`, `c16-train-b.sh`

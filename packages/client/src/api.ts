@@ -87,6 +87,9 @@ export interface TournamentSummary {
   updatedAt: number;
 }
 
+/** A nested tournament's style: Classic groups, 1v1s or Zerg survival (each has its own tournament leaderboard). */
+export type TournamentStyle = 'classic' | '1v1' | 'survival';
+
 /** The server's next scheduled tournament (GET /api/tournaments/next); `scheduled` false = no schedule. */
 export interface NextTournament {
   scheduled: boolean;
@@ -102,8 +105,19 @@ export interface NextTournament {
     checkedIn?: number;
     maxEntrants: number | null;
     minEntrants: number;
+    /** House roster seats asked for this slot (part of maxEntrants). */
+    roster?: number;
+    /** The schedule entry's time zone (IANA), or null for UTC. */
+    tz?: string | null;
+    /** Its style and what to call it ("Classic groups", "1v1s", "Zerg survival"); absent on older servers. */
+    style?: TournamentStyle;
+    label?: string;
+    /** The first round's smallest table (classic and survival), or null for the default 3. */
+    minTable?: number | null;
+    /** Zerg entrants added as it opens. */
+    zergs?: number;
   } | null;
-  running: { id: string; name: string; startsAt: number; round: number } | null;
+  running: { id: string; name: string; startsAt: number; round: number; style?: TournamentStyle; label?: string } | null;
   cancelled: { id: string; name: string; startsAt: number; reason: string } | null;
 }
 
@@ -129,7 +143,7 @@ export interface MatchSummary {
   players: { id: string; name: string; isBot: boolean; characterId: string | null; place: number | null }[];
 }
 
-export type EntrantStatus = 'registered' | 'playing' | 'waiting' | 'out' | 'champion';
+export type EntrantStatus = 'registered' | 'playing' | 'waiting' | 'out' | 'champion' | 'dropped';
 
 export interface TournamentView {
   id: string;
@@ -138,12 +152,15 @@ export interface TournamentView {
   openMode?: boolean;
   /** The host's seat counts at create (Zergs, Delove asked for, open spots), when it was made with them. */
   requested?: { zergs: number; delove: number; open: number };
+  /** Aborted (by its host or the admin): finished with no champion. */
+  aborted?: { at: number };
   status: TournamentSummary['status'];
   map: string;
   groupSize: number;
   maxEntrants: number;
   fillBots: boolean;
-  entrants: { id: string; name: string; isBot: boolean; status: EntrantStatus }[];
+  /** `dropped`: out of the tournament (disconnected); `standIn` plays its seat to the end of that table. */
+  entrants: { id: string; name: string; isBot: boolean; status: EntrantStatus; dropped?: { reason: string; standIn: string } }[];
   rounds: {
     round: number;
     /** Nested: the round's deadline, the start of its last lap (the deadline passed) and its end (ms since the epoch). */
@@ -283,6 +300,9 @@ export const api = {
   listTournaments: () => request<{ tournaments: TournamentSummary[] }>('/tournaments'),
   nextTournament: () => request<NextTournament>('/tournaments/next'),
   getTournament: (id: string, token?: string) => request<{ tournament: TournamentView }>(`/tournaments/${id}`, {}, token),
+  /** The setup prompt for your seat (seat code as the token; the player key goes along when this browser holds one). */
+  tournamentSetup: (id: string, token: string, tz?: string) =>
+    request<{ text: string; filename: string }>(`/tournaments/${id}/setup${tz ? `?tz=${encodeURIComponent(tz)}` : ''}`, { headers: keyed() }, token),
   joinTournament: (id: string, playerName: string) =>
     request<{ entrantId: string; token: string; tournament: TournamentView }>(`/tournaments/${id}/join`, { method: 'POST', headers: keyed(), body: JSON.stringify({ playerName }) }),
   /** The seat this key coaches in a quick-play game, its view and the notes sent (401/403 when it coaches none). */
@@ -324,6 +344,10 @@ export interface StateMessage {
   commit?: string;
   /** First state of a tournament table: which tournament, round and table. */
   tournament?: TournamentTableRef;
+  /** The reply to a subscribe carries its request id. */
+  reqId?: string;
+  /** First state: true only when the server sends big-move pop-ups (RISK_REACTIONS=1; off by default). */
+  reactions?: boolean;
 }
 
 export interface PresenceMessage {

@@ -68,6 +68,7 @@ import torch.nn.functional as F
 from delove_model import DeloveNet, grow_rounds, segment_log_softmax
 from fog import FOG_INPUT_VERSION, FogMap, fog_inputs, widen_state
 from soft import policy_losses, soft_targets
+from confidence import confidence_weights, decision_gaps
 from targets import RANGES, TARGETS, alive_counts, range_target
 
 SUPPORTED_ENCODER = 2
@@ -75,7 +76,8 @@ MODES = ("imitate", "winners", "advantage", "value")
 
 
 class Data:
-    def __init__(self, folder, mode="imitate", loser_weight=0.1, target="z", fraction=1.0, branch_weights=None, threat=0.0):
+    def __init__(self, folder, mode="imitate", loser_weight=0.1, target="z", fraction=1.0, branch_weights=None, threat=0.0,
+                 confidence=None):
         if mode not in MODES:
             raise SystemExit(f"{folder}: unknown mode {mode!r} ({', '.join(MODES)})")
         if not 0 < fraction <= 1:
@@ -98,6 +100,10 @@ class Data:
         self.q = load("branch_q") if os.path.exists(q_path) else None
         if self.q is not None and len(self.q) != len(self.cand):
             raise SystemExit(f"{folder}: branch_q.npy has {len(self.q)} rows, cand.npy {len(self.cand)}")
+        # --confidence TAU,FLOOR: near-tie labels (top two compared scores within TAU) count less (confidence.py).
+        self.conf_weight = None
+        if confidence is not None and self.q is not None:
+            self.conf_weight = confidence_weights(decision_gaps(self.q, self.offset), *confidence)
         T = len(self.info["territoryIds"])
         adj = np.zeros((T, T), dtype=np.float32)
         for i, ns in enumerate(self.info["adjacency"]):
@@ -120,7 +126,9 @@ class Data:
         if self.mode == "value":  # positions and outcomes only: the value head learns, the policy ignores these moves
             return np.zeros_like(z)
         w = self.loser_weight + (1 - self.loser_weight) * z if self.mode == "winners" else np.ones_like(z)
-        return w * self.tag_weight[ks] if self.tag_weight is not None else w
+        if self.tag_weight is not None:
+            w = w * self.tag_weight[ks]
+        return w * self.conf_weight[ks] if self.conf_weight is not None else w
 
     def batch(self, ks, device):
         """Tensors for decisions `ks` (sorted for faster memmap reads)."""
@@ -276,6 +284,9 @@ def main():
     ap.add_argument("--device", help="cpu or cuda (default: cuda when available)")
     ap.add_argument("--amp", action="store_true", help="mixed precision: the network in bfloat16 (CUDA only)")
     ap.add_argument("--branch-weights", help="W0,W1,W2: policy weight of teacher-only, compared-and-kept and changed decisions")
+    ap.add_argument("--confidence", metavar="TAU[,FLOOR]",
+                    help="scale each branched decision's policy weight by clip((best - second compared score) / TAU, FLOOR, 1) "
+                         "from branch_q.npy (near-tie labels are mostly rollout noise; confidence.py); FLOOR default 0")
     ap.add_argument("--soft-targets", type=float, default=0.0, metavar="C",
                     help="branched decisions learn softmax(prior + C x scaled branch scores) from branch_q.npy (0 = off; soft.py)")
     ap.add_argument("--soft-scale", type=float, metavar="S",
@@ -306,6 +317,12 @@ def main():
     bw = [float(x) for x in args.branch_weights.split(",")] if args.branch_weights else None
     if bw is not None and len(bw) != 3:
         raise SystemExit("--branch-weights needs three numbers")
+    conf = None
+    if args.confidence:
+        parts = [float(x) for x in args.confidence.split(",")]
+        if len(parts) not in (1, 2) or parts[0] <= 0 or (len(parts) == 2 and not 0 <= parts[1] <= 1):
+            raise SystemExit("--confidence needs TAU > 0 and an optional FLOOR in [0, 1]")
+        conf = (parts[0], parts[1] if len(parts) == 2 else 0.0)
 
     def parse(spec):
         fraction = 1.0
@@ -314,8 +331,8 @@ def main():
             fraction = float(f)
         for mode in MODES:
             if spec.endswith(":" + mode):
-                return Data(spec[: -len(mode) - 1], mode, args.loser_weight, args.value_target, fraction, bw, args.threat_credit)
-        return Data(spec, "imitate", args.loser_weight, args.value_target, fraction, bw, args.threat_credit)
+                return Data(spec[: -len(mode) - 1], mode, args.loser_weight, args.value_target, fraction, bw, args.threat_credit, conf)
+        return Data(spec, "imitate", args.loser_weight, args.value_target, fraction, bw, args.threat_credit, conf)
 
     datasets = [parse(d) for d in args.data]
     first = datasets[0]

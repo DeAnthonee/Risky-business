@@ -26,9 +26,12 @@ export interface ScoredBracket {
   name: string;
   /** 'knockout' today; nested tournaments later. */
   format?: string;
+  /** A nested tournament's style: each style has its own board (absent = classic). */
+  nested?: { style?: string };
   /** `kind` "zerg" marks a Zerg entrant; any other bot is a built-in fill bot. */
   /** `isBot`: a server bot (a built-in fill bot, or `kind` "zerg" for a Zerg). Bots are scored but never ranked. */
-  entrants: { id: string; name: string; isBot: boolean; kind?: string; playerKey?: string }[];
+  /** `model`: the Delove model the entrant played ("delove@13", "delove@13+search"), when known. */
+  entrants: { id: string; name: string; isBot: boolean; kind?: string; playerKey?: string; rosterId?: string; model?: string }[];
   rounds: {
     matches: {
       entrants: string[];
@@ -67,6 +70,8 @@ export interface TournamentEntrantResult {
   points: number;
   /** Fun numbers over the tournament (missing on results saved before they were collected). */
   fun?: FunStats;
+  /** The model the entrant played (a Delove), when known. */
+  model?: string;
 }
 
 /** One entrant's fun numbers over a tournament: totals, plus the bests at a single table. */
@@ -89,6 +94,8 @@ export interface TournamentResult {
   tournamentId: string;
   name: string;
   format: string;
+  /** classic, 1v1 or survival (absent on results saved before styles: classic). */
+  style?: string;
   rounds: number;
   finishedAt: number;
   entrants: TournamentEntrantResult[];
@@ -106,6 +113,8 @@ export interface TournamentRow {
   kills: number;
   /** Best finish as words: "champion", "2nd in the final", "out in round 2". */
   bestFinish: string;
+  /** The model of the entrant's latest result, when it was a Delove ("delove@13+search"). */
+  model?: string;
 }
 
 /** Placement points for an entrant out in `round` of `rounds` (the final when equal), with their final place if any. */
@@ -115,10 +124,11 @@ export function placementPoints(rounds: number, round: number, final: { place: n
 }
 
 /**
- * The leaderboard key, as on the other boards: `key:<id>` for a registered player (player key), `bot:<name>` for bots
- * and Zergs, `player:<name>` otherwise.
+ * The leaderboard key, as on the other boards: `roster:<id>` for a house roster name, `key:<id>` for a registered player
+ * (player key), `bot:<name>` for bots and Zergs, `player:<name>` otherwise.
  */
-export function entrantKey(e: { name: string; isBot: boolean; playerKey?: string }): string {
+export function entrantKey(e: { name: string; isBot: boolean; playerKey?: string; rosterId?: string }): string {
+  if (e.rosterId && !e.isBot) return `roster:${e.rosterId}`;
   if (e.playerKey && !e.isBot) return `key:${e.playerKey}`;
   return `${e.isBot ? 'bot' : 'player'}:${e.name.trim().toLowerCase()}`;
 }
@@ -178,9 +188,11 @@ export function scoreTournament(t: ScoredBracket, finishedAt = Date.now()): Tour
       tablePoints,
       points: place + tablePoints + kills * KILL_POINTS,
       fun,
+      ...(e.model ? { model: e.model } : {}),
     };
   });
-  return { tournamentId: t.id, name: t.name, format: t.format ?? 'knockout', rounds: L, finishedAt, entrants };
+  const style = t.nested?.style ?? 'classic';
+  return { tournamentId: t.id, name: t.name, format: t.format ?? 'knockout', style, rounds: L, finishedAt, entrants };
 }
 
 function finishText(r: TournamentEntrantResult): string {
@@ -206,17 +218,25 @@ export function isBotResult(e: Pick<TournamentEntrantResult, 'key'> & { bot?: bo
   return e.bot ?? e.key.startsWith('bot:');
 }
 
+/** A result's style: results saved before styles were all classic. */
+export function styleOfResult(t: Pick<TournamentResult, 'style'>): string {
+  return t.style ?? 'classic';
+}
+
 /**
  * The board from results in completion order: people only (owner's decision). No server bot, neither a built-in fill
  * bot nor a Zerg, gets a row; their results stay in the file for bot stats. A person named "Bot 1" is still a person.
+ * With `style`, only that style's tournaments count (each style has its own board).
  */
-export function rankTournaments(results: readonly TournamentResult[]): TournamentRow[] {
+export function rankTournaments(results: readonly TournamentResult[], style?: string): TournamentRow[] {
   const rows = new Map<string, TournamentRow & { best: number }>();
   for (const t of results) {
+    if (style !== undefined && styleOfResult(t) !== style) continue;
     for (const e of t.entrants) {
       if (isBotResult(e)) continue;
       const row = rows.get(e.key) ?? { key: e.key, name: e.name, rank: 0, points: 0, tournaments: 0, championships: 0, finals: 0, tablesWon: 0, kills: 0, bestFinish: '', best: -1 };
       row.name = e.name;
+      if (e.model) row.model = e.model;
       row.points += e.points;
       row.tournaments++;
       row.championships += Number(e.champion);
@@ -271,7 +291,16 @@ export class TournamentRankings {
 
   has(tournamentId: string): boolean { return this.ids.has(tournamentId); }
   result(tournamentId: string): TournamentResult | null { return this.results.find((r) => r.tournamentId === tournamentId) ?? null; }
-  rows(): TournamentRow[] { return rankTournaments(this.results); }
+  /** One style's board (classic, 1v1, survival), or every tournament together without one. */
+  rows(style?: string): TournamentRow[] { return rankTournaments(this.results, style); }
+  /** The model of a leaderboard key's latest result that has one (any style), for the other boards' model column. */
+  modelOf(key: string): string | undefined {
+    for (let i = this.results.length - 1; i >= 0; i--) {
+      const e = this.results[i].entrants.find((x) => x.key === key && x.model);
+      if (e) return e.model;
+    }
+    return undefined;
+  }
   /** The house-bot panel: fill bots and Zergs, aggregate fun stats only (nothing ranked). */
   houseBots(): HouseBots { return houseBotStats(this.results); }
 

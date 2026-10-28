@@ -57,8 +57,10 @@ export function freeZergName(names: readonly string[]): string {
  * #198) with every Zerg seat in the room as its horde; any other bot is the built-in bot. Training plays zerg@2 too
  * since #201.
  */
-export function chooseSeatAction(state: GameState, me: PlayerId): Action | null {
-  if (!isZergSeat(me)) return chooseBotAction(state, me);
-  const horde = new Set(state.players.filter((p) => isZergSeat(p.id)).map((p) => p.id));
+export function chooseSeatAction(state: GameState, me: PlayerId, standIns: ReadonlySet<PlayerId> = new Set()): Action | null {
+  // `standIns`: seats a Zerg took over (a dropped player's, "<name>-Zerg"): Zergs too, in the same horde.
+  const zerg = (id: PlayerId) => isZergSeat(id) || standIns.has(id);
+  if (!zerg(me)) return chooseBotAction(state, me);
+  const horde = new Set(state.players.filter((p) => zerg(p.id)).map((p) => p.id));
   return chooseZergAction(state, me, horde, Math.random, ZERG_2_PARAMS);
 }

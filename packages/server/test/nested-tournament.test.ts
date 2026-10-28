@@ -81,16 +81,16 @@ describe('nested tournaments', () => {
     const { risk, call } = await serve(new Store(null, {}, { clock }));
     try {
       const bad = async (body: object) => (await call('/admin/tournaments', post({ format: 'nested', ...body }), ADMIN)).status;
-      expect(await bad({ territoriesPerSeat: 7 })).toBe(400);
+      expect(await bad({ territoriesPerSeat: 11 })).toBe(400);
       expect(await bad({ roundMinutes: 0 })).toBe(400);
       expect(await bad({ finishShare: 2 })).toBe(400);
       expect(await bad({ finalMap: 'skirmish' })).toBe(400); // seats 4: no final of 6
       expect(await bad({ finalMap: 'nowhere' })).toBe(400);
       expect(await bad({ format: 'swiss' })).toBe(400);
-      expect(await bad({ options: { neutrals: 4 } })).toBe(400); // too many for the smallest board
+      expect(await bad({ options: { neutrals: 6 } })).toBe(400); // too many for the smallest board (16 territories: at most 5)
       const ok = await call('/admin/tournaments', post({ format: 'nested', name: 'Inception', finalMap: 'world' }), ADMIN);
       expect(ok.status).toBe(201);
-      expect(ok.body.tournament).toMatchObject({ format: 'nested', map: 'nested', maxEntrants: 128, nested: { finalMap: 'world', territoriesPerSeat: 5, roundMinutes: 15, finishShare: 0.51, botDelayMs: 300, plan: null } });
+      expect(ok.body.tournament).toMatchObject({ format: 'nested', map: 'nested', maxEntrants: 128, nested: { finalMap: 'world', territoriesPerSeat: 8, roundMinutes: 15, finishShare: 0.51, botDelayMs: 300, plan: null } });
       // Hex Earth seats a final of 6-10 with a region per seat.
       const hex = await call('/admin/tournaments', post({ format: 'nested', name: 'Hex final', finalMap: 'hexworld', seed: 11 }), ADMIN);
       expect(hex.status).toBe(201);
@@ -148,10 +148,10 @@ describe('nested tournaments', () => {
       expect(started.status).toBe(200);
       expect(started.body.tournament.nested).toMatchObject({ plan: [[4, 4, 4, 4, 4, 4, 4, 4, 4, 4], [10]], zergs: 0 });
 
-      // Round 1: ten 4-seat tables at once, each on its own generated 20-territory board; people spread over tables.
+      // Round 1: ten 4-seat tables at once, each on its own generated 32-territory board; people spread over tables.
       const r1 = started.body.tournament.rounds[0];
       expect(r1.matches).toHaveLength(10);
-      expect(r1.matches.every((m: any) => m.status === 'playing' && /^gen1-s\d+-p4-t20$/.test(m.map))).toBe(true);
+      expect(r1.matches.every((m: any) => m.status === 'playing' && /^gen1-s\d+-p4-t32$/.test(m.map))).toBe(true);
       expect(new Set(r1.matches.map((m: any) => m.map)).size).toBe(10);
       // The whole board tree is public from the start: the final's board holds the ten round-1 boards in its portals.
       const nodes = started.body.tournament.nested.nodes;
@@ -228,7 +228,7 @@ describe('nested tournaments', () => {
       const final = t.rounds[1].matches[0];
       expect(t.rounds[1].matches).toHaveLength(1);
       expect(final.entrants).toEqual(ended.matches.map((m) => m.winner));
-      expect(final.map).toMatch(/^gen1-s\d+-p10-t50$/); // 10 regions, the default for 50 territories
+      expect(final.map).toMatch(/^gen1-s\d+-p10-t80$/); // 16 regions, the default for 80 territories
       expect(store.get(final.gameId!)!.state.players).toHaveLength(10);
       for (const p of people) {
         const me = (await call(`/tournaments/${id}`, {}, p.token)).body.tournament.you;
@@ -566,7 +566,7 @@ describe('nested tournaments', () => {
     // Blizzards scale with each table's board: 10%, at least 1 (lord of game development).
     expect(NESTED_BLIZZARD_SHARE).toBe(0.1);
     expect(t.nested!.blizzardShare).toBe(0.1);
-    expect([15, 30, 50].map((n) => blizzardsFor(genMapId({ seed: 1, seats: n / 5 }), 0.1))).toEqual([2, 3, 5]);
+    expect([15, 30, 50].map((n) => blizzardsFor(genMapId({ seed: 1, seats: n / 5, territoriesPerSeat: 5 }), 0.1))).toEqual([2, 3, 5]);
     // 100 entrants: three rounds (generated boards, then moved-on tables on generated boards, then the Hex Earth final).
     for (let i = 1; i <= 100; i++) t.entrants.push({ id: `e_${i}`, name: `B${i}`, isBot: true, joinedAt: 0 });
     store.tournaments.start(t.id);
@@ -690,5 +690,67 @@ describe('stall relievers at a tournament table', () => {
     expect(m.seats[m.winner!].playerId).toBe(room.state.winner);
     store.stopTimers();
     for (const r of store.rooms.values()) r.stopBot();
+  });
+});
+
+describe('aborting a tournament (owner: every live table keeps its record)', () => {
+  it('abort files every live table as "aborted" with its standing so far, keeps the bracket, and DELETE of a running one aborts first', async () => {
+    const clock = new FakeClock();
+    const store = new Store(join(dir, 'abort.json'), {}, { clock });
+    const { risk, call } = await serve(store);
+    try {
+      const created = await call('/admin/tournaments', post({ format: 'nested', name: 'Stopped Cup', botDelayMs: 2000, options: { turnTimer: 'off', autoSetup: true } }), ADMIN);
+      const id = created.body.tournament.id;
+      const host = created.body.hostToken;
+      for (let i = 1; i <= 18; i++) await call(`/tournaments/${id}/join`, post({ playerName: `A${i}` }));
+      expect((await call(`/tournaments/${id}/start`, post(), host)).status).toBe(200);
+      const t = store.tournaments.get(id)!;
+      const tables = t.rounds[0].matches.map((m) => m.gameId!);
+      expect(tables).toHaveLength(6);
+      // Only the host (or the admin) may abort.
+      expect((await call(`/tournaments/${id}/abort`, post())).status).toBeGreaterThanOrEqual(401);
+      const aborted = await call(`/tournaments/${id}/abort`, post(), host);
+      expect(aborted.status).toBe(200);
+      const view = aborted.body.tournament;
+      expect(view).toMatchObject({ status: 'finished', champion: null, aborted: { at: clock.now() } });
+      // The bracket stays: every table abandoned with its standing so far.
+      expect(view.rounds).toHaveLength(1);
+      for (const m of view.rounds[0].matches) {
+        expect(m.status).toBe('abandoned');
+        expect([...m.standing.order].sort()).toEqual(m.players.map((p: any) => p.entrantId).sort());
+      }
+      // Every live table was filed first, then closed.
+      for (const g of tables) expect(store.get(g)).toBeUndefined();
+      const filed = store.archive.list().filter((e) => e.tournamentId === id);
+      expect(filed).toHaveLength(6);
+      for (const e of filed) {
+        expect(e).toMatchObject({ finished: false, aborted: true, reason: 'aborted', winner: null, endedBecause: 'its tournament was aborted' });
+        const record = store.archive.get(e.id)!;
+        expect(record.outcome.aborted!.standing).toHaveLength(3);
+        expect(record.outcome.placings.slice(0, 3)).toEqual(record.outcome.aborted!.standing);
+        expect(record.outcome.decided).toBeUndefined();
+      }
+      // The match history lists them on request (winner null, aborted), and never by default.
+      expect((await call('/history')).body.games.some((g: any) => g.aborted)).toBe(false);
+      const history = (await call('/history?aborted=1&limit=100')).body.games.filter((g: any) => g.tournamentId === id);
+      expect(history).toHaveLength(6);
+      expect(history.every((g: any) => g.aborted && g.winner === null && g.reason === 'aborted')).toBe(true);
+      // Aborting again changes nothing; nothing goes on the tournament board.
+      expect((await call(`/tournaments/${id}/abort`, post(), host)).body.tournament.aborted).toEqual(view.aborted);
+      expect(store.tournamentBoard.result(id)).toBeFalsy();
+
+      // DELETE of a running tournament aborts it first: its live tables are filed, then it is gone.
+      const second = await call('/admin/tournaments', post({ format: 'nested', name: 'Deleted Cup', botDelayMs: 2000, options: { turnTimer: 'off', autoSetup: true } }), ADMIN);
+      const id2 = second.body.tournament.id;
+      for (let i = 1; i <= 18; i++) await call(`/tournaments/${id2}/join`, post({ playerName: `D${i}` }));
+      await call(`/tournaments/${id2}/start`, post(), second.body.hostToken);
+      expect((await call(`/admin/tournaments/${id2}`, { method: 'DELETE' }, ADMIN)).status).toBe(200);
+      expect((await call(`/tournaments/${id2}`)).status).toBe(404);
+      const filed2 = store.archive.list().filter((e) => e.tournamentId === id2);
+      expect(filed2).toHaveLength(6);
+      expect(filed2.every((e) => e.reason === 'aborted' && e.aborted)).toBe(true);
+    } finally {
+      await risk.shutdown('test');
+    }
   });
 });

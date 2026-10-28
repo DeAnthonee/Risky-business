@@ -3,8 +3,9 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { addPlayer, createGame, getMap, startGame, viewFor, type GameView } from '@risk/engine';
-import { Commander, condenseLearnings, parsePlanReply, profileExcerpt } from '../src/commander.js';
+import { Commander, condenseLearnings, JOINT_ROUNDS, parsePlanReply, profileExcerpt } from '../src/commander.js';
 import { commanderFacts } from '../src/facts.js';
+import { DealLedger } from '../src/deals.js';
 import type { Llm } from '../src/llm.js';
 import { DEFAULT_OPTIONS, pickMap, rotationMaps, shuffled } from '../src/presets.js';
 
@@ -99,6 +100,54 @@ describe('Commander', () => {
     expect(c.planText()).toContain('Hold Australia');
   });
 
+  it('puts the text shared by every seat first, so the model can reuse its cached prompt across seats', async () => {
+    const reply = JSON.stringify({ plan: 'p', aggression: 0.5 });
+    const shen = llmReturning(reply);
+    const shaco = llmReturning(reply);
+    const view = makeView({ capitals: false });
+    await base(shen.llm).planFor(view);
+    await base(shaco.llm, { seatName: 'Shaco', playerId: 'b', profile: 'Sneaky.' }).planFor(view);
+    const [a, b] = [shen.calls[0], shaco.calls[0]];
+    let common = 0;
+    while (common < a.length && a[common] === b[common]) common++;
+    const seatAt = a.indexOf('YOUR SEAT: you are the commander of the Risk player "Shen"');
+    expect(a.slice(0, common)).toContain('hold bonuses'); // learnings are in the shared part
+    expect(a.slice(0, common)).toContain('Use only ids and names');
+    expect(seatAt).toBeGreaterThan(a.indexOf('Use only ids and names')); // the seat comes after the shared part
+    expect(common).toBeGreaterThan(seatAt); // and the prompts only part ways inside the seat's own text
+    expect(a.indexOf('Calm.')).toBeGreaterThan(seatAt);
+  });
+
+  it('answers a joint-attack call even when the model sends "ping": null', async () => {
+    const { llm } = llmReturning(JSON.stringify({ plan: 'Hold', aggression: 0.5, ping: null }));
+    const c = base(llm);
+    const view = makeView({ capitals: false });
+    c.onMessages([{ id: 1, name: 'Shaco', message: '⚔️ [attack: Teemo]', at: 0 } as never]);
+    await c.planFor({ ...view, phase: 'reinforce' });
+    expect(c.popPing()).toMatchObject({ type: 'agree', to: 'Shaco', target: 'attack Teemo' });
+    expect(c.currentPlan()?.target).toBe('c'); // joins the attack on Teemo
+    // The partners leave each other alone while the joint attack runs...
+    expect(c.currentPlan()?.avoid).toContain('b');
+    // ...and not for the rest of the game: it ends once its rounds pass.
+    const later = { ...view, phase: 'reinforce' as const, round: view.round + JOINT_ROUNDS + 1, turnNumber: view.turnNumber + 20 };
+    c.observe(later);
+    await c.planFor(later);
+    expect(c.currentPlan()?.avoid ?? []).not.toContain('b');
+  });
+
+  it('ends a joint attack when the partner attacks us', async () => {
+    const { llm } = llmReturning(JSON.stringify({ plan: 'Hold', aggression: 0.5, ping: null }));
+    const c = base(llm);
+    const view = makeView({ capitals: false });
+    c.onMessages([{ id: 1, name: 'Shaco', message: '⚔️ [attack: Teemo]', at: 0 } as never]);
+    await c.planFor({ ...view, phase: 'reinforce' });
+    expect(c.currentPlan()?.avoid).toContain('b');
+    c.observe(view);
+    const mine = Object.entries(view.territories).find(([, s]) => s.owner === 'a')![0];
+    c.observe({ ...view, territories: { ...view.territories, [mine]: { owner: 'b', armies: 3 } } });
+    expect(c.currentPlan()?.avoid ?? []).not.toContain('b');
+  });
+
   it('falls back to the previous plan on bad JSON and to null when there is none', async () => {
     const { llm } = llmReturning('no json here', JSON.stringify({ plan: 'Second', aggression: 0.2 }), 'garbage again');
     const c = base(llm);
@@ -152,15 +201,20 @@ describe('Commander', () => {
     expect(c.logTail().length).toBeLessThanOrEqual(1500);
   });
 
-  it('drops an agreed truce once that player takes our land', async () => {
+  it('keeps only avoids a deal backs, and drops an agreed truce once that player takes our land', async () => {
     const view = makeView({ capitals: false });
-    const c = base(llmReturning(JSON.stringify({ plan: 'Peace with Shaco', avoid: ['Shaco', 'Teemo'] })).llm);
+    // A real truce with Shaco (proposed by Shen, accepted by Shaco); nothing backs avoiding Teemo.
+    const ledger = new DealLedger({ me: 'Shen', idPrefix: 'S' });
+    ledger.sync(view);
+    const d = ledger.propose({ kind: 'truce', with: 'Shaco', untilRound: view.round + 8 }, view, 'Peace?')!;
+    ledger.ingest([{ id: 1, name: 'Shaco', message: `Agreed [accept ${d.id}]` } as never]);
+    const c = base(llmReturning(JSON.stringify({ plan: 'Peace with Shaco', avoid: ['Shaco', 'Teemo'] })).llm, { ledger });
     await c.planFor(view);
-    expect(c.currentPlan()?.avoid).toEqual(['b', 'c']);
+    expect(c.currentPlan()?.avoid).toEqual(['b']);
     c.observe(view);
     const mine = Object.entries(view.territories).find(([, s]) => s.owner === 'a')![0];
     c.observe({ ...view, territories: { ...view.territories, [mine]: { owner: 'b', armies: 3 } } });
-    expect(c.currentPlan()?.avoid).toEqual(['c']);
+    expect(c.currentPlan()?.avoid ?? []).toEqual([]);
   });
 });
 
@@ -177,6 +231,38 @@ describe('prompt helpers', () => {
     expect(cut.length).toBeLessThanOrEqual(1000);
     expect(cut.startsWith('HEAD')).toBe(true);
     expect(cut.endsWith('TAIL')).toBe(true);
+  });
+
+  it('condenseLearnings filters sections based on game mode options', () => {
+    const raw = [
+      '# Risk Rules',
+      '## Game Rules & Foundations',
+      'Core rules here.',
+      '### Fog of War & Information Control',
+      'Watch border troops closely.',
+      '### Non-Fog of War (Public Board & Coalition Counterplay)',
+      'Public troop counts are known.',
+      '### Fixed Cards (Continental Attrition & Border Defense)',
+      'Bonuses matter most.',
+      '### Progressive Cards (Escalating Spoils & Chain Eliminations)',
+      'Escalating trade values.',
+      '### Capitals Conquest',
+      'Capitals hold bonuses.',
+    ].join('\n\n');
+
+    const progFog = condenseLearnings(raw, { fogOfWar: true, cardValues: 'progressive', capitals: false });
+    expect(progFog).toContain('Fog of War & Information Control');
+    expect(progFog).not.toContain('Non-Fog of War');
+    expect(progFog).toContain('Progressive Cards');
+    expect(progFog).not.toContain('Fixed Cards');
+    expect(progFog).not.toContain('Capitals Conquest');
+
+    const fixedCaps = condenseLearnings(raw, { fogOfWar: false, cardValues: 'fixed', capitals: true });
+    expect(fixedCaps).not.toContain('Fog of War & Information Control');
+    expect(fixedCaps).toContain('Non-Fog of War');
+    expect(fixedCaps).not.toContain('Progressive Cards');
+    expect(fixedCaps).toContain('Fixed Cards');
+    expect(fixedCaps).toContain('Capitals Conquest');
   });
 
   it('profileExcerpt keeps the intro and Strategy, and truncates', () => {

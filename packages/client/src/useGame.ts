@@ -32,6 +32,8 @@ export interface GameConnection {
   presence: PresenceMessage;
   /** The latest big-move reaction (null when none is showing). */
   reaction: BigMoveMessage | null;
+  /** Whether the server sends big-move pop-ups at all (off unless RISK_REACTIONS=1): the client hides them and their toggle. */
+  reactionsEnabled: boolean;
   /** Set when the room was closed (by the host, an admin, or for being idle). */
   closedReason: string | null;
   /** Spectator fast-forward: show every update the moment it arrives, no replay pacing (and no animations). */
@@ -93,6 +95,8 @@ export function useGame(gameId: string | null, token: string | undefined, coachK
   const [name, setName] = useState('');
   // A tournament table: which tournament, round and table (sent with the first state; it never changes).
   const [tournament, setTournament] = useState<TournamentTableRef | null>(null);
+  // Big-move pop-ups: only when the server says so in its reply to subscribe (owner: off for now).
+  const [reactionsEnabled, setReactionsEnabled] = useState(false);
   const [you, setYou] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
   const [batches, setBatches] = useState<EventBatch[]>([]);
@@ -127,11 +131,13 @@ export function useGame(gameId: string | null, token: string | undefined, coachK
     playback.current.fast = false;
     setFastForwardState(false);
     setTournament(null);
+    setReactionsEnabled(false);
     const apply = (m: StateMessage) => {
       setView(m.state);
       setHost(m.host);
       setName(m.name);
       if (m.tournament) setTournament(m.tournament);
+      if (m.reqId !== undefined) setReactionsEnabled(m.reactions === true);
       setYou(m.you);
       if (m.events.length) setBatches((b) => [...b.slice(-200), { id: ++seq.current, version: m.version, events: m.events }]);
     };
@@ -217,5 +223,5 @@ export function useGame(gameId: string | null, token: string | undefined, coachK
     await sockRef.current?.chat(msg, name, to);
   }, []);
 
-  return { view, host, name, tournament, you, connected, batches, chat, act, sendChat, error, clearError: () => setError(null), updateAvailable, presence, closedReason, fastForward, setFastForward, reaction };
+  return { view, host, name, tournament, you, connected, batches, chat, act, sendChat, error, clearError: () => setError(null), updateAvailable, presence, closedReason, fastForward, setFastForward, reaction, reactionsEnabled };
 }

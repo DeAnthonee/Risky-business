@@ -75,18 +75,25 @@ describe('engine speed paths', () => {
     expect(playChecked(5, { map: 'world', neutrals: 6 }, 6)).toBeGreaterThan(50);
   });
 
-  it('a view from shared board stats is the view worked out alone, for every seat, fog or not', () => {
-    for (const fogOfWar of [false, true]) {
-      let s = createGame('g', { maxPlayers: 4, capitals: true, blizzards: 4, fogOfWar }, 9);
+  it('a view from shared board stats is the view worked out alone, for every seat, fog or not', { timeout: 60_000 }, () => {
+    // Mega Earth has layered bonus zones, which views list per player too.
+    for (const [fogOfWar, map] of [[false, undefined], [true, undefined], [false, 'mega_earth'], [true, 'mega_earth']] as const) {
+      let s = createGame('g', { maxPlayers: 4, capitals: true, blizzards: 4, fogOfWar, ...(map ? { map } : {}) }, 9);
       for (let i = 0; i < 4; i++) s = addPlayer(s, `p${i}`, `P${i}`, true);
       s = startGame(s).state;
+      // Hand P0 a whole bonus zone, so the views have real zone lists to compare from the start.
+      if (map) for (const t of getMap(map).zones[0].territories) s.territories[t] = { ...s.territories[t], owner: 'p0' };
       const rng = createRng(9);
-      for (let step = 0; step < 150 && s.phase !== 'finished'; step++) {
+      let zonesHeld = 0;
+      for (let step = 0; step < (map ? 40 : 150) && s.phase !== 'finished'; step++) {
         const stats = boardStats(s);
+        zonesHeld = Math.max(zonesHeld, ...viewFor(s, null, stats).players.map((p) => p.zones?.length ?? 0));
         for (const viewer of [null, ...s.players.map((p) => p.id)]) expect(viewFor(s, viewer, stats)).toEqual(viewFor(s, viewer));
         const me = s.currentPlayer!;
         s = applyAction(s, me, chooseBotAction(s, me, () => nextFloat(rng)) ?? { type: 'end_turn' }).state;
       }
+      // On Mega Earth the views compared real zone lists, not only empty ones.
+      if (map) expect(zonesHeld).toBeGreaterThan(0);
     }
   });
 });

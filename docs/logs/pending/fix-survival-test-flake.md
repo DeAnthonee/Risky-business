@@ -1,0 +1,1 @@
+server: - 2026-10-28 #330 the Zerg survival tournament test no longer depends on the dice: it checks every table left with one non-Zerg, instead of requiring some round-1 table to end by `endBySurvival`

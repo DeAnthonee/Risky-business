@@ -18,6 +18,7 @@ import type { SeasonKeyGuard } from './season-key.js';
 import { NO_TOURNEY_CAPS, TournamentAccess, type TourneyAccessConfig } from './tournament-access.js';
 import { SeatRequests } from './seat-requests.js';
 import { TournamentScheduler, type ScheduleEntry } from './tournament-schedule.js';
+import { ScheduleSettings } from './schedule-settings.js';
 
 export interface AppOptions {
   /** Directory holding the built web client (served if it exists). */
@@ -54,6 +55,13 @@ export interface AppOptions {
   tournamentSchedule?: ScheduleEntry[] | null;
   /** Where the schedule's state is saved (under RISK_DATA_DIR), so a restart neither repeats nor skips a slot. */
   scheduleFile?: string | null;
+  /** The running schedule as written (the settings page edits it) and where it came from. */
+  scheduleRaw?: unknown[];
+  scheduleSource?: string | null;
+  /** The environment's schedule (RISK_TOURNAMENT_SCHEDULE), which the settings page's reset goes back to. */
+  envSchedule?: { raw: unknown[]; source: string } | null;
+  /** Where the settings page saves the schedule (RISK_DATA_DIR/tournament-schedule-entries.json); null = not kept. */
+  scheduleEntriesFile?: string | null;
   /** Sweep interval for idle rooms; 0 disables the automatic sweeper (tests). */
   sweepIntervalMs?: number;
 }
@@ -150,13 +158,15 @@ export function createRiskServer(store: Store, opts: AppOptions = {}): RiskServe
   // A full daily tournament: a person or agent joining takes a house-roster seat's place (roster seats yield).
   store.tournaments.roomFor = (t) => seatRequests.roomFor(t.id);
   store.tournaments.delovePool = seatRequests.enabled ? () => seatRequests.pool() : null;
-  app.use('/api', createApi(store, { adminToken: opts.adminToken, recordsKey: opts.recordsKey, openTournaments: opts.openTournaments ?? true, tourneyAccess, seatRequests, characters, seasonKey: opts.seasonKey, seasonGuard: opts.seasonGuard, seasonLockFile: opts.seasonLockFile }));
-  if (opts.sweepIntervalMs !== 0) store.startSweeper(opts.sweepIntervalMs ?? 30_000);
   // The daily tournament's house roster: when a slot with `roster: N` opens, its seat request goes out with N roster
   // names (roster.ts pick: spread over the models, rotating day to day). The pool seats those names with their models
   // first; with fewer active names than N, the rest are plain "Delove N" seats.
-  if (opts.tournamentSchedule?.length)
-    store.schedule = new TournamentScheduler(store.tournaments, opts.tournamentSchedule, opts.scheduleFile ?? null, (t, e) => seatRequests.openFor(t, store.roster.pick(e.roster)));
+  const onScheduleOpened = (t: Parameters<typeof seatRequests.openFor>[0], e: ScheduleEntry) => seatRequests.openFor(t, store.roster.pick(e.roster));
+  if (opts.tournamentSchedule?.length) store.schedule = new TournamentScheduler(store.tournaments, opts.tournamentSchedule, opts.scheduleFile ?? null, onScheduleOpened);
+  // The recurring tournaments' settings page (schedule-settings.ts) edits and replaces that schedule.
+  const scheduleSettings = new ScheduleSettings(store, opts.scheduleEntriesFile ?? null, opts.scheduleFile ?? null, onScheduleOpened, opts.scheduleRaw ?? [], opts.tournamentSchedule?.length ? (opts.scheduleSource ?? null) : null, opts.envSchedule ?? null);
+  app.use('/api', createApi(store, { adminToken: opts.adminToken, recordsKey: opts.recordsKey, openTournaments: opts.openTournaments ?? true, tourneyAccess, seatRequests, characters, seasonKey: opts.seasonKey, seasonGuard: opts.seasonGuard, seasonLockFile: opts.seasonLockFile, scheduleSettings }));
+  if (opts.sweepIntervalMs !== 0) store.startSweeper(opts.sweepIntervalMs ?? 30_000);
 
   // Remote MCP endpoint for AI agents (claude.ai connectors, any Streamable HTTP MCP client).
   const mcp = createMcpRouter(store, characters, opts.mcpLabel ?? 'Risky Business', opts.adminToken ?? null, opts.openTournaments ?? true, tourneyAccess, seatRequests);

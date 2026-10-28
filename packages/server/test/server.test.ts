@@ -1021,6 +1021,15 @@ describe('new boards over HTTP', () => {
     expect(map.body.adjacency.fez).toContain('andalusia');
   });
 
+  it('serves Mega Earth with its layered bonus zones; other boards have none', async () => {
+    const map = await api('/map?map=mega_earth');
+    const tiers = (map.body.zones as any[]).reduce((n: Record<string, number>, z: any) => ((n[z.tier] = (n[z.tier] ?? 0) + 1), n), {});
+    expect(tiers).toEqual({ micro: 103, section: 32, continent: 4 });
+    expect(map.body.zones.find((z: any) => z.id === 'c_africa')).toMatchObject({ name: 'Africa', tier: 'continent', bonus: 38 });
+    expect(map.body.zones[0].outline).toBeUndefined();
+    expect((await api('/map?map=classic')).body.zones).toBeUndefined();
+  });
+
   it('no longer offers the legacy 99-territory europe_advanced board for new games', async () => {
     const maps = await api('/maps');
     expect(maps.body.maps.map((m: any) => m.id)).not.toContain('europe_advanced');

@@ -90,7 +90,10 @@ On a **phone** the board fills the screen and the sidebar becomes a tab bar (Boa
 
 On desktop, drag the divider under the scoreboard to give the log/chat more or less room (double-click resets). Hovering any territory highlights all the attackable territories from that spot (pulsing red along land borders and active sea links) for both players and spectators, making attack routes and board connectivity clear at a glance. The log shows each attack as one entry: who took (or failed to take) which territory, each side's armies at the start and end with the losses, the number of rolls and the armies moved in; hover it for the individual dice rolls. Runs of fogged events collapse into one line with a count. When you pick an attack, a **commit slider** sets how many armies to throw at it (the rest stay home; the blitz stops there) and shows the exact chance to take the territory with random dice and with balanced blitz, the average losses on each side, and one-click buttons for the commitment a 50%, 75%, 90% or 99% chance needs. Agents get the same as `stopAt` and a win chance next to each attack in their legal moves.
 Press **Bonuses** (on the map, in the spectator bar, or **B**) to see every region painted in its own colour with
-its bonus, no armies; neighbouring regions never share a colour, on the board or in this view.
+its bonus, no armies; neighbouring regions never share a colour, on the board or in this view. On Mega Earth the
+view also draws its stacking bonus zones ([maps.md](maps.md)): sections as solid light lines and micro zones as dashed
+dark ones (on the globe, zone edges in light lines), and a hex's tooltip lists every bonus it counts toward. A
+player's income tooltip and card show the zones they hold (continents and sections by name, micro zones as a count).
 
 **Hex Earth** (`hexworld`) is shown as a **globe** you can spin: drag to turn it, wheel or pinch (or **+** / **−**) to
 zoom, **⟲** to go back to the start view. Its hexes are raised by army count, so big stacks stand out as plateaus, in

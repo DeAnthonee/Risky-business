@@ -7,6 +7,7 @@ import { AutoAdvance, isGenerationGame, useLiveGame, type AutoSpectate } from '.
 import { Tournament } from './components/Tournament';
 import { CreateTournament } from './components/CreateTournament';
 import { PlayerKeyPage } from './components/PlayerKeyPage';
+import { TourneySettings } from './components/TourneySettings';
 import { CoachBox } from './components/CoachBox';
 import {
   clearSession,
@@ -15,12 +16,14 @@ import {
   getPlayerKey,
   hostFormFromUrl,
   playerPageFromUrl,
+  scheduleSettingsFromUrl,
   getSession,
   saveSession,
   setGameInUrl,
   setName as persistName,
   setHostFormInUrl,
   setPlayerPageInUrl,
+  setScheduleSettingsInUrl,
   setTournamentInUrl,
   spectateFromUrl,
   tournamentIdFromUrl,
@@ -44,6 +47,11 @@ export function App() {
   const [hosting, setHosting] = useState(() => hostFormFromUrl());
   // ?player=1: the player key page (links to it come from the home page).
   const [playerPage, setPlayerPage] = useState(() => playerPageFromUrl());
+  // The recurring tournaments' settings page (?admin=schedule): the site owner's, behind the admin token.
+  const [scheduleSettings, setScheduleSettings] = useState(() => scheduleSettingsFromUrl());
+  useEffect(() => {
+    setScheduleSettingsInUrl(scheduleSettings);
+  }, [scheduleSettings]);
 
   useEffect(() => {
     // The stream keeps its URL (`?spectate=1`), so a reload tunes back into whatever is live.
@@ -108,6 +116,10 @@ export function App() {
 
   // Stable, so the countdown's effects do not restart on every render. Staying ends auto-spectate for good.
   const auto = useMemo<AutoSpectate>(() => ({ advance: (id) => setGameId(id), stay: () => setAutoSpectate(false) }), []);
+
+  if (!gameId && !tournamentId && scheduleSettings) {
+    return <TourneySettings onBack={() => setScheduleSettings(false)} />;
+  }
 
   if (!gameId && !tournamentId && playerPage) {
     return <PlayerKeyPage onBack={() => setPlayerPage(false)} />;

@@ -253,6 +253,8 @@ export interface ReinforcementBreakdown {
   territories: number;
   fromTerritories: number;
   continents: { id: string; bonus: number }[];
+  /** Layered bonus zones held (micro zones, sections, continents), on a board that has them (Mega Earth). */
+  zones?: { id: string; bonus: number }[];
   /** Capitals held (capitals option) and the armies they add. */
   capitals: number;
   fromCapitals: number;

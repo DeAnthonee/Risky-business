@@ -511,6 +511,11 @@ export function continentsOf(state: GameState, id: PlayerId) {
   return mapOf(state).continents.filter((c) => controlsContinent(state, c.territories, id));
 }
 
+/** The layered bonus zones (Mega Earth) a player holds, by the same rule as a continent (blizzards left out). */
+export function zonesOf(state: GameState, id: PlayerId) {
+  return mapOf(state).zones.filter((z) => controlsContinent(state, z.territories, id));
+}
+
 export function capitalsHeldBy(state: GameState, id: PlayerId): TerritoryId[] {
   return Object.values(state.capitals).filter((t) => state.territories[t]?.owner === id);
 }
@@ -519,10 +524,12 @@ export function reinforcementsFor(state: GameState, id: PlayerId): Reinforcement
   const owned = territoriesOf(state, id).length;
   const fromTerritories = Math.max(3, Math.floor(owned / 3));
   const continents = continentsOf(state, id).map((c) => ({ id: c.id, bonus: c.bonus }));
+  // Zones stack: a micro zone, its section, its region and its continent each pay.
+  const zones = mapOf(state).zones.length ? zonesOf(state, id).map((z) => ({ id: z.id, bonus: z.bonus })) : null;
   const capitals = state.options.capitals ? capitalsHeldBy(state, id).length : 0;
   const fromCapitals = capitals * CAPITAL_BONUS;
-  const total = fromTerritories + continents.reduce((n, c) => n + c.bonus, 0) + fromCapitals;
-  return { territories: owned, fromTerritories, continents, capitals, fromCapitals, total };
+  const total = fromTerritories + continents.reduce((n, c) => n + c.bonus, 0) + (zones ?? []).reduce((n, z) => n + z.bonus, 0) + fromCapitals;
+  return { territories: owned, fromTerritories, continents, ...(zones ? { zones } : {}), capitals, fromCapitals, total };
 }
 
 /** Does the player have to trade cards right now before doing anything else? */

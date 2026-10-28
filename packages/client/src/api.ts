@@ -267,7 +267,21 @@ export interface HostEntrantsView {
   entrants: { id: string; name: string; kind: 'zerg' | 'bot' | 'delove' | 'agent' | 'human'; agent?: string; joinedAt: number }[];
 }
 
+/** The recurring tournaments' settings page (GET/PUT/DELETE /api/admin/schedule, admin token). */
+export interface ScheduleSettingsView {
+  source: string | null;
+  entries: Record<string, unknown>[];
+  nextStarts: number[];
+  persistent: boolean;
+  envSource: string | null;
+}
+
 export const api = {
+  scheduleSettings: (adminToken: string) => request<ScheduleSettingsView>('/admin/schedule', {}, adminToken),
+  saveSchedule: (adminToken: string, entries: unknown[]) => request<ScheduleSettingsView>('/admin/schedule', { method: 'PUT', body: JSON.stringify({ entries }) }, adminToken),
+  resetSchedule: (adminToken: string) => request<ScheduleSettingsView>('/admin/schedule', { method: 'DELETE' }, adminToken),
+  runScheduled: (adminToken: string, style: string, startsInMinutes: number) =>
+    request<{ tournament: TournamentView }>('/admin/schedule/run', { method: 'POST', body: JSON.stringify({ style, startsInMinutes }) }, adminToken),
   hostEntrants: (id: string, hostToken?: string) => request<HostEntrantsView>(`/tournaments/${id}/entrants`, {}, hostToken),
   previewTournament: (spec: CreateTournamentRequest) => request<{ preview: TournamentPreview }>('/tournaments/preview', { method: 'POST', body: JSON.stringify(spec) }),
   createTournament: (spec: CreateTournamentRequest) => request<{ hostToken: string; tournament: TournamentView }>('/tournaments', { method: 'POST', body: JSON.stringify(spec) }),

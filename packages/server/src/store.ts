@@ -5,6 +5,8 @@ import { dirname, join } from 'node:path';
 import {
   RuleError,
   endByStanding,
+  endBySurvival,
+  lastSurvivor,
   endInStalemate,
   onlySideLeft,
   stalemateDue,
@@ -34,16 +36,16 @@ import { DISCONNECT_FROM_ENV as DISCONNECT, disconnectIdleMs } from './seat-heal
 import { timeoutSteps, timerOf, type RecordDecision } from '@risk/engine';
 import { BigMoveTracker, ReactionPacer, bigMoveMessage, reactionsOn } from './reactions.js';
 import { chooseSeatAction, isZergSeat, seatIdPrefix, zergName, type BotKind } from './bot.js';
-import { DEFAULT_TOURNAMENT_LIMITS, TournamentManager, type TournamentClock, type TournamentTableRef } from './tournaments.js';
+import { DEFAULT_TOURNAMENT_LIMITS, TournamentManager, type TournamentClock, type TournamentSnapshot, type TournamentTableRef } from './tournaments.js';
 import { QuickPlayQueue, quickPlayConfigFromEnv } from './quick-play.js';
 import { PlayerKeyStore, playerKeyConfigFromEnv } from './player-keys.js';
 import { CoachLog } from './coach.js';
-import { TournamentRankings } from './tournament-scoring.js';
+import { TournamentRankings, type ScoredBracket } from './tournament-scoring.js';
 import type { TournamentScheduler } from './tournament-schedule.js';
 import { SwarmSum, ZergTally, zergReport, type SwarmTotal, type ZergReport } from './zerg-report.js';
 import { Rankings } from './rankings.js';
 import { DEFAULT_KEEP, GameArchive, type CommitInfo } from './archive.js';
-import { ROSTER_AGENT, RosterStore } from './roster.js';
+import { modelLabel, ROSTER_AGENT, RosterStore } from './roster.js';
 
 export interface ChatMessage {
   id: number;
@@ -136,6 +138,8 @@ export interface RoomSnapshot {
   botDelayMs?: number;
   /** Made by the quick-play queue (see quick-play.ts): no host, the turn timer on. */
   quickPlay?: true;
+  /** A Zerg survival tournament table: the game ends once one seat that is not a Zerg is left (the engine's endBySurvival). */
+  survival?: true;
   /** Seats joined with a player key: player id -> registered player id (player-keys.ts). Never the key itself. */
   playerKeys?: Record<string, string>;
   /** House roster seats (roster.ts): player id -> roster id. They rank as `roster:<id>`; never shown publicly. */
@@ -201,6 +205,8 @@ export interface GameSummary {
   board?: RankingBoard;
   /** A quick-play game (seated by the queue, filled with house players). */
   quickPlay?: true;
+  /** A Zerg survival tournament table. */
+  survival?: true;
 }
 
 export interface ChangeMessage {
@@ -326,6 +332,8 @@ export class GameRoom extends EventEmitter {
   botDelayMs: number | null = null;
   /** Seated by the quick-play queue: the sweep leaves it running while its turn timer moves for absent seats. */
   quickPlay = false;
+  /** A Zerg survival table (saved): ends when one non-Zerg is left. */
+  survival = false;
   private botTimer: NodeJS.Timeout | null = null;
   /** Big-move reactions (reactions.ts): the turn tally and the per-game pacing of pop-ups ('big_move' events). */
   private bigMoves = new BigMoveTracker();
@@ -365,6 +373,7 @@ export class GameRoom extends EventEmitter {
     this.decidedAt = snapshot.decidedAt ?? null;
     this.botDelayMs = snapshot.botDelayMs ?? null;
     this.quickPlay = snapshot.quickPlay === true;
+    this.survival = snapshot.survival === true;
     if (this.state.phase === 'finished') this.finishedAt = this.history.at(-1)?.at ?? this.updatedAt;
   }
 
@@ -395,6 +404,7 @@ export class GameRoom extends EventEmitter {
       ...(this.decidedAt !== null ? { decidedAt: this.decidedAt } : {}),
       ...(this.botDelayMs !== null ? { botDelayMs: this.botDelayMs } : {}),
       ...(this.quickPlay ? { quickPlay: true as const } : {}),
+      ...(this.survival ? { survival: true as const } : {}),
     };
   }
 
@@ -573,6 +583,7 @@ export class GameRoom extends EventEmitter {
       ...(this.tournamentId ? { tournamentId: this.tournamentId } : {}),
       ...(this.board ? { board: this.board } : {}),
       ...(this.quickPlay ? { quickPlay: true as const } : {}),
+      ...(this.survival ? { survival: true as const } : {}),
       ...this.decidedField(),
     };
   }
@@ -655,6 +666,7 @@ export class GameRoom extends EventEmitter {
     for (const m of this.bigMoves.observe(next, events)) if (reactionsOn()) this.reactionPacer.push(bigMoveMessage(this.id, next, this.characterIds, m));
     this.scheduleBot();
     this.endIfOnlySwarm();
+    this.endIfLastSurvivor();
     this.endIfStalemate();
   }
 
@@ -700,6 +712,21 @@ export class GameRoom extends EventEmitter {
     const { state, events } = endByStanding(s, new Set(s.players.filter((p) => p.alive && zergs.has(p.id)).map((p) => p.id)));
     this.addChat(null, 'Game', 'Only Zergs are left: the swarm has won, and the game ends as it stands.');
     this.commit(state, events, null, { type: 'system', note: 'only Zergs are left: the swarm has won, the game ends by standing' });
+  }
+
+  /**
+   * Zerg survival (a survival tournament's table): once one seat that is not a Zerg is left of two or more, that seat
+   * has won, whatever the Zergs hold (the engine's lastSurvivor / endBySurvival). Through commit like any move.
+   */
+  private endIfLastSurvivor() {
+    if (!this.survival || this.decidedAt !== null) return;
+    const s = this.state;
+    const zergs = new Set(s.players.filter((p) => this.isZerg(p.id)).map((p) => p.id));
+    if (!lastSurvivor(s, zergs)) return;
+    const { state, events } = endBySurvival(s, zergs);
+    const name = s.players.find((p) => p.id === state.winner)?.name ?? '?';
+    this.addChat(null, 'Game', `${name} is the last one standing against the swarm and wins this table.`);
+    this.commit(state, events, null, { type: 'system', note: 'Zerg survival: one non-Zerg is left, the game ends' });
   }
 
   bindCharacter(playerId: string, characterId: string) {
@@ -1182,9 +1209,9 @@ export class Store {
     const keys = playerKeyConfigFromEnv(process.env);
     this.playerKeys = new PlayerKeyStore(file ? join(dirname(file), 'player-keys.json') : null, keys.limits);
     this.playerKeys.enabled = keys.enabled;
-    this.tournaments.onFinished = (t) => this.tournamentBoard.record(t);
+    this.tournaments.onFinished = (t) => this.tournamentBoard.record(this.withEntrantModels(t));
     for (const t of this.tournaments.tournaments.values()) {
-      if (t.status === 'finished' && t.rounds.some((r) => r.matches.some((m) => m.order))) this.tournamentBoard.record(t, t.updatedAt);
+      if (t.status === 'finished' && t.rounds.some((r) => r.matches.some((m) => m.order))) this.tournamentBoard.record(this.withEntrantModels(t), t.updatedAt);
     }
     // A restored game's clock starts again in full (deadlines are not saved).
     for (const room of this.rooms.values()) {
@@ -1362,6 +1389,30 @@ export class Store {
    * A tournament table: a room nobody hosts (so no seat can close it, kick or add players), seated with
    * the given players in order and started at once. Returns each player's seat in the same order.
    */
+  /** A finished tournament for the board: each house entrant with the model it played (roster binding, else its label). */
+  private withEntrantModels(t: TournamentSnapshot): ScoredBracket {
+    return {
+      ...t,
+      entrants: t.entrants.map((e) => {
+        const model = e.rosterId ? this.roster.get(e.rosterId)?.model : modelLabel(e.agent) ? e.agent : undefined;
+        return model ? { ...e, model } : e;
+      }),
+    };
+  }
+
+  /**
+   * Leaderboard rows with the model column (owner, 2026-10-27: public on every board): "D13", "D13-S"... for a roster
+   * name (its bound model) or an entrant whose tournament results name a model; absent for everyone else.
+   */
+  withModels<R extends { key: string; model?: string }>(rows: R[]): (R & { model?: string })[] {
+    return rows.map((r) => {
+      const roster = r.key.startsWith('roster:') ? this.roster.get(r.key.slice('roster:'.length))?.model : undefined;
+      const model = modelLabel(roster ?? r.model ?? this.tournamentBoard.modelOf(r.key));
+      const { model: _raw, ...rest } = r;
+      return (model ? { ...rest, model } : rest) as R & { model?: string };
+    });
+  }
+
   createTable(
     name: string,
     options: Partial<GameOptions>,
@@ -1372,11 +1423,11 @@ export class Store {
      * `prepare(lobby, seats)` builds the start from the seated lobby (engine rules, e.g. startOnSpots); `botDelayMs` sets the
      * bots' pace; `quickPlay` marks a room the quick-play queue made.
      */
-    extra: { prepare?: (lobby: GameState, seats: { playerId: PlayerId; token: string }[]) => ActionResult; botDelayMs?: number; quickPlay?: boolean } = {},
+    extra: { prepare?: (lobby: GameState, seats: { playerId: PlayerId; token: string }[]) => ActionResult; botDelayMs?: number; quickPlay?: boolean; survival?: boolean } = {},
   ): { room: GameRoom; seats: { playerId: PlayerId; token: string }[] } {
     let id = joinCode();
     while (this.rooms.has(id)) id = joinCode();
-    const room = new GameRoom({ id, name, hostId: '', state: createGame(id, options), tokens: {}, chat: [], history: [], updatedAt: Date.now(), ...(tournamentId ? { tournamentId } : {}), ...(extra.botDelayMs !== undefined ? { botDelayMs: extra.botDelayMs } : {}), ...(extra.quickPlay ? { quickPlay: true as const } : {}) });
+    const room = new GameRoom({ id, name, hostId: '', state: createGame(id, options), tokens: {}, chat: [], history: [], updatedAt: Date.now(), ...(tournamentId ? { tournamentId } : {}), ...(extra.botDelayMs !== undefined ? { botDelayMs: extra.botDelayMs } : {}), ...(extra.quickPlay ? { quickPlay: true as const } : {}), ...(extra.survival ? { survival: true as const } : {}) });
     this.attach(room);
     // A Zerg entrant keeps its tournament name (a Zerg name, unique in the tournament, so unique at the table).
     // A Zerg with no name (a quick-play fill) gets a Zerg name nobody at the table has.

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { RankingRow } from '@risk/engine';
+import type { TournamentStyle } from '../api';
 import { API } from '../api';
 import { getName, setName } from '../session';
 
@@ -110,8 +111,24 @@ export function CharacterName({ name, gameId, playerId, profileKey, season, trai
 
 interface SeasonInfo { id: string; season: number; current: boolean; games: number }
 
-/** A row of the tournament leaderboard (GET /rankings?board=tournament). */
-interface TournamentRow { key: string; name: string; rank: number; points: number; tournaments: number; championships: number; finals: number; tablesWon: number; kills: number; bestFinish: string }
+/** A row of the tournament leaderboard (GET /rankings?board=tournament&style=...). */
+interface TournamentRow { key: string; name: string; rank: number; points: number; tournaments: number; championships: number; finals: number; tablesWon: number; kills: number; bestFinish: string; model?: string }
+
+/** Any board's row: `model` is a Delove's model as the boards show it (D13, D13-S = with search), else absent. */
+type BoardRow = RankingRow & { model?: string };
+
+/** The tournament styles, each with its own board (docs/tournaments.md "Tournament styles"). */
+const STYLES: { id: TournamentStyle; label: string; note: string }[] = [
+  { id: 'classic', label: 'Classic groups', note: 'Groups of 3 to 6 a table.' },
+  { id: '1v1', label: '1v1s', note: 'Two seats a table, head to head.' },
+  { id: 'survival', label: 'Zerg survival', note: 'Zergs in the field: the last one standing who is not a Zerg moves on.' },
+];
+
+/** The model tag after a name on the boards: "D13", "D13-S" (with search). */
+function ModelTag({ model }: { model?: string }) {
+  if (!model) return null;
+  return <span className="rank-model" title={`Delove model ${model.replace(/^D/, '').replace(/-S$/, '')}${model.endsWith('-S') ? ' with search' : ''}`}>{model}</span>;
+}
 
 /**
  * "Archive season": asks for the season password and a confirmation, then archives the public board's season (the old
@@ -157,7 +174,7 @@ function ArchiveSeason({ season, onDone }: { season: number; onDone: () => void 
 }
 
 export function Leaderboard() {
-  const [rows, setRows] = useState<RankingRow[]>([]);
+  const [rows, setRows] = useState<BoardRow[]>([]);
   const [tournamentRows, setTournamentRows] = useState<TournamentRow[]>([]);
   const [error, setError] = useState('');
   const [loaded, setLoaded] = useState(false);
@@ -173,23 +190,25 @@ export function Leaderboard() {
   const training = board === 'training';
   const tournament = board === 'tournament';
   const toggle = (b: 'training' | 'tournament') => setBoard(cur => (cur === b ? '' : b));
+  // The tournament board shows one style at a time.
+  const [style, setStyle] = useState<TournamentStyle>('classic');
   useEffect(() => {
     let alive = true;
     setLoaded(false);
-    const query = board ? `?board=${board}` : season ? `?season=${encodeURIComponent(season)}` : '';
+    const query = board === 'tournament' ? `?board=tournament&style=${style}` : board ? `?board=${board}` : season ? `?season=${encodeURIComponent(season)}` : '';
     const load = () => Promise.all([
       read<{ rankings: RankingRow[] | TournamentRow[] }>(`${API}/rankings${query}`),
       read<{ seasons: SeasonInfo[]; archiving?: boolean }>(`${API}/rankings/seasons`),
     ]).then(([r, s]) => {
       if (!alive) return;
       if (board === 'tournament') setTournamentRows(r.rankings as TournamentRow[]);
-      else setRows(r.rankings as RankingRow[]);
+      else setRows(r.rankings as BoardRow[]);
       setSeasons(s.seasons); setArchiving(!!s.archiving); setLoaded(true); setError('');
     }).catch(e => { if (alive) setError(e.message); });
     void load();
     const timer = season && !board ? undefined : setInterval(load, 15_000);
     return () => { alive = false; clearInterval(timer); };
-  }, [retry, season, board]);
+  }, [retry, season, board, style]);
   const shown = tournament ? tournamentRows : rows;
   const current = seasons.find(s => s.current);
   return <section className="board leaderboard" aria-labelledby="leaderboard-title">
@@ -211,14 +230,17 @@ export function Leaderboard() {
       </div>
     </div>
     {training && <p className="small muted board-note">Yardstick games between AI models (e.g. Delove against Claude seats), ranked by seat name. They never count on the public leaderboard.</p>}
-    {tournament && <p className="small muted board-note">One result per player per finished tournament. Tournament tables never count on the public leaderboard.</p>}
+    {tournament && <div className="board-styles" role="group" aria-label="Tournament style">
+      {STYLES.map(s => <button key={s.id} type="button" className={`board-toggle${style === s.id ? ' on' : ''}`} aria-pressed={style === s.id} onClick={() => setStyle(s.id)} title={s.note}>{s.label}</button>)}
+    </div>}
+    {tournament && <p className="small muted board-note">{STYLES.find(s => s.id === style)!.note} One result per player per finished tournament. Tournament tables never count on the public leaderboard.</p>}
     {error && <p role="alert">{error} <button onClick={() => setRetry(n => n + 1)}>Retry</button></p>}
     {!loaded && !error && <p role="status">Loading leaderboard…</p>}
-    {loaded && !shown.length && <p className="board-empty">{training ? 'No training games yet.' : tournament ? 'No finished tournaments yet.' : season ? 'No games were ranked in this season.' : 'No completed games yet this season. The first finished game starts the standings.'}</p>}
+    {loaded && !shown.length && <p className="board-empty">{training ? 'No training games yet.' : tournament ? `No finished ${STYLES.find(s => s.id === style)!.label} tournaments yet.` : season ? 'No games were ranked in this season.' : 'No completed games yet this season. The first finished game starts the standings.'}</p>}
     {tournament && !!tournamentRows.length && <ol className="ranks">
       {tournamentRows.map(r => <li key={r.key} className={`rank-row${r.rank <= 3 ? ` podium podium-${r.rank}` : ''}`}>
         <span className="rank-num" aria-label={`Rank ${r.rank}`}>{r.rank}</span>
-        <span className="rank-name">{r.name}</span>
+        <span className="rank-name">{r.name}<ModelTag model={r.model} /></span>
         <span className="rank-points"><strong>{r.points}</strong> pts</span>
         <span className="rank-stats">
           <span title="Tournaments played">{r.tournaments} played</span>
@@ -233,7 +255,7 @@ export function Leaderboard() {
     {!tournament && !!rows.length && <ol className="ranks">
       {rows.map(r => <li key={r.key} className={`rank-row${r.rank <= 3 ? ` podium podium-${r.rank}` : ''}`}>
         <span className="rank-num" aria-label={`Rank ${r.rank}`}>{r.rank}</span>
-        <span className="rank-name"><CharacterName name={r.name} profileKey={r.key} season={season || undefined} training={training} /></span>
+        <span className="rank-name"><CharacterName name={r.name} profileKey={r.key} season={season || undefined} training={training} /><ModelTag model={r.model} /></span>
         <span className="rank-points"><strong>{r.points}</strong> pts</span>
         <span className="rank-stats">
           <span title="Wins and losses">{r.wins}–{r.losses}</span>

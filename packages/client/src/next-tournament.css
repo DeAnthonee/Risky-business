@@ -113,3 +113,15 @@
   font-size: 0.9em;
   opacity: 0.8;
 }
+
+/* The style of the next tournament after the heading: Classic groups, 1v1s, Zerg survival. */
+.next-tourney-style {
+  margin-left: 10px;
+  padding: 0 8px;
+  background: var(--nt-ink);
+  color: var(--nt-teal);
+  font-size: 0.7em;
+  vertical-align: 0.15em;
+  white-space: nowrap;
+}
+.next-tourney-style.style-survival { color: var(--nt-red); }

@@ -9,8 +9,9 @@ import { builtInReservedName, nameSkeleton } from './player-keys.js';
  * model ("Tom" plays delove@12 forever). The seat pool seats them in tournaments by roster id; they rank as
  * `roster:<id>`, so a name's stats build up across days, and a retired name's row freezes.
  *
- * The name -> model list is the ANSWER KEY: only the admin routes (/api/admin/roster) show it, and the records-key game
- * records (`room.roster`). Every public view shows a roster seat as `ROSTER_AGENT`, like any other AI agent.
+ * The name -> model list: the admin routes (/api/admin/roster) and the records-key game records (`room.roster`) show it
+ * in full, and since 2026-10-27 the leaderboards show each name's model as a short tag (`modelLabel`, owner's request).
+ * A roster seat in a game still shows as `ROSTER_AGENT`, like any other AI agent.
  */
 
 /** The player type every public view shows for a roster seat (never its model). */
@@ -217,4 +218,15 @@ export class RosterStore {
       return e;
     });
   }
+}
+
+/**
+ * A Delove model id as the leaderboards show it (owner, 2026-10-27: "D12 for delove 12 or D13-S, Delove 13 with
+ * search"): "delove@13" -> "D13", "delove@13+search" (or "delove@13 + search") -> "D13-S", "delove@12-fog" ->
+ * "D12-fog", "jacob-sensei@2" -> "JS2". Anything else (not a house model) -> undefined.
+ */
+export function modelLabel(model: string | undefined): string | undefined {
+  const m = model ? /^\s*(delove|jacob-sensei)@([a-z0-9._-]+?)\s*(\+\s*search)?\s*$/i.exec(model) : null;
+  if (!m) return undefined;
+  return `${m[1].toLowerCase() === 'delove' ? 'D' : 'JS'}${m[2]}${m[3] ? '-S' : ''}`;
 }

@@ -87,6 +87,9 @@ export interface TournamentSummary {
   updatedAt: number;
 }
 
+/** A nested tournament's style: Classic groups, 1v1s or Zerg survival (each has its own tournament leaderboard). */
+export type TournamentStyle = 'classic' | '1v1' | 'survival';
+
 /** The server's next scheduled tournament (GET /api/tournaments/next); `scheduled` false = no schedule. */
 export interface NextTournament {
   scheduled: boolean;
@@ -106,8 +109,15 @@ export interface NextTournament {
     roster?: number;
     /** The schedule entry's time zone (IANA), or null for UTC. */
     tz?: string | null;
+    /** Its style and what to call it ("Classic groups", "1v1s", "Zerg survival"); absent on older servers. */
+    style?: TournamentStyle;
+    label?: string;
+    /** The first round's smallest table (classic and survival), or null for the default 3. */
+    minTable?: number | null;
+    /** Zerg entrants added as it opens. */
+    zergs?: number;
   } | null;
-  running: { id: string; name: string; startsAt: number; round: number } | null;
+  running: { id: string; name: string; startsAt: number; round: number; style?: TournamentStyle; label?: string } | null;
   cancelled: { id: string; name: string; startsAt: number; reason: string } | null;
 }
 

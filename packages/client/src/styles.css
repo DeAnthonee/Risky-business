@@ -1182,6 +1182,30 @@ button.link {
   gap: 6px;
   font-size: 0.9em;
 }
+/* Broadcast delay (spectators): "x s behind" badge, delay picker, Live button, skipped-turns notice */
+.broadcast-delay {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 0.9em;
+}
+.broadcast-delay select {
+  width: auto;
+  padding: 2px 6px;
+}
+.delay-badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.08);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.delay-skipped {
+  color: var(--muted);
+  white-space: nowrap;
+}
 label.check {
   flex-direction: row;
   align-items: center;

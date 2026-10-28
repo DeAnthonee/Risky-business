@@ -29,6 +29,19 @@ Press **Fast-forward** in the spectator bar to drop the replay and all animation
 happens (handy for long all-AI games); press it again for normal speed. It is spectator-only and resets to normal
 speed when you take a seat or reload.
 
+**Broadcast delay** (a big or fast table, like a 100-seat mega table that makes 20-40 moves a second): a spectator
+watches a fixed time behind live, like a TV broadcast, so the game runs as fast as the seats decide while you watch
+at a readable pace. It switches on by itself for a spectator of a table with more than 8 seats, or one making more than
+4 moves a second; **📺 Delay** turns it on anywhere. Every move is played in order once it is that old (10 s by
+default; pick 5-60 s): a turn's placements and trades show together, an attack's rolls play as one blitz up to its
+conquest, which holds a beat, and there is a short pause between turns. The **"x s behind"** badge shows how old the
+oldest move still waiting is ("caught up" when none waits). Running late, the replay plays faster, down to a third of
+its pace; more than 40 s past the delay it **skips whole turns** back to 20 s past it and says so ("⏭ Skipped turns
+993–1052"). Skipped moves are never dropped: they go to the log, without animations. **● Live** jumps to the live board
+the same way and watches live (normal replay) from then on, and so does **Fast-forward**; neither switches the delay
+back on by itself. Seated players always see the game live, and the delay never moves anyone to another game. The
+constants are `DELAY` in `packages/client/src/useGame.ts`.
+
 The board sits on animated water: a lit sea that darkens toward the edges, small cream wave marks that drift
 and fade in and out, and a soft surf glow that swells along every coast. It is ambient decoration (Fast-forward
 does not touch it) and holds still when the system asks for reduced motion.

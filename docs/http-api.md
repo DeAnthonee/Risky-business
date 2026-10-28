@@ -123,6 +123,19 @@ Spectators chat with `{"type":"chat","message":"…","name":"Your name"}` (add `
 `{"type":"chat","message":"…","to":"Bob"}` (only that player and spectators receive it). The server pushes
 `{"type":"state", state, events, version}` after every change and `{"type":"chat", message}` for chat. The first state after a `subscribe` to a tournament table also has `tournament: {id, name, round, table, tables, final}` (the in-game banner); later states leave it out, since it never changes. **Off by default:** only with `RISK_REACTIONS=1` does the server send the following, and then the first state after a `subscribe` has `reactions: true`. After a turn in which one player took a lot from another (`BIG_MOVE` in `packages/server/src/excitement.ts`: at least 3 territories and 25% of what the victim held when the turn began, or a knockout, or a capital), it also pushes `{"type":"big_move", gameId, version, kind: "sweep"|"knockout"|"capital", attacker: {id, name}, victim: {id, name}, taken, anchor, line, reply}` with a canned line from each side (`reaction-lines.ts`; a character's own voice when the seat is bound to one). It is presentation only, never part of the state, events or record. It goes only to sockets whose view already shows the whole board (any game without fog; under fog, spectators and eliminated players), and at most one per 5 s per game (up to 3 wait, the rest are dropped).
 Every spectator socket of a room gets the same message for a change, built once per change (players get their own view).
+
+**Compact spectator frames.** A spectator that adds `"frames":"delta"` to its subscribe gets small frames instead of
+the whole board after every change (at a 100-seat Mega Earth table a full frame is ~75 KB, a compact one ~1-2 KB; the
+web client always asks; old clients never ask and keep getting full `state` frames). Its first state is the whole
+spectator view as usual, plus `frame: n`. Then every change is
+`{"type":"state_delta", frame, base, patch | state, events, version, host, name, you: null, commit}`: `base` is the frame
+it applies on (always the previous one), and `patch` is `{set?: {key: value}, drop?: [key], territories?: {id: territory},
+players?: {index: player}}`, the top-level keys whose value changed (or vanished) and the territories and players that
+changed (a changed seat count sends `players` whole in `set`). Every 100th frame carries the whole view as `state`
+instead of a patch. A client whose last frame is not `base` (it missed one) sends its subscribe again and gets a whole
+state. `packages/server/src/spectator-delta.ts` builds the frames once per (room, change) for every such socket;
+`packages/client/src/spectatorDelta.ts` applies them. Seats and coaches always get their own full view (`frames` is
+ignored for them).
 Send `{"type":"action","reqId":"1","action":{…},"note":…}` (`note` optional, as on `POST /games/:id/actions`) and receive `{"type":"ack","reqId":"1","ok":true}`
 or `{"ok":false,"error":"…"}`.
 

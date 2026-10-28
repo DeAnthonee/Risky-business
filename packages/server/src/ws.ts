@@ -4,6 +4,7 @@ import { RuleError, redactEvents, type Action } from '@risk/engine';
 import { parseDecisionNote, type ChangeMessage, type ChatMessage, type GameRoom, type Store } from './store.js';
 import { TournamentFeeds } from './tournament-feed.js';
 import { reactionsOn, seesWholeBoard, type BigMoveMessage } from './reactions.js';
+import { spectatorDelta, spectatorKeyframe } from './spectator-delta.js';
 
 /** A tournament-feed socket with more than this queued gets no more feed updates until it drains. */
 const FEED_BACKLOG_BYTES = 1_000_000;
@@ -42,6 +43,8 @@ interface ClientMsg {
    * seat's view (fog applied) instead of the spectator view, and still cannot act (`you` stays null).
    */
   coachKey?: string;
+  /** subscribe, as a spectator: 'delta' asks for compact `state_delta` frames (spectator-delta.ts). */
+  frames?: string;
 }
 
 let socketSeq = 0;
@@ -51,6 +54,8 @@ let socketSeq = 0;
  *  client -> {type:'subscribe', gameId, token?, coachKey?}   (coachKey: a player key that owns a quick-play seat here:
  *                                              the socket sees that seat's fogged view, read-only)
  *  server -> {type:'state', state, events, version}
+ *  client -> {type:'subscribe', gameId, frames: 'delta'}   (spectators: the first state carries `frame`, then
+ *            {type:'state_delta', frame, base, patch | state, events, version, ...} per move: spectator-delta.ts)
  *  server -> {type:'chat', message}
  *  client -> {type:'action', reqId, action}  server -> {type:'ack', reqId, ok, error?}
  *  client -> {type:'chat', message, name?, to?}   (name: display name when chatting as a spectator;
@@ -192,10 +197,11 @@ export function attachWebSocket(server: Server, store: Store, commit: () => stri
             // information to their agent. Read-only: `you` stays null, so the socket cannot act.
             const coachOf = playerId ? null : store.coachSeat(r, msg.coachKey);
             const viewer = playerId ?? coachOf;
+            const deltas = !viewer && msg.frames === 'delta';
             onChange = (m) =>
               viewer
                 ? send({ type: 'state', state: r.view(viewer), events: redactEvents(m.state, viewer, m.events), version: m.version, host: r.hostId, name: r.name, you: playerId, commit: commit(), ...(coachOf ? { coaching: coachOf } : {}) })
-                : sendRaw(spectatorFrame(r, m, commit()));
+                : sendRaw(deltas ? spectatorDelta(r, m, commit()) : spectatorFrame(r, m, commit()));
             onChat = (m) => {
               if (r.canReadChat(m, playerId)) send({ type: 'chat', message: m });
             };
@@ -216,7 +222,12 @@ export function attachWebSocket(server: Server, store: Store, commit: () => stri
             enter(r, playerId);
             // The first state says which tournament table this is, if any (the in-game banner); it never changes.
             const table = r.tournamentId ? store.tournaments.tableOf(r.tournamentId, r.id) : null;
-            send({ type: 'state', state: viewer ? r.view(viewer) : r.spectatorView(), events: [], version: r.state.version, host: r.hostId, name: r.name, you: playerId, commit: commit(), reqId: msg.reqId, ...(table ? { tournament: table } : {}), ...(coachOf ? { coaching: coachOf } : {}), ...(reactionsOn() ? { reactions: true } : {}) });
+            const first = { events: [], version: r.state.version, host: r.hostId, name: r.name, you: playerId, commit: commit(), reqId: msg.reqId, ...(table ? { tournament: table } : {}), ...(coachOf ? { coaching: coachOf } : {}), ...(reactionsOn() ? { reactions: true } : {}) };
+            if (deltas) {
+              // The delta chain's whole view, and the frame the next delta applies on.
+              const k = spectatorKeyframe(r);
+              sendRaw(`{"type":"state","state":${k.state},"frame":${k.frame},${JSON.stringify(first).slice(1)}`);
+            } else send({ type: 'state', state: viewer ? r.view(viewer) : r.spectatorView(), ...first });
             send({ type: 'chat_history', messages: r.chatFor(playerId).slice(-100) });
             return;
           }

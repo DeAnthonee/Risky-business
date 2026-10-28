@@ -1,5 +1,6 @@
 import type { Action, GameEvent, GameOptions, GameView, NestNode } from '@risk/engine';
 import { getPlayerKey } from './session';
+import { applyViewPatch } from './spectatorDelta';
 
 /** Root path of the app (supports hosting under a sub-path, e.g. /risk/). */
 const loc = typeof window !== 'undefined' ? window.location : { href: 'http://localhost/', protocol: 'http:', host: 'localhost' };
@@ -348,6 +349,8 @@ export interface StateMessage {
   reqId?: string;
   /** First state: true only when the server sends big-move pop-ups (RISK_REACTIONS=1; off by default). */
   reactions?: boolean;
+  /** A spectator's first state when it asked for compact frames: the frame the next `state_delta` applies on. */
+  frame?: number;
 }
 
 export interface PresenceMessage {
@@ -386,6 +389,9 @@ export class GameSocket {
   private closed = false;
   private attempt = 0;
   private seq = 0;
+  /** Compact spectator frames: the view the last frame built and that frame's number (spectatorDelta.ts). */
+  private spectatorView: GameView | null = null;
+  private frame: number | null = null;
 
   constructor(
     private gameId: string,
@@ -404,7 +410,7 @@ export class GameSocket {
     ws.onopen = () => {
       this.attempt = 0;
       this.listener.onStatus(true);
-      ws.send(JSON.stringify({ type: 'subscribe', gameId: this.gameId, token: this.token, ...(this.coachKey ? { coachKey: this.coachKey } : {}) }));
+      this.subscribe(ws);
     };
     ws.onmessage = (ev) => {
       const msg = JSON.parse(ev.data);
@@ -412,8 +418,24 @@ export class GameSocket {
         case 'state':
           // A coach's socket carries the seat's view (fog applied) but is not the seat: watch it like a spectator.
           if (msg.coaching && msg.state) msg.state = { ...msg.state, you: null, legal: undefined };
+          this.spectatorView = msg.frame !== undefined ? msg.state : null;
+          this.frame = msg.frame ?? null;
           this.listener.onState(msg);
           break;
+        case 'state_delta': {
+          // A compact spectator frame: patch the last view. Out of step (a frame missed): subscribe again for a whole one.
+          const state: GameView | null = msg.state ?? (this.spectatorView && msg.base === this.frame ? applyViewPatch(this.spectatorView, msg.patch) : null);
+          if (!state) {
+            this.spectatorView = null;
+            this.frame = null;
+            this.subscribe(ws);
+            break;
+          }
+          this.spectatorView = state;
+          this.frame = msg.frame;
+          this.listener.onState({ type: 'state', state, events: msg.events, version: msg.version, host: msg.host, name: msg.name, you: null, commit: msg.commit });
+          break;
+        }
         case 'chat':
           this.listener.onChat(msg.message);
           break;
@@ -455,6 +477,11 @@ export class GameSocket {
       }
     };
     ws.onerror = () => ws.close();
+  }
+
+  /** Spectators ask for compact frames (`frames: 'delta'`); the server ignores it for a seat or a coach. */
+  private subscribe(ws: WebSocket) {
+    ws.send(JSON.stringify({ type: 'subscribe', gameId: this.gameId, token: this.token, frames: 'delta', ...(this.coachKey ? { coachKey: this.coachKey } : {}) }));
   }
 
   private send(obj: Record<string, unknown>): Promise<void> {

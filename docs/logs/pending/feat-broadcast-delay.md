@@ -1,0 +1,2 @@
+client: - 2026-10-28 #PR spectator broadcast delay: at a big or fast table spectators watch 10 s (5-60 s) behind live, a turn's moves grouped and conquests held, an "x s behind" badge, ● Live, whole turns skipped to the log past 40 s late; spectators ask for compact frames
+server: - 2026-10-28 #PR compact spectator frames: a spectator subscribing with `frames: "delta"` gets `state_delta` frames (changed keys, territories and players; the whole view every 100th), ~75 KB to ~2 KB a move at Mega Earth; `npm run mega:load -- --frames delta` and per-spectator KB per move

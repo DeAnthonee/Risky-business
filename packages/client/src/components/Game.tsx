@@ -8,7 +8,7 @@ import { AgentBadge } from './AgentBadge';
 import { PlayerCard } from './PlayerCard';
 import { ScoreChart } from './ScoreChart';
 import { spectateLink, type Session } from '../session';
-import type { EventBatch, GameConnection } from '../useGame';
+import { DELAY, type EventBatch, type GameConnection } from '../useGame';
 import { CardsPanel } from './Cards';
 import { Chat } from './Chat';
 import { DicePanel, type BattleEvent } from './Dice';
@@ -580,6 +580,7 @@ export function Game({
                   </button>
                 </span>
               )}
+              <BroadcastDelayControls conn={conn} />
               <button
                 className={`small ${conn.fastForward ? 'primary' : ''}`}
                 aria-pressed={conn.fastForward}
@@ -932,6 +933,35 @@ function PhaseSteps({ phase }: { phase: GameView['phase'] }) {
 }
 
 // ---------------------------------------------------------------------------
+/** Spectators: the broadcast delay's badge ("12 s behind"), its length, and the Live button. */
+function BroadcastDelayControls({ conn }: { conn: GameConnection }) {
+  const { secs, behind, skipped } = conn.delay;
+  if (!secs)
+    return (
+      <button className="small" title="Watch a little behind live: every move replayed in order at a comfortable pace" onClick={() => conn.setDelay(DELAY.defaultSecs)}>
+        📺 Delay
+      </button>
+    );
+  return (
+    <span className="broadcast-delay" role="status">
+      <span className="delay-badge" title={`Moves are replayed ${secs} s after they happen, in order. More than ${DELAY.capSecs} s later than that, whole turns are skipped.`}>
+        📺 {behind > 0 ? `${behind} s behind` : 'caught up'}
+      </span>
+      <select className="small" aria-label="Delay behind live" value={secs} onChange={(e) => conn.setDelay(Number(e.target.value))}>
+        {DELAY.choices.map((c) => (
+          <option key={c} value={c}>
+            {c} s delay
+          </option>
+        ))}
+      </select>
+      <button className="small primary" title="Skip what is waiting and watch live" onClick={() => conn.setDelay(0)}>
+        ● Live
+      </button>
+      {skipped && <span className="delay-skipped">⏭ {skipped}</span>}
+    </span>
+  );
+}
+
 // Animation state derived from event batches.
 // ---------------------------------------------------------------------------
 
@@ -1040,10 +1070,18 @@ function useAnimations(
   }, []);
 
   useEffect(() => {
-    const fresh = batches.filter((b) => b.id > seen.current);
-    if (fresh.length === 0) return;
+    const unseen = batches.filter((b) => b.id > seen.current);
+    if (unseen.length === 0) return;
     seen.current = batches[batches.length - 1].id;
     if (skip) return; // fast-forward: board only
+    // Moves the broadcast delay skipped (or jumped over to go live) are for the log only; battles still queued from
+    // before them are stale.
+    if (unseen.some((b) => b.skipped)) {
+      queue.current = [];
+      lastQueued.current = null;
+    }
+    const fresh = unseen.filter((b) => !b.skipped);
+    if (fresh.length === 0) return;
     const flashes: Record<string, number> = {};
     const moves: MoveAnim[] = [];
     const floats: FloatAnim[] = [];

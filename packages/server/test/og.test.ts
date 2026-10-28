@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
@@ -36,6 +36,18 @@ function started(options: Record<string, unknown> = {}, name = 'Friday night') {
 }
 
 const meta = (html: string, key: string) => new RegExp(`<meta (?:property|name)="${key}" content="([^"]*)"`).exec(html)?.[1];
+
+describe('index.html', () => {
+  it('serves the file on disk after a rebuild in place, not the copy read at startup', async () => {
+    expect(await (await fetch(`${base}/`)).text()).toContain('<title>Risky Business</title>');
+    // A rebuild names new hashed assets; the old ones are gone, so the page must follow the file.
+    writeFileSync(join(dir, 'index.html'), '<!doctype html><html><head><script src="./assets/index-NEW.js"></script></head><body></body></html>');
+    utimesSync(join(dir, 'index.html'), new Date(), new Date(Date.now() + 5_000));
+    const html = await (await fetch(`${base}/`)).text();
+    expect(html).toContain('index-NEW.js');
+    expect(html).not.toContain('<title>Risky Business</title>');
+  });
+});
 
 describe('link previews', () => {
   it('a game link carries its title, status and board picture; the page stays no-cache', async () => {

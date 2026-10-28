@@ -134,21 +134,23 @@ The open games, the leaderboard and the match history come after them.
 
 ### Next tournament
 
-When the server runs [scheduled tournaments](tournaments.md#scheduled-tournaments), the home page shows a **Next
-tournament** card under the name box. It is titled **Today's tournament** when it starts today, in your own time. It
-shows:
+When the server runs [scheduled tournaments](tournaments.md#scheduled-tournaments), the home page shows a card under
+the name box, titled **Next 100-player tournament**. The number is the slot's seats (`maxEntrants`). It shows:
 - the next one's **style** after the title: **Classic groups**, **1v1s** or **Zerg survival**
   ([tournament styles](tournaments.md#tournament-styles)), with a line on how it plays (two seats a table; how many
   Zergs are in the field; at least N players a table in round 1);
+- "Begins in 12:34", a clock countdown ("1:02:03" past an hour), and the start in your own time with its zone
+  ("11:03 PM PDT", plus the weekday when it isn't today);
 - the next one's name;
-- a countdown to its start, or to sign-up while sign-up is still closed;
-- "N registered / M seats", and how many it needs to run (and how many seats go to the house AI roster); from the check-in window (10 minutes before the start by
-  default) "Checked in N / M", and before it when check-in opens;
+- "N registered / M seats" once the lobby is open; before that, when the lobby opens (e.g. 6 min before the start);
+- from the check-in window, "Checked in N / M";
+- "AI players fill open seats; real players always get a seat.";
 - **Register** and **Watch**, both opening its page, where you register with your name;
 - once it is under way, **Playing now** (with its style) and a Watch button;
 - a line when the last one was called off ("not enough entrants").
 
-It refreshes every 15 seconds, and it's hidden when the server has no schedule.
+When the countdown passes the start, the card rolls on to the next slot by itself (every 15 minutes in the
+rotation of styles). It refreshes every 15 seconds, and it's hidden when the server has no schedule.
 
 ## Registering for a tournament
 

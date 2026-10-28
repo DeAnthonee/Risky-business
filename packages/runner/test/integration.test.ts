@@ -40,6 +40,7 @@ async function playOut(withChat: boolean) {
         name: id.name,
         paceMs: 0,
         log: () => {},
+        freeChat: true,
         diplomat: withChat ? new Diplomat({ llm, seatName: id.name, playerId: id.playerId, characterMarkdown: null, maxPerTurn: 1, cooldownMs: 0, random: () => 0 }) : null,
       }),
   );

@@ -78,6 +78,58 @@ The AI inspects its own visible borders:
 
 ---
 
+## 3.1. Visible Placement Accounting & Positional Anchors Under Fog
+
+A critical tactical deduction occurs when correlating a player's **public turn income** ($+N$/turn) with **where their drafted reinforcements physically appear** on territories visible to you:
+
+```
+                           ┌───────────────────────────────┐
+                           │   Opponent Turn Income (+N)   │
+                           └───────────────┬───────────────┘
+                                           │
+                    ┌──────────────────────┴──────────────────────┐
+                    ▼                                             ▼
+       ┌─────────────────────────┐                   ┌─────────────────────────┐
+       │ 100% Placed on Visible  │                   │ Partial / 0 Placed on   │
+       │        Borders          │                   │     Visible Borders     │
+       └────────────┬────────────┘                   └────────────┬────────────┘
+                    │                                             │
+      ┌─────────────┴─────────────┐                               ▼
+      ▼                           ▼                  ┌─────────────────────────┐
+┌───────────┐               ┌───────────┐            │   HIDDEN STACK ALERT    │
+│ Income +3 │               │ Income +5 │            │ Armies reinforced behind│
+├───────────┤               ├───────────┤            │  fog! High ambush risk. │
+│ 0 in Fog! │               │ Single    │            └─────────────────────────┘
+│ Safe Kill │               │ Lifeline  │
+│ Target.   │               │ Anchor!   │
+└───────────┘               └───────────┘
+```
+
+### 1. The "+3 Income 100% Accounted" Kill Confirmation
+* **Telemetry**: An opponent receives $+3$/turn income (proving $\le 11$ territories, 0 bonuses, 0 extra capitals). During their draft phase, you observe them place all 3 troops onto visible territories.
+* **The Mathematical Deduction**:
+  $$\text{Fog Reinforcements} = \text{Total Income} - \text{Visible Placements} = 3 - 3 = 0$$
+  * Exactly zero reinforcements went into the fog!
+  * Behind the fog, there are **no hidden interior armies**, **no fortified capitals**, and **no secret bonuses**.
+  * Any hidden territories they possess are neglected, defenseless 1-army scraps.
+* **Strategic Outcome**: They are an **extremely safe, high-confidence elimination target**. You can commit to a kill run knowing with near-zero ambush risk that no surprise 10+ army stack lurks in the dark.
+
+### 2. The "+5 Income Single-Position Anchor"
+* **Telemetry**: An opponent receives $+5$/turn (base $+3$ plus a $+2$ continent bonus or capital), and dumps all 5 troops into a single visible territory.
+* **The Mathematical Deduction**:
+  * Because 100% of their draft was invested into that single territory, that position is their **sole strategic lifeline and anchor on the map**.
+  * They have zero spare troops to reinforce anything else; their interior is hollow.
+* **Strategic Outcome**: **Surgical Decapitation**. If you crack that single territory, their continent bonus or capital falls, their income collapses from $+5$ to $+3$, and their hollow interior is easily mopped up.
+
+### 3. The "Unseen Placement" Ambush Warning
+* **Telemetry**: An opponent receives $+5$ to $+9$/turn income, but places only 0 or 1 troop on visible borders.
+* **The Mathematical Deduction**:
+  $$\text{Hidden Interior Deployment} = \text{Income} - \text{Visible Placements} \ge +4 \text{ to } +8 \text{ armies}$$
+  * A massive strike stack or heavily garrisoned capital is being secretly constructed in the fog.
+* **Strategic Outcome**: **Do not plunge blindly into their territory**. Hold chokepoints and prepare for an impending concentrated breakout.
+
+---
+
 ## 4. Card Surge, Trade Value Formulas & Effective Power
 
 Card count is public information even when territory holdings are hidden. When combined with the game's card mode rules, the AI calculates the **Upcoming Trade Value** and **Effective Power Score** for every opponent.
@@ -162,10 +214,43 @@ $$\text{Power Score} = \text{Estimated Armies} + (\text{Income} \times 2.5) + \t
 3. **Tier 3 — Attrition Bleeder**:
    * Income $+3$ to $+4$/turn, high attack rate, declining estimated army reserves.
    * **Outcome**: Monitored for easy card elimination.
+4. **1v1 Endgame Threat Dynamics**:
+   * When living players drop to 2, multi-player restraint and anti-greed rules turn off.
+   * The AI pivots into maximum bonus-breaking and scorched-earth expansion: stripping every continent bonus and reducing the sole opponent below 12 territories directly starves them down to the $+3$ income floor without risk of third-party punishment.
+5. **Situational Attack Termination & Bonus Defense**:
+   * In multi-player FFA, after securing a continent bonus, the AI stops secondary attacks to avoid depleting border chokepoints down to 1–2 armies.
+   * This stop is **situational**: the AI continues attacking if: (1) an adjacent attack wins the game (`winsGame`), (2) an elimination plan is achievable (`kill`), (3) the game is 1v1, (4) a massive troop surplus exists beyond the required defensive border garrison, or (5) an opponent's high-value (+3 or +5) bonus can be broken with favorable odds.
 
 ---
 
-## 7. Implementation Reference
+## 7. Combat Mechanics & Dice Probability Profiles
+
+Combat resolution directly impacts army valuation and kill feasibility:
+
+| Combat Mode | Engine Mechanics | Win Probability Curve | Strategic Impact |
+| :--- | :--- | :--- | :--- |
+| **Balanced Blitz** (`balancedBlitz: true`) | Plays the median of 5 complete simulated blitzes ($n = 5$). | $b(p) = \sum_{k=3}^5 \binom{5}{k} p^k (1-p)^{5-k}$. Amplifies $\ge 80\%$ attacks to $94.2\% - 99.1\%$; drops $< 40\%$ underdogs below $16\%$. | Favorable attacks are near-guaranteed locks with minimal casualties. Catastrophic freak wipeouts are eliminated. Desperation underdogs are mathematically unviable. |
+| **True Random Blitz** (`balancedBlitz: false`) | Single continuous Markov-chain dice sequence. | Standard probability $p$ with full variance and fat tails. | 80% attacks fail 1 in 5 times. High troop loss variance requires maintaining $+3$ to $+5$ army buffers. |
+| **Single Random Dice** | Manual 1–3 attacker dice vs 1–2 defender dice. | Defender wins ties on matched pairs ($\approx 56\%$ defender edge on 2v2). | High attrition cost; reserved for 1-roll border probes and micro-stopping. |
+
+---
+
+## 7.1. Kill Odds in the Commander's Prompt Under Fog
+
+The elimination scouting lines in the commander's board facts (`eliminationScouting` in `facts.ts`) compute blitz odds
+from what the seat can see, so under fog they only stand for what is visible:
+
+* **No territory of the rival visible**: the line says its location and armies are unknown and that it is not a kill
+  target this turn. (It used to count 0 territories and 0 armies, so every unseen rival read as a "100% kill" and
+  commanders chased players they could not reach.)
+* **Visible, but no shared border**: the verdict is `NO SHARED BORDER: not a kill this turn`.
+* **Partly visible**: odds of 70% or more read `UNCERTAIN UNDER FOG`, because hidden territories and armies make the
+  real odds lower; no "guaranteed" verdict is given.
+
+Kills under fog are left to rivals next to the seat. Estimating an unseen rival's position (from its starting capital)
+and strength (from its recent income) to plan a kill through unseen land is not built yet.
+
+## 8. Implementation Reference
 
 The logic described above is implemented across the following codebase modules:
 * [`packages/runner/src/game-memory.ts`](../packages/runner/src/game-memory.ts): Implements `getEstimatedArmies`, `PlayerActivityRecord`, `assessLeader`, and fog event tracking.

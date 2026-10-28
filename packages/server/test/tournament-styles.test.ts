@@ -130,6 +130,18 @@ describe('tournament styles', () => {
     const rooms = r1.map((m) => store.get(m.gameId!)!);
     expect(rooms.every((r) => r.survival)).toBe(true);
     await until(() => t.status === 'finished');
+    // A table seated with two or more non-Zergs and left with one, Zergs still in, ended right then, won by that
+    // non-Zerg (the engine's endBySurvival, or its finish share when the same conquest reached it). Checked on every
+    // table: whether any table ends that way depends on the dice. Skipped: a table a Zerg won outright (one conquest
+    // that took the second-last non-Zerg out and the finish share too; the table still moves its non-Zerg on, below).
+    for (const room of t.rounds.flatMap((r) => r.matches).map((m) => store.get(m.gameId!)!)) {
+      const seated = room.state.players.filter((p) => !p.isNeutral && !room.isZerg(p.id));
+      const alive = room.state.players.filter((p) => p.alive && !p.isNeutral);
+      const others = alive.filter((p) => !room.isZerg(p.id));
+      if (seated.length < 2 || others.length !== 1 || others.length === alive.length) continue;
+      if (room.state.winner && room.isZerg(room.state.winner)) continue;
+      expect(room.state.winner).toBe(others[0].id);
+    }
     const zerg = (eid: string | null) => t.entrants.find((e) => e.id === eid)?.kind === 'zerg';
     for (const m of t.rounds.flatMap((r) => r.matches)) {
       if (!m.entrants.some((e) => !zerg(e))) continue;

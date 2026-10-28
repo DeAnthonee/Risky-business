@@ -32,7 +32,8 @@ from .engine import ATTACK, FORTIFY, REINFORCE
 from .fingerprint import REPO
 from .fused import STATE_FIELDS
 from .outcome import ranking_constants
-from .teacher import TeacherEngine
+from .rng import M32, STEP, hash32
+from .teacher import ALL_KEYS, NP0, TeacherEngine
 
 BRANCH_TS = REPO / "packages" / "delove" / "src" / "branch.ts"
 SCORE_PARTS = ["score", "armies", "income", "territories", "cards", "continents", "won", "lost"]
@@ -61,6 +62,10 @@ class BranchConfig:
     root: str = "top"  # 'top' or 'gumbel' (branch.ts BranchOptions.root, gumbelRoot)
     gumbel_k: int = 8  # 'gumbel': candidates, the teacher's move included
     copies: int = 0  # 'gumbel': rollout copies per decision; 0 = options x the decision's rollouts
+    # T2 (branch.ts BranchOptions.incumbent / styles): the move the margin rule protects, 'teacher' or 'net' (the
+    # ranker's top move); opponent styles in the rollouts ('' off, else 'net:0.4,aggr:0.2,...'; styles.ts)
+    incumbent: str = "teacher"
+    styles: str = ""
 
     def decision(self, alive: int) -> tuple[int, int, int]:
         """decisionScore in branch.ts: (kernel mode, rollouts, horizon) of a decision with `alive` players alive."""
@@ -89,7 +94,60 @@ def default_branch() -> BranchConfig:
     return BranchConfig(int(num("options")), int(num("rollouts")), int(num("horizon")), num("margin"), skip,
                         {k: float(w[k]) for k in WEIGHT_KEYS}, score, num("killWeight"), num("threat"), int(num("closeRollouts")),
                         int(num("closeHorizon")), root=re.search(r"\broot:\s*'(\w+)'", body).group(1), gumbel_k=int(num("gumbelK")),
-                        copies=int(num("copies")))
+                        copies=int(num("copies")), incumbent=re.search(r"\bincumbent:\s*'(\w+)'", body).group(1),
+                        styles=re.search(r"\bstyles:\s*'([^']*)'", body).group(1))
+
+
+STYLES_TS = BRANCH_TS.parent / "styles.ts"
+
+
+def style_scales() -> dict[str, dict[str, float]]:
+    """styles.ts STYLE_SCALES: the multipliers of the rollout teacher's numbers per style."""
+    src = STYLES_TS.read_text(encoding="utf8")
+    body = re.search(r"STYLE_SCALES[^=]*= \{(.*?)\n\};", src, re.S).group(1)
+    return {name: {k: float(v) for k, v in re.findall(r"(\w+):\s*(-?[\d.e+-]+)", inner)}
+            for name, inner in re.findall(r"(\w+):\s*\{([^}]*)\}", body)}
+
+
+def style_salt() -> int:
+    return int(re.search(r"STYLE_SALT = (0x[0-9a-fA-F]+)", STYLES_TS.read_text(encoding="utf8")).group(1), 16)
+
+
+def copy_styles(sd: torch.Tensor, me: torch.Tensor, n: int, styles: list[tuple[str, float]], salt: int) -> torch.Tensor:
+    """styles.ts copyStyles for copies with seeds `sd` and deciders `me` at n seats: [S, n] style indexes into `styles`,
+    -1 for the decider. Seat q: the (q + 1)-th mulberry32 draw of seed ^ salt times the weights' total, then the first
+    style whose running weight sum (added in order, as the TypeScript does) exceeds it, else the last."""
+    dev = sd.device
+    total, cum = 0.0, []
+    for _, w in styles:
+        total += w
+    c = 0.0
+    for _, w in styles:
+        c += w
+        cum.append(c)
+    st = (sd ^ salt) & M32
+    q = torch.arange(n, dtype=torch.long, device=dev)
+    u = hash32((st[:, None] + STEP * (q[None, :] + 1)) & M32).double() / 4294967296.0 * total
+    hit = u[:, :, None] < torch.tensor(cum, dtype=torch.float64, device=dev)[None, None, :]
+    idx = torch.where(hit.any(-1), hit.long().argmax(-1), len(styles) - 1)
+    idx[torch.arange(sd.numel(), device=dev), me] = -1
+    return idx
+
+
+def parse_styles(spec: str) -> list[tuple[str, float]]:
+    """styles.ts parseStyles: 'net:0.4,aggr:0.2' -> [('net', 0.4), ('aggr', 0.2)] ('' -> [])."""
+    if not spec:
+        return []
+    known = ["net", *style_scales()]
+    out = []
+    for part in spec.split(","):
+        name, w = part.split(":")
+        if name not in known or any(n == name for n, _ in out):
+            raise ValueError(f"branch styles: unknown or repeated style {name}")
+        if not float(w) > 0:
+            raise ValueError(f"branch styles: weight of {name} must be > 0")
+        out.append((name, float(w)))
+    return out
 
 
 BRANCH_BODY = r"""
@@ -378,9 +436,10 @@ extern "C" __global__ void k_branch_start(STATE_ARGS, const i64* seeds, const i6
 }
 
 // The teacher plays the copy on (k_branch_sim's loop, SIM_G lanes per copy) until the rollout ends or a seat the
-// network plays is to move: every seat with net == 1, the decider's (mes[j]) with net == 2.
+// network plays is to move: every seat with net == 1, the decider's (mes[j]) with net == 2; with net == 3 (T2 styles)
+// the seats whose code scode[j * NS + seat] is 255, the others playing the teacher row their code names (seat_tp).
 extern "C" __global__ void k_branch_roll(STATE_ARGS, TP_ARGS, i64* ar, i64* moves, const i64* stop, u8* live, const i64* mes,
-                                         int net, int n) {
+                                         int net, const u8* scode, int n) {
   int i = blockIdx.x * blockDim.x + threadIdx.x, j = i / SIM_G;
   if (j >= n) return;  // the whole group
   Grp g = make_grp(i, SIM_G);
@@ -391,8 +450,9 @@ extern "C" __global__ void k_branch_roll(STATE_ARGS, TP_ARGS, i64* ar, i64* move
   i64 r = ar[j];
   int mv = (int)moves[j];
   bool dead = false;
-  while (!*s.done && *s.round < stop[j] && mv < MAX_ROLLOUT_STEPS && !(net == 2 && cur(s) == (int)mes[j])) {
-    int a = teacher_pick_g<SIM_G>(s, tp, &r, g);
+  while (!*s.done && *s.round < stop[j] && mv < MAX_ROLLOUT_STEPS && !(net == 2 && cur(s) == (int)mes[j]) &&
+         !(net == 3 && scode[(i64)j * NS + cur(s)] == 255)) {
+    int a = teacher_pick_g<SIM_G>(s, net == 3 ? seat_tp(tp, scode, j, cur(s)) : tp, &r, g);
     if (a < 0) { dead = true; break; }
     __syncwarp(g.mask);  // every lane has read the board for this pick
     if (lead) apply(s, a, BIG_TURNS);
@@ -420,7 +480,7 @@ extern "C" __global__ void k_branch_score(STATE_ARGS, const i64* a1, const i64* 
 """
 
 BRANCH_KERNELS = ("k_branch_prep", "k_branch_sim", "k_branch_start", "k_branch_roll", "k_branch_score", "k_log_fd", "k_branch_gumbel")
-ROLL_TEACHER, ROLL_ALL, ROLL_SELF = 0, 1, 2  # who plays the rollouts: the teacher; a network in every seat; in the decider's
+ROLL_TEACHER, ROLL_ALL, ROLL_SELF, ROLL_STYLES = 0, 1, 2, 3  # T2 styles: the network in 'net' seats, style teachers elsewhere; who plays the rollouts: the teacher; a network in every seat; in the decider's
 SIM_LANES = 16  # lanes per rollout copy (k_branch_sim): see "Big tables: lane groups" in the README
 
 
@@ -500,8 +560,17 @@ class GpuBranch:
         if cfg.rollout not in ROLLOUT_MODES:
             raise ValueError(f"branch rollout {cfg.rollout!r}: one of {list(ROLLOUT_MODES)}")
         self.roll = ROLLOUT_MODES[cfg.rollout]
+        if cfg.incumbent not in ("teacher", "net"):
+            raise ValueError(f"branch incumbent {cfg.incumbent!r}: 'teacher' or 'net'")
+        if cfg.incumbent == "net" and cfg.root != "top":
+            raise ValueError("branch: incumbent 'net' needs the 'top' root")
+        self.styles = parse_styles(cfg.styles)
+        if self.styles:
+            if cfg.root != "top":
+                raise ValueError("branch: styles need the 'top' root")
+            self.roll = ROLL_STYLES
         if self.roll != ROLL_TEACHER and roll_net is None:
-            raise ValueError(f"branch rollout {cfg.rollout!r} needs a rollout network")
+            raise ValueError(f"branch rollout {cfg.rollout!r}{' with styles' if self.styles else ''} needs a rollout network")
         self.roll_net = roll_net
         self.w = torch.tensor([cfg.weights[k] for k in WEIGHT_KEYS], dtype=torch.float64, device=main.dev)
         if cfg.score not in SCORES:
@@ -529,11 +598,52 @@ class GpuBranch:
         max_games = max_games or main.B
         # copies for max_games decisions at cfg.rollouts; a group with more rollouts (close) runs in chunks that fit
         self.sims = SimPool(main, max(max_games * cfg.options * cfg.rollouts, cfg.options * self.max_r))
+        if self.styles:
+            self._style_setup()
+        else:
+            self.scode = torch.zeros(1, dtype=torch.uint8, device=main.dev)  # unused (k_branch_roll net != 3)
         if self.roll != ROLL_TEACHER:
             self.roll_enc = Encoder(self.sims.e)
             self.roll_adj = self.sims.e.m.adj_matrix.float()
             self.roll_order = cpu_order(self.sims.e.L, main.dev)
         self.roll_steps = 0  # lockstep network steps of the rollouts (for timing)
+
+    def _style_setup(self):
+        """T2 styles (styles.ts): each teacher style's row (the rollout teacher's row 0, both halves, with the style's
+        multipliers) appended to the copies' teacher rows, and the code of every style: 255 'net', else its row."""
+        se, base = self.sims.e, self.e.prm
+        base = base if base.dim() == 2 else base[None]
+        scales = style_scales()
+        rows, codes = [], {}
+        for name, _ in self.styles:
+            if name == "net":
+                codes[name] = 255
+                continue
+            r = base[0].clone()
+            for k, m in scales[name].items():
+                i = ALL_KEYS.index(k)
+                r[i] = r[i] * m  # both halves, in float64 as the TypeScript multiplies
+                r[NP0 + i] = r[NP0 + i] * m
+            codes[name] = base.shape[0] + len(rows)
+            rows.append(r)
+        if base.shape[0] + len(rows) > 255:
+            raise ValueError("too many teacher rows for the style codes")
+        se.prm = torch.cat([base, torch.stack(rows)]) if rows else base
+        self.style_code = torch.tensor([codes[n] for n, _ in self.styles], dtype=torch.uint8, device=self.e.dev)
+        cum, c = [], 0.0
+        for _, w in self.styles:
+            c += w  # the TypeScript's running sum, in the same order
+            cum.append(c)
+        self.style_total = c
+        self.style_cum = torch.tensor(cum, dtype=torch.float64, device=self.e.dev)
+        self.style_salt = style_salt()
+
+    def _style_codes(self, sd: torch.Tensor, me: torch.Tensor) -> torch.Tensor:
+        """copy_styles for every copy as codes: [S, NS] uint8, 255 for 'net' (the decider's seat always), else the row."""
+        idx = copy_styles(sd, me, self.e.n, self.styles, self.style_salt)
+        code = self.style_code[idx.clamp(min=0)]
+        code[idx < 0] = 255
+        return code.contiguous()
 
     def important(self, games: torch.Tensor, mask: torch.Tensor, tact: torch.Tensor) -> torch.Tensor:
         e = self.e
@@ -558,15 +668,28 @@ class GpuBranch:
         if ig.numel():
             lg = self.ranker(games[ig], mask)  # [k, A]
             # logits descending, ties in candidate order (Array.prototype.sort is stable)
-            order = self.cpu_order[torch.sort(-lg[:, self.cpu_order], dim=1, stable=True).indices[:, : OPT + 1]]
-            ok = torch.isfinite(lg.gather(1, order)) & (order != tact[games[ig]][:, None])
-            # first OPT-1 legal non-teacher entries, in ranking order
-            pos = torch.cumsum(ok.long(), 1)
+            order = self.cpu_order[torch.sort(-lg[:, self.cpu_order], dim=1, stable=True).indices[:, : OPT + 2]]
+            t = tact[games[ig]]
+            ok = torch.isfinite(lg.gather(1, order)) & (order != t[:, None])
+            first = 1  # the first column the ranker's favourites fill
+            if cfg.incumbent == "net":
+                # branch.ts: the ranker's top move (ties: first in candidate order), then the teacher's, then the rest
+                top = order[:, 0]
+                opts[ig, 0] = top
+                two = t != top
+                if OPT > 1:
+                    opts[ig, 1] = torch.where(two, t, -1)
+                ok &= order != top[:, None]
+                first = 1 + two.long()
+            else:
+                first = torch.ones_like(t)
+            # the legal entries not yet taken, in ranking order, into the columns from `first` on
+            pos = torch.cumsum(ok.long(), 1) - 1 + first[:, None]
             sel = ok & (pos <= OPT - 1)
             for k in range(1, OPT):
                 hit = sel & (pos == k)
-                col = torch.where(hit.any(1), order.gather(1, hit.long().argmax(1, keepdim=True)).squeeze(1), -1)
-                opts[ig, k] = col
+                col = order.gather(1, hit.long().argmax(1, keepdim=True)).squeeze(1)
+                opts[ig, k] = torch.where(hit.any(1), col, opts[ig, k])
         # each decision's objective by the players alive (score 'range'; one group for a fixed score)
         alive = e.alive[games, : e.n].long().sum(1).clamp(min=2)
         key = torch.zeros(n, dtype=torch.long, device=dev)  # index into keys
@@ -812,13 +935,17 @@ class GpuBranch:
         per = max(1, max_rows // se.m.T)
         act = torch.full((S,), -1, dtype=torch.long, device=dev)
         grid, block = ((S + se.BLOCK - 1) // se.BLOCK, 1, 1), (se.BLOCK, 1, 1)  # the rules kernels over the S copies only
+        scode = self._style_codes(sd, me) if self.roll == ROLL_STYLES else self.scode
+        crow = torch.arange(S, device=dev)  # copy index (rows below is the encoder's)
         while True:
-            if self.roll == ROLL_SELF:
-                se._launch_t("k_branch_roll", S * se.sim_lanes, *se._state(), *se._tp(), ar, mv, stop, live, me, ROLL_SELF, S)
+            if self.roll in (ROLL_SELF, ROLL_STYLES):
+                se._launch_t("k_branch_roll", S * se.sim_lanes, *se._state(), *se._tp(), ar, mv, stop, live, me, self.roll, scode, S)
             cur = se.cur[:S]
             need = (live.bool() & ~se.done[:S].bool() & (se.round[:S] < stop) & (mv < MAX_ROLLOUT_STEPS))
             if self.roll == ROLL_SELF:
                 need &= cur == me
+            elif self.roll == ROLL_STYLES:
+                need &= scode[crow, cur.long()] == 255
             idx = need.nonzero(as_tuple=True)[0]
             if idx.numel() == 0:
                 break

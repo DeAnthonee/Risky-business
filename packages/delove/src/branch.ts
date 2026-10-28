@@ -26,6 +26,7 @@ import {
 } from '@risk/selfplay';
 import type { NetScorer } from './net-agent.js';
 import { seatOrder } from './net-agent.js';
+import { copyStyles, parseStyles, type StyleMix } from './styles.js';
 
 /** The value model ignores candidates; one placeholder keeps the encoder's shapes valid. */
 const END_ONLY: Candidate[] = [['end_turn']];
@@ -110,6 +111,18 @@ export interface BranchOptions {
    * valueWeight * V(end position), V from the valuer's batched value model (one call per decision). 0 = off.
    */
   valueWeight: number;
+  /**
+   * The move the margin rule protects (T2): 'teacher' (the rollout teacher's move, first option) or 'net' (the ranker's
+   * top move first, ties to the first candidate, then the teacher's move, then the ranker's next favourites), so the
+   * search improves on the network it starts from. 'net' without a ranker, or under fog search, is 'teacher'.
+   */
+  incumbent: 'teacher' | 'net';
+  /**
+   * Opponent styles in the rollouts (T2, styles.ts): '' off, else e.g. 'net:0.4,aggr:0.2,turtle:0.2,zerg:0.2'. The
+   * decider's seat plays the rollout network, every other seat one style per copy drawn from the copy's seed. Needs a
+   * rollout network (its `seats` is then ignored) and the style teachers (branchAgent's `stylePicks`); 'top' root only.
+   */
+  styles: string;
 }
 
 /**
@@ -124,6 +137,8 @@ export const DEFAULT_BRANCH: BranchOptions = {
   margin: 0.02,
   skip: ['occupy'],
   valueWeight: 0,
+  incumbent: 'teacher',
+  styles: '',
   score: 'share',
   killWeight: 2,
   threat: 0.3,
@@ -379,6 +394,25 @@ function rolloutPlayer(teacher: StepPick, rollout: RolloutNet, me: PlayerId): { 
   return r;
 }
 
+/**
+ * T2's player of one copy with opponent styles (styles.ts): the rollout network in the seats whose style is 'net' (the
+ * decider's always), the style's teacher in the others. `codes` is copyStyles' style per seat (index in `players`, seat order).
+ */
+function stylePlayer(codes: string[], players: string[], rollout: RolloutNet, stylePicks: Record<string, StepPick>): { pick: StepPick; gap: number } {
+  const r = {
+    gap: Infinity,
+    pick: (ctx: StepContext): number => {
+      const style = codes[players.indexOf(ctx.me)];
+      if (style !== 'net') return stylePicks[style](ctx);
+      if (ctx.candidates.length === 1) return 0;
+      const t = topGap(rollout.net.score(ctx).logits);
+      if (t.gap < r.gap) r.gap = t.gap;
+      return t.best;
+    },
+  };
+  return r;
+}
+
 /** Play `state` forward `horizon` rounds (or to the end) with `pick` in every seat. */
 function rollout(state: GameState, horizon: number, pick: StepPick, random: () => number): { state: GameState; moves: number } {
   let s = state;
@@ -575,8 +609,17 @@ export function branchAgent(
   rolloutNet: RolloutNet | null = null,
   /** Determinized rollouts in fog games (FogSearch); without it, the copies are of the state as given. */
   fog: FogSearch | null = null,
+  /** opts.styles: each teacher style's pick (styleParams of the rollout teacher), by name. */
+  stylePicks: Record<string, StepPick> | null = null,
 ): Agent {
   if (opts.root === 'gumbel' && opts.valueWeight > 0) throw new Error('branch: the Gumbel root does not blend the value head (valueWeight must be 0)');
+  if (opts.root === 'gumbel' && opts.incumbent === 'net') throw new Error("branch: incumbent 'net' needs the 'top' root");
+  const mix: StyleMix | null = parseStyles(opts.styles);
+  if (mix) {
+    if (opts.root !== 'top') throw new Error("branch: styles need the 'top' root");
+    if (!rolloutNet) throw new Error('branch: styles need a rollout network (DELOVE_BRANCH_ROLLOUT)');
+    for (const n of mix.names) if (n !== 'net' && !stylePicks?.[n]) throw new Error(`branch: no teacher for style ${n}`);
+  }
   return {
     id,
     choose(dctx) {
@@ -589,14 +632,21 @@ export function branchAgent(
       if (!isImportant(dctx) || opts.skip.includes(dctx.candidates[teacherIndex][0])) return completeAction(base, teacherIndex, lead);
       if (opts.root === 'gumbel' && !fogged) return gumbelRoot(dctx, base, teacherIndex, teacher, ranker, opts, rolloutNet);
 
-      // Options: the teacher's move first (under fog search: the anchor's, then the teacher's), then the network's favourites.
-      const order: number[] = [teacherIndex];
+      // Options: the teacher's move first (under fog search: the anchor's, then the teacher's; with incumbent 'net': the
+      // ranker's top move, then the teacher's), then the network's favourites.
+      const logits = ranker ? ranker.score(base).logits : null;
+      const order: number[] = [];
+      if (opts.incumbent === 'net' && logits && !fogged) {
+        let top = 0;
+        for (let i = 1; i < logits.length; i++) if (logits[i] > logits[top]) top = i;
+        order.push(top);
+      }
+      if (!order.includes(teacherIndex)) order.push(teacherIndex);
       if (fogged) {
         const t = teacher(base);
         if (!order.includes(t)) order.push(t);
       }
-      if (ranker) {
-        const { logits } = ranker.score(base);
+      if (logits) {
         const ranked = [...logits.keys()].sort((a, b) => logits[b] - logits[a]);
         for (const i of ranked) if (order.length < opts.options && !order.includes(i)) order.push(i);
       } else {
@@ -619,6 +669,7 @@ export function branchAgent(
       // Under fog search: one sampled board per seed, shared by every option (common random numbers).
       const boards = fogged ? seeds.map((seed) => fog.sample(dctx.state, dctx.me, seededRandom(seed ^ 0x2545f491))) : null;
       const useValue = opts.valueWeight > 0 && valuer !== null;
+      const ids = seatOrder(dctx.state); // seat order, the Neutral left out (the GPU mirror's seat index)
       const ends: { option: number; state: GameState }[] = [];
       // with a rollout network: each copy's score and smallest logit gap, option by option (for the trace)
       const copies: { score: number; gap: number }[][] = [];
@@ -637,7 +688,11 @@ export function branchAgent(
             parts.score = -Infinity;
             break;
           }
-          const player = rolloutNet ? rolloutPlayer(teacher, rolloutNet, dctx.me) : null;
+          const player = mix
+            ? stylePlayer(copyStyles(seed, ids.length, ids.indexOf(dctx.me), mix), ids, rolloutNet!, stylePicks!)
+            : rolloutNet
+              ? rolloutPlayer(teacher, rolloutNet, dctx.me)
+              : null;
           const r = rollout(after, ds.horizon, player ? player.pick : teacher, seededRandom(seed));
           branchStats.simulations++;
           branchStats.simulatedMoves += r.moves;
@@ -680,6 +735,7 @@ export function branchAgent(
           line.scores = copies.map((o) => o.map((c) => c.score));
           line.gaps = copies.map((o) => o.map((c) => (Number.isFinite(c.gap) ? c.gap : null)));
         }
+        if (mix) line.styles = seeds.map((seed) => copyStyles(seed, ids.length, ids.indexOf(dctx.me), mix));
         appendFileSync(TRACE, JSON.stringify(line) + '\n');
       }
       for (const k of Object.keys(branchStats.chosen) as (keyof Score)[]) branchStats.chosen[k] += results[best].parts[k];

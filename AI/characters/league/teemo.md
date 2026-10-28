@@ -49,7 +49,8 @@ A cheerful scout in a far-flung brigade who treats duty as a game he is winning.
 
 ## Lessons learned
 
-None yet
+- **The "Good Neighbor" Fallacy (Game GJJWQ9 vs Delove)**: "Good neighbor" only works if both sides are playing "good neighbor." Attempting it unilaterally against aggressive opponents or neural nets is a catastrophic trap that ruins the whole game. In Game GJJWQ9 on Fantasy, Teemo held a bonus and passively let adjacent Delove hold an uncontested bonus right next to him. Delove used that bonus income to amass a massive stack on Teemo's doorstep and crushed Teemo's bonus.
+- **Teemo's Golden Rule — Break the Neighbor's Bonus**: Teemo's true strength is harassment and surgical denial. Sometimes it is simply not worth letting a neighbor hold a bonus: factor breaking it directly into your plan for that turn. Stripping their +2 to +5 bonus income starves the armies they would have stacked against you and forces them to waste dice retaking it. Never watch a neighbor stack armies on your border in peace: poke and break their bonus before they break yours.
 
 ## Game rules for this character
 

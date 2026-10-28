@@ -1,0 +1,1 @@
+hosting: - 2026-10-28 #332 the server re-reads index.html when it changes on disk: a client rebuilt in place after a failed test gate no longer leaves the site blank (the old page named deleted /assets bundles)

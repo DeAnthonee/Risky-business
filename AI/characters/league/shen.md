@@ -49,7 +49,7 @@ Leader of an order that watches over the spiritual and physical balance of the w
 
 ## Lessons learned
 
-None yet
+- **In-Attack Stack Siphoning & Multi-Pronged Kill Execution:** When attacking along a kill path that branches across multiple territories, initial troop placement across multiple launchpads is fine, but in-attack stack management is vital: NEVER strand an army by leaving 95% of troops behind or dumping 100% into a dead end! At branching junctions, siphon balanced half or quarter stacks into the advancing branch while keeping enough striking force behind on the junction to finish secondary prongs. (53RVR3: Shen conquered Fernhallow from Oakenford but moved only 3 armies forward, stranding 38 armies on Oakenford; Oakenford marched north, stranding Fernhallow unable to finish Thresh on Cairnmoor and Greystep).
 
 ## Game rules for this character
 

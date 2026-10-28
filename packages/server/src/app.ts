@@ -1,6 +1,6 @@
 import { createServer, type Server } from 'node:http';
 import { monitorEventLoopDelay } from 'node:perf_hooks';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
@@ -224,12 +224,28 @@ export function createRiskServer(store: Store, opts: AppOptions = {}): RiskServe
     );
     // SPA entry + history fallback: always revalidated so a new deploy is picked up on next load.
     // The page carries link-preview tags for the game or tournament in its query (og:/twitter:, see og.ts). The built
-    // index.html is read once; absolute URLs come from this request (no hard-coded host).
-    const indexHtml = readFileSync(join(clientDir, 'index.html'), 'utf8');
+    // index.html is read again whenever it changes on disk: a rebuild in place replaces the hashed /assets it names, so
+    // a copy held from startup would point at deleted files (a blank page) until the next restart, e.g. when the
+    // deploy's test gate fails after the build. Absolute URLs come from this request (no hard-coded host).
+    const indexPath = join(clientDir, 'index.html');
+    let indexHtml = readFileSync(indexPath, 'utf8');
+    let indexMtime = statSync(indexPath).mtimeMs;
+    const currentIndex = () => {
+      try {
+        const mtime = statSync(indexPath).mtimeMs;
+        if (mtime !== indexMtime) {
+          indexHtml = readFileSync(indexPath, 'utf8');
+          indexMtime = mtime;
+        }
+      } catch {
+        // Mid-rebuild (the file is briefly gone): keep the last copy.
+      }
+      return indexHtml;
+    };
     app.get(/^(?!\/api|\/ws|\/healthz|\/mcp|\/og\/).*/, (req, res) => {
       noCache(res);
       const origin = `${req.protocol}://${req.get('host')}`;
-      res.type('html').send(withOgTags(indexHtml, ogTags(store, req.query, origin)));
+      res.type('html').send(withOgTags(currentIndex(), ogTags(store, req.query, origin)));
     });
   } else {
     app.get('/', (_req, res) =>

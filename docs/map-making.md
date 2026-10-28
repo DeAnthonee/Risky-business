@@ -200,7 +200,7 @@ batched `verify.py` run and its fingerprint PR it shows GPU-verified yes, and th
 
 Generated boards (`gen1-s<seed>-p<seats>-t<territories>`, [maps.md](maps.md#generated-boards)) skip this whole
 workflow: they have no map file, no registration and no owner approval per board, because the generator itself is
-what was approved (hex style, 5 territories per seat, owner decisions of 2026-10-21). Preview them with the same
+what was approved (hex style, 5 territories per seat, owner decisions of 2026-10-21; 8 per seat since 2026-10-27). Preview them with the same
 script, after `npm run build` (it loads the built engine):
 
 ```bash

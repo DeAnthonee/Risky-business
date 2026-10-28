@@ -250,7 +250,7 @@ a model that is only thinking, and drops it so the table plays on. The code is `
 round; the boards nest inside each other's territories (the map side: [maps.md](maps.md#nested-boards-and-the-planner)).
 
 - **Settings** (create): `finalMap` (an existing board for the final, seating 6+ with a region per seat, e.g. `world` or
-  `hexworld`, whose 6-10 finalists start in different regions of the globe; default a generated one), `territoriesPerSeat` (generated boards' size, 4-6, default 5), `roundMinutes` (a round's deadline,
+  `hexworld`, whose 6-10 finalists start in different regions of the globe; default a generated one), `territoriesPerSeat` (generated boards' size, 4-10, default 8; 5 before 2026-10-27), `roundMinutes` (a round's deadline,
   1-240, default 15: `NESTED_ROUND_MINUTES`), `finishShare` (still accepted, 0.1-1, and stored, but ignored since
   2026-10-22: a round no longer closes early), `options` (every table's game settings except the map; they are
   checked at create on every table size from 2 to 10 seats), `maxEntrants` (default 128), `botDelayMs` (the bots' pace

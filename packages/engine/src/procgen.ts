@@ -48,9 +48,9 @@ export interface GeneratedMap {
   seaLinks: SeaLink[];
 }
 
-/** Board size per seat (owner, 2026-10-21): default 5 territories per player, 4 to 6 allowed. */
-export const DEFAULT_TERRITORIES_PER_SEAT = 5;
-export const TERRITORIES_PER_SEAT_RANGE = { min: 4, max: 6 } as const;
+/** Board size per seat (owner, 2026-10-27, up from 5): default 8 territories per player, 4 to 10 allowed. */
+export const DEFAULT_TERRITORIES_PER_SEAT = 8;
+export const TERRITORIES_PER_SEAT_RANGE = { min: 4, max: 10 } as const;
 export const GEN_SEATS_RANGE = { min: 2, max: 10 } as const;
 export const GEN_MAX_TERRITORIES = 120;
 
@@ -68,7 +68,7 @@ export function maxRegions(territories: number): number {
 }
 
 /**
- * The spec for a board with `seats` players, sized `territoriesPerSeat` territories per player (default 5).
+ * The spec for a board with `seats` players, sized `territoriesPerSeat` territories per player (default 8).
  * The id stores the resulting territory count, so changing the default later never changes a saved board.
  */
 export function genSpecFor(opts: { seed: number; seats: number; territoriesPerSeat?: number; regions?: number; passes?: number }): GenSpec {

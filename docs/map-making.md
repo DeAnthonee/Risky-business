@@ -240,6 +240,10 @@ rules, the workflow and the registration checklist above; only the way it is dra
   definition's territories only name and group them ("Beringia 3", in Beringia's region) and each sea lane joins the
   closest pair of their hexes (dropped when those hexes already touch). `autoBonus: true` sets every region's bonus to
   the builder's suggestion; `badgeGap` (units) is the badge spacing the build checks for (Mega Earth: 10).
+  `zones` adds layered bonuses over the regions ([maps.md](maps.md), Mega Earth): `micro` (`min`/`max` hexes, `bonus`,
+  `busyBonus` for a zone bordering `busyNeighbours` or more others), `sections` (per region, named groups of the
+  definition's sites; every site of a sectioned region in exactly one) and `continents` (groups of regions paying
+  `share` of their bonuses). The build prints the zone sizes and bonuses; the engine pays them in `zonesOf`.
   `scripts/preview-map.mjs` draws a board of more than 300 territories with small badges and no names. `poleRings:
   true` writes each territory's (and in the globe file, each cell's) ring count from the North and South pole cells,
   sea counted, for closing ice (the engine's `ice.ts`); boards without it are banded by height.

@@ -42,6 +42,12 @@ Britain, the Caribbean, Brazilian Highlands-West Africa, Sicily-Tunisia, Madagas
 Australia, and a Pacific route from the Great Basin through Hawaii to New Zealand). Territories carry general
 real-world area names (Great Plains, Andes, Sahel, Gobi ...). Being a globe, it wraps everywhere; the flat view joins
 Beringia and the Far East.
+Mega Earth ("mega_earth", the 100-player mega tournament only): Hex Earth on a finer globe, every hex its own
+territory, 671 territories in the same 14 regions (+9 to +41). Its bonuses come in layers that STACK: 103 micro
+zones of 5-9 hexes (+2, or +3 where a zone borders 6 or more others) sit inside 32 sections (+3 to +9, e.g. Oceania's
+Western Australia, Queensland and New South Wales & Pacific) inside the regions, and 4 continents span several regions
+(North America +26, Africa +38, Asia +38, Europe & Russia +26: half their regions' bonuses again). Holding a whole
+region pays every micro zone and section in it plus the region; the map tool lists every zone.
 Use the "map" tool for the exact territories, regions and adjacency of the map a game is using. On the classic,
 World and Grand World maps Alaska and Kamchatka are adjacent, as are Beringia and the Far East on Hex Earth (the map
 wraps); on every map some adjacencies cross water.
@@ -72,7 +78,8 @@ starting armies are scattered randomly over each player's territories and turn 1
 A TURN has three phases:
 
 1. REINFORCE
-   You receive armies = max(3, floor(territories you own / 3)) + continent bonuses for every continent you fully control.
+   You receive armies = max(3, floor(territories you own / 3)) + continent bonuses for every continent you fully control
+   (on Mega Earth also every bonus zone you fully control: micro zones, sections and continents stack).
    Cards: if you hold 5 or more cards at the start of your turn the game trades a set in for you automatically
    (the most armies, preferring a card for a territory you own and keeping wilds), until you hold 4 or fewer.
    You may trade any valid set during this phase. Place all armies on your own territories to move to the attack phase.

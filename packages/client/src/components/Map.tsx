@@ -130,6 +130,16 @@ export function continentColor(map: MapDef, continentId: string): string {
   return regionColors(map)[continentId] ?? CONTINENT_PALETTE[0];
 }
 
+const ZONE_TIER_LABEL = { micro: 'micro zone', section: 'section', continent: 'continent' } as const;
+
+/** A territory's bonus line for the bonuses view: its region, then every layered zone it counts toward (Mega Earth). */
+export function bonusLine(map: MapDef, id: string): string {
+  const t = map.territoryById[id];
+  const region = t && map.continentById[t.continent];
+  const zones = map.zones.filter((z) => z.territories.includes(id)).sort((a, b) => a.territories.length - b.territories.length);
+  return [`${region?.name ?? t?.continent} (+${region?.bonus ?? 0})`, ...zones.map((z) => `${z.name} ${ZONE_TIER_LABEL[z.tier]} (+${z.bonus})`)].join(' · ');
+}
+
 export function territoryName(map: MapDef, id: string): string {
   return map.territoryById[id]?.name ?? id;
 }
@@ -502,10 +512,9 @@ function FlatMap(props: MapProps & { onShowGlobe?: () => void }) {
               </path>
             );
           if (bonusView) {
-            const region = map.continentById[t.continent];
             return (
               <path key={t.id} d={t.path} className="territory bonus-fill" fill={continentColor(map, t.continent)}>
-                <title>{`${t.name} — ${region?.name ?? t.continent} (+${region?.bonus ?? 0})`}</title>
+                <title>{`${t.name} — ${bonusLine(map, t.id)}`}</title>
               </path>
             );
           }
@@ -545,6 +554,15 @@ function FlatMap(props: MapProps & { onShowGlobe?: () => void }) {
           <path d={c.outline} fill="none" stroke={continentColor(map,c.id)} strokeWidth="5" strokeLinejoin="round" />
         </g>)}
       </g>
+
+      {/* Layered bonuses (Mega Earth), bonuses view only: sections drawn solid, micro zones dashed. */}
+      {bonusView && map.zones.length > 0 && (
+        <g className="zone-boundaries" pointerEvents="none" aria-hidden="true">
+          {map.zones.filter((z) => z.tier !== 'continent').map((z) => (
+            <path key={z.id} d={z.outline} className={`zone-outline ${z.tier}`} />
+          ))}
+        </g>
+      )}
 
       {/* Capture pour: drops of the new owner's colour cross the border, a rippling front fills the territory and
           pushes the old colour out, then a rim flash, a small pop and a ripple lock it in. All CSS, no timers. */}

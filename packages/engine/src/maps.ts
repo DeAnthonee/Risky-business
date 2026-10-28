@@ -61,6 +61,23 @@ export interface ContinentDef {
   labelY?: number;
 }
 
+/**
+ * A layered bonus on top of the regions (Mega Earth only): a micro zone of 5-8 territories inside a section inside a
+ * region, or a continent over several regions. Holding all of a zone's open territories pays its bonus, on top of every
+ * zone and region inside it (engine zonesOf).
+ */
+export interface ZoneDef {
+  id: string;
+  name: string;
+  tier: 'micro' | 'section' | 'continent';
+  bonus: number;
+  territories: string[];
+  /** The zone or region it sits in (a micro zone: its section, or its region where there are no sections). */
+  parent?: string;
+  /** SVG path data for the zone outline (union of its territories). */
+  outline: string;
+}
+
 export interface SeaLink {
   a: string;
   b: string;
@@ -79,6 +96,9 @@ export interface MapDef {
   territoryById: Record<string, TerritoryDef>;
   continents: ContinentDef[];
   continentById: Record<string, ContinentDef>;
+  /** Layered bonuses over the regions; empty on every board but Mega Earth. */
+  zones: ZoneDef[];
+  zoneById: Record<string, ZoneDef>;
   adjacency: Record<string, string[]>;
   edges: [string, string][];
   /** Adjacent pairs that do not touch on the map and are drawn as link lines. */
@@ -98,6 +118,7 @@ interface RawMap {
   viewBox: number[];
   territories: TerritoryDef[];
   continents: ContinentDef[];
+  zones?: ZoneDef[];
   edges: string[][];
   seaLinks: SeaLink[];
   /** A hex-globe board's ring count of each territory from the North and the South pole (sea counted), for closing ice (ice.ts). */
@@ -177,6 +198,8 @@ function wrap(raw: RawMap, rule: StartingArmiesRule = STARTING_ARMIES[raw.id as 
     territoryById,
     continents: raw.continents,
     continentById: Object.fromEntries(raw.continents.map((c) => [c.id, c])),
+    zones: raw.zones ?? [],
+    zoneById: Object.fromEntries((raw.zones ?? []).map((z) => [z.id, z])),
     adjacency,
     edges,
     seaLinks: raw.seaLinks,

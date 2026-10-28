@@ -18,6 +18,8 @@ import {
   rankByStanding,
   shuffle as seededShuffle,
   startGame,
+  DEFAULT_TERRITORIES_PER_SEAT,
+  TERRITORIES_PER_SEAT_RANGE,
   startOnSpots,
   stallOf,
   type GameOptions,
@@ -254,7 +256,7 @@ export interface CreateTournamentSpec {
   format?: TournamentFormat;
   /** Nested: the final's board (an existing map seating 6+, with a region per seat); default a generated board. */
   finalMap?: string;
-  /** Nested: generated boards' size, territories per seat (4-6, default 5). */
+  /** Nested: generated boards' size, territories per seat (4-10, default 8). */
   territoriesPerSeat?: number;
   /** Nested: a round's deadline in minutes (1-240, default 30). */
   roundMinutes?: number;
@@ -578,7 +580,7 @@ export class TournamentManager extends EventEmitter {
     if (!counts) throw new RuleError('A tournament needs at least 2 seats: count Zergs, Delove seats and open spots');
     const total = counts.zergs + counts.delove + counts.open;
     this.createNested({ ...spec, format: 'nested', maxEntrants: spec.maxEntrants ?? Math.max(2, total) }, true);
-    const tps = spec.territoriesPerSeat ?? 5;
+    const tps = spec.territoriesPerSeat ?? DEFAULT_TERRITORIES_PER_SEAT;
     const roundMinutes = spec.roundMinutes ?? NESTED_ROUND_MINUTES;
     const botDelayMs = spec.botDelayMs ?? 300;
     const finalMax = spec.finalMap ? this.maxFinal(spec.finalMap) : NESTED_FINAL.max;
@@ -641,8 +643,9 @@ export class TournamentManager extends EventEmitter {
     const options: Partial<GameOptions> = { ...NESTED_DEFAULT_OPTIONS, ...(spec.options ?? {}) };
     delete options.maxPlayers; // set per table
     delete options.map; // every table plays its own board
-    const tps = spec.territoriesPerSeat ?? 5;
-    if (!Number.isInteger(tps) || tps < 4 || tps > 6) throw new RuleError('territoriesPerSeat must be a whole number from 4 to 6');
+    const tps = spec.territoriesPerSeat ?? DEFAULT_TERRITORIES_PER_SEAT;
+    if (!Number.isInteger(tps) || tps < TERRITORIES_PER_SEAT_RANGE.min || tps > TERRITORIES_PER_SEAT_RANGE.max)
+      throw new RuleError(`territoriesPerSeat must be a whole number from ${TERRITORIES_PER_SEAT_RANGE.min} to ${TERRITORIES_PER_SEAT_RANGE.max}`);
     const roundMinutes = spec.roundMinutes ?? NESTED_ROUND_MINUTES;
     if (!Number.isInteger(roundMinutes) || roundMinutes < 1 || roundMinutes > 240) throw new RuleError('roundMinutes must be a whole number from 1 to 240');
     const finishShare = spec.finishShare ?? 0.51;

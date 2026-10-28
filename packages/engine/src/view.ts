@@ -157,34 +157,67 @@ export interface GameView extends Omit<GameState, 'players' | 'deck' | 'discard'
  * Redacted view of the state for a given player, or for a spectator when viewer is null.
  * Players see only their own hand; spectators see every hand (they are not playing).
  */
-export function viewFor(state: GameState, viewer: PlayerId | null): GameView {
+/** What every view of one state shares, whoever looks: each player's holdings and income, the continents' owners. */
+export interface BoardStats {
+  seats: Map<PlayerId, { territories: TerritoryId[]; armies: number; continents: { id: string; territories: TerritoryId[] }[]; income: ReinforcementBreakdown | null }>;
+  /** Each continent's whole owner, before fog. */
+  continentOwners: Record<string, PlayerId | null>;
+}
+
+/**
+ * The viewer-independent part of `viewFor`. A caller that builds many views of one state (the server: every move wakes
+ * every seat's long-poll, ~100 at a 100-seat Mega Earth table) works it out once and passes it to each `viewFor`;
+ * working it out per view was players x territories for every one of them.
+ */
+export function boardStats(state: GameState): BoardStats {
+  const seats: BoardStats['seats'] = new Map();
+  for (const p of state.players) {
+    seats.set(p.id, {
+      territories: territoriesOf(state, p.id),
+      armies: armiesOf(state, p.id),
+      continents: continentsOf(state, p.id),
+      income: p.isNeutral ? null : reinforcementsFor(state, p.id),
+    });
+  }
+  const continentOwners: Record<string, PlayerId | null> = {};
+  for (const c of getMap(state.options.map).continents) {
+    const first = c.territories.find((t) => !isBlizzard(state, t));
+    const owner = first ? state.territories[first].owner : null;
+    continentOwners[c.id] = owner && controlsContinent(state, c.territories, owner) ? owner : null;
+  }
+  return { seats, continentOwners };
+}
+
+/** `stats`: `boardStats(state)` of this very state, when the caller already has it. */
+export function viewFor(state: GameState, viewer: PlayerId | null, stats: BoardStats = boardStats(state)): GameView {
   const map = getMap(state.options.map);
   const fogged = foggedFor(state, viewer);
   const visible = fogged ? visibleTerritories(state.territories, viewer!, map) : null;
   // Under fog a player sees another player's card count and total reinforcement income, plus any
   // territories they border; territory/army counts, income breakdown and continents are only shown
   // if every territory that player holds is visible.
-  const seesAllOf = (pid: PlayerId) => !visible || pid === viewer || territoriesOf(state, pid).every((t) => visible.has(t));
+  const seesAllOf = (pid: PlayerId) => !visible || pid === viewer || stats.seats.get(pid)!.territories.every((t) => visible.has(t));
   const continentVisible = (territories: TerritoryId[]) => !visible || territories.every((t) => isBlizzard(state, t) || visible.has(t));
   const players: PlayerView[] = state.players.map((p) => {
     const open = seesAllOf(p.id);
-    const rawIncome = p.isNeutral ? null : reinforcementsFor(state, p.id);
+    const seat = stats.seats.get(p.id)!;
+    const rawIncome = seat.income;
     return {
       ...p,
       tradesMade: p.tradesMade ?? 0,
       cards: viewer === null || p.id === viewer ? p.cards : null,
       // Card counts and total reinforcement income are public at the table, fog or not.
       cardCount: p.cards.length,
-      territoryCount: open ? territoriesOf(state, p.id).length : null,
-      armyCount: open ? armiesOf(state, p.id) : null,
-      continents: continentsOf(state, p.id)
+      territoryCount: open ? seat.territories.length : null,
+      armyCount: open ? seat.armies : null,
+      continents: seat.continents
         .filter((c) => open || continentVisible(c.territories))
         .map((c) => c.id),
       ...(map.zones.length ? { zones: zonesOf(state, p.id).filter((z) => open || continentVisible(z.territories)).map((z) => z.id) } : {}),
       income: !rawIncome
         ? null
         : open
-          ? rawIncome
+          ? { ...rawIncome, continents: rawIncome.continents.map((c) => ({ ...c })) }
           : {
               territories: 0,
               fromTerritories: 0,
@@ -199,11 +232,7 @@ export function viewFor(state: GameState, viewer: PlayerId | null): GameView {
     };
   });
   const continentOwners: Record<string, PlayerId | null> = {};
-  for (const c of map.continents) {
-    const first = c.territories.find((t) => !isBlizzard(state, t));
-    const owner = first ? state.territories[first].owner : null;
-    continentOwners[c.id] = owner && controlsContinent(state, c.territories, owner) && continentVisible(c.territories) ? owner : null;
-  }
+  for (const c of map.continents) continentOwners[c.id] = stats.continentOwners[c.id] && continentVisible(c.territories) ? stats.continentOwners[c.id] : null;
   const { deck, discard, rngState, seed, players: _p, ...rest } = state;
   const territories = boardFor(state, viewer);
   const capitals = fogged ? Object.fromEntries(Object.entries(state.capitals).filter(([, t]) => !territories[t].hidden)) : state.capitals;

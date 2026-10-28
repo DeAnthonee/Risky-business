@@ -11,6 +11,8 @@ import {
   nextFloat,
   startGame,
   territoriesOf,
+  boardStats,
+  viewFor,
   type GameOptions,
   type GameState,
 } from '../src/index.js';
@@ -71,5 +73,20 @@ describe('engine speed paths', () => {
     expect(playChecked(4, { capitals: true, blizzards: 5 }, 4)).toBeGreaterThan(50);
     expect(playChecked(3, { map: 'skirmish', fortifyMode: 'adjacent', cardValues: 'fixed' }, 5)).toBeGreaterThan(50);
     expect(playChecked(5, { map: 'world', neutrals: 6 }, 6)).toBeGreaterThan(50);
+  });
+
+  it('a view from shared board stats is the view worked out alone, for every seat, fog or not', () => {
+    for (const fogOfWar of [false, true]) {
+      let s = createGame('g', { maxPlayers: 4, capitals: true, blizzards: 4, fogOfWar }, 9);
+      for (let i = 0; i < 4; i++) s = addPlayer(s, `p${i}`, `P${i}`, true);
+      s = startGame(s).state;
+      const rng = createRng(9);
+      for (let step = 0; step < 150 && s.phase !== 'finished'; step++) {
+        const stats = boardStats(s);
+        for (const viewer of [null, ...s.players.map((p) => p.id)]) expect(viewFor(s, viewer, stats)).toEqual(viewFor(s, viewer));
+        const me = s.currentPlayer!;
+        s = applyAction(s, me, chooseBotAction(s, me, () => nextFloat(rng)) ?? { type: 'end_turn' }).state;
+      }
+    }
   });
 });

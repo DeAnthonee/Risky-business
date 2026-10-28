@@ -83,6 +83,8 @@ export const STYLE_LABELS: Record<TournamentStyle, string> = { classic: 'Classic
 export const MEGA_MAP = 'mega_earth';
 /** A mega game's deadline when the host sets none: the longest a round may run (it can take hours at 100 seats). */
 export const MEGA_ROUND_MINUTES = 240;
+/** A mega game's closing ice by default: starts 5 minutes in, then advances every minute (iceEveryMinutes). */
+export const MEGA_ICE = { iceStartMinutes: 5, iceEveryMinutes: 1 } as const;
 /**
  * A mega table's bot pace (ms between moves): none. 100 seats take their turns one after another, so the table runs as
  * fast as its seats decide (owner, 2026-10-28: "it can go faster if its available"); how fast spectators see it is the
@@ -457,6 +459,12 @@ export const MEGA_TURN_TIMER_SECONDS = 90;
 function styleDefaults(style: TournamentStyle | undefined, options: Partial<GameOptions>) {
   if (style !== 'mega') return;
   if (options.closingIce === undefined) options.closingIce = true;
+  // ... on a clock: from 5 minutes in it advances every minute, mid-turn too (owner, 2026-10-28: "constant ... fun
+  // chaos"). A host or schedule entry sets its own iceStartMinutes / iceEveryMinutes (0 = by rounds).
+  if (options.closingIce) {
+    options.iceStartMinutes ??= MEGA_ICE.iceStartMinutes;
+    options.iceEveryMinutes ??= MEGA_ICE.iceEveryMinutes;
+  }
   if (options.cardValues === undefined) options.cardValues = 'fixed';
   if (options.turnTimer === undefined) {
     options.turnTimer = 'turn';

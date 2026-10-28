@@ -167,7 +167,7 @@ export const OPTION_SPECS: { [K in OptionKey]: OptionSpec } = {
   closingIce: {
     kind: 'boolean',
     label: 'Closing ice',
-    description: 'true: from iceStartMinutes after the start, the ice closes in from the North and South poles one ring at a time (sea included on a globe board; other boards by height), every iceEveryRounds rounds, until iceSafeRings rings are left open in the middle. A territory it reaches becomes a blizzard: its armies retreat to the owner\'s strongest open neighbour or are lost, and a player with no land left is out. On in mega tournaments. false (default): off.',
+    description: 'true: from iceStartMinutes after the start, the ice closes in from the North and South poles one ring at a time (sea included on a globe board; other boards by height), every iceEveryRounds rounds (or every iceEveryMinutes minutes, mid-turn too), until iceSafeRings rings are left open in the middle. A territory it reaches becomes a blizzard: its armies retreat to the owner\'s strongest open neighbour or are lost, and a player with no land left is out. On in mega tournaments. false (default): off.',
   },
   iceStartMinutes: {
     kind: 'int',
@@ -181,7 +181,14 @@ export const OPTION_SPECS: { [K in OptionKey]: OptionSpec } = {
     label: 'Ice advances every (rounds)',
     min: 1,
     max: () => 10,
-    description: 'Closing ice only: the ice advances at the start of every this-many rounds (default 1).',
+    description: 'Closing ice only: the ice advances at the start of every this-many rounds (default 1). Ignored when iceEveryMinutes is set.',
+  },
+  iceEveryMinutes: {
+    kind: 'int',
+    label: 'Ice advances every (minutes)',
+    min: 0,
+    max: () => 60,
+    description: 'Closing ice only: on a clock, the ice advances every this-many minutes after it starts, whoever is moving, even in the middle of a turn (a conquest it reaches is settled; a player frozen out on their turn is passed). 0 (default): by rounds, iceEveryRounds.',
   },
   iceRingsPerStep: {
     kind: 'int',
@@ -344,7 +351,7 @@ export function describeOptions(o: GameOptions, tradeCount = 0): string[] {
     `Blizzards: ${o.blizzards > 0 ? `${o.blizzards} frozen territories (max ${maxBlizzards(map)} on this map)` : 'off'}`,
     ...(o.fogOfWar ? [`Stall breaker: ${(o.stallFogLift ?? 0) > 0 ? `the fog lifts for good after ${o.stallFogLift} full round${o.stallFogLift === 1 ? '' : 's'} with no territory captured` : 'off'}`] : []),
     ...((o.stallStorm ?? 0) > 0 ? [`Storm: after ${o.stallStorm} full round${o.stallStorm === 1 ? '' : 's'} with no territory captured, every round start each stack of more than 10 armies loses a fifth of them, until someone captures`] : []),
-    ...(o.closingIce ? [`Closing ice: from ${o.iceStartMinutes ?? 15} minutes in, the ice closes in from both poles ${o.iceRingsPerStep ?? 1} ring${(o.iceRingsPerStep ?? 1) === 1 ? '' : 's'} at a time every ${(o.iceEveryRounds ?? 1) === 1 ? 'round' : `${o.iceEveryRounds} rounds`}, until ${o.iceSafeRings ?? 6} rings are left; frozen land is a blizzard, its armies retreat to the owner's strongest open neighbour or are lost, and a player with no land is out`] : []),
+    ...(o.closingIce ? [`Closing ice: from ${o.iceStartMinutes ?? 15} minutes in, the ice closes in from both poles ${o.iceRingsPerStep ?? 1} ring${(o.iceRingsPerStep ?? 1) === 1 ? '' : 's'} at a time every ${o.iceEveryMinutes ? `${o.iceEveryMinutes === 1 ? 'minute' : `${o.iceEveryMinutes} minutes`} (mid-turn too)` : (o.iceEveryRounds ?? 1) === 1 ? 'round' : `${o.iceEveryRounds} rounds`}, until ${o.iceSafeRings ?? 6} rings are left; frozen land is a blizzard, its armies retreat to the owner's strongest open neighbour or are lost, and a player with no land is out`] : []),
     ...((o.stallEnd ?? 0) > 0 ? [`Stalemate: ${o.stallEnd} more round${o.stallEnd === 1 ? '' : 's'} with no capture after the last stall breaker came on, the game ends decided on standing (territories, armies, dice)`] : []),
     `Turn timer: ${timerOf(o) ? `${timerOf(o)!.seconds}s per ${timerOf(o)!.mode} for human and agent seats; on a timeout the player is skipped (armies placed for them, no attacks, no fortify)` : 'off'}`,
   ];

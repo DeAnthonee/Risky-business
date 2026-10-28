@@ -1466,10 +1466,10 @@ describe('game settings catalogue', () => {
   it('has a spec for every option and parses untrusted input strictly', async () => {
     const { OPTION_KEYS, OPTION_SPECS, DEFAULT_OPTIONS, parseOptions, describeOptions, optionCatalogue, optionLimits } = await import('../src/index.js');
     // Every option has a default, except the optional ones absent by default so games without them stay unchanged.
-    expect([...OPTION_KEYS].sort()).toEqual([...Object.keys(DEFAULT_OPTIONS), 'stallFogLift', 'stallStorm', 'stallEnd', 'closingIce', 'iceStartMinutes', 'iceEveryRounds', 'iceRingsPerStep', 'iceSafeRings'].sort());
+    expect([...OPTION_KEYS].sort()).toEqual([...Object.keys(DEFAULT_OPTIONS), 'stallFogLift', 'stallStorm', 'stallEnd', 'closingIce', 'iceStartMinutes', 'iceEveryRounds', 'iceEveryMinutes', 'iceRingsPerStep', 'iceSafeRings'].sort());
     // The catalogue shows an optional setting's real default (closing ice off, the ice's numbers), not 0.
     const cat = optionCatalogue().options;
-    expect(Object.fromEntries(cat.filter((o) => o.key.startsWith('ice') || o.key === 'closingIce').map((o) => [o.key, o.default]))).toEqual({ closingIce: false, iceStartMinutes: 15, iceEveryRounds: 1, iceRingsPerStep: 1, iceSafeRings: 6 });
+    expect(Object.fromEntries(cat.filter((o) => o.key.startsWith('ice') || o.key === 'closingIce').map((o) => [o.key, o.default]))).toEqual({ closingIce: false, iceStartMinutes: 15, iceEveryRounds: 1, iceEveryMinutes: 0, iceRingsPerStep: 1, iceSafeRings: 6 });
     for (const k of OPTION_KEYS) expect(OPTION_SPECS[k].description.length).toBeGreaterThan(20);
     // coercion of form/query style values
     expect(parseOptions({ fogOfWar: 'true', capitals: 1, blizzards: '3', map: 'world' })).toEqual({ fogOfWar: true, capitals: true, blizzards: 3, map: 'world' });

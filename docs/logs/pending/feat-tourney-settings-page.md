@@ -1,3 +1,3 @@
-server: - 2026-10-28 #PR recurring tournaments settings: `GET/PUT/DELETE /api/admin/schedule` (`schedule-settings.ts`) replace the running schedule at once and save it to `RISK_DATA_DIR/tournament-schedule-entries.json`, which wins over `RISK_TOURNAMENT_SCHEDULE` at startup
-client: - 2026-10-28 #PR `?admin=schedule`: the recurring tournaments settings page (every entry as a form with every game setting, JSON mode, run now, reset), behind the admin token
-hosting: - 2026-10-28 #PR a schedule saved from the settings page (`RISK_DATA_DIR/tournament-schedule-entries.json`) wins over `RISK_TOURNAMENT_SCHEDULE` / `_FILE`
+server: - 2026-10-28 #335 recurring tournaments settings: `GET/PUT/DELETE /api/admin/schedule` (`schedule-settings.ts`) replace the running schedule at once and save it to `RISK_DATA_DIR/tournament-schedule-entries.json`, which wins over `RISK_TOURNAMENT_SCHEDULE` at startup
+client: - 2026-10-28 #335 `?admin=schedule`: the recurring tournaments settings page (every entry as a form with every game setting, JSON mode, run now, reset), behind the admin token
+hosting: - 2026-10-28 #335 a schedule saved from the settings page (`RISK_DATA_DIR/tournament-schedule-entries.json`) wins over `RISK_TOURNAMENT_SCHEDULE` / `_FILE`

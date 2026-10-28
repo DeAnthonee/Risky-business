@@ -385,7 +385,7 @@ function splitIntoCells(def, cells) {
     site.sort((a, b) => dist(a) - dist(b));
     const ids = site.map((i, k) => {
       const id = site.length === 1 ? t.id : `${t.id}_${k + 1}`;
-      territories.push({ id, name: site.length === 1 ? t.name : `${t.name} ${k + 1}`, continent: t.continent, site: ll(i) });
+      territories.push({ id, name: site.length === 1 ? t.name : `${t.name} ${k + 1}`, continent: t.continent, site: ll(i), siteId: t.id, siteName: t.name });
       cells[i].territory = id;
       return [i, id];
     });
@@ -512,6 +512,7 @@ function buildHexGlobeMap(def) {
     const [lx, ly] = label ? projection(label) : [NaN, NaN];
     return { ...rest, territories: members, outline: path({ type: 'MultiPolygon', coordinates: union }), ...(label ? { labelX: r(lx), labelY: r(ly) } : {}) };
   });
+  const zones = def.zones ? buildZones(def, edges, continents, (members) => path({ type: 'MultiPolygon', coordinates: rewind(pc.union(...members.map((id) => rewind(geoms.get(id).coordinates)))) })) : undefined;
 
   // `poleRings: true` (closing ice, the engine's ice.ts): every cell's ring count from the North and the South pole cell
   // over the whole globe, sea and ice cells counted; a territory's is its cells' smallest.
@@ -533,7 +534,7 @@ function buildHexGlobeMap(def) {
         })),
       }
     : undefined;
-  const out = finish({ ...def, edges }, { viewBox: [WIDTH, height], territories, continents, touches, poleRings });
+  const out = finish({ ...def, edges }, { viewBox: [WIDTH, height], territories, continents, zones, touches, poleRings });
   for (const w of warnings) console.log(`  WARNING ${w}`);
   suggestBonuses(def, edges);
 
@@ -566,6 +567,138 @@ function buildHexGlobeMap(def) {
   return out;
 }
 
+/**
+ * `zones` (Mega Earth): layered bonuses over the regions, each paid on top of the layers inside it (the engine's
+ * zonesOf). Sections are Hex Earth sites grouped by hand inside a region. Micro zones are built from the sites of each
+ * section (or of a region with no sections): a site under `min` hexes joins its smallest neighbouring piece until it has
+ * `min`, then a piece over `max` is cut into connected parts of `min`-`max` hexes (a piece of exactly max + 1 stays
+ * whole). Continents pay `share` of their regions' bonuses again. `outlineOf(territories)` draws a zone's outline.
+ */
+function buildZones(def, edges, continents, outlineOf) {
+  const { micro, sections = {}, continents: supers = [] } = def.zones;
+  const adj = new Map(def.territories.map((t) => [t.id, new Set()]));
+  for (const [a, b] of edges) adj.get(a).add(b), adj.get(b).add(a);
+  const byId = new Map(def.territories.map((t) => [t.id, t]));
+  const entries = (members) => {
+    const set = new Set(members);
+    return members.filter((t) => [...adj.get(t)].some((n) => !set.has(n))).length;
+  };
+  const zones = [];
+  // Sections, and the groups of sites micro zones are cut from.
+  const groups = [];
+  for (const c of continents) {
+    const regionSites = [...new Set(def.territories.filter((t) => t.continent === c.id).map((t) => t.siteId))];
+    const secs = sections[c.id];
+    if (!secs) {
+      groups.push({ parent: c.id, sites: regionSites });
+      continue;
+    }
+    const listed = new Set();
+    for (const s of secs) {
+      for (const site of s.sites) {
+        if (!regionSites.includes(site)) throw new Error(`${def.id}: section ${s.id} lists ${site}, which is not a site of ${c.id}`);
+        if (listed.has(site)) throw new Error(`${def.id}: site ${site} is in two sections`);
+        listed.add(site);
+      }
+      const members = def.territories.filter((t) => t.continent === c.id && s.sites.includes(t.siteId)).map((t) => t.id);
+      zones.push({ id: `s_${s.id}`, name: s.name, tier: 'section', parent: c.id, bonus: Math.max(3, Math.round(members.length / 5 + entries(members) * 0.2)), territories: members });
+      groups.push({ parent: `s_${s.id}`, sites: s.sites });
+    }
+    const missing = regionSites.filter((s) => !listed.has(s));
+    if (missing.length) throw new Error(`${def.id}: the sections of ${c.id} leave out ${missing.join(', ')}`);
+  }
+  for (const c of Object.keys(sections)) if (!continents.some((x) => x.id === c)) throw new Error(`${def.id}: sections for unknown region ${c}`);
+
+  // Micro zones.
+  const near = (p, q) => Math.min(...p.cells.flatMap((a) => q.cells.map((b) => Math.hypot(...byId.get(a).site.map((v, k) => v - byId.get(b).site[k])))));
+  const touching = (p, q) => p.cells.some((a) => q.cells.some((b) => adj.get(a).has(b)));
+  const micros = [];
+  for (const g of groups) {
+    let pieces = g.sites.map((site) => ({ cells: def.territories.filter((t) => t.siteId === site).map((t) => t.id) })).filter((p) => p.cells.length);
+    for (;;) {
+      const small = pieces.filter((p) => p.cells.length < micro.min).sort((a, b) => a.cells.length - b.cells.length)[0];
+      const others = pieces.filter((p) => p !== small);
+      if (!small || !others.length) break;
+      const nbrs = others.filter((q) => touching(small, q));
+      const into = nbrs.length ? nbrs.sort((a, b) => a.cells.length - b.cells.length)[0] : others.sort((a, b) => near(small, a) - near(small, b))[0];
+      into.cells.push(...small.cells);
+      pieces = others;
+    }
+    for (const p of pieces) {
+      let k = Math.ceil(p.cells.length / micro.max);
+      if (k > 1 && p.cells.length / k < micro.min) k--;
+      const parts = cutPiece(p.cells, k, adj);
+      for (const cells of parts) micros.push({ parent: g.parent, cells, split: parts.length > 1, whole: p.cells });
+    }
+  }
+  const usedIds = new Set();
+  const centroid = (cells) => [0, 1].map((k) => cells.reduce((n, t) => n + byId.get(t).site[k], 0) / cells.length);
+  const microZones = micros.map((m) => {
+    const count = new Map();
+    for (const t of m.cells) count.set(byId.get(t).siteId, (count.get(byId.get(t).siteId) ?? 0) + 1);
+    const sites = [...count.keys()].sort((a, b) => count.get(b) - count.get(a));
+    const names = sites.map((s) => def.territories.find((t) => t.siteId === s).siteName);
+    let name = names.length === 1 ? names[0] : names.length === 2 ? `${names[0]} & ${names[1]}` : `${names.slice(0, -1).join(', ')} & ${names.at(-1)}`;
+    if (m.split) {
+      const [x, y] = centroid(m.cells);
+      const [cx, cy] = centroid(m.whole);
+      name = `${Math.abs(x - cx) > Math.abs(y - cy) ? (x > cx ? 'East' : 'West') : y > cy ? 'North' : 'South'} ${name}`;
+    }
+    let id = `m_${sites[0]}`;
+    for (let n = 2; usedIds.has(id); n++) id = `m_${sites[0]}_${n}`;
+    usedIds.add(id);
+    return { id, name, tier: 'micro', parent: m.parent, bonus: micro.bonus, territories: m.cells };
+  });
+  const names = new Map();
+  for (const z of microZones) names.set(z.name, (names.get(z.name) ?? 0) + 1);
+  for (const [n, c] of names) if (c > 1) microZones.filter((z) => z.name === n).forEach((z, i) => (z.name = `${n} ${i + 1}`));
+  // A micro zone bordering `busyNeighbours` or more others is harder to hold: it pays `busyBonus`.
+  const zoneOf = new Map(microZones.flatMap((z) => z.territories.map((t) => [t, z.id])));
+  for (const z of microZones) {
+    const nbrs = new Set(z.territories.flatMap((t) => [...adj.get(t)].map((n) => zoneOf.get(n)).filter((o) => o !== z.id)));
+    if (nbrs.size >= micro.busyNeighbours) z.bonus = micro.busyBonus;
+  }
+
+  const regionBonus = new Map(continents.map((c) => [c.id, c.bonus]));
+  const continentZones = supers.map((s) => {
+    for (const r of s.regions) if (!regionBonus.has(r)) throw new Error(`${def.id}: continent ${s.id} lists unknown region ${r}`);
+    const bonus = Math.round(s.share * s.regions.reduce((n, r) => n + regionBonus.get(r), 0));
+    return { id: `c_${s.id}`, name: s.name, tier: 'continent', bonus, territories: continents.filter((c) => s.regions.includes(c.id)).flatMap((c) => c.territories) };
+  });
+
+  const all = [...microZones, ...zones, ...continentZones].map((z) => ({ ...z, outline: outlineOf(z.territories) }));
+  const sizes = microZones.map((z) => z.territories.length);
+  const hist = Object.entries(sizes.reduce((h, n) => ((h[n] = (h[n] ?? 0) + 1), h), {})).map(([n, c]) => `${n}:${c}`).join(' ');
+  console.log(`  zones: ${microZones.length} micro (sizes ${hist}; ${microZones.filter((z) => z.bonus === micro.busyBonus).length} at +${micro.busyBonus}), ${zones.length} sections (+${Math.min(...zones.map((z) => z.bonus))} to +${Math.max(...zones.map((z) => z.bonus))}), ${continentZones.length} continents (${continentZones.map((z) => `${z.name} +${z.bonus}`).join(', ')})`);
+  return all;
+}
+
+/**
+ * Cuts a connected piece into `k` connected parts of near-equal size: each part is the breadth-first prefix from an edge
+ * cell whose removal leaves the rest connected (if no cell does, the rest is taken as it is).
+ */
+function cutPiece(cells, k, adj) {
+  if (k <= 1) return [cells];
+  const set = new Set(cells);
+  const bfs = (start, within) => {
+    const order = [start];
+    const seen = new Set(order);
+    for (let i = 0; i < order.length; i++) for (const n of adj.get(order[i])) if (within.has(n) && !seen.has(n)) seen.add(n), order.push(n);
+    return order;
+  };
+  const size = Math.round(cells.length / k);
+  // Edge cells first: the farthest from the piece's first cell, then the farthest from that one.
+  const far = bfs(bfs(cells[0], set).at(-1), set);
+  const starts = far.slice().reverse();
+  for (const start of starts) {
+    const part = bfs(start, set).slice(0, size);
+    const rest = cells.filter((t) => !part.includes(t));
+    if (bfs(rest[0], new Set(rest)).length === rest.length) return [part, ...cutPiece(rest, k - 1, adj)];
+  }
+  const part = bfs(starts[0], set).slice(0, size);
+  return [part, ...cutPiece(cells.filter((t) => !part.includes(t)), k - 1, adj)];
+}
+
 /** A region's suggested bonus: classic logic, growing with its size and its entry points. */
 function suggestedBonus(def, edges, id) {
   const cont = new Map(def.territories.map((t) => [t.id, t.continent]));
@@ -590,7 +723,7 @@ function suggestBonuses(def, edges) {
 }
 
 /** Shared tail: validate edges, derive sea links, warn about suspicious borders and badges, write the JSON. */
-function finish(def, { viewBox, territories, continents, touches, anchorWarnings = [], poleRings }) {
+function finish(def, { viewBox, territories, continents, zones, touches, anchorWarnings = [], poleRings }) {
   const [WIDTH, height] = viewBox;
   const edgeKeys = new Set(def.edges.map((e) => [...e].sort().join('|')));
   const ids = new Set(def.territories.map((t) => t.id));
@@ -618,6 +751,7 @@ function finish(def, { viewBox, territories, continents, touches, anchorWarnings
     continents,
     edges: def.edges,
     seaLinks,
+    ...(zones ? { zones } : {}),
     ...(poleRings ? { poleRings } : {}),
   };
   const file = join(root, 'packages/engine/src/generated', `${def.id}.json`);

@@ -33,6 +33,21 @@ draws its badges at 38% on the flat view and 60% on the globe, and gives seats p
 globe, 48 rings pole to pole) and its globe file each cell's rings, for closing ice. It is in `TOURNAMENT_MAP_IDS`, not `MAP_IDS`: lobbies cannot pick it and Delove does not
 train on it, so it is not in the GPU mirror's `RULE_FILES` either.
 
+**Layered bonuses** (owner, 2026-10-28; Mega Earth only): on top of its 14 regions the board has bonus **zones** that
+stack, each paid on top of every zone and region inside it (engine `zonesOf`, in `reinforcementsFor` as
+`income.zones`; same blizzard rule as a region):
+- **103 micro zones** of 5-9 connected hexes (+2; +3 when a zone borders 6 or more others: 21 of them), built from Hex
+  Earth's sites: a site under 5 hexes joins its smallest neighbouring piece, a piece over 8 is cut into connected parts.
+- **32 sections** (+3 to +9), Hex Earth sites grouped by hand inside each region of 25 or more hexes (Oceania: Western
+  Australia, Queensland, New South Wales & Pacific). Central America, South Asia and Southeast Asia have none.
+- **4 continents** over several regions, paying half their regions' bonuses again: North America (North + Central
+  America) +26, Africa (its three regions) +38, Asia (Central, South, East and Southeast Asia) +38, Europe & Russia +26.
+
+Holding all of Oceania, for example, pays 14 (territories) + 16 (region) + 12 (three sections) + 14 (seven micro zones)
+= 56 instead of 30. The sections, continents and micro sizes are in `zones` in `scripts/maps/mega_earth.mjs`; the
+generated JSON carries `zones` (id, name, tier, bonus, parent, territories, outline), `GET /api/map` and the MCP `map`
+tool list them (no outlines), and the web client's bonuses view (B) draws sections solid and micro zones dashed.
+
 Legacy board: `europe_advanced` (the 99-territory "Europe Advanced" for 2–6 players, now shown as
 "Europe (legacy, 99)") is no longer offered for new games and is not listed by `GET /api/maps`, but stays
 registered so games saved on it keep loading and playing. A map id never changes its territories under saved

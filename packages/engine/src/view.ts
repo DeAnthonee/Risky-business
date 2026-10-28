@@ -1,5 +1,5 @@
 import { getMap, type MapDef } from './maps.js';
-import { armiesOf, continentsOf, controlsContinent, isBlizzard, legalMoves, reinforcementsFor, territoriesOf, type LegalMoves } from './engine.js';
+import { armiesOf, continentsOf, controlsContinent, isBlizzard, legalMoves, reinforcementsFor, territoriesOf, zonesOf, type LegalMoves } from './engine.js';
 import type { Card, GameEvent, GameState, Player, PlayerId, ReinforcementBreakdown, TerritoryId, TerritoryState } from './types.js';
 import type { AnyGameEvent } from './stall.js';
 
@@ -132,6 +132,8 @@ export interface PlayerView extends Omit<Player, 'cards'> {
   /** null under fog of war when the viewer cannot see every territory this player holds. */
   armyCount: number | null;
   continents: string[];
+  /** Layered bonus zones held, by the same fog rule as continents (only on a board that has zones: Mega Earth). */
+  zones?: string[];
   /** Armies this player would receive at the start of their next turn, before cards (null for the Neutral; under fog total is visible and breakdown is hidden). */
   income: ReinforcementBreakdown | null;
   /**
@@ -178,6 +180,7 @@ export function viewFor(state: GameState, viewer: PlayerId | null): GameView {
       continents: continentsOf(state, p.id)
         .filter((c) => open || continentVisible(c.territories))
         .map((c) => c.id),
+      ...(map.zones.length ? { zones: zonesOf(state, p.id).filter((z) => open || continentVisible(z.territories)).map((z) => z.id) } : {}),
       income: !rawIncome
         ? null
         : open

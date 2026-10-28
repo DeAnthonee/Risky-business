@@ -235,6 +235,11 @@ export default function GlobeMap(props: Props) {
     const regionGeo = keep(new THREE.BufferGeometry());
     scn.add(new THREE.LineSegments(borderGeo, keep(new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.35 }))));
     scn.add(new THREE.LineSegments(regionGeo, keep(new THREE.LineBasicMaterial({ color: 0x050a12, transparent: true, opacity: 0.95 }))));
+    // Mega Earth's micro zone and section edges, bonuses view only (light, so they read against the dark region edges).
+    const zoneGeo = keep(new THREE.BufferGeometry());
+    const zoneLines = new THREE.LineSegments(zoneGeo, keep(new THREE.LineBasicMaterial({ color: 0xf4f7fb, transparent: true, opacity: 0.85 })));
+    zoneLines.visible = false;
+    scn.add(zoneLines);
 
     // Sea links (static dashed arcs) and the attack arrow (rebuilt when it changes).
     const linkGroup = new THREE.Group();
@@ -367,7 +372,9 @@ export default function GlobeMap(props: Props) {
       // Borders sit on the higher of the two cells.
       const thin: number[] = [];
       const bold: number[] = [];
+      const zoneEdges: number[] = [];
       const m = live.current.map;
+      const microOf = new Map(m.zones.filter((z) => z.tier === 'micro').flatMap((z) => z.territories.map((t) => [t, z.id] as const)));
       for (const [p, q, a, b] of shape.borders) {
         const [ta, tb] = [globe.cells[a].t, globe.cells[b].t];
         const ha = ta >= 0 ? heightNow.get(tIndex[ta]) ?? LAND : ta === -2 ? ICE : 1;
@@ -376,7 +383,9 @@ export default function GlobeMap(props: Props) {
         const [A, B] = [shape.corners[p].clone().multiplyScalar(r), shape.corners[q].clone().multiplyScalar(r)];
         const sameRegion = ta >= 0 && tb >= 0 && m.territoryById[tIndex[ta]]?.continent === m.territoryById[tIndex[tb]]?.continent;
         (sameRegion ? thin : bold).push(A.x, A.y, A.z, B.x, B.y, B.z);
+        if (sameRegion && microOf.size && microOf.get(tIndex[ta]) !== microOf.get(tIndex[tb])) zoneEdges.push(A.x, A.y, A.z, B.x, B.y, B.z);
       }
+      zoneGeo.setAttribute('position', new THREE.Float32BufferAttribute(zoneEdges, 3));
       borderGeo.setAttribute('position', new THREE.Float32BufferAttribute(thin, 3));
       regionGeo.setAttribute('position', new THREE.Float32BufferAttribute(bold, 3));
       return easing;
@@ -475,6 +484,7 @@ export default function GlobeMap(props: Props) {
       const dt = Math.min(100, now - last);
       last = now;
       const p = live.current.props;
+      zoneLines.visible = !!p.bonusView;
       const reduce = reducedMotion();
 
       // Animations started since the last frame.

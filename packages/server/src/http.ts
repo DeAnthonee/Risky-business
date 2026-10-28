@@ -10,6 +10,8 @@ export function mapInfo(m: MapDef) {
     maxPlayers: m.maxPlayers,
     territories: m.territories.map(({ id, name, continent }) => ({ id, name, continent })),
     continents: m.continents.map(({ id, name, bonus, territories }) => ({ id, name, bonus, territories })),
+    // Mega Earth's layered bonuses (micro zones, sections, continents), each paid on top of the ones inside it.
+    ...(m.zones.length ? { zones: m.zones.map(({ id, name, tier, bonus, parent, territories }) => ({ id, name, tier, bonus, ...(parent ? { parent } : {}), territories })) } : {}),
     adjacency: m.adjacency,
   };
 }

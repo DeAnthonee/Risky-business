@@ -887,6 +887,11 @@ function incomeTitle(income: NonNullable<GameView['players'][number]['income']>,
   if (income.hidden) return `Income next turn, before cards: ${income.total} (breakdown hidden by fog)`;
   const parts = [`${income.fromTerritories} from ${income.territories} territories${income.fromTerritories === 3 && income.territories < 9 ? ' (minimum 3)' : ''}`];
   for (const c of income.continents) parts.push(`${c.bonus} for ${map.continentById[c.id]?.name ?? c.id}`);
+  // Mega Earth's layered bonuses: continents and sections by name, micro zones summed.
+  const zones = (income.zones ?? []).map((z) => ({ ...z, def: map.zoneById[z.id] }));
+  for (const z of zones) if (z.def?.tier !== 'micro') parts.push(`${z.bonus} for ${z.def?.name ?? z.id}${z.def?.tier === 'section' ? ' (section)' : ''}`);
+  const micros = zones.filter((z) => z.def?.tier === 'micro');
+  if (micros.length) parts.push(`${micros.reduce((n, z) => n + z.bonus, 0)} for ${micros.length} micro zone${micros.length === 1 ? '' : 's'}`);
   if (income.fromCapitals) parts.push(`${income.fromCapitals} for ${income.capitals} capital${income.capitals === 1 ? '' : 's'}`);
   return `Income next turn, before cards: ${income.total}\n${parts.join('\n')}`;
 }
@@ -912,7 +917,8 @@ function reinforcementPreview(view: GameView, pid: string): number {
   const map = getMap(view.options.map);
   const base = Math.max(3, Math.floor((p.territoryCount ?? 0) / 3));
   const caps = view.options.capitals ? Object.values(view.capitals ?? {}).filter((t) => view.territories[t]?.owner === pid).length * 2 : 0;
-  return base + p.continents.reduce((n, c) => n + (map.continentById[c]?.bonus ?? 0), 0) + caps;
+  const zones = (p.zones ?? []).reduce((n, z) => n + (map.zoneById[z]?.bonus ?? 0), 0);
+  return base + p.continents.reduce((n, c) => n + (map.continentById[c]?.bonus ?? 0), 0) + zones + caps;
 }
 
 function PhaseSteps({ phase }: { phase: GameView['phase'] }) {

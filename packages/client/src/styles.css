@@ -1958,6 +1958,9 @@ label.check input {
 /* Bonuses view: regions colour-coded with their bonus, no armies */
 .territory.bonus-fill { stroke: rgba(10, 16, 28, 0.55); stroke-width: 0.8; fill-opacity: 0.88; cursor: default; }
 .continent-outline.bonus { stroke-width: 4; stroke-opacity: 1; stroke: #0a101c !important; fill: none; }
+.zone-outline { fill: none; stroke-linejoin: round; }
+.zone-outline.section { stroke: rgba(255, 255, 255, 0.85); stroke-width: 2; }
+.zone-outline.micro { stroke: rgba(10, 16, 28, 0.8); stroke-width: 1.1; stroke-dasharray: 3 2; }
 .bonus-labels text { pointer-events: none; paint-order: stroke; stroke: rgba(8, 12, 22, 0.9); stroke-linejoin: round; fill: #fff; }
 .bonus-labels .bonus-value { font-size: 30px; font-weight: 900; stroke-width: 6px; }
 .bonus-labels .bonus-name { font-size: 12px; font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase; stroke-width: 4px; }

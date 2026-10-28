@@ -165,7 +165,15 @@ export function PlayerCard({ view, gameId, you, whisperTo }: { view: GameView; g
   const map = getMap(view.options.map);
   const capitals = view.options.capitals ? Object.values(view.capitals ?? {}).filter((t) => view.territories[t]?.owner === p.id).length : null;
   const kills = view.players.filter((x) => x.eliminatedBy === p.id).length;
-  const continents = p.continents.map((c) => map.continentById[c]?.name ?? c);
+  const held = (p.zones ?? []).map((z) => map.zoneById[z]).filter(Boolean);
+  const micros = held.filter((z) => z.tier === 'micro').length;
+  // Mega Earth's layered bonuses: continents and sections by name, micro zones as a count.
+  const continents = [
+    ...held.filter((z) => z.tier === 'continent').map((z) => z.name),
+    ...p.continents.map((c) => map.continentById[c]?.name ?? c),
+    ...held.filter((z) => z.tier === 'section').map((z) => z.name),
+    ...(micros ? [`${micros} micro zone${micros === 1 ? '' : 's'}`] : []),
+  ];
   const isYou = p.id === you;
   const known = (n: number | null) => (n === null ? '?' : n);
 

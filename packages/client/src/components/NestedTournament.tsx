@@ -4,6 +4,7 @@ import type { TournamentView } from '../api';
 import { entrantSpot, spotMessage } from '../entrantFocus';
 import { toSnapshot, useTournamentFeed } from '../useTournamentFeed';
 import { Inception, type TableSnapshot } from './Inception';
+import { Bracket } from './Bracket';
 
 type Tab = 'map' | 'bracket' | 'live';
 const FOLLOW_KEY = 'risk.tournament.follow';
@@ -140,50 +141,6 @@ function RoundClock({ t }: { t: TournamentView }) {
           : ' (then the tables still playing finish their go-around of turns and are decided on standing)'}
       </span>
     </p>
-  );
-}
-
-function matchStatus(m: TournamentView['rounds'][number]['matches'][number]): string {
-  if (m.status === 'decided') return 'decided on standing';
-  if (m.status === 'bye') return 'moves on';
-  return m.status;
-}
-
-/** The bracket from the final down. */
-function Bracket({ t, onWatch }: { t: TournamentView; onWatch: (gameId: string) => void }) {
-  const last = t.rounds.length;
-  return (
-    <div className="nested-bracket">
-      {t.rounds
-        .slice()
-        .reverse()
-        .map((r) => (
-          <div key={r.round}>
-            <h3>{r.matches.length === 1 && r.round === last && r.round > 1 ? 'The final' : `Round ${r.round}`}</h3>
-            <div className="tables">
-              {r.matches.map((m, i) => (
-                <div key={m.gameId ?? `t-${i}`} className={`table-card ${m.status}`}>
-                  <div className="table-head">
-                    <strong>Table {i + 1}</strong>
-                    <span className="muted small">{matchStatus(m)}</span>
-                  </div>
-                  <ul>
-                    {(m.status === 'decided' && m.standing ? m.standing.order.map((id) => m.players.find((p) => p.entrantId === id)!).filter(Boolean) : m.players).map((p, k) => (
-                      <li key={p.entrantId} className={m.winner === p.entrantId ? 'winner' : m.winner ? 'out' : ''}>
-                        {m.status === 'decided' ? `${k + 1}. ` : ''}
-                        {m.winner === p.entrantId ? '🏅 ' : ''}
-                        {p.name}
-                        {m.standing?.rolls[p.entrantId] && <span className="muted small"> 🎲 {m.standing.rolls[p.entrantId].join(', ')}</span>}
-                      </li>
-                    ))}
-                  </ul>
-                  {m.gameId && <button onClick={() => onWatch(m.gameId!)}>👁 Watch</button>}
-                </div>
-              ))}
-            </div>
-          </div>
-        ))}
-    </div>
   );
 }
 

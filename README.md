@@ -176,8 +176,9 @@ These keep the deploy, the game and the training pipeline from breaking. Everyth
 10. **Keep the boundaries.** Self-play stays deterministic from the seed (no `Math.random`, no clocks in decisions).
     `packages/selfplay`, `llm-player`, `runner`, `delove` and `delove-gpu` are never imported by the server; Delove is
     never imported by the character code. The web client moves a spectator to another game only when they turned
-    that on, and never moves a player; the one exception is runner generation training matches (rooms named exactly
-    `Generation <tag> Match <n>`), which move their spectators on to the next such match or its lobby. The features
+    that on, and never moves a player; the exceptions are runner generation training matches (rooms named exactly
+    `Generation <tag> Match <n>`), which move their spectators on to the next such match or its lobby, and tournament
+    tables, which move their spectators on to another table of the same tournament. The features
     that move a spectator are in [docs/playing.md](docs/playing.md#features-that-move-a-spectator).
 11. **Character data is data.** Agents' saves live under `RISK_DATA_DIR/characters/`, never written back into the
     repo automatically (a sync back is a PR read by hand). Every save needs the write key (`RISK_CHARACTERS_KEY` or the

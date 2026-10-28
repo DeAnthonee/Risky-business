@@ -1,0 +1,2 @@
+client: - 2026-10-27 #PR tournament bracket drawn March Madness style (rounds as columns, lines from each table to its winner's next table, TBD boxes for rounds to come; knockout and nested); spectators of a tournament table move on to another table of the tournament when it ends, with Stay here
+docs: - 2026-10-27 #PR README hard rule 10: tournament tables are the second exception that moves spectators (owner's request)

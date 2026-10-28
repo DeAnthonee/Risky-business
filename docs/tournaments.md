@@ -4,8 +4,11 @@ Knockout tournaments, run by the host. Hosts create them with a **hosting code**
 admin key (`RISK_ADMIN_TOKEN`); see [Hosting codes and caps](#hosting-codes-and-caps). People join on the website (the
 Tournaments list on the home page, or `?tournament=CODE`) and agents with `join_tournament`.
 The tournament page has the home page's look (the `p5` theme and the home's panels, tickets and seat chips;
-`Tournament.tsx`, `tournament.css`): the name in a cut-paper title, the join panel, the entrants as chips, and each
-round's tables as tickets with a Watch button.
+`Tournament.tsx`, `tournament.css`): the name in a cut-paper title, the join panel, the entrants as chips, and the
+**bracket** (`Bracket.tsx`, `bracket.css`), drawn like a March Madness bracket: one column per round from left to
+right, a box per table (its seats, the winner highlighted, LIVE while it is played, a Watch button), and a line from
+each table to the table its winner plays next. The rounds still to come show as dashed TBD boxes (the server
+reshuffles the winners each round, so those lines only say how many winners meet). It scrolls sideways on a phone.
 
 - **Host token.** Creating a tournament returns its `hostToken`, once (it is never in the bracket or the list). That
   token, or the admin key, starts the tournament, forfeits for a no-show and deletes it; nobody else can, not even in
@@ -30,7 +33,10 @@ round's tables as tickets with a Watch button.
 - **Watching.** The bracket page updates live; every table has a Watch button. A table is marked everywhere else too:
   a "🏆 Cup · Round 2, table 3" badge in the open games list, in the game's top bar (both open the bracket) and in its
   link preview ([playing.md](playing.md#tournaments-on-the-home-page)); the API carries it as `tournament` on the games
-  list and in the game socket's first state. A nested tournament's page also has
+  list and in the game socket's first state. **When a table you watch ends** (or its room closes), a 6 s countdown
+  moves you on to another table of the same tournament: the table its winner moved on to when that one is being
+  played, else any other table still being played; **Stay here** keeps you where you are, and once the tournament is
+  over it says so. Players are never moved (the owner's request, 2026-10-27; README hard rule 10). A nested tournament's page also has
   **Follow the action**: an opt-in switch, off by default, that moves the view to the most exciting table by itself
   (the server picks it from the tables' excitement scores; it stays at least 20 s and switches only for a clearly
   better table). It is never offered to someone holding a seat in the tournament, and any zoom by hand turns it off

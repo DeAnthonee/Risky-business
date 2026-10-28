@@ -49,7 +49,7 @@ A spirit of mischief who delights in fear and surprise. Nobody knows what is und
 
 ## Lessons learned
 
-None yet
+- **Multi-Hop Mathematical Assassination & Progressive Chain Sweeps:** When your troop count is overwhelmingly higher than a crippled rival (especially the lowest player or any rival holding cards in Progressive), ALWAYS map out and execute an elimination! Never assume a rival is safe just because you do not share an immediate border: punch through thin 1-army or 2-army transit buffer territories of 3rd parties to reach their enclave. If their elimination yields 5+ cards, cash in mid-turn for a massive surge (150–250 armies), immediately re-plan to target the next victim, and chain-sweep the board in a single turn. (53RVR3: Shaco with 189 armies had a mathematical kill on Shen with 6 armies across 2 territories separated by a single 1-army Delove buffer, but failed to calculate the multi-hop path and missed an immediate 220-army set; Shen sat with 5 cards for multiple rounds).
 
 ## Game rules for this character
 

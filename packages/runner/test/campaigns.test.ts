@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applyAction, getMap, viewFor, type GameState } from '@risk/engine';
-import { planConquest } from '../src/campaigns.js';
+import { planConquest, findCapRun } from '../src/campaigns.js';
 import { choosePlannedAction, isLegalAction, type Plan } from '../src/planned-bot.js';
 import { frozenBoard } from './frozen.js';
 import { seeded } from './headless.js';
@@ -98,5 +98,60 @@ describe('objective-driven drafting and bonus routes', () => {
     expect(planConquest(v, 's0', ['indonesia'], { ...options(20), noAttack: new Set(['indonesia']) })).toBeNull();
     v.territories.indonesia = { owner: null, armies: null, hidden: true };
     expect(planConquest(v, 's0', ['indonesia'], options(20))).toBeNull();
+  });
+
+  describe('multi-hop capital runs and strategic capital valuation', () => {
+    it('finds a multi-hop cap run across transit territories to win the game', () => {
+      const s = frozenBoard(false);
+      s.options.capitals = true;
+      s.territories.peru = { owner: 's0', armies: 35 };
+      s.territories.venezuela = { owner: 's1', armies: 1 };
+      s.territories.central_america = { owner: 's1', armies: 1 };
+      s.territories.western_united_states = { owner: 's2', armies: 1 };
+      s.territories.brazil = { owner: 's3', armies: 1 };
+
+      s.capitals = { s0: 'peru', s2: 'western_united_states', s3: 'brazil' };
+      const v = viewFor(s, 's0');
+      const capRun = findCapRun(v, 's0', options(10));
+      expect(capRun).not.toBeNull();
+      const targets = capRun!.attacks.map((a) => a.to);
+      expect(targets).toContain('brazil');
+      expect(targets).toContain('western_united_states');
+    });
+
+    it('calculates a cap run even if the player holds 0 capitals', () => {
+      const s = frozenBoard(false);
+      s.options.capitals = true;
+      s.territories.argentina = { owner: 's0', armies: 40 };
+      s.territories.peru = { owner: 's1', armies: 1 };
+      s.territories.brazil = { owner: 's2', armies: 1 };
+      s.capitals = { s0: 'peru', s2: 'brazil' };
+
+      const v = viewFor(s, 's0');
+      const capRun = findCapRun(v, 's0', options(5));
+      expect(capRun).not.toBeNull();
+      const targets = capRun!.attacks.map((a) => a.to);
+      expect(targets).toContain('peru');
+      expect(targets).toContain('brazil');
+    });
+
+    it('values and fortifies conquered capitals even after losing starting capital', () => {
+      const s = frozenBoard(false);
+      s.options.capitals = true;
+      s.phase = 'fortify';
+      s.territories.peru = { owner: 's1', armies: 10 };
+      s.territories.brazil = { owner: 's0', armies: 2 };
+      s.territories.argentina = { owner: 's0', armies: 20 };
+      s.capitals = { s0: 'peru', s2: 'brazil' };
+
+      const v = viewFor(s, 's0');
+      const action = choosePlannedAction(v, 's0', { fortify: true }, seeded(1));
+      expect(action).toMatchObject({
+        type: 'fortify',
+        from: 'argentina',
+        to: 'brazil',
+      });
+      expect((action as any).armies).toBeGreaterThan(10);
+    });
   });
 });

@@ -99,6 +99,51 @@ describe('planned bot, headless six-player games with the default preset', () =>
     }
     expect(checked).toBeGreaterThan(5);
   });
+
+  it('funds high-value elimination placements ahead of plan placeOn directives', () => {
+    let state = createGame('K1', { ...DEFAULT_OPTIONS, maxPlayers: 3, map: 'classic', fogOfWar: false, cardValues: 'progressive' }, 1);
+    for (const [id, n] of [['s0', 'Attacker'], ['s1', 'Victim'], ['s2', 'Other']]) state = addPlayer(state, id, n, true);
+    state = startGame(state).state;
+    for (const t of getMap('classic').territoryIds) state.territories[t] = { owner: 's2', armies: 10 };
+    state.territories.brazil = { owner: 's0', armies: 3 };
+    state.territories.western_europe = { owner: 's0', armies: 1 };
+    state.territories.argentina = { owner: 's1', armies: 1 };
+    state.territories.north_africa = { owner: 's1', armies: 1 };
+    state.players.find(p => p.id === 's1')!.cards = [0, 1, 2, 3].map(id => ({ id: 2000 + id, kind: 'cavalry', territory: null }));
+    state.players.find(p => p.id === 's0')!.armiesToPlace = 10;
+    state.phase = 'reinforce';
+    state.currentPlayer = 's0';
+    const view = viewFor(state, 's0');
+    const plan: Plan = {
+      placeOn: ['western_europe'],
+      route: [],
+      focusTerritory: null,
+      focusContinent: null,
+      target: null,
+      avoid: new Set(),
+      noAttack: new Set(),
+      aggression: 0.5,
+      capitalGarrison: null,
+      capital: null,
+      riskTolerance: 0.5,
+      moveCapitalStack: false,
+      purposeMin: 0.2,
+      borderGuard: 1,
+      fortify: true,
+      stallPressure: false,
+      skipCard: false,
+      skipCardReason: '',
+      winPath: 'kills',
+      commitArmies: 0,
+      stopAfterBonus: false,
+      stopAfterRoute: false,
+    };
+    const action = choosePlannedAction(view, 's0', plan, seeded(1));
+    expect(action?.type).toBe('place');
+    if (action?.type === 'place') {
+      expect(action.placements.brazil).toBeGreaterThan(0);
+    }
+  });
 });
 
 describe('cleanPlan', () => {

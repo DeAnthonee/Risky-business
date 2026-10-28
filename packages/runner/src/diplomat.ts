@@ -4,6 +4,7 @@ import { DealLedger } from './deals.js';
 import { assessLeader } from './game-memory.js';
 import { boardFacts } from './facts.js';
 import type { Llm } from './llm.js';
+import { isModelName, isZergName } from './pings.js';
 import { jaccard, sentences, sharesSequence, tokens } from './similarity.js';
 
 export type ChatMsg = ChatResult['messages'][number];
@@ -308,8 +309,17 @@ export class Diplomat {
 
   /** Who the opening whisper goes to, from the board: a neighbour, the leader, or a possible ally. */
   private pickWhisperTarget(view: GameView): { name: string; why: string } | null {
-    const others = view.players.filter((p) => p.alive && !p.isNeutral && p.id !== this.playerId);
+    const livingZergs = view.players.filter((p) => p.alive && !p.isNeutral && isZergName(p.name));
+    const others = view.players.filter((p) => p.alive && !p.isNeutral && p.id !== this.playerId && !isZergName(p.name) && !isModelName(p.name));
     if (others.length === 0) return null;
+    if (livingZergs.length > 0) {
+      const zergThreat = livingZergs[0];
+      const partner = others[Math.min(others.length - 1, Math.floor(this.random() * others.length))];
+      return {
+        name: partner.name,
+        why: `fellow non-Zerg ally: coordinate a joint strike or alliance against the Zerg swarm (${zergThreat.name})`,
+      };
+    }
     const coalition=assessLeader(view,this.playerId);
     if(coalition.needsCoalition && coalition.partners.length) {
       const partner=coalition.partners[Math.min(coalition.partners.length-1,Math.floor(this.random()*coalition.partners.length))];
@@ -415,7 +425,7 @@ export class Diplomat {
           { role: 'system', content: this.systemPrompt() },
           { role: 'user', content: this.userPrompt(view, task) },
         ],
-        { maxTokens: 160, temperature: 0.85, json: true, signal, prepare: () => {
+        { maxTokens: 160, temperature: 0.85, json: true, signal, label: 'diplomat', prepare: () => {
           generatedView = this.latestView ?? view;
           if (signal.aborted || generatedView.phase === 'finished' || !generatedView.players.some(p => p.id === this.playerId && p.alive)) return null;
           return [
@@ -583,11 +593,9 @@ export class Diplomat {
   }
 
   private systemPrompt(): string {
+    // Rules shared by every seat come first, so Ollama can reuse its cached prompt work; the seat's identity goes last.
     return [
-      `You are playing the board game Risk as "${this.seatName}" and chatting with the other players at the table. Remember: YOU are "${this.seatName}" — never refer to "${this.seatName}" in the third person as a rival, and never propose an alliance or attack against yourself ("${this.seatName}") or against the player you are whispering an alliance offer to.`,
-      'Your character identity and background (voice and strategic style):',
-      this.persona,
-      '',
+      'You are playing the board game Risk and chatting with the other players at the table. Your seat name and character are given after these rules.',
       'PROFESSIONAL DIPLOMACY — ALWAYS THE PERCEPTION OF AN ALLY:',
       '1. ALWAYS GIVE THE PERCEPTION OF AN ALLY: Speak with polite, reasonable, cooperative respect. Never sound hostile, bitter, arrogant, or dismissive, even toward rivals you intend to attack later. Diplomatic goodwill keeps opponents from attacking you and opens opportunities.',
       '2. ZERO TAUNTING, INSULTS, OR THREATS: Never mock, taunt, sneer, laugh ("hehe", "haha"), boast, insult, or threaten rivals ("I will crush you", "you will pay"). Taunts destroy trust, make your offers look like traps, and cause opponents to attack you out of spite.',
@@ -615,6 +623,10 @@ export class Diplomat {
       'To answer an offer listed under your deals, fill "respond": {"dealId":"ID","answer":"accept"|"reject"|"counter","counter":{a deal as above, with the same player}}.',
       'To propose a public coalition in all chat against a dominant player, fill "coalition": {"target":"Name","untilRound":N}.',
       'To join or decline a public coalition offer in all chat, fill "coalitionRespond": {"coalitionId":"ID","answer":"join"|"decline"}.',
+      '',
+      `YOUR SEAT: you are "${this.seatName}". Never refer to "${this.seatName}" in the third person as a rival, and never propose an alliance or attack against yourself ("${this.seatName}") or against the player you are whispering an alliance offer to.`,
+      'Your character identity and background (voice and strategic style):',
+      this.persona,
     ].join('\n');
   }
 

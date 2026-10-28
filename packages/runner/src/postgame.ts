@@ -1,4 +1,5 @@
 import { rankLeaderboard } from '@risk/engine';
+import { normalizeLeaderboardKey } from './leaderboard-keys.js';
 import { updateExperience } from './experience.js';
 import { addPersonalityMemory, withLearningLock } from './shared-memory.js';
 import { copyFile, mkdir, readFile, rename, writeFile, appendFile } from 'node:fs/promises';
@@ -40,6 +41,7 @@ export interface SeatInfo {
 
 export interface SeatResult {
   name: string;
+  playerId?: string;
   character: string | null;
   /** 1 = winner. Survivors rank by territories, then the later someone was eliminated the better. */
   placement: number;
@@ -158,6 +160,7 @@ export function buildResult(final: GameView, seats: SeatInfo[], tracker: GameTra
     const st = stats.get(p.id)!;
     return {
       name: p.name,
+      playerId: p.id,
       character: info?.characterId ?? null,
       placement: rank.findIndex((x) => x.id === p.id) + 1,
       alive: p.alive,
@@ -248,6 +251,7 @@ export interface LeaderRow {
   kills: number;
   /** Times this seat eliminated each other key. */
   victims: Record<string, number>;
+  playerIds?: string[];
 }
 
 export interface Leaderboard {
@@ -262,10 +266,29 @@ export function killList(victims: Record<string, number>): string {
   return list.length ? ` (${list.map(([k, n]) => `${k} x${n}`).join(', ')})` : '';
 }
 
+/** Normalizes seat and player keys so versioned names (e.g. Delove@3) merge with canonical entries. */
+export function normalizeLeaderboardKeyStr(raw: string): string {
+  return normalizeLeaderboardKey(raw).key;
+}
+
 export function computeLeaderboard(results: GameResult[]): Leaderboard {
   results = [...new Map(results.filter(r => r.winner && r.reason !== 'unfinished').map(r => [r.gameId, r])).values()];
-  const ratings = rankLeaderboard(results.map(r => ({ gameId: r.gameId, seats: r.seats.map(s => ({ key: s.character ?? s.name, name: s.name, placement: s.placement,
-    killed: r.seats.filter(v => v.eliminatedBy === s.name).map(v => v.character ?? v.name) })) })));
+  const keyOf = (s: { character?: string | null; name: string }) => normalizeLeaderboardKey(s.character ?? s.name).key;
+  const playerIds = new Map<string, Set<string>>();
+  for (const r of results) for (const s of r.seats) {
+    const ids = playerIds.get(keyOf(s)) ?? new Set<string>();
+    if (s.playerId) ids.add(s.playerId);
+    playerIds.set(keyOf(s), ids);
+  }
+  const ratings = rankLeaderboard(results.map(r => ({
+    gameId: r.gameId,
+    seats: r.seats.map(s => ({
+      key: keyOf(s),
+      name: s.name,
+      placement: s.placement,
+      killed: r.seats.filter(v => v.eliminatedBy === s.name).map(keyOf),
+    })),
+  })));
   const chars = new Map<string, { games: number; wins: number; place: number }>();
   const maps = new Map<string, { games: number; wins: Record<string, number> }>();
   for (const r of results) {
@@ -273,12 +296,12 @@ export function computeLeaderboard(results: GameResult[]): Leaderboard {
     m.games++;
     if (r.winner) {
       const w = r.seats.find((s) => s.name === r.winner);
-      const key = w?.character ?? r.winner;
+      const key = normalizeLeaderboardKey(w?.character ?? r.winner).key;
       m.wins[key] = (m.wins[key] ?? 0) + 1;
     }
     maps.set(r.map, m);
     for (const s of r.seats) {
-      const key = s.character ?? s.name;
+      const key = normalizeLeaderboardKey(s.character ?? s.name).key;
       const c = chars.get(key) ?? { games: 0, wins: 0, place: 0 };
       c.games++;
       c.place += s.placement;
@@ -288,7 +311,7 @@ export function computeLeaderboard(results: GameResult[]): Leaderboard {
   }
   return {
     games: results.length,
-    byCharacter: ratings.map(r => ({ key: r.key, games: r.games, wins: r.wins, avgPlacement: r.avgPlacement, points: r.points, losses: r.losses, rank: r.rank, kills: r.kills, victims: r.victims })),
+    byCharacter: ratings.map(r => ({ key: r.key, games: r.games, wins: r.wins, avgPlacement: r.avgPlacement, points: r.points, losses: r.losses, rank: r.rank, kills: r.kills, victims: r.victims, playerIds: [...(playerIds.get(r.key) ?? [])] })),
     byMap: [...maps].map(([map, m]) => ({ map, ...m })).sort((a, b) => b.games - a.games),
   };
 }
@@ -311,13 +334,14 @@ export function formatLeaderboardMarkdown(lb: Leaderboard): string {
     '',
     '## Character / Seat Standings',
     '',
-    '| Rank | Player / Character | Points | Games | Wins (1st) | Win Rate | Losses | Avg Place | Eliminations |',
-    '| :---: | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |',
+    '| Rank | Player / Character | Player ID | Points | Games | Wins (1st) | Win Rate | Losses | Avg Place | Eliminations |',
+    '| :---: | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |',
   ];
   for (const r of lb.byCharacter) {
     const winRate = ((r.wins / r.games) * 100).toFixed(1) + '%';
     const avgPlace = r.avgPlacement.toFixed(2);
-    lines.push(`| #${r.rank} | **${r.key}** | **${r.points}** | ${r.games} | ${r.wins} | ${winRate} | ${r.losses} | ${avgPlace} | ${r.kills} |`);
+    const norm = normalizeLeaderboardKey(r.key);
+    lines.push(`| #${r.rank} | **${r.key}** | \`${norm.playerId}\` | **${r.points}** | ${r.games} | ${r.wins} | ${winRate} | ${r.losses} | ${avgPlace} | ${r.kills} |`);
   }
   lines.push('');
   lines.push('## Map Breakdown');
@@ -462,7 +486,7 @@ async function writeNote(llm: Llm | null, r: GameResult, seat: SeatReport, board
             ].join('\n'),
           },
         ],
-        { maxTokens: 700, temperature: 0.5, timeoutMs: 240_000 },
+        { maxTokens: 700, temperature: 0.5, timeoutMs: 240_000, label: 'postgame:note' },
       );
       if (raw.trim()) text = normalizeNote(raw, seat.name, r.gameId, result, seat.privateLog);
     } catch (e) {
@@ -872,7 +896,7 @@ export async function curateLearnings(i: CurateInput): Promise<'updated' | 'kept
           ].join('\n'),
         },
       ],
-      { maxTokens: 3500, temperature: 0.4, timeoutMs: 420_000 },
+      { maxTokens: 3500, temperature: 0.4, timeoutMs: 420_000, label: 'postgame:curator' },
     );
   } catch (e) {
     i.log(`Curator call failed (${(e as Error).message}); learnings left as they were`);
@@ -976,13 +1000,16 @@ async function runPostGameLocked(i: PostGameInput): Promise<PostGameOutput> {
         if (!i.skipRivalries) {
           await addPersonalityMemory(i.learningsDir, seat.characterId, i.gameId, note.text);
         }
-        const own = result.seats.find(s => s.character === seat.characterId)!;
-        const opponents = result.seats.filter(s => s !== own).map(s => ({ key: s.character ?? 'player:' + s.name.toLowerCase(), name: s.name }));
-        const watchers = extractWatchers(seat.chat);
-        await updateExperience({ dir: i.learningsDir, id: seat.characterId, name: seat.name, gameId: i.gameId, note: note.text,
-          ownWon: own.placement === 1, myPlacement: own.placement,
-          opponentResults: Object.fromEntries(result.seats.filter(s=>s!==own).map(s=>[s.character ?? 'player:' + s.name.toLowerCase(), {won:s.placement===1,placement:s.placement}])),
-          opponents, watchers, deals: seat.observedDeals ?? [], llm: i.skipRivalries ? null : i.llm, log: i.log });
+        const own = result.seats.find(s => s.character === seat.characterId || s.name === seat.name);
+        if (own) {
+          const opponents = result.seats.filter(s => s !== own).map(s => ({ key: s.character ?? 'player:' + s.name.toLowerCase(), name: s.name }));
+          const watchers = extractWatchers(seat.chat);
+          await updateExperience({ dir: i.learningsDir, id: seat.characterId, name: seat.name, gameId: i.gameId, note: note.text,
+            ownWon: own.placement === 1, myPlacement: own.placement,
+            opponentResults: Object.fromEntries(result.seats.filter(s=>s!==own).map(s=>[s.character ?? 'player:' + s.name.toLowerCase(), {won:s.placement===1,placement:s.placement}])),
+            opponents, watchers, deals: seat.observedDeals ?? [], llm: i.skipRivalries ? null : i.llm, log: i.log,
+            chat: seat.chat, eliminatedBy: own.eliminatedBy ?? null });
+        }
       }
     }
 

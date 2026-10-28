@@ -60,6 +60,35 @@ turn, ask: are any troops stuck on a territory that touches no enemy?
 - **Don't attack at near-even odds with a thin empire,** and don't blitz from a 3-army stack into a bigger
   one. Reinforce first. Weak neighbours that leave 1-3 army territories are the cheap targets: chain through
   them from a big stack.
+- **Disciplined attack termination vs. the greed trap:** in multi-player games (3-6 players), you do NOT have
+  to exhaust every good attack on your turn. Attacking past a newly secured continent bonus into adjacent lands
+  bleeds your breakthrough stack down to 1-2 armies and leaves your new bonus border undefended, virtually
+  guaranteeing a neighbour breaks it next turn. Take the guarantee: once you complete a continent bonus and
+  earn your card, stop attacking immediately. Park a heavy 8-15 army stack directly on the doorway chokepoint
+  (or fortify back to it), cash in your +2 to +5 income turn after turn, and only expand outward once you hold
+  a large secondary surplus stack.
+- **Doorway fortress defense (Multi-continent clusters):** when holding contiguous multi-continent empires
+  (such as the Americas on World boards) that bottle-neck into 2–3 external doorways (e.g. Alaska, Greenland, Brazil),
+  concentrate the bulk of your armies directly onto those doorway chokeholds (15–30+ armies). Leaving 1–2 troops
+  on external chokeholds while armies sit in deep interior pockets invites adjacent rivals to punch through and
+  shatter multiple bonuses at trivial cost.
+- **Choke-neutral bonus disruption:** if taking an adjacent border territory breaks a leading rival's continent
+  bonus (e.g. stepping from Alaska into Kamchatka/Siberia to break a Siberian bonus) without increasing your net
+  doorway chokehold count ($\Delta \text{Chokepoints} \le 0$), execute the attack immediately. It denies the rival
+  bonus reinforcements turn after turn at zero defensive cost.
+- **The 1v1 endgame exception:** restraint reverses completely when only two players remain (1-versus-1).
+  There are no third parties to punish over-expansion. Every territory conquered directly starves your opponent
+  of base reinforcement income (floor(territories / 3)) and strips their continent bonuses. In 1v1, break
+  everything you can reach to reduce their territory count below 12 and leave them paralyzed at the +3 minimum.
+- **Know your dice mode:**
+  - *Balanced Blitz (`balancedBlitz: true`):* rolls the median of 5 full simulated blitzes. The binomial
+    median curve dramatically amplifies favorable odds: an 80% random attack becomes 94.2% balanced, 85%
+    becomes 97.3%, and 90% becomes 99.1%. High-odds attacks (>=80%) are near-certain locks with minimal
+    losses; underdog gambles (<40%) drop below 16% and are mathematically suicidal.
+  - *True Random Blitz (`balancedBlitz: false`):* unfiltered Markov-chain dice with high variance and fat
+    tails. An 80% attack still has a real 20% failure risk; always hold a +3 to +5 army safety margin.
+  - *Single Random Dice:* attacker rolls 1-3 dice vs defender 1-2 dice; ties go to the defender (giving
+    defender ~56% win rate on equal 2v2 dice pairs). Use only for 1-roll probes or micro-stopping.
 
 ## Capitals (Capital Conquest)
 
@@ -109,9 +138,14 @@ eliminated you, so read its notes with that in mind.
   forward. (AAR5MR: Draven held Southeast Asia, Oceania and South Asia on two points, Tibet and Pakistan.)
 - **Finish the bonus you're working on** before breaking a strong neighbour.
 - **Break a neighbour's bonus when they can't retaliate.** It's almost always good, but it starts a war.
+- **The "Good Neighbor" Fallacy & Active Bonus Denial:** "Good neighbor" only works if both sides are playing "good neighbor." Attempting it unilaterally against aggressive opponents, neural nets (Delove), or ruthless rivals is a fatal gamble that risks getting backstabbed and ruining your whole game (GJJWQ9: Teemo held a bonus and passively let adjacent Delove hold an uncontested bonus; Delove stacked troops opposite Teemo and crushed Teemo's bonus). When an adjacent neighbor holds a continent bonus, every turn they hold it yields bonus troops right on your doorstep. If they are stacking next to you, they will inevitably break you. Sometimes it is simply not worth letting a neighbor have a bonus—factor breaking their bonus directly into your plan for that turn. Stripping their +2 to +5 bonus income halts their army accumulation and resets the border balance before their stack overwhelms you.
+- **Runaway Leader Asymmetry & The "Punch Through 1s" Net-EV Break:** Turtling against a snowballing runaway leader is mathematical slow death. If a leader generates +35 to +50+ troops/turn while you make +3, every turn of inaction widens the deficit by 30-40+ armies. Over-expanded leaders often protect lucrative interior bonuses (+4, +5) behind thin corridors of 1-army territories. On balanced blitz, punching through a chain of three 1s costs only ~2-3 troops, while stripping 5+ armies of leader income every single turn. This is an overwhelmingly net-positive EV trade. As the closest neighbor, striking through the corridor of 1s to shatter the leader's bonus engine is your top strategic duty (GJJWQ9: Darius turtled with 7 armies instead of punching through three 1s to break Leona's +5 Solmara; Sensei made the decisive strike and broke Leona's lines).
+- **Defensive Elimination & Border Consolidation (Offense that Improves Defense):** When an adjacent rival is reduced to a low army count (3-6 troops) and holds cards (3+ cards), eliminating them immediately is urgent. Wounded rivals have nothing to lose and will counter-attack to break your bonuses (GJJWQ9: Leona hesitated to kill Sensei at 5 troops and 3 cards with her 30-stack; Sensei used those surviving troops to punch into Hrimvald and break Leona's bonus before falling). Furthermore, eliminating an enclave or pocket on your perimeter often collapses an awkward multi-point frontier into fewer, tighter bottleneck doorways (e.g. 5 border points down to 4). When an offensive kill delivers cards, placement points, removes a bonus breaker, AND reduces your net border chokeholds ($\Delta \text{Borders} < 0$), it is an offensive strike that yields superior defense.
 
-## Progressive cards: cards and kills win
+## Progressive and Exponential Cards: Cards, Scaling Sets, and Kills Win
 
+- **Shared Scaling EV for Progressive and Exponential Sets:** Progressive and Exponential card modes share the exact same scaling EV logic: in both modes, card sets grow rapidly into massive game-deciding surges (+30 to +250+ armies in the mid-to-late game). Never treat exponential sets as small or static; an exponential set scales by 1.3x per trade and quickly rivals progressive values. In both modes, eliminations that yield cards (especially 3+ cards, or any kill that pushes your hand to 5+ cards for an instant mid-turn trade) are the #1 winning play on the board.
+- **Fearless Third-Party Transit for High-EV Kills:** When an elimination has high EV (e.g. awards 3+ cards, guarantees a mid-turn set, or knocks out a player when sets are large), NEVER hesitate or be afraid to punch through a third party's territory to reach the victim! A 1-army or even a 5-to-7-army buffer territory of a third party costs only a few casualties (~2 to 10 armies) on blitz. Spending 10 armies to gain a 100-250 army card set is overwhelmingly positive net EV. Third-party avoidance pacts or truces do not block transit when the kill yields game-winning value.
 - Set values climb fast (seen: 4, 6, 8, 10, 12, 15, then +5 a set, reaching 100-145 late), so bonuses barely
   matter once sets are big.
 - **Know when the switch happens.** In a 10-player progressive game, by around round 15 a single set can be
@@ -121,10 +155,20 @@ eliminated you, so read its notes with that in mind.
   board is thin: Katarina (8SR5HD) and Sable (QVXQSA) never traded and were out by round 4; Kael (QVXQSA) held
   4 unused cards when his capital fell. Yasuo held a set until it was worth 30-40, and the spike took three
   bonuses in one turn. Trade when the armies turn straight into a kill, a bonus or a capital.
+- **Mathematical Kill Pathfinding & Multi-Hop Transit Blitz (The Steiner Kill Run):** When your total troop pool (staging stacks + reinforcements) is significantly higher than an opponent's total armies (especially the lowest player or any player holding cards in Progressive), a complete kill path calculation MUST automatically be attempted before attacking. Do not limit reachability to direct neighbors: punch through thin 3rd-party transit buffer territories (1s, 2s, 3s) to reach the victim enclave! Total cost = $\sum (\text{losses} + 1)$ across all transit and victim territories. If available troops $\ge 1.15 \times \text{total cost}$, the kill is mathematically guaranteed and takes absolute precedence over routine bonus pokes (53RVR3: Shaco with 189 armies had a mathematical kill on Shen with 6 armies across 2 territories separated by a single 1-army Delove buffer, but failed to calculate the multi-hop path and missed an immediate 220-army set; Shen sat with 5 cards for multiple rounds).
+- **In-Attack Stack Siphoning at Junctions (Preventing Trapped Armies):** Initial placement across 3-4 territories is fine, but the in-attack movement pattern is critical! When advancing along a branching route that splits into multiple target directions, NEVER make an all-or-nothing occupation (neither dumping 100% nor leaving 95% behind). When conquering a junction, calculate the subtree requirements for each continuing branch: siphon the exact required troops into the continuing prong (half or quarter stacks) while leaving a viable striking force behind at the junction to conquer secondary prongs, preventing trapped stacks (53RVR3: Shen conquered Fernhallow from Oakenford but moved only 3 armies forward, stranding 38 armies on Oakenford; Oakenford then marched north, leaving Fernhallow unable to finish Thresh on Cairnmoor and Greystep).
+- **Mid-Turn Card Trade Surge & Chain-Reaction Re-Planning:** When an elimination awards cards that push your hand to $\ge 5$, you cash in mid-turn for a massive surge (+100 to +250 armies). The moment a mid-turn card trade occurs during the attack phase, NEVER continue with the stale pre-turn plan! Setting cards mid-turn MUST trigger a whole new turn logic: immediately scan the board for the *next* kill target (e.g. killing Shen $\to$ set $\to$ kill Delove $\to$ set $\to$ kill Jinx), stage the surge armies at the new launch pad, and execute an unstoppable chain-reaction sweep to win the match in a single turn!
 - **After a big trade, don't leave a trail of 1s.** Lee Sin, Yasuo and Zed (8SR5HD) all spent 45-120 army
   trades punching deep and left 1-army territories behind; the leader rolled them up next turn. Keep real
   garrisons on the borders facing the biggest stack, and never park a mid-size stack next to one three times
   its size.
+- **Disciplined Attack Termination vs. The Bonus Greed Trap:** In FFA, after securing a continent bonus, STOP
+  attacking into adjacent territory! Bleeding your stack down to 1-2 armies leaves your bonus border undefended
+  and lets neighbors break it immediately. Keep your heavy stack parked directly on the choke point. Stop after
+  securing the bonus and getting your turn card, unless: (1) an attack wins the game, (2) an elimination for
+  3+ cards is achievable, (3) you are in 1v1 (where you break everything), (4) you hold a massive troop surplus
+  well above the required border garrison (and only attack with the surplus), or (5) you can break an opponent's
+  high-value (+3 or +5) bonus with favorable odds.
 - **Keep your empire wide,** so you can't be card-blocked. Stack cards and keep a strong capital.
 - **Kill order:** go after whoever holds the most cards. A player you eliminate hands you their whole hand,
   which funds the next kill.

@@ -3,11 +3,14 @@ import { RiskHttpError, type RiskApi, type WaitResult } from '@risk/mcp';
 import { GameMemory, type ObservedBatch } from './game-memory.js';
 import type { Commander } from './commander.js';
 import { cleanChat, type ChatMsg, type Diplomat, type Outgoing } from './diplomat.js';
-import { choosePlannedAction, StallTracker } from './planned-bot.js';
+import { choosePlannedActionWithReason, StallTracker } from './planned-bot.js';
+import { formatPing, isModelName, type PingAction } from './pings.js';
 import { backoffMs, isTransient } from './resilient.js';
 import { chooseMove } from './view-state.js';
 
 export interface SeatOptions {
+  /** Let the diplomat's own words through. Off (default): chat is pings plus bare deal tags ([deal ...], [accept ...]). */
+  freeChat?: boolean;
   api: RiskApi;
   gameId: string;
   playerId: PlayerId;
@@ -40,6 +43,8 @@ export class SeatRunner {
   private pending = new Set<Promise<void>>();
   private random: () => number;
   private lastPlanned = -1;
+  private ownTurnCount = 0;
+  private lastChatOwnTurn = -999;
   private chatSeen: ChatMsg[] = [];
   private stall = new StallTracker();
   private wake: () => void = () => {};
@@ -60,6 +65,7 @@ export class SeatRunner {
       },
     );
     o.commander?.setGameMemory((view) => this.memory.summary(view));
+    o.commander?.setIntel((view) => this.memory.intel(view));
     o.commander?.setStall(() => this.stall.stall);
     o.diplomat?.setGameMemory((view) => this.memory.summary(view));
     o.diplomat?.setStall(() => this.stall.stall);
@@ -119,7 +125,7 @@ export class SeatRunner {
       view = w.state;
       since = view.version;
       this.seen(view, w.events);
-      this.fetchChat(view);
+      await this.fetchChat(view);
       if (view.phase === 'finished') break;
       if (w.yourTurn) {
         const before = view.version;
@@ -153,18 +159,73 @@ export class SeatRunner {
   }
 
   /** Waits (bounded by the commander's own timeout) for this turn's plan, or the capital pick. */
-  private async consult(view: GameView) {
+  private async consult(view: GameView, force = false) {
     const c = this.o.commander;
     if (!c) return;
     try {
       if (view.phase === 'capitals' && (view.legal?.capitalChoices.length ?? 0) > 0) await c.chooseCapital(view);
-      else if (view.phase === 'reinforce' && view.turnNumber !== this.lastPlanned) {
+      else if ((view.phase === 'reinforce' && view.turnNumber !== this.lastPlanned) || force) {
         this.lastPlanned = view.turnNumber;
+        this.ownTurnCount++;
+        await this.fetchChat(view);
         await c.planFor(view);
+        const pingToSend = c.popPing();
+        if (pingToSend) {
+          this.sendPing(view, pingToSend);
+        }
       }
     } catch (e) {
       this.o.log(`${this.o.name}: commander failed: ${errText(e)}`);
     }
+  }
+
+  /** Send a fast diplomatic ping, guaranteeing model players are never messaged. */
+  private sendPing(view: GameView, ping: PingAction) {
+    if (!ping || !ping.type) return;
+    const text = formatPing(ping);
+    if (!text) return;
+
+    let toPlayerId: string | undefined;
+    let broadcastText = text;
+    if (ping.to) {
+      const targetPlayer = view.players.find(
+        (p) =>
+          p.alive &&
+          !p.isNeutral &&
+          !isModelName(p.name) &&
+          (p.name.toLowerCase() === ping.to!.toLowerCase() || p.id.toLowerCase() === ping.to!.toLowerCase())
+      );
+      if (targetPlayer) {
+        toPlayerId = targetPlayer.id;
+      } else {
+        // If recipient was a model or invalid, do not whisper to them.
+        // If it was an attack ping, convert to public attack call against that target.
+        if (ping.type === 'attack') {
+          broadcastText = formatPing({ type: 'attack', target: ping.to });
+          toPlayerId = undefined; // all-chat
+        } else if (ping.type === 'taunt' || ping.type === 'camaraderie' || ping.type === 'anger') {
+          toPlayerId = undefined; // all-chat
+        } else {
+          return;
+        }
+      }
+    }
+
+    // Safety check: a player can NEVER ask a target to attack themselves!
+    if (ping.type === 'attack' && ping.target) {
+      if (ping.to && ping.to.toLowerCase() === ping.target.toLowerCase()) {
+        toPlayerId = undefined;
+        broadcastText = formatPing({ type: 'attack', target: ping.target });
+      }
+    }
+
+    this.lastChatOwnTurn = this.ownTurnCount;
+    this.fire(
+      (async () => {
+        await this.o.api.sendChat(this.o.gameId, this.o.token, broadcastText, toPlayerId);
+        this.o.log(`[PING] ${this.o.name}${toPlayerId ? ` -> ${ping.to}` : ' (all)'}: ${broadcastText}`);
+      })()
+    );
   }
 
   /** Acts until the turn passes or the game ends; returns the latest view. */
@@ -176,17 +237,35 @@ export class SeatRunner {
       this.lastGreeted = view.turnNumber;
       this.fire(this.o.diplomat.onTurnStart(view));
     }
+    let prevArmiesToPlace = view.legal?.armiesToPlace ?? 0;
     while (!this.stopped && view.phase !== 'finished' && view.legal?.yourTurn) {
-      if (view.phase === 'reinforce' && view.turnNumber !== this.lastPlanned) await this.consult(view);
-      const action =
-        this.o.chooser === 'engine' ? chooseMove(view, playerId, this.random) : choosePlannedAction(view, playerId, this.o.commander?.currentPlan() ?? null, this.random, this.stall.stall);
+      const currentArmiesToPlace = view.legal?.armiesToPlace ?? 0;
+      const midTurnSurge =
+        (view.phase === 'attack' || view.phase === 'reinforce') &&
+        currentArmiesToPlace > 0 &&
+        currentArmiesToPlace > prevArmiesToPlace;
+
+      if (midTurnSurge) {
+        this.o.log(`${name}: mid-turn card surge detected (+${currentArmiesToPlace} armies)! Triggering full turn re-plan.`);
+        await this.consult(view, true);
+      } else if (view.phase === 'reinforce' && view.turnNumber !== this.lastPlanned) {
+        await this.consult(view);
+      }
+      prevArmiesToPlace = currentArmiesToPlace;
+      const picked =
+        this.o.chooser === 'engine'
+          ? { action: chooseMove(view, playerId, this.random), reason: 'engine bot' }
+          : choosePlannedActionWithReason(view, playerId, this.o.commander?.currentPlan() ?? null, this.random, this.stall.stall, { intel: this.memory.intel(view) });
+      const action = picked.action;
       if (!action) {
         this.o.log(`${name}: no move available in phase ${view.phase}`);
         break;
       }
       let actionEvents: import('@risk/engine').GameEvent[] = [];
       try {
-        const result = await api.act(gameId, token, action);
+        // The reason goes with the move as its private decision note (read after the game in the game record).
+        const result = await api.act(gameId, token, action, picked.reason ? { reason: picked.reason } : undefined);
+        if (action.type === 'attack' && picked.reason) this.o.log(`${name}: ${picked.reason}`);
         view = result.state;
         actionEvents = result.events;
       } catch (e) {
@@ -198,6 +277,11 @@ export class SeatRunner {
           break;
         }
         this.o.log(`${name}: ${action.type} refused: ${e.message}`);
+        if (e.message.includes("decided at the round's end") || e.message.includes('Game not found') || e.message.includes('game is gone')) {
+          this.o.log(`${name}: table ended (${e.message}); stopping.`);
+          this.stopped = true;
+          break;
+        }
         if (action.type !== 'end_turn' && view.legal?.canEndTurn) {
           try {
             const ended = await api.act(gameId, token, { type: 'end_turn' });
@@ -215,23 +299,25 @@ export class SeatRunner {
     return view;
   }
 
-  /** Read what this seat may see (its own token) and hand it to the diplomat without blocking play. */
-  private fetchChat(view: GameView) {
+  /** Read what this seat may see (its own token) and hand it to the commander and diplomat. */
+  private async fetchChat(view: GameView): Promise<void> {
     const d = this.o.diplomat;
     const c = this.o.commander;
     if (!d && !c) return;
-    this.fire(
-      (async () => {
-        const { messages } = await this.o.api.chat(this.o.gameId, this.chatSince, this.o.token);
-        if (messages.length === 0) return;
-        this.chatSince = Math.max(this.chatSince, ...messages.map((m) => m.id));
-        this.chatSeen.push(...messages);
-        if (this.chatSeen.length > 600) this.chatSeen.splice(0, this.chatSeen.length - 600);
-        this.memory.onMessages(messages, this.latestView ?? view);
-        c?.onMessages(messages);
-        return d ? d.onMessages(messages, this.latestView ?? view) : null;
-      })(),
-    );
+    try {
+      const { messages } = await this.o.api.chat(this.o.gameId, this.chatSince, this.o.token);
+      if (messages.length === 0) return;
+      this.chatSince = Math.max(this.chatSince, ...messages.map((m) => m.id));
+      this.chatSeen.push(...messages);
+      if (this.chatSeen.length > 600) this.chatSeen.splice(0, this.chatSeen.length - 600);
+      this.memory.onMessages(messages, this.latestView ?? view);
+      c?.onMessages(messages);
+      if (d) {
+        this.fire(Promise.resolve(d.onMessages(messages, this.latestView ?? view)));
+      }
+    } catch {
+      // transient chat error
+    }
   }
 
   /** Run a diplomat call in the background: failures are logged, results posted, the move loop never waits. */
@@ -239,8 +325,18 @@ export class SeatRunner {
     const job = p
       .then(async (out) => {
         if (!out || this.stopped) return;
-        const message = cleanChat(out.message);
-        if (!message) return;
+        const message = this.o.freeChat ? cleanChat(out.message) : dealTagsOnly(cleanChat(out.message));
+        if (!message) {
+          if (!this.o.freeChat) this.o.log(`${this.o.name}: chat skipped (pings and deal tags only)`);
+          return;
+        }
+        // Limit all chat messages to once per 4 turns unless responding to a deal
+        const isDealResponse = /\[(?:accept|agree|decline|reject)\b/i.test(message);
+        if (this.ownTurnCount - this.lastChatOwnTurn < 4 && !isDealResponse) {
+          this.o.log(`${this.o.name}: chat skipped (4-turn cooldown)`);
+          return;
+        }
+        this.lastChatOwnTurn = this.ownTurnCount;
         await this.o.api.sendChat(this.o.gameId, this.o.token, message, out.to);
         const context = this.o.diplomat?.contextFor(out);
         this.o.log(`${this.o.name}${out.to ? ` -> ${out.to}` : ''}${context ? ` [round ${context.round}, turn ${context.turn}]` : ''}: ${message}`);
@@ -253,4 +349,9 @@ export class SeatRunner {
 
 function errText(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
+}
+
+/** The deal and coalition tags in a diplomat line, without the spoken words around them ("" when there are none). */
+export function dealTagsOnly(message: string): string {
+  return (message.match(/\[(?:deal|accept|reject|coalition|join|decline)\b[^\]]*\]/gi) ?? []).join(' ');
 }

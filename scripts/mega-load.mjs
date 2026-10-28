@@ -9,9 +9,10 @@
 //
 // Every --sample seconds it prints a JSON row; at the end a summary (and --out FILE writes all of it as JSON):
 //   movesPerSec, msPerMove (wall clock between commits), lagP50/P99/max (the server's event loop), sent MB per move
-//   (HTTP responses + WebSocket frames), save ms, heap.
+//   (HTTP responses + WebSocket frames), KB per move each spectator receives, save ms, heap.
 //
 //   npm run build && node scripts/mega-load.mjs --minutes 3 --seats 100 --spectators 3 --out /tmp/x.json
+//   --frames delta: the spectators ask for compact frames (server spectator-delta.ts), as the web client does
 //   node --cpu-prof --cpu-prof-dir DIR scripts/mega-load.mjs ...   (profiles the server process; the seats run apart)
 //
 // Never point it at a real server: it starts its own.
@@ -40,6 +41,7 @@ async function main() {
   const pace = Number(opt('pace', 300));
   const sampleSecs = Number(opt('sample', 10));
   const out = opt('out', null);
+  const frames = opt('frames', null);
 
   const { Store } = await load('packages/server/dist/store.js');
   const { createRiskServer } = await load('packages/server/dist/app.js');
@@ -76,14 +78,16 @@ async function main() {
   let commits = 0;
   room.on('commit', () => commits++);
   const seatList = tokens.map((e) => ({ gameId: match.gameId, ...match.seats[e.entrantId] }));
-  console.log(`mega load: ${seats} seats on ${room.state.options.map}, ${spectators} spectators, pace ${pace} ms, ${minutes} min, port ${port}, build ${process.env.MEGA_LOAD_LABEL ?? ''}`);
+  console.log(`mega load: ${seats} seats on ${room.state.options.map}, ${spectators} spectators${frames ? ` (${frames} frames)` : ''}, pace ${pace} ms, ${minutes} min, port ${port}, build ${process.env.MEGA_LOAD_LABEL ?? ''}`);
 
   const lag = monitorEventLoopDelay({ resolution: 10 });
   lag.enable();
   const sockets = [];
+  let spectatorBytes = 0;
   for (let i = 0; i < spectators; i++) {
     const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
-    ws.on('open', () => ws.send(JSON.stringify({ type: 'subscribe', gameId: match.gameId })));
+    ws.on('open', () => ws.send(JSON.stringify({ type: 'subscribe', gameId: match.gameId, ...(frames ? { frames } : {}) })));
+    ws.on('message', (data) => (spectatorBytes += data.length));
     ws.on('error', () => {});
     sockets.push(ws);
   }
@@ -92,7 +96,7 @@ async function main() {
 
   const started = Date.now();
   const rows = [];
-  let last = { at: started, commits: 0, sent: 0, saves: 0, cpu: process.cpuUsage() };
+  let last = { at: started, commits: 0, sent: 0, spectatorBytes: 0, saves: 0, cpu: process.cpuUsage() };
   await new Promise((resolve) => {
     const tick = setInterval(() => {
       const now = Date.now();
@@ -111,13 +115,14 @@ async function main() {
         lagMax: +(lag.max / 1e6).toFixed(1),
         cpuPct: Math.round(((cpu.user + cpu.system) / 1000 / (secs * 1000)) * 100),
         mbPerMove: moves ? +((sent - last.sent) / moves / 2 ** 20).toFixed(2) : null,
+        spectatorKBPerMove: moves && spectators ? +((spectatorBytes - last.spectatorBytes) / spectators / moves / 1024).toFixed(1) : null,
         saveAvgMs: newSaves.length ? +(newSaves.reduce((a, b) => a + b, 0) / newSaves.length).toFixed(1) : 0,
         heapMB: Math.round(process.memoryUsage().heapUsed / 2 ** 20),
       };
       rows.push(row);
       console.log(JSON.stringify(row));
       lag.reset();
-      last = { at: now, commits, sent, saves: saves.length, cpu: process.cpuUsage() };
+      last = { at: now, commits, sent, spectatorBytes, saves: saves.length, cpu: process.cpuUsage() };
       if (now - started >= minutes * 60_000 || room.state.phase === 'finished') {
         clearInterval(tick);
         resolve();
@@ -145,6 +150,7 @@ async function main() {
     lagMax: Math.max(...steady.map((r) => r.lagMax)),
     cpuPct: avg('cpuPct'),
     mbPerMove: avg('mbPerMove'),
+    spectatorKBPerMove: avg('spectatorKBPerMove'),
     saveAvgMs: avg('saveAvgMs'),
     heapMB: Math.max(...steady.map((r) => r.heapMB)),
   };

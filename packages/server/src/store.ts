@@ -8,7 +8,11 @@ import {
   endBySurvival,
   lastSurvivor,
   ICE_DEFAULTS,
+  advanceIce,
   iceCanStart,
+  iceOf,
+  iceOnClock,
+  iceStepsDue,
   startIce,
   endInStalemate,
   onlySideLeft,
@@ -346,6 +350,8 @@ export class GameRoom extends EventEmitter {
   turnDeadline: number | null = null;
   /** What the running clock is for: per move the state version, per turn the player and turn. */
   private turnTimerKey: string | null = null;
+  /** Closing ice on a clock (iceEveryMinutes): wakes the room at the ice's start and at each step. In memory only. */
+  private iceTimer: NodeJS.Timeout | null = null;
   private waiters = new Set<() => void>();
 
   constructor(snapshot: RoomSnapshot) {
@@ -671,7 +677,9 @@ export class GameRoom extends EventEmitter {
     this.endIfOnlySwarm();
     this.endIfLastSurvivor();
     this.startIceIfDue();
+    this.advanceIceIfDue();
     this.endIfStalemate();
+    this.armIceClock();
   }
 
   /**
@@ -685,8 +693,40 @@ export class GameRoom extends EventEmitter {
     const minutes = s.options.iceStartMinutes ?? ICE_DEFAULTS.iceStartMinutes;
     if (Date.now() - s.startedAt < minutes * 60_000) return;
     const { state, events } = startIce(s);
-    this.addChat(null, 'Game', 'The ice is coming: from the next round it closes in from both poles, ring by ring. Frozen land is lost; armies there fall back to a neighbour if they can.');
+    const every = s.options.iceEveryMinutes ?? 0;
+    const when = every > 0 ? `every ${every === 1 ? 'minute' : `${every} minutes`}, even mid-turn,` : 'from the next round';
+    this.addChat(null, 'Game', `The ice is coming: ${when} it closes in from both poles, ring by ring. Frozen land is lost; armies there fall back to a neighbour if they can.`);
     this.commit(state, events, null, { type: 'system', note: 'closing ice starts' });
+  }
+
+  /**
+   * Closing ice on a clock (iceEveryMinutes): every that-many minutes after its scheduled start the ice advances,
+   * whoever is moving, mid-turn too (the engine's advanceIce settles a conquest it reaches and passes the turn of a
+   * player it freezes out). One step per commit; a server that was down catches up step by step.
+   */
+  private advanceIceIfDue() {
+    if (this.decidedAt !== null || this.closed || iceStepsDue(this.state, Date.now()) <= 0) return;
+    const { state, events } = advanceIce(this.state);
+    this.commit(state, events, null, { type: 'system', note: 'the closing ice advances' });
+  }
+
+  /** Wake the room when the clock-driven ice is next due (its start, then each step), even if nobody moves. */
+  armIceClock() {
+    if (this.iceTimer) clearTimeout(this.iceTimer);
+    this.iceTimer = null;
+    const s = this.state;
+    if (this.closed || this.decidedAt !== null || s.startedAt === null || s.phase === 'finished' || !s.options.closingIce || !iceOnClock(s.options)) return;
+    const start = s.startedAt + (s.options.iceStartMinutes ?? ICE_DEFAULTS.iceStartMinutes) * 60_000;
+    const ice = iceOf(s);
+    if (ice && iceStepsDue(s, Number.MAX_SAFE_INTEGER) <= 0) return; // as far as it goes
+    const at = ice ? start + ((ice.steps ?? 0) + 1) * s.options.iceEveryMinutes! * 60_000 : start;
+    this.iceTimer = setTimeout(() => {
+      this.iceTimer = null;
+      this.startIceIfDue();
+      this.advanceIceIfDue();
+      this.armIceClock();
+    }, Math.max(0, at - Date.now()) + 50);
+    this.iceTimer.unref?.();
   }
 
   /**
@@ -1030,6 +1070,8 @@ export class GameRoom extends EventEmitter {
       this.botTimer = null;
     }
     this.clearTurnTimer();
+    if (this.iceTimer) clearTimeout(this.iceTimer);
+    this.iceTimer = null;
   }
 
   // ---- turn timer ----
@@ -1236,6 +1278,7 @@ export class Store {
     for (const room of this.rooms.values()) {
       room.scheduleBot();
       room.armTurnTimer();
+      room.armIceClock();
     }
   }
 
@@ -1492,6 +1535,7 @@ export class Store {
     this.archive.begin(room, state, [], at);
     room.scheduleBot();
     room.armTurnTimer();
+    room.armIceClock();
     this.scheduleSave();
     return { room, seats };
   }

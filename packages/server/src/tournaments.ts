@@ -83,6 +83,8 @@ export const STYLE_LABELS: Record<TournamentStyle, string> = { classic: 'Classic
 export const MEGA_MAP = 'mega_earth';
 /** A mega game's deadline when the host sets none: the longest a round may run (it can take hours at 100 seats). */
 export const MEGA_ROUND_MINUTES = 240;
+/** A mega game's closing ice by default: starts 5 minutes in, then advances every minute (iceEveryMinutes). */
+export const MEGA_ICE = { iceStartMinutes: 5, iceEveryMinutes: 1 } as const;
 
 /** A style from an untrusted value: undefined when absent, else one of TOURNAMENT_STYLES. */
 export function parseStyle(raw: unknown): TournamentStyle | undefined {
@@ -689,6 +691,12 @@ export class TournamentManager extends EventEmitter {
     delete options.map; // every table plays its own board
     // A mega game has closing ice by default (owner, 2026-10-28: "blizzards ... until the map gets smaller"); a host may turn it off.
     if (spec.style === 'mega' && options.closingIce === undefined) options.closingIce = true;
+    // ... on a clock: from 5 minutes in it advances every minute, mid-turn too (owner, 2026-10-28: "constant ... fun
+    // chaos"). A host or schedule entry sets its own iceStartMinutes / iceEveryMinutes (0 = by rounds).
+    if (spec.style === 'mega' && options.closingIce) {
+      options.iceStartMinutes ??= MEGA_ICE.iceStartMinutes;
+      options.iceEveryMinutes ??= MEGA_ICE.iceEveryMinutes;
+    }
     // 1v1 plays without capitals (owner, 2026-10-28), whatever the options say.
     if (spec.style === '1v1') {
       options.capitals = false;

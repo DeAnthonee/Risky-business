@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   addPlayer,
+  advanceIce,
   applyAction,
   checkIce,
   chooseBotAction,
@@ -9,6 +10,7 @@ import {
   iceMaxLevel,
   iceOf,
   iceRings,
+  iceStepsDue,
   RuleError,
   startGame,
   startIce,
@@ -107,5 +109,82 @@ describe('closing ice', () => {
     const played = playRounds(off, 3);
     expect(iceOf(played.s)).toBeUndefined();
     expect(played.s.blizzards).toEqual([]);
+  });
+
+  describe('on a clock (iceEveryMinutes)', () => {
+    const MIN = 60_000;
+    const clock = (n = 4, o: Partial<GameOptions> = {}) => startIce(game('world', n, { closingIce: true, iceStartMinutes: 5, iceEveryMinutes: 1, ...o })).state;
+    /** Hand every territory the ice takes next (level 1) to `owner`, and the rest to the others in turn. */
+    const dealNorth = (s: GameState, owner: string): string[] => {
+      const rings = iceRings(getMap('world'));
+      const north = getMap('world').territoryIds.filter((t) => underIce(rings, t, 1));
+      const others = s.players.filter((p) => p.id !== owner).map((p) => p.id);
+      getMap('world').territoryIds.forEach((t, i) => (s.territories[t] = { owner: north.includes(t) ? owner : others[i % others.length], armies: 3 }));
+      return north;
+    };
+
+    it('checks the setting, and never steps at a round start', () => {
+      expect(() => createGame('I', { map: 'world', closingIce: true, iceEveryMinutes: 61 })).toThrow(/iceEveryMinutes/);
+      const s = clock();
+      const events: GameEvent[] = [];
+      checkIce({ ...s, round: s.round + 1 } as GameState, events);
+      expect(events).toHaveLength(0);
+    });
+
+    it('is due every iceEveryMinutes from its scheduled start, and catches up', () => {
+      const s = { ...clock(), startedAt: 0 };
+      expect(iceStepsDue(s, 5 * MIN + 59_000)).toBe(0);
+      expect(iceStepsDue(s, 6 * MIN)).toBe(1);
+      expect(iceStepsDue(s, 9 * MIN)).toBe(4);
+      const one = advanceIce(s).state;
+      expect(iceOf(one)).toMatchObject({ level: 1, steps: 1 });
+      expect(iceStepsDue(one, 9 * MIN)).toBe(3);
+      expect(iceStepsDue({ ...s, options: { ...s.options, iceEveryMinutes: 0 } }, 9 * MIN)).toBe(0);
+    });
+
+    it('advances mid-turn; a player frozen out on their own turn is passed', () => {
+      const s = clock(4);
+      const me = s.currentPlayer!;
+      const north = dealNorth(s, me);
+      expect(north.length).toBeGreaterThan(0);
+      const r = advanceIce(s);
+      const ice = r.events.find((e) => (e as unknown as IceEvent).type === 'ice') as unknown as IceEvent;
+      expect(ice.eliminated).toContain(me);
+      expect(r.state.players.find((p) => p.id === me)!.alive).toBe(false);
+      expect(r.state.currentPlayer).not.toBe(me);
+      expect(r.state.phase).toBe('reinforce');
+      expect(r.events.some((e) => e.type === 'turn_started' && e.player === r.state.currentPlayer)).toBe(true);
+      expect(r.state.version).toBe(s.version + 1);
+    });
+
+    it('a pending conquest from frozen land moves its armies in; onto frozen land it is cancelled', () => {
+      const s = clock(3);
+      const me = s.currentPlayer!;
+      const north = dealNorth(s, s.players.find((p) => p.id !== me)!.id);
+      const map = getMap('world');
+      // `me` attacked from a northern territory into an open one, and has not moved in yet.
+      const from = north.find((t) => map.adjacency[t].some((n) => !north.includes(n)))!;
+      const to = map.adjacency[from].find((n) => !north.includes(n))!;
+      s.territories[from] = { owner: me, armies: 7 };
+      s.territories[to] = { owner: me, armies: 0 };
+      s.phase = 'attack';
+      s.pendingConquest = { from, to, minArmies: 3, maxArmies: 6 };
+      const moved = advanceIce(s).state;
+      expect(moved.pendingConquest).toBeNull();
+      expect(moved.territories[to]).toEqual({ owner: me, armies: 7 });
+      // The other way round: conquering into the ice cancels the conquest, the attackers stay home.
+      const back = clock(3);
+      const me2 = back.currentPlayer!;
+      dealNorth(back, back.players.find((p) => p.id !== me2)!.id);
+      back.territories[to] = { owner: me2, armies: 7 };
+      back.territories[from] = { owner: me2, armies: 0 };
+      back.phase = 'attack';
+      back.pendingConquest = { from: to, to: from, minArmies: 3, maxArmies: 6 };
+      const cancelled = advanceIce(back).state;
+      expect(cancelled.pendingConquest).toBeNull();
+      expect(cancelled.territories[from]).toEqual({ owner: null, armies: 0 });
+      expect(cancelled.territories[to].armies).toBe(7);
+      expect(cancelled.currentPlayer).toBe(me2);
+    });
   });
 });

@@ -1060,6 +1060,12 @@ function doEndTurn(state: GameState, playerId: PlayerId, events: GameEvent[]): v
   nextTurn(state, playerId, events);
 }
 
+/** The closing ice froze out the player on turn mid-turn (ice.ts advanceIce): the next living player's turn begins. Mutates `state`. */
+export function passTurnFrom(state: GameState, fromPlayer: PlayerId, events: GameEvent[]): void {
+  state.pendingConquest = null;
+  nextTurn(state, fromPlayer, events);
+}
+
 function nextTurn(state: GameState, fromPlayer: PlayerId, events: GameEvent[]): void {
   const order = state.turnOrder;
   const idx = order.indexOf(fromPlayer);

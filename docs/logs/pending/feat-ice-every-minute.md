@@ -1,0 +1,2 @@
+engine: - 2026-10-28 #PR closing ice on a clock: `iceEveryMinutes` (0-60, 0 = by rounds), `iceStepsDue` / `advanceIce`; a step mid-turn settles a pending conquest and passes the turn of a player it freezes out (`passTurnFrom`)
+server: - 2026-10-28 #PR GameRoom wakes for clock-driven ice steps (`armIceClock`), committing each as a system step and catching up after a restart; mega tourneys default to ice from 5 minutes, then every minute (`MEGA_ICE`)

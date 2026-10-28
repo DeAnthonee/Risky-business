@@ -11,8 +11,15 @@
  * `startIce` in its commit, like the Zerg and stalemate ends): the engine never reads the clock, so a recorded game
  * replays the same. Kept out of the GPU-mirrored engine.ts and types.ts like stall.ts: engine.ts only calls checkIce
  * and validateIceOptions. With `closingIce` off (the default, as in self-play) nothing here touches the state.
+ *
+ * On a clock (`iceEveryMinutes`, owner 2026-10-28 for the mega tournament: "advance every minute after 5 minute mark.
+ * it will happen even in the middle of someones turn"): the ice then advances every that-many minutes from its
+ * scheduled start instead of at round starts, whoever is moving. The server asks iceStepsDue with its clock and makes
+ * each step with advanceIce through its commit; a step mid-turn settles a pending conquest the ice reaches and, when
+ * the player on turn is frozen out, passes the turn on.
  */
 import { getMap, type MapDef } from './maps.js';
+import { passTurnFrom } from './engine.js';
 import { RuleError, type GameEvent, type GameOptions, type GameState, type PlayerId, type TerritoryId } from './types.js';
 
 declare module './types.js' {
@@ -21,8 +28,10 @@ declare module './types.js' {
     closingIce?: boolean;
     /** Minutes after the game starts that the server starts the ice (0-600; absent = 15). */
     iceStartMinutes?: number;
-    /** The ice advances at the start of every this-many rounds (1-10; absent = 1). */
+    /** The ice advances at the start of every this-many rounds (1-10; absent = 1). Ignored when iceEveryMinutes is set. */
     iceEveryRounds?: number;
+    /** On a clock: the ice advances every this-many minutes after it starts, mid-turn too (0-60; absent or 0 = by rounds). */
+    iceEveryMinutes?: number;
     /** Rings each front advances per step (1-5; absent = 1). */
     iceRingsPerStep?: number;
     /** Rings left open round the middle when the ice stops (1-40; absent = 6). */
@@ -30,7 +39,7 @@ declare module './types.js' {
   }
 }
 
-export const ICE_DEFAULTS = { iceStartMinutes: 15, iceEveryRounds: 1, iceRingsPerStep: 1, iceSafeRings: 6 } as const;
+export const ICE_DEFAULTS = { iceStartMinutes: 15, iceEveryRounds: 1, iceEveryMinutes: 0, iceRingsPerStep: 1, iceSafeRings: 6 } as const;
 /** A board without pole rings is banded into this many rings by height. */
 export const ICE_BANDS = 30;
 
@@ -38,6 +47,8 @@ export const ICE_BANDS = 30;
 export interface IceState {
   level: number;
   startedRound: number;
+  /** Steps made on the clock (iceEveryMinutes); absent before the first. */
+  steps?: number;
 }
 /** The ice started (startIce). */
 export interface IceStartedEvent {
@@ -92,7 +103,7 @@ export function underIce(rings: ReturnType<typeof iceRings>, t: TerritoryId, lev
 
 export function validateIceOptions(o: GameOptions): void {
   if (o.closingIce !== undefined && typeof o.closingIce !== 'boolean') throw new RuleError('closingIce must be true or false');
-  const ranges = { iceStartMinutes: [0, 600], iceEveryRounds: [1, 10], iceRingsPerStep: [1, 5], iceSafeRings: [1, 40] } as const;
+  const ranges = { iceStartMinutes: [0, 600], iceEveryRounds: [1, 10], iceEveryMinutes: [0, 60], iceRingsPerStep: [1, 5], iceSafeRings: [1, 40] } as const;
   for (const [key, [lo, hi]] of Object.entries(ranges) as [keyof typeof ranges, readonly [number, number]][]) {
     const n = o[key];
     if (n !== undefined && (!Number.isInteger(n) || n < lo || n > hi)) throw new RuleError(`${key} must be an integer between ${lo} and ${hi}`);
@@ -111,16 +122,55 @@ export function startIce(state: GameState): { state: GameState; events: GameEven
   return { state: next, events: [{ type: 'ice_started' } as unknown as GameEvent] };
 }
 
+/** Is the ice on a clock (iceEveryMinutes) rather than stepping at round starts? */
+export function iceOnClock(o: GameOptions): boolean {
+  return (o.iceEveryMinutes ?? ICE_DEFAULTS.iceEveryMinutes) > 0;
+}
+
 /**
- * At a round start (engine.ts nextTurn, after the round count goes up): advance the ice when it is due, freeze what it
- * reaches, move or lose the armies there, knock out players left with no land, and end the game when one is left.
- * Mutates `state` (the engine's working copy).
+ * At a round start (engine.ts nextTurn, after the round count goes up): advance the ice when it is due (not on a clock),
+ * freeze what it reaches, move or lose the armies there, knock out players left with no land, and end the game when one
+ * is left. Mutates `state` (the engine's working copy).
  */
 export function checkIce(state: GameState, events: GameEvent[]): void {
   const ice = iceOf(state);
-  if (!ice || !state.options.closingIce) return;
+  if (!ice || !state.options.closingIce || iceOnClock(state.options)) return;
   const every = state.options.iceEveryRounds ?? ICE_DEFAULTS.iceEveryRounds;
   if ((state.round - ice.startedRound) % every !== 0 || state.round === ice.startedRound) return;
+  freeze(state, ice, events);
+}
+
+/**
+ * On a clock: how many steps are due at `now` (ms, the server's clock) and not made yet. Step k is due k x
+ * iceEveryMinutes after the ice's scheduled start (iceStartMinutes after the game started), so a server that was down
+ * catches up. 0 when the ice is not on a clock, not started, finished or as far as it goes.
+ */
+export function iceStepsDue(state: GameState, now: number): number {
+  const ice = iceOf(state);
+  if (!ice || !state.options.closingIce || !iceOnClock(state.options) || state.phase === 'finished' || state.startedAt == null) return 0;
+  if (ice.level >= iceMaxLevel(state.options, iceRings(getMap(state.options.map)).rings)) return 0;
+  const start = state.startedAt + (state.options.iceStartMinutes ?? ICE_DEFAULTS.iceStartMinutes) * 60_000;
+  const due = Math.floor((now - start) / (state.options.iceEveryMinutes! * 60_000));
+  return Math.max(0, due - (ice.steps ?? 0));
+}
+
+/** One step of the ice on the clock (the server's call through its commit, whenever it is due: mid-turn too). */
+export function advanceIce(state: GameState): { state: GameState; events: GameEvent[] } {
+  if (!iceOf(state) || !state.options.closingIce || state.phase === 'finished') throw new RuleError('The closing ice is not advancing');
+  const next = structuredClone(state) as IceGame;
+  const ice = next.ice!;
+  const events: GameEvent[] = [];
+  ice.steps = (ice.steps ?? 0) + 1;
+  const onTurn = next.currentPlayer;
+  freeze(next, ice, events);
+  // Frozen out on their own turn: the next living player's turn begins.
+  if (next.phase !== 'finished' && onTurn && !next.players.find((p) => p.id === onTurn)!.alive) passTurnFrom(next, onTurn, events);
+  next.version++;
+  return { state: next, events };
+}
+
+/** Advance `ice` by a step and freeze what it reaches (mutates `state`). */
+function freeze(state: GameState, ice: IceState, events: GameEvent[]): void {
   const map = getMap(state.options.map);
   const rings = iceRings(map);
   const level = Math.min(iceMaxLevel(state.options, rings.rings), ice.level + (state.options.iceRingsPerStep ?? ICE_DEFAULTS.iceRingsPerStep));
@@ -131,12 +181,17 @@ export function checkIce(state: GameState, events: GameEvent[]): void {
   const nowFrozen = new Set([...frozenBefore, ...frozen]);
   const retreats: IceEvent['retreats'] = [];
   const lost: Record<TerritoryId, number> = {};
+  // Mid-turn (on a clock) the ice can reach a conquest waiting to be occupied: frozen land under it cancels it, and a
+  // frozen attacking territory sends its armies into the conquered one (where they were about to go).
+  const pc = state.pendingConquest;
+  const intoConquest = pc && frozen.includes(pc.from) && !nowFrozen.has(pc.to) ? pc : null;
+  if (pc && (nowFrozen.has(pc.from) || nowFrozen.has(pc.to))) state.pendingConquest = null;
   for (const t of frozen) {
     const { owner, armies } = state.territories[t];
     if (owner && armies > 0) {
       // The owner's open neighbour with the most armies (map order breaks ties) takes them; none: they are lost.
-      let to: TerritoryId | null = null;
-      for (const n of map.adjacency[t]) if (!nowFrozen.has(n) && state.territories[n].owner === owner && (to === null || state.territories[n].armies > state.territories[to].armies)) to = n;
+      let to: TerritoryId | null = intoConquest && t === intoConquest.from ? intoConquest.to : null;
+      if (!to) for (const n of map.adjacency[t]) if (!nowFrozen.has(n) && state.territories[n].owner === owner && (to === null || state.territories[n].armies > state.territories[to].armies)) to = n;
       if (to) {
         state.territories[to].armies += armies;
         retreats.push({ from: t, to, armies });

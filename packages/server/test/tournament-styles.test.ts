@@ -90,7 +90,9 @@ describe('tournament styles', () => {
     expect(() => store.tournaments.create({ ...FAST, style: 'mega', maxEntrants: 101 })).toThrow(/at most 100/);
     expect(() => store.tournaments.create({ ...FAST, style: 'mega', minTable: 4 })).toThrow(/minTable/);
     expect(() => store.tournaments.create({ ...FAST, style: 'mega', finalMap: 'world' })).toThrow(/mega_earth/);
-    const t = store.tournaments.create({ ...FAST, style: 'mega', options: { ...FAST.options, iceStartMinutes: 0 } });
+    // On a clock by default (5 minutes in, then every minute); this table steps it at round starts instead.
+    expect(store.tournaments.create({ ...FAST, style: 'mega' }).options).toMatchObject({ closingIce: true, iceStartMinutes: 5, iceEveryMinutes: 1 });
+    const t = store.tournaments.create({ ...FAST, style: 'mega', options: { ...FAST.options, iceStartMinutes: 0, iceEveryMinutes: 0 } });
     expect(t).toMatchObject({ maxEntrants: 100, nested: { style: 'mega', finalMap: 'mega_earth', roundMinutes: 240 } });
     // Closing ice is on by default at a mega table (a host may turn it off); other styles leave it off.
     expect(t.options.closingIce).toBe(true);
@@ -118,6 +120,24 @@ describe('tournament styles', () => {
     expect(t.rounds[0].matches[0].status).toMatch(/decided|finished/);
     store.stopTimers();
   }, 120_000);
+
+  it('closing ice on a clock advances with nobody moving, and a restarted clock catches up', async () => {
+    const store = new Store(null, {}, { clock: new FakeClock() });
+    const { room } = store.create('Ice clock', { map: 'world', maxPlayers: 3, autoSetup: true, closingIce: true, iceStartMinutes: 0, iceEveryMinutes: 1, turnTimer: 'off' }, 'A');
+    room.join('B');
+    room.join('C');
+    room.start();
+    const v = room.state.version;
+    // Three minutes in (nobody has moved): the ice started and made one step a minute.
+    room.state.startedAt = Date.now() - 3 * 60_000 - 1000;
+    room.armIceClock();
+    await until(() => ((room.state as { ice?: { steps?: number } }).ice?.steps ?? 0) === 3, 10_000);
+    expect(room.state.blizzards.length).toBeGreaterThan(0);
+    expect(room.history.filter((h) => h.action.type === 'system' && h.action.note === 'the closing ice advances')).toHaveLength(3);
+    expect(room.state.version).toBe(v + 3); // three steps (the ice started with the game: iceStartMinutes 0)
+    expect(room.chat.some((m) => /every minute, even mid-turn/.test(m.message))).toBe(true);
+    store.stopTimers();
+  });
 
   it('Zerg survival: every table moves on its best non-Zerg (never a Zerg), and a table ends at its last non-Zerg', async () => {
     const store = new Store(null, {}, { clock: new FakeClock() });

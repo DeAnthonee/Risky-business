@@ -130,8 +130,6 @@ describe('tournament styles', () => {
     const rooms = r1.map((m) => store.get(m.gameId!)!);
     expect(rooms.every((r) => r.survival)).toBe(true);
     await until(() => t.status === 'finished');
-    // Some table ended the moment one non-Zerg was left (the engine's endBySurvival), with Zergs still in.
-    expect(rooms.some((r) => r.chat.some((c) => /last one standing against the swarm/.test(c.message)))).toBe(true);
     const zerg = (eid: string | null) => t.entrants.find((e) => e.id === eid)?.kind === 'zerg';
     for (const m of t.rounds.flatMap((r) => r.matches)) {
       if (!m.entrants.some((e) => !zerg(e))) continue;
@@ -145,6 +143,25 @@ describe('tournament styles', () => {
     expect(store.tournamentBoard.rows('survival').length + store.tournamentBoard.rows('classic').length).toBeGreaterThanOrEqual(0);
     store.stopTimers();
   }, 180_000);
+
+  it('a survival table ends the moment one non-Zerg is left: two bots and four Zergs always end that way', async () => {
+    // The first bot out leaves one non-Zerg, so whatever the dice, the survival rule (engine endBySurvival) ends it.
+    const store = new Store(null, {}, { clock: new FakeClock() });
+    const players = [
+      { name: 'Bot One', isBot: true },
+      { name: 'Bot Two', isBot: true },
+      ...['Mamba', 'Viper', 'Cobra', 'Gecko'].map((name) => ({ name, isBot: true, kind: 'zerg' as const })),
+    ];
+    const { room } = store.createTable('Survival', { map: 'world', maxPlayers: 6, autoSetup: true }, players, 'TSURV1', { survival: true, botDelayMs: 0 });
+    await until(() => room.state.phase === 'finished', 150_000);
+    room.stopBot();
+    expect(room.history.at(-1)!.action).toMatchObject({ type: 'system', note: expect.stringMatching(/Zerg survival/) });
+    const winner = room.state.players.find((p) => p.id === room.state.winner)!;
+    expect(winner.name.startsWith('Bot')).toBe(true);
+    expect(room.state.players.filter((p) => p.name.startsWith('Bot') && p.alive)).toHaveLength(1);
+    expect(room.state.players.some((p) => !p.name.startsWith('Bot') && p.alive)).toBe(true);
+    store.stopTimers();
+  }, 160_000);
 
   it('the schedule rotates three styles every 15 minutes, with Zergs added and the minimum table taking turns', () => {
     const clock = new FakeClock();

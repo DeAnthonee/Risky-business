@@ -159,7 +159,7 @@ export interface GameView extends Omit<GameState, 'players' | 'deck' | 'discard'
  */
 /** What every view of one state shares, whoever looks: each player's holdings and income, the continents' owners. */
 export interface BoardStats {
-  seats: Map<PlayerId, { territories: TerritoryId[]; armies: number; continents: { id: string; territories: TerritoryId[] }[]; income: ReinforcementBreakdown | null }>;
+  seats: Map<PlayerId, { territories: TerritoryId[]; armies: number; continents: { id: string; territories: TerritoryId[] }[]; zones: { id: string; territories: TerritoryId[] }[]; income: ReinforcementBreakdown | null }>;
   /** Each continent's whole owner, before fog. */
   continentOwners: Record<string, PlayerId | null>;
 }
@@ -171,11 +171,13 @@ export interface BoardStats {
  */
 export function boardStats(state: GameState): BoardStats {
   const seats: BoardStats['seats'] = new Map();
+  const hasZones = getMap(state.options.map).zones.length > 0;
   for (const p of state.players) {
     seats.set(p.id, {
       territories: territoriesOf(state, p.id),
       armies: armiesOf(state, p.id),
       continents: continentsOf(state, p.id),
+      zones: hasZones ? zonesOf(state, p.id) : [],
       income: p.isNeutral ? null : reinforcementsFor(state, p.id),
     });
   }
@@ -213,7 +215,7 @@ export function viewFor(state: GameState, viewer: PlayerId | null, stats: BoardS
       continents: seat.continents
         .filter((c) => open || continentVisible(c.territories))
         .map((c) => c.id),
-      ...(map.zones.length ? { zones: zonesOf(state, p.id).filter((z) => open || continentVisible(z.territories)).map((z) => z.id) } : {}),
+      ...(map.zones.length ? { zones: seat.zones.filter((z) => open || continentVisible(z.territories)).map((z) => z.id) } : {}),
       income: !rawIncome
         ? null
         : open

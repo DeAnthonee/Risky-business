@@ -75,13 +75,14 @@ describe('engine speed paths', () => {
     expect(playChecked(5, { map: 'world', neutrals: 6 }, 6)).toBeGreaterThan(50);
   });
 
-  it('a view from shared board stats is the view worked out alone, for every seat, fog or not', () => {
-    for (const fogOfWar of [false, true]) {
-      let s = createGame('g', { maxPlayers: 4, capitals: true, blizzards: 4, fogOfWar }, 9);
+  it('a view from shared board stats is the view worked out alone, for every seat, fog or not', { timeout: 60_000 }, () => {
+    // Mega Earth has layered bonus zones, which views list per player too.
+    for (const [fogOfWar, map] of [[false, undefined], [true, undefined], [false, 'mega_earth'], [true, 'mega_earth']] as const) {
+      let s = createGame('g', { maxPlayers: 4, capitals: true, blizzards: 4, fogOfWar, ...(map ? { map } : {}) }, 9);
       for (let i = 0; i < 4; i++) s = addPlayer(s, `p${i}`, `P${i}`, true);
       s = startGame(s).state;
       const rng = createRng(9);
-      for (let step = 0; step < 150 && s.phase !== 'finished'; step++) {
+      for (let step = 0; step < (map ? 40 : 150) && s.phase !== 'finished'; step++) {
         const stats = boardStats(s);
         for (const viewer of [null, ...s.players.map((p) => p.id)]) expect(viewFor(s, viewer, stats)).toEqual(viewFor(s, viewer));
         const me = s.currentPlayer!;

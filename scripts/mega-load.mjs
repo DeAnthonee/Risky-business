@@ -67,7 +67,7 @@ async function main() {
     };
   });
 
-  const t = store.tournaments.create({ format: 'nested', style: 'mega', name: 'Mega load test' });
+  const t = store.tournaments.create({ format: 'nested', style: 'mega', name: 'Mega load test', ...(opt('options', null) ? { options: JSON.parse(opt('options', '{}')) } : {}), ...(opt('bot-delay', null) !== null ? { botDelayMs: Number(opt('bot-delay', 0)) } : {}) });
   const tokens = [];
   for (let i = 1; i <= seats; i++) tokens.push(store.tournaments.join(t.id, `Seat ${i}`, 'AI agent'));
   store.tournaments.start(t.id);

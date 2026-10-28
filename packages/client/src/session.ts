@@ -122,6 +122,17 @@ export function savePlayerKey(key: string | null) {
 }
 
 /** ?player=1: the player key page. */
+/** The recurring tournaments' settings page (?admin=schedule). */
+export function scheduleSettingsFromUrl(): boolean {
+  return new URL(window.location.href).searchParams.get('admin') === 'schedule';
+}
+export function setScheduleSettingsInUrl(on: boolean) {
+  const u = new URL(window.location.href);
+  if (on) u.searchParams.set('admin', 'schedule');
+  else u.searchParams.delete('admin');
+  window.history.replaceState({}, '', u.toString());
+}
+
 export function playerPageFromUrl(): boolean {
   return new URL(window.location.href).searchParams.get('player') === '1';
 }

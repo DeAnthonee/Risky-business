@@ -1,0 +1,56 @@
+/* ---------- Recurring tournaments settings (?admin=schedule): layout only; the look is the tournament page's pieces. ---------- */
+.tourney-settings-page .home-actions {
+  grid-template-columns: 1fr;
+  margin-bottom: 16px;
+}
+.tourney-settings-page .ts-login form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.tourney-settings-page .ts-login input {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+.tourney-settings-page .ts-entry-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+.tourney-settings-page .ts-entry-head .row {
+  margin-left: auto;
+  flex-wrap: wrap;
+}
+.tourney-settings-page .ts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px 14px;
+}
+.tourney-settings-page .ts-grid label {
+  display: grid;
+  gap: 4px;
+  font-size: 0.9em;
+}
+.tourney-settings-page .ts-grid input,
+.tourney-settings-page .ts-grid select {
+  width: 100%;
+  min-width: 0;
+}
+.tourney-settings-page .ts-options summary {
+  cursor: pointer;
+  font-weight: 600;
+  margin: 8px 0;
+}
+.tourney-settings-page .ts-json {
+  width: 100%;
+  min-height: 420px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85em;
+}
+.tourney-settings-page .ts-note {
+  color: #8fd18f;
+}
+.tourney-settings-page button.danger {
+  color: #ff9a9a;
+}

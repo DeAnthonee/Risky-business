@@ -417,6 +417,18 @@ The server can run nested tournaments on a timetable by itself (`packages/server
 **off by default**: the owner turns it on with `RISK_TOURNAMENT_SCHEDULE` (JSON), or `RISK_TOURNAMENT_SCHEDULE_FILE`
 (a path to a JSON file, easier to edit); when both are set, the variable wins ([hosting.md](hosting.md)).
 
+**Settings page** (owner, 2026-10-28: "a reoccuring tourney settings page"): `?admin=schedule` on the site
+(`TourneySettings.tsx`) shows every entry as a form (name, style, time and time zone or repeat interval, sign-up and
+check-in minutes, roster, seats, Zergs, smallest table, round deadline, and **every game setting** from the options
+catalogue, blank = the default), with Duplicate, Remove, reorder, Run now (`/admin/schedule/run`, starting in 10
+minutes) and an Edit as JSON mode. It asks for the admin token (kept in the tab's memory only) and saves through `PUT
+/api/admin/schedule` (`schedule-settings.ts`): the whole list is checked like the env schedule (a bad entry is
+refused with its number and nothing changes), runs at once, and is written to
+`RISK_DATA_DIR/tournament-schedule-entries.json`, which **wins over `RISK_TOURNAMENT_SCHEDULE` at every start** after
+that. An unchanged entry keeps its open slot (same key); a changed or removed one has its open tournament called off,
+as with an edited env schedule. An empty list turns the schedule off; "Reset to server schedule" (`DELETE`) deletes the
+saved file and goes back to the environment's. A saved file that fails to load is logged and the env schedule runs.
+
 ```json
 [
   { "at": "20:00", "name": "Nightly Nest", "signupMinutes": 60, "finalMap": "hexworld" },

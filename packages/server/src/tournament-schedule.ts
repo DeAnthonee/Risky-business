@@ -207,6 +207,16 @@ export function slotMinTable(e: Pick<ScheduleEntry, 'minTables' | 'every'>, star
   return e.minTables[n % e.minTables.length];
 }
 
+/** The schedule the settings page saved (schedule-settings.ts), under RISK_DATA_DIR: it wins over the environment. */
+export const SAVED_SCHEDULE_FILE = 'tournament-schedule-entries.json';
+export const SAVED_SCHEDULE_SOURCE = 'the settings page';
+
+/** The schedule the settings page saved, or null when it has saved none (or the file is unreadable: logged). */
+export function scheduleFromSaved(file: string | null): { raw: unknown; source: string } | null {
+  if (!file || !existsSync(file)) return null;
+  return { raw: JSON.parse(readFileSync(file, 'utf8')), source: SAVED_SCHEDULE_SOURCE };
+}
+
 /** Read the schedule from the environment: RISK_TOURNAMENT_SCHEDULE (JSON) or RISK_TOURNAMENT_SCHEDULE_FILE. */
 export function scheduleFromEnv(env: NodeJS.ProcessEnv): { raw: unknown; source: string } | null {
   if (env.RISK_TOURNAMENT_SCHEDULE) return { raw: JSON.parse(env.RISK_TOURNAMENT_SCHEDULE), source: 'RISK_TOURNAMENT_SCHEDULE' };
@@ -472,6 +482,11 @@ export class TournamentScheduler {
     };
   }
 
+  /** Write the slots now (before the settings page swaps this schedule for a new one). */
+  persist() {
+    this.save();
+  }
+
   private save() {
     if (!this.file) return;
     try {
@@ -481,6 +496,16 @@ export class TournamentScheduler {
       renameSync(tmp, this.file);
     } catch (err) {
       console.error('Failed to save the tournament schedule state:', err);
+    }
+  }
+
+  /** The schedule was turned off: call off its tournaments still registering (they would never start). */
+  cancelOpen() {
+    const runs = [...this.slots.values(), ...[...this.oneOffs.values()].map((r) => r.slot)];
+    for (const slot of runs) {
+      if (slot.done || !slot.tournamentId || this.tournaments.get(slot.tournamentId)?.status !== 'registering') continue;
+      this.tournaments.cancel(slot.tournamentId, CANCEL_CHANGED);
+      console.log(`tournament schedule: ${slot.tournamentId} called off (${CANCEL_CHANGED})`);
     }
   }
 

@@ -25,6 +25,7 @@ import {
   type TradeAction,
 } from './types.js';
 import { checkStall, noteCapture, validateStallOptions } from './stall.js';
+import { checkIce, validateIceOptions } from './ice.js';
 
 export const PLAYER_COLORS = ['#e63946', '#2a9d8f', '#457bd9', '#f4a261', '#9b5de5', '#f9c74f', '#06d6a0', '#ff70a6', '#b5651d', '#00b4d8'];
 export const NEUTRAL_COLOR = '#8d8d8d';
@@ -111,6 +112,7 @@ export function validateOptions(o: GameOptions): void {
   if (!Number.isInteger(o.maxPlayers) || o.maxPlayers < 2 || o.maxPlayers > map.maxPlayers)
     throw new RuleError(`maxPlayers must be between 2 and ${map.maxPlayers} on the ${map.name} map`);
   validateStallOptions(o);
+  validateIceOptions(o);
 }
 
 export function setOptions(state: GameState, options: Partial<GameOptions>): GameState {
@@ -1068,8 +1070,12 @@ function nextTurn(state: GameState, fromPlayer: PlayerId, events: GameEvent[]): 
       if (j <= idx) {
         state.round += 1;
         checkStall(state, events);
+        checkIce(state, events);
+        if (state.phase === 'finished') return;
       }
-      beginTurn(state, cand, events);
+      // The closing ice may have knocked out the next player: the next one still alive plays.
+      const next = playerOf(state, cand).alive ? cand : [...order.slice(j), ...order.slice(0, j)].find((id) => playerOf(state, id).alive)!;
+      beginTurn(state, next, events);
       return;
     }
   }

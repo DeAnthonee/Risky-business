@@ -513,7 +513,27 @@ function buildHexGlobeMap(def) {
     return { ...rest, territories: members, outline: path({ type: 'MultiPolygon', coordinates: union }), ...(label ? { labelX: r(lx), labelY: r(ly) } : {}) };
   });
 
-  const out = finish({ ...def, edges }, { viewBox: [WIDTH, height], territories, continents, touches });
+  // `poleRings: true` (closing ice, the engine's ice.ts): every cell's ring count from the North and the South pole cell
+  // over the whole globe, sea and ice cells counted; a territory's is its cells' smallest.
+  const ringsFrom = (start) => {
+    const d = cells.map(() => -1);
+    d[start] = 0;
+    for (let q = [start], k = 0; k < q.length; k++) for (const j of cells[q[k]].neighbors) if (d[j] < 0) (d[j] = d[q[k]] + 1), q.push(j);
+    return d;
+  };
+  const lat = (i) => toLonLat(cells[i].center)[1];
+  const byLat = cells.map((_, i) => i).sort((a, b) => lat(b) - lat(a));
+  const [fromN, fromS] = def.poleRings ? [ringsFrom(byLat[0]), ringsFrom(byLat[byLat.length - 1])] : [null, null];
+  const poleRings = def.poleRings
+    ? {
+        rings: fromN[byLat[byLat.length - 1]],
+        territories: Object.fromEntries(ids.map((id) => {
+          const mine = cellsOf.get(id);
+          return [id, [Math.min(...mine.map((i) => fromN[i])), Math.min(...mine.map((i) => fromS[i]))]];
+        })),
+      }
+    : undefined;
+  const out = finish({ ...def, edges }, { viewBox: [WIDTH, height], territories, continents, touches, poleRings });
   for (const w of warnings) console.log(`  WARNING ${w}`);
   suggestBonuses(def, edges);
 
@@ -535,7 +555,7 @@ function buildHexGlobeMap(def) {
     territories: ids,
     badges: ids.map((id) => badge.get(id)),
     corners,
-    cells: cells.map((c) => ({ v: c.corners.map(cid), t: c.kind === 'land' ? tIndex.get(c.territory) : c.kind === 'ice' ? -2 : -1 })),
+    cells: cells.map((c, i) => ({ v: c.corners.map(cid), t: c.kind === 'land' ? tIndex.get(c.territory) : c.kind === 'ice' ? -2 : -1, ...(fromN ? { r: [fromN[i], fromS[i]] } : {}) })),
   };
   const gfile = join(root, 'packages/client/src/generated', `${def.id}.globe.json`);
   mkdirSync(dirname(gfile), { recursive: true });
@@ -570,7 +590,7 @@ function suggestBonuses(def, edges) {
 }
 
 /** Shared tail: validate edges, derive sea links, warn about suspicious borders and badges, write the JSON. */
-function finish(def, { viewBox, territories, continents, touches, anchorWarnings = [] }) {
+function finish(def, { viewBox, territories, continents, touches, anchorWarnings = [], poleRings }) {
   const [WIDTH, height] = viewBox;
   const edgeKeys = new Set(def.edges.map((e) => [...e].sort().join('|')));
   const ids = new Set(def.territories.map((t) => t.id));
@@ -598,6 +618,7 @@ function finish(def, { viewBox, territories, continents, touches, anchorWarnings
     continents,
     edges: def.edges,
     seaLinks,
+    ...(poleRings ? { poleRings } : {}),
   };
   const file = join(root, 'packages/engine/src/generated', `${def.id}.json`);
   mkdirSync(dirname(file), { recursive: true });

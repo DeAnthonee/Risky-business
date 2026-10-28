@@ -8,6 +8,7 @@
  * enforces one spec per option), and add any map-dependent bound to validateOptions/optionLimits.
  */
 import { getMap, MAP_IDS, type MapDef } from './maps.js';
+import { ICE_DEFAULTS } from './ice.js';
 import { looksLikeGenId, parseGenId } from './procgen.js';
 import { maxBlizzards } from './engine.js';
 import { tradeBonus } from './cards.js';
@@ -163,6 +164,39 @@ export const OPTION_SPECS: { [K in OptionKey]: OptionSpec } = {
     description:
       'After this many full rounds in a row with no territory captured by anyone, a storm hits at every round start until someone captures: each stack of more than 10 armies loses a fifth of them (0 = off).',
   },
+  closingIce: {
+    kind: 'boolean',
+    label: 'Closing ice',
+    description: 'true: from iceStartMinutes after the start, the ice closes in from the North and South poles one ring at a time (sea included on a globe board; other boards by height), every iceEveryRounds rounds, until iceSafeRings rings are left open in the middle. A territory it reaches becomes a blizzard: its armies retreat to the owner\'s strongest open neighbour or are lost, and a player with no land left is out. On in mega tournaments. false (default): off.',
+  },
+  iceStartMinutes: {
+    kind: 'int',
+    label: 'Ice starts after (minutes)',
+    min: 0,
+    max: () => 600,
+    description: 'Closing ice only: minutes after the game starts that the ice starts closing in (default 15).',
+  },
+  iceEveryRounds: {
+    kind: 'int',
+    label: 'Ice advances every (rounds)',
+    min: 1,
+    max: () => 10,
+    description: 'Closing ice only: the ice advances at the start of every this-many rounds (default 1).',
+  },
+  iceRingsPerStep: {
+    kind: 'int',
+    label: 'Ice rings per step',
+    min: 1,
+    max: () => 5,
+    description: 'Closing ice only: how many rings of hexes each front (north and south) takes per step (default 1).',
+  },
+  iceSafeRings: {
+    kind: 'int',
+    label: 'Ice-free rings at the end',
+    min: 1,
+    max: () => 40,
+    description: 'Closing ice only: the ice stops when this many rings are left open round the middle (default 6).',
+  },
   stallEnd: {
     kind: 'int',
     label: 'End a stalled game',
@@ -226,8 +260,10 @@ export function optionCatalogue() {
     defaults: DEFAULT_OPTIONS,
     options: OPTION_KEYS.map((key) => {
       const spec = OPTION_SPECS[key];
-      // Optional settings (stallFogLift, stallStorm, stallEnd) are absent from DEFAULT_OPTIONS: their default is off (0).
-      const base = { key, label: spec.label, kind: spec.kind, default: DEFAULT_OPTIONS[key] ?? 0, description: spec.description };
+      // Optional settings (stallFogLift, stallStorm, stallEnd, closing ice) are absent from DEFAULT_OPTIONS: their default
+      // is off (0), or the closing ice's own numbers.
+      const optional: Record<string, unknown> = { closingIce: false, ...ICE_DEFAULTS };
+      const base = { key, label: spec.label, kind: spec.kind, default: DEFAULT_OPTIONS[key] ?? optional[key] ?? 0, description: spec.description };
       if (spec.kind === 'enum') return { ...base, values: spec.values, valueLabels: spec.valueLabels };
       if (spec.kind === 'int') return { ...base, min: spec.min, max: globalMax(key) };
       return base;
@@ -308,6 +344,7 @@ export function describeOptions(o: GameOptions, tradeCount = 0): string[] {
     `Blizzards: ${o.blizzards > 0 ? `${o.blizzards} frozen territories (max ${maxBlizzards(map)} on this map)` : 'off'}`,
     ...(o.fogOfWar ? [`Stall breaker: ${(o.stallFogLift ?? 0) > 0 ? `the fog lifts for good after ${o.stallFogLift} full round${o.stallFogLift === 1 ? '' : 's'} with no territory captured` : 'off'}`] : []),
     ...((o.stallStorm ?? 0) > 0 ? [`Storm: after ${o.stallStorm} full round${o.stallStorm === 1 ? '' : 's'} with no territory captured, every round start each stack of more than 10 armies loses a fifth of them, until someone captures`] : []),
+    ...(o.closingIce ? [`Closing ice: from ${o.iceStartMinutes ?? 15} minutes in, the ice closes in from both poles ${o.iceRingsPerStep ?? 1} ring${(o.iceRingsPerStep ?? 1) === 1 ? '' : 's'} at a time every ${(o.iceEveryRounds ?? 1) === 1 ? 'round' : `${o.iceEveryRounds} rounds`}, until ${o.iceSafeRings ?? 6} rings are left; frozen land is a blizzard, its armies retreat to the owner's strongest open neighbour or are lost, and a player with no land is out`] : []),
     ...((o.stallEnd ?? 0) > 0 ? [`Stalemate: ${o.stallEnd} more round${o.stallEnd === 1 ? '' : 's'} with no capture after the last stall breaker came on, the game ends decided on standing (territories, armies, dice)`] : []),
     `Turn timer: ${timerOf(o) ? `${timerOf(o)!.seconds}s per ${timerOf(o)!.mode} for human and agent seats; on a timeout the player is skipped (armies placed for them, no attacks, no fortify)` : 'off'}`,
   ];

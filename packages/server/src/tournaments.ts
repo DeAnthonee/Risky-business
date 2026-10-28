@@ -687,6 +687,8 @@ export class TournamentManager extends EventEmitter {
     const options: Partial<GameOptions> = { ...NESTED_DEFAULT_OPTIONS, ...(spec.options ?? {}) };
     delete options.maxPlayers; // set per table
     delete options.map; // every table plays its own board
+    // A mega game has closing ice by default (owner, 2026-10-28: "blizzards ... until the map gets smaller"); a host may turn it off.
+    if (spec.style === 'mega' && options.closingIce === undefined) options.closingIce = true;
     // 1v1 plays without capitals (owner, 2026-10-28), whatever the options say.
     if (spec.style === '1v1') {
       options.capitals = false;

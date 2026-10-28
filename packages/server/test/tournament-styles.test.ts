@@ -90,8 +90,12 @@ describe('tournament styles', () => {
     expect(() => store.tournaments.create({ ...FAST, style: 'mega', maxEntrants: 101 })).toThrow(/at most 100/);
     expect(() => store.tournaments.create({ ...FAST, style: 'mega', minTable: 4 })).toThrow(/minTable/);
     expect(() => store.tournaments.create({ ...FAST, style: 'mega', finalMap: 'world' })).toThrow(/mega_earth/);
-    const t = store.tournaments.create({ ...FAST, style: 'mega' });
+    const t = store.tournaments.create({ ...FAST, style: 'mega', options: { ...FAST.options, iceStartMinutes: 0 } });
     expect(t).toMatchObject({ maxEntrants: 100, nested: { style: 'mega', finalMap: 'mega_earth', roundMinutes: 240 } });
+    // Closing ice is on by default at a mega table (a host may turn it off); other styles leave it off.
+    expect(t.options.closingIce).toBe(true);
+    expect(store.tournaments.create({ ...FAST, style: 'mega', options: { closingIce: false } }).options.closingIce).toBe(false);
+    expect(store.tournaments.create({ ...FAST }).options.closingIce).toBeUndefined();
     for (let i = 1; i <= 30; i++) t.entrants.push({ id: `e_${i}`, name: `B${i}`, isBot: true, joinedAt: 0 });
     store.tournaments.start(t.id);
     expect(t.nested!.plan!.rounds.map((r) => r.map((x) => x.seats))).toEqual([[30]]);
@@ -103,6 +107,10 @@ describe('tournament styles', () => {
     const v = room.state.version;
     await new Promise((r) => setTimeout(r, 3000));
     console.log(`mega: ${room.state.version - v} moves in 3 s, round ${room.state.round}`);
+    // iceStartMinutes 0: the server started the ice on the first move, and it has advanced at each round start since.
+    const ice = (room.state as { ice?: { level: number } }).ice;
+    expect(ice).toBeDefined();
+    if (room.state.round > 2) expect(room.state.blizzards.length).toBeGreaterThan(0);
     expect(room.state.version).toBeGreaterThan(v);
     clock.advance(240 * 60_000 + 1);
     await until(() => t.status === 'finished', 60_000);

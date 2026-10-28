@@ -14,6 +14,8 @@ export default {
   cellTerritories: true,
   autoBonus: true,
   badgeGap: 10,
+  // Closing ice (the engine's ice.ts): each hex's ring count from either pole, sea counted.
+  poleRings: true,
   // Two land hexes the finer grid finds that no Hex Earth site reaches over land: a Malacca shore hex and an Arctic islet.
   sea: [...hexworld.sea, [102.1, 3.8]],
   ice: [...hexworld.ice, [-94, 75.5]],

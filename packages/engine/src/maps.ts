@@ -83,6 +83,8 @@ export interface MapDef {
   edges: [string, string][];
   /** Adjacent pairs that do not touch on the map and are drawn as link lines. */
   seaLinks: SeaLink[];
+  /** A hex-globe board's ring count of each territory from the North and the South pole (sea counted), for closing ice (ice.ts). */
+  poleRings?: { rings: number; territories: Record<string, number[]> };
   isAdjacent(a: string, b: string): boolean;
   isTerritory(id: string): boolean;
   /** Starting armies per player for a game with `players` players. */
@@ -98,6 +100,8 @@ interface RawMap {
   continents: ContinentDef[];
   edges: string[][];
   seaLinks: SeaLink[];
+  /** A hex-globe board's ring count of each territory from the North and the South pole (sea counted), for closing ice (ice.ts). */
+  poleRings?: { rings: number; territories: Record<string, number[]> };
 }
 
 /**
@@ -176,6 +180,7 @@ function wrap(raw: RawMap, rule: StartingArmiesRule = STARTING_ARMIES[raw.id as 
     adjacency,
     edges,
     seaLinks: raw.seaLinks,
+    ...(raw.poleRings ? { poleRings: raw.poleRings } : {}),
     isAdjacent: (a, b) => adjacency[a]?.includes(b) ?? false,
     isTerritory: (t) => t in territoryById,
     startingArmies: startingArmiesFor(rule, territoryIds.length, raw.maxPlayers),
@@ -197,7 +202,7 @@ export const MAPS: Record<MapId, MapDef> = {
   bohemia: wrap(bohemiaJson as RawMap),
   nine_realms: wrap(nineRealmsJson as RawMap),
   hexworld: wrap(hexworldJson as RawMap),
-  mega_earth: wrap(megaEarthJson as RawMap),
+  mega_earth: wrap(megaEarthJson as unknown as RawMap),
 };
 
 /** Generated boards built so far, most recently used last (a small cache: building one takes milliseconds). */

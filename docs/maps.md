@@ -29,7 +29,8 @@ Risk's 42 for 6 (19 armies each at 100 players). Hex Earth's territories name th
 outward from the site) and its 14 regions group them; bonuses are the builder's classic suggestion (South Asia +9 for
 14 hexes up to North America +41 for 103); Hex Earth's sea lanes join the closest hexes (23 links). It seats 2-100,
 draws its badges at 38% on the flat view and 60% on the globe, and gives seats past the tenth their own colours
-(`seatColor` in the engine). It is in `TOURNAMENT_MAP_IDS`, not `MAP_IDS`: lobbies cannot pick it and Delove does not
+(`seatColor` in the engine). Its JSON carries `poleRings` (each hex's ring count from either pole over the whole
+globe, 48 rings pole to pole) and its globe file each cell's rings, for closing ice. It is in `TOURNAMENT_MAP_IDS`, not `MAP_IDS`: lobbies cannot pick it and Delove does not
 train on it, so it is not in the GPU mirror's `RULE_FILES` either.
 
 Legacy board: `europe_advanced` (the 99-territory "Europe Advanced" for 2–6 players, now shown as

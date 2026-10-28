@@ -1,5 +1,6 @@
 import { rankByStanding } from './standing.js';
 import { createRng, nextFloat } from './rng.js';
+import type { IceEvent, IceStartedEvent } from './ice.js';
 import { RuleError, type ActionResult, type GameEvent, type GameOptions, type GameState, type PlayerId, type TerritoryId } from './types.js';
 
 /**
@@ -62,7 +63,7 @@ export interface StalemateEvent {
 /** The events the stall relievers add past types.ts's GameEvent (which keeps fog_lifted). */
 export type StallEvent = StormEvent | StalemateEvent | { type: 'game_over'; winner: PlayerId; reason: 'stalemate' };
 /** Any event a game can emit, the relievers' included: switch on this to handle them. */
-export type AnyGameEvent = GameEvent | StallEvent;
+export type AnyGameEvent = GameEvent | StallEvent | IceEvent | IceStartedEvent;
 
 /** The relievers' state (`state.stall`), with this file's fields; undefined while every reliever is off. */
 export function stallOf(state: GameState): StallState | undefined {

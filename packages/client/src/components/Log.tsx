@@ -15,6 +15,12 @@ export function describe(e: GameEvent, view: GameView): string | null {
     const hit = Object.entries(se.losses);
     return `⛈ Storm on all big stacks (no captures for ${se.rounds} rounds): ${hit.length ? hit.map(([t, n]) => `${shortName(t)} −${n}`).join(', ') : 'no stack big enough to hit'}`;
   }
+  if (se.type === 'ice_started') return '🧊 The ice is coming: from the next round it closes in from both poles, ring by ring.';
+  if (se.type === 'ice') {
+    const lost = Object.values(se.lost).reduce((a, b) => a + b, 0);
+    const moved = se.retreats.reduce((a, r) => a + r.armies, 0);
+    return `🧊 The ice advances (ring ${se.level}): ${se.frozen.length} territor${se.frozen.length === 1 ? 'y' : 'ies'} frozen${moved ? `, ${moved} armies fell back` : ''}${lost ? `, ${lost} lost` : ''}${se.eliminated.length ? `; frozen out: ${se.eliminated.map(name).join(', ')}` : ''}`;
+  }
   if (se.type === 'stalemate') return `⚖ Stalemate: no captures for ${se.rounds} rounds. The game is decided on standing: ${se.standing.map((p, i) => `${i + 1}. ${name(p)}`).join(', ')}`;
   if (se.type === 'game_over' && se.reason === 'stalemate') return `🏆 ${name(se.winner)} wins the stalled game on standing!`;
   switch (e.type) {

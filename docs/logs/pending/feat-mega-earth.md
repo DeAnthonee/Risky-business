@@ -6,3 +6,6 @@ client: - 2026-10-28 #331 Mega Earth on the globe and flat map (smaller badges o
 delove: - 2026-10-28 #331 focused view at tables bigger than the network's 10 seat slots (`focus.ts`): the decider and its 9 most relevant opponents, the rest as neutral; used by the net scorer and search
 hosting: - 2026-10-28 #331 with the mega entries the seat pool needs about 375 seats (`--max-seats`)
 docs: - 2026-10-28 #331 maps.md, map-making.md, tournaments.md (mega style, on-demand runs, the noon and midnight entries), delove-status open work
+engine: - 2026-10-28 #331 closing ice (`ice.ts`, options `closingIce`, `iceStartMinutes`, `iceEveryRounds`, `iceRingsPerStep`, `iceSafeRings`): the ice closes in from both poles ring by ring at round starts; frozen land is a blizzard, armies fall back or are lost, players with no land are out; `startIce` for the server; GPU fingerprint pending (engine.ts, maps.ts)
+server: - 2026-10-28 #331 closing ice on by default at mega tables; the room starts it `iceStartMinutes` after the game starts, through its commit
+client: - 2026-10-28 #331 the globe freezes the sea under the ice and tints the next ring; ice log lines and banners
